@@ -1,0 +1,19 @@
+<!-- Baton alt3 — "playhead note", most restrained. A single filled notehead sits on the top crest like a playhead dot, with a short stem + tiny flag. The waveform dominates hardest here; the note is the smallest possible "this is music" cue. Same #E07A4B DNA. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Three waves — exact Tonebox DNA (unchanged positions). -->
+  <path d="M 180.80 328.00 Q 328.00 217.60 512.00 328.00 T 843.20 328.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="1.0"/>
+  <path d="M 180.80 512.00 Q 328.00 401.60 512.00 512.00 T 843.20 512.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.82"/>
+  <path d="M 180.80 696.00 Q 328.00 806.40 512.00 696.00 T 843.20 696.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.64"/>
+
+  <!-- Compact note on the top crest (crest peak x≈328, y≈243). Short stem + small flag; notehead reads as a playhead riding the wave. -->
+  <g stroke="none" fill="#E07A4B" opacity="1.0">
+    <!-- Short stem -->
+    <path d="M 360.00 210.00 h 34.00 v -108.00 h -34.00 z"/>
+    <!-- Small flag -->
+    <path d="M 394.00 102.00 Q 470.00 112.00 470.00 176.00 Q 470.00 208.00 438.00 218.00 Q 464.00 186.00 444.00 160.00 Q 425.00 136.00 394.00 148.00 z"/>
+    <!-- Notehead riding the crest -->
+    <g transform="translate(326.00 214.00) rotate(-24)">
+      <ellipse cx="0" cy="0" rx="60.00" ry="45.00"/>
+    </g>
+  </g>
+</svg>

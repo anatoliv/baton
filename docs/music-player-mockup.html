@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tonebox Player — Redesign Mockup</title>
+<style>
+  :root{
+    --bg:#0b0b0f; --panel:#15151c; --panel2:#1c1c26; --line:rgba(255,255,255,.09);
+    --txt:#f3f3f6; --dim:#a7a7b4; --dim2:#75758a; --accent:#7c5cff; --pink:#ff4d7d; --gold:#ffcf4a;
+    --radius:16px; --shadow:0 24px 60px rgba(0,0,0,.55);
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Inter,system-ui,sans-serif;
+    line-height:1.5; -webkit-font-smoothing:antialiased; padding:40px 20px 80px;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:15px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2);margin:56px 0 4px}
+  .lede{color:var(--dim);max-width:70ch;margin:0 0 8px}
+  .note{color:var(--dim2);font-size:13px;max-width:78ch}
+  .frame{
+    position:relative; border-radius:var(--radius); overflow:hidden;
+    border:1px solid var(--line); box-shadow:var(--shadow); margin-top:20px; background:#000;
+  }
+  .titlebar{height:34px;display:flex;align-items:center;gap:8px;padding:0 14px;background:rgba(20,20,26,.7);border-bottom:1px solid var(--line);position:relative;z-index:5}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .tb-title{color:var(--dim2);font-size:12px;font-weight:600;margin-left:8px}
+  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;padding:3px 9px;border-radius:999px;background:rgba(124,92,255,.18);color:#c9bcff;border:1px solid rgba(124,92,255,.35);margin:2px 6px 2px 0;vertical-align:middle}
+  .callouts{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
+  .art{border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.5)}
+
+  /* ---------- Screen 1: Full-screen now playing ---------- */
+  .np{position:relative;min-height:520px;padding:34px;display:grid;grid-template-columns:1.15fr .85fr;gap:30px;
+      /* adaptive color-from-artwork backdrop (the headline pattern) */
+      background:
+        radial-gradient(120% 120% at 18% 10%, #6a3cff 0%, rgba(106,60,255,0) 55%),
+        radial-gradient(120% 130% at 92% 20%, #ff3d77 0%, rgba(255,61,119,0) 50%),
+        radial-gradient(140% 140% at 60% 110%, #1b8bff 0%, rgba(27,139,255,0) 55%),
+        #0a0a12;}
+  .np .glass{position:absolute;inset:0;backdrop-filter:blur(30px) saturate(120%);background:rgba(8,8,14,.28)}
+  .np > *{position:relative;z-index:2}
+  .np-left{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:18px}
+  .cover{width:280px;height:280px;border-radius:18px;box-shadow:0 40px 80px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06);
+         background:linear-gradient(135deg,#ff5f6d,#ffc371 45%,#7c5cff);position:relative;overflow:hidden}
+  .cover::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 60% at 30% 25%,rgba(255,255,255,.35),transparent 60%)}
+  .np h3{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:0}
+  .np .sub{color:rgba(255,255,255,.72);font-size:16px;margin:-6px 0 0}
+  .stars{display:flex;gap:5px;font-size:20px;color:var(--gold)}
+  .heart{font-size:22px;color:var(--pink)}
+  .controls{display:flex;align-items:center;gap:26px;font-size:22px;color:#fff}
+  .play{width:64px;height:64px;border-radius:50%;background:#fff;color:#111;display:grid;place-items:center;font-size:26px;box-shadow:0 12px 30px rgba(0,0,0,.4)}
+  .scrub{width:100%;max-width:420px}
+  .bar{height:6px;border-radius:6px;background:rgba(255,255,255,.22);position:relative}
+  .bar > i{position:absolute;left:0;top:0;bottom:0;width:38%;border-radius:6px;background:#fff}
+  .bar > i::after{content:"";position:absolute;right:-6px;top:-3px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+  .times{display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,.7);margin-top:6px}
+  .np-right{background:rgba(10,10,16,.34);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:16px;display:flex;flex-direction:column}
+  .np-right h4{margin:2px 4px 12px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+  .qrow{display:flex;align-items:center;gap:11px;padding:8px;border-radius:10px}
+  .qrow.cur{background:rgba(255,255,255,.10)}
+  .qart{width:38px;height:38px;border-radius:8px;flex:0 0 auto}
+  .qmeta b{font-weight:600;font-size:14px;display:block}
+  .qmeta span{color:rgba(255,255,255,.6);font-size:12px}
+  .grip{margin-left:auto;color:rgba(255,255,255,.35)}
+  .tabbar{display:flex;gap:14px;color:rgba(255,255,255,.65);font-size:13px;font-weight:600;margin-top:auto;padding-top:14px}
+  .tabbar .on{color:#fff}
+
+  /* ---------- Screen 2: Library / browse ---------- */
+  .lib{display:grid;grid-template-columns:190px 1fr;min-height:470px;background:var(--panel)}
+  .side{background:var(--panel2);border-right:1px solid var(--line);padding:16px 10px;display:flex;flex-direction:column;gap:3px}
+  .snav{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;color:var(--dim);font-size:14px;font-weight:600}
+  .snav.on{background:rgba(124,92,255,.16);color:#cdbfff}
+  .search{margin:2px 6px 12px;background:#0e0e15;border:1px solid var(--line);border-radius:9px;padding:8px 10px;color:var(--dim2);font-size:13px}
+  .content{padding:18px 22px;overflow:hidden}
+  .chips{display:flex;gap:8px;margin:2px 0 16px;flex-wrap:wrap}
+  .chip{font-size:12px;font-weight:600;padding:6px 11px;border-radius:999px;background:#0e0e15;border:1px solid var(--line);color:var(--dim)}
+  .chip.on{background:#fff;color:#111;border-color:#fff}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .card{position:relative}
+  .card .cv{aspect-ratio:1;border-radius:12px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.4);position:relative}
+  .card .t{font-size:13px;font-weight:600;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .s{font-size:12px;color:var(--dim2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card.hov .cv{transform:translateY(-3px) scale(1.02);transition:.2s;box-shadow:0 20px 40px rgba(0,0,0,.55)}
+  .hovplay{position:absolute;right:10px;bottom:10px;width:40px;height:40px;border-radius:50%;background:#fff;color:#111;display:grid;place-items:center;box-shadow:0 8px 20px rgba(0,0,0,.5);font-size:16px}
+  .nowbar{grid-column:1/-1;height:64px;background:linear-gradient(90deg,rgba(124,92,255,.22),rgba(21,21,28,.9));border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 16px}
+  .nowbar .mini{width:44px;height:44px;border-radius:8px}
+  .nowbar .mp{flex:1}
+  .nowbar .mp b{font-size:14px}.nowbar .mp span{color:var(--dim);font-size:12px;display:block}
+  .nowbar .ctl{display:flex;gap:18px;color:#fff;font-size:16px;align-items:center}
+
+  /* ---------- Screen 3: Artist hero ---------- */
+  .hero{min-height:230px;display:flex;align-items:flex-end;padding:24px;position:relative;
+        background:linear-gradient(180deg,rgba(10,10,16,0),rgba(10,10,16,.85)),
+                   radial-gradient(90% 120% at 20% 0%,#2a6cff,transparent 60%),
+                   radial-gradient(90% 120% at 90% 10%,#ff3d77,transparent 55%),#12121a}
+  .hero h3{font-size:38px;font-weight:900;letter-spacing:-.02em;margin:0}
+  .hero .meta{color:var(--dim);font-size:13px}
+  .hero .actions{display:flex;gap:10px;margin-top:12px}
+  .btn{background:#fff;color:#111;border-radius:999px;padding:9px 18px;font-weight:700;font-size:14px}
+  .btn.ghost{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)}
+  .disc{padding:18px 24px;background:var(--panel)}
+  .disc .grid{grid-template-columns:repeat(5,1fr)}
+
+  /* ---------- Screen 4: Lyrics ---------- */
+  .lyr{min-height:340px;padding:40px;display:flex;flex-direction:column;justify-content:center;gap:14px;text-align:center;position:relative;
+       background:radial-gradient(120% 120% at 50% 0%,#3a2cff,transparent 60%),#0a0a12}
+  .lyr .glass{position:absolute;inset:0;backdrop-filter:blur(40px);background:rgba(8,8,14,.35)}
+  .lyr .line{position:relative;z-index:2;font-size:24px;font-weight:700;color:rgba(255,255,255,.34)}
+  .lyr .line.cur{color:#fff;font-size:30px;text-shadow:0 2px 30px rgba(124,92,255,.6)}
+  .lyr .line.next{color:rgba(255,255,255,.5)}
+
+  /* reference cards */
+  .ref{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:16px}
+  .rc{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .rc h3{margin:0 0 4px;font-size:16px}
+  .rc .swatch{height:8px;border-radius:6px;margin:0 0 12px}
+  .rc p{margin:0 0 8px;color:var(--dim);font-size:13.5px}
+  .rc a{color:#b3a3ff;font-size:12.5px;text-decoration:none;word-break:break-all}
+  .rc .take{color:var(--gold);font-size:12.5px;font-weight:600}
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--dim2);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .yes{color:#34d17d;font-weight:700}.no{color:#ff6b6b}.maybe{color:var(--gold)}
+  .legend{color:var(--dim2);font-size:12px;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Tonebox Player — redesign mockup</h1>
+  <p class="lede">A concrete look at the proposed direction: a color-from-artwork
+  full-screen player, richer browse, an artist hero page, and synced lyrics — the
+  patterns that make Plexamp, Apple Music, and Tidal feel premium. These are static
+  HTML mocks (simulated album art via CSS) to convey layout &amp; feel, not final pixels.</p>
+
+  <!-- ========== 1. FULL-SCREEN NOW PLAYING ========== -->
+  <h2>1 · Full-screen “Now Playing” hero <span class="badge">headline change</span></h2>
+  <p class="note">The whole background is derived from the album art’s dominant colors
+  (Plexamp “UltraBlur” / Apple Music). Large art, big type, thin scrubber, like + 5-star,
+  and an “Up Next” queue you can reorder. Expands out of the mini-player.</p>
+  <div class="frame">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="tb-title">Tonebox — Music</span></div>
+    <div class="np">
+      <div class="glass"></div>
+      <div class="np-left">
+        <div class="cover"></div>
+        <div>
+          <h3>Players Only</h3>
+          <p class="sub">LNRT · Eurodance Classics</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:22px">
+          <span class="heart">♥</span>
+          <span class="stars">★★★★<span style="color:rgba(255,255,255,.3)">★</span></span>
+        </div>
+        <div class="scrub">
+          <div class="bar"><i></i></div>
+          <div class="times"><span>1:47</span><span>-2:41</span></div>
+        </div>
+        <div class="controls">
+          <span>⇄</span><span>⏮</span><span class="play">▶</span><span>⏭</span><span>↻</span>
+        </div>
+      </div>
+      <div class="np-right">
+        <h4>Up Next · drag to reorder</h4>
+        <div class="qrow cur"><div class="qart" style="background:linear-gradient(135deg,#ff5f6d,#7c5cff)"></div><div class="qmeta"><b>Players Only</b><span>LNRT</span></div><span class="grip">⠿</span></div>
+        <div class="qrow"><div class="qart" style="background:linear-gradient(135deg,#2a6cff,#28c840)"></div><div class="qmeta"><b>Better Off Alone</b><span>Alice DJ</span></div><span class="grip">⠿</span></div>
+        <div class="qrow"><div class="qart" style="background:linear-gradient(135deg,#ffc371,#ff5f6d)"></div><div class="qmeta"><b>Around the World</b><span>ATC</span></div><span class="grip">⠿</span></div>
+        <div class="qrow"><div class="qart" style="background:linear-gradient(135deg,#7c5cff,#1b8bff)"></div><div class="qmeta"><b>Blue (Da Ba Dee)</b><span>Eiffel 65</span></div><span class="grip">⠿</span></div>
+        <div class="tabbar"><span class="on">Up Next</span><span>Lyrics</span><span>Related</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="callouts">
+    <span class="badge">Adaptive color backdrop</span><span class="badge">Large artwork hero</span>
+    <span class="badge">Thin scrubber + time bubble</span><span class="badge">Like ♥ + 5★</span>
+    <span class="badge">Reorderable Up Next</span><span class="badge">Lyrics / Related tabs</span>
+  </div>
+
+  <!-- ========== 2. LIBRARY / BROWSE ========== -->
+  <h2>2 · Library &amp; browse — richer grids, hover-play</h2>
+  <p class="note">Sidebar nav, sort chips, dense cover-art grid with a hover-reveal play
+  button, and a tinted mini now-playing bar. (Tonebox has the grid today — this adds
+  hover, tint, polish, and density.)</p>
+  <div class="frame">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="tb-title">Tonebox — Music</span></div>
+    <div class="lib">
+      <div class="side">
+        <div class="search">🔍 Search library…</div>
+        <div class="snav on">💿 Albums</div>
+        <div class="snav">🎤 Artists</div>
+        <div class="snav">≣ Playlists</div>
+        <div class="snav">♥ Liked</div>
+        <div class="snav">★ Top rated</div>
+      </div>
+      <div class="content">
+        <div class="chips"><span class="chip on">Recently added</span><span class="chip">Most played</span><span class="chip">Top rated</span><span class="chip">Liked</span><span class="chip">Random</span></div>
+        <div class="grid">
+          <div class="card hov"><div class="cv" style="background:linear-gradient(135deg,#ff5f6d,#7c5cff)"><div class="hovplay">▶</div></div><div class="t">Players Only</div><div class="s">LNRT</div></div>
+          <div class="card"><div class="cv" style="background:linear-gradient(135deg,#2a6cff,#28c840)"></div><div class="t">Trance Nation</div><div class="s">Various</div></div>
+          <div class="card"><div class="cv" style="background:linear-gradient(135deg,#ffc371,#ff5f6d)"></div><div class="t">Around the World</div><div class="s">ATC</div></div>
+          <div class="card"><div class="cv" style="background:linear-gradient(135deg,#7c5cff,#1b8bff)"></div><div class="t">Europop</div><div class="s">Eiffel 65</div></div>
+          <div class="card"><div class="cv" style="background:linear-gradient(135deg,#28c840,#ffc371)"></div><div class="t">Sash! Life</div><div class="s">Sash!</div></div>
+          <div class="card"><div class="cv" style="background:linear-gradient(135deg,#ff4d7d,#2a6cff)"></div><div class="t">Cascada Hits</div><div class="s">Cascada</div></div>
+          <div class="card"><div class="cv" style="background:linear-gradient(135deg,#1b8bff,#7c5cff)"></div><div class="t">Vengaboys</div><div class="s">Party Album</div></div>
+          <div class="card"><div class="cv" style="background:linear-gradient(135deg,#ffcf4a,#ff5f6d)"></div><div class="t">DJ Sammy</div><div class="s">Heaven</div></div>
+        </div>
+      </div>
+      <div class="nowbar">
+        <div class="mini" style="background:linear-gradient(135deg,#ff5f6d,#7c5cff)"></div>
+        <div class="mp"><b>Players Only</b><span>LNRT</span></div>
+        <div class="ctl"><span>♥</span><span>⏮</span><span>⏸</span><span>⏭</span><span>🔈▂▄▆</span><span>≣</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="callouts"><span class="badge">Hover-reveal play</span><span class="badge">Sort chips</span><span class="badge">Artwork-tinted mini bar</span><span class="badge">Keyboard: Space / ⌘←→</span></div>
+
+  <!-- ========== 3. ARTIST HERO ========== -->
+  <h2>3 · Artist page — a hero, not a list</h2>
+  <p class="note">Big adaptive banner, name, Play/Radio actions, then the discography grid.
+  Bio + photos come from the Subsonic <code>getArtistInfo</code> endpoint.</p>
+  <div class="frame">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="tb-title">Tonebox — Music</span></div>
+    <div class="hero">
+      <div>
+        <div class="meta">ARTIST · 42 albums · 1,208 tracks</div>
+        <h3>Eurodance Legends</h3>
+        <div class="actions"><span class="btn">▶ Play</span><span class="btn ghost">📻 Radio</span><span class="btn ghost">♥ Follow</span></div>
+      </div>
+    </div>
+    <div class="disc">
+      <div class="grid">
+        <div class="card"><div class="cv" style="background:linear-gradient(135deg,#ff5f6d,#7c5cff)"></div><div class="t">Greatest Hits</div><div class="s">2001</div></div>
+        <div class="card"><div class="cv" style="background:linear-gradient(135deg,#2a6cff,#28c840)"></div><div class="t">Remixed</div><div class="s">2002</div></div>
+        <div class="card"><div class="cv" style="background:linear-gradient(135deg,#ffc371,#ff5f6d)"></div><div class="t">Live</div><div class="s">2003</div></div>
+        <div class="card"><div class="cv" style="background:linear-gradient(135deg,#7c5cff,#1b8bff)"></div><div class="t">Anthology</div><div class="s">2005</div></div>
+        <div class="card"><div class="cv" style="background:linear-gradient(135deg,#28c840,#ffcf4a)"></div><div class="t">Reloaded</div><div class="s">2010</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="callouts"><span class="badge">Adaptive banner</span><span class="badge">Play / Radio / Follow</span><span class="badge">getArtistInfo bio + photos</span></div>
+
+  <!-- ========== 4. LYRICS ========== -->
+  <h2>4 · Synced lyrics — karaoke highlight</h2>
+  <p class="note">Blurred adaptive backdrop; the current line is bright &amp; large, others
+  dim; auto-scrolls with playback. Data from OpenSubsonic <code>getLyricsBySongId</code>.</p>
+  <div class="frame">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="tb-title">Tonebox — Music</span></div>
+    <div class="lyr">
+      <div class="glass"></div>
+      <div class="line">We’re the players, we play all night</div>
+      <div class="line next">Neon city, everything’s bright</div>
+      <div class="line cur">Turn it up, feel the bassline drop</div>
+      <div class="line next">Hands in the air and we don’t stop</div>
+      <div class="line">Till the morning, we won’t come down</div>
+    </div>
+  </div>
+
+  <!-- ========== MINI PLAYER ========== -->
+  <h2>5 · Mini-player → expands to full-screen</h2>
+  <p class="note">The status-bar pill / bottom bar morphs open into the hero (SwiftUI
+  <code>matchedGeometryEffect</code>) and collapses back. Same shared playback state.</p>
+  <div class="frame" style="padding:16px;background:var(--panel);display:flex;align-items:center;gap:14px">
+    <div class="mini" style="width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,#ff5f6d,#7c5cff)"></div>
+    <div style="flex:1"><b>Players Only</b><span style="color:var(--dim);display:block;font-size:12px">LNRT · [2/25]</span></div>
+    <div style="height:4px;flex:2;background:rgba(255,255,255,.14);border-radius:4px;position:relative;max-width:260px"><i style="position:absolute;left:0;top:0;bottom:0;width:38%;background:#fff;border-radius:4px"></i></div>
+    <div style="display:flex;gap:16px;font-size:15px">⏮ ⏸ ⏭ <span style="color:var(--dim2)">⤢ expand</span></div>
+  </div>
+
+  <!-- ========== REFERENCE ========== -->
+  <h2>6 · Existing solutions to look at (and what to borrow)</h2>
+  <p class="note">Open these to see the real thing — each nails a specific pattern above.</p>
+  <div class="ref">
+    <div class="rc">
+      <div class="swatch" style="background:linear-gradient(90deg,#e0a458,#3a2a5a)"></div>
+      <h3>Plexamp</h3>
+      <p>The self-hosted gold standard. “UltraBlur” paints the whole UI from album-art
+      colors; stunning full-screen player + visualizers.</p>
+      <p class="take">Borrow → the adaptive color backdrop (screen 1) and full-screen player.</p>
+      <a href="https://medium.com/plexlabs/plexamp-v3-9af3b10063b4">medium.com/plexlabs/plexamp-v3</a><br>
+      <a href="https://www.plex.tv/plexamp/">plex.tv/plexamp</a>
+    </div>
+    <div class="rc">
+      <div class="swatch" style="background:linear-gradient(90deg,#fa2f56,#ff6f91)"></div>
+      <h3>Apple Music (macOS)</h3>
+      <p>The typography, motion album art, color-adaptive full-screen player and
+      karaoke synced lyrics reference.</p>
+      <p class="take">Borrow → lyrics highlight (screen 4), type scale, full-screen gradient.</p>
+      <a href="https://navsin.medium.com/recreating-the-apple-music-app-animations-with-swiftui-6a3c3f8e709">SwiftUI recreation of Apple Music animations</a>
+    </div>
+    <div class="rc">
+      <div class="swatch" style="background:linear-gradient(90deg,#111,#444)"></div>
+      <h3>Doppler (macOS)</h3>
+      <p>Best-designed local-library Mac app — album/artist-first, uncluttered, fast,
+      native-feeling. The restraint benchmark.</p>
+      <p class="take">Borrow → density, artist/album-first nav, native polish.</p>
+      <a href="https://brushedtype.co/doppler/features/">brushedtype.co/doppler/features</a>
+    </div>
+    <div class="rc">
+      <div class="swatch" style="background:linear-gradient(90deg,#00cfff,#0a0a0a)"></div>
+      <h3>Cassette (macOS/iOS)</h3>
+      <p>A native SwiftUI <em>Subsonic</em> client that looks Apple-grade — same platform
+      &amp; backend as Tonebox, so the most directly copyable target.</p>
+      <p class="take">Borrow → proof a native Subsonic client can look premium.</p>
+      <a href="https://getcassette.app/">getcassette.app</a>
+    </div>
+    <div class="rc">
+      <div class="swatch" style="background:linear-gradient(90deg,#000,#1db8ff)"></div>
+      <h3>Tidal</h3>
+      <p>Full-bleed artwork as the hero of every screen; color-adaptive headers; credits.</p>
+      <p class="take">Borrow → full-bleed blurred backdrops behind pages (screens 3–4).</p>
+      <a href="https://www.soundguys.com/tidal-vs-qobuz-140740/">tidal vs qobuz (UI comparison)</a>
+    </div>
+    <div class="rc">
+      <div class="swatch" style="background:linear-gradient(90deg,#1ed760,#0a0a0a)"></div>
+      <h3>Feishin (desktop, free)</h3>
+      <p>Richest-looking desktop self-hosted client today (Spotify-like, full-screen
+      player, themes). Good desktop-layout reference.</p>
+      <p class="take">Borrow → desktop layout model + full-screen player.</p>
+      <a href="https://github.com/jeffvli/feishin">github.com/jeffvli/feishin</a>
+    </div>
+  </div>
+
+  <!-- ========== MATRIX ========== -->
+  <h2>7 · What this adds vs. today</h2>
+  <table>
+    <tr><th>Capability</th><th>Tonebox now</th><th>After redesign</th><th>Cost</th></tr>
+    <tr><td>Color-from-artwork adaptive UI</td><td class="no">✗</td><td class="yes">✓</td><td>Cheap (client)</td></tr>
+    <tr><td>Full-screen now-playing hero</td><td class="no">✗</td><td class="yes">✓</td><td>Cheap (client)</td></tr>
+    <tr><td>Hover-play grids + artist hero</td><td class="maybe">◑</td><td class="yes">✓</td><td>Cheap (client)</td></tr>
+    <tr><td>Reorderable queue + drag&amp;drop + shortcuts</td><td class="no">✗</td><td class="yes">✓</td><td>Cheap (client)</td></tr>
+    <tr><td>Synced lyrics</td><td class="no">✗</td><td class="yes">✓</td><td>Medium (API: getLyricsBySongId)</td></tr>
+    <tr><td>Scrobbling / real play counts</td><td class="no">✗</td><td class="yes">✓</td><td>Small (API: scrobble)</td></tr>
+    <tr><td>Radio / similar / discovery</td><td class="no">✗</td><td class="yes">✓</td><td>Medium (API: getSimilarSongs)</td></tr>
+    <tr><td>Gapless playback</td><td class="no">✗</td><td class="yes">✓</td><td>Medium (AVQueuePlayer)</td></tr>
+    <tr><td>Server-side ratings for pipelines</td><td class="yes">✓</td><td class="yes">✓</td><td>—</td></tr>
+    <tr><td>Agent / voice control</td><td class="yes">✓</td><td class="yes">✓</td><td>—</td></tr>
+  </table>
+  <p class="legend">✓ have · ◑ partial · ✗ missing. Tiers 1–2 of the roadmap in
+  <code>music-player-ui-research.md</code>.</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!-- Baton alt1 — "note grows out of the wave". The top wave rises at its crest into a vertical note stem (one visual gesture), so the note literally emerges from the waveform; the wave then resumes to the right. Notehead + flag cap the stem. Same #E07A4B DNA, stroke width 71.76. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Lower two waves — standard Tonebox DNA. -->
+  <path d="M 180.80 556.00 Q 328.00 445.60 512.00 556.00 T 843.20 556.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.82"/>
+  <path d="M 180.80 740.00 Q 328.00 850.40 512.00 740.00 T 843.20 740.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.64"/>
+
+  <!-- Top wave that flows in from the left and sweeps up into a vertical stem at the crest. -->
+  <path d="M 180.80 372.00 Q 300.00 372.00 372.00 300.00 Q 400.00 268.00 400.00 200.00"
+        stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="1.0"/>
+  <!-- Wave resumes to the right of the stem base. -->
+  <path d="M 420.00 356.00 Q 520.00 400.00 632.00 372.00 Q 748.00 344.00 843.20 372.00"
+        stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="1.0"/>
+
+  <!-- Note head + flag capping the risen stem. -->
+  <g stroke="none" fill="#E07A4B" opacity="1.0">
+    <!-- Flag sweeping right off the stem tip, wave-like. -->
+    <path d="M 400.00 168.00 Q 512.00 176.00 512.00 268.00 Q 512.00 314.00 466.00 328.00 Q 504.00 284.00 474.00 244.00 Q 448.00 208.00 400.00 224.00 z"/>
+  </g>
+</svg>
