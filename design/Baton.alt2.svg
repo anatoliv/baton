@@ -1,0 +1,25 @@
+<!-- Baton alt2 — "beamed pair riding the crests". Two noteheads sit on the two visible crests of the top wave, joined by a slanted beam (♫), like notes surfing the waveform. More overtly musical. Same #E07A4B DNA. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Three waves — standard Tonebox DNA, nudged down for headroom. -->
+  <path d="M 180.80 400.00 Q 328.00 289.60 512.00 400.00 T 843.20 400.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="1.0"/>
+  <path d="M 180.80 576.00 Q 328.00 465.60 512.00 576.00 T 843.20 576.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.82"/>
+  <path d="M 180.80 752.00 Q 328.00 862.40 512.00 752.00 T 843.20 752.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.64"/>
+
+  <!-- Two-note beamed group. Left note stands on the first crest (x≈328), right note higher and to the right; a slanted beam joins the stem tops. -->
+  <g stroke="none" fill="#E07A4B" opacity="1.0">
+    <!-- Beam connecting the two stems (slanted, wave-like energy). -->
+    <path d="M 366.00 176.00 L 606.00 128.00 L 606.00 176.00 L 366.00 224.00 z"/>
+    <!-- Left stem -->
+    <path d="M 366.00 300.00 h 40.00 v -128.00 h -40.00 z"/>
+    <!-- Right stem -->
+    <path d="M 566.00 252.00 h 40.00 v -128.00 h -40.00 z"/>
+    <!-- Left notehead on the first crest -->
+    <g transform="translate(330.00 298.00) rotate(-24)">
+      <ellipse cx="0" cy="0" rx="62.00" ry="47.00"/>
+    </g>
+    <!-- Right notehead, higher -->
+    <g transform="translate(530.00 250.00) rotate(-24)">
+      <ellipse cx="0" cy="0" rx="62.00" ry="47.00"/>
+    </g>
+  </g>
+</svg>

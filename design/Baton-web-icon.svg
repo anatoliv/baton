@@ -1,0 +1,20 @@
+<!-- Full-bleed opaque Baton icon for web contexts (apple-touch-icon / favicon PNG). Warm plate + centered mark; iOS applies its own rounded mask. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="pl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBF8F3"/>
+      <stop offset="1" stop-color="#EFE9E0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#pl)"/>
+  <g transform="translate(256 256) scale(0.36) translate(-512 -512)">
+    <path d="M 180.80 372 Q 328 261.6 512 372 T 843.2 372" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none"/>
+    <path d="M 180.80 556 Q 328 445.6 512 556 T 843.2 556" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.82"/>
+    <path d="M 180.80 740 Q 328 850.4 512 740 T 843.2 740" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.64"/>
+    <g fill="#E07A4B">
+      <path d="M358 246h40v-158h-40z"/>
+      <path d="M398 88Q506 100 506 190Q506 236 458 250Q496 206 466 168Q438 132 398 148z"/>
+      <g transform="translate(322 244) rotate(-24)"><ellipse rx="70" ry="52"/></g>
+    </g>
+  </g>
+</svg>

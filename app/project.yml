@@ -1,0 +1,88 @@
+name: Baton
+
+options:
+  bundleIdPrefix: io.tonebox
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+  defaultConfig: Release
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    GENERATE_INFOPLIST_FILE: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "Q8822GNL2H"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
+    # standalone build is green (the lifted code was warnings-clean in Tonebox).
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      ONLY_ACTIVE_ARCH: YES
+
+targets:
+  Baton:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Baton
+      - path: Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
+        PRODUCT_NAME: Baton
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleDisplayName: Baton
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.music"
+        INFOPLIST_KEY_LSMinimumSystemVersion: "15.0"
+        INFOPLIST_KEY_NSHumanReadableCopyright: "by Tonebox"
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: Baton.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+
+  BatonTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/BatonTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        BUNDLE_LOADER: $(TEST_HOST)
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Baton.app/Contents/MacOS/Baton
+    dependencies:
+      - target: Baton
+
+schemes:
+  Baton:
+    build:
+      targets:
+        Baton: all
+        BatonTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BatonTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

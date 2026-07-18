@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baton: Help &amp; FAQ</title>
+<meta name="description" content="How to use Baton: connecting your Navidrome / Subsonic server, playback, gapless and EQ, downloads, scrobbling, keyboard shortcuts, agent (MCP) control, and answers to common questions.">
+<meta property="og:title" content="Baton: Help &amp; FAQ">
+<meta property="og:description" content="How to connect, play, and let an agent control your self-hosted music library with Baton.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://baton.tonebox.io/help.html">
+<meta property="og:image" content="https://baton.tonebox.io/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://baton.tonebox.io/og.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#faf6f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171310" media="(prefers-color-scheme: dark)">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path d="M150 560Q330 430 512 560T874 560" stroke="%23E07A4B" stroke-width="104" stroke-linecap="round" fill="none"/><path d="M150 792Q330 922 512 792T874 792" stroke="%23E07A4B" stroke-width="104" stroke-linecap="round" fill="none" opacity=".7"/><g fill="%23E07A4B"><path d="M360 400h60v-252h-60z"/><path d="M420 148Q560 164 560 300Q560 356 500 372Q548 316 512 264Q476 214 420 236z"/><g transform="translate(316 396) rotate(-22)"><ellipse rx="104" ry="80"/></g></g></svg>'>
+<link rel="stylesheet" href="styles.css">
+<style>
+/* Docs-only layout, built on the site's tokens so it matches index.html. */
+.doc { max-width: calc(60rem + 2 * var(--pad)); margin: 0 auto; padding: clamp(2rem, 5vw, 3.5rem) var(--pad) 0; }
+.doc-hero { max-width: 46rem; }
+.doc-hero .eyebrow { color: var(--ink-faint); letter-spacing: 0.16em; }
+.doc-hero h1 { font-family: var(--serif); font-size: var(--step-4); font-weight: 760; letter-spacing: -0.02em; line-height: 1.05; margin: 0.6rem 0 0.9rem; }
+.doc-lead { font-size: var(--step-1); line-height: 1.55; color: var(--ink-dim); text-wrap: pretty; }
+.doc-layout { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: clamp(2rem, 5vw, 4rem); margin-top: clamp(2rem, 4vw, 3rem); align-items: start; }
+.doc-toc { position: sticky; top: 5.2rem; font-size: 0.9rem; border-left: 2px solid var(--line); padding-left: 1rem; }
+.doc-toc strong { display: block; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 0.55rem; }
+.doc-toc a { display: block; color: var(--ink-dim); text-decoration: none; padding: 0.28rem 0; line-height: 1.3; }
+.doc-toc a:hover { color: var(--accent); }
+.doc-body { min-width: 0; }
+.doc-body > section + section { margin-top: 2.6rem; }
+.doc-body h2 { font-family: var(--serif); font-size: var(--step-2); font-weight: 700; letter-spacing: -0.01em; margin: 0 0 0.7rem; scroll-margin-top: 5.5rem; }
+.doc-body h3 { font-size: 1.02rem; font-weight: 650; color: var(--ink); margin: 1.5rem 0 0.4rem; }
+.doc-body p { margin: 0 0 0.9rem; color: var(--ink-dim); text-wrap: pretty; }
+.doc-body ul { margin: 0 0 0.9rem; padding-left: 1.15rem; }
+.doc-body li { margin: 0.35rem 0; color: var(--ink-dim); }
+.doc-body strong { color: var(--ink); font-weight: 620; }
+.doc-body a { color: var(--accent-deep); }
+:where([data-theme="dark"]) .doc-body a { color: var(--accent); }
+kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 0.08em 0.42em; color: var(--ink); white-space: nowrap; }
+.sc-table { width: 100%; border-collapse: collapse; margin: 0.4rem 0 0.9rem; font-size: 0.94rem; }
+.sc-table th, .sc-table td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--line); }
+.sc-table th { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); font-weight: 640; }
+.sc-table td:last-child { text-align: right; white-space: nowrap; }
+.callout { border-left: 3px solid var(--accent); background: var(--accent-softer); border-radius: 0 10px 10px 0; padding: 0.9rem 1.1rem; margin: 0 0 0.9rem; font-size: 0.94rem; }
+.callout strong { color: var(--ink); }
+.faq-q { font-weight: 650; color: var(--ink); margin: 1.4rem 0 0.35rem; }
+.faq-q:first-of-type { margin-top: 0.4rem; }
+.doc-back { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 3rem; font-size: 0.92rem; color: var(--ink-dim); text-decoration: none; }
+.doc-back:hover { color: var(--accent); }
+@media (max-width: 820px) {
+  .doc-layout { grid-template-columns: 1fr; }
+  .doc-toc { display: none; }
+}
+</style>
+<script>
+/* Apply saved theme before first paint to avoid a flash (mirrors index.html). */
+(function () {
+  document.documentElement.classList.add("js");
+  try {
+    var t = localStorage.getItem("baton-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header" role="banner">
+  <a class="brand" href="index.html" aria-label="Baton home">
+    <svg class="brand-mark" viewBox="0 0 1024 1024" width="30" height="30" aria-hidden="true" focusable="false">
+      <path d="M180.8 372Q328 261.6 512 372T843.2 372" stroke="var(--accent)" stroke-width="71.76" stroke-linecap="round" fill="none"/>
+      <path d="M180.8 556Q328 445.6 512 556T843.2 556" stroke="var(--accent)" stroke-width="71.76" stroke-linecap="round" fill="none" opacity=".82"/>
+      <path d="M180.8 740Q328 850.4 512 740T843.2 740" stroke="var(--accent)" stroke-width="71.76" stroke-linecap="round" fill="none" opacity=".64"/>
+      <g fill="var(--accent)">
+        <path d="M358 246h40v-158h-40z"/>
+        <path d="M398 88Q506 100 506 190Q506 236 458 250Q496 206 466 168Q438 132 398 148z"/>
+        <g transform="translate(322 244) rotate(-24)"><ellipse rx="70" ry="52"/></g>
+      </g>
+    </svg>
+    <span class="brand-name">Baton</span>
+    <span class="brand-by">by Tonebox</span>
+  </a>
+  <nav class="site-nav" aria-label="Site">
+    <a href="index.html#agents">Agents</a>
+    <a href="index.html#features">Features</a>
+    <a href="index.html#library">Your library</a>
+    <a href="index.html#compare">Compare</a>
+  </nav>
+  <div class="header-actions">
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch color theme" title="Switch theme">
+      <svg class="icon-sun" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M18.8 5.2l-1.7 1.7M6.9 17.1l-1.7 1.7"/></g></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    </button>
+    <a class="btn btn-small" href="index.html#get">Coming soon</a>
+  </div>
+</header>
+
+<main id="main" class="doc">
+  <div class="doc-hero">
+    <p class="eyebrow">Documentation</p>
+    <h1>Help &amp; FAQ</h1>
+    <p class="doc-lead">
+      Baton is a free macOS music player for the library you already own: your self-hosted
+      <a href="https://www.navidrome.org/" rel="external">Navidrome</a> or any Subsonic-compatible
+      server. It plays with real depth (true gapless, crossfade, ReplayGain, a parametric EQ) and
+      hosts a small control server so an AI agent can search, queue, and steer playback for you.
+    </p>
+  </div>
+
+  <div class="doc-layout">
+    <aside class="doc-toc" aria-label="On this page">
+      <strong>On this page</strong>
+      <a href="#getting-connected">Getting connected</a>
+      <a href="#browsing">Browsing your library</a>
+      <a href="#playing">Playing music</a>
+      <a href="#sound">Gapless &amp; sound quality</a>
+      <a href="#downloads">Downloads &amp; offline</a>
+      <a href="#scrobbling">Scrobbling</a>
+      <a href="#keys">Media keys &amp; AirPlay</a>
+      <a href="#shortcuts">Keyboard shortcuts</a>
+      <a href="#agents">Agent (MCP) control</a>
+      <a href="#updates">Updates</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#faq">FAQ</a>
+    </aside>
+
+    <article class="doc-body">
+      <section id="getting-connected">
+        <h2>Getting connected</h2>
+        <p>When you first open Baton, it asks you to connect to your music server.</p>
+        <ul>
+          <li><strong>Sign-in method</strong>: either a <strong>username &amp; password</strong> (the classic Subsonic sign-in; Baton never sends your password in the clear, using the salted-token scheme Subsonic servers expect), or an <strong>API key</strong> if your server (e.g. a recent Navidrome) supports one.</li>
+          <li><strong>Server URL</strong>: the full address of your server, e.g. <code>https://music.example.com</code>.</li>
+          <li><strong>Username</strong> (password mode only) and your <strong>password</strong> or <strong>API key</strong>.</li>
+          <li>Click <strong>Connect</strong>. Baton verifies the connection <em>before</em> saving anything. If it works, your library loads in place; if not, it tells you why so you can fix the URL or credentials.</li>
+        </ul>
+        <p>Your credentials are stored in the <strong>macOS Keychain</strong>, never in a plaintext file.</p>
+        <p><strong>Multiple servers.</strong> Open <strong>Settings ▸ Servers</strong> (<kbd>⌘,</kbd>) to add more than one server and switch the active one. Baton keeps each server's credentials separately in the Keychain and reloads the library when you switch; your existing single connection is carried over automatically the first time.</p>
+      </section>
+
+      <section id="browsing">
+        <h2>Browsing your library</h2>
+        <p>The left rail gives you the ways into your library:</p>
+        <ul>
+          <li><strong>Home (“For You”)</strong>: a time-of-day greeting and tap-to-play shelves: Recently Played, “Because You Liked…” radio, Recently Added, Rediscover, and Your Mixes.</li>
+          <li><strong>Search</strong>: songs, albums, and artists at once.</li>
+          <li><strong>Mixes</strong>: auto-built mixes (Most Played, Fresh Additions, Top Rated, On Repeat, Forgotten Favorites, Discover) plus per-genre Daily Mix cards. Each has its own page to Play, Shuffle, Queue, or download the whole thing.</li>
+          <li><strong>Albums</strong>: sortable by newest, recently added, most played, name, artist, track count, duration, rating, or at random; grid or list.</li>
+          <li><strong>Artists</strong>: with bios and artist pages.</li>
+          <li><strong>Playlists</strong>: your server-side playlists: create, rename, reorder, delete, and add or remove tracks (reordering saves back to the server).</li>
+          <li><strong>Liked</strong>: everything you've hearted, split into Songs / Albums / Artists.</li>
+          <li><strong>History</strong>: your local play log: Recent, Top Tracks, and Top Artists, over This Week / This Month / All Time.</li>
+          <li><strong>Podcasts</strong>: the podcast channels your server hosts; episodes stream and queue just like tracks.</li>
+          <li><strong>Radio</strong>: your server's internet-radio stations; add, edit, or remove a station (name + stream URL).</li>
+          <li><strong>Downloads</strong>: everything saved for offline play, with total size on disk and an Offline-mode toggle.</li>
+        </ul>
+        <p><strong>Rating &amp; liking.</strong> Tap the heart, or use the 5-star rating. Ratings are stored per-user on your server, so they follow you to any Subsonic client. <strong>Multi-select:</strong> shift-click a range, <kbd>⌘A</kbd> to select all, then apply batch actions (like, queue, download).</p>
+      </section>
+
+      <section id="playing">
+        <h2>Playing music</h2>
+        <h3>The Now-Playing bar</h3>
+        <p>A persistent bar sits at the bottom of the window with the scrubber, transport controls, volume, the queue, a sleep timer, and the AirPlay picker. Collapse it to a slim strip to reclaim space (<kbd>⌘⌃J</kbd>) and expand it again the same way.</p>
+        <h3>Full-screen Now Playing</h3>
+        <p>Big artwork, an adaptive backdrop tinted from the album art, a waveform scrubber (for downloaded tracks), and side panels for Queue, Lyrics (synced karaoke-style when your server has them), and Related tracks. <kbd>Space</kbd> plays/pauses, <kbd>Esc</kbd> exits.</p>
+        <h3>The floating mini-player</h3>
+        <p>A borderless, always-on-top mini-player window (<kbd>⌘⌥M</kbd>): a compact card with the current track, artwork, scrubber, rating, and Up Next that you can keep in a corner while you work. On macOS 26+ it uses Liquid Glass.</p>
+        <h3>Queue &amp; modes</h3>
+        <p>Drag to reorder, remove tracks, or clear the queue; Baton remembers it between launches and restores it paused. <strong>Shuffle</strong> keeps the current track playing and restores order when turned off. <strong>Repeat</strong> is Off / All / One. <strong>Continuous radio</strong> tops up the queue with similar tracks as you near the end.</p>
+        <h3>Sleep timer</h3>
+        <p>Set a timer from the Playback menu, or choose End of Track. Baton fades out gently (about 5 seconds) rather than cutting off.</p>
+      </section>
+
+      <section id="sound">
+        <h2>Gapless, crossfade &amp; sound quality</h2>
+        <ul>
+          <li><strong>True gapless playback.</strong> Live albums and continuous mixes play with no silence between tracks. Baton pre-loads the next track (even prefetching network streams to disk); you can limit prefetch to Wi-Fi to avoid eating a metered connection.</li>
+          <li><strong>Crossfade.</strong> Optionally overlap the end of one track into the next. (Crossfade and true-gapless are mutually exclusive: one overlaps, the other abuts.)</li>
+          <li><strong>Loudness normalization (ReplayGain / R128).</strong> Even out volume across tracks or albums, using your server's ReplayGain data, with an adjustable preamp.</li>
+          <li><strong>Parametric equalizer.</strong> Open <strong>Audio ▸ Equalizer</strong> (<kbd>⌥⌘E</kbd>) for a multi-band EQ where each band's frequency, Q, and gain are adjustable, with a live response curve and presets. Off by default, and bit-exact pass-through when off.</li>
+        </ul>
+      </section>
+
+      <section id="downloads">
+        <h2>Downloads &amp; offline</h2>
+        <p>Baton can download tracks, albums, mixes, or playlists to a folder on your Mac and play them from disk, useful for gapless quality without re-streaming and for keeping favorites local. Downloaded tracks are preferred over streaming automatically.</p>
+        <p>The <strong>Downloads</strong> tab manages everything you've saved: total size on disk, play or delete any download, and a global <strong>Offline mode</strong> that keeps playback on local files.</p>
+      </section>
+
+      <section id="scrobbling">
+        <h2>Scrobbling</h2>
+        <p>Baton can report your listens to your <strong>Navidrome/Subsonic server</strong> (updating its play counts) and to <strong>ListenBrainz</strong> and/or <strong>Last.fm</strong> if you add your account tokens. A track scrobbles once you've played about half of it (capped at a few minutes for long tracks), matching the usual convention.</p>
+      </section>
+
+      <section id="keys">
+        <h2>Media keys &amp; AirPlay</h2>
+        <ul>
+          <li><strong>Media keys &amp; Bluetooth remotes</strong>: the F7/F8/F9 keys and Bluetooth remote play/pause/next/previous/seek all control Baton, and the current track shows up in the macOS Now Playing widget.</li>
+          <li><strong>AirPlay</strong>: use the AirPlay picker in the Now-Playing bar to send audio to an AirPlay device. (Chromecast / Sonos / UPnP casting is planned.)</li>
+        </ul>
+      </section>
+
+      <section id="shortcuts">
+        <h2>Keyboard shortcuts</h2>
+        <p>From the <strong>Playback</strong> menu, available anywhere in the app:</p>
+        <table class="sc-table">
+          <thead><tr><th scope="col">Action</th><th scope="col">Shortcut</th></tr></thead>
+          <tbody>
+            <tr><td>Play / Pause</td><td><kbd>⌘⌃P</kbd></td></tr>
+            <tr><td>Next track</td><td><kbd>⌘⌃ Right</kbd></td></tr>
+            <tr><td>Previous track</td><td><kbd>⌘⌃ Left</kbd></td></tr>
+            <tr><td>Volume up / down</td><td><kbd>⌘⌃ Up</kbd> / <kbd>⌘⌃ Down</kbd></td></tr>
+            <tr><td>Mute / Unmute</td><td><kbd>⌘⌃M</kbd></td></tr>
+            <tr><td>Minimize / expand player bar</td><td><kbd>⌘⌃J</kbd></td></tr>
+            <tr><td>Open mini-player</td><td><kbd>⌘⌥M</kbd></td></tr>
+            <tr><td>Equalizer</td><td><kbd>⌥⌘E</kbd></td></tr>
+            <tr><td>Servers</td><td><kbd>⌘,</kbd></td></tr>
+          </tbody>
+        </table>
+        <p>The Playback menu also holds Shuffle, Repeat, and the Sleep Timer. In the full-screen player, <kbd>Space</kbd> toggles play/pause and <kbd>Esc</kbd> exits; in browse lists, <kbd>⌘A</kbd> selects all.</p>
+      </section>
+
+      <section id="agents">
+        <h2>Let an agent control your music</h2>
+        <p>This is what makes Baton different from every other Subsonic player: it can be driven by software, not just by you clicking buttons. Baton hosts a small control server on your Mac that speaks <a href="https://modelcontextprotocol.io/" rel="external">MCP</a> (the Model Context Protocol), the same protocol Claude and other AI agents use to talk to tools. So you can say things like:</p>
+        <ul>
+          <li>“Put on a 40-minute instrumental focus set.”</li>
+          <li>“What's playing? Like it.”</li>
+          <li>“Make a playlist of everything I liked this month.”</li>
+          <li>“Turn it down” / “skip this” / “play some jazz.”</li>
+        </ul>
+        <p>…and the agent carries them out in Baton, searching your library, building a queue, starting playback, rating tracks, and creating playlists. The control surface exposes the same operations Baton's own UI uses, so anything the agent does is something you could have done by hand.</p>
+        <p><strong>How it's secured:</strong> the control server listens <strong>only on your own machine</strong> (loopback) and every request must present a <strong>secret token</strong> Baton generates. No token, no access.</p>
+        <p><strong>How Tonebox uses it.</strong> When you start dictating or recording in <a href="https://tonebox.io" rel="external">Tonebox</a>, it can ask Baton to <strong>duck the music</strong> and bring it back afterward, but only if you didn't change playback yourself in the meantime. This “audio-focus” hand-off is a first-class part of Baton's control interface. One agent-native operation worth calling out is <strong><code>music_build_mix</code></strong>: an agent hands Baton a free-text request (“upbeat 40-minute focus mix”) and Baton assembles a set from your library that lands close to the requested length, then queues it or saves it as a playlist.</p>
+        <div class="callout">
+          <strong>Status:</strong> the control server is live. It speaks MCP Streamable-HTTP on loopback, exposes 20 music operations (including <code>music_build_mix</code> and the <code>audio_suspend</code> / <code>audio_resume</code> focus hand-off), publishes now-playing/queue as live resources, and writes a discovery file at <code>~/Library/Application&nbsp;Support/Baton/mcp.json</code> with the endpoint URL and token. A menu-bar mini-controller ships too.
+        </div>
+      </section>
+
+      <section id="updates">
+        <h2>Updates</h2>
+        <p>Baton updates itself using Sparkle (the standard macOS updater). It checks against Baton's own update feed and installs signed, notarized builds; you never reinstall by hand.</p>
+      </section>
+
+      <section id="roadmap">
+        <h2>Roadmap</h2>
+        <p><strong>Now in Baton</strong> (recently landed): Podcasts and Internet radio tabs, a Downloads / offline manager, a parametric Equalizer, multiple servers / account switching, and the agent-native <code>music_build_mix</code>.</p>
+        <p><strong>Still ahead</strong> (called out so the docs stay honest):</p>
+        <ul>
+          <li><strong>iOS / iPadOS companion</strong>: listen away from the desk.</li>
+          <li><strong>Casting beyond AirPlay</strong>: Chromecast, Sonos, and UPnP/DLNA. (AirPlay works today.)</li>
+          <li><strong>Sonic-analysis mixes</strong>: built from the sound of your music (tempo/energy/key), not just play history.</li>
+          <li><strong>Crossfeed / additional DSP</strong> and a <strong>lyrics fallback</strong> when your server has none.</li>
+        </ul>
+      </section>
+
+      <section id="faq">
+        <h2>FAQ</h2>
+
+        <p class="faq-q">Is Baton free?</p>
+        <p>Yes, a give-away from <a href="https://tonebox.io" rel="external">Tonebox</a>. No subscription, no catalog rent; you're playing music you already own on a server you already run.</p>
+
+        <p class="faq-q">How is Baton different from Tonebox?</p>
+        <p>Two products from the same maker. <strong>Tonebox</strong> is a paid, local-first notes app that records and transcribes meetings and voice notes. <strong>Baton</strong> is the music player, pulled out into its own free app. Tonebox can control Baton (for example, ducking the music while you dictate), but you don't need Tonebox to use Baton.</p>
+
+        <p class="faq-q">What servers work with Baton?</p>
+        <p><a href="https://www.navidrome.org/" rel="external">Navidrome</a> and any Subsonic-compatible server. Baton speaks the Subsonic API, so most self-hosted music servers in that family work. It has no catalog of its own; there's nothing to browse until you connect a server.</p>
+
+        <p class="faq-q">Is my password safe?</p>
+        <p>Yes. Credentials live in the <strong>macOS Keychain</strong>, never in a plaintext file. With username &amp; password sign-in, Baton uses the salted-token scheme Subsonic expects, so your password isn't sent in the clear on each request.</p>
+
+        <p class="faq-q">Does Baton phone home?</p>
+        <p>No. Baton talks only to the music server you point it at, plus the scrobbling services (ListenBrainz / Last.fm) and its own update feed if you turn them on. It has no catalog server of its own to call.</p>
+
+        <p class="faq-q">Is the control server a security risk?</p>
+        <p>No, by design. It listens only on your own Mac (loopback), so it isn't reachable from your network, and every request must carry a secret token Baton generates. Both are required.</p>
+
+        <p class="faq-q">Do I need an agent to use Baton?</p>
+        <p>No. Baton is a complete, click-to-play music player on its own. Agent control is an extra surface, not a requirement.</p>
+
+        <p class="faq-q">Does Baton work offline?</p>
+        <p>Yes, for downloaded music. Download tracks, albums, mixes, and playlists and play them from disk without re-streaming; the Downloads tab manages them, with a global Offline mode. Browsing new content and streaming still need your server to be reachable.</p>
+
+        <p class="faq-q">Can I cast to speakers?</p>
+        <p>AirPlay works today, from the AirPlay picker in the Now-Playing bar. Chromecast, Sonos, and UPnP/DLNA are planned.</p>
+
+        <p class="faq-q">What platforms does Baton run on?</p>
+        <p>macOS (15 or later). An iOS / iPadOS companion is on the roadmap; Windows and Linux clients are not planned.</p>
+      </section>
+
+      <a class="doc-back" href="index.html">Back to baton.tonebox.io</a>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer" role="contentinfo">
+  <div class="footer-inner">
+    <p class="footer-brand">
+      <strong>Baton</strong> by <a href="https://tonebox.io">Tonebox</a>
+      <span class="footer-sep" aria-hidden="true">·</span> free, for your own music
+    </p>
+    <nav class="footer-nav" aria-label="Footer">
+      <a href="help.html">Docs</a>
+      <a href="https://github.com/anatoliv/baton">GitHub</a>
+      <a href="https://tonebox.io">Tonebox</a>
+      <a href="index.html#agents">MCP&nbsp;/&nbsp;agents</a>
+    </nav>
+  </div>
+  <p class="footer-note">Baton is a sibling of Tonebox, the audio-capture app. They duck and resume each other's audio politely.</p>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

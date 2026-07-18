@@ -1,0 +1,152 @@
+# 05 — Roadmap: New Features
+
+New capabilities to build in **Baton**, prioritized, each with an
+effort tag and tied to the competitive gap it closes. Effort: **S** ≈ days,
+**M** ≈ 1–3 weeks, **L** ≈ a month+.
+
+Gaps reference the existing comparison
+(`docs/music-player-competitive-comparison.html`) and [07](07-competitive-analysis.md).
+
+---
+
+## Tier 1 — closes the biggest strategic gaps
+
+### 1. iOS / iPadOS companion — **L**
+**Gap:** macOS-only is the single gap shared with *every* leader. No phone = no
+listening away from the desk.
+**Plan:** reuse `NavidromeClient` + `MusicLibraryStore` + the models verbatim (all
+`Sendable` value types, no AppKit). New SwiftUI UI + a slimmer engine. Offline sync
+of downloads (reuse `MusicDownloadStore`'s manifest format) is the killer piece.
+**Why:** turns "a nice desktop player" into a real ecosystem; also gives the
+audio-focus/MCP story a second surface.
+
+### 2. Casting beyond AirPlay — Chromecast / Sonos / UPnP-DLNA — **M**
+**Gap:** casting is AirPlay-only today (`AirPlayRoutePicker.swift`); Plexamp /
+Symfonium / Spotify reach whole-home audio.
+**Plan:** Chromecast (Cast SDK / mDNS + the receiver protocol) + generic UPnP/DLNA
+push covers most speakers; Sonos via its local API. The stream URLs are already
+plain signed HTTP (`NavidromeClient.streamURL` :112), so a cast target can pull
+directly.
+**Why:** whole-home audio is table-stakes for a "real" player.
+
+### 3. Downloads manager + first-class offline mode — **M**
+**Gap:** downloads exist (`MusicDownloadStore`) but there's no *screen* for them and
+no global offline toggle.
+**Plan:** a Downloads screen (what's downloaded, storage used, evict, auto-download
+a playlist/mix), a global **Offline** toggle that hides un-downloaded content and
+routes all playback to local files, and download-on-Wi-Fi-only (reuse
+`NetworkReachability`).
+**Why:** table-stakes for a standalone player; also the iOS companion depends on it.
+
+### 4. Sonic-analysis mood mixes — **L**
+**Gap:** mixes today are heuristic (history + server lists + genre shuffle,
+`MusicMix.swift:24–67`), **not** sonic — Plexamp's real differentiator.
+**Plan:** analyze *downloaded* audio (tempo/energy/key/loudness) locally (the
+waveform pipeline in `WaveformExtractor.swift` already reads PCM via `AVAssetReader`
+— extend it), store features, and build "more like this" + smart transitions +
+mood/energy mixes. Pairs beautifully with the agent angle: "build me a 40-minute
+set that ramps energy up then down."
+**Why:** where Baton could *beat* the open clients, not just match them — and it's a
+natural agent tool (`music_start_radio` seeded by sonic features).
+
+---
+
+## Tier 2 — parity wins & depth
+
+### 5. Podcasts — **S–M**
+**Gap:** none today; Subsonic already exposes it.
+**Plan:** wire `getPodcasts` / `getPodcastEpisodes` / `subscribe/unsubscribe`
+(unimplemented in `NavidromeClient` today — add methods + wire types in
+`NavidromeModels.swift`). Mostly UI (subscriptions, episode list, resume position)
++ a few client calls. Add MCP tools (`music_list_podcasts`, `music_play_episode`).
+**Why:** cheap parity win the open clients already have.
+
+### 6. Internet radio stations — **S**
+**Gap:** none today; Subsonic exposes `getInternetRadioStations` (+ CRUD).
+**Plan:** add the client calls + a simple stations list; playback is just a stream
+URL into the existing engine.
+**Why:** cheapest parity win on the board.
+
+### 7. Multi-server / account switching — **S–M**
+**Gap:** single-server today (`NavidromeConfig.swift:5`).
+**Plan:** store N `ServerConnection` records with an active selection; quick-switch
+in the menu bar. Natural once `NavidromeConfig` is decoupled for extraction
+([03](03-architecture.md) Phase 1). Likes/ratings are per-server (server-side), so
+switching is clean.
+**Why:** power-users run more than one library.
+
+### 8. Parametric EQ + crossfeed / DSP — **M**
+**Gap:** 10-band graphic EQ (`MusicEqualizer.swift`) is good but below
+Plexamp/Roon.
+**Plan:** upgrade toward parametric bands (freq/Q/gain per band), per-output presets,
+and headphone crossfeed. The `MTAudioProcessingTap` render path
+(`AudioEQProcessor.swift`) and RBJ biquad math already exist — this is extending an
+existing engine, not a new one. Add a `music_set_eq` tool.
+**Why:** audiophile credibility; differentiates from every streaming app.
+
+### 9. Lyrics upgrades — **S**
+**Gap:** synced lyrics work (`MusicLyricsView.swift`, `getLyricsBySongId`) but depend
+entirely on the server having them.
+**Plan:** optional LRCLIB fallback (opt-in, network) when the server returns none;
+larger-type "lyrics mode"; copy/share a line.
+**Why:** low effort, high delight.
+
+---
+
+## Tier 3 — the agent-native differentiators
+
+These have no strong precedent among competitors — they lean into Baton's reason for
+existing. Full "wild ideas" list in [08](08-open-questions-and-ideas.md).
+
+### 10. Natural-language mix building — **M**
+**Plan:** an MCP prompt + tool flow so "make me a 40-minute focus mix that starts
+mellow and ends upbeat" resolves to a concrete queue, using search + (eventually)
+sonic features. The deterministic `MusicCommandInterpreter` + LLM fallback
+(`AppModel+Music.swift:159`) is the seed; extend to *composition*, not just single
+commands.
+**Why:** the flagship agent interaction; nothing mainstream does this locally.
+
+### 11. Cross-app automations with Tonebox — **M**
+**Plan:** now that Tonebox is a client, enable flows like "when I start a recording,
+duck the music and log the track that was playing to the session," or "when a
+meeting ends, resume my last mix." Built on `audio_suspend` + now-playing
+notifications ([04](04-integration-and-mcp.md)).
+**Why:** unique to owning both apps; a moat.
+
+### 12. Agent-observable status surface — **shipped foundation, S to extend**
+**Shipped:** `baton://now-playing`, `baton://history/recent` (and 3 more) are live
+resources with `notifications/resources/updated` over SSE, so external
+agents/dashboards can narrate or log listening without polling
+([04 §5](04-integration-and-mcp.md#5-mcp-resources--notifications-shipped)).
+**To extend:** richer history/analytics resources and a ready-made status-page
+recipe.
+**Why:** turns Baton into a well-behaved citizen of a larger agent workflow.
+
+---
+
+## Suggested sequencing
+
+1. **Ship the extraction first** ([03](03-architecture.md)) — nothing here matters
+   until Baton stands alone.
+2. **Cheap parity next** (podcasts #5, radio #6, multi-server #7, downloads screen
+   #3) — makes Baton feel complete.
+3. **Then the differentiators** (sonic mixes #4, NL mix building #10, iOS #1) —
+   these are what make Baton worth choosing over Plexamp/Symfonium.
+4. **Casting #2** whenever whole-home demand is loud enough; it's self-contained.
+
+## One-line rationale per item
+
+| # | Feature | Effort | Closes |
+|---|---|---|---|
+| 1 | iOS/iPad companion | L | macOS-only (the biggest gap) |
+| 2 | Chromecast/Sonos/UPnP casting | M | AirPlay-only casting |
+| 3 | Downloads manager + offline | M | No offline UX / standalone identity |
+| 4 | Sonic mood mixes | L | Heuristic-only mixes vs Plexamp |
+| 5 | Podcasts | S–M | Missing content type |
+| 6 | Internet radio | S | Missing content type |
+| 7 | Multi-server | S–M | Single-server |
+| 8 | Parametric EQ + DSP | M | EQ depth vs Roon/foobar2000 |
+| 9 | Lyrics fallback | S | Server-dependent lyrics |
+| 10 | NL mix building | M | Nobody does it locally (differentiator) |
+| 11 | Tonebox automations | M | Unique cross-app moat |
+| 12 | Agent status resources | S | Agent-native completeness |

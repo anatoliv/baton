@@ -1,0 +1,27 @@
+<!-- Open Graph share card for baton.tonebox.io (1200x630). Rendered to website/og.png. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#faf6f0"/>
+
+  <!-- faint wave motif along the bottom, echoing the site hero -->
+  <g stroke="#E07A4B" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.5">
+    <path d="M-40 585 Q 90 545 220 585 T 480 585 T 740 585 T 1000 585 T 1240 585" opacity="0.9"/>
+    <path d="M-40 615 Q 90 575 220 615 T 480 615 T 740 615 T 1000 615 T 1240 615" opacity="0.55"/>
+  </g>
+
+  <!-- Baton mark, centered above the wordmark -->
+  <g transform="translate(487.36 70) scale(0.22)">
+    <path d="M 180.80 372 Q 328 261.6 512 372 T 843.2 372" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none"/>
+    <path d="M 180.80 556 Q 328 445.6 512 556 T 843.2 556" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.82"/>
+    <path d="M 180.80 740 Q 328 850.4 512 740 T 843.2 740" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.64"/>
+    <g fill="#E07A4B">
+      <path d="M358 246h40v-158h-40z"/>
+      <path d="M398 88Q506 100 506 190Q506 236 458 250Q496 206 466 168Q438 132 398 148z"/>
+      <g transform="translate(322 244) rotate(-24)"><ellipse rx="70" ry="52"/></g>
+    </g>
+  </g>
+
+  <text x="600" y="352" text-anchor="middle" font-family="Georgia, 'Times New Roman', 'Palatino', serif" font-weight="700" font-size="104" fill="#2b2119">Baton</text>
+  <text x="600" y="418" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="44" fill="#c4602f">Conduct your music.</text>
+  <text x="600" y="500" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="23" letter-spacing="4" fill="#a2937f">A FREE macOS PLAYER FOR YOUR SELF-HOSTED LIBRARY</text>
+  <text x="600" y="534" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="23" letter-spacing="4" fill="#a2937f">AGENT-NATIVE &#183; BY TONEBOX</text>
+</svg>
