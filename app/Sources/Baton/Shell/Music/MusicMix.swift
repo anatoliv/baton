@@ -80,6 +80,22 @@ struct MusicMixDetail: View {
     @State private var heroImage: Image?
     @State private var filter = ""
     @State private var layout: MusicBrowseLayout = .list
+    @State private var sortField: MixSort = .mix
+    @State private var sortAscending = true
+
+    /// Sort fields for a mix's tracks — defaults to the mix's own (ranked) order.
+    enum MixSort: String, CaseIterable, Identifiable, MusicSortField {
+        case mix, name, artist, duration
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .mix: "Mix order"
+            case .name: "Name"
+            case .artist: "Artist"
+            case .duration: "Duration"
+            }
+        }
+    }
 
     private var source: StreamingPlaybackController.QueueSource {
         .init(label: mix.title, kind: .radio, id: nil)
@@ -95,9 +111,19 @@ struct MusicMixDetail: View {
     }
 
     private var visibleSongs: [NavidromeSong] {
+        var list = songs
         let query = filter.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return songs }
-        return songs.filter { $0.title.lowercased().contains(query) || ($0.artist ?? "").lowercased().contains(query) }
+        if !query.isEmpty {
+            list = list.filter { $0.title.lowercased().contains(query) || ($0.artist ?? "").lowercased().contains(query) }
+        }
+        switch sortField {
+        case .mix: break // keep the mix's own (ranked) order
+        case .name: list.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist: list.sort { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
+        case .duration: list.sort { ($0.duration ?? 0) < ($1.duration ?? 0) }
+        }
+        if !sortAscending { list.reverse() }
+        return list
     }
 
     var body: some View {
@@ -129,7 +155,7 @@ struct MusicMixDetail: View {
                             MusicRowAction(title: "Shuffle", systemImage: "shuffle") { model.music.play(songs.shuffled(), source: source) },
                         ])
                     },
-                    sortMenu: { EmptyView() }
+                    sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
                 )
 
                 if loading {

@@ -51,6 +51,11 @@ final class InternetRadioStore {
     /// The library player to duck while a station is on the air — set by `MusicModel`.
     @ObservationIgnored weak var duckController: StreamingPlaybackController?
 
+    /// The order the Radio screen is currently showing (its filter + sort). The bottom bar's
+    /// prev/next walk this so they match what the user sees; falls back to `stations` until the
+    /// screen sets it.
+    @ObservationIgnored var orderedStations: [NavidromeRadioStation] = []
+
     /// id → resolved genre/bitrate, and id → logo resolution. Both cached across visits.
     private(set) var meta: [String: RadioStationMeta] = [:]
     private(set) var artwork: [String: RadioArtwork] = [:]
@@ -121,12 +126,14 @@ final class InternetRadioStore {
 
     func stop() { engine.stop() }
 
-    /// Switch to the station `delta` places away in the list (wrapping) — drives the
-    /// bottom bar's prev/next in radio mode. No-op if fewer than two stations.
+    /// Switch to the station `delta` places away (wrapping) in the order the Radio screen is
+    /// showing — so the bottom bar's prev (−1) / next (+1) match what the user sees regardless
+    /// of the current sort. No-op if fewer than two stations.
     func playAdjacent(_ delta: Int) {
-        guard stations.count > 1, let current = engine.currentStation,
-              let idx = stations.firstIndex(where: { $0.id == current.id }) else { return }
-        let next = stations[((idx + delta) % stations.count + stations.count) % stations.count]
+        let order = orderedStations.isEmpty ? stations : orderedStations
+        guard order.count > 1, let current = engine.currentStation,
+              let idx = order.firstIndex(where: { $0.id == current.id }) else { return }
+        let next = order[((idx + delta) % order.count + order.count) % order.count]
         play(next)
     }
 
@@ -292,7 +299,7 @@ final class RadioPlaybackEngine {
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         let output = AVPlayerItemMetadataOutput(identifiers: nil)
         let receiver = ICYMetadataReceiver { [weak self] title in
-            MainActor.assumeIsolated { self?.nowPlayingTitle = title }
+            MainActor.assumeIsolated { self?.nowPlayingTitle = title.map(RadioPlaybackEngine.cleanStreamTitle) }
         }
         output.setDelegate(receiver, queue: .main)
         item.add(output)
@@ -324,6 +331,31 @@ final class RadioPlaybackEngine {
         nowPlayingTitle = nil
         metadataOutput = nil
         metadataReceiver = nil
+    }
+
+    /// Tidy an ICY `StreamTitle` for display. Standard streams send "Artist - Title" (used
+    /// as-is); some (e.g. Radio 105) broadcast a "~"-delimited metadata blob — keep the first
+    /// couple of text fields (song/artist) and drop timestamps, bare numbers, and ids.
+    static func cleanStreamTitle(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains("~") else { return trimmed }
+        func isNoise(_ field: String) -> Bool {
+            if field.isEmpty { return true }
+            if field.range(of: #"^\d{4}-\d{2}-\d{2}T"#, options: .regularExpression) != nil { return true }
+            if field.range(of: #"^[0-9.]+$"#, options: .regularExpression) != nil { return true }
+            if field.range(of: #"^[0-9a-fA-F-]{16,}$"#, options: .regularExpression) != nil { return true }
+            return false
+        }
+        let fields = trimmed
+            .split(separator: "~", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !isNoise($0) }
+        var picked = Array(fields.prefix(2))
+        // Some stations repeat the same value (e.g. the station name) across fields.
+        if picked.count == 2, picked[0].caseInsensitiveCompare(picked[1]) == .orderedSame {
+            picked = [picked[0]]
+        }
+        return picked.isEmpty ? trimmed : picked.joined(separator: " — ")
     }
 }
 

@@ -93,6 +93,11 @@ struct MusicRadioView: View {
             }
         }
         .task { await store.loadIfNeeded() }
+        // Keep the store's prev/next order in step with what's on screen (filter + sort),
+        // so the bottom bar's station arrows match the visible list.
+        .onChange(of: filteredStations.map(\.id), initial: true) { _, _ in
+            store.orderedStations = filteredStations
+        }
         .sheet(isPresented: $showEditor) {
             RadioStationEditor(station: editing) { name, streamURL, homepage in
                 if let editing {
@@ -333,10 +338,15 @@ private struct RadioStationListRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            // Fixed-width slot for the on-air equalizer so the website column stays
+            // vertically aligned across rows whether or not a station is playing.
+            ZStack {
+                if isPlaying { EqualizerBars(active: true, color: Color.accentColor) }
+            }
+            .frame(width: 24)
+
             // Website column — a clickable link to the station's homepage.
             websiteColumn.frame(width: 150, alignment: .leading)
-
-            if isPlaying { EqualizerBars(active: true, color: Color.accentColor) }
 
             Menu {
                 Button(isPlaying ? "Stop" : "Play", action: onPlay)

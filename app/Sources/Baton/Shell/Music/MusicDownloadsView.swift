@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The **Downloads** tab: everything that's been downloaded for offline listening.
-/// Lists each downloaded track (title / artist, on-disk size) with a play affordance and
-/// a delete-with-confirm, shows the total size on disk, and hosts the **Offline mode**
-/// toggle — when on, the player prefers local files over streaming.
+/// The **Downloads** tab: everything that's been downloaded for offline listening. Uses the
+/// shared browse header (title · count · filter, then sort + grid/list) like the other browse
+/// screens, plus the **Offline mode** toggle. Each item shows title / artist / size with a
+/// play affordance and a delete-with-confirm.
 ///
 /// The list comes straight from `MusicDownloadStore`; playing a row hands the player a
 /// `NavidromeSong` reconstructed from the download's cached metadata, and the controller
@@ -15,6 +15,24 @@ struct MusicDownloadsView: View {
     /// Refresh trigger: bumped after a delete so the derived list re-reads the store.
     @State private var revision = 0
     @State private var pendingDelete: MusicDownloadStore.DownloadItem?
+    @State private var filterText = ""
+    @FocusState private var filterFocused: Bool
+    @AppStorage("tonebox.music.downloadLayout") private var layout: MusicBrowseLayout = .list
+    @AppStorage("tonebox.music.downloadSort") private var sortField: DownloadSort = .name
+    @AppStorage("tonebox.music.downloadSortAscending") private var sortAscending = true
+
+    /// Sort fields for the Downloads screen (mirrors the other browse screens).
+    enum DownloadSort: String, CaseIterable, Identifiable, MusicSortField {
+        case name, artist, size
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .name: "Name"
+            case .artist: "Artist"
+            case .size: "Size"
+            }
+        }
+    }
 
     private var store: MusicDownloadStore { .shared }
 
@@ -25,18 +43,57 @@ struct MusicDownloadsView: View {
         return store.downloadedItems()
     }
 
+    /// Items after the header's filter + sort controls are applied.
+    private var filteredItems: [MusicDownloadStore.DownloadItem] {
+        var list = items
+        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
+        if !query.isEmpty {
+            list = list.filter {
+                $0.title.lowercased().contains(query) || ($0.artist?.lowercased().contains(query) ?? false)
+            }
+        }
+        switch sortField {
+        case .name:
+            list.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist:
+            list.sort { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
+        case .size:
+            list.sort { $0.byteSize < $1.byteSize }
+        }
+        if !sortAscending { list.reverse() }
+        return list
+    }
+
     private var totalSizeText: String {
         ByteCountFormatter.string(fromByteCount: store.totalBytes(), countStyle: .file)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
+        Group {
             if items.isEmpty {
                 empty
             } else {
-                list
+                VStack(spacing: 0) {
+                    MusicBrowseHeader(
+                        title: "Downloads",
+                        count: filteredItems.count,
+                        filter: $filterText,
+                        filterPrompt: "Filter downloads",
+                        filterFocused: $filterFocused,
+                        filterHistoryKey: "downloads",
+                        layout: $layout,
+                        accessory: {
+                            Text(totalSizeText).font(.caption).foregroundStyle(.secondary)
+                        },
+                        leading: {
+                            Toggle(isOn: $offlineMode) { Text("Offline mode") }
+                                .toggleStyle(.switch).controlSize(.small)
+                                .help("Prefer downloaded files over streaming from the server.")
+                        },
+                        sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
+                    )
+                    content
+                }
             }
         }
         .confirmationDialog(
@@ -46,43 +103,35 @@ struct MusicDownloadsView: View {
         ) { item in
             Button("Delete “\(item.title)”", role: .destructive) { delete(item) }
             Button("Cancel", role: .cancel) {}
-        } message: { item in
+        } message: { _ in
             Text("Removes the downloaded file from disk. You can download it again later.")
         }
     }
 
-    // MARK: - Header
+    // MARK: - Content
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Downloads").font(.title2.bold())
-                Text(items.isEmpty
-                    ? "Nothing downloaded"
-                    : "^[\(items.count) track](inflect: true) · \(totalSizeText)")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            Toggle(isOn: $offlineMode) { Text("Offline mode") }
-                .toggleStyle(.switch)
-                .help("Prefer downloaded files over streaming from the server.")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
-    // MARK: - List
-
-    private var list: some View {
+    @ViewBuilder private var content: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(items) { item in
-                    row(item)
-                    Divider()
+            if layout == .grid {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 14)], spacing: 16) {
+                    ForEach(filteredItems) { item in
+                        DownloadCard(
+                            item: item,
+                            onPlay: { play(item) },
+                            onDelete: { pendingDelete = item }
+                        )
+                    }
                 }
+                .padding(16)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredItems) { item in
+                        row(item)
+                        Divider()
+                    }
+                }
+                .padding(.horizontal, 8).padding(.vertical, 4)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
         }
     }
 
@@ -162,5 +211,37 @@ struct MusicDownloadsView: View {
         store.remove(id: item.id)
         pendingDelete = nil
         revision += 1
+    }
+}
+
+// MARK: - Grid card
+
+/// A download shown as a card in the grid layout — cover art, title, artist, hover play.
+private struct DownloadCard: View {
+    @Environment(MusicModel.self) private var model
+    let item: MusicDownloadStore.DownloadItem
+    let onPlay: () -> Void
+    let onDelete: () -> Void
+    @State private var hover = false
+
+    private var isCurrent: Bool { model.music.nowPlaying?.id == item.id }
+
+    var body: some View {
+        MusicMediaCard(
+            coverURL: item.song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 300) },
+            aspect: 1,
+            placeholder: "arrow.down.circle",
+            title: item.title,
+            subtitle: item.artist ?? "",
+            isHovering: hover,
+            isPlayingSource: isCurrent,
+            onPlay: onPlay
+        )
+        .onHover { hover = $0 }
+        .onTapGesture(perform: onPlay)
+        .contextMenu {
+            Button("Play", action: onPlay)
+            Button("Delete Download", role: .destructive, action: onDelete)
+        }
     }
 }

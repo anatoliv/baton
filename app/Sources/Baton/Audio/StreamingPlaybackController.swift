@@ -102,6 +102,9 @@ final class StreamingPlaybackController {
     /// 4 min) — wired to external scrobbling (ListenBrainz).
     @ObservationIgnored var onScrobbleEligible: (@MainActor (NavidromeSong) -> Void)?
     @ObservationIgnored private var scrobbledCurrent = false
+    /// Fired when a fixed-time sleep timer elapses (after the fade-out). AppModel wires this to
+    /// also stop internet radio, which plays on a separate engine the library pause can't reach.
+    @ObservationIgnored var onSleepFire: (@MainActor () -> Void)?
     /// Attaches/detaches the equalizer audio-mix on a freshly-loaded item (AppModel wires
     /// this to the EQ). Nil ⇒ no EQ.
     @ObservationIgnored var configureAudioMix: (@MainActor (AVPlayerItem) -> Void)?
@@ -899,6 +902,7 @@ final class StreamingPlaybackController {
                 self?.pause()
                 self?.fadeMultiplier = 1
                 self?.applyVolume()
+                self?.onSleepFire?() // also stop internet radio (separate engine)
             }
             self.sleepTimerEndsAt = nil
         }
