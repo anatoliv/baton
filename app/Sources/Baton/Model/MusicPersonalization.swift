@@ -42,6 +42,7 @@ enum MusicPersonalization {
     }
 
     /// Build a listening profile, or nil when there isn't enough history to be useful.
+    @MainActor
     static func analyze(_ history: MusicPlayHistory) -> Profile? {
         let entries = history.entries.sorted { $0.playedAt < $1.playedAt }
         guard entries.count >= minPlays else { return nil }
