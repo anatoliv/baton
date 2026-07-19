@@ -195,8 +195,9 @@ just unlikes and low-rates the track. See [Albums and artists](HELP.md#albums-an
 ## Updates and platform
 
 **How do updates work?**
-Baton updates itself with Sparkle, the standard macOS updater, pulling signed, notarized
-builds from its own update feed. You don't need to reinstall by hand.
+Automatic updates aren't in Baton yet. They're planned, using Sparkle (the standard macOS
+updater) to pull signed, notarized builds from Baton's own feed. For now, you update by
+downloading the latest build yourself.
 
 **Where can I read more?**
 [HELP.md](HELP.md) covers how to use every part of Baton. The docs in [`docs/`](docs/) go into

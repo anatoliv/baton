@@ -124,6 +124,40 @@ recipe.
 
 ---
 
+## Tier 4 - release engineering & observability
+
+### 13. Auto-update via Sparkle - M
+
+**What:** Baton has no updater today (no Sparkle package, no `SUFeedURL` / `SUPublicEDKey`
+Info.plist keys, no "Check for Updates" menu). The user docs previously overclaimed this and
+have been corrected to say it's planned.
+
+**Build:** add the Sparkle SPM package; wire an updater controller plus a "Check for
+Updates..." menu item; add the `SUFeedURL`, `SUEnableAutomaticChecks`, and `SUPublicEDKey`
+Info.plist keys; generate an EdDSA key pair and keep the **private** key out of the repo;
+host an `appcast.xml` (likely on web-01 / baton.tonebox.io alongside the DMG) and sign each
+build's update entry.
+
+**Why:** users expect a shipping macOS app to update itself; manual reinstall is a poor
+experience and the docs assumed this existed.
+
+### 14. Crash / error reporting via Sentry - S to M (opt-in, private DSN)
+
+**Approach (chosen): public code + private DSN.** The Sentry integration lives in the public
+source for transparency, but the DSN is injected at build time from a gitignored xcconfig (or
+CI secret) and is never committed. It ships **off by default**, opt-in via a Settings toggle,
+and PII-scrubbed: no track or library data, no IP, no account identifiers.
+
+**Build:** follow the house `observability-setup` pattern (Sentry gated + scrubbed); add a
+`Baton.Secrets.xcconfig` (gitignored) carrying `SENTRY_DSN`; a "Send crash & error reports"
+toggle defaulting off; a `beforeSend` scrubber; and update the "Does Baton phone home?" FAQ
+to add the opt-in caveat (as Tonebox does). Keep the DSN out of the public mirror.
+
+**Why:** real crash insight from shipped builds without breaking Baton's privacy-first,
+"no telemetry by default" promise.
+
+---
+
 ## Suggested sequencing
 
 1. **Ship the extraction first** ([03](03-architecture.md)) — nothing here matters
