@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// The **Downloads** tab: everything that's been downloaded for offline listening. Uses the
-/// shared browse header (title · count · filter, then sort + grid/list) like the other browse
-/// screens, plus the **Offline mode** toggle. Each item shows title / artist / size with a
-/// play affordance and a delete-with-confirm.
-///
-/// The list comes straight from `MusicDownloadStore`; playing a row hands the player a
-/// `NavidromeSong` reconstructed from the download's cached metadata, and the controller
-/// resolves the local file (so playback never touches the server).
+/// The **Downloads** tab: everything downloaded for offline listening. Shares the browse
+/// header (title · count · filter, then sort + grid/list) with the other screens, plus the
+/// **Offline mode** toggle, a hero mini-transport, and **multi-select batch actions**
+/// (play / shuffle / queue / save / add-to-playlist / delete). The dense table rows mirror
+/// the Artists table: a select checkbox, a cover thumbnail that doubles as Play, title/artist,
+/// hover actions, and right-aligned Size / Time columns.
 struct MusicDownloadsView: View {
     @Environment(MusicModel.self) private var model
     @AppStorage("baton.music.offlineMode") private var offlineMode = false
@@ -17,6 +15,8 @@ struct MusicDownloadsView: View {
     @State private var pendingDelete: MusicDownloadStore.DownloadItem?
     @State private var filterText = ""
     @FocusState private var filterFocused: Bool
+    @State private var sel = MusicMultiSelect()
+    @State private var showBatchDeleteConfirm = false
     @AppStorage("tonebox.music.downloadLayout") private var layout: MusicBrowseLayout = .list
     @AppStorage("tonebox.music.downloadSort") private var sortField: DownloadSort = .name
     @AppStorage("tonebox.music.downloadSortAscending") private var sortAscending = true
@@ -64,6 +64,9 @@ struct MusicDownloadsView: View {
         return list
     }
 
+    private var orderedIDs: [String] { filteredItems.map(\.id) }
+    private var selectedItems: [MusicDownloadStore.DownloadItem] { filteredItems.filter { sel.contains($0.id) } }
+
     private var totalSizeText: String {
         ByteCountFormatter.string(fromByteCount: store.totalBytes(), countStyle: .file)
     }
@@ -91,15 +94,25 @@ struct MusicDownloadsView: View {
                             Text(totalSizeText).font(.caption).foregroundStyle(.secondary)
                         },
                         leading: {
-                            // Hero mini-player: play-all / shuffle / prev / next / repeat, like the
-                            // other browse screens. Plays the currently-shown (filtered/sorted) list.
-                            MusicMiniTransport(
-                                onPlayWhenIdle: { model.music.play(filteredItems.map(\.song), source: downloadsSource) },
-                                pageSource: downloadsSource
-                            )
-                            Toggle(isOn: $offlineMode) { Text("Offline mode") }
-                                .toggleStyle(.switch).controlSize(.small)
-                                .help("Prefer downloaded files over streaming from the server.")
+                            if sel.isEmpty {
+                                MusicMiniTransport(
+                                    onPlayWhenIdle: { model.music.play(filteredItems.map(\.song), source: downloadsSource) },
+                                    pageSource: downloadsSource
+                                )
+                                Toggle(isOn: $offlineMode) { Text("Offline mode") }
+                                    .toggleStyle(.switch).controlSize(.small)
+                                    .help("Prefer downloaded files over streaming from the server.")
+                                if !filteredItems.isEmpty {
+                                    Button { sel.selectAll(orderedIDs) } label: {
+                                        Label("Select", systemImage: "checklist").font(.caption).labelStyle(.titleAndIcon)
+                                    }
+                                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                                    .keyboardShortcut(filterFocused ? nil : KeyboardShortcut("a", modifiers: .command))
+                                    .help("Select all downloads (⌘A)")
+                                }
+                            } else {
+                                selectionBar
+                            }
                         },
                         sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
                     )
@@ -107,6 +120,7 @@ struct MusicDownloadsView: View {
                 }
             }
         }
+        .onChange(of: orderedIDs) { sel.reconcile(orderedIDs) }
         .confirmationDialog(
             "Delete download?",
             isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
@@ -117,36 +131,90 @@ struct MusicDownloadsView: View {
         } message: { _ in
             Text("Removes the downloaded file from disk. You can download it again later.")
         }
+        .confirmationDialog(
+            "Delete \(selectedItems.count) download\(selectedItems.count == 1 ? "" : "s")?",
+            isPresented: $showBatchDeleteConfirm, titleVisibility: .visible
+        ) {
+            Button("Delete \(selectedItems.count) Download\(selectedItems.count == 1 ? "" : "s")", role: .destructive) { batchDelete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Removes the selected files from disk. You can download them again later.")
+        }
+    }
+
+    // MARK: - Selection bar
+
+    private var selectionBar: some View {
+        MusicSelectionBar(
+            count: sel.selectedCount(in: orderedIDs),
+            allSelected: sel.allSelected(orderedIDs),
+            selectAllShortcut: !filterFocused,
+            onToggleSelectAll: { sel.toggleSelectAll(orderedIDs) },
+            onClear: { sel.clear() }
+        ) {
+            MusicBatchButton(system: "play.fill", help: "Play selected") {
+                let songs = selectedItems.map(\.song)
+                MusicBatchActions.play(model, shuffle: false, label: "Downloads", kind: .liked) { songs }
+            }
+            MusicBatchButton(system: "shuffle", help: "Shuffle selected") {
+                let songs = selectedItems.map(\.song)
+                MusicBatchActions.play(model, shuffle: true, label: "Downloads", kind: .liked) { songs }
+            }
+            MusicBatchButton(system: "text.append", help: "Add to queue") {
+                let songs = selectedItems.map(\.song)
+                MusicBatchActions.queue(model) { songs }
+            }
+            MusicBatchButton(system: "square.and.arrow.down", help: "Save as playlist") {
+                let songs = selectedItems.map(\.song)
+                MusicBatchActions.save(model, name: "Downloads") { songs }
+            }
+            MusicBatchAddToPlaylistMenu(gather: { selectedItems.map(\.song) })
+            MusicBatchButton(system: "trash", help: "Delete selected downloads", tint: .red) {
+                showBatchDeleteConfirm = true
+            }
+        }
     }
 
     // MARK: - Content
 
     @ViewBuilder private var content: some View {
-        ScrollView {
-            if layout == .grid {
+        if layout == .grid {
+            ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 14)], spacing: 16) {
                     ForEach(filteredItems) { item in
                         DownloadCard(
                             item: item,
+                            isSelected: sel.contains(item.id),
+                            onToggleSelect: { sel.clicked(item.id, ordered: orderedIDs) },
                             onPlay: { play(item) },
                             onDelete: { pendingDelete = item }
                         )
                     }
                 }
                 .padding(16)
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredItems) { item in
-                        DownloadRow(
-                            item: item,
-                            onPlay: { play(item) },
-                            onDelete: { pendingDelete = item }
-                        )
-                        Divider()
-                    }
-                }
-                .padding(.horizontal, 8).padding(.vertical, 4)
             }
+        } else {
+            VStack(spacing: 0) {
+                DownloadColumns.header
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                Divider()
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(filteredItems) { item in
+                            DownloadRow(
+                                item: item,
+                                isSelected: sel.contains(item.id),
+                                onToggleSelect: { sel.clicked(item.id, ordered: orderedIDs) },
+                                onPlay: { play(item) },
+                                onDelete: { pendingDelete = item }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
         }
     }
 
@@ -172,7 +240,11 @@ struct MusicDownloadsView: View {
             model.music.isPlaying ? model.music.pause() : model.music.resume()
             return
         }
-        model.music.play([item.song], source: downloadsSource)
+        // Play the whole (filtered/sorted) list starting at this track, so playback continues
+        // through the rest — the same behavior as albums/playlists/mixes.
+        let songs = filteredItems.map(\.song)
+        let index = filteredItems.firstIndex(where: { $0.id == item.id }) ?? 0
+        model.music.play(songs, startAt: index, source: downloadsSource)
     }
 
     private func delete(_ item: MusicDownloadStore.DownloadItem) {
@@ -181,27 +253,75 @@ struct MusicDownloadsView: View {
         pendingDelete = nil
         revision += 1
     }
+
+    private func batchDelete() {
+        for item in selectedItems {
+            if model.music.nowPlaying?.id == item.id { model.music.pause() }
+            store.remove(id: item.id)
+        }
+        model.music.postToast("Deleted \(selectedItems.count) download\(selectedItems.count == 1 ? "" : "s")", symbol: "trash")
+        sel.clear()
+        revision += 1
+    }
 }
 
-// MARK: - List row
+/// Shared column geometry for the Downloads table so the header and rows line up.
+enum DownloadColumns {
+    static let thumb: CGFloat = 44
+    static let size: CGFloat = 84
+    static let time: CGFloat = 60
 
-/// A download shown as a list row — cover-art thumbnail (with a play/pause overlay on hover
-/// or while current), title/artist, on-disk size + duration, and a delete button.
+    static var header: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Color.clear.frame(width: 18, height: 1)     // selection checkbox slot
+                Color.clear.frame(width: thumb, height: 1)  // thumbnail slot
+                Text("Track")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Size").frame(width: size, alignment: .trailing)
+            Text("Time").frame(width: time, alignment: .trailing)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .textCase(.uppercase)
+    }
+}
+
+// MARK: - Table row
+
+/// A dense download table row (Artists style): select checkbox + cover thumbnail (doubles as
+/// Play), title/artist, hover actions, then right-aligned Size / Time columns.
 private struct DownloadRow: View {
     @Environment(MusicModel.self) private var model
     let item: MusicDownloadStore.DownloadItem
+    var isSelected = false
+    var onToggleSelect: () -> Void = {}
     let onPlay: () -> Void
     let onDelete: () -> Void
     @State private var hover = false
 
     private var isCurrent: Bool { model.music.nowPlaying?.id == item.id }
     private var isPlaying: Bool { isCurrent && model.music.isPlaying }
+    private var isLiked: Bool { model.musicLibrary.isLiked(item.song) }
+    private var sizeText: String { ByteCountFormatter.string(fromByteCount: item.byteSize, countStyle: .file) }
+    private var durationText: String { item.duration.map { MusicTrackRow.formatDuration($0) } ?? "—" }
+
+    private func startRadio() {
+        Task {
+            let radio = await model.musicLibrary.similarSongs(seedID: item.id)
+            guard !radio.isEmpty else { return }
+            model.music.play(radio, source: .init(label: "\(item.title) Radio", kind: .radio, id: nil))
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            MusicSelectCheckbox(isSelected: isSelected, visible: hover, onToggle: onToggleSelect)
+
             Button(action: onPlay) {
                 artwork
-                    .frame(width: 44, height: 44)
+                    .frame(width: DownloadColumns.thumb, height: DownloadColumns.thumb)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay {
                         if hover || isCurrent {
@@ -219,37 +339,65 @@ private struct DownloadRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
-                    .lineLimit(1)
+                    .font(.body.weight(.medium))
                     .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                    .lineLimit(1)
                 if let artist = item.artist, !artist.isEmpty {
-                    Text(artist).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onPlay)
 
-            Text(ByteCountFormatter.string(fromByteCount: item.byteSize, countStyle: .file))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.tertiary)
-            if let duration = item.duration {
-                Text(MusicTrackRow.formatDuration(duration))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+            if hover {
+                MusicRowActions(actions: [
+                    MusicRowAction(
+                        title: isLiked ? "Unlike" : "Like",
+                        systemImage: isLiked ? "heart.fill" : "heart",
+                        tint: isLiked ? .pink : .secondary
+                    ) {
+                        Task { await model.musicLibrary.toggleLike(item.song) }
+                    },
+                    MusicRowAction(title: "Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                        model.music.playNext([item.song])
+                    },
+                    MusicRowAction(title: "Add to Queue", systemImage: "text.append") {
+                        model.music.enqueue([item.song])
+                    },
+                    MusicRowAction(title: "Start Radio", systemImage: "dot.radiowaves.left.and.right") {
+                        startRadio()
+                    },
+                    MusicRowAction(title: "Delete Download", systemImage: "trash", tint: .red) {
+                        onDelete()
+                    },
+                ])
             }
 
-            Button(action: onDelete) {
-                Image(systemName: "trash").foregroundStyle(.secondary)
+            Group {
+                Text(sizeText).frame(width: DownloadColumns.size, alignment: .trailing)
+                Text(durationText).frame(width: DownloadColumns.time, alignment: .trailing)
             }
-            .buttonStyle(.plain)
-            .help("Delete download")
+            .font(.callout.monospacedDigit())
+            .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
+        .padding(.vertical, 6).padding(.horizontal, 10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(
+            isSelected ? Color.selectionTint() : (hover ? Color.hoverTint : .clear)
+        ))
         .onHover { hover = $0 }
-        .onTapGesture(count: 2, perform: onPlay)
+        .animation(.easeOut(duration: 0.12), value: hover)
+        .animation(.easeInOut(duration: 0.18), value: isSelected)
         .contextMenu {
-            Button("Play", action: onPlay)
-            Button("Delete Download", role: .destructive, action: onDelete)
+            Button("Play", systemImage: "play.fill", action: onPlay)
+            Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { model.music.playNext([item.song]) }
+            Button("Add to Queue", systemImage: "text.append") { model.music.enqueue([item.song]) }
+            Button(isLiked ? "Unlike" : "Like", systemImage: isLiked ? "heart.fill" : "heart") {
+                Task { await model.musicLibrary.toggleLike(item.song) }
+            }
+            Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { startRadio() }
+            Divider()
+            Button("Delete Download", systemImage: "trash", role: .destructive, action: onDelete)
         }
     }
 
@@ -277,10 +425,13 @@ private struct DownloadRow: View {
 
 // MARK: - Grid card
 
-/// A download shown as a card in the grid layout — cover art, title, artist, hover play.
+/// A download shown as a card in the grid layout — cover art, title, artist, hover play, and
+/// a selection checkbox overlay.
 private struct DownloadCard: View {
     @Environment(MusicModel.self) private var model
     let item: MusicDownloadStore.DownloadItem
+    var isSelected = false
+    var onToggleSelect: () -> Void = {}
     let onPlay: () -> Void
     let onDelete: () -> Void
     @State private var hover = false
@@ -298,10 +449,19 @@ private struct DownloadCard: View {
             isPlayingSource: isCurrent,
             onPlay: onPlay
         )
+        .overlay(alignment: .topLeading) {
+            if hover || isSelected {
+                MusicSelectCheckbox(isSelected: isSelected, onToggle: onToggleSelect)
+                    .padding(6)
+                    .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+            }
+        }
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
         .contextMenu {
             Button("Play", action: onPlay)
+            Button("Add to Queue", systemImage: "text.append") { model.music.enqueue([item.song]) }
+            Divider()
             Button("Delete Download", role: .destructive, action: onDelete)
         }
     }
