@@ -92,34 +92,25 @@ struct NowPlayingBar: View {
                     .contentShape(Rectangle())
                     .onTapGesture { if !isRadio, player.nowPlaying != nil { onExpand() } }
 
-                Button(action: onExpand) {
-                    HStack(spacing: 14) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            // Source line ("Playing from …" / "On air") — hidden when minimized.
-                            if isRadio, !barCollapsed {
-                                Label("On air", systemImage: "dot.radiowaves.left.and.right")
-                                    .font(.caption2).foregroundStyle(Color.accentColor).lineLimit(1)
-                            } else if let source = player.queueSource, player.nowPlaying != nil, !barCollapsed {
-                                Label(source.label, systemImage: source.icon)
-                                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                // Radio has no full-screen player, so its title/subtitle render as plain text
+                // (not inside the expand button — a disabled button would dim the labels).
+                if isRadio {
+                    titleBlock.frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Button(action: onExpand) {
+                        HStack(spacing: 14) {
+                            titleBlock
+                            if player.nowPlaying != nil, !barCollapsed {
+                                Image(systemName: "chevron.up").font(.caption).foregroundStyle(.tertiary)
                             }
-                            Text(radioStation?.name ?? player.nowPlaying?.title ?? "Nothing playing")
-                                .font(.body.weight(.medium)).lineLimit(1)
-                            Text(isRadio
-                                 ? (radio.engine.nowPlayingTitle ?? "On air · live")
-                                 : (player.nowPlaying?.artist ?? ""))
-                                .font(.callout).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        if !isRadio, player.nowPlaying != nil, !barCollapsed {
-                            Image(systemName: "chevron.up").font(.caption).foregroundStyle(.tertiary)
-                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .disabled(player.nowPlaying == nil)
+                    .help("Open full-screen player")
                 }
-                .buttonStyle(.plain)
-                .disabled(isRadio || player.nowPlaying == nil)
-                .help("Open full-screen player")
 
                 // Full control cluster, or — when minimized — just a compact play/pause so
                 // the bar shrinks to a slim "what's playing" strip.
@@ -160,6 +151,27 @@ struct NowPlayingBar: View {
         // snapshot, so without this the heart/stars read empty after a relaunch.
         .task(id: player.nowPlaying?.id) {
             if let song = player.nowPlaying { await model.musicLibrary.refreshRating(for: song) }
+        }
+    }
+
+    /// The title/artist (or station/live-track) block, shared by the library and radio bar so
+    /// the radio version isn't dimmed by the disabled expand button.
+    @ViewBuilder private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            // Source line ("Playing from …" / "On air") — hidden when minimized.
+            if isRadio, !barCollapsed {
+                Label("On air", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption2).foregroundStyle(Color.accentColor).lineLimit(1)
+            } else if let source = player.queueSource, player.nowPlaying != nil, !barCollapsed {
+                Label(source.label, systemImage: source.icon)
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Text(radioStation?.name ?? player.nowPlaying?.title ?? "Nothing playing")
+                .font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+            Text(isRadio
+                 ? (radio.engine.nowPlayingTitle ?? "On air · live")
+                 : (player.nowPlaying?.artist ?? ""))
+                .font(.callout).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 

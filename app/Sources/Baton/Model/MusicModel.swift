@@ -46,11 +46,17 @@ final class MusicModel {
             musicRadioBans.filtered(await musicLibrary.similarSongs(seedID: song.id))
         }
         // Log every track start to history + ping "now playing" to the scrobblers.
-        music.onTrackStarted = { [musicHistory, musicScrobbler, musicLastFM] song in
+        // Starting a library track also stops any on-air internet-radio station so the two
+        // transports stay mutually exclusive — and the bottom bar reverts from the radio
+        // view back to the normal library player.
+        music.onTrackStarted = { [musicHistory, musicScrobbler, musicLastFM, internetRadio] song in
+            internetRadio.stop()
             musicHistory.record(song)
             musicScrobbler.updateNowPlaying(song)
             musicLastFM.updateNowPlaying(song)
         }
+        // A fixed-time sleep timer stops internet radio too (it plays on a separate engine).
+        music.onSleepFire = { [internetRadio] in internetRadio.stop() }
         // Submit a completed listen once a track passes the scrobble threshold.
         music.onScrobbleEligible = { [musicScrobbler, musicLastFM] song in
             musicScrobbler.submitListen(song)

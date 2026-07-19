@@ -15,6 +15,43 @@ struct MusicPodcastsView: View {
     @State private var loading = false
     @State private var loaded = false
     @State private var loadError: String?
+    @State private var filterText = ""
+    @FocusState private var filterFocused: Bool
+    /// List ⇄ grid + sort, persisted like the other browse screens.
+    @AppStorage("tonebox.music.podcastLayout") private var layout: MusicBrowseLayout = .grid
+    @AppStorage("tonebox.music.podcastSort") private var sortField: PodcastSort = .name
+    @AppStorage("tonebox.music.podcastSortAscending") private var sortAscending = true
+
+    /// Sort fields for the Podcasts screen (mirrors the other browse screens).
+    enum PodcastSort: String, CaseIterable, Identifiable, MusicSortField {
+        case name, recent, episodes
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .name: "Name"
+            case .recent: "Latest episode"
+            case .episodes: "Episodes"
+            }
+        }
+    }
+
+    /// Channels after the header's filter + sort controls are applied.
+    private var filteredChannels: [NavidromePodcastChannel] {
+        var list = channels
+        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
+        if !query.isEmpty { list = list.filter { $0.title.lowercased().contains(query) } }
+        switch sortField {
+        case .name:
+            list.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .recent:
+            // Episodes are stored newest-first, so the first one's date is the channel's latest.
+            list.sort { ($0.episodes.first?.publishDate ?? "") < ($1.episodes.first?.publishDate ?? "") }
+        case .episodes:
+            list.sort { $0.episodes.count < $1.episodes.count }
+        }
+        if !sortAscending { list.reverse() }
+        return list
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,20 +66,7 @@ struct MusicPodcastsView: View {
 
     // MARK: - Channel browser
 
-    private var channelBrowser: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Podcasts").font(.title3.weight(.semibold))
-                Spacer()
-            }
-            .frame(height: 28)
-            .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
-            Divider()
-            content
-        }
-    }
-
-    @ViewBuilder private var content: some View {
+    @ViewBuilder private var channelBrowser: some View {
         if loading, channels.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let loadError, channels.isEmpty {
@@ -50,15 +74,44 @@ struct MusicPodcastsView: View {
         } else if channels.isEmpty, loaded {
             emptyState
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if !newestPlayable.isEmpty { latestStrip }
+            VStack(spacing: 0) {
+                // Shared browse header (title · count · filter, then sort + layout toggle) so
+                // Podcasts lines up with Albums/Artists/Playlists/Radio.
+                MusicBrowseHeader(
+                    title: "Podcasts",
+                    count: filteredChannels.count,
+                    filter: $filterText,
+                    filterPrompt: "Filter podcasts",
+                    filterFocused: $filterFocused,
+                    filterHistoryKey: "podcasts",
+                    layout: $layout,
+                    accessory: { EmptyView() },
+                    leading: { EmptyView() },
+                    sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
+                )
+                channelsScroll
+            }
+        }
+    }
+
+    private var channelsScroll: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if !newestPlayable.isEmpty { latestStrip }
+                if layout == .grid {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
-                        ForEach(channels) { channel in
+                        ForEach(filteredChannels) { channel in
                             PodcastChannelCell(channel: channel) { selected = channel }
                         }
                     }
                     .padding(16)
+                } else {
+                    LazyVStack(spacing: 2) {
+                        ForEach(filteredChannels) { channel in
+                            PodcastChannelListRow(channel: channel) { selected = channel }
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 12)
                 }
             }
         }
@@ -187,6 +240,64 @@ private struct PodcastChannelCell: View {
         )
         .onHover { hover = $0 }
         .onTapGesture(perform: onOpen)
+    }
+}
+
+// MARK: - Channel list row
+
+/// A compact row for the list layout: cover/mic thumbnail, title, newest-episode subtitle,
+/// and the episode count. Tapping opens the channel.
+private struct PodcastChannelListRow: View {
+    @Environment(MusicModel.self) private var model
+    let channel: NavidromePodcastChannel
+    let onOpen: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            thumbnail
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(channel.title).font(.body.weight(.medium)).lineLimit(1)
+                if let newest = channel.episodes.first?.title {
+                    Text(newest).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !channel.episodes.isEmpty {
+                Text("\(channel.episodes.count) ep")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 64, alignment: .trailing)
+            }
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 6).padding(.horizontal, 10)
+        .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .onTapGesture(perform: onOpen)
+    }
+
+    @ViewBuilder private var thumbnail: some View {
+        if let url = channel.coverArtID.flatMap({ model.musicLibrary.coverArtURL(id: $0, size: 88) }) {
+            AsyncImage(url: url) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                placeholder
+            }
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Color.secondary.opacity(0.12)
+            Image(systemName: "mic").foregroundStyle(.secondary)
+        }
     }
 }
 

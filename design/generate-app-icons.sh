@@ -7,8 +7,8 @@ set -eu
 
 DESIGN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_ROOT=$(CDPATH= cd -- "$DESIGN_DIR/.." && pwd)
-SOURCE="$DESIGN_DIR/Baton.master.svg"
-SOURCE_16="$DESIGN_DIR/Baton.master-16pt.svg"   # simplified 2-line variant for tiny sizes
+SOURCE="$DESIGN_DIR/Baton-dock-dark.svg"           # dark near-black plate (matches Tonebox); plate makes #E07A4B pop
+SOURCE_16="$DESIGN_DIR/Baton-dock-dark-16pt.svg"   # simplified 2-line variant on the same dark plate for tiny sizes
 MAC_DIR="$APP_ROOT/app/Assets.xcassets/AppIcon.appiconset"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
