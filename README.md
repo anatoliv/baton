@@ -66,3 +66,8 @@ tool catalog, and security model are in
 - **[docs/](docs/)** — vision, feature inventory, architecture, the integration & MCP
   design, and the roadmap.
 - Website: `website/` · Icon / design: `design/` · App: `app/` · Site deploy: `deploy/`
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and distribute. Made by
+[Tonebox](https://tonebox.io), given away for free.

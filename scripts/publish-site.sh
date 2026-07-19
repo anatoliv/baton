@@ -64,14 +64,15 @@ status="$(ssh "$WEB01" "docker inspect -f '{{.State.Status}}' baton_web 2>/dev/n
 [ "$status" = "running" ] || fail "baton_web container is '$status' (expected running)"
 echo "    container baton_web: $status"
 
-# End-to-end check through the NPM edge (needs the proxy host to exist).
-code="$(ssh "$WEB01" "curl -s -o /dev/null -w '%{http_code}' --max-time 8 -H 'Host: $HOSTNAME_FQDN' http://127.0.0.1/ || true")"
-if [ "$code" = "200" ]; then
-  bold "✓ $HOSTNAME_FQDN healthy through the edge (200)"
+# Does the edge actually serve OUR site? A bare 200 can be the reverse proxy's
+# own default page, so match on content, not status.
+served="$(ssh "$WEB01" "curl -s --max-time 8 -H 'Host: $HOSTNAME_FQDN' http://127.0.0.1/ 2>/dev/null | grep -c 'Conduct <em>your</em> music' || true")"
+if [ "${served:-0}" -gt 0 ]; then
+  bold "✓ $HOSTNAME_FQDN is served through the edge"
 else
   echo
-  bold "Container is up, but the edge returned HTTP ${code:-none}."
-  echo "  First deploy? Finish the one-time setup in deploy/README.md:"
+  bold "Container is up and serving, but the edge isn't routing $HOSTNAME_FQDN to it yet."
+  echo "  Finish the one-time setup in deploy/README.md:"
   echo "    · reverse-proxy host  $HOSTNAME_FQDN → baton_web:80  (+ Let's Encrypt cert)"
   echo "    · DNS A record        $HOSTNAME_FQDN → <your host's public IP>"
 fi
