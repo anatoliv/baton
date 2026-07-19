@@ -20,6 +20,28 @@ export WEB01=user@your-host        # SSH target for the web host
 export REMOTE_DIR=/opt/docker/baton-web
 ```
 
+### The actual host (web-01)
+
+Baton's site is a tenant on **web-01**, the same shared self-hosted homelab box
+that hosts Tonebox's Sparkle appcast — Baton mirrors that setup:
+`tonebox_appcast → /opt/docker/tonebox-appcast` becomes
+`baton_web → /opt/docker/baton-web`, both nginx containers on `proxy_net` behind
+the same Nginx Proxy Manager edge.
+
+web-01 **does not resolve by name** — it's reached over the LAN by IP with SSH
+key auth (passwordless sudo). So there is no `web-01` DNS entry or default SSH
+alias; you must pass the target explicitly:
+
+```sh
+WEB01=anatoli@<web-01-lan-ip> ./scripts/publish-site.sh
+```
+
+The concrete LAN IP (and host-key fingerprint) are deliberately **kept out of
+this public repo** — they live in the private Tonebox infra notes
+(`~/Projects/tonebox/infra/SERVERS.md`, the `web-01` row). Set `WEB01` from there
+per-invocation rather than committing it, or add a `web-01` alias to your local
+`~/.ssh/config`. Deploys must run from a machine on the same LAN.
+
 ## Routine deploy
 
 From the repo root:
