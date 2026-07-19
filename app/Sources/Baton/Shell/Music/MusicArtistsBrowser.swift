@@ -83,6 +83,8 @@ enum ArtistActions {
         let songs = await model.musicLibrary.artistSongs(id: artist.id)
         guard !songs.isEmpty else { return }
         model.music.postToast("Downloading \(songs.count) song\(songs.count == 1 ? "" : "s")…", symbol: "arrow.down.circle")
+        // Record the artist's full track set so its download badge can report complete/partial.
+        MusicDownloadStore.shared.registerCollection(kind: "artist", id: artist.id, trackIDs: songs.map(\.id))
         await MusicDownloadStore.shared.download(songs)
     }
 
@@ -109,6 +111,7 @@ func artistActionMenuItems(
     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") {
         run { await ArtistActions.radio(artist, model) }
     }
+    PinMenuButton(item: .artist(artist), model: model)
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await ArtistActions.download(artist, model) } }
     Button("Save as Playlist", systemImage: "square.and.arrow.down") {
@@ -425,6 +428,8 @@ struct MusicArtistListRow: View {
                 ])
             }
 
+            DownloadStatusBadge(artistID: artist.id)
+
             Group {
                 Text(albumsText).frame(width: ArtistColumns.albums, alignment: .trailing)
                 Text(tracksText).frame(width: ArtistColumns.tracks, alignment: .trailing)
@@ -587,6 +592,7 @@ struct MusicArtistGridCard: View {
             isHovering: isHovering,
             isWorking: isWorking,
             isPlayingSource: isPlayingSource,
+            downloadStatus: DownloadStatusBadge.status(artistID: artist.id),
             onPlay: onPlay
         )
         .task(id: artist.id) { stats = await model.musicLibrary.artistStats(id: artist.id) }

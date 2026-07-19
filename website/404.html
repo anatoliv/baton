@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baton: page not found</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="That page isn't here. Head back to baton.tonebox.io or open the Baton help.">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#faf6f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171310" media="(prefers-color-scheme: dark)">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path d="M150 560Q330 430 512 560T874 560" stroke="%23E98345" stroke-width="104" stroke-linecap="round" fill="none"/><path d="M150 792Q330 922 512 792T874 792" stroke="%23E98345" stroke-width="104" stroke-linecap="round" fill="none" opacity=".7"/><g fill="%23E98345"><path d="M360 400h60v-252h-60z"/><path d="M420 148Q560 164 560 300Q560 356 500 372Q548 316 512 264Q476 214 420 236z"/><g transform="translate(316 396) rotate(-22)"><ellipse rx="104" ry="80"/></g></g></svg>'>
+<link rel="stylesheet" href="styles.css">
+<style>
+/* Centered 404 hero, built on the site's tokens so it matches index.html. */
+/* Each element owns its own margin (single-class specificity) so the
+   vertical rhythm is explicit and nothing overrides anything else. */
+.nf { max-width: 46rem; margin: 0 auto; padding: clamp(2.5rem, 11vh, 7rem) var(--pad) clamp(3rem, 8vh, 6rem); text-align: center; }
+.nf-mark { width: clamp(84px, 16vw, 128px); height: auto; margin: 0 auto 1.9rem; display: block; }
+.nf-code { font-family: var(--mono); font-size: var(--step-1); letter-spacing: 0.24em; color: var(--accent-deep); text-transform: uppercase; margin: 0 0 0.65rem; }
+:where([data-theme="dark"]) .nf-code { color: var(--accent); }
+.nf h1 { font-family: var(--serif); font-size: var(--step-4); font-weight: 760; letter-spacing: -0.02em; line-height: 1.05; margin: 0 0 1.15rem; }
+.nf-lead { font-size: var(--step-1); line-height: 1.55; color: var(--ink-dim); text-wrap: pretty; margin: 0 auto 2.1rem; max-width: 34rem; }
+.nf-actions { display: flex; flex-wrap: wrap; gap: 0.7rem; justify-content: center; }
+.nf-links { margin: 1.9rem 0 0; font-size: 0.94rem; color: var(--ink-faint); }
+.nf-links a { color: var(--accent-deep); text-decoration: none; }
+:where([data-theme="dark"]) .nf-links a { color: var(--accent); }
+.nf-links a:hover { text-decoration: underline; }
+</style>
+<script>
+/* Apply saved theme before first paint to avoid a flash (mirrors index.html). */
+(function () {
+  document.documentElement.classList.add("js");
+  try {
+    var t = localStorage.getItem("baton-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header" role="banner">
+  <a class="brand" href="index.html" aria-label="Baton home">
+    <svg class="brand-mark" viewBox="0 0 1024 1024" width="30" height="30" aria-hidden="true" focusable="false">
+      <path d="M180.8 372Q328 261.6 512 372T843.2 372" stroke="var(--accent)" stroke-width="71.76" stroke-linecap="round" fill="none"/>
+      <path d="M180.8 556Q328 445.6 512 556T843.2 556" stroke="var(--accent)" stroke-width="71.76" stroke-linecap="round" fill="none" opacity=".82"/>
+      <path d="M180.8 740Q328 850.4 512 740T843.2 740" stroke="var(--accent)" stroke-width="71.76" stroke-linecap="round" fill="none" opacity=".64"/>
+      <g fill="var(--accent)">
+        <path d="M358 246h40v-158h-40z"/>
+        <path d="M398 88Q506 100 506 190Q506 236 458 250Q496 206 466 168Q438 132 398 148z"/>
+        <g transform="translate(322 244) rotate(-24)"><ellipse rx="70" ry="52"/></g>
+      </g>
+    </svg>
+    <span class="brand-name">Baton</span>
+    <span class="brand-by">by Tonebox</span>
+  </a>
+  <nav class="site-nav" aria-label="Site">
+    <a href="index.html#agents">Agents</a>
+    <a href="index.html#features">Features</a>
+    <a href="index.html#library">Your library</a>
+    <a href="index.html#compare">Compare</a>
+  </nav>
+  <div class="header-actions">
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch color theme" title="Switch theme">
+      <svg class="icon-sun" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M18.8 5.2l-1.7 1.7M6.9 17.1l-1.7 1.7"/></g></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    </button>
+    <a class="btn btn-small" href="index.html#get">Coming soon</a>
+  </div>
+</header>
+
+<main id="main" class="nf">
+  <svg class="nf-mark" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false">
+    <path d="M150 560Q330 430 512 560T874 560" stroke="var(--accent)" stroke-width="104" stroke-linecap="round" fill="none"/>
+    <path d="M150 792Q330 922 512 792T874 792" stroke="var(--accent)" stroke-width="104" stroke-linecap="round" fill="none" opacity=".55"/>
+    <g fill="var(--accent)">
+      <path d="M360 400h60v-252h-60z"/>
+      <path d="M420 148Q560 164 560 300Q560 356 500 372Q548 316 512 264Q476 214 420 236z"/>
+      <g transform="translate(316 396) rotate(-22)"><ellipse rx="104" ry="80"/></g>
+    </g>
+  </svg>
+  <p class="nf-code">Error 404</p>
+  <h1>This page missed its cue.</h1>
+  <p class="nf-lead">The page you were after isn't here. It may have moved, or the link had a typo. Let's get you back to something that plays.</p>
+  <div class="nf-actions">
+    <a class="btn btn-primary" href="index.html">Back to home</a>
+    <a class="btn btn-ghost" href="help.html">Open the help &amp; FAQ</a>
+  </div>
+  <p class="nf-links">
+    Looking for something specific? Try the
+    <a href="help.html">help guide</a> or the
+    <a href="help.html#faq">FAQ</a>.
+  </p>
+</main>
+
+<footer class="site-footer" role="contentinfo">
+  <div class="footer-inner">
+    <p class="footer-brand">
+      <strong>Baton</strong> by <a href="https://tonebox.io">Tonebox</a>
+      <span class="footer-sep" aria-hidden="true">·</span> free, for your own music
+    </p>
+    <nav class="footer-nav" aria-label="Footer">
+      <a href="help.html">Docs</a>
+      <a href="https://github.com/anatoliv/baton">GitHub</a>
+      <a href="https://tonebox.io">Tonebox</a>
+      <a href="index.html#agents">MCP&nbsp;/&nbsp;agents</a>
+    </nav>
+  </div>
+  <p class="footer-note">Baton is a sibling of Tonebox, the audio-capture app. They duck and resume each other's audio politely.</p>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

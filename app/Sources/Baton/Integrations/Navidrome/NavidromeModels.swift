@@ -18,6 +18,11 @@ struct NavidromeSong: Identifiable, Hashable, Codable {
     let duration: Int?
     /// Cover-art id (feed to `coverArtURL(id:)`), when present.
     let coverArtID: String?
+    /// A *direct* artwork URL that bypasses the Subsonic cover-art path. Set for client-side
+    /// podcast episodes, whose art is a plain web image (no `coverArtID`); nil for library
+    /// tracks, which resolve art from `coverArtID`. When present, every now-playing surface
+    /// prefers it (see `displayArtworkURL(...)`).
+    var artworkURL: URL?
     /// Whether the current user has "liked" (starred) this track. Runtime/display
     /// state refreshed from the server; deliberately NOT persisted in the queue.
     var isLiked: Bool = false
@@ -36,11 +41,20 @@ struct NavidromeSong: Identifiable, Hashable, Codable {
         return title
     }
 
+    /// The artwork URL a now-playing surface should show: a direct `artworkURL` (podcasts)
+    /// wins; otherwise the Subsonic cover-art URL built from `coverArtID` at the requested
+    /// size via `resolve`. Nil when the song has no art of either kind.
+    func displayArtworkURL(size: Int, resolve: (_ coverArtID: String, _ size: Int) -> URL?) -> URL? {
+        if let artworkURL { return artworkURL }
+        guard let coverArtID else { return nil }
+        return resolve(coverArtID, size)
+    }
+
     /// Persist identity/metadata + ReplayGain (static, safe to cache) — rating/like state
     /// is always re-fetched from the server, so a stale persisted queue never carries
     /// wrong like/rating values.
     enum CodingKeys: String, CodingKey {
-        case id, title, artist, album, albumID, duration, coverArtID, replayGain, track
+        case id, title, artist, album, albumID, duration, coverArtID, artworkURL, replayGain, track
     }
 }
 

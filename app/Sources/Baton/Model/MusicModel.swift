@@ -23,19 +23,48 @@ final class MusicModel {
     let musicScrobbler = MusicScrobbler()
     /// External scrobbling to Last.fm (opt-in via API key/secret + browser auth).
     let musicLastFM = MusicLastFM()
+    /// Owns all scrobble policy — server play-counts + "now playing", threshold-gated
+    /// completed listens, podcast exclusion, the durable offline retry queue, and whether
+    /// Last.fm/ListenBrainz are scrobbled by Baton or delegated to the server.
+    let scrobbler: ScrobbleService
     /// 10-band equalizer for the music player (off by default).
     let musicEqualizer = MusicEqualizer()
     /// Internet-radio stations + raw-stream player + lazily-resolved logos/genre.
     let internetRadio = InternetRadioStore()
+    /// Whether the active server implements the Subsonic podcast API (Navidrome does not).
+    /// Selects which backend the Podcasts tab uses (server-side vs. client-side RSS).
+    let podcastCapability = PodcastCapabilityStore()
+    /// Client-side podcast subscriptions (RSS feeds Baton fetches directly). The universal
+    /// podcast backend — works on every server, including Navidrome.
+    let podcastSubscriptions = PodcastSubscriptionStore()
+    /// Per-episode listening progress — resume position + played state for podcasts.
+    let podcastProgress = PodcastProgressStore()
+    /// User-defined webhook actions (e.g. "save transcript"), run per-item or over a selection.
+    let webhookActions = WebhookActionStore()
+    /// Cross-type "save for later" pins (songs, albums, podcasts, radio…), surfaced in Later.
+    let pins = PinStore()
+    /// One-off spoken task summaries (the `speak_summary` MCP tool) + in-app banner state.
+    let speech = SpeechPlaybackEngine()
 
     /// Retained so the audio-mix closure keeps a strong reference to the tap processor.
     @ObservationIgnored private let eqProcessor: AudioEQProcessor
 
     init() {
         eqProcessor = AudioEQProcessor(coefficients: musicEqualizer.coefficients)
+        scrobbler = ScrobbleService(listenBrainz: musicScrobbler, lastfm: musicLastFM, localArchive: musicHistory)
         // Radio ducks the library transport while a station is on the air.
         internetRadio.duckController = music
         wire()
+    }
+
+    /// UserDefaults flag (default true): remove a podcast episode's download once finished.
+    static let autoRemoveFinishedKey = "tonebox.podcast.autoRemoveFinished"
+
+    /// A client-side podcast episode plays with its enclosure URL as its id (an absolute
+    /// http(s) string); library tracks use Subsonic ids. That distinction is enough to route
+    /// resume/progress to podcasts only.
+    static func isPodcastEpisode(_ song: NavidromeSong) -> Bool {
+        song.id.hasPrefix("http://") || song.id.hasPrefix("https://")
     }
 
     /// Wire the stores together — continuous radio, history + scrobbling on track start,
@@ -49,18 +78,38 @@ final class MusicModel {
         // Starting a library track also stops any on-air internet-radio station so the two
         // transports stay mutually exclusive — and the bottom bar reverts from the radio
         // view back to the normal library player.
-        music.onTrackStarted = { [musicHistory, musicScrobbler, musicLastFM, internetRadio] song in
+        music.onTrackStarted = { [scrobbler, internetRadio] song in
             internetRadio.stop()
-            musicHistory.record(song)
-            musicScrobbler.updateNowPlaying(song)
-            musicLastFM.updateNowPlaying(song)
+            scrobbler.nowPlaying(song)
+        }
+        // Local listening history is recorded at the *threshold* (via ScrobbleService.completed),
+        // not at track start, so it counts only tracks you actually listened to — matching the
+        // external scrobblers instead of over-counting skips.
+        // Podcast resume: when a podcast episode starts, hand the player its saved offset so it
+        // picks up where you left off. Library tracks (non-URL ids) never resume.
+        music.resumeOffsetProvider = { [podcastProgress] song in
+            guard Self.isPodcastEpisode(song) else { return nil }
+            return podcastProgress.resumeOffset(id: song.id)
+        }
+        // Podcast progress: persist position periodically + at end. When an episode crosses
+        // into "played", auto-remove its download (storage hygiene, opt-out via UserDefaults).
+        music.onProgressUpdate = { [podcastProgress] song, time, duration in
+            guard Self.isPodcastEpisode(song) else { return }
+            podcastProgress.record(id: song.id, position: time, duration: duration)
+            // Auto-remove the download only when the episode actually reaches its end (the
+            // end-of-track handler reports time == duration) — NOT at the 97%-played mark, so a
+            // long episode isn't deleted with minutes still to play.
+            let reachedEnd = duration > 1 && time >= duration - 1
+            if reachedEnd, UserDefaults.standard.object(forKey: Self.autoRemoveFinishedKey) as? Bool ?? true {
+                MusicDownloadStore.shared.delete(song.id)
+            }
         }
         // A fixed-time sleep timer stops internet radio too (it plays on a separate engine).
         music.onSleepFire = { [internetRadio] in internetRadio.stop() }
-        // Submit a completed listen once a track passes the scrobble threshold.
-        music.onScrobbleEligible = { [musicScrobbler, musicLastFM] song in
-            musicScrobbler.submitListen(song)
-            musicLastFM.scrobble(song)
+        // Record a completed listen once a track passes the scrobble threshold. `startedAt`
+        // is when the track began — the canonical scrobble timestamp.
+        music.onScrobbleEligible = { [scrobbler] song, startedAt in
+            scrobbler.completed(song, startedAt: startedAt)
         }
         // Attach/detach the EQ audio-mix tap on each loaded item; re-apply when toggled.
         music.configureAudioMix = { [musicEqualizer, eqProcessor] item in

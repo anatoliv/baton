@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 /// Baton — a standalone, free macOS music player extracted from Tonebox.
 ///
@@ -18,6 +19,10 @@ struct BatonApp: App {
     /// The native fast-path listener (Unix socket) for latency-critical audio ducking.
     /// Shares the MCP server's audio-focus registry so socket + MCP focus interoperate (§7).
     @State private var controlSocket: BatonControlSocket?
+
+    /// Notification-center delegate for the `speak_summary` tool's "Play" action. Retained
+    /// for the app's lifetime so tapping a spoken-summary notification plays the audio.
+    @State private var speechNotifier: SpeechNotificationDelegate?
 
     /// Window id for the custom About panel (opened from the app menu).
     static let aboutWindowID = "baton-about"
@@ -39,6 +44,11 @@ struct BatonApp: App {
                         // Start the fast-path listener sharing the server's focus registry.
                         let sock = BatonControlSocket(focus: s.focus, music: music); sock.start()
                         controlSocket = sock
+                        // Route spoken-summary notifications ("Play" action) to the engine.
+                        let notifier = SpeechNotificationDelegate(speech: music.speech)
+                        UNUserNotificationCenter.current().delegate = notifier
+                        SpeechNotifier.registerCategory()
+                        speechNotifier = notifier
                         // Tear both down on app quit so the accept threads stop and the
                         // control.sock file / advertised endpoints don't linger.
                         NotificationCenter.default.addObserver(
@@ -60,6 +70,9 @@ struct BatonApp: App {
         .commands {
             BatonAppCommands()
             PlaybackMenuCommands(model: music)
+            // Help menu: "Baton Help" (⌘?) + "What's New", opening the
+            // in-app two-pane Help window (BatonHelpView).
+            HelpMenuCommands()
         }
 
         // Detached mini player (⌘⌥M elsewhere; opened via the transport's mini button).
@@ -89,6 +102,17 @@ struct BatonApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 760, height: 560)
+        .defaultPosition(.center)
+
+        // In-app Help window (⌘?). Two-pane help center that renders the
+        // bundled HELP.md / FAQ.md guides, with search, callouts, working
+        // cross-links, What's New, and guided tours. See BatonHelpView.
+        Window("Baton Help", id: BatonHelpView.windowID) {
+            BatonHelpView()
+                .tint(.batonOrange)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 1040, height: 660)
         .defaultPosition(.center)
 
         // Always-available menu-bar controller — current track + compact transport,

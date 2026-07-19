@@ -43,6 +43,11 @@
 .doc-body a { color: var(--accent-deep); }
 :where([data-theme="dark"]) .doc-body a { color: var(--accent); }
 kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 0.08em 0.42em; color: var(--ink); white-space: nowrap; }
+.doc-body pre { background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem; overflow-x: auto; margin: 0 0 0.9rem; }
+/* Inside a code block the container carries the background, so strip the
+   inline-code chip styling off <code> to avoid per-line boxes. */
+.doc-body pre code { font-family: var(--mono); font-size: 0.82rem; line-height: 1.55; color: var(--ink); white-space: pre; background: none; border: 0; padding: 0; }
+.doc-body h3 code { font-size: 0.9em; }
 .sc-table { width: 100%; border-collapse: collapse; margin: 0.4rem 0 0.9rem; font-size: 0.94rem; }
 .sc-table th, .sc-table td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--line); }
 .sc-table th { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); font-weight: 640; }
@@ -125,6 +130,8 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
       <a href="#scrobbling">Scrobbling</a>
       <a href="#keys">Media keys &amp; AirPlay</a>
       <a href="#shortcuts">Keyboard shortcuts</a>
+      <a href="#actions">Webhook actions</a>
+      <a href="#speech">Spoken summaries</a>
       <a href="#agents">Agent (MCP) control</a>
       <a href="#updates">Updates</a>
       <a href="#roadmap">Roadmap</a>
@@ -142,7 +149,7 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
           <li>Click <strong>Connect</strong>. Baton verifies the connection <em>before</em> saving anything. If it works, your library loads in place; if not, it tells you why so you can fix the URL or credentials.</li>
         </ul>
         <p>Your credentials are stored in the <strong>macOS Keychain</strong>, never in a plaintext file.</p>
-        <p><strong>Multiple servers.</strong> Open <strong>Settings ▸ Servers</strong> (<kbd>⌘,</kbd>) to add more than one server and switch the active one. Baton keeps each server's credentials separately in the Keychain and reloads the library when you switch; your existing single connection is carried over automatically the first time.</p>
+        <p><strong>Multiple servers.</strong> Open <strong>Settings</strong> (<kbd>⌘,</kbd>) and choose the <strong>Servers</strong> pane to add more than one server and switch the active one. Baton keeps each server's credentials separately in the Keychain and reloads the library when you switch; your existing single connection is carried over automatically the first time.</p>
       </section>
 
       <section id="browsing">
@@ -161,7 +168,14 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
           <li><strong>Radio</strong>: your server's internet-radio stations; add, edit, or remove a station (name + stream URL).</li>
           <li><strong>Downloads</strong>: everything saved for offline play, with total size on disk and an Offline-mode toggle.</li>
         </ul>
-        <p><strong>Rating &amp; liking.</strong> Tap the heart, or use the 5-star rating. Ratings are stored per-user on your server, so they follow you to any Subsonic client. <strong>Multi-select:</strong> shift-click a range, <kbd>⌘A</kbd> to select all, then apply batch actions (like, queue, download).</p>
+        <p><strong>Rating &amp; liking.</strong> Tap the heart, or use the 5-star rating. Ratings are stored per-user on your server, so they follow you to any Subsonic client. <strong>Multi-select:</strong> shift-click a range, <kbd>⌘A</kbd> to select all, then apply batch actions (like, add to queue, save as playlist, download, or mark for removal).</p>
+        <h3>Mixes</h3>
+        <p>Baton builds six standing mixes from how you listen: <strong>Most Played</strong>, <strong>Fresh Additions</strong>, <strong>Top Rated</strong>, <strong>On Repeat</strong>, <strong>Forgotten Favorites</strong> (liked, but not heard in the last month), and <strong>Discover</strong>, plus a per-genre <strong>Genres</strong> section. Each mix has its own page to Play, Shuffle, Queue, or download the whole thing. An agent can also build a mix to a length you ask for with <code>music_build_mix</code>.</p>
+        <h3>History</h3>
+        <p>The History tab is a local play log kept on your Mac: <strong>Recent</strong>, <strong>Tracks</strong>, <strong>Albums</strong>, and <strong>Artists</strong>, over This Week, This Month, or All Time. It's a free, local alternative to Last.fm or ListenBrainz, and you can export it as ListenBrainz JSON or CSV, import listens, or clear it.</p>
+        <div class="callout">
+          <strong>Mark for Removal.</strong> Subsonic servers have no delete-file command, so Baton can't remove tracks from the server directly. "Mark for Removal" unlikes a track and rates it one star, a signal a separate server-side cleanup routine can read to prune it later.
+        </div>
       </section>
 
       <section id="playing">
@@ -172,6 +186,8 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
         <p>Big artwork, an adaptive backdrop tinted from the album art, a waveform scrubber (for downloaded tracks), and side panels for Queue, Lyrics (synced karaoke-style when your server has them), and Related tracks. <kbd>Space</kbd> plays/pauses, <kbd>Esc</kbd> exits.</p>
         <h3>The floating mini-player</h3>
         <p>A borderless, always-on-top mini-player window (<kbd>⌘⌥M</kbd>): a compact card with the current track, artwork, scrubber, rating, and Up Next that you can keep in a corner while you work. On macOS 26+ it uses Liquid Glass.</p>
+        <h3>The menu-bar controller</h3>
+        <p>Baton also lives in the macOS menu bar, showing what's playing with Play/Pause, Next, and Previous, plus shortcuts to open the main window or the mini-player. It keeps Baton (and the control server) reachable in the background even when every window is closed.</p>
         <h3>Queue &amp; modes</h3>
         <p>Drag to reorder, remove tracks, or clear the queue; Baton remembers it between launches and restores it paused. <strong>Shuffle</strong> keeps the current track playing and restores order when turned off. <strong>Repeat</strong> is Off / All / One. <strong>Continuous radio</strong> tops up the queue with similar tracks as you near the end.</p>
         <h3>Sleep timer</h3>
@@ -184,8 +200,9 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
           <li><strong>True gapless playback.</strong> Live albums and continuous mixes play with no silence between tracks. Baton pre-loads the next track (even prefetching network streams to disk); you can limit prefetch to Wi-Fi to avoid eating a metered connection.</li>
           <li><strong>Crossfade.</strong> Optionally overlap the end of one track into the next. (Crossfade and true-gapless are mutually exclusive: one overlaps, the other abuts.)</li>
           <li><strong>Loudness normalization (ReplayGain / R128).</strong> Even out volume across tracks or albums, using your server's ReplayGain data, with an adjustable preamp.</li>
-          <li><strong>Parametric equalizer.</strong> Open <strong>Audio ▸ Equalizer</strong> (<kbd>⌥⌘E</kbd>) for a multi-band EQ where each band's frequency, Q, and gain are adjustable, with a live response curve and presets. Off by default, and bit-exact pass-through when off.</li>
+          <li><strong>Parametric equalizer.</strong> Open the <strong>Equalizer</strong> from the Audio menu (<kbd>⌥⌘E</kbd>) or the Equalizer pane in Settings. Ten bands, each with adjustable frequency, Q, and gain, a live response curve, and presets (Flat, Bass Boost, Treble Boost, Vocal, Rock, Electronic, Loudness, Vocal Boost, Bass Reduce). Off by default, and bit-exact pass-through when off.</li>
         </ul>
+        <p>You don't have to set any of this up. After you've played about twenty tracks, Baton picks defaults from how you listen: gapless for album listeners, a gentle crossfade and autoplay for shuffle listeners, and it tells you what it did. Change any of it in Settings.</p>
       </section>
 
       <section id="downloads">
@@ -227,20 +244,147 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
         <p>The Playback menu also holds Shuffle, Repeat, and the Sleep Timer. In the full-screen player, <kbd>Space</kbd> toggles play/pause and <kbd>Esc</kbd> exits; in browse lists, <kbd>⌘A</kbd> selects all.</p>
       </section>
 
+      <section id="actions">
+        <h2>Webhook actions</h2>
+        <p>Webhook actions send a media item to an HTTP endpoint you choose. They're aimed at podcast episodes: for example, POST an episode's audio URL to a service that transcribes it. Set them up in <strong>Settings</strong>, in the <strong>Actions</strong> pane: give an action a name, pick a method (POST, GET, PUT, PATCH, DELETE) and a URL, add any headers, and write a body for methods that send one.</p>
+        <p>Anywhere you write a URL, header, or body you can drop in tokens that Baton fills from the episode: <code>{title}</code>, <code>{channelTitle}</code>, <code>{enclosureUrl}</code>, <code>{feedUrl}</code>, <code>{guid}</code>, <code>{pubDate}</code>, <code>{durationSec}</code>, <code>{episodeImageUrl}</code>, <code>{channelImageUrl}</code>, and <code>{description}</code>. Your actions appear in the <code>...</code> / right-click menu on an episode, and in the multi-select bar. They only ever fire when you run them.</p>
+      </section>
+
+      <section id="speech">
+        <h2>Spoken summaries: agents that talk</h2>
+        <p>Baton's other agent-native feature is a <strong>voice</strong>. Through the <code>speak_summary</code> tool, an agent can have Baton say a short line out loud in a natural voice, so you <em>hear</em> “deploy finished, all green” instead of watching a screen for it. Baton can act on your music and it can talk back.</p>
+        <p>This really shines with <strong>more than one agent running at once</strong>. Give each agent, or each kind of task, its own voice, and you can tell them apart by ear without switching windows: the deploy agent in one voice, the research agent in another, an alert in a third. Practical for a busy multi-agent run, and genuinely fun. Configure it all in the <strong>Speech</strong> pane in Settings.</p>
+        <h3>How an agent talks</h3>
+        <p><code>speak_summary</code> takes the line to say (<code>text</code>), a <code>category</code> that picks the voice from your map, an optional explicit <code>voice</code> or <code>engine</code>, and a <code>mode</code>: <code>notify</code> (a macOS notification with a Play button, the default), <code>banner</code> (an in-app banner), or <code>auto</code> (speak it right away).</p>
+        <h3>One voice per agent</h3>
+        <p>The category-to-voice map is where the multi-agent magic lives. Baton ships a starter map you can edit, extend, and preview:</p>
+        <table class="sc-table">
+          <thead><tr><th scope="col">Category</th><th scope="col">Voice</th><th scope="col">Good for</th></tr></thead>
+          <tbody>
+            <tr><td><code>default</code></td><td>Kokoro af_heart</td><td>Anything with no category</td></tr>
+            <tr><td><code>research</code></td><td>Kokoro af_bella</td><td>A research or analysis agent</td></tr>
+            <tr><td><code>deploy</code></td><td>Kokoro am_michael</td><td>Deploys and builds</td></tr>
+            <tr><td><code>ops</code></td><td>Kokoro am_fenrir</td><td>Ops and infrastructure</td></tr>
+            <tr><td><code>alert</code></td><td>Kokoro af_nova</td><td>Anything urgent</td></tr>
+            <tr><td><code>premium</code></td><td>Chatterbox Emily.wav</td><td>A cloned or premium voice</td></tr>
+            <tr><td><code>es</code></td><td>Kokoro ef_dora</td><td>Spanish</td></tr>
+          </tbody>
+        </table>
+        <p>Add a category per agent, pick the engine and voice, and preview it. A five-agent run becomes five distinct voices, and you always know who's talking.</p>
+        <h3>The voices</h3>
+        <p>Baton speaks through self-hosted, OpenAI-compatible text-to-speech servers on your own network, so the audio never leaves your machines: <strong>Kokoro</strong> for fast preset voices (the default) and <strong>Chatterbox</strong> for premium voices and <strong>voice cloning</strong>. Enter each server's address and use <strong>Test</strong> to check it.</p>
+        <div class="callout">
+          You don't have to run any TTS servers. If none are set up, or one is unreachable, Baton falls back to the built-in macOS voice, so <code>speak_summary</code> still works and a line is never silently dropped (the fallback is on by default).
+        </div>
+      </section>
+
       <section id="agents">
         <h2>Let an agent control your music</h2>
-        <p>This is what makes Baton different from every other Subsonic player: it can be driven by software, not just by you clicking buttons. Baton hosts a small control server on your Mac that speaks <a href="https://modelcontextprotocol.io/" rel="external">MCP</a> (the Model Context Protocol), the same protocol Claude and other AI agents use to talk to tools. So you can say things like:</p>
+        <p>This is the feature Baton is built around: it can be driven by software, not just by you clicking buttons. Baton hosts a small control server on your Mac that speaks <a href="https://modelcontextprotocol.io/" rel="external">MCP</a> (the Model Context Protocol), the same protocol Claude and other AI agents use to talk to tools. So you can say things like:</p>
         <ul>
           <li>“Put on a 40-minute instrumental focus set.”</li>
           <li>“What's playing? Like it.”</li>
           <li>“Make a playlist of everything I liked this month.”</li>
           <li>“Turn it down” / “skip this” / “play some jazz.”</li>
         </ul>
-        <p>…and the agent carries them out in Baton, searching your library, building a queue, starting playback, rating tracks, and creating playlists. The control surface exposes the same operations Baton's own UI uses, so anything the agent does is something you could have done by hand.</p>
-        <p><strong>How it's secured:</strong> the control server listens <strong>only on your own machine</strong> (loopback) and every request must present a <strong>secret token</strong> Baton generates. No token, no access.</p>
-        <p><strong>How Tonebox uses it.</strong> When you start dictating or recording in <a href="https://tonebox.io" rel="external">Tonebox</a>, it can ask Baton to <strong>duck the music</strong> and bring it back afterward, but only if you didn't change playback yourself in the meantime. This “audio-focus” hand-off is a first-class part of Baton's control interface. One agent-native operation worth calling out is <strong><code>music_build_mix</code></strong>: an agent hands Baton a free-text request (“upbeat 40-minute focus mix”) and Baton assembles a set from your library that lands close to the requested length, then queues it or saves it as a playlist.</p>
+        <p>…and the agent carries them out in Baton, searching your library, building a queue, starting playback, rating tracks, and creating playlists. The control surface exposes the same operations Baton's own UI uses, so anything the agent does is something you could have done by hand. You don't need an agent to use Baton; this is an extra surface on top of a complete player.</p>
+
+        <h3>Connecting a client</h3>
+        <p>The server runs automatically while Baton is open, so there's nothing to switch on. When it starts, Baton writes a discovery file with everything a client needs at <code>~/Library/Application&nbsp;Support/Baton/mcp.json</code>:</p>
+        <pre><code>{
+  "schemaVersion": 1,
+  "name": "baton",
+  "transport": "streamable-http",
+  "url": "http://127.0.0.1:8787/mcp",
+  "token": "b7f3c0…a1c9",
+  "app": { "bundleId": "io.tonebox.baton", "version": "0.1.0" }
+}</code></pre>
+        <p>Point a client at the <code>url</code> over the <strong>Streamable HTTP</strong> transport and pass the <code>token</code> as a bearer token. In <strong>Claude Code</strong> that's one command:</p>
+        <pre><code>claude mcp add --transport http baton \
+  http://127.0.0.1:8787/mcp \
+  --header "Authorization: Bearer &lt;token-from-mcp.json&gt;"</code></pre>
+        <p>For <strong>Claude Desktop</strong>, or any client that uses an <code>mcpServers</code> config block:</p>
+        <pre><code>{
+  "mcpServers": {
+    "baton": {
+      "type": "http",
+      "url": "http://127.0.0.1:8787/mcp",
+      "headers": { "Authorization": "Bearer &lt;token-from-mcp.json&gt;" }
+    }
+  }
+}</code></pre>
         <div class="callout">
-          <strong>Status:</strong> the control server is live. It speaks MCP Streamable-HTTP on loopback, exposes 20 music operations (including <code>music_build_mix</code> and the <code>audio_suspend</code> / <code>audio_resume</code> focus hand-off), publishes now-playing/queue as live resources, and writes a discovery file at <code>~/Library/Application&nbsp;Support/Baton/mcp.json</code> with the endpoint URL and token. A menu-bar mini-controller ships too.
+          The default port is <strong>8787</strong>, but if it's taken Baton uses the next free port and writes the real one into <code>mcp.json</code>. Always read the current <code>url</code> and <code>token</code> from the file. Baton has to be running for the server to be live, which is what the menu-bar item is for.
+        </div>
+
+        <h3>The tools</h3>
+        <p>The server exposes <strong>28 music operations</strong>, the same actions Baton's own UI uses.</p>
+        <p><strong>Search &amp; play</strong></p>
+        <table class="sc-table">
+          <thead><tr><th scope="col">Tool</th><th scope="col">What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>music_search</code></td><td>Search songs, albums, and artists</td></tr>
+            <tr><td><code>music_play</code></td><td>Play a search now, replacing the queue</td></tr>
+            <tr><td><code>music_play_next</code></td><td>Insert matches right after the current track</td></tr>
+            <tr><td><code>music_queue_add</code></td><td>Add matches to the end of the queue</td></tr>
+            <tr><td><code>music_play_playlist</code></td><td>Play one of your playlists</td></tr>
+            <tr><td><code>music_start_radio</code></td><td>Endless “more like this” from a track or search</td></tr>
+            <tr><td><code>music_build_mix</code></td><td>Build a mix to a target length, then queue or save it</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Control playback</strong></p>
+        <table class="sc-table">
+          <thead><tr><th scope="col">Tool</th><th scope="col">What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>music_pause</code> / <code>music_resume</code> / <code>music_stop</code></td><td>Pause, resume, or stop</td></tr>
+            <tr><td><code>music_next</code> / <code>music_previous</code></td><td>Skip forward or back</td></tr>
+            <tr><td><code>music_seek</code></td><td>Jump to a position in the current track</td></tr>
+            <tr><td><code>music_set_volume</code></td><td>Set Baton's volume, 0 to 100</td></tr>
+            <tr><td><code>music_set_repeat</code> / <code>music_set_shuffle</code></td><td>Repeat (off/all/one) and shuffle</td></tr>
+            <tr><td><code>music_sleep_timer</code></td><td>Pause after some minutes</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Queue, rating &amp; playlists</strong></p>
+        <table class="sc-table">
+          <thead><tr><th scope="col">Tool</th><th scope="col">What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>music_get_queue</code></td><td>Return the queue with positions</td></tr>
+            <tr><td><code>music_reorder_queue</code> / <code>music_remove_from_queue</code></td><td>Move or remove a queued track</td></tr>
+            <tr><td><code>music_like</code></td><td>Like or unlike a track</td></tr>
+            <tr><td><code>music_rate</code></td><td>Set a 1 to 5 star rating</td></tr>
+            <tr><td><code>music_create_playlist</code> / <code>music_add_to_playlist</code></td><td>Create a playlist or add to one</td></tr>
+            <tr><td><code>music_delete_playlist</code> / <code>music_list_playlists</code></td><td>Delete or list playlists</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Report &amp; sound</strong></p>
+        <table class="sc-table">
+          <thead><tr><th scope="col">Tool</th><th scope="col">What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>music_now_playing</code></td><td>Report the current track, state, and queue position</td></tr>
+            <tr><td><code>music_set_eq</code></td><td>Turn the equalizer on/off and apply a preset</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Live resources</h3>
+        <p>Baton also publishes five read-only views a client reads once and is then notified about when they change, so an agent can follow along without polling:</p>
+        <table class="sc-table">
+          <thead><tr><th scope="col">Resource</th><th scope="col">What it holds</th></tr></thead>
+          <tbody>
+            <tr><td><code>baton://now-playing</code></td><td>Current track, state, position, volume</td></tr>
+            <tr><td><code>baton://queue</code></td><td>The full queue and current index</td></tr>
+            <tr><td><code>baton://library/playlists</code></td><td>Your playlists</td></tr>
+            <tr><td><code>baton://library/liked</code></td><td>Your liked songs, albums, and artists</td></tr>
+            <tr><td><code>baton://history/recent</code></td><td>Recently played, plus top tracks and artists</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Audio focus &amp; speaking aloud</h3>
+        <p>Two more operations, <code>audio_suspend</code> and <code>audio_resume</code>, let another app duck or pause Baton politely and bring it back. This is how <a href="https://tonebox.io" rel="external">Tonebox</a> lowers the music while you dictate, then restores it, but only if you didn't change playback yourself in the meantime. And <code>speak_summary</code> lets an agent have Baton read a short result aloud in a natural voice (see <a href="#speech">Spoken summaries</a>).</p>
+
+        <p><strong>How it's secured:</strong> the control server listens <strong>only on your own machine</strong> (loopback, <code>127.0.0.1</code>), so it isn't reachable from your network, and every request must present the <strong>secret token</strong> Baton generates. The token is compared in constant time, and the <code>mcp.json</code> that carries it is readable only by you. Both are required together.</p>
+
+        <div class="callout">
+          <strong>Status:</strong> the control server is live. It speaks MCP Streamable HTTP on loopback (default port 8787), exposes 28 <code>music_*</code> operations (including <code>music_build_mix</code>), the <code>audio_suspend</code> / <code>audio_resume</code> focus hand-off, and <code>speak_summary</code>; publishes five live resources; and writes the <code>mcp.json</code> discovery file with the endpoint URL and token. A menu-bar controller ships too.
         </div>
       </section>
 

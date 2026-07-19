@@ -86,6 +86,67 @@ struct MusicRowActions: View {
     }
 }
 
+// MARK: - Download status badge
+
+/// The standard offline-download indicator, shared across every song / album / artist surface:
+/// a **filled** badge when fully downloaded, an **outline** when partially downloaded, a spinner
+/// while fetching, and an empty fixed slot otherwise (so rows stay column-aligned and the glyph
+/// is always vertically centered). Reads `MusicDownloadStore.shared`, so it updates live.
+struct DownloadStatusBadge: View {
+    enum Status { case hidden, downloading, partial, complete }
+    let status: Status
+
+    init(status: Status) { self.status = status }
+    init(songID: String) { status = Self.status(songID: songID) }
+    init(albumID: String, totalTracks: Int?) { status = Self.status(albumID: albumID, totalTracks: totalTracks) }
+    init(artistID: String) { status = Self.status(artistID: artistID) }
+    init(playlistID: String) { status = Self.status(playlistID: playlistID) }
+
+    /// A single track: downloading → spinner, downloaded → filled, else hidden.
+    static func status(songID: String) -> Status {
+        let store = MusicDownloadStore.shared
+        return store.isDownloading(songID) ? .downloading : (store.isDownloaded(songID) ? .complete : .hidden)
+    }
+
+    /// An album: filled when all `totalTracks` are cached, outline when some are, else hidden.
+    static func status(albumID: String, totalTracks: Int?) -> Status {
+        collectionStatus(cached: MusicDownloadStore.shared.downloadedCount(albumID: albumID), total: totalTracks)
+    }
+
+    /// The full/partial/hidden decision for a collection with `cached` downloaded tracks out of
+    /// `total` (nil when the total isn't known — then any downloads read as partial). Pure, so
+    /// it's unit-tested.
+    static func collectionStatus(cached: Int, total: Int?) -> Status {
+        if let total, total > 0, cached >= total { return .complete }
+        if cached > 0 { return .partial }
+        return .hidden
+    }
+
+    /// An artist / playlist: computed from the membership recorded when it was downloaded as a
+    /// unit — `.complete` when every member is still cached, `.partial` when some are, `.hidden`
+    /// when it was never downloaded as a collection.
+    static func status(artistID: String) -> Status { collectionStatus(kind: "artist", id: artistID) }
+    static func status(playlistID: String) -> Status { collectionStatus(kind: "playlist", id: playlistID) }
+
+    private static func collectionStatus(kind: String, id: String) -> Status {
+        guard let members = MusicDownloadStore.shared.collectionMemberCount(kind: kind, id: id) else { return .hidden }
+        return collectionStatus(cached: members.downloaded, total: members.total)
+    }
+
+    var body: some View {
+        Group {
+            switch status {
+            case .hidden: Color.clear
+            case .downloading: ProgressView().controlSize(.small)
+            case .partial: Image(systemName: "arrow.down.circle").foregroundStyle(.secondary).help("Partly downloaded")
+            case .complete: Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).help("Downloaded")
+            }
+        }
+        .font(.callout)
+        .frame(width: 20, height: 20)
+    }
+}
+
 // MARK: - Shared per-song menu
 
 /// The playback head of every song context menu — Play · Play Next · Add to Queue ·
@@ -267,6 +328,7 @@ func albumActionMenuItems(
     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") {
         run { await AlbumActions.radio(album, model) }
     }
+    PinMenuButton(item: .album(album), model: model)
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await AlbumActions.download(album, model) } }
     Button("Save as Playlist", systemImage: "square.and.arrow.down") {
@@ -351,6 +413,8 @@ struct MusicAlbumRow: View {
                 ])
             }
 
+            DownloadStatusBadge(albumID: album.id, totalTracks: album.songCount)
+
             Group {
                 Text(tracksText).frame(width: BrowseColumns.tracks, alignment: .trailing)
                 Text(timeText).frame(width: BrowseColumns.time, alignment: .trailing)
@@ -409,6 +473,8 @@ enum PlaylistActions {
     static func download(_ playlist: NavidromePlaylist, _ model: MusicModel) async {
         guard let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs, !songs.isEmpty else { return }
         model.music.postToast("Downloading \(songs.count) song\(songs.count == 1 ? "" : "s")…", symbol: "arrow.down.circle")
+        // Record the playlist's member set so its download badge can report complete/partial.
+        MusicDownloadStore.shared.registerCollection(kind: "playlist", id: playlist.id, trackIDs: songs.map(\.id))
         await MusicDownloadStore.shared.download(songs)
     }
 }
@@ -447,6 +513,7 @@ struct PlaylistGridCell: View {
                 isHovering: hovering,
                 isWorking: working,
                 isPlayingSource: isPlayingSource,
+                downloadStatus: DownloadStatusBadge.status(playlistID: playlist.id),
                 onPlay: { run { await PlaylistActions.play(playlist, model) } }
             )
         }
@@ -482,6 +549,7 @@ func playlistActionMenuItems(
     Button("Shuffle", systemImage: "shuffle") { run { await PlaylistActions.play(playlist, model, shuffle: true) } }
     Button("Add to Queue", systemImage: "text.append") { run { await PlaylistActions.queue(playlist, model) } }
     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") { run { await PlaylistActions.radio(playlist, model) } }
+    PinMenuButton(item: .playlist(playlist), model: model)
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await PlaylistActions.download(playlist, model) } }
     Divider()
@@ -553,6 +621,8 @@ struct MusicPlaylistRow: View {
                     MusicRowAction(title: "Delete", systemImage: "trash", tint: .red) { showDeleteConfirm = true },
                 ])
             }
+
+            DownloadStatusBadge(playlistID: playlist.id)
 
             Group {
                 Text("\(playlist.songCount)").frame(width: BrowseColumns.tracks, alignment: .trailing)

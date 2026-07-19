@@ -21,6 +21,16 @@ final class MusicDownloadStore {
     private(set) var downloadedIDs: Set<String> = []
     /// Song ids currently downloading.
     private(set) var inFlight: Set<String> = []
+    /// albumID → count of that album's downloaded tracks. Observable, so an album row's
+    /// download badge (full vs partial) updates as tracks are cached/removed. Albums have a
+    /// natural per-song key (`albumID`) and a track total (`songCount`), so this alone gives
+    /// accurate full/partial even for ad-hoc single-track downloads.
+    private(set) var downloadedAlbumCounts: [String: Int] = [:]
+    /// collection key (`artist:<id>` / `playlist:<id>`) → the member track ids captured when
+    /// that collection was downloaded as a unit. Artists and playlists have no cheap per-song
+    /// key or track total, so their badge is computed from this recorded membership intersected
+    /// with `downloadedIDs` — accurate complete/partial, no name-matching. Observable.
+    private(set) var downloadedCollections: [String: Set<String>] = [:]
 
     @ObservationIgnored static let folderKey = "tonebox.music.downloadFolder"
     @ObservationIgnored static let templateKey = "tonebox.music.downloadFilenameTemplate"
@@ -30,6 +40,9 @@ final class MusicDownloadStore {
     /// Sidecar manifest of lightweight track metadata, so the Downloads screen can show
     /// real titles/artists and re-play a track offline without touching the server.
     static let metaName = ".tonebox-downloads-meta.json"
+    /// Sidecar recording each downloaded collection's member track ids (artist / playlist),
+    /// so their download badge reports accurate complete/partial state.
+    static let collectionsName = ".tonebox-downloads-collections.json"
 
     /// Where downloads are written + read. Observable so Settings reflects a change.
     private(set) var directory: URL
@@ -54,16 +67,21 @@ final class MusicDownloadStore {
         /// Cover-art id (for the Downloads thumbnail). Nil for legacy downloads saved before
         /// the id was persisted, or externally-added files.
         let coverArtID: String?
+        /// Direct artwork URL — set for downloaded podcast episodes (which have no coverArtID).
+        let artworkURL: URL?
 
         /// A `NavidromeSong` good enough to hand to the player — the controller resolves
         /// the local file for playback, so no server round-trip is needed. Falls back to the
         /// song id for cover art (Navidrome's getCoverArt accepts it) so the now-playing bar
-        /// shows artwork even for downloads saved before the cover id was persisted.
+        /// shows artwork even for downloads saved before the cover id was persisted. A podcast
+        /// download carries its direct `artworkURL`, which every now-playing surface prefers.
         var song: NavidromeSong {
-            NavidromeSong(
+            var song = NavidromeSong(
                 id: id, title: title, artist: artist, album: album,
-                duration: duration, coverArtID: coverArtID ?? id
+                duration: duration, coverArtID: coverArtID ?? (artworkURL == nil ? id : nil)
             )
+            song.artworkURL = artworkURL
+            return song
         }
     }
 
@@ -72,8 +90,41 @@ final class MusicDownloadStore {
         var title: String
         var artist: String?
         var album: String?
+        var albumID: String?
         var duration: Int?
         var coverArtID: String?
+        var artworkURL: URL?
+    }
+
+    // MARK: - Collection download state
+
+    /// How many of an album's tracks are downloaded (for the full/partial badge).
+    func downloadedCount(albumID: String) -> Int { downloadedAlbumCounts[albumID] ?? 0 }
+
+    static func collectionKey(kind: String, id: String) -> String { "\(kind):\(id)" }
+
+    /// Records a downloaded collection's full member set — called when an artist/playlist is
+    /// downloaded as a unit — so its badge reports accurate complete/partial state.
+    func registerCollection(kind: String, id: String, trackIDs: [String]) {
+        guard !id.isEmpty, !trackIDs.isEmpty else { return }
+        downloadedCollections[Self.collectionKey(kind: kind, id: id)] = Set(trackIDs)
+        saveCollections()
+    }
+
+    /// `(downloaded, total)` member counts for a recorded collection, or nil if it was never
+    /// downloaded as a unit (so its badge stays hidden).
+    func collectionMemberCount(kind: String, id: String) -> (downloaded: Int, total: Int)? {
+        guard let members = downloadedCollections[Self.collectionKey(kind: kind, id: id)], !members.isEmpty else { return nil }
+        let downloaded = members.reduce(0) { $0 + (downloadedIDs.contains($1) ? 1 : 0) }
+        return (downloaded, members.count)
+    }
+
+    /// Adds `delta` (±1) to the per-album downloaded-track count for one track's metadata,
+    /// dropping keys that reach zero so `downloadedCount(albumID:)` stays honest.
+    private func adjustAggregates(_ meta: DownloadMeta?, delta: Int) {
+        guard let meta, let albumID = meta.albumID, !albumID.isEmpty else { return }
+        let next = (downloadedAlbumCounts[albumID] ?? 0) + delta
+        if next > 0 { downloadedAlbumCounts[albumID] = next } else { downloadedAlbumCounts[albumID] = nil }
     }
 
     static func defaultDirectory() -> URL {
@@ -191,20 +242,25 @@ final class MusicDownloadStore {
         inFlight.insert(song.id)
         defer { inFlight.remove(song.id) }
         do {
-            let url = try NavidromeConfig.makeClient().streamURL(songID: song.id)
+            // resolveStreamURL handles both library tracks (Subsonic stream id) and client-side
+            // podcast episodes (id is the enclosure URL, streamed directly) — so this one path
+            // downloads both. Playback then prefers the local file via `localURL(for:)`.
+            let url = try StreamingPlaybackController.resolveStreamURL(songID: song.id)
             let (temp, _) = try await URLSession.shared.download(from: url)
             let name = filename(for: song)
             let destination = directory.appendingPathComponent(name)
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: temp, to: destination)
             manifest[song.id] = name
-            meta[song.id] = DownloadMeta(
-                title: song.title, artist: song.artist, album: song.album,
-                duration: song.duration, coverArtID: song.coverArtID
+            let entry = DownloadMeta(
+                title: song.title, artist: song.artist, album: song.album, albumID: song.albumID,
+                duration: song.duration, coverArtID: song.coverArtID, artworkURL: song.artworkURL
             )
+            meta[song.id] = entry
             saveManifest()
             saveMeta()
             downloadedIDs.insert(song.id)
+            adjustAggregates(entry, delta: 1)
             // Precompute + persist the waveform now, so the full-screen scrubber shows it
             // instantly later (and it survives relaunches).
             let downloadedID = song.id
@@ -230,7 +286,7 @@ final class MusicDownloadStore {
             saveManifest()
         }
         try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(songID).mp3"))
-        if meta[songID] != nil { meta[songID] = nil; saveMeta() }
+        if let entry = meta[songID] { adjustAggregates(entry, delta: -1); meta[songID] = nil; saveMeta() }
         downloadedIDs.remove(songID)
     }
 
@@ -252,7 +308,7 @@ final class MusicDownloadStore {
                 return DownloadItem(
                     id: id, url: url, byteSize: size,
                     title: m.title, artist: m.artist, album: m.album, duration: m.duration,
-                    coverArtID: m.coverArtID
+                    coverArtID: m.coverArtID, artworkURL: m.artworkURL
                 )
             }
             // Legacy / externally-added file: derive a readable title from the filename.
@@ -260,7 +316,7 @@ final class MusicDownloadStore {
             return DownloadItem(
                 id: id, url: url, byteSize: size,
                 title: title, artist: artist, album: nil, duration: nil,
-                coverArtID: nil
+                coverArtID: nil, artworkURL: nil
             )
         }
         .sorted {
@@ -298,6 +354,19 @@ final class MusicDownloadStore {
 
     private var manifestURL: URL { directory.appendingPathComponent(Self.manifestName) }
     private var metaURL: URL { directory.appendingPathComponent(Self.metaName) }
+    private var collectionsURL: URL { directory.appendingPathComponent(Self.collectionsName) }
+
+    private func loadCollections() {
+        guard let data = try? Data(contentsOf: collectionsURL),
+              let decoded = try? JSONDecoder().decode([String: Set<String>].self, from: data)
+        else { downloadedCollections = [:]; return }
+        downloadedCollections = decoded
+    }
+
+    private func saveCollections() {
+        guard let data = try? JSONEncoder().encode(downloadedCollections) else { return }
+        try? data.write(to: collectionsURL, options: .atomic)
+    }
 
     private func loadManifest() {
         guard let data = try? Data(contentsOf: manifestURL),
@@ -327,6 +396,7 @@ final class MusicDownloadStore {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         loadManifest()
         loadMeta()
+        loadCollections()
 
         var ids = Set<String>()
         // Templated downloads tracked by the manifest (only those whose file still exists).
@@ -343,5 +413,16 @@ final class MusicDownloadStore {
             }
         }
         downloadedIDs = ids
+        rebuildAggregates()
+    }
+
+    /// Recomputes the per-album downloaded-track counts from scratch (called after a rescan).
+    private func rebuildAggregates() {
+        var albums: [String: Int] = [:]
+        for id in downloadedIDs {
+            guard let entry = meta[id], let albumID = entry.albumID, !albumID.isEmpty else { continue }
+            albums[albumID, default: 0] += 1
+        }
+        downloadedAlbumCounts = albums
     }
 }

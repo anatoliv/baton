@@ -1,12 +1,36 @@
 import SwiftUI
 
-/// The **Podcasts** tab — browses the subscribed podcast channels on the Navidrome server
-/// and plays their episodes through the existing music player. Read-only over the library
-/// (channels/episodes are fetched directly from a `NavidromeClient`, since podcasts live
-/// outside `MusicLibraryStore`); playback routes through `model.music.play`, exactly like the
-/// album/playlist detail views. Episodes stream just like songs — an episode maps to a
-/// `NavidromeSong` by its `streamID`, which is the same media id `stream`/`getSong` use.
+/// The **Podcasts** tab. Baton has two podcast backends and this router picks between them:
+///
+/// - **Server-side** (`ServerPodcastsView`) — the server's own Subsonic-managed podcast
+///   subscriptions. Used only when the server actually implements the podcast API (gonic,
+///   Airsonic, Ampache…).
+/// - **Client-side** (`ClientPodcastsView`) — Baton's own RSS subscriptions, fetched directly
+///   from feeds. The universal fallback that works everywhere, including Navidrome, which
+///   never implements the Subsonic podcast API.
+///
+/// The choice keys off `model.podcastCapability`, which probes the server once. Before that
+/// resolves (`.unknown`), we show the client-side view — it works on every server, so it's the
+/// safe default; a server that turns out to support podcasts natively then swaps to its view.
 struct MusicPodcastsView: View {
+    @Environment(MusicModel.self) private var model
+
+    var body: some View {
+        if model.podcastCapability.support == .supported {
+            ServerPodcastsView()
+        } else {
+            ClientPodcastsView()
+        }
+    }
+}
+
+/// The server-side Podcasts screen — browses the subscribed podcast channels the *server*
+/// manages (Subsonic `getPodcasts`) and plays their episodes through the music player.
+/// Read-only over the library (channels/episodes are fetched directly from a `NavidromeClient`,
+/// since podcasts live outside `MusicLibraryStore`); playback routes through `model.music.play`,
+/// exactly like the album/playlist detail views. Episodes stream just like songs — an episode
+/// maps to a `NavidromeSong` by its `streamID`, the same media id `stream`/`getSong` use.
+struct ServerPodcastsView: View {
     @Environment(MusicModel.self) private var model
 
     @State private var channels: [NavidromePodcastChannel] = []
@@ -15,6 +39,9 @@ struct MusicPodcastsView: View {
     @State private var loading = false
     @State private var loaded = false
     @State private var loadError: String?
+    /// The server doesn't implement the Subsonic podcast API (e.g. Navidrome). Distinct from
+    /// `loadError` so we show an honest "not available here" state, not a scary HTTP error.
+    @State private var unsupported = false
     @State private var filterText = ""
     @FocusState private var filterFocused: Bool
     /// List ⇄ grid + sort, persisted like the other browse screens.
@@ -67,7 +94,9 @@ struct MusicPodcastsView: View {
     // MARK: - Channel browser
 
     @ViewBuilder private var channelBrowser: some View {
-        if loading, channels.isEmpty {
+        if unsupported {
+            unsupportedState
+        } else if loading, channels.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let loadError, channels.isEmpty {
             errorState(loadError)
@@ -174,7 +203,23 @@ struct MusicPodcastsView: View {
         VStack(spacing: 8) {
             Image(systemName: "mic.slash").font(.system(size: 34)).foregroundStyle(.secondary)
             Text("No podcasts").font(.headline)
-            Text("Subscribe to podcasts in your Navidrome server and they'll show up here.")
+            Text("Subscribe to podcasts on your server and they'll show up here.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 40)
+    }
+
+    /// Shown when the server can't serve podcasts at all — it doesn't implement the Subsonic
+    /// podcast API. The Podcasts nav item normally hides on such servers; this covers the brief
+    /// window before that probe resolves, and the case where the tab was already open.
+    private var unsupportedState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "mic.slash").font(.system(size: 34)).foregroundStyle(.secondary)
+            Text("Podcasts aren't available on this server").font(.headline)
+            Text("Your music server doesn't implement the Subsonic podcast API, so Baton can't "
+                + "list or play podcasts from it — Navidrome, in particular, doesn't support "
+                + "podcasts. A future Baton update will add its own podcast subscriptions that "
+                + "work with any server.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 40)
@@ -208,8 +253,17 @@ struct MusicPodcastsView: View {
             let latest = try? await client.getNewestPodcasts(count: 12)
             channels = try await channelList
             newest = latest ?? []
+            model.podcastCapability.record(.supported)
         } catch {
-            loadError = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
+            // A 501/404 means the server has no podcast API — show the honest "unsupported"
+            // state and tell the shared store so the nav item hides. Anything else is a real
+            // (often transient) error and keeps the retryable error state.
+            if PodcastCapabilityStore.classify(error) == .unsupported {
+                unsupported = true
+                model.podcastCapability.record(.unsupported)
+            } else {
+                loadError = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
+            }
         }
     }
 }
@@ -245,8 +299,9 @@ private struct PodcastChannelCell: View {
 
 // MARK: - Channel list row
 
-/// A compact row for the list layout: cover/mic thumbnail, title, newest-episode subtitle,
-/// and the episode count. Tapping opens the channel.
+/// A compact row for the list layout: cover/mic thumbnail (with a hover "open" overlay), title,
+/// newest-episode subtitle, a fixed-width episode-count column, and an ellipsis actions menu.
+/// Mirrors `RadioStationListRow` so the Podcasts and Radio tables read as one system.
 private struct PodcastChannelListRow: View {
     @Environment(MusicModel.self) private var model
     let channel: NavidromePodcastChannel
@@ -255,24 +310,31 @@ private struct PodcastChannelListRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            thumbnail
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            Button(action: onOpen) {
+                thumbnail
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay { PodcastRowThumbOverlay(hover: hover) }
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(channel.title).font(.body.weight(.medium)).lineLimit(1)
                 if let newest = channel.episodes.first?.title {
-                    Text(newest).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(newest).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if !channel.episodes.isEmpty {
-                Text("\(channel.episodes.count) ep")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(width: 64, alignment: .trailing)
+            PodcastEpisodeCountColumn(count: channel.episodes.count)
+
+            Menu {
+                Button("Open", action: onOpen)
+            } label: {
+                Image(systemName: "ellipsis").font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle())
             }
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
@@ -286,18 +348,55 @@ private struct PodcastChannelListRow: View {
             AsyncImage(url: url) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
-                placeholder
+                PodcastRowThumbPlaceholder()
             }
         } else {
-            placeholder
+            PodcastRowThumbPlaceholder()
         }
     }
+}
 
-    private var placeholder: some View {
+// MARK: - Shared podcast-row bits (styled to match the Radio table)
+
+/// The dark hover overlay + "open" chevron shown on a channel thumbnail — the podcast
+/// equivalent of `RadioStationListRow`'s play/stop overlay.
+struct PodcastRowThumbOverlay: View {
+    let hover: Bool
+    var body: some View {
+        if hover {
+            ZStack {
+                Color.black.opacity(0.34)
+                Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.white)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
+/// The mic-in-a-tinted-square placeholder used when a channel has no artwork.
+struct PodcastRowThumbPlaceholder: View {
+    var body: some View {
         ZStack {
             Color.secondary.opacity(0.12)
             Image(systemName: "mic").foregroundStyle(.secondary)
         }
+    }
+}
+
+/// The fixed-width "N episodes" column that keeps the trailing controls aligned across rows,
+/// matching the width of Radio's website column.
+struct PodcastEpisodeCountColumn: View {
+    let count: Int
+    var body: some View {
+        Group {
+            if count > 0 {
+                Text("\(count) episode\(count == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            } else {
+                Text("—").font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: 96, alignment: .trailing)
     }
 }
 
@@ -342,6 +441,8 @@ private struct MusicPodcastChannelDetail: View {
 
     @State private var episodes: [NavidromePodcastEpisode]
     @State private var loading = false
+    /// Hero artwork, decoded once from the channel's cover (falls back to the first episode's).
+    @State private var heroImage: Image?
     /// Episode ids with a download request in flight — the row shows progress while we ask the
     /// server and then reconcile.
     @State private var downloading: Set<String> = []
@@ -366,7 +467,7 @@ private struct MusicPodcastChannelDetail: View {
                     name: channel.title,
                     kindLabel: "PODCAST",
                     detail: episodeCountLabel,
-                    heroImage: nil,
+                    heroImage: heroImage,
                     accentColor: ArtistMonogram.color(channel.title),
                     placeholderIcon: "mic",
                     onBack: onBack
@@ -393,6 +494,16 @@ private struct MusicPodcastChannelDetail: View {
         }
         .navigationBarBackButtonHidden(true)
         .task(id: channel.id) { await refreshIfEmpty() }
+        .task(id: channel.id) { await loadHero() }
+    }
+
+    /// Load the hero image once from the channel cover (falls back to the first episode's).
+    private func loadHero() async {
+        heroImage = nil
+        let coverID = channel.coverArtID ?? episodes.first?.coverArtID
+        guard let coverID, let url = model.musicLibrary.coverArtURL(id: coverID, size: 600),
+              let image = await MusicAlbumDetail.fetchImage(url) else { return }
+        withAnimation(.easeOut(duration: 0.25)) { heroImage = image }
     }
 
     private var episodeList: some View {

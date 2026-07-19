@@ -55,8 +55,11 @@ struct FullScreenNowPlaying: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
-        .onChange(of: player.nowPlaying?.coverArtID) { _, _ in paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
-        .task(id: player.nowPlaying?.coverArtID) { coverImage = await loadCoverImage() }
+        // Key on the song id, not coverArtID: podcast episodes all have a nil coverArtID
+        // (their art is a direct URL), so keying on the cover id would never refresh between
+        // episodes.
+        .onChange(of: player.nowPlaying?.id) { _, _ in paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
+        .task(id: player.nowPlaying?.id) { coverImage = await loadCoverImage() }
         .confirmationDialog(
             "Delete this track?",
             isPresented: $showRemovalConfirm,
@@ -313,7 +316,8 @@ struct FullScreenNowPlaying: View {
     }
 
     private func coverURL(size: Int) -> URL? {
-        guard let id = player.nowPlaying?.coverArtID else { return nil }
-        return model.musicLibrary.coverArtURL(id: id, size: size)
+        player.nowPlaying?.displayArtworkURL(size: size) { id, size in
+            model.musicLibrary.coverArtURL(id: id, size: size)
+        }
     }
 }

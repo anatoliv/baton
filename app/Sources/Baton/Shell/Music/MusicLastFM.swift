@@ -10,9 +10,12 @@ private let lastfmLog = Logger(subsystem: "io.tonebox.macos", category: "LastFM"
 /// **API key + shared secret** (register a free API account at last.fm/api/account/create)
 /// plus a one-time **browser authorization** that yields a session key. All three persist.
 /// Requests are signed with the Last.fm md5 `api_sig` scheme.
+///
+/// This owns only the Last.fm credentials + wire format; scheduling (threshold, dedup, podcast
+/// exclusion, offline retry, batching) is `ScrobbleService`'s job.
 @MainActor
 @Observable
-final class MusicLastFM {
+final class MusicLastFM: ScrobbleDestination {
     var apiKey: String { didSet { UserDefaults.standard.set(apiKey, forKey: Self.keyKey) } }
     var apiSecret: String { didSet { UserDefaults.standard.set(apiSecret, forKey: Self.secretKey) } }
     private(set) var sessionKey: String { didSet { UserDefaults.standard.set(sessionKey, forKey: Self.sessionKeyKey) } }
@@ -24,16 +27,14 @@ final class MusicLastFM {
     @ObservationIgnored static let sessionKeyKey = "tonebox.music.lastfm.sessionKey"
     @ObservationIgnored private let endpoint = URL(string: "https://ws.audioscrobbler.com/2.0/")!
     @ObservationIgnored private let session: URLSession
-    @ObservationIgnored private let now: () -> Date
 
     var isConnected: Bool { !sessionKey.isEmpty }
     var hasCredentials: Bool {
         !apiKey.trimmingCharacters(in: .whitespaces).isEmpty && !apiSecret.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    init(session: URLSession = .shared, now: @escaping () -> Date = { Date() }) {
+    init(session: URLSession = .shared) {
         self.session = session
-        self.now = now
         let d = UserDefaults.standard
         apiKey = d.string(forKey: Self.keyKey) ?? ""
         apiSecret = d.string(forKey: Self.secretKey) ?? ""
@@ -44,7 +45,7 @@ final class MusicLastFM {
 
     /// Step 1: get a request token and open the Last.fm authorization page in the browser.
     func beginAuth() async {
-        guard hasCredentials, let json = await call(["method": "auth.getToken"], signed: true),
+        guard hasCredentials, let json = try? await call(["method": "auth.getToken"]),
               let token = json["token"] as? String else { return }
         pendingToken = token
         if let url = URL(string: "https://www.last.fm/api/auth/?api_key=\(apiKey)&token=\(token)") {
@@ -55,7 +56,7 @@ final class MusicLastFM {
     /// Step 2 (after the user authorizes in the browser): exchange the token for a session.
     func completeAuth() async {
         guard let token = pendingToken,
-              let json = await call(["method": "auth.getSession", "token": token], signed: true),
+              let json = try? await call(["method": "auth.getSession", "token": token]),
               let sessionDict = json["session"] as? [String: Any],
               let key = sessionDict["key"] as? String else { return }
         sessionKey = key
@@ -64,25 +65,35 @@ final class MusicLastFM {
 
     func disconnect() { sessionKey = ""; pendingToken = nil }
 
-    // MARK: - Scrobbling
+    // MARK: - ScrobbleDestination
 
-    func updateNowPlaying(_ song: NavidromeSong) {
+    var destinationID: String { "lastfm" }
+    var isActive: Bool { isConnected }
+    /// Last.fm's `track.scrobble` accepts up to 50 scrobbles per request via array notation.
+    var maxBatch: Int { 50 }
+
+    func sendNowPlaying(_ scrobble: Scrobble) async {
         guard isConnected else { return }
-        Task { _ = await call(nowPlayingParams(song), signed: true, post: true) }
+        var params: [String: String] = ["method": "track.updateNowPlaying", "sk": sessionKey]
+        params["artist"] = scrobble.artist
+        params["track"] = scrobble.track
+        if let album = scrobble.album { params["album"] = album }
+        if let seconds = scrobble.durationSeconds { params["duration"] = String(seconds) }
+        _ = try? await call(params, post: true)
     }
 
-    func scrobble(_ song: NavidromeSong) {
-        guard isConnected else { return }
-        var params = nowPlayingParams(song)
-        params["method"] = "track.scrobble"
-        params["timestamp"] = String(Int(now().timeIntervalSince1970))
-        Task { _ = await call(params, signed: true, post: true) }
-    }
-
-    private func nowPlayingParams(_ song: NavidromeSong) -> [String: String] {
-        var p = ["method": "track.updateNowPlaying", "artist": song.artist ?? "Unknown Artist", "track": song.title, "sk": sessionKey]
-        if let album = song.album, !album.isEmpty { p["album"] = album }
-        return p
+    func submit(_ batch: [Scrobble]) async throws {
+        guard isConnected, !batch.isEmpty else { return }
+        var params: [String: String] = ["method": "track.scrobble", "sk": sessionKey]
+        // Array notation: artist[i]/track[i]/timestamp[i]/… — the timestamp is each track's start.
+        for (i, scrobble) in batch.enumerated() {
+            params["artist[\(i)]"] = scrobble.artist
+            params["track[\(i)]"] = scrobble.track
+            params["timestamp[\(i)]"] = String(scrobble.startedAt)
+            if let album = scrobble.album { params["album[\(i)]"] = album }
+            if let seconds = scrobble.durationSeconds { params["duration[\(i)]"] = String(seconds) }
+        }
+        _ = try await call(params, post: true)
     }
 
     // MARK: - Request + signing
@@ -95,10 +106,13 @@ final class MusicLastFM {
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
 
-    private func call(_ extra: [String: String], signed: Bool, post: Bool = false) async -> [String: Any]? {
+    /// Sign, send, and validate a Last.fm call. Throws on transport failure, a non-2xx status,
+    /// or a Last.fm application error code so completed-listen submissions can be retried.
+    @discardableResult
+    private func call(_ extra: [String: String], post: Bool = false) async throws -> [String: Any] {
         var params = extra
         params["api_key"] = apiKey
-        if signed { params["api_sig"] = Self.signature(params, secret: apiSecret) }
+        params["api_sig"] = Self.signature(params, secret: apiSecret)
         params["format"] = "json" // format is excluded from the signature
 
         var request = URLRequest(url: endpoint)
@@ -111,15 +125,18 @@ final class MusicLastFM {
         } else {
             request.url = URL(string: endpoint.absoluteString + "?" + body)
         }
-        do {
-            let (data, response) = try await session.data(for: request)
-            if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
-                lastfmLog.error("Last.fm HTTP \(http.statusCode)")
-            }
-            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        } catch {
-            lastfmLog.error("Last.fm request failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
+            lastfmLog.error("Last.fm HTTP \(http.statusCode)")
+            throw ScrobbleError.http(http.statusCode)
         }
+        let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        if let code = json["error"] as? Int {
+            let message = json["message"] as? String ?? "error \(code)"
+            lastfmLog.error("Last.fm error \(code, privacy: .public): \(message, privacy: .public)")
+            throw ScrobbleError.service("Last.fm \(code): \(message)")
+        }
+        return json
     }
 }

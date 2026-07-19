@@ -76,6 +76,7 @@ struct MusicAlbumDetail: View {
                     detail: detailText,
                     heroImage: heroImage,
                     accentColor: ArtistMonogram.color(album.artist ?? album.name),
+                    downloadStatus: DownloadStatusBadge.status(albumID: album.id, totalTracks: album.songCount),
                     onBack: { dismiss() }
                 )
 
@@ -190,6 +191,8 @@ struct MusicAlbumBanner: View {
     var accentColor: Color
     /// SF Symbol shown in the cover slot when there's no artwork.
     var placeholderIcon: String = "opticaldisc"
+    /// Offline-download state, shown as a glyph in the meta line.
+    var downloadStatus: DownloadStatusBadge.Status = .hidden
     var onBack: () -> Void = {}
 
     private var metaFont: Font { .caption.weight(.semibold) }
@@ -235,6 +238,20 @@ struct MusicAlbumBanner: View {
                 dot
                 Text(detail).font(metaFont).foregroundStyle(.white.opacity(0.85))
             }
+            if let symbol = downloadGlyph {
+                dot
+                Image(systemName: symbol).font(metaFont).foregroundStyle(.white)
+                    .help(downloadStatus == .complete ? "Downloaded" : "Partly downloaded")
+            }
+        }
+    }
+
+    /// The download glyph for the meta line — filled when complete, outline when partial.
+    private var downloadGlyph: String? {
+        switch downloadStatus {
+        case .complete: "arrow.down.circle.fill"
+        case .partial: "arrow.down.circle"
+        case .hidden, .downloading: nil
         }
     }
 
@@ -395,6 +412,7 @@ struct MusicArtistDetail: View {
                     monogramInitial: ArtistMonogram.initial(artist.name),
                     monogramColor: ArtistMonogram.color(artist.name),
                     isAutoImport: isAutoImport,
+                    downloadStatus: DownloadStatusBadge.status(artistID: artist.id),
                     onBack: { dismiss() }
                 )
 
@@ -524,6 +542,7 @@ struct MusicArtistBanner: View {
     var monogramInitial: String
     var monogramColor: Color
     var isAutoImport: Bool = false
+    var downloadStatus: DownloadStatusBadge.Status = .hidden
     var onBack: () -> Void = {}
 
     var body: some View {
@@ -536,6 +555,11 @@ struct MusicArtistBanner: View {
                 HStack(spacing: 8) {
                     Text(meta).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
                     if isAutoImport { autoImportChip }
+                    switch downloadStatus {
+                    case .complete: Image(systemName: "arrow.down.circle.fill").font(.caption.weight(.semibold)).foregroundStyle(.white).help("Downloaded")
+                    case .partial: Image(systemName: "arrow.down.circle").font(.caption.weight(.semibold)).foregroundStyle(.white).help("Partly downloaded")
+                    case .hidden, .downloading: EmptyView()
+                    }
                 }
                 Text(name)
                     .font(.system(size: 30, weight: .heavy)).foregroundStyle(.white)
@@ -683,6 +707,7 @@ struct MusicPlaylistDetail: View {
                     heroImage: heroImage,
                     accentColor: ArtistMonogram.color(name),
                     placeholderIcon: "music.note.list",
+                    downloadStatus: DownloadStatusBadge.status(playlistID: playlist.id),
                     onBack: { dismiss() }
                 )
 

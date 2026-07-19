@@ -228,6 +228,7 @@ enum BatonMCPToolCatalog {
                 ],
                 required: []
             ),
+            BatonMCPSpeakTools.definition(),
         ])
     }
 
@@ -263,6 +264,7 @@ enum BatonMCPToolCatalog {
         "music_seek", "music_set_repeat", "music_set_shuffle", "music_get_queue",
         "music_reorder_queue", "music_remove_from_queue", "music_play_next",
         "music_start_radio", "music_sleep_timer", "music_set_eq",
+        "speak_summary",
     ]
 
     private static func annotate(_ defs: [[String: Any]]) -> [[String: Any]] {
@@ -322,6 +324,7 @@ enum BatonMCPToolCatalog {
             case "music_start_radio": text = try await musicStartRadio(arguments, music)
             case "music_sleep_timer": text = musicSleepTimer(arguments, music)
             case "music_set_eq": text = musicSetEq(arguments, music)
+            case "speak_summary": text = try await BatonMCPSpeakTools.run(arguments, music)
             case "audio_suspend": text = audioSuspend(arguments, music, focus, sessionID: sessionID)
             case "audio_resume": text = try audioResume(arguments, music, focus)
             default:

@@ -176,8 +176,9 @@ struct NowPlayingBar: View {
     }
 
     private var artworkURL: URL? {
-        guard let coverID = player.nowPlaying?.coverArtID else { return nil }
-        return model.musicLibrary.coverArtURL(id: coverID, size: 96)
+        player.nowPlaying?.displayArtworkURL(size: 96) { id, size in
+            model.musicLibrary.coverArtURL(id: id, size: size)
+        }
     }
 
     /// Smaller artwork when the bar is minimized.
