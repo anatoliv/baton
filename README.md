@@ -2,32 +2,32 @@
 
 **Conduct your music.**
 
-Baton is a free macOS music player for the library you already own — your self-hosted
+Baton is a free macOS music player for the library you already own: your self-hosted
 [Navidrome](https://www.navidrome.org/) or any Subsonic-compatible server. It plays your
-music with real depth (true gapless, crossfade, ReplayGain loudness, a 10-band EQ), and it
-hosts an [MCP](https://modelcontextprotocol.io/) control server so an AI agent — Claude, or
-[Tonebox](https://tonebox.io) — can pick up the baton and search, queue, build a mix, or
-duck the music for a call.
+music with real depth (true gapless, crossfade, ReplayGain loudness, a 10-band parametric
+EQ), and it hosts an [MCP](https://modelcontextprotocol.io/) control server so an AI agent,
+like Claude or [Tonebox](https://tonebox.io), can pick up the baton and search, queue, build
+a mix, or duck the music for a call.
 
 Made by [Tonebox](https://tonebox.io), and given away for free.
 
 ## What it is
 
-- **A player for *your* library** — streams from a Navidrome / Subsonic server you run.
+- **A player for *your* library.** It streams from a Navidrome or Subsonic server you run.
   Not a streaming catalog; you bring the music, Baton plays it well.
-- **Deep playback** — true gapless, crossfade, ReplayGain / R128 loudness normalization, a
-  10-band graphic EQ, a floating mini-player, media-key and AirPlay support, and dual
-  scrobbling (ListenBrainz / Last.fm).
-- **Agent-controllable** — an embedded MCP server (loopback + token-secured) exposes the
-  same music operations the UI uses, so any MCP client can drive playback. This is the
-  reason Baton exists: the control surface *is* the product.
-- **Private & self-hosted** — server credentials live in the macOS Keychain; Baton only
+- **Deep playback.** True gapless, crossfade, ReplayGain and R128 loudness normalization, a
+  10-band parametric EQ, a floating mini-player, media-key and AirPlay support, and dual
+  scrobbling (ListenBrainz and Last.fm).
+- **Agent-controllable.** An embedded MCP server (loopback, token-secured) exposes the same
+  music operations the UI uses, so any MCP client can drive playback. This is the reason
+  Baton exists: the control surface *is* the product.
+- **Private and self-hosted.** Server credentials live in the macOS Keychain, and Baton only
   talks to the server you point it at.
 
 ## Install
 
 Baton is a signed, notarized macOS app that updates itself via Sparkle. **Download links
-land as Baton ships its first standalone build** — until then, see
+land as Baton ships its first standalone build.** Until then, see
 [baton.tonebox.io](https://baton.tonebox.io) or build from source.
 
 ### Build from source
@@ -42,7 +42,7 @@ xcodebuild build -scheme Baton -configuration Release -destination 'platform=mac
 
 ## Connect
 
-On first launch, enter your server URL and either a **username & password** or an **API
+On first launch, enter your server URL and either a **username and password** or an **API
 key**. Baton verifies the connection before saving it, then loads your library. See
 [HELP.md](HELP.md#getting-connected).
 
@@ -50,24 +50,26 @@ key**. Baton verifies the connection before saving it, then loads your library. 
 
 Baton hosts a small MCP control server on `127.0.0.1`, secured with a bearer token, so an
 agent (Claude Desktop, Claude Code, other MCP clients, or Tonebox) can search your library,
-queue and control playback, like/rate tracks, and manage playlists — and coordinate
-**audio focus** (duck the music while you dictate, then bring it back). The full design,
-tool catalog, and security model are in
+queue and control playback, like and rate tracks, and manage playlists, as well as
+coordinate **audio focus** (duck the music while you dictate, then bring it back). The full
+design, tool catalog, and security model are in
 [`docs/04-integration-and-mcp.md`](docs/04-integration-and-mcp.md).
 
-> **Status:** the 20-plus `music_*` control operations exist today; the standalone app's
-> embedded MCP server and menu-bar controller are being wired up as Baton finishes
-> separating from Tonebox.
+> **Status:** the control server is live while Baton is running. It exposes 28 `music_*`
+> operations (including `music_build_mix`), the `audio_suspend` / `audio_resume` focus
+> hand-off, and a `speak_summary` tool; it publishes now-playing, queue, playlists, liked,
+> and recent history as live resources; and it writes a discovery file (endpoint URL and
+> token) to `~/Library/Application Support/Baton/mcp.json`. A menu-bar controller ships too.
 
 ## Docs
 
-- **[HELP.md](HELP.md)** — the user guide.
-- **[FAQ.md](FAQ.md)** — quick answers.
-- **[docs/](docs/)** — vision, feature inventory, architecture, the integration & MCP
-  design, and the roadmap.
-- Website: `website/` · Icon / design: `design/` · App: `app/` · Site deploy: `deploy/`
+- **[HELP.md](HELP.md)** is the full user guide.
+- **[FAQ.md](FAQ.md)** has quick answers.
+- **[docs/](docs/)** holds the vision, feature inventory, architecture, the integration and
+  MCP design, and the roadmap.
+- Website: `website/`. Icon and design: `design/`. App: `app/`. Site deploy: `deploy/`.
 
 ## License
 
-[MIT](LICENSE) — free to use, modify, and distribute. Made by
+[MIT](LICENSE), free to use, modify, and distribute. Made by
 [Tonebox](https://tonebox.io), given away for free.

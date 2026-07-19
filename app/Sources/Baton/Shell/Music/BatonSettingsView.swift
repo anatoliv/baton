@@ -67,6 +67,10 @@ struct BatonSettingsView: View {
             BatonPlaybackPane()
         case .equalizer:
             BatonEqualizerPane()
+        case .actions:
+            BatonActionsPane()
+        case .speech:
+            BatonSpeechPane()
         case .about:
             BatonAboutPane()
         }
@@ -78,6 +82,8 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case servers
     case playback
     case equalizer
+    case actions
+    case speech
     case about
 
     var id: Self { self }
@@ -87,6 +93,8 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .servers: "Servers"
         case .playback: "Playback"
         case .equalizer: "Equalizer"
+        case .actions: "Actions"
+        case .speech: "Speech"
         case .about: "About"
         }
     }
@@ -96,6 +104,8 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .servers: "server.rack"
         case .playback: "play.circle"
         case .equalizer: "slider.horizontal.3"
+        case .actions: "bolt.horizontal.circle"
+        case .speech: "waveform"
         case .about: "info.circle"
         }
     }
@@ -308,6 +318,7 @@ private struct BatonPlaybackPane: View {
     @AppStorage(FilterHistory.sizeKey) private var filterHistorySize = FilterHistory.defaultSize
     /// Offline mode toggle — same key `MusicDownloadsView` reads.
     @AppStorage("baton.music.offlineMode") private var offlineMode = false
+    @AppStorage(MusicModel.autoRemoveFinishedKey) private var autoRemoveFinishedPodcasts = true
     /// Whether the niche "Advanced" area (filter history) is expanded. Persisted so
     /// power users who open it keep it open; collapsed by default for everyone else.
     @AppStorage("baton.settings.playbackAdvancedExpanded") private var advancedExpanded = false
@@ -319,6 +330,7 @@ private struct BatonPlaybackPane: View {
     @State private var filenameTemplate = MusicDownloadStore.shared.filenameTemplate
     /// Gapless prefetch cache size on disk, refreshed when the pane appears.
     @State private var gaplessCacheBytes: Int64 = 0
+    @State private var showResetConfirm = false
 
     private var player: StreamingPlaybackController { model.music }
 
@@ -328,9 +340,38 @@ private struct BatonPlaybackPane: View {
             downloadsSection
             scrobblingSection
             advancedSection
+            resetSection
         }
         .formStyle(.grouped)
         .onAppear { gaplessCacheBytes = player.gaplessCacheSizeBytes }
+        .confirmationDialog("Reset Playback settings to defaults?", isPresented: $showResetConfirm) {
+            Button("Reset to Defaults", role: .destructive) { resetPlayback() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Restores Sound and Browse preferences to their defaults. Your scrobbling accounts and download folder are kept.")
+        }
+    }
+
+    /// Resets only genuine preferences to their defaults — NOT credentials (scrobbler /
+    /// Last.fm), the download folder, or the filename template.
+    private var resetSection: some View {
+        Section {
+            Button(role: .destructive) { showResetConfirm = true } label: {
+                Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
+            }
+        }
+    }
+
+    private func resetPlayback() {
+        player.loudnessMode = .off
+        player.loudnessPreampDB = 0
+        player.crossfadeSeconds = 0
+        player.gaplessEnabled = false
+        player.gaplessPrefetchWifiOnly = false
+        player.autoplayEnabled = false
+        offlineMode = false
+        filterHistorySize = FilterHistory.defaultSize
+        advancedExpanded = false
     }
 
     // MARK: Sound
@@ -422,6 +463,10 @@ private struct BatonPlaybackPane: View {
             Text("Play only tracks already downloaded to this Mac; never stream. Useful on the go or a metered connection.")
                 .font(.callout).foregroundStyle(.secondary)
 
+            Toggle("Remove finished podcast episodes", isOn: $autoRemoveFinishedPodcasts)
+            Text("When you finish listening to a downloaded episode, delete its file automatically to save space.")
+                .font(.callout).foregroundStyle(.secondary)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("Downloaded music folder").fontWeight(.medium)
                 Text(store.directory.path)
@@ -455,9 +500,11 @@ private struct BatonPlaybackPane: View {
                             .foregroundStyle(Color.accentColor)
                     }
                     Spacer()
-                    Button("Reset") {
+                    Button {
                         filenameTemplate = MusicDownloadStore.defaultTemplate
                         MusicDownloadStore.shared.filenameTemplate = filenameTemplate
+                    } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
                     }
                     .controlSize(.small)
                 }
@@ -512,7 +559,25 @@ private struct BatonPlaybackPane: View {
 
             Divider()
             lastfmControls
+
+            Divider()
+            scrobbleSourceControls
         }
+    }
+
+    /// Chooses who delivers Last.fm / ListenBrainz scrobbles, so plays aren't counted twice when
+    /// the server already scrobbles them.
+    @ViewBuilder private var scrobbleSourceControls: some View {
+        Picker("Last.fm & ListenBrainz scrobbles", selection: Binding(
+            get: { model.scrobbler.externalSource },
+            set: { model.scrobbler.externalSource = $0 }
+        )) {
+            Text("Sent by Baton").tag(ScrobbleService.ExternalSource.baton)
+            Text("Handled by my server").tag(ScrobbleService.ExternalSource.server)
+        }
+        .pickerStyle(.radioGroup)
+        Text("If your Navidrome/Subsonic server is **already** linked to Last.fm/ListenBrainz, choose **Handled by my server** so the same play isn't scrobbled twice — Baton still tracks play counts and \"now playing\". Otherwise leave it on **Sent by Baton**. Server play counts are always tracked regardless.")
+            .font(.callout).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private var lastfmControls: some View {
@@ -584,6 +649,7 @@ private struct BatonEqualizerPane: View {
 
     /// The band currently expanded for editing (nil = none).
     @State private var selectedBand: Int?
+    @State private var showResetConfirm = false
 
     private var eq: MusicEqualizer { model.musicEqualizer }
 
@@ -646,8 +712,24 @@ private struct BatonEqualizerPane: View {
                 Text("Tap a band to edit its centre frequency, Q (width), and gain. Adjusting a band switches the preset to **Custom**.")
                     .font(.callout).foregroundStyle(.secondary)
             }
+
+            Section {
+                Button(role: .destructive) { showResetConfirm = true } label: {
+                    Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
+                }
+            }
         }
         .formStyle(.grouped)
+        .confirmationDialog("Reset the equalizer to defaults?", isPresented: $showResetConfirm) {
+            Button("Reset to Defaults", role: .destructive) {
+                eq.isEnabled = false
+                eq.reset()
+                selectedBand = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Turns the equalizer off and flattens every band.")
+        }
     }
 }
 
@@ -704,8 +786,10 @@ private struct EQBandRow: View {
             let w = abs(frac) * mid
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.secondary.opacity(0.2)).frame(height: 3)
+                // Single brand accent — the bar's direction from the midpoint (left = cut,
+                // right = boost) encodes the sign, so no second literal color is needed.
                 Capsule()
-                    .fill(band.gainDB >= 0 ? Color.accentColor : Color.orange)
+                    .fill(Color.accentColor)
                     .frame(width: max(0, w), height: 3)
                     .offset(x: frac >= 0 ? mid : mid - w)
             }

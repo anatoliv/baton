@@ -98,10 +98,20 @@ final class StreamingPlaybackController {
     @ObservationIgnored var relatedProvider: (@MainActor (NavidromeSong) async -> [NavidromeSong])?
     /// Called when a track actually starts playing — wired to the play-history log.
     @ObservationIgnored var onTrackStarted: (@MainActor (NavidromeSong) -> Void)?
-    /// Called once per track when it crosses the scrobble threshold (half its length, or
-    /// 4 min) — wired to external scrobbling (ListenBrainz).
-    @ObservationIgnored var onScrobbleEligible: (@MainActor (NavidromeSong) -> Void)?
+    /// Injected resume-offset lookup (podcasts). When it returns a value for the starting
+    /// track, playback seeks there once the item is ready. Nil ⇒ always start at 0.
+    @ObservationIgnored var resumeOffsetProvider: (@MainActor (NavidromeSong) -> TimeInterval?)?
+    /// Called periodically (~every 5 s) and at track end with the current position/duration —
+    /// wired to `PodcastProgressStore` so episodes are resumable and get marked played.
+    @ObservationIgnored var onProgressUpdate: (@MainActor (_ song: NavidromeSong, _ time: TimeInterval, _ duration: TimeInterval) -> Void)?
+    /// Called once per track when it crosses the scrobble threshold (half its length, or 4 min),
+    /// with the wall-clock time the track *started* — wired to `ScrobbleService`. The start time
+    /// (not "now") is the canonical scrobble timestamp Last.fm/ListenBrainz expect.
+    @ObservationIgnored var onScrobbleEligible: (@MainActor (NavidromeSong, Date) -> Void)?
     @ObservationIgnored private var scrobbledCurrent = false
+    /// Wall-clock time the current track began — captured at every start path so a threshold
+    /// scrobble (or a later offline retry) reports when playback actually started.
+    @ObservationIgnored private var currentTrackStartedAt = Date()
     /// Fired when a fixed-time sleep timer elapses (after the fade-out). AppModel wires this to
     /// also stop internet radio, which plays on a separate engine the library pause can't reach.
     @ObservationIgnored var onSleepFire: (@MainActor () -> Void)?
@@ -410,14 +420,32 @@ final class StreamingPlaybackController {
         return UserDefaults(suiteName: "io.tonebox.tests.music") ?? .standard
     }
 
+    /// Resolves a queue item's `id` to a playable URL. Handles three cases: an offline
+    /// download, a client-side podcast episode (whose id *is* its absolute enclosure URL — see
+    /// `PodcastEpisode.asSong`), and the normal case of a Subsonic media id streamed from the
+    /// server. Static + isolated so it's unit-testable without a live server.
+    @MainActor
+    static func resolveStreamURL(songID: String) throws -> URL {
+        // Prefer an offline download when present.
+        if let local = MusicDownloadStore.shared.localURL(for: songID) { return local }
+        // A podcast episode carries its enclosure URL as its id — play it directly.
+        if let url = URL(string: songID), let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            return url
+        }
+        // Otherwise it's a Subsonic media id — stream from the configured server.
+        return try NavidromeConfig.makeClient().streamURL(songID: songID)
+    }
+
     init(
         streamURLProvider: @escaping @MainActor (String) throws -> URL = { songID in
-            // Prefer an offline download when present; else stream from the server.
-            if let local = MusicDownloadStore.shared.localURL(for: songID) { return local }
-            return try NavidromeConfig.makeClient().streamURL(songID: songID)
+            try StreamingPlaybackController.resolveStreamURL(songID: songID)
         },
         coverArtURLProvider: @escaping @MainActor (String) -> URL? = { songID in
-            (try? NavidromeConfig.makeClient())?.coverArtURL(id: songID, size: 600)
+            // A podcast enclosure URL has no derivable cover art — skip the (bogus) server
+            // lookup so now-playing falls back to a placeholder rather than a broken request.
+            if let url = URL(string: songID), url.scheme?.hasPrefix("http") == true { return nil }
+            return (try? NavidromeConfig.makeClient())?.coverArtURL(id: songID, size: 600)
         },
         defaults: UserDefaults = StreamingPlaybackController.defaultStore(),
         systemNowPlaying: Bool = !BatonRuntime.isTest,
@@ -498,11 +526,28 @@ final class StreamingPlaybackController {
                 // Don't let a stale clock tick override a just-issued seek target.
                 if self.isSeeking { return }
                 self.currentTime = max(0, time.seconds)
+                // Resume: once the item is ready (duration known), jump to the saved offset
+                // exactly once. Done here (not at track start) because the item may not be
+                // seekable and its duration may be unknown until audio actually flows.
+                if let offset = self.pendingResumeOffset, self.duration > 1 {
+                    self.pendingResumeOffset = nil
+                    if offset > 2, offset < self.duration - 5 {
+                        self.lastProgressSaveTime = offset
+                        self.seek(to: offset)
+                        return
+                    }
+                }
+                // Persist listening progress (podcasts) roughly every 5 s of playback.
+                if let song = self.nowPlaying, self.duration > 1,
+                   abs(self.currentTime - self.lastProgressSaveTime) >= 5 {
+                    self.lastProgressSaveTime = self.currentTime
+                    self.onProgressUpdate?(song, self.currentTime, self.duration)
+                }
                 // Fire an external scrobble once the track's been played long enough.
                 if !self.scrobbledCurrent, let song = self.nowPlaying, self.duration > 30,
                    self.currentTime >= MusicScrobbler.scrobbleThreshold(duration: self.duration) {
                     self.scrobbledCurrent = true
-                    self.onScrobbleEligible?(song)
+                    self.onScrobbleEligible?(song, self.currentTrackStartedAt)
                 }
                 // Start a crossfade into the next track when we're within the crossfade
                 // window of the end (opt-in; 0 keeps the classic hard cut).
@@ -551,15 +596,35 @@ final class StreamingPlaybackController {
     /// URL embeds a fresh salt each build, so recomputing it every push would make the
     /// OS refetch the same image on every pause/seek.
     private var nowPlayingCoverID: String?
+    private var nowPlayingDirectArt: URL?
     private var nowPlayingCoverURL: URL?
+    /// A resume offset to apply once the current item is ready (duration known). Set at track
+    /// start from `resumeOffsetProvider`, consumed by the first meaningful clock tick.
+    private var pendingResumeOffset: TimeInterval?
+    /// The `currentTime` at the last progress save, so `onProgressUpdate` fires ~every 5 s.
+    private var lastProgressSaveTime: TimeInterval = 0
+
+    /// Notifies listeners a track began and arms its resume offset (podcasts). Call in place of
+    /// `onTrackStarted?(song)` so every start path resumes + logs identically.
+    private func notifyTrackStarted(_ song: NavidromeSong) {
+        currentTrackStartedAt = Date()
+        onTrackStarted?(song)
+        pendingResumeOffset = resumeOffsetProvider?(song)
+        lastProgressSaveTime = 0
+    }
 
     /// Publishes the current track + transport state to macOS Now Playing.
     private func pushNowPlaying() {
         guard systemNowPlaying else { return }
         let coverID = nowPlaying?.coverArtID
-        if coverID != nowPlayingCoverID {
+        let directArt = nowPlaying?.artworkURL
+        // Recompute the artwork URL when either the Subsonic cover id or the direct art URL
+        // (podcasts) changes. Podcast episodes all carry a nil coverID, so keying only on that
+        // would leave the lock-screen art stuck on the first episode.
+        if coverID != nowPlayingCoverID || directArt != nowPlayingDirectArt {
             nowPlayingCoverID = coverID
-            nowPlayingCoverURL = coverID.flatMap { coverArtURLProvider($0) }
+            nowPlayingDirectArt = directArt
+            nowPlayingCoverURL = directArt ?? coverID.flatMap { coverArtURLProvider($0) }
         }
         nowPlayingCenter.update(
             song: nowPlaying,
@@ -1126,8 +1191,7 @@ final class StreamingPlaybackController {
             resetFade()
             player.play()
             state = .playing
-            scrobble(songID: song.id)
-            onTrackStarted?(song)
+            notifyTrackStarted(song)
         } else {
             state = .paused
         }
@@ -1187,6 +1251,12 @@ final class StreamingPlaybackController {
         // when a new item loads or the playhead seeks off the end.
         guard !didHandleEnd else { return }
         didHandleEnd = true
+
+        // Final progress update so a finished episode is marked played (and its download can be
+        // reaped). Reports the full duration as the position — that's what "reached the end" is.
+        if let song = nowPlaying, duration > 1 {
+            onProgressUpdate?(song, duration, duration)
+        }
 
         // True-gapless: the `AVQueuePlayer` auto-advances the *audio* to the preloaded next
         // item with no gap. Rather than reload (which would re-buffer and insert a pause),
@@ -1374,8 +1444,7 @@ final class StreamingPlaybackController {
         configureAudioMix?(item)
         applyVolume()
         state = .playing
-        scrobble(songID: song.id)
-        onTrackStarted?(song)
+        notifyTrackStarted(song)
         pushNowPlaying()
         persistQueue()
         extendQueueIfNeeded()
@@ -1540,8 +1609,7 @@ final class StreamingPlaybackController {
         fadeMultiplier = 1
         applyVolume()
         state = .playing
-        scrobble(songID: queue[nextIndex].id)
-        onTrackStarted?(queue[nextIndex])
+        notifyTrackStarted(queue[nextIndex])
         pushNowPlaying()
         persistQueue()
         extendQueueIfNeeded()
@@ -1565,13 +1633,6 @@ final class StreamingPlaybackController {
         crossfadePlayer = nil
         didHandleEnd = false
         applyVolume()
-    }
-
-    /// Best-effort scrobble on track start — feeds the server's play counts and
-    /// "Recently/Most played". Never blocks or affects playback; skipped under test.
-    private func scrobble(songID: String) {
-        guard !BatonRuntime.isTest else { return }
-        Task.detached { try? await NavidromeConfig.makeClient().scrobble(id: songID) }
     }
 
     // MARK: - Persistence (REQ-14)

@@ -85,7 +85,7 @@ struct MusicView: View {
     }
 
     enum MusicTab: String, CaseIterable, Identifiable {
-        case home, search, mixes, albums, artists, playlists, starred, history, podcasts, radio, downloads
+        case home, search, mixes, albums, artists, playlists, starred, later, history, podcasts, radio, downloads
         var id: String {
             rawValue
         }
@@ -99,6 +99,7 @@ struct MusicView: View {
             case .artists: "Artists"
             case .playlists: "Playlists"
             case .starred: "Liked"
+            case .later: "Later"
             case .history: "History"
             case .podcasts: "Podcasts"
             case .radio: "Radio"
@@ -115,6 +116,7 @@ struct MusicView: View {
             case .artists: "music.mic"
             case .playlists: "music.note.list"
             case .starred: "heart"
+            case .later: "bookmark"
             case .history: "clock.arrow.circlepath"
             case .podcasts: "mic.fill"
             case .radio: "dot.radiowaves.left.and.right"
@@ -128,8 +130,11 @@ struct MusicView: View {
     }
 
     private var nowPlayingCoverURL: URL? {
-        guard let id = model.music.nowPlaying?.coverArtID else { return nil }
-        return library.coverArtURL(id: id, size: ArtworkColorExtractor.coverSize)
+        // Prefers a direct artwork URL (podcasts) over the Subsonic cover id, matching the
+        // full-screen / mini-player surfaces, so the window color wash tracks podcasts too.
+        model.music.nowPlaying?.displayArtworkURL(size: ArtworkColorExtractor.coverSize) { id, size in
+            library.coverArtURL(id: id, size: size)
+        }
     }
 
     var body: some View {
@@ -155,6 +160,7 @@ struct MusicView: View {
                             .scrollContentBackground(.hidden)
                         }
                         .musicActionToast()
+                        .speechAlertBanner()
                         NowPlayingBar(
                             artNamespace: artNamespace, expanded: showFullScreen,
                             accent: paletteLoader.palette.uiAccent
@@ -182,7 +188,9 @@ struct MusicView: View {
                 // mode) — and consistent with the full-screen player.
                 .preferredColorScheme(.dark)
                 .onAppear { paletteLoader.update(url: nowPlayingCoverURL) }
-                .onChange(of: model.music.nowPlaying?.coverArtID) { _, _ in
+                // Key on the song id, not coverArtID: podcast episodes share a nil cover id, so
+                // keying on it would leave the window wash stuck between episodes.
+                .onChange(of: model.music.nowPlaying?.id) { _, _ in
                     paletteLoader.update(url: nowPlayingCoverURL)
                 }
             } else {
@@ -217,6 +225,15 @@ struct MusicView: View {
             }
             // Prefetch radio stations so the Radio nav badge populates like the others.
             await model.internetRadio.loadIfNeeded()
+            // Probe whether the server implements the Subsonic podcast API; the Podcasts tab
+            // uses that to pick its backend (server-managed vs. Baton's own RSS subscriptions).
+            await model.podcastCapability.probeIfNeeded()
+            // Load client-side podcast subscriptions so the nav badge populates.
+            await model.podcastSubscriptions.loadIfNeeded()
+            // Load per-episode progress so resume/played state is ready before the tab opens.
+            model.podcastProgress.loadIfNeeded()
+            // Load pinned ("Later") items so the nav badge populates.
+            model.pins.loadIfNeeded()
         }
     }
 
@@ -348,7 +365,10 @@ struct MusicView: View {
         case .radio: model.internetRadio.stations.isEmpty ? nil : model.internetRadio.stations.count
         case .downloads:
             MusicDownloadStore.shared.downloadedIDs.isEmpty ? nil : MusicDownloadStore.shared.downloadedIDs.count
-        case .podcasts: nil
+        case .podcasts:
+            model.podcastSubscriptions.channels.isEmpty ? nil : model.podcastSubscriptions.channels.count
+        case .later:
+            model.pins.pins.isEmpty ? nil : model.pins.pins.count
         }
     }
 
@@ -375,6 +395,7 @@ struct MusicView: View {
         case .playlists: playlistsTab
         case .starred: starredTab
         case .history: MusicHistoryView()
+        case .later: MusicPinnedView()
         case .podcasts: MusicPodcastsView()
         case .radio: MusicRadioView()
         case .downloads: MusicDownloadsView()
@@ -752,6 +773,7 @@ struct MusicAlbumCard: View {
             trailingBottom: durationText,
             isHovering: isHovering,
             isPlayingSource: isPlayingSource,
+            downloadStatus: DownloadStatusBadge.status(albumID: album.id, totalTracks: album.songCount),
             onPlay: playAlbum
         )
     }

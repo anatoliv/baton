@@ -21,16 +21,18 @@ struct MiniPlayerWindowView: View {
     private var player: StreamingPlaybackController { model.music }
 
     private var artworkURL: URL? {
-        guard let id = player.nowPlaying?.coverArtID else { return nil }
-        return model.musicLibrary.coverArtURL(id: id, size: 120)
+        player.nowPlaying?.displayArtworkURL(size: 120) { id, size in
+            model.musicLibrary.coverArtURL(id: id, size: size)
+        }
     }
 
     /// Cover URL sized for palette extraction (canonical size, so the mini player's
     /// accent matches the main window's for the same track). Separate from the 120px
     /// display thumbnail above.
     private var paletteCoverURL: URL? {
-        guard let id = player.nowPlaying?.coverArtID else { return nil }
-        return model.musicLibrary.coverArtURL(id: id, size: ArtworkColorExtractor.coverSize)
+        player.nowPlaying?.displayArtworkURL(size: ArtworkColorExtractor.coverSize) { id, size in
+            model.musicLibrary.coverArtURL(id: id, size: size)
+        }
     }
 
     /// Contrast-corrected dynamic accent for the scrubber/volume fills + active state.

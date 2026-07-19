@@ -144,6 +144,31 @@ offline library mapping.
 **Improve:** define the migration during Phase 6 ([03](03-architecture.md)); rename the
 manifest and cache dirs to Baton's namespace; write a one-time importer.
 
+## 14. Menu-bar controller is text + transport only
+**There:** `BatonMenuBarExtra.swift` is a `MenuBarExtra` scene bound to `model.music`.
+It shows the now-playing title/artist (or "Nothing Playing"), Play/Pause, Next,
+Previous, "Open Baton", "Mini Player", and "Quit Baton". It is structurally load-bearing:
+the MCP `BatonMCPServer` and the `BatonControlSocket` are started/torn down with the main
+window, so the menu-bar item is what keeps Baton (and the control server) alive when every
+window is closed.
+**Limitation:** for something this important it carries little. There's no artwork, no
+like button, no volume or sleep timer, and no way to see or copy the control-server
+endpoint/token without opening `~/Library/Application Support/Baton/mcp.json` by hand. It
+also has no "launch at login / keep running in menu bar" preference, even though that is
+the whole reason it exists.
+**Improve (priority order):**
+1. **Live artwork thumbnail, scrubber, and a like/heart button** in the menu, bound to the
+   same `model.music` state the now-playing bar uses.
+2. **A control-server status line** ("Control server: running on :8787") with **Copy
+   endpoint** and **Copy token** actions, read from `mcp.json`, so connecting an agent
+   doesn't require digging out the discovery file. Pairs with the
+   [agent-observable status surface](05-roadmap-new-features.md) work (#12 there).
+3. **Inline volume and sleep-timer controls.**
+4. **A "Launch at login / keep running in menu bar" preference** (Settings), since the
+   menu-bar item is the thing that keeps the server reachable in the background.
+
+Items 1 and 2 are the high-value pair; surfaced while writing the help docs.
+
 ---
 
 ## Quick-win shortlist (highest value / lowest risk)
@@ -152,3 +177,5 @@ manifest and cache dirs to Baton's namespace; write a one-time importer.
 3. **Radio-ban → server signal / sync** (#10) — small, real user benefit.
 4. **Own Keychain + multi-server groundwork** (#6) — required for extraction anyway.
 5. **Audio-focus owner-token contract** (#7) — the keystone fix; do it with Phase 2.
+6. **Menu-bar artwork/like + copy endpoint & token** (#14) — small, and the menu bar is
+   the surface that keeps the control server reachable.

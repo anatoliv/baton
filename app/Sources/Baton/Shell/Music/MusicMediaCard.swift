@@ -385,6 +385,8 @@ struct MusicMediaCard: View {
     /// Highlights the card (accent border + glow) when its entity is the current
     /// queue's source — e.g. the playlist/album/artist you're playing from.
     var isPlayingSource = false
+    /// Offline-download state, shown as a corner badge over the artwork (bottom-trailing).
+    var downloadStatus: DownloadStatusBadge.Status = .hidden
     var onPlay: () -> Void
 
     var body: some View {
@@ -404,6 +406,7 @@ struct MusicMediaCard: View {
             .overlay { cover }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(alignment: .topLeading) { badge }
+            .overlay(alignment: .bottomTrailing) { downloadOverlay }
             .overlay { hoverPlay }
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
@@ -415,6 +418,22 @@ struct MusicMediaCard: View {
                 y: isHovering ? 8 : 4
             )
             .animation(.easeInOut(duration: 0.18), value: isPlayingSource)
+    }
+
+    /// Offline badge over the artwork — white glyph on a dark disc for legibility on any cover.
+    /// A spinner isn't shown on cards (only in the denser table rows).
+    @ViewBuilder private var downloadOverlay: some View {
+        let symbol: String? = switch downloadStatus {
+        case .complete: "arrow.down.circle.fill"
+        case .partial: "arrow.down.circle"
+        case .hidden, .downloading: nil
+        }
+        if let symbol {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold)).foregroundStyle(.white)
+                .padding(5).background(.black.opacity(0.45), in: Circle())
+                .padding(6)
+        }
     }
 
     // Blurred fill behind — a separate overlay so it can't dictate sizing.

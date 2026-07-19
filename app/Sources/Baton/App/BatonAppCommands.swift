@@ -2,25 +2,17 @@ import SwiftUI
 
 /// Baton's app-menu customizations. Replaces the standard "About" menu item with
 /// one that opens our custom `BatonAboutView` panel (a dedicated utility window,
-/// declared in `BatonApp`), and adds a Help item that points at the About panel
-/// as a lightweight "what is this" affordance.
+/// declared in `BatonApp`).
 ///
-/// `PlaybackMenuCommands` (the Playback menu) stays wired separately in `BatonApp`.
+/// The Help menu is wired separately by `HelpMenuCommands` (the in-app Help
+/// window, ⌘?), and `PlaybackMenuCommands` (the Playback menu) also stays wired
+/// separately in `BatonApp`.
 struct BatonAppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         // Replace the default "About <App>" with our custom panel.
         CommandGroup(replacing: .appInfo) {
-            Button("About Baton") {
-                openWindow(id: BatonApp.aboutWindowID)
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
-
-        // A minimal Help menu entry (SwiftUI keeps the standard Help placeholder
-        // otherwise-empty; give it something that explains the product).
-        CommandGroup(replacing: .help) {
             Button("About Baton") {
                 openWindow(id: BatonApp.aboutWindowID)
                 NSApp.activate(ignoringOtherApps: true)

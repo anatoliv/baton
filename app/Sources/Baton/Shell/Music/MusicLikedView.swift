@@ -861,6 +861,8 @@ struct MusicLikedSongRow: View {
                 ])
             }
 
+            DownloadStatusBadge(songID: song.id)
+
             Text(song.duration.map { MusicTrackRow.formatDuration($0) } ?? "—")
                 .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 .frame(width: 52, alignment: .trailing)
@@ -940,6 +942,7 @@ struct LikedSongGridCell: View {
             trailingBottom: song.duration.map { MusicTrackRow.formatDuration($0) },
             isHovering: hovering,
             isPlayingSource: isCurrent,
+            downloadStatus: DownloadStatusBadge.status(songID: song.id),
             onPlay: onPlay
         )
         .overlay(alignment: .topLeading) {

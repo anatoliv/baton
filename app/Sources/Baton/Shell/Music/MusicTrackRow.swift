@@ -25,11 +25,7 @@ struct MusicTrackRow: View {
             }
             Spacer(minLength: 8)
 
-            if MusicDownloadStore.shared.isDownloading(song.id) {
-                ProgressView().controlSize(.small)
-            } else if MusicDownloadStore.shared.isDownloaded(song.id) {
-                Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).help("Downloaded")
-            }
+            DownloadStatusBadge(songID: song.id)
             if let duration = song.duration {
                 Text(Self.formatDuration(duration))
                     .font(.callout.monospacedDigit())
@@ -42,6 +38,7 @@ struct MusicTrackRow: View {
         .onTapGesture(count: 2, perform: onPlay)
         .contextMenu {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
+            PinMenuButton(item: .song(song), model: model)
             Divider()
             songDownloadMenuItems(song, model)
             songRadioMenuItem(song, model)

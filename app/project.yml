@@ -12,6 +12,13 @@ configs:
   Debug: debug
   Release: release
 
+packages:
+  # Renders the bundled HELP.md / FAQ.md guides in the in-app Help window.
+  # Same library and pin Tonebox uses, so the Markdown theming matches.
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: "2.4.1"
+
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -35,6 +42,18 @@ targets:
   Baton:
     type: application
     platform: macOS
+    dependencies:
+      - package: MarkdownUI
+    # Keep the app-bundled copies of the user guides in step with the
+    # canonical HELP.md / FAQ.md at the repo root on every build, so the
+    # in-app Help window never drifts from the docs we edit.
+    preBuildScripts:
+      - name: Sync Help guides
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          cp "$SRCROOT/../HELP.md" "$SRCROOT/Sources/Baton/Resources/HELP.md"
+          cp "$SRCROOT/../FAQ.md"  "$SRCROOT/Sources/Baton/Resources/FAQ.md"
     sources:
       - path: Sources/Baton
       - path: Assets.xcassets
@@ -62,8 +81,16 @@ targets:
         # streams; default ATS blocks them, so AVPlayer shows "On air" but never
         # starts (silent). This scopes the exception to AVFoundation media only —
         # it does NOT open up arbitrary NSURLSession HTTP.
+        # `NSAllowsLocalNetworking` additionally permits cleartext NSURLSession to
+        # local hosts (*.local and RFC-1918 LAN IPs) — needed for the self-hosted
+        # TTS services the `speak_summary` tool POSTs to — without opening cleartext
+        # to the public internet.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsForMedia: true
+          NSAllowsLocalNetworking: true
+        # macOS gates LAN access behind a privacy prompt; this is its description. Needed
+        # because the `speak_summary` tool reaches self-hosted TTS services on the LAN.
+        NSLocalNetworkUsageDescription: "Baton connects to your self-hosted text-to-speech services on your local network to speak task summaries aloud."
     entitlements:
       path: Baton.entitlements
       properties:

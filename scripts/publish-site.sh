@@ -31,6 +31,7 @@ fail() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 SITE_FILES=(
   website/index.html
   website/help.html
+  website/404.html
   website/styles.css
   website/main.js
   website/og.png

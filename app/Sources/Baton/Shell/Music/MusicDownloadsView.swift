@@ -402,9 +402,10 @@ private struct DownloadRow: View {
     }
 
     @ViewBuilder private var artwork: some View {
-        // Prefer the stored cover-art id; fall back to the song id (Navidrome's getCoverArt
+        // A podcast download carries a direct artwork URL (no Subsonic cover id); otherwise
+        // prefer the stored cover-art id, falling back to the song id (Navidrome's getCoverArt
         // accepts it) so downloads saved before the id was persisted still show art.
-        if let url = model.musicLibrary.coverArtURL(id: item.coverArtID ?? item.id, size: 88) {
+        if let url = item.artworkURL ?? model.musicLibrary.coverArtURL(id: item.coverArtID ?? item.id, size: 88) {
             AsyncImage(url: url) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
@@ -440,7 +441,7 @@ private struct DownloadCard: View {
 
     var body: some View {
         MusicMediaCard(
-            coverURL: model.musicLibrary.coverArtURL(id: item.coverArtID ?? item.id, size: 300),
+            coverURL: item.artworkURL ?? model.musicLibrary.coverArtURL(id: item.coverArtID ?? item.id, size: 300),
             aspect: 1,
             placeholder: "arrow.down.circle",
             title: item.title,

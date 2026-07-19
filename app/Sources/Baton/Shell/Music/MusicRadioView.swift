@@ -266,6 +266,7 @@ private struct RadioStationCard: View {
         .onTapGesture(perform: onPlay)
         .contextMenu {
             Button(isPlaying ? "Stop" : "Play", action: onPlay)
+            PinMenuButton(item: .station(station), model: model)
             Button("Edit…", action: onEdit)
             if let home = station.homepageUrl, let url = URL(string: home) {
                 Link("Open Homepage", destination: url)
@@ -350,6 +351,7 @@ private struct RadioStationListRow: View {
 
             Menu {
                 Button(isPlaying ? "Stop" : "Play", action: onPlay)
+                PinMenuButton(item: .station(station), model: model)
                 Button("Edit…", action: onEdit)
                 if let home = station.homepageUrl, let url = URL(string: home) {
                     Link("Open Homepage", destination: url)
