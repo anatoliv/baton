@@ -261,6 +261,8 @@
     schedId = setInterval(scheduler, TIMER_MS);
     raf = requestAnimationFrame(drawEQ);
     stage.classList.add("is-playing");
+    // Let the adaptive-color module recolor the hero to this piece's mood.
+    stage.dispatchEvent(new CustomEvent("baton:play", { detail: { piece: PIECE.name } }));
     btn.setAttribute("aria-pressed", "true");
     btn.setAttribute("aria-label", "Pause the demo");
     if (label) label.textContent = "Now playing";
@@ -277,6 +279,7 @@
     }
     bars.forEach(function (b) { b.style.transform = ""; });
     stage.classList.remove("is-playing");
+    stage.dispatchEvent(new CustomEvent("baton:stop"));
     btn.setAttribute("aria-pressed", "false");
     btn.setAttribute("aria-label", "Play a demo melody");
     if (label) label.textContent = "Play a taste";
@@ -288,4 +291,84 @@
   document.addEventListener("visibilitychange", function () {
     if (document.hidden && playing) stop();
   });
+})();
+
+/* ---------- Adaptive "music" color ----------
+   The site demonstrates the app's headline feature: the interface adapts to your
+   music. A slow ambient cycle recolors the hero's waves/notes/glow through a
+   curated palette; playing the live demo locks the color to the current piece's
+   mood. Brand chrome (logo, nav, CTAs, links) stays Baton orange throughout.
+   Everything here rides the --music custom property (registered in CSS so changes
+   crossfade); under reduced motion the ambient cycle is skipped. */
+(function () {
+  "use strict";
+
+  var root = document.documentElement;
+  var stage = document.querySelector(".hero-stage");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var BRAND = "#E98345";
+
+  // The design doc's sequence — Blue → Purple → Emerald → Orange (brand) → Rose.
+  var PALETTE = ["#4F89FF", "#9A6CFF", "#1FB58C", BRAND, "#F0568C"];
+  // Each demo loop leans to a mood, so playing a taste recolors to match it.
+  var PIECE_HUE = {
+    Meadow: 2, Amber: 3, Sweetheart: 4, Nocturne: 1, "Jazz Cafe": 3,
+    Clearing: 2, Hopeful: 0, Wistful: 1, "Warm Bath": 3, Dreams: 1
+  };
+
+  function hexToRgb(h) {
+    h = h.replace("#", "");
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  function put(rgb) { root.style.setProperty("--music", "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")"); }
+
+  var i = 0, timer = null, locked = false, raf = 0, cur = hexToRgb(BRAND);
+
+  // Crossfade --music to a target color frame-by-frame. A CSS transition on a
+  // var()-derived property (stroke/color/background-color) doesn't animate in
+  // Chrome/Safari when the custom property is what changes, so we interpolate here.
+  function animateTo(hex, ms) {
+    var to = hexToRgb(hex), from = cur.slice(), t0 = performance.now(), done = false;
+    if (raf) cancelAnimationFrame(raf);
+    if (reduce || !ms) { cur = to; put(to); return; }
+    (function step(now) {
+      var k = Math.min(1, (now - t0) / ms);
+      var e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;   // easeInOut
+      cur = [0, 1, 2].map(function (j) { return Math.round(from[j] + (to[j] - from[j]) * e); });
+      put(cur);
+      if (k < 1) raf = requestAnimationFrame(step); else done = true;
+    })(t0);
+    // Guarantee arrival even if rAF is throttled/paused (background or headless tab):
+    // rAF gives the smooth crossfade when the tab paints; this snaps to the target otherwise.
+    setTimeout(function () { if (!done) { cur = to; put(to); } }, ms + 80);
+  }
+
+  function tick() { if (!locked) { i = (i + 1) % PALETTE.length; animateTo(PALETTE[i], 2400); } }
+  function run() { if (!timer) timer = setInterval(tick, 7000); }
+  function halt() { if (timer) { clearInterval(timer); timer = null; } }
+
+  if (stage) {
+    // Playing the demo pins the hero to the current piece's mood (a quick fade)…
+    stage.addEventListener("baton:play", function (e) {
+      locked = true;
+      var name = (e.detail && e.detail.piece) || "";
+      var idx = PIECE_HUE.hasOwnProperty(name) ? PIECE_HUE[name] : 3;
+      animateTo(PALETTE[idx], 900);
+    });
+    // …and stopping resumes the ambient cycle (or brand under reduced motion).
+    stage.addEventListener("baton:stop", function () {
+      locked = false;
+      animateTo(reduce ? BRAND : PALETTE[i], 1400);
+    });
+  }
+
+  // Ambient cycle only when motion is allowed; otherwise the hero stays brand
+  // orange until the user plays a taste (a discrete, user-initiated recolor).
+  if (!reduce) {
+    animateTo(PALETTE[i], 2400);
+    run();
+    document.addEventListener("visibilitychange", function () {
+      document.hidden ? halt() : run();
+    });
+  }
 })();
