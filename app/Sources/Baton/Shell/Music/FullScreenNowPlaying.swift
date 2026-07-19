@@ -54,8 +54,8 @@ struct FullScreenNowPlaying: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear { paletteLoader.update(url: coverURL(size: 500)) }
-        .onChange(of: player.nowPlaying?.coverArtID) { _, _ in paletteLoader.update(url: coverURL(size: 500)) }
+        .onAppear { paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
+        .onChange(of: player.nowPlaying?.coverArtID) { _, _ in paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
         .task(id: player.nowPlaying?.coverArtID) { coverImage = await loadCoverImage() }
         .confirmationDialog(
             "Delete this track?",
@@ -163,6 +163,9 @@ struct FullScreenNowPlaying: View {
                 .frame(maxWidth: 640)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .matchedArtwork(artNamespace, isSource: true)
+                // Playback glow: a soft artwork-colored halo while playing, over the
+                // depth shadow. Dynamic accent per the design doc's Player section.
+                .shadow(color: player.isPlaying ? palette.uiAccent.opacity(0.38) : .clear, radius: 44)
                 .shadow(color: .black.opacity(0.55), radius: player.isPlaying ? 52 : 34, y: 26)
                 // Subtle "breathing" motion while playing (Apple-Music-style life).
                 .scaleEffect(breathing && player.isPlaying ? 1.02 : 0.98)
@@ -176,16 +179,19 @@ struct FullScreenNowPlaying: View {
                     .font(.title3).foregroundStyle(.white.opacity(0.72)).lineLimit(1)
             }
             if let song = player.nowPlaying {
-                MusicRatingCluster(song: song)
+                MusicRatingCluster(song: song, tint: palette.uiAccent)
             }
-            MusicScrubber(currentTime: player.currentTime, duration: player.duration, waveform: waveform) { player.seek(to: $0) }
+            MusicScrubber(
+                currentTime: player.currentTime, duration: player.duration,
+                tint: palette.uiAccent, waveform: waveform
+            ) { player.seek(to: $0) }
                 .task(id: player.nowPlaying?.id) { await loadWaveform() }
                 .frame(maxWidth: 520)
             transport
             MusicVolumeControl(
                 percent: player.volumePercent,
                 isMuted: player.isMuted,
-                tint: .white,
+                tint: palette.uiAccent,
                 onChange: { player.setVolume(percent: $0) },
                 onToggleMute: { player.toggleMute() }
             )
@@ -216,7 +222,7 @@ struct FullScreenNowPlaying: View {
         HStack(spacing: 26) {
             Button { player.toggleShuffle() } label: {
                 Image(systemName: "shuffle").font(.title3)
-                    .foregroundStyle(player.isShuffled ? Color.accentColor : .white.opacity(0.7))
+                    .foregroundStyle(player.isShuffled ? palette.uiAccent : .white.opacity(0.7))
             }
             .help("Shuffle")
             Button { player.previous() } label: { Image(systemName: "backward.fill").font(.title2) }
@@ -232,7 +238,7 @@ struct FullScreenNowPlaying: View {
             Button { player.next() } label: { Image(systemName: "forward.fill").font(.title2) }
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.title3)
-                    .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.7) : Color.accentColor)
+                    .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.7) : palette.uiAccent)
             }
             .help("Repeat")
         }

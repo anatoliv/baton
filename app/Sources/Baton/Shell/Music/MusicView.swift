@@ -129,7 +129,7 @@ struct MusicView: View {
 
     private var nowPlayingCoverURL: URL? {
         guard let id = model.music.nowPlaying?.coverArtID else { return nil }
-        return library.coverArtURL(id: id, size: 400)
+        return library.coverArtURL(id: id, size: ArtworkColorExtractor.coverSize)
     }
 
     var body: some View {
@@ -155,7 +155,10 @@ struct MusicView: View {
                             .scrollContentBackground(.hidden)
                         }
                         .musicActionToast()
-                        NowPlayingBar(artNamespace: artNamespace, expanded: showFullScreen) {
+                        NowPlayingBar(
+                            artNamespace: artNamespace, expanded: showFullScreen,
+                            accent: paletteLoader.palette.uiAccent
+                        ) {
                             // Pop any drill-down to root so the window-titlebar back
                             // button (which would sit next to the traffic lights and
                             // pop navigation behind the full-screen overlay — a dead
@@ -243,7 +246,7 @@ struct MusicView: View {
                                 .foregroundStyle(selected ? Color.accentColor : .secondary)
                                 .padding(.horizontal, 6).padding(.vertical, 1)
                                 .background(
-                                    Capsule().fill(selected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.08))
+                                    Capsule().fill(selected ? Color.badgeTint() : Color.badgeIdleTint)
                                 )
                         }
                     }
@@ -252,10 +255,11 @@ struct MusicView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, railCollapsed ? 4 : 10).padding(.vertical, 7)
             .background(
-                selected ? AnyShapeStyle(Color.accentColor.opacity(0.15)) : AnyShapeStyle(.clear),
+                selected ? AnyShapeStyle(Color.sidebarSelectionTint()) : AnyShapeStyle(.clear),
                 in: RoundedRectangle(cornerRadius: 8)
             )
             .contentShape(Rectangle())
+            .animation(.easeInOut(duration: 0.18), value: selected)
         }
         .buttonStyle(.plain)
     }

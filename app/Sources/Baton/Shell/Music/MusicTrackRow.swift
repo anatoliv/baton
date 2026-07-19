@@ -38,6 +38,7 @@ struct MusicTrackRow: View {
             MusicRatingStars(song: song)
         }
         .contentShape(Rectangle())
+        .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .onTapGesture(count: 2, perform: onPlay)
         .contextMenu {
             songPlaybackMenuItems(song, model, onPlay: onPlay)

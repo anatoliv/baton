@@ -150,7 +150,7 @@ struct MusicHistoryView: View {
             }
         }
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.hoverTint))
         .fixedSize()
     }
 

@@ -34,6 +34,11 @@ struct NowPlayingBar: View {
     /// Namespace + state for the artwork morph into the full-screen hero.
     var artNamespace: Namespace.ID?
     var expanded = false
+    /// Dynamic artwork accent for the track-visualizing fills (progress + volume).
+    /// Defaults to brand orange for hosts that don't supply a palette. Per the design
+    /// doc's Brand ⇄ Dynamic rule, only the continuous fills use this; discrete
+    /// selection/mode highlights stay brand orange.
+    var accent: Color = .accentColor
     /// Called when the user taps the artwork/title to open the full-screen player.
     var onExpand: () -> Void = {}
 
@@ -172,7 +177,7 @@ struct NowPlayingBar: View {
     }
 
     private var seekRow: some View {
-        MusicScrubber(currentTime: player.currentTime, duration: player.duration, tint: .secondary) {
+        MusicScrubber(currentTime: player.currentTime, duration: player.duration, tint: accent) {
             player.seek(to: $0)
         }
     }
@@ -206,7 +211,7 @@ struct NowPlayingBar: View {
         MusicVolumeControl(
             percent: player.volumePercent,
             isMuted: player.isMuted,
-            tint: .secondary,
+            tint: accent,
             onChange: { player.setVolume(percent: $0) },
             onToggleMute: { player.toggleMute() }
         )
@@ -445,6 +450,7 @@ private struct MusicQueueRow: View {
         .simultaneousGesture(TapGesture().onEnded { model.music.jump(to: index) })
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .contextMenu {
             Button("Play Now", systemImage: "play.fill") { model.music.jump(to: index) }
             if !isCurrent {
@@ -475,7 +481,7 @@ private struct MusicQueueRow: View {
     }
 
     private var background: Color {
-        if isCurrent { return Color.accentColor.opacity(0.16) }
+        if isCurrent { return Color.nowPlayingRowTint() }
         return hovering ? Color.primary.opacity(0.07) : .clear
     }
 }

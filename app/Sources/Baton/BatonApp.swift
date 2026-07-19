@@ -29,6 +29,10 @@ struct BatonApp: App {
         Window("Baton", id: MusicWindowView.windowID) {
             MusicWindowView()
                 .environment(music)
+                // Anchor the whole app to Baton brand orange (also installed as the
+                // `AccentColor` asset). Brand ⇄ Dynamic rule: chrome + actions are
+                // brand; the player wires the dynamic artwork accent explicitly on top.
+                .tint(.batonOrange)
                 .task {
                     if mcp == nil {
                         let s = BatonMCPServer(music: music); s.start(); mcp = s
@@ -62,6 +66,7 @@ struct BatonApp: App {
         Window("Mini Player", id: MiniPlayerWindowView.windowID) {
             MiniPlayerWindowView()
                 .environment(music)
+                .tint(.batonOrange)
         }
         .defaultSize(width: 340, height: 132)
         .windowResizability(.contentSize)
@@ -80,6 +85,7 @@ struct BatonApp: App {
         Window("Settings", id: BatonSettingsView.windowID) {
             BatonSettingsView()
                 .environment(music)
+                .tint(.batonOrange)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 760, height: 560)

@@ -368,10 +368,11 @@ struct MusicAlbumRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            isSelected ? Color.accentColor.opacity(0.12) : (hovering ? Color.primary.opacity(0.06) : .clear)
+            isSelected ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear)
         ))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeInOut(duration: 0.18), value: isSelected)
         .contextMenu {
             albumActionMenuItems(album, model, run: run, onRemove: { showRemoveConfirm = true })
         }
@@ -562,10 +563,11 @@ struct MusicPlaylistRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            isSelected ? Color.accentColor.opacity(0.12) : (hovering ? Color.primary.opacity(0.06) : .clear)
+            isSelected ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear)
         ))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeInOut(duration: 0.18), value: isSelected)
         .contextMenu {
             playlistActionMenuItems(playlist, model, run: run, onDelete: { showDeleteConfirm = true })
         }

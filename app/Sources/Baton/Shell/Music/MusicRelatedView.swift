@@ -120,6 +120,7 @@ struct MusicPanelTrackRow: View {
         .onTapGesture(perform: onPlay)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .contextMenu {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
             Divider()
@@ -142,7 +143,7 @@ struct MusicPanelTrackRow: View {
     }
 
     private var background: Color {
-        if isCurrent { return Color.accentColor.opacity(0.16) }
+        if isCurrent { return Color.nowPlayingRowTint() }
         return hovering ? Color.primary.opacity(0.07) : .clear
     }
 }

@@ -282,7 +282,10 @@ struct MusicAlbumBanner: View {
                 .background(.black.opacity(0.35), in: Circle())
         }
         .buttonStyle(.plain)
-        .padding(.top, 10).padding(.leading, 12)
+        // Center-align the back chevron with the sidebar's collapse chevron: the rail
+        // chevron sits at 8 (rail top inset) + 14 (½ of its 28pt height) = 22pt; this
+        // 30pt circle needs a 7pt top inset (7 + 15) to share that center line.
+        .padding(.top, 7).padding(.leading, 12)
         .help("Back")
     }
 }
@@ -608,7 +611,10 @@ struct MusicArtistBanner: View {
                 .background(.black.opacity(0.35), in: Circle())
         }
         .buttonStyle(.plain)
-        .padding(.top, 10).padding(.leading, 12)
+        // Center-align the back chevron with the sidebar's collapse chevron: the rail
+        // chevron sits at 8 (rail top inset) + 14 (½ of its 28pt height) = 22pt; this
+        // 30pt circle needs a 7pt top inset (7 + 15) to share that center line.
+        .padding(.top, 7).padding(.leading, 12)
         .help("Back")
     }
 }
