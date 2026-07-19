@@ -346,7 +346,9 @@ struct MusicView: View {
         case .history:
             model.musicHistory.recentlyPlayed.isEmpty ? nil : model.musicHistory.recentlyPlayed.count
         case .radio: model.internetRadio.stations.isEmpty ? nil : model.internetRadio.stations.count
-        case .podcasts, .downloads: nil
+        case .downloads:
+            MusicDownloadStore.shared.downloadedIDs.isEmpty ? nil : MusicDownloadStore.shared.downloadedIDs.count
+        case .podcasts: nil
         }
     }
 
