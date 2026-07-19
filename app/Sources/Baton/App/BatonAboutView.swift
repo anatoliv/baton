@@ -34,6 +34,10 @@ struct BatonAboutView: View {
                 .foregroundStyle(.tertiary)
                 .textSelection(.enabled)
                 .padding(.top, 2)
+
+            Text("MIT License · © 2026 Tonebox")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .multilineTextAlignment(.center)
         .padding(28)

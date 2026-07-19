@@ -201,6 +201,7 @@ private struct BatonServersPane: View {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden) // show just the ⋯ — the borderless style adds a redundant chevron otherwise
             .fixedSize()
         }
         .contentShape(Rectangle())
@@ -275,10 +276,15 @@ private struct BatonAboutPane: View {
                 LabeledContent("Version") {
                     Text(version).textSelection(.enabled).foregroundStyle(.secondary)
                 }
+                LabeledContent("License") {
+                    Text("MIT").textSelection(.enabled).foregroundStyle(.secondary)
+                }
                 Text("Baton is a native macOS player for your self-hosted Navidrome / Subsonic library — gapless playback, a parametric equalizer, and scrobbling, controllable by voice.")
                     .font(.callout).foregroundStyle(.secondary)
                 Link("baton.tonebox.io", destination: URL(string: "https://baton.tonebox.io")!)
                     .font(.callout)
+                Text("© 2026 Tonebox · free to use, modify, and share, under the MIT License.")
+                    .font(.callout).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -302,6 +308,13 @@ private struct BatonPlaybackPane: View {
     @AppStorage(FilterHistory.sizeKey) private var filterHistorySize = FilterHistory.defaultSize
     /// Offline mode toggle — same key `MusicDownloadsView` reads.
     @AppStorage("baton.music.offlineMode") private var offlineMode = false
+    /// Whether the niche "Advanced" area (filter history) is expanded. Persisted so
+    /// power users who open it keep it open; collapsed by default for everyone else.
+    @AppStorage("baton.settings.playbackAdvancedExpanded") private var advancedExpanded = false
+
+    /// Fixed width for the trailing value labels on the Sound sliders, so Pre-amp and
+    /// Crossfade line up identically down the right edge.
+    private let sliderValueWidth: CGFloat = 52
 
     @State private var filenameTemplate = MusicDownloadStore.shared.filenameTemplate
     /// Gapless prefetch cache size on disk, refreshed when the pane appears.
@@ -313,8 +326,8 @@ private struct BatonPlaybackPane: View {
         Form {
             soundSection
             downloadsSection
-            browseSection
             scrobblingSection
+            advancedSection
         }
         .formStyle(.grouped)
         .onAppear { gaplessCacheBytes = player.gaplessCacheSizeBytes }
@@ -334,25 +347,29 @@ private struct BatonPlaybackPane: View {
             Text("Evens out track-to-track volume using your server's ReplayGain / R128 data — no re-encoding, no lag. **Track** levels every song the same; **Album** keeps an album's own quiet-to-loud dynamics. Needs ReplayGain tags in your library; tracks without data play at normal volume.")
                 .font(.callout).foregroundStyle(.secondary)
             if player.loudnessMode != .off {
-                HStack {
-                    Text("Pre-amp")
-                    Slider(value: Binding(
-                        get: { player.loudnessPreampDB },
-                        set: { player.loudnessPreampDB = $0 }
-                    ), in: -12 ... 12, step: 1)
-                    Text("\(player.loudnessPreampDB >= 0 ? "+" : "")\(Int(player.loudnessPreampDB)) dB")
-                        .foregroundStyle(.secondary).monospacedDigit().frame(width: 52, alignment: .trailing)
+                LabeledContent("Pre-amp") {
+                    HStack {
+                        Slider(value: Binding(
+                            get: { player.loudnessPreampDB },
+                            set: { player.loudnessPreampDB = $0 }
+                        ), in: -12 ... 12, step: 1)
+                        Text("\(player.loudnessPreampDB >= 0 ? "+" : "")\(Int(player.loudnessPreampDB)) dB")
+                            .foregroundStyle(.secondary).monospacedDigit()
+                            .frame(width: sliderValueWidth, alignment: .trailing)
+                    }
                 }
             }
 
-            HStack {
-                Text("Crossfade")
-                Slider(value: Binding(
-                    get: { player.crossfadeSeconds },
-                    set: { player.crossfadeSeconds = ($0 < 0.5 ? 0 : $0) }
-                ), in: 0 ... 12, step: 1)
-                Text(player.crossfadeSeconds < 0.5 ? "Off" : "\(Int(player.crossfadeSeconds))s")
-                    .foregroundStyle(.secondary).monospacedDigit().frame(width: 52, alignment: .trailing)
+            LabeledContent("Crossfade") {
+                HStack {
+                    Slider(value: Binding(
+                        get: { player.crossfadeSeconds },
+                        set: { player.crossfadeSeconds = ($0 < 0.5 ? 0 : $0) }
+                    ), in: 0 ... 12, step: 1)
+                    Text(player.crossfadeSeconds < 0.5 ? "Off" : "\(Int(player.crossfadeSeconds))s")
+                        .foregroundStyle(.secondary).monospacedDigit()
+                        .frame(width: sliderValueWidth, alignment: .trailing)
+                }
             }
             Text("Overlaps the end of one track with the start of the next for a smooth transition. Off is a clean cut.")
                 .font(.callout).foregroundStyle(.secondary)
@@ -413,7 +430,6 @@ private struct BatonPlaybackPane: View {
                     .lineLimit(1).truncationMode(.middle)
                     .textSelection(.enabled)
             }
-            .padding(.vertical, 2)
 
             HStack {
                 Button("Choose Folder…") { chooseDownloadFolder() }
@@ -451,27 +467,34 @@ private struct BatonPlaybackPane: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
-            .padding(.top, 2)
 
             Text("Downloads save here for offline playback. The player finds them by track ID regardless of name; changing the folder or format doesn't move or rename existing files.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
 
-    // MARK: Browse
+    // MARK: Advanced
 
-    private var browseSection: some View {
-        Section("Browse") {
-            Picker("Filter history size", selection: $filterHistorySize) {
-                // Preset sizes (plus the current value, so a legacy value never shows blank).
-                ForEach(Array(Set([5, 10, 15, 20, 30, 50, filterHistorySize])).sorted(), id: \.self) {
-                    Text("\($0)").tag($0)
+    /// Niche, power-user controls (browse filter history) folded away at the bottom
+    /// of the pane. Collapsed by default; expansion is persisted so anyone who opens
+    /// it keeps it open. Uses a `DisclosureGroup` inside its own `Section` so it reads
+    /// as a distinct, subordinate area rather than a peer of Sound/Downloads/Scrobbling.
+    private var advancedSection: some View {
+        Section {
+            DisclosureGroup(isExpanded: $advancedExpanded) {
+                Picker("Filter history size", selection: $filterHistorySize) {
+                    // Preset sizes (plus the current value, so a legacy value never shows blank).
+                    ForEach(Array(Set([5, 10, 15, 20, 30, 50, filterHistorySize])).sorted(), id: \.self) {
+                        Text("\($0)").tag($0)
+                    }
                 }
+                .pickerStyle(.menu)
+                Text("How many recent filter terms each browse screen's search box remembers. Each screen keeps its own history.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Clear filter history", role: .destructive) { FilterHistory.clearAll() }
+            } label: {
+                Text("Advanced")
             }
-            .pickerStyle(.menu)
-            Text("How many recent filter terms each browse screen's search box remembers. Each screen keeps its own history.")
-                .font(.callout).foregroundStyle(.secondary)
-            Button("Clear filter history", role: .destructive) { FilterHistory.clearAll() }
         }
     }
 
