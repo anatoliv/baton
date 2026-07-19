@@ -215,6 +215,8 @@ struct MusicView: View {
             if library.starred.songs.isEmpty, library.starred.albums.isEmpty, library.starred.artists.isEmpty {
                 await library.loadStarred()
             }
+            // Prefetch radio stations so the Radio nav badge populates like the others.
+            await model.internetRadio.loadIfNeeded()
         }
     }
 
@@ -343,7 +345,8 @@ struct MusicView: View {
             }()
         case .history:
             model.musicHistory.recentlyPlayed.isEmpty ? nil : model.musicHistory.recentlyPlayed.count
-        case .podcasts, .radio, .downloads: nil
+        case .radio: model.internetRadio.stations.isEmpty ? nil : model.internetRadio.stations.count
+        case .podcasts, .downloads: nil
         }
     }
 

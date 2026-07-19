@@ -1,47 +1,105 @@
-import AVFoundation
-import Observation
-import OSLog
 import SwiftUI
 
-private let radioLog = Logger(subsystem: "io.tonebox.macos", category: "Radio")
-
-/// The **Radio** screen — internet-radio stations kept on the Navidrome server.
-///
-/// A station is a raw stream URL (ICY/MP3/AAC shoutcast-style), NOT a Subsonic
-/// song, so it can't go through `StreamingPlaybackController` (which only resolves
-/// and plays library `stream.view` URLs by song id). This view therefore owns a
-/// tiny `AVPlayer`-based `RadioPlaybackEngine` for the raw stream, and — so the two
-/// transports never play over each other — suspends the main music player via its
-/// existing audio-focus API while a station is on the air. Unifying the two players
-/// behind one transport is a sensible follow-up.
+/// The **Radio** screen — internet-radio stations kept on the Navidrome server, shown as a
+/// card grid with a live "Now Playing" hero. Stations, the raw-stream player, and the lazily
+/// resolved extras (logo, genre/bitrate, the current ICY track) all live on
+/// `model.internetRadio` (`InternetRadioStore`) so the sidebar badge and the global player
+/// bar read the same state. A station is a raw stream URL, not a Subsonic song, so it plays
+/// through the store's `RadioPlaybackEngine` and ducks the library transport while on air.
 struct MusicRadioView: View {
     @Environment(MusicModel.self) private var model
 
-    /// Loaded station list + fetch/mutation state.
-    @State private var stations: [NavidromeRadioStation] = []
-    @State private var isLoading = false
-    @State private var loadError: String?
-
-    /// Local raw-stream player for the on-air station.
-    @State private var engine = RadioPlaybackEngine()
-
-    /// Add/edit sheet state. `editing == nil` means "add a new station".
     @State private var showEditor = false
     @State private var editing: NavidromeRadioStation?
-
-    /// Delete confirmation target.
     @State private var pendingDelete: NavidromeRadioStation?
+    @State private var filterText = ""
+    @FocusState private var filterFocused: Bool
+    /// List ⇄ grid + sort, persisted like the other browse screens (Playlists/Artists/…).
+    @AppStorage("tonebox.music.radioLayout") private var layout: MusicBrowseLayout = .grid
+    @AppStorage("tonebox.music.radioSort") private var sortField: RadioSort = .name
+    @AppStorage("tonebox.music.radioSortAscending") private var sortAscending = true
+
+    private var store: InternetRadioStore { model.internetRadio }
+
+    /// The sort fields available on the Radio screen (mirrors the other browse screens).
+    enum RadioSort: String, CaseIterable, Identifiable, MusicSortField {
+        case name, website
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .name: "Name"
+            case .website: "Website"
+            }
+        }
+    }
+
+    /// Stations after the header's filter + sort controls are applied.
+    private var filteredStations: [NavidromeRadioStation] {
+        var list = store.stations
+        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
+        if !query.isEmpty { list = list.filter { $0.name.lowercased().contains(query) } }
+        switch sortField {
+        case .name:
+            list.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .website:
+            // Stations with no homepage sort last (empty host → end of an ascending list).
+            list.sort {
+                let a = $0.homepageHost ?? "\u{10FFFF}"
+                let b = $1.homepageHost ?? "\u{10FFFF}"
+                return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+            }
+        }
+        if !sortAscending { list.reverse() }
+        return list
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().opacity(0.4)
-            content
+        Group {
+            if store.loading, store.stations.isEmpty {
+                centered { ProgressView() }
+            } else if let loadError = store.loadError, store.stations.isEmpty {
+                centered {
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.secondary)
+                        Text(loadError).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button("Retry") { Task { await store.reload() } }
+                    }
+                }
+            } else if store.stations.isEmpty {
+                emptyState
+            } else {
+                VStack(spacing: 0) {
+                    // Shared browse header (title · count badge · filter, then the layout
+                    // toggle on the second row) so Radio lines up with Albums/Artists/etc.
+                    MusicBrowseHeader(
+                        title: "Radio",
+                        count: filteredStations.count,
+                        filter: $filterText,
+                        filterPrompt: "Filter stations",
+                        filterFocused: $filterFocused,
+                        filterHistoryKey: "radio",
+                        layout: $layout,
+                        accessory: { EmptyView() },
+                        leading: {
+                            Button { editing = nil; showEditor = true } label: {
+                                Label("Add Station", systemImage: "plus")
+                            }
+                            .buttonStyle(.borderless)
+                        },
+                        sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
+                    )
+                    stationsScroll
+                }
+            }
         }
-        .task { await load() }
+        .task { await store.loadIfNeeded() }
         .sheet(isPresented: $showEditor) {
             RadioStationEditor(station: editing) { name, streamURL, homepage in
-                await save(name: name, streamURL: streamURL, homepage: homepage)
+                if let editing {
+                    await store.update(editing, name: name, streamURL: streamURL, homepage: homepage)
+                } else {
+                    await store.add(name: name, streamURL: streamURL, homepage: homepage)
+                }
             }
         }
         .confirmationDialog(
@@ -50,7 +108,7 @@ struct MusicRadioView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let station = pendingDelete { Task { await delete(station) } }
+                if let station = pendingDelete { Task { await store.delete(station); pendingDelete = nil } }
             }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
@@ -58,195 +116,230 @@ struct MusicRadioView: View {
         }
     }
 
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Radio")
-                .font(.title2.weight(.bold))
-            Spacer()
-            Button {
-                editing = nil
-                showEditor = true
-            } label: {
-                Label("Add Station", systemImage: "plus")
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
-    }
-
     // MARK: - Content
 
-    @ViewBuilder
-    private var content: some View {
-        if isLoading, stations.isEmpty {
-            centered { ProgressView() }
-        } else if let loadError, stations.isEmpty {
-            centered {
-                VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                    Text(loadError).foregroundStyle(.secondary)
-                    Button("Retry") { Task { await load() } }
+    /// Grid of cards or a table of rows — the now-playing station is reflected in the shared
+    /// bottom player bar (and highlighted here), so there's no separate top "hero" section.
+    private var stationsScroll: some View {
+        ScrollView {
+            if layout == .grid {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 168), spacing: 14)], spacing: 16) {
+                    ForEach(filteredStations) { station in
+                        RadioStationCard(
+                            station: station,
+                            onPlay: { store.toggle(station) },
+                            onEdit: { editing = station; showEditor = true },
+                            onDelete: { pendingDelete = station }
+                        )
+                    }
                 }
-            }
-        } else if stations.isEmpty {
-            centered {
-                VStack(spacing: 8) {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                    Text("No radio stations").font(.headline)
-                    Text("Add an internet-radio stream URL to listen here.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                .padding(16)
+            } else {
+                LazyVStack(spacing: 2) {
+                    ForEach(filteredStations) { station in
+                        RadioStationListRow(
+                            station: station,
+                            onPlay: { store.toggle(station) },
+                            onEdit: { editing = station; showEditor = true },
+                            onDelete: { pendingDelete = station }
+                        )
+                    }
                 }
+                .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 12)
             }
-        } else {
-            List {
-                ForEach(stations) { station in
-                    RadioStationRow(
-                        station: station,
-                        isOnAir: engine.currentStation?.id == station.id,
-                        isPlaying: engine.currentStation?.id == station.id && engine.isPlaying,
-                        onPlay: { toggle(station) },
-                        onEdit: { editing = station; showEditor = true },
-                        onDelete: { pendingDelete = station }
-                    )
-                    .listRowSeparator(.hidden)
+        }
+    }
+
+    private var emptyState: some View {
+        centered {
+            VStack(spacing: 10) {
+                Image(systemName: "dot.radiowaves.left.and.right").font(.largeTitle).foregroundStyle(.secondary)
+                Text("No radio stations").font(.headline)
+                Text("Add an internet-radio stream URL to listen here.")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button { editing = nil; showEditor = true } label: {
+                    Label("Add Station", systemImage: "plus")
                 }
+                .buttonStyle(.borderless).padding(.top, 4)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
         }
     }
 
     private func centered(@ViewBuilder _ body: () -> some View) -> some View {
-        VStack { Spacer(); body(); Spacer() }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack { Spacer(); body(); Spacer() }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-
-    // MARK: - Actions
-
-    /// Fetches the station list from the server.
-    private func load() async {
-        guard model.musicLibrary.isConfigured else {
-            loadError = "No music server is configured."
-            return
-        }
-        isLoading = true
-        loadError = nil
-        defer { isLoading = false }
-        do {
-            let client = try NavidromeConfig.makeClient()
-            stations = try await client.getInternetRadioStations()
-        } catch {
-            let message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
-            loadError = message
-            radioLog.error("load stations failed: \(message, privacy: .public)")
-        }
-    }
-
-    /// Play the station, or stop it if it's already on the air.
-    private func toggle(_ station: NavidromeRadioStation) {
-        if engine.currentStation?.id == station.id {
-            engine.stop()
-            return
-        }
-        guard let url = station.streamURL else {
-            model.music.postToast("Station has no valid stream URL", symbol: "exclamationmark.triangle")
-            return
-        }
-        // Duck the main library player so the two transports don't overlap.
-        model.music.acquireAudioFocusSuspend(owner: Self.radioFocusOwner)
-        engine.play(station: station, url: url)
-    }
-
-    /// Creates or updates a station, then refreshes the list.
-    private func save(name: String, streamURL: String, homepage: String?) async {
-        do {
-            let client = try NavidromeConfig.makeClient()
-            if let editing {
-                try await client.updateInternetRadioStation(
-                    id: editing.id, name: name, streamUrl: streamURL, homepageUrl: homepage
-                )
-            } else {
-                try await client.createInternetRadioStation(
-                    name: name, streamUrl: streamURL, homepageUrl: homepage
-                )
-            }
-            await load()
-        } catch {
-            let message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
-            model.music.postToast(message, symbol: "exclamationmark.triangle")
-            radioLog.error("save station failed: \(message, privacy: .public)")
-        }
-    }
-
-    /// Deletes a station; stops it first if it's on the air.
-    private func delete(_ station: NavidromeRadioStation) async {
-        if engine.currentStation?.id == station.id { engine.stop() }
-        do {
-            let client = try NavidromeConfig.makeClient()
-            try await client.deleteInternetRadioStation(id: station.id)
-            await load()
-        } catch {
-            let message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
-            model.music.postToast(message, symbol: "exclamationmark.triangle")
-            radioLog.error("delete station failed: \(message, privacy: .public)")
-        }
-        pendingDelete = nil
-    }
-
-    /// Audio-focus owner tag used when radio ducks the library player.
-    private static let radioFocusOwner = "radio"
 }
 
-// MARK: - Row
+private extension NavidromeRadioStation {
+    /// The station website as an openable URL, if a homepage was set.
+    var homepageURL: URL? { homepageUrl.flatMap(URL.init(string:)) }
+    /// A clean host for the website column/link (e.g. "https://www.1.fm/" → "1.fm").
+    var homepageHost: String? {
+        guard let host = homepageURL?.host else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+}
 
-private struct RadioStationRow: View {
+// MARK: - Station card
+
+private struct RadioStationCard: View {
+    @Environment(MusicModel.self) private var model
     let station: NavidromeRadioStation
-    let isOnAir: Bool
-    let isPlaying: Bool
     let onPlay: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    @State private var hover = false
+
+    private var store: InternetRadioStore { model.internetRadio }
+    private var isOnAir: Bool { store.isOnAir(station) }
+    private var isPlaying: Bool { store.isPlaying(station) }
+
+    /// Live track while on air; otherwise genre·bitrate, falling back to the stream host.
+    private var subtitle: String {
+        if isOnAir, let track = store.engine.nowPlayingTitle { return track }
+        if isOnAir { return "On air" }
+        if let meta = store.meta[station.id]?.subtitle { return meta }
+        return station.streamURL?.host ?? ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                RadioArtworkView(station: station, cornerRadius: 12)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.accentColor, lineWidth: isOnAir ? 3 : 0)
+                    }
+                    .shadow(
+                        color: isOnAir ? Color.accentColor.opacity(0.45) : .black.opacity(hover ? 0.4 : 0.2),
+                        radius: isOnAir ? 14 : (hover ? 14 : 7), y: hover ? 6 : 3
+                    )
+                // Hover / on-air play-stop overlay.
+                if hover || isOnAir {
+                    ZStack {
+                        Color.black.opacity(hover ? 0.34 : 0.16)
+                        Button(action: onPlay) {
+                            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                .font(.title3).foregroundStyle(.black)
+                                .frame(width: 46, height: 46)
+                                .background(Circle().fill(.white).shadow(radius: 6, y: 3))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                // Live equalizer badge, top-trailing, while playing.
+                if isPlaying {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            EqualizerBars(active: true, color: .white)
+                                .padding(6)
+                                .background(.black.opacity(0.35), in: Capsule())
+                                .padding(6)
+                        }
+                        Spacer()
+                    }
+                }
+            }
+            .animation(.easeOut(duration: 0.16), value: hover)
+            .animation(.easeInOut(duration: 0.2), value: isOnAir)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(station.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isOnAir ? Color.accentColor : .primary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .onTapGesture(perform: onPlay)
+        .contextMenu {
+            Button(isPlaying ? "Stop" : "Play", action: onPlay)
+            Button("Edit…", action: onEdit)
+            if let home = station.homepageUrl, let url = URL(string: home) {
+                Link("Open Homepage", destination: url)
+            }
+            Divider()
+            Button("Delete", role: .destructive, action: onDelete)
+        }
+        .task(id: station.id) {
+            store.resolveArtwork(for: station)
+            store.resolveMeta(for: station)
+        }
+    }
+}
+
+// MARK: - Station list row
+
+/// A compact row for the list layout: logo/monogram thumbnail, name, genre·bitrate (or the
+/// live track while on air), a play/stop control, and the same context menu as the cards.
+private struct RadioStationListRow: View {
+    @Environment(MusicModel.self) private var model
+    let station: NavidromeRadioStation
+    let onPlay: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    @State private var hover = false
+
+    private var store: InternetRadioStore { model.internetRadio }
+    private var isOnAir: Bool { store.isOnAir(station) }
+    private var isPlaying: Bool { store.isPlaying(station) }
+
+    /// Genre · bitrate, or the live track while on air (the stream host lives in the website
+    /// column now).
+    private var subtitle: String {
+        if isOnAir, let track = store.engine.nowPlayingTitle { return track }
+        if isOnAir { return "On air" }
+        return store.meta[station.id]?.subtitle ?? ""
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onPlay) {
-                Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(isOnAir ? Color.accentColor : .primary)
+                RadioArtworkView(station: station, cornerRadius: 8)
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        if hover || isOnAir {
+                            ZStack {
+                                Color.black.opacity(0.34)
+                                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                    .font(.caption).foregroundStyle(.white)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
             }
             .buttonStyle(.plain)
-            .help(isPlaying ? "Stop" : "Play")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(station.name)
                     .font(.body.weight(.medium))
+                    .foregroundStyle(isOnAir ? Color.accentColor : .primary)
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     if isOnAir {
                         Label("On air", systemImage: "dot.radiowaves.left.and.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
                     }
-                    Text(station.streamUrl)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
                 }
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Website column — a clickable link to the station's homepage.
+            websiteColumn.frame(width: 150, alignment: .leading)
+
+            if isPlaying { EqualizerBars(active: true, color: Color.accentColor) }
 
             Menu {
+                Button(isPlaying ? "Stop" : "Play", action: onPlay)
                 Button("Edit…", action: onEdit)
                 if let home = station.homepageUrl, let url = URL(string: home) {
                     Link("Open Homepage", destination: url)
@@ -254,18 +347,103 @@ private struct RadioStationRow: View {
                 Divider()
                 Button("Delete", role: .destructive, action: onDelete)
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                Image(systemName: "ellipsis").font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 6).padding(.horizontal, 10)
+        .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .onTapGesture(perform: onPlay)
+        .task(id: station.id) {
+            store.resolveArtwork(for: station)
+            store.resolveMeta(for: station)
+        }
+    }
+
+    @ViewBuilder private var websiteColumn: some View {
+        if let host = station.homepageHost, let url = station.homepageURL {
+            Link(destination: url) {
+                HStack(spacing: 4) {
+                    Image(systemName: "safari").font(.caption2)
+                    Text(host).font(.caption).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            .buttonStyle(.plain).foregroundStyle(.secondary)
+            .help("Open \(host)")
+        } else {
+            Text("—").font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+}
+
+// MARK: - Reusable bits
+
+/// A station's logo when one can be resolved from its homepage, otherwise a deterministic
+/// gradient monogram (station initial + color-from-name), matching the album/artist placeholders.
+struct RadioArtworkView: View {
+    @Environment(MusicModel.self) private var model
+    let station: NavidromeRadioStation
+    var cornerRadius: CGFloat = 10
+
+    var body: some View {
+        let art = model.internetRadio.artwork[station.id] ?? .unresolved
+        ZStack {
+            monogram
+            if case .logo(let url) = art {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFill()
+                    } else {
+                        Color.clear // keep the monogram visible while loading / on failure
+                    }
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .task(id: station.id) { model.internetRadio.resolveArtwork(for: station) }
+    }
+
+    private var monogram: some View {
+        let color = ArtistMonogram.color(station.name)
+        return LinearGradient(
+            colors: [color.opacity(0.95), color.opacity(0.55)],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+        .overlay(
+            Text(ArtistMonogram.initial(station.name))
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.95))
+                .minimumScaleFactor(0.5)
+        )
+    }
+}
+
+/// A tiny animated equalizer — four bars that dance while `active`, flat otherwise.
+struct EqualizerBars: View {
+    var active: Bool
+    var color: Color
+
+    var body: some View {
+        if active {
+            TimelineView(.animation) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                bars { i in 0.3 + 0.7 * abs(sin(t * 3.0 + Double(i) * 0.7)) }
+            }
+        } else {
+            bars { _ in 0.32 }
+        }
+    }
+
+    private func bars(_ height: @escaping (Int) -> Double) -> some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(0 ..< 4, id: \.self) { i in
+                Capsule().fill(color).frame(width: 3, height: 13 * height(i))
+            }
+        }
+        .frame(width: 21, height: 13)
     }
 }
 
@@ -342,53 +520,5 @@ struct RadioStationEditor: View {
         guard !trimmedName.isEmpty, !trimmedURL.isEmpty else { return false }
         guard let url = URL(string: trimmedURL), let scheme = url.scheme?.lowercased() else { return false }
         return (scheme == "http" || scheme == "https") && url.host != nil
-    }
-}
-
-// MARK: - Raw-stream playback engine
-
-/// A minimal `AVPlayer` wrapper that plays one raw internet-radio stream at a time.
-///
-/// Deliberately separate from `StreamingPlaybackController`: a station is a live
-/// stream URL with no song id, duration, or queue, so none of that controller's
-/// queue/seek/gapless machinery applies. It owns its own `AVPlayer` and never
-/// shares transport state — the only cross-talk is the caller ducking the library
-/// player via audio focus before it starts a station. A follow-up could fold raw
-/// streams into the main controller behind a single transport.
-@MainActor
-@Observable
-final class RadioPlaybackEngine {
-    /// The station currently loaded (playing or buffering), if any.
-    private(set) var currentStation: NavidromeRadioStation?
-    /// True while audio is actually flowing (derived from the player's rate/status).
-    private(set) var isPlaying = false
-
-    @ObservationIgnored private let player = AVPlayer()
-    @ObservationIgnored private var rateObservation: NSKeyValueObservation?
-
-    init() {
-        // Track whether audio is flowing so the UI can show a stop (vs. play) glyph.
-        rateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-            MainActor.assumeIsolated {
-                self?.isPlaying = player.timeControlStatus == .playing
-            }
-        }
-    }
-
-    /// Starts playing `station` from its raw stream `url`, replacing any current one.
-    func play(station: NavidromeRadioStation, url: URL) {
-        currentStation = station
-        let item = AVPlayerItem(asset: AVURLAsset(url: url))
-        player.replaceCurrentItem(with: item)
-        player.play()
-        radioLog.info("radio playing station \(station.id, privacy: .public)")
-    }
-
-    /// Stops playback and clears the on-air station.
-    func stop() {
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        currentStation = nil
-        isPlaying = false
     }
 }

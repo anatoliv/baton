@@ -46,6 +46,17 @@ struct NowPlayingBar: View {
         model.music
     }
 
+    // MARK: Radio takeover
+    // When an internet-radio station is on the air it ducks the library player, so the bar
+    // reflects the radio transport instead: station art/name/live-track, prev/next switch
+    // stations, play/pause + the shared volume slider drive the radio stream. Library-only
+    // controls (scrubber, rating, queue, expand) are hidden while on air.
+
+    private var radio: InternetRadioStore { model.internetRadio }
+    private var radioStation: NavidromeRadioStation? { radio.onAirStation }
+    private var isRadio: Bool { radioStation != nil }
+    private var isPlayingNow: Bool { isRadio ? radio.engine.isPlaying : player.isPlaying }
+
     /// The player's last playback error, if the transport is in an error state.
     private var playerError: String? {
         if case let .error(message) = player.state { return message }
@@ -67,35 +78,39 @@ struct NowPlayingBar: View {
                 .foregroundStyle(.orange)
                 .transition(.opacity)
             }
-            if !barCollapsed { seekRow }
+            if !barCollapsed, !isRadio { seekRow }
             HStack(spacing: 14) {
                 // Artwork carries the like-heart badge and is a standalone tap target
                 // (opens the full-screen player) so the heart button isn't nested
                 // inside another button.
                 artwork
                     .overlay(alignment: .bottomTrailing) {
-                        if let song = player.nowPlaying {
+                        if !isRadio, let song = player.nowPlaying {
                             SongHeartBadge(song: song, visible: true, size: 11).offset(x: 3, y: 3)
                         }
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture { if player.nowPlaying != nil { onExpand() } }
+                    .onTapGesture { if !isRadio, player.nowPlaying != nil { onExpand() } }
 
                 Button(action: onExpand) {
                     HStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 1) {
-                            // Source line ("Playing from …") — hidden when minimized so the
-                            // strip is just title + artist.
-                            if let source = player.queueSource, player.nowPlaying != nil, !barCollapsed {
+                            // Source line ("Playing from …" / "On air") — hidden when minimized.
+                            if isRadio, !barCollapsed {
+                                Label("On air", systemImage: "dot.radiowaves.left.and.right")
+                                    .font(.caption2).foregroundStyle(Color.accentColor).lineLimit(1)
+                            } else if let source = player.queueSource, player.nowPlaying != nil, !barCollapsed {
                                 Label(source.label, systemImage: source.icon)
                                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                             }
-                            Text(player.nowPlaying?.title ?? "Nothing playing")
+                            Text(radioStation?.name ?? player.nowPlaying?.title ?? "Nothing playing")
                                 .font(.body.weight(.medium)).lineLimit(1)
-                            Text(player.nowPlaying?.artist ?? "")
+                            Text(isRadio
+                                 ? (radio.engine.nowPlayingTitle ?? "On air · live")
+                                 : (player.nowPlaying?.artist ?? ""))
                                 .font(.callout).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        if player.nowPlaying != nil, !barCollapsed {
+                        if !isRadio, player.nowPlaying != nil, !barCollapsed {
                             Image(systemName: "chevron.up").font(.caption).foregroundStyle(.tertiary)
                         }
                     }
@@ -103,7 +118,7 @@ struct NowPlayingBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(player.nowPlaying == nil)
+                .disabled(isRadio || player.nowPlaying == nil)
                 .help("Open full-screen player")
 
                 // Full control cluster, or — when minimized — just a compact play/pause so
@@ -111,7 +126,7 @@ struct NowPlayingBar: View {
                 if !barCollapsed {
                     transport
                     volume
-                    queueButton
+                    if !isRadio { queueButton }
                     SleepTimerMenu(font: .body, tint: .secondary)
                         .help("Sleep timer")
                     AirPlayRoutePicker(tint: .secondaryLabelColor)
@@ -158,7 +173,10 @@ struct NowPlayingBar: View {
 
     @ViewBuilder
     private var artwork: some View {
-        if let url = artworkURL {
+        if let station = radioStation {
+            RadioArtworkView(station: station, cornerRadius: 5)
+                .frame(width: artSize, height: artSize)
+        } else if let url = artworkURL {
             AsyncImage(url: url) { image in
                 image.resizable().aspectRatio(contentMode: .fill)
             } placeholder: {
@@ -184,36 +202,51 @@ struct NowPlayingBar: View {
 
     private var transport: some View {
         HStack(spacing: 16) {
-            // Like moved to a heart badge on the artwork; rating stays here.
-            if let song = player.nowPlaying {
+            // Like moved to a heart badge on the artwork; rating stays here (library only).
+            if !isRadio, let song = player.nowPlaying {
                 MusicRatingStars(song: song)
             }
-            Button { player.previous() } label: { Image(systemName: "backward.fill") }
+            // Prev/next: skip tracks for the library, switch stations for radio.
+            Button { isRadio ? radio.playAdjacent(-1) : player.previous() } label: {
+                Image(systemName: "backward.fill")
+            }
+            .help(isRadio ? "Previous station" : "Previous")
             Button {
-                if player.isPlaying { player.pause() } else { player.resume() }
+                if isRadio {
+                    radio.engine.isPlaying ? radio.engine.pause() : radio.engine.resume()
+                } else if player.isPlaying {
+                    player.pause()
+                } else {
+                    player.resume()
+                }
             } label: {
                 ZStack {
                     // ~50% larger than the flanking transport glyphs — the primary
                     // control on the bottom mini-player.
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    Image(systemName: isPlayingNow ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 33))
-                        .opacity(player.isBuffering ? 0 : 1)
-                    if player.isBuffering { ProgressView().controlSize(.small) }
+                        .opacity(!isRadio && player.isBuffering ? 0 : 1)
+                    if !isRadio, player.isBuffering { ProgressView().controlSize(.small) }
                 }
             }
-            Button { player.next() } label: { Image(systemName: "forward.fill") }
+            Button { isRadio ? radio.playAdjacent(1) : player.next() } label: {
+                Image(systemName: "forward.fill")
+            }
+            .help(isRadio ? "Next station" : "Next")
         }
         .buttonStyle(.plain)
-        .disabled(player.nowPlaying == nil)
+        .disabled(!isRadio && player.nowPlaying == nil)
     }
 
     private var volume: some View {
+        // The shared slider governs the library player and, while on air, the radio stream too
+        // (radio mirrors the persisted library volume so there's a single volume control).
         MusicVolumeControl(
             percent: player.volumePercent,
             isMuted: player.isMuted,
             tint: accent,
-            onChange: { player.setVolume(percent: $0) },
-            onToggleMute: { player.toggleMute() }
+            onChange: { player.setVolume(percent: $0); if isRadio { radio.engine.setVolume(percent: $0) } },
+            onToggleMute: { player.toggleMute(); if isRadio { radio.engine.setMuted(player.isMuted) } }
         )
         .frame(width: 96)
     }
@@ -231,12 +264,18 @@ struct NowPlayingBar: View {
 
     /// A single play/pause shown in the minimized bar so playback stays controllable.
     private var compactPlayPause: some View {
-        Button { player.isPlaying ? player.pause() : player.resume() } label: {
-            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").foregroundStyle(.secondary)
+        Button {
+            if isRadio {
+                radio.engine.isPlaying ? radio.engine.pause() : radio.engine.resume()
+            } else {
+                player.isPlaying ? player.pause() : player.resume()
+            }
+        } label: {
+            Image(systemName: isPlayingNow ? "pause.fill" : "play.fill").foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
-        .disabled(player.nowPlaying == nil)
-        .help(player.isPlaying ? "Pause" : "Play")
+        .disabled(!isRadio && player.nowPlaying == nil)
+        .help(isPlayingNow ? "Pause" : "Play")
     }
 
     private var queueButton: some View {

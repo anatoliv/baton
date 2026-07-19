@@ -25,12 +25,16 @@ final class MusicModel {
     let musicLastFM = MusicLastFM()
     /// 10-band equalizer for the music player (off by default).
     let musicEqualizer = MusicEqualizer()
+    /// Internet-radio stations + raw-stream player + lazily-resolved logos/genre.
+    let internetRadio = InternetRadioStore()
 
     /// Retained so the audio-mix closure keeps a strong reference to the tap processor.
     @ObservationIgnored private let eqProcessor: AudioEQProcessor
 
     init() {
         eqProcessor = AudioEQProcessor(coefficients: musicEqualizer.coefficients)
+        // Radio ducks the library transport while a station is on the air.
+        internetRadio.duckController = music
         wire()
     }
 

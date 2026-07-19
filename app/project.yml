@@ -43,11 +43,27 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
         PRODUCT_NAME: Baton
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        INFOPLIST_KEY_CFBundleDisplayName: Baton
-        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.music"
-        INFOPLIST_KEY_LSMinimumSystemVersion: "15.0"
-        INFOPLIST_KEY_NSHumanReadableCopyright: "by Tonebox"
+        # A physical Info.plist is generated from `info:` below (instead of the
+        # build-setting generator) so the nested App Transport Security dict can be
+        # expressed — INFOPLIST_KEY_* only supports flat keys.
+        GENERATE_INFOPLIST_FILE: NO
         ENABLE_HARDENED_RUNTIME: YES
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Baton
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: "public.app-category.music"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSHumanReadableCopyright: "by Tonebox"
+        NSHighResolutionCapable: true
+        # Internet-radio stations are overwhelmingly plain-HTTP Shoutcast/Icecast
+        # streams; default ATS blocks them, so AVPlayer shows "On air" but never
+        # starts (silent). This scopes the exception to AVFoundation media only —
+        # it does NOT open up arbitrary NSURLSession HTTP.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsForMedia: true
     entitlements:
       path: Baton.entitlements
       properties:

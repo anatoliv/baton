@@ -47,6 +47,10 @@ struct NavidromePodcastEpisode: Identifiable, Hashable {
 
     /// Whether this episode has a streamable media id — the only ones that can play.
     var isPlayable: Bool { streamID != nil }
+
+    /// The server is already fetching this episode's media (`status == "downloading"`); the UI
+    /// shows progress rather than offering the Download action again.
+    var isDownloadingOnServer: Bool { status?.lowercased() == "downloading" }
 }
 
 // MARK: - Podcast endpoints
@@ -77,6 +81,17 @@ extension NavidromeClient {
             URLQueryItem(name: "count", value: String(count)),
         ])
         return (response.newestPodcasts?.episode ?? []).map { $0.toDomain() }
+    }
+
+    /// Ask the server to download an episode's media (`downloadPodcastEpisode`). Pass the
+    /// episode's own `id` — NOT its `streamID`, which doesn't exist yet for a not-downloaded
+    /// episode. The server fetches the enclosure asynchronously and returns immediately with
+    /// an empty body; re-fetch the channel afterward (`getPodcastChannel`) to see the episode
+    /// pick up a `streamID`/"completed" status once the download finishes.
+    func downloadPodcastEpisode(episodeID: String) async throws {
+        _ = try await performPodcastJSON("downloadPodcastEpisode.view", query: [
+            URLQueryItem(name: "id", value: episodeID),
+        ])
     }
 
     // MARK: - Transport (podcast envelope)
