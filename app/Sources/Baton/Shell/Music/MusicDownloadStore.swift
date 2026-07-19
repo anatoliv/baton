@@ -56,11 +56,13 @@ final class MusicDownloadStore {
         let coverArtID: String?
 
         /// A `NavidromeSong` good enough to hand to the player — the controller resolves
-        /// the local file for playback, so no server round-trip is needed.
+        /// the local file for playback, so no server round-trip is needed. Falls back to the
+        /// song id for cover art (Navidrome's getCoverArt accepts it) so the now-playing bar
+        /// shows artwork even for downloads saved before the cover id was persisted.
         var song: NavidromeSong {
             NavidromeSong(
                 id: id, title: title, artist: artist, album: album,
-                duration: duration, coverArtID: coverArtID
+                duration: duration, coverArtID: coverArtID ?? id
             )
         }
     }
