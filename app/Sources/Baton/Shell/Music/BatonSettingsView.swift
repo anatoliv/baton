@@ -283,7 +283,7 @@ private struct BatonAboutPane: View {
                     .font(.callout).foregroundStyle(.secondary)
                 Link("baton.tonebox.io", destination: URL(string: "https://baton.tonebox.io")!)
                     .font(.callout)
-                Text("© 2026 Tonebox · free to use, modify, and share, under the MIT License.")
+                Text("© 2026 Anatoli Vishnyakov · free to use, modify, and share, under the MIT License.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }

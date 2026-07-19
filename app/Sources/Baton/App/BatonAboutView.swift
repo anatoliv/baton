@@ -35,7 +35,7 @@ struct BatonAboutView: View {
                 .textSelection(.enabled)
                 .padding(.top, 2)
 
-            Text("MIT License · © 2026 Tonebox")
+            Text("MIT License · © 2026 Anatoli Vishnyakov")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
