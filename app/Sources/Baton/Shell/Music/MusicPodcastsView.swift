@@ -10,6 +10,7 @@ struct MusicPodcastsView: View {
     @Environment(MusicModel.self) private var model
 
     @State private var channels: [NavidromePodcastChannel] = []
+    @State private var newest: [NavidromePodcastEpisode] = []
     @State private var selected: NavidromePodcastChannel?
     @State private var loading = false
     @State private var loaded = false
@@ -50,14 +51,70 @@ struct MusicPodcastsView: View {
             emptyState
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
-                    ForEach(channels) { channel in
-                        PodcastChannelCell(channel: channel) { selected = channel }
+                VStack(alignment: .leading, spacing: 0) {
+                    if !newestPlayable.isEmpty { latestStrip }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                        ForEach(channels) { channel in
+                            PodcastChannelCell(channel: channel) { selected = channel }
+                        }
                     }
+                    .padding(16)
                 }
-                .padding(16)
             }
         }
+    }
+
+    // MARK: - Latest episodes strip
+
+    /// The newest episodes that are streamable right now (they carry a `streamID`). The strip
+    /// only offers things you can press play on; not-yet-downloaded new episodes live in their
+    /// channel, where the Download action is.
+    private var newestPlayable: [NavidromePodcastEpisode] { newest.filter(\.isPlayable) }
+
+    /// `episodeID → owning channel`, from the already-loaded channel list. Lets a strip episode
+    /// borrow its channel's title (for the now-playing artist/queue label) and cover-art
+    /// fallback without another request.
+    private var channelByEpisodeID: [String: NavidromePodcastChannel] {
+        var map: [String: NavidromePodcastChannel] = [:]
+        for channel in channels {
+            for episode in channel.episodes { map[episode.id] = channel }
+        }
+        return map
+    }
+
+    private var latestStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Latest Episodes")
+                .font(.headline)
+                .padding(.horizontal, 16).padding(.top, 12)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(newestPlayable) { episode in
+                        LatestEpisodeCard(episode: episode, channel: channelByEpisodeID[episode.id]) {
+                            play(newest: episode)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    /// Plays a strip episode and queues the rest of the strip after it, so pressing one latest
+    /// episode rolls into the others. Each episode borrows its channel's title/cover for the
+    /// now-playing metadata.
+    private func play(newest episode: NavidromePodcastEpisode) {
+        let queue = newestPlayable
+        guard let index = queue.firstIndex(of: episode) else { return }
+        let songs = queue.map { ep -> NavidromeSong in
+            let channel = channelByEpisodeID[ep.id]
+            return ep.asSong(channelTitle: channel?.title ?? ep.title, fallbackCoverID: channel?.coverArtID)
+        }
+        model.music.play(
+            songs, startAt: index,
+            source: .init(label: "Latest Episodes", kind: .playlist, id: "podcast-newest")
+        )
     }
 
     private var emptyState: some View {
@@ -90,9 +147,14 @@ struct MusicPodcastsView: View {
         defer { loading = false; loaded = true }
         do {
             let client = try NavidromeConfig.makeClient()
-            // Fetch channels with episodes inline — one round-trip gives the browser its
-            // "newest episode" subtitle and lets the detail view open without a second call.
-            channels = try await client.getPodcasts(includeEpisodes: true)
+            // Channels with episodes inline (one round-trip powers both the grid's "newest
+            // episode" subtitles and the detail view) plus the cross-channel "latest episodes"
+            // strip, fetched concurrently. The newest list is best-effort — a failure there
+            // shouldn't blank the whole tab.
+            async let channelList = client.getPodcasts(includeEpisodes: true)
+            let latest = try? await client.getNewestPodcasts(count: 12)
+            channels = try await channelList
+            newest = latest ?? []
         } catch {
             loadError = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
         }
@@ -128,6 +190,35 @@ private struct PodcastChannelCell: View {
     }
 }
 
+// MARK: - Latest episode card
+
+/// A card in the "Latest Episodes" strip — the episode's cover (falling back to its channel's),
+/// title, and the channel name. Tapping plays the episode through the music player.
+private struct LatestEpisodeCard: View {
+    @Environment(MusicModel.self) private var model
+    let episode: NavidromePodcastEpisode
+    let channel: NavidromePodcastChannel?
+    let onPlay: () -> Void
+    @State private var hover = false
+
+    private var coverID: String? { episode.coverArtID ?? channel?.coverArtID }
+
+    var body: some View {
+        MusicMediaCard(
+            coverURL: coverID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 300) },
+            aspect: 1,
+            placeholder: "mic",
+            title: episode.title,
+            subtitle: channel?.title ?? "",
+            isHovering: hover,
+            onPlay: onPlay
+        )
+        .frame(width: 156)
+        .onHover { hover = $0 }
+        .onTapGesture(perform: onPlay)
+    }
+}
+
 // MARK: - Channel detail (episode list)
 
 /// One channel's episodes. Tapping an episode plays it through the music player; the whole
@@ -140,6 +231,9 @@ private struct MusicPodcastChannelDetail: View {
 
     @State private var episodes: [NavidromePodcastEpisode]
     @State private var loading = false
+    /// Episode ids with a download request in flight — the row shows progress while we ask the
+    /// server and then reconcile.
+    @State private var downloading: Set<String> = []
 
     init(channel: NavidromePodcastChannel, onBack: @escaping () -> Void) {
         self.channel = channel
@@ -195,8 +289,14 @@ private struct MusicPodcastChannelDetail: View {
             ForEach(episodes) { episode in
                 PodcastEpisodeRow(
                     episode: episode,
-                    isCurrent: model.music.nowPlaying?.id == episode.streamID
-                ) { play(episode) }
+                    // Guard on a real stream id: a not-downloaded episode has a nil `streamID`,
+                    // and with nothing playing `nowPlaying?.id` is also nil — without this an
+                    // idle player would flag every undownloaded episode as "now playing".
+                    isCurrent: episode.streamID != nil && model.music.nowPlaying?.id == episode.streamID,
+                    isDownloading: downloading.contains(episode.id),
+                    onDownload: { download(episode) },
+                    onPlay: { play(episode) }
+                )
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
@@ -227,6 +327,30 @@ private struct MusicPodcastChannelDetail: View {
             episodes = full.episodes
         }
     }
+
+    /// Asks the server to download a not-yet-downloaded episode, then reconciles the list so the
+    /// row flips to "downloading"/playable without a manual refresh. The server fetches the
+    /// enclosure asynchronously, so a single reconcile may still show "downloading" — that's the
+    /// expected in-progress state, not a failure.
+    private func download(_ episode: NavidromePodcastEpisode) {
+        guard !downloading.contains(episode.id) else { return }
+        downloading.insert(episode.id)
+        Task {
+            defer { downloading.remove(episode.id) }
+            guard let client = try? NavidromeConfig.makeClient() else { return }
+            do {
+                try await client.downloadPodcastEpisode(episodeID: episode.id)
+                model.music.postToast("Downloading “\(episode.title)”", symbol: "arrow.down.circle.fill")
+                // Let the server register the request, then reconcile the episode's new status.
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if let full = try? await client.getPodcastChannel(id: channel.id) {
+                    episodes = full.episodes
+                }
+            } catch {
+                model.music.postToast("Download failed", symbol: "exclamationmark.triangle.fill")
+            }
+        }
+    }
 }
 
 /// A single episode row — title, publish date + duration, and a play button. Disabled (dimmed)
@@ -235,6 +359,10 @@ private struct PodcastEpisodeRow: View {
     @Environment(MusicModel.self) private var model
     let episode: NavidromePodcastEpisode
     let isCurrent: Bool
+    /// A local download request is in flight for this episode (we asked the server and are
+    /// reconciling) — distinct from the server's own "downloading" status.
+    let isDownloading: Bool
+    let onDownload: () -> Void
     let onPlay: () -> Void
     @State private var hover = false
 
@@ -253,21 +381,36 @@ private struct PodcastEpisodeRow: View {
                 }
             }
             Spacer()
-            if !episode.isPlayable {
-                Text(episode.status?.capitalized ?? "Unavailable")
-                    .font(.caption2).foregroundStyle(.secondary)
-            } else if hover || isCurrent {
-                Button(action: onPlay) {
-                    Image(systemName: "play.fill")
-                }
-                .buttonStyle(.borderless)
-            }
+            trailing
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { if episode.isPlayable { onPlay() } }
+    }
+
+    /// Trailing control: play (playable, on hover/current), a download progress spinner
+    /// (request in flight or the server is fetching), or a Download button for a
+    /// not-yet-downloaded episode we can request.
+    @ViewBuilder private var trailing: some View {
+        if episode.isPlayable {
+            if hover || isCurrent {
+                Button(action: onPlay) { Image(systemName: "play.fill") }
+                    .buttonStyle(.borderless)
+            }
+        } else if isDownloading || episode.isDownloadingOnServer {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Downloading").font(.caption2).foregroundStyle(.secondary)
+            }
+        } else {
+            Button(action: onDownload) {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Download this episode on the server so it can stream")
+        }
     }
 
     private var metaLine: String? {

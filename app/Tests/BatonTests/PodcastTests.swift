@@ -141,6 +141,51 @@ final class PodcastTests: XCTestCase {
         }
     }
 
+    // MARK: - downloadPodcastEpisode
+
+    /// The download request must hit `downloadPodcastEpisode.view` with the *episode* id and be
+    /// signed (`t`/`s`), and succeed on the empty body the server returns.
+    func testDownloadPodcastEpisodeSignsAndTargetsEndpoint() async throws {
+        NavidromeMockURLProtocol.handler = { req in
+            navidromeOK(#"{"subsonic-response":{"status":"ok"}}"#, req)
+        }
+        let client = NavidromeClient(credentials: creds(), session: mockSession())
+        try await client.downloadPodcastEpisode(episodeID: "e42")
+        let url = try XCTUnwrap(NavidromeMockURLProtocol.lastRequestURL?.absoluteString)
+        XCTAssertTrue(url.contains("downloadPodcastEpisode.view"))
+        XCTAssertTrue(url.contains("id=e42"))
+        XCTAssertTrue(url.contains("t=") && url.contains("s="))
+        XCTAssertFalse(url.contains("sesame")) // password never leaks
+    }
+
+    /// A Subsonic error on download surfaces through the podcast transport.
+    func testDownloadPodcastEpisodeErrorMaps() async throws {
+        NavidromeMockURLProtocol.handler = { req in
+            navidromeOK(#"{"subsonic-response":{"status":"failed","error":{"code":70,"message":"Not found"}}}"#, req)
+        }
+        let client = NavidromeClient(credentials: creds(), session: mockSession())
+        do {
+            try await client.downloadPodcastEpisode(episodeID: "nope")
+            XCTFail("expected an error")
+        } catch let NavidromeError.subsonic(code, _) {
+            XCTAssertEqual(code, 70)
+        }
+    }
+
+    /// `isDownloadingOnServer` reflects the server's status word (case-insensitively).
+    func testEpisodeDownloadingStatusFlag() {
+        func episode(status: String?) -> NavidromePodcastEpisode {
+            NavidromePodcastEpisode(
+                id: "e", title: "t", description: nil, publishDate: nil,
+                duration: nil, streamID: nil, coverArtID: nil, status: status
+            )
+        }
+        XCTAssertTrue(episode(status: "downloading").isDownloadingOnServer)
+        XCTAssertTrue(episode(status: "Downloading").isDownloadingOnServer)
+        XCTAssertFalse(episode(status: "new").isDownloadingOnServer)
+        XCTAssertFalse(episode(status: nil).isDownloadingOnServer)
+    }
+
     // MARK: - Episode → Song mapping (playback)
 
     func testEpisodeMapsToSongByStreamID() {
