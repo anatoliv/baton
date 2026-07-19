@@ -435,10 +435,11 @@ struct MusicArtistListRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            isSelected ? Color.accentColor.opacity(0.12) : (hovering ? Color.primary.opacity(0.06) : .clear)
+            isSelected ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear)
         ))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeInOut(duration: 0.18), value: isSelected)
         // Right-click parity with the grid card + the other list rows (the inline hover
         // icons are the same actions, one hover away).
         .contextMenu {

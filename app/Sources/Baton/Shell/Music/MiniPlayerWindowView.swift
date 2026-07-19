@@ -14,6 +14,9 @@ struct MiniPlayerWindowView: View {
     @Environment(\.dismissWindow) private var dismissWindow
     /// Compact (tiny) by default; expanded reveals volume, rating, and Up Next. Persisted.
     @AppStorage("tonebox.miniPlayer.expanded") private var expanded = false
+    /// Own artwork-palette loader so the mini player's track-visualizing fills pick up
+    /// the dynamic accent, matching the full player (Brand ⇄ Dynamic rule).
+    @State private var paletteLoader = ArtworkPaletteLoader()
 
     private var player: StreamingPlaybackController { model.music }
 
@@ -22,12 +25,23 @@ struct MiniPlayerWindowView: View {
         return model.musicLibrary.coverArtURL(id: id, size: 120)
     }
 
+    /// Cover URL sized for palette extraction (canonical size, so the mini player's
+    /// accent matches the main window's for the same track). Separate from the 120px
+    /// display thumbnail above.
+    private var paletteCoverURL: URL? {
+        guard let id = player.nowPlaying?.coverArtID else { return nil }
+        return model.musicLibrary.coverArtURL(id: id, size: ArtworkColorExtractor.coverSize)
+    }
+
+    /// Contrast-corrected dynamic accent for the scrubber/volume fills + active state.
+    private var accent: Color { paletteLoader.palette.uiAccent }
+
     var body: some View {
         VStack(spacing: 10) {
             header
 
             // The scrubber renders its own elapsed / −remaining time labels.
-            MusicScrubber(currentTime: player.currentTime, duration: player.duration, tint: .secondary) {
+            MusicScrubber(currentTime: player.currentTime, duration: player.duration, tint: accent) {
                 player.seek(to: $0)
             }
 
@@ -37,7 +51,7 @@ struct MiniPlayerWindowView: View {
                 MusicVolumeControl(
                     percent: player.volumePercent,
                     isMuted: player.isMuted,
-                    tint: .secondary,
+                    tint: accent,
                     onChange: { player.setVolume(percent: $0) },
                     onToggleMute: { player.toggleMute() }
                 )
@@ -48,6 +62,8 @@ struct MiniPlayerWindowView: View {
             expandToggle
         }
         .animation(.easeInOut(duration: 0.2), value: expanded)
+        .onAppear { paletteLoader.update(url: artworkURL) }
+        .onChange(of: player.nowPlaying?.coverArtID) { _, _ in paletteLoader.update(url: artworkURL) }
         // Return-to-full-player, pinned to the panel's top-right corner.
         .overlay(alignment: .topTrailing) { expandButton }
         .padding(14)
@@ -156,7 +172,7 @@ struct MiniPlayerWindowView: View {
         HStack(spacing: 20) {
             Button { player.toggleShuffle() } label: {
                 Image(systemName: "shuffle")
-                    .foregroundStyle(player.isShuffled ? Color.accentColor : .secondary)
+                    .foregroundStyle(player.isShuffled ? accent : .secondary)
             }
             .help("Shuffle")
             Button { player.previous() } label: { Image(systemName: "backward.fill") }
@@ -172,7 +188,7 @@ struct MiniPlayerWindowView: View {
             Button { player.next() } label: { Image(systemName: "forward.fill") }
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                    .foregroundStyle(player.repeatMode == .off ? .secondary : Color.accentColor)
+                    .foregroundStyle(player.repeatMode == .off ? .secondary : accent)
             }
             .help("Repeat")
         }

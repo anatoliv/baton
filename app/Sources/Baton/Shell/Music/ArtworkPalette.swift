@@ -9,18 +9,39 @@ struct ArtworkPalette: Equatable {
     var secondary: Color
     var accent: Color
 
-    /// Neutral dark fallback when there's no art / extraction fails.
+    /// Neutral fallback when there's no art / extraction fails. The accent is a pure
+    /// gray (zero saturation) so `uiAccent` resolves it to brand orange — a "no
+    /// artwork" track gets a Baton-orange player accent rather than a dead gray one.
     static let neutral = ArtworkPalette(
         primary: Color(red: 0.10, green: 0.10, blue: 0.13),
         secondary: Color(red: 0.06, green: 0.06, blue: 0.09),
-        accent: Color(red: 0.20, green: 0.20, blue: 0.26)
+        accent: Color(red: 0.22, green: 0.22, blue: 0.22)
     )
+
+    /// Reference the player-context contrast guarantee clamps against. The
+    /// `AdaptiveBackdrop` is always dark (deep `secondary` + a black scrim), so a
+    /// near-black reference is the conservative, always-legible target.
+    static let contrastReference = Color.black
+
+    /// The accent as applied to **foreground** player controls (progress fill, volume
+    /// fill, favorite/active state). Enforces the design doc's Brand ⇄ Dynamic +
+    /// contrast rules: (near-)grayscale artwork falls back to brand orange; otherwise
+    /// the vibrant accent is lightened until it clears AA (4.5:1) on the dark backdrop.
+    var uiAccent: Color {
+        if Contrast.saturation(accent) < 0.15 { return .batonOrange }
+        return Contrast.ensureContrast(of: accent, against: Self.contrastReference, min: 4.5)
+    }
 }
 
 /// Extracts a dominant/vibrant/dark palette from cover art by downsampling to a
 /// small grid and bucketing colors. Pure + synchronous core (unit-tested); the
 /// async URL loader feeds the live UI.
 enum ArtworkColorExtractor {
+    /// Canonical cover-art size (px) used for palette extraction on every now-playing
+    /// surface (main window, full-screen, mini player). Decoupled from each surface's
+    /// display-image size so all windows derive the *same* accent for a given track.
+    static let coverSize = 400
+
     /// Running RGB accumulator for a color bucket (or the whole image).
     private struct RGBAccumulator {
         var red = 0, green = 0, blue = 0, samples = 0
@@ -35,6 +56,17 @@ enum ArtworkColorExtractor {
                 green: Double(green) / Double(samples) / 255 * scale,
                 blue: Double(blue) / Double(samples) / 255 * scale
             )
+        }
+
+        /// Vibrancy of this bucket's *average* color = saturation × brightness. Used to
+        /// pick the accent from a whole bucket rather than a single stray pixel, so one
+        /// noise pixel can't swing the accent.
+        var vibrancy: Double {
+            guard samples > 0 else { return 0 }
+            let r = Double(red) / Double(samples), g = Double(green) / Double(samples), b = Double(blue) / Double(samples)
+            let hi = max(r, g, b), lo = min(r, g, b)
+            let saturation = hi == 0 ? 0 : (hi - lo) / hi
+            return saturation * (hi / 255)
         }
     }
 
@@ -85,11 +117,22 @@ enum ArtworkColorExtractor {
         guard total.samples > 0 else { return .neutral }
 
         // Primary = most-populated bucket's averaged color; secondary = darkened
-        // whole-image average; accent = the most vibrant pixel.
+        // whole-image average.
         let dominant = buckets.max { $0.value.samples < $1.value.samples }?.value
         let primary = (dominant ?? total).color()
         let secondary = total.color(scale: 0.45)
-        return ArtworkPalette(primary: primary, secondary: secondary, accent: vibrant.color)
+
+        // Accent = the most vibrant *bucket* with enough support to not be single-pixel
+        // noise (≥ 0.5% of pixels). Falls back to the single most-vibrant pixel when no
+        // bucket qualifies (e.g. a tiny or near-flat image). Contrast/grayscale handling
+        // for foreground use happens in `ArtworkPalette.uiAccent`.
+        let minSupport = max(2, total.samples / 200)
+        let accent = buckets.values
+            .filter { $0.samples >= minSupport }
+            .max { $0.vibrancy < $1.vibrancy }
+            .map { $0.color() } ?? vibrant.color
+
+        return ArtworkPalette(primary: primary, secondary: secondary, accent: accent)
     }
 
     /// Loads a cover-art URL and extracts its palette (off the main thread).

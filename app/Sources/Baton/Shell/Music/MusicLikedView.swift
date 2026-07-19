@@ -506,7 +506,7 @@ struct MusicCollectionView: View {
             }
         }
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.hoverTint))
         .fixedSize()
     }
 
@@ -870,12 +870,13 @@ struct MusicLikedSongRow: View {
         .padding(.vertical, 5).padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isCurrent ? Color.accentColor.opacity(0.12) : (hovering ? Color.primary.opacity(0.06) : .clear))
+                .fill(isCurrent ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear))
         )
         .contentShape(Rectangle())
         .onTapGesture(count: 2, perform: onPlay)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .contextMenu {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
             Divider()

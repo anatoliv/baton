@@ -410,10 +410,11 @@ struct MusicMediaCard: View {
                     .strokeBorder(Color.accentColor, lineWidth: isPlayingSource ? 3 : 0)
             }
             .shadow(
-                color: isPlayingSource ? Color.accentColor.opacity(0.5) : .black.opacity(isHovering ? 0.4 : 0.2),
+                color: isPlayingSource ? Color.playingGlowTint() : .black.opacity(isHovering ? 0.4 : 0.2),
                 radius: isPlayingSource ? 14 : (isHovering ? 16 : 8),
                 y: isHovering ? 8 : 4
             )
+            .animation(.easeInOut(duration: 0.18), value: isPlayingSource)
     }
 
     // Blurred fill behind — a separate overlay so it can't dictate sizing.
