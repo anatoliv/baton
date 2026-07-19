@@ -51,13 +51,16 @@ final class MusicDownloadStore {
         let artist: String?
         let album: String?
         let duration: Int?
+        /// Cover-art id (for the Downloads thumbnail). Nil for legacy downloads saved before
+        /// the id was persisted, or externally-added files.
+        let coverArtID: String?
 
         /// A `NavidromeSong` good enough to hand to the player — the controller resolves
         /// the local file for playback, so no server round-trip is needed.
         var song: NavidromeSong {
             NavidromeSong(
                 id: id, title: title, artist: artist, album: album,
-                duration: duration, coverArtID: nil
+                duration: duration, coverArtID: coverArtID
             )
         }
     }
@@ -68,6 +71,7 @@ final class MusicDownloadStore {
         var artist: String?
         var album: String?
         var duration: Int?
+        var coverArtID: String?
     }
 
     static func defaultDirectory() -> URL {
@@ -193,7 +197,8 @@ final class MusicDownloadStore {
             try FileManager.default.moveItem(at: temp, to: destination)
             manifest[song.id] = name
             meta[song.id] = DownloadMeta(
-                title: song.title, artist: song.artist, album: song.album, duration: song.duration
+                title: song.title, artist: song.artist, album: song.album,
+                duration: song.duration, coverArtID: song.coverArtID
             )
             saveManifest()
             saveMeta()
@@ -244,14 +249,16 @@ final class MusicDownloadStore {
             if let m = meta[id] {
                 return DownloadItem(
                     id: id, url: url, byteSize: size,
-                    title: m.title, artist: m.artist, album: m.album, duration: m.duration
+                    title: m.title, artist: m.artist, album: m.album, duration: m.duration,
+                    coverArtID: m.coverArtID
                 )
             }
             // Legacy / externally-added file: derive a readable title from the filename.
             let (artist, title) = Self.parseFilename(url.deletingPathExtension().lastPathComponent)
             return DownloadItem(
                 id: id, url: url, byteSize: size,
-                title: title, artist: artist, album: nil, duration: nil
+                title: title, artist: artist, album: nil, duration: nil,
+                coverArtID: nil
             )
         }
         .sorted {

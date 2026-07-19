@@ -68,6 +68,11 @@ struct MusicDownloadsView: View {
         ByteCountFormatter.string(fromByteCount: store.totalBytes(), countStyle: .file)
     }
 
+    /// Where the "play all downloads" transport queues from.
+    private var downloadsSource: StreamingPlaybackController.QueueSource {
+        .init(label: "Downloads", kind: .liked, id: nil)
+    }
+
     var body: some View {
         Group {
             if items.isEmpty {
@@ -86,6 +91,12 @@ struct MusicDownloadsView: View {
                             Text(totalSizeText).font(.caption).foregroundStyle(.secondary)
                         },
                         leading: {
+                            // Hero mini-player: play-all / shuffle / prev / next / repeat, like the
+                            // other browse screens. Plays the currently-shown (filtered/sorted) list.
+                            MusicMiniTransport(
+                                onPlayWhenIdle: { model.music.play(filteredItems.map(\.song), source: downloadsSource) },
+                                pageSource: downloadsSource
+                            )
                             Toggle(isOn: $offlineMode) { Text("Offline mode") }
                                 .toggleStyle(.switch).controlSize(.small)
                                 .help("Prefer downloaded files over streaming from the server.")
@@ -126,58 +137,16 @@ struct MusicDownloadsView: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(filteredItems) { item in
-                        row(item)
+                        DownloadRow(
+                            item: item,
+                            onPlay: { play(item) },
+                            onDelete: { pendingDelete = item }
+                        )
                         Divider()
                     }
                 }
                 .padding(.horizontal, 8).padding(.vertical, 4)
             }
-        }
-    }
-
-    private func row(_ item: MusicDownloadStore.DownloadItem) -> some View {
-        let isCurrent = model.music.nowPlaying?.id == item.id
-        return HStack(spacing: 10) {
-            Button(action: { play(item) }) {
-                Image(systemName: isCurrent && model.music.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Play")
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.title)
-                    .lineLimit(1)
-                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
-                if let artist = item.artist, !artist.isEmpty {
-                    Text(artist).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-
-            Text(ByteCountFormatter.string(fromByteCount: item.byteSize, countStyle: .file))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.tertiary)
-            if let duration = item.duration {
-                Text(MusicTrackRow.formatDuration(duration))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-            }
-
-            Button(action: { pendingDelete = item }) {
-                Image(systemName: "trash").foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Delete download")
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) { play(item) }
-        .contextMenu {
-            Button("Play") { play(item) }
-            Button("Delete Download", role: .destructive) { pendingDelete = item }
         }
     }
 
@@ -203,7 +172,7 @@ struct MusicDownloadsView: View {
             model.music.isPlaying ? model.music.pause() : model.music.resume()
             return
         }
-        model.music.play([item.song], source: .init(label: "Downloads", kind: .liked, id: nil))
+        model.music.play([item.song], source: downloadsSource)
     }
 
     private func delete(_ item: MusicDownloadStore.DownloadItem) {
@@ -211,6 +180,98 @@ struct MusicDownloadsView: View {
         store.remove(id: item.id)
         pendingDelete = nil
         revision += 1
+    }
+}
+
+// MARK: - List row
+
+/// A download shown as a list row — cover-art thumbnail (with a play/pause overlay on hover
+/// or while current), title/artist, on-disk size + duration, and a delete button.
+private struct DownloadRow: View {
+    @Environment(MusicModel.self) private var model
+    let item: MusicDownloadStore.DownloadItem
+    let onPlay: () -> Void
+    let onDelete: () -> Void
+    @State private var hover = false
+
+    private var isCurrent: Bool { model.music.nowPlaying?.id == item.id }
+    private var isPlaying: Bool { isCurrent && model.music.isPlaying }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onPlay) {
+                artwork
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay {
+                        if hover || isCurrent {
+                            ZStack {
+                                Color.black.opacity(0.34)
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.caption).foregroundStyle(.white)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .help("Play")
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .lineLimit(1)
+                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                if let artist = item.artist, !artist.isEmpty {
+                    Text(artist).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+
+            Text(ByteCountFormatter.string(fromByteCount: item.byteSize, countStyle: .file))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.tertiary)
+            if let duration = item.duration {
+                Text(MusicTrackRow.formatDuration(duration))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+
+            Button(action: onDelete) {
+                Image(systemName: "trash").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Delete download")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .onTapGesture(count: 2, perform: onPlay)
+        .contextMenu {
+            Button("Play", action: onPlay)
+            Button("Delete Download", role: .destructive, action: onDelete)
+        }
+    }
+
+    @ViewBuilder private var artwork: some View {
+        // Prefer the stored cover-art id; fall back to the song id (Navidrome's getCoverArt
+        // accepts it) so downloads saved before the id was persisted still show art.
+        if let url = model.musicLibrary.coverArtURL(id: item.coverArtID ?? item.id, size: 88) {
+            AsyncImage(url: url) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                placeholder
+            }
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Color.secondary.opacity(0.12)
+            Image(systemName: "music.note").foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -228,7 +289,7 @@ private struct DownloadCard: View {
 
     var body: some View {
         MusicMediaCard(
-            coverURL: item.song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 300) },
+            coverURL: model.musicLibrary.coverArtURL(id: item.coverArtID ?? item.id, size: 300),
             aspect: 1,
             placeholder: "arrow.down.circle",
             title: item.title,

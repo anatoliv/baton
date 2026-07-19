@@ -71,6 +71,28 @@ on both.
 `0e0f12` is also the exact opaque background Tonebox's generator composites for
 non-alpha (iOS/opaque) contexts, so anything derived from these masters stays on-brand.
 
+### Shipped app icon = the **dark plate** (2026-07-19)
+
+`generate-app-icons.sh` renders the `.appiconset` from **`Baton-dock-dark.svg`** (not
+the transparent `Baton.master.svg`). Reason: a plate-less transparent icon floats on the
+Dock, and the identical `#E07A4B` reads muted/grey against a light Dock — whereas Tonebox
+bakes a dark plate that makes the same orange pop. Baking the dark plate here makes Baton
+an obvious Tonebox sibling and works in both light and dark appearance. The 16px slots use
+`Baton-dock-dark-16pt.svg` (the simplified 2-wave mark on the same plate) so tiny sizes
+stay on-brand too.
+
+### Future adaptivity (not done — deliberate)
+
+- **Appearance-adaptive (light/dark) via macOS 26 Icon Composer.** The native path is
+  shipping light/dark/clear variants of one icon so the system swaps per appearance — a
+  different pipeline than this `.appiconset`. If adopted, move **Tonebox and Baton
+  together** so they stay siblings.
+- **Now-playing color-adaptive Dock icon.** Technically possible at runtime via
+  `NSApplication.shared.applicationIconImage` (Baton already extracts album-art color for
+  the full-screen backdrop). Rejected for now: it only affects the Dock while running (not
+  Finder/Launchpad/switcher) and a per-track color-morph erodes the brand recognition that
+  matching Tonebox is meant to buy. Revisit as an opt-in setting if desired.
+
 ## Files
 
 | File | What it is |
@@ -79,6 +101,7 @@ non-alpha (iOS/opaque) contexts, so anything derived from these masters stays on
 | `Baton.master-16pt.svg` | Simplified 2-wave variant for the 16px slots. |
 | `Baton.alt1/2/3.svg` | Alternative note↔wave fusions (see above). |
 | `Baton-dock-light.svg` / `-dark.svg` | Dock plate variants (light/dark). |
+| `Baton-dock-dark-16pt.svg` | 16px simplified mark on the dark plate (shipped icon's tiny slots). |
 | `Baton.preview.png` | 1024×1024 transparent render of the primary master. |
 | `Baton-dock-light.png` / `-dark.png` | 512×512 rendered dock plates. |
 | `generate-app-icons.sh` | Renders the master into the macOS `.appiconset`. |
