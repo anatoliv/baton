@@ -62,5 +62,10 @@ final class MusicModel {
             }
         }
         musicEqualizer.onToggle = { [music] in music.refreshAudioMix() }
+
+        // First run only (once there's enough listen history): set playback defaults
+        // — gapless vs crossfade + autoplay — from how you actually listen. Guarded by
+        // a flag so it never re-overrides a setting you later change yourself.
+        MusicPersonalization.applyFirstRunIfNeeded(self)
     }
 }
