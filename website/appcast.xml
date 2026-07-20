@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0"
-     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
-     xmlns:dc="http://purl.org/dc/elements/1.1/">
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
     <title>Baton</title>
-    <link>https://baton.tonebox.io/appcast.xml</link>
-    <description>Baton auto-update feed</description>
-    <language>en</language>
-    <!--
-      No releases published yet. Each release adds a signed <item> here via
-      docs/RELEASE-APPCAST-HOSTING.md. An empty feed makes Sparkle report
-      "you're up to date" rather than error, so the channel is live and the
-      in-app "Check for Updates" works today.
-    -->
+    <item>
+      <title>Baton 0.1.0</title>
+      <pubDate>Mon, 20 Jul 2026 01:28:24 +0000</pubDate>
+      <sparkle:version>0.1.0</sparkle:version>
+      <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://baton.tonebox.io/Baton-0.1.0.dmg"
+                 sparkle:edSignature="qPQyD26PUBFU9DYUFEef9Ojoh5KtlBoD4bN+47513brk3//ctnODkrvCV1NKk2Bv9MNAIe0+oy/uq1yPM8ZUAg=="
+                 length="12379296" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>

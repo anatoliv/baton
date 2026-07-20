@@ -199,9 +199,9 @@ just unlikes and low-rates the track. See [Albums and artists](HELP.md#albums-an
 
 **How do updates work?**
 Baton uses Sparkle (the standard macOS updater). There's a **Check for Updates** item in the
-app menu, and Baton checks its own feed and installs signed, notarized builds. The feed is
-live; until the first release is published there's nothing newer to install, so a check
-reports you're up to date. You can also download the latest build yourself.
+app menu, and Baton checks its own feed and installs signed, notarized builds. Download the
+current release from [baton.tonebox.io](https://baton.tonebox.io); it updates itself from there
+on.
 
 **Where can I read more?**
 [HELP.md](HELP.md) covers how to use every part of Baton. The docs in [`docs/`](docs/) go into
