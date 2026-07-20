@@ -24,6 +24,13 @@ packages:
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
     from: "8.0.0"
+  # Auto-update. Same framework and pin Tonebox uses. The appcast feed +
+  # EdDSA public key are set in the Info.plist below; SUEnableAutomaticChecks
+  # is the "the feed is actually live" switch. See SparkleUpdater / UpdateChannel
+  # and docs/RELEASE-APPCAST-HOSTING.md.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
 
 settings:
   base:
@@ -51,6 +58,7 @@ targets:
     dependencies:
       - package: MarkdownUI
       - package: Sentry
+      - package: Sparkle
     # Feeds the SENTRY_DSN build setting (and thus the SentryDSN Info.plist
     # key). The committed Config/Sentry.xcconfig defaults SENTRY_DSN to empty
     # and optionally #include?s Config/Sentry.local.xcconfig (gitignored),
@@ -110,6 +118,15 @@ targets:
         # Empty in repo builds, so remote reporting stays disabled even if the
         # user opts in. See CrashReporting.
         SentryDSN: "$(SENTRY_DSN)"
+        # Sparkle auto-update. The appcast is served from Baton's own site.
+        # SUEnableAutomaticChecks is the "the feed is actually live" switch:
+        # it flips to true once a real EdDSA key is generated and the appcast
+        # is hosted (see docs/RELEASE-APPCAST-HOSTING.md). Until then the
+        # in-app UI shows "Not available yet" and the check is disabled.
+        # See SparkleUpdater / UpdateChannel.
+        SUFeedURL: "https://baton.tonebox.io/appcast.xml"
+        SUEnableAutomaticChecks: false
+        SUPublicEDKey: "REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY"
     entitlements:
       path: Baton.entitlements
       properties:

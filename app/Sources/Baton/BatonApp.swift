@@ -76,6 +76,9 @@ struct BatonApp: App {
         .commands {
             BatonAppCommands()
             PlaybackMenuCommands(model: music)
+            // "Check for Updates…" under About (disabled until the appcast
+            // channel is live). See SparkleUpdater / UpdateChannel.
+            UpdatesMenuCommands()
             // Help menu: "Baton Help" (⌘?) + "What's New", opening the
             // in-app two-pane Help window (BatonHelpView).
             HelpMenuCommands()

@@ -26,9 +26,10 @@ Made by [Tonebox](https://tonebox.io), and given away for free.
 
 ## Install
 
-Baton is a signed, notarized macOS app. Automatic updates via Sparkle are planned but not
-wired up yet. **Download links land as Baton ships its first standalone build.** Until then,
-see [baton.tonebox.io](https://baton.tonebox.io) or build from source.
+Baton is a signed, notarized macOS app with Sparkle auto-update wired in (a **Check for
+Updates** menu item; the public appcast feed goes live with the first published release).
+**Download links land as Baton ships its first standalone build.** Until then, see
+[baton.tonebox.io](https://baton.tonebox.io) or build from source.
 
 ### Build from source
 
