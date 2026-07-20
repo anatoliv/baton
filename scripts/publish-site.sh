@@ -32,6 +32,7 @@ SITE_FILES=(
   website/index.html
   website/help.html
   website/404.html
+  website/appcast.xml
   website/styles.css
   website/main.js
   website/og.png

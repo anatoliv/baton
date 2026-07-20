@@ -973,10 +973,10 @@ and each is careful to keep your credentials and servers when it resets.
 ## Updates
 
 Baton updates with Sparkle, the standard macOS updater that many Mac apps use. There's a
-**Check for Updates** item in the app menu, and Baton can check its own feed and install
-signed, notarized builds so you don't have to reinstall by hand. The public update feed goes
-live with Baton's first published release; until then the in-app status reads "Not available
-yet" and you update by downloading the latest build yourself from
+**Check for Updates** item in the app menu, and Baton checks its own feed and installs signed,
+notarized builds so you don't have to reinstall by hand. The feed is live now; until the first
+release is published there's nothing newer to install, so a check reports you're up to date.
+You can also download the latest build yourself from
 [baton.tonebox.io](https://baton.tonebox.io).
 
 ---

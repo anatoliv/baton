@@ -125,8 +125,10 @@ targets:
         # in-app UI shows "Not available yet" and the check is disabled.
         # See SparkleUpdater / UpdateChannel.
         SUFeedURL: "https://baton.tonebox.io/appcast.xml"
-        SUEnableAutomaticChecks: false
-        SUPublicEDKey: "REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY"
+        SUEnableAutomaticChecks: true
+        # Shared EdDSA public key (the private key lives in the login Keychain;
+        # Sparkle recommends one key across all your apps). Public, safe to commit.
+        SUPublicEDKey: "pDgN5Ibe6Q9QY5cxRpXmXLm/S2lBGbVLy/eBVEW1nTo="
     entitlements:
       path: Baton.entitlements
       properties:

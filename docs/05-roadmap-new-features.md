@@ -126,18 +126,17 @@ recipe.
 
 ## Tier 4 - release engineering & observability
 
-### 13. Auto-update via Sparkle - SCAFFOLDED (channel goes live at first release)
+### 13. Auto-update via Sparkle - LIVE (feed live, awaiting first release)
 
-**Status:** the Sparkle design is wired (mirroring Tonebox): `SparkleUpdater` wrapper,
-`UpdateChannel` gating, a "Check for Updates" menu item, an Updates section in Settings/About,
-and the `SUFeedURL` / `SUPublicEDKey` / `SUEnableAutomaticChecks` Info.plist keys. It stays
-honestly dormant ("Not available yet") because `SUPublicEDKey` is still the placeholder and
-`SUEnableAutomaticChecks` is false. To go live, follow `docs/RELEASE-APPCAST-HOSTING.md`:
-generate the EdDSA key (private key stays out of the repo), host `appcast.xml` on
-baton.tonebox.io, set the real key, and flip the switch.
+**Status:** shipped and live. `SparkleUpdater` wrapper, `UpdateChannel` gating, a "Check for
+Updates" menu item, an Updates section in Settings/About, and the Info.plist keys are all in.
+The real EdDSA public key (shared with Tonebox, per Sparkle's one-key recommendation) is set,
+`SUEnableAutomaticChecks` is true, and an (empty but valid) `appcast.xml` is hosted at
+baton.tonebox.io, so the in-app status reads "Ready" and Check for Updates works (reports
+"up to date"). The private signing key stays in the login Keychain.
 
-**What (remaining):** generate the signing key, cut the first signed + notarized DMG, host
-the appcast, and take the channel live.
+**What (remaining):** cut the first signed + notarized DMG and add its signed `<item>` to the
+appcast per `docs/RELEASE-APPCAST-HOSTING.md`. Then real updates flow.
 
 **Build:** add the Sparkle SPM package; wire an updater controller plus a "Check for
 Updates..." menu item; add the `SUFeedURL`, `SUEnableAutomaticChecks`, and `SUPublicEDKey`
