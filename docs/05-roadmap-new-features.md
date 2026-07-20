@@ -141,7 +141,12 @@ build's update entry.
 **Why:** users expect a shipping macOS app to update itself; manual reinstall is a poor
 experience and the docs assumed this existed.
 
-### 14. Crash / error reporting via Sentry - S to M (opt-in, private DSN)
+### 14. Crash / error reporting via Sentry - IMPLEMENTED (opt-in, private DSN)
+
+**Status:** shipped. Sentry project `baton-macos` created; `CrashReporting.swift` starts the
+SDK only when the user opts in (Settings, About, Diagnostics, default off) and a DSN is baked
+in; `sendDefaultPii = false` plus a `beforeSend` scrubber; DSN injected via the gitignored
+`app/Config/Sentry.local.xcconfig`; the secrets guard now catches Sentry tokens and DSNs.
 
 **Approach (chosen): public code + private DSN.** The Sentry integration lives in the public
 source for transparency, but the DSN is injected at build time from a gitignored xcconfig (or

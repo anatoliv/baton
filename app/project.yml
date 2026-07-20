@@ -18,6 +18,12 @@ packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     from: "2.4.1"
+  # Opt-in remote crash & error reporting. Dormant unless the user enables
+  # it (Settings, About → Diagnostics, default OFF) AND a DSN is baked into
+  # the build via Config/Sentry.local.xcconfig (gitignored). See CrashReporting.
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: "8.0.0"
 
 settings:
   base:
@@ -44,6 +50,14 @@ targets:
     platform: macOS
     dependencies:
       - package: MarkdownUI
+      - package: Sentry
+    # Feeds the SENTRY_DSN build setting (and thus the SentryDSN Info.plist
+    # key). The committed Config/Sentry.xcconfig defaults SENTRY_DSN to empty
+    # and optionally #include?s Config/Sentry.local.xcconfig (gitignored),
+    # where the real DSN lives. See CrashReporting.
+    configFiles:
+      Debug: Config/Sentry.xcconfig
+      Release: Config/Sentry.xcconfig
     # Keep the app-bundled copies of the user guides in step with the
     # canonical HELP.md / FAQ.md at the repo root on every build, so the
     # in-app Help window never drifts from the docs we edit.
@@ -91,6 +105,11 @@ targets:
         # macOS gates LAN access behind a privacy prompt; this is its description. Needed
         # because the `speak_summary` tool reaches self-hosted TTS services on the LAN.
         NSLocalNetworkUsageDescription: "Baton connects to your self-hosted text-to-speech services on your local network to speak task summaries aloud."
+        # Sentry DSN, substituted from the SENTRY_DSN build setting
+        # (Config/Sentry.xcconfig → optional gitignored Config/Sentry.local.xcconfig).
+        # Empty in repo builds, so remote reporting stays disabled even if the
+        # user opts in. See CrashReporting.
+        SentryDSN: "$(SENTRY_DSN)"
     entitlements:
       path: Baton.entitlements
       properties:

@@ -259,6 +259,9 @@ private struct BatonServersPane: View {
 /// *window* (⌘-menu → About Baton) still uses `BatonAboutView`; this is the
 /// consistent in-Settings presentation of the same facts.
 private struct BatonAboutPane: View {
+    /// Opt-in remote crash & error reporting. Off by default. See CrashReporting.
+    @AppStorage(CrashReporting.enabledKey) private var crashUploadEnabled = false
+
     private var version: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
@@ -294,6 +297,18 @@ private struct BatonAboutPane: View {
                 Link("baton.tonebox.io", destination: URL(string: "https://baton.tonebox.io")!)
                     .font(.callout)
                 Text("© 2026 Anatoli Vishnyakov · free to use, modify, and share, under the MIT License.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+
+            Section("Diagnostics") {
+                Toggle("Send crash & error reports", isOn: $crashUploadEnabled)
+                    .disabled(!CrashReporting.isConfigured)
+                    .onChange(of: crashUploadEnabled) { _, newValue in
+                        CrashReporting.apply(enabled: newValue)
+                    }
+                Text(CrashReporting.isConfigured
+                    ? "Off by default. When on, Baton sends crash and error reports to its developer to help fix bugs. It never sends your music, library, server address, or account, and no IP or identifiers."
+                    : "This build has no reporting endpoint configured, so nothing can be sent.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
