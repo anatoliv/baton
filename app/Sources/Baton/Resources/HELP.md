@@ -963,7 +963,12 @@ The text-to-speech servers and the category-to-voice map for spoken summaries. S
 
 ### About
 
-Baton's version, its license (MIT), and a link to the website. Nothing to configure.
+Baton's version, its license (MIT), and a link to the website, plus two small sections:
+
+- **Updates**: the auto-update feed, its status, an "automatically check for updates" toggle,
+  and a **Check for Updates Now** button. See [Updates](#updates).
+- **Diagnostics**: the opt-in **Send crash & error reports** toggle, off by default. See
+  [Privacy and security](#privacy-and-security).
 
 Each of the Playback, Equalizer, and Speech panes has its own **Reset to Defaults** button,
 and each is careful to keep your credentials and servers when it resets.
