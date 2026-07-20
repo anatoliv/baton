@@ -421,7 +421,7 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
         <p>Yes. Credentials live in the <strong>macOS Keychain</strong>, never in a plaintext file. With username &amp; password sign-in, Baton uses the salted-token scheme Subsonic expects, so your password isn't sent in the clear on each request.</p>
 
         <p class="faq-q">Does Baton phone home?</p>
-        <p>No. Baton talks only to the music server you point it at, plus the scrobbling services (ListenBrainz / Last.fm) and its own update feed if you turn them on. It has no catalog server of its own to call.</p>
+        <p>Not by default. Baton talks only to the music server you point it at, plus the scrobbling services (ListenBrainz / Last.fm) and its own update feed if you turn them on. It has no catalog server of its own to call. The one opt-in exception is crash reporting: if you turn on <strong>Send crash &amp; error reports</strong> (Settings, About, Diagnostics, off by default), Baton sends crash and error data to its developer via Sentry to help fix bugs, never your music, library, server address, or account, and no IP or identifiers.</p>
 
         <p class="faq-q">Is the control server a security risk?</p>
         <p>No, by design. It listens only on your own Mac (loopback), so it isn't reachable from your network, and every request must carry a secret token Baton generates. Both are required.</p>

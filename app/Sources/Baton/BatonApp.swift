@@ -27,6 +27,12 @@ struct BatonApp: App {
     /// Window id for the custom About panel (opened from the app menu).
     static let aboutWindowID = "baton-about"
 
+    init() {
+        // Start opt-in crash reporting if (and only if) the user turned it on
+        // and a DSN is baked into this build. No-op otherwise. See CrashReporting.
+        CrashReporting.startIfEnabled()
+    }
+
     var body: some Scene {
         // Main player window. Reuses the chromeless pop-out view Tonebox ships, so the
         // mini player's "expand" deep-link (`openWindow(id: MusicWindowView.windowID)`)

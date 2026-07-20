@@ -63,10 +63,13 @@ With username-and-password sign-in, Baton uses the salted-token scheme Subsonic 
 your password isn't sent in the clear on each request.
 
 **Does Baton phone home?**
-No. Baton talks only to the music server you point it at, plus the scrobbling services
-(ListenBrainz and Last.fm) if you turn them on, its own update feed for checking for new
-versions, and any text-to-speech server you set up for spoken summaries. It has no catalog
-server of its own to call.
+Not by default. Baton talks only to the music server you point it at, plus the scrobbling
+services (ListenBrainz and Last.fm) if you turn them on, its own update feed for checking for
+new versions, and any text-to-speech server you set up for spoken summaries. It has no catalog
+server of its own to call. The one opt-in exception is crash reporting: if you turn on **Send
+crash & error reports** (Settings, About, Diagnostics, off by default), Baton sends crash and
+error data to its developer via Sentry to help fix bugs. It never sends your music, library,
+server address, or account, and no IP or identifiers.
 
 **Is the control server a security risk?**
 No, by design. Baton's control server listens only on your own Mac (loopback), so it isn't
