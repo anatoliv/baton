@@ -267,6 +267,18 @@ extension HelpWhatsNewRelease {
                         + "FAQ, search by keyword, and take a guided tour. Open "
                         + "it any time with \u{2318}?."
                 ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Auto-update via Sparkle: a Check for Updates item in "
+                        + "the app menu and an Updates section in Settings, About."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Opt-in crash reporting (Sentry): off by default and "
+                        + "scrubbed of personal data, in Settings, About, "
+                        + "Diagnostics. It never sends your music, library, or "
+                        + "server address."
+                ),
             ]
         ),
     ]
