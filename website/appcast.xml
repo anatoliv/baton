@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Baton</title>
+    <link>https://baton.tonebox.io/appcast.xml</link>
+    <description>Baton auto-update feed</description>
+    <language>en</language>
+    <!--
+      No releases published yet. Each release adds a signed <item> here via
+      docs/RELEASE-APPCAST-HOSTING.md. An empty feed makes Sparkle report
+      "you're up to date" rather than error, so the channel is live and the
+      in-app "Check for Updates" works today.
+    -->
+  </channel>
+</rss>
