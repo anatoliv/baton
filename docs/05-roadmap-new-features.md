@@ -126,11 +126,18 @@ recipe.
 
 ## Tier 4 - release engineering & observability
 
-### 13. Auto-update via Sparkle - M
+### 13. Auto-update via Sparkle - SCAFFOLDED (channel goes live at first release)
 
-**What:** Baton has no updater today (no Sparkle package, no `SUFeedURL` / `SUPublicEDKey`
-Info.plist keys, no "Check for Updates" menu). The user docs previously overclaimed this and
-have been corrected to say it's planned.
+**Status:** the Sparkle design is wired (mirroring Tonebox): `SparkleUpdater` wrapper,
+`UpdateChannel` gating, a "Check for Updates" menu item, an Updates section in Settings/About,
+and the `SUFeedURL` / `SUPublicEDKey` / `SUEnableAutomaticChecks` Info.plist keys. It stays
+honestly dormant ("Not available yet") because `SUPublicEDKey` is still the placeholder and
+`SUEnableAutomaticChecks` is false. To go live, follow `docs/RELEASE-APPCAST-HOSTING.md`:
+generate the EdDSA key (private key stays out of the repo), host `appcast.xml` on
+baton.tonebox.io, set the real key, and flip the switch.
+
+**What (remaining):** generate the signing key, cut the first signed + notarized DMG, host
+the appcast, and take the channel live.
 
 **Build:** add the Sparkle SPM package; wire an updater controller plus a "Check for
 Updates..." menu item; add the `SUFeedURL`, `SUEnableAutomaticChecks`, and `SUPublicEDKey`

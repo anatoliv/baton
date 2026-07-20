@@ -300,6 +300,25 @@ private struct BatonAboutPane: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
+            Section("Updates") {
+                LabeledContent("Feed") {
+                    Text(UpdateChannel.feedURLFromBundle)
+                        .font(.callout.monospaced()).foregroundStyle(.secondary)
+                        .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                }
+                LabeledContent("Status") {
+                    Text(UpdateChannel.isConfiguredFromBundle ? "Ready" : "Not available yet")
+                        .font(.callout)
+                        .foregroundStyle(UpdateChannel.isConfiguredFromBundle ? .secondary : Color.orange)
+                }
+                if UpdateChannel.isConfiguredFromBundle {
+                    BatonUpdatesControls()
+                } else {
+                    Text("Automatic updates aren't published for this build yet. If you're running a locally built copy, update it by rebuilding from source. Releases are signed with an EdDSA key and shipped via Sparkle.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+
             Section("Diagnostics") {
                 Toggle("Send crash & error reports", isOn: $crashUploadEnabled)
                     .disabled(!CrashReporting.isConfigured)
@@ -313,6 +332,28 @@ private struct BatonAboutPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// The live-channel update controls (auto-check toggle + manual check).
+/// Rendered only when `UpdateChannel.isConfiguredFromBundle` is true, so
+/// `SparkleUpdater` (which starts the SPUUpdater) is never created with a
+/// placeholder key.
+private struct BatonUpdatesControls: View {
+    @State private var auto = SparkleUpdater.shared.automaticallyCheckForUpdates
+
+    var body: some View {
+        Toggle("Automatically check for updates", isOn: $auto)
+            .onChange(of: auto) { _, newValue in
+                SparkleUpdater.shared.automaticallyCheckForUpdates = newValue
+            }
+        HStack {
+            Button("Check for Updates Now") {
+                SparkleUpdater.shared.checkForUpdates()
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
     }
 }
 
