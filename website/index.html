@@ -144,17 +144,25 @@
         </p>
         <p>
           Not a plugin. Not a cloud API with OAuth and rate limits. A documented localhost
-          interface where every capability the UI has, an agent has too: twenty-plus
-          <code>music_*</code> tools, from <code>music_play</code> to
-          <code>music_create_playlist</code>. Other apps can compose with it: the same
-          interface lets Tonebox duck your music while you dictate, then hand it back.
+          interface where every capability the UI has, an agent has too: <strong>28
+          <code>music_*</code> tools</strong>, from <code>music_play</code> to
+          <code>music_build_mix</code> (which assembles a set to a length you ask for). Other
+          apps can compose with it: the same interface lets Tonebox duck your music while you
+          dictate, then hand it back.
+        </p>
+        <p>
+          And Baton can <strong>talk back</strong>. Through <code>speak_summary</code>, an agent
+          has Baton read a short result aloud in a natural voice, so you <em>hear</em> "deploy
+          finished, all green." Give each agent its own voice and you can follow a whole
+          multi-agent run by ear.
         </p>
         <ul class="tool-chips" aria-label="A sample of Baton's MCP tools">
           <li><code>music_play</code></li>
           <li><code>music_search</code></li>
-          <li><code>music_queue_add</code></li>
+          <li><code>music_build_mix</code></li>
           <li><code>music_now_playing</code></li>
           <li><code>music_create_playlist</code></li>
+          <li><code>speak_summary</code></li>
           <li class="chip-more">+ the rest of the catalog</li>
         </ul>
         <p class="aside">Local-first by design: loopback-only binding, bearer token, secrets in the Keychain. Baton talks to your server and nothing else, apart from update checks and any scrobbling you turn on.</p>
@@ -177,6 +185,10 @@
           <p class="msg user">Call starting, duck the music.</p>
           <p class="msg tool">audio focus · suspend</p>
           <p class="msg app">Paused. It resumes when your call ends, but only if the agent was the one that paused it.</p>
+
+          <p class="msg user">Say when the mix is ready.</p>
+          <p class="msg tool"><code>speak_summary</code> · voice: deploy</p>
+          <p class="msg app"><span class="np-dot" aria-hidden="true"></span>Spoken aloud: "Your focus mix is queued, 40 minutes."</p>
         </div>
       </figure>
     </div>
