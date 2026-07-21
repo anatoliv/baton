@@ -9,7 +9,7 @@ import MediaToolbox
 /// `EQTapContext`), so two taps live at once (outgoing + incoming around a gapless/crossfade
 /// boundary) never share mutable state — previously a single shared processor raced its
 /// `state` across render threads, risking corruption/crash. The shared object here provides
-/// only the coefficient source; the render path allocates nothing and never blocks. (W-20)
+/// only the coefficient source; the render path allocates nothing and never blocks.
 final class AudioEQProcessor: @unchecked Sendable {
     private let coefficients: EQCoefficients
 
@@ -43,7 +43,7 @@ final class AudioEQProcessor: @unchecked Sendable {
 
 /// Per-tap filter state + coefficient cache, owned by exactly one `MTAudioProcessingTap`. All
 /// buffers are C-allocated once in `prepare` and used lock-/alloc-free in `process`; freed in
-/// `deinit` (via the tap's finalize). Internal + testable in isolation. (W-20)
+/// `deinit` (via the tap's finalize). Internal + testable in isolation.
 final class EQTapContext: @unchecked Sendable {
     struct BiquadState { var z1: Float = 0; var z2: Float = 0 }
 
@@ -56,10 +56,10 @@ final class EQTapContext: @unchecked Sendable {
     private var state: UnsafeMutablePointer<BiquadState>?
     private var channels = 0
     /// The tap's actual processing sample rate — coefficients are computed for THIS, not a
-    /// hardcoded 44.1 kHz, so bands land at the right frequencies on 48/96 kHz material. (W-21)
+    /// hardcoded 44.1 kHz, so bands land at the right frequencies on 48/96 kHz material.
     private var sampleRate = 44_100.0
     private var cachedGeneration: UInt64 = .max // force a refresh on the first process
-    /// Auto pre-gain that keeps a combined boost from clipping (AUDIO-08).
+    /// Auto pre-gain that keeps a combined boost from clipping.
     private var preGain: Float = 1
 
     init(coefficients: EQCoefficients) {

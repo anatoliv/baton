@@ -247,7 +247,7 @@ final class StreamingPlaybackController {
     private(set) var queueSource: QueueSource?
 
     // Queue-advance decision logic (the pure `Advance` enum + `onTrackEnd`/`onManualNext`) lives
-    // in StreamingPlaybackController+Advance.swift — first extraction of the W-50 decomposition.
+    // in StreamingPlaybackController+Advance.swift — first extraction of the  decomposition.
 
     /// Player volume as a percentage 0–100. Mapped to `AVPlayer.volume` (0…1).
     /// Persisted; does NOT move the macOS system output volume.
@@ -284,7 +284,7 @@ final class StreamingPlaybackController {
     /// `handleEnded` reconciles our logical state once the outgoing item's end fires.
     private var gaplessPreload: (index: Int, item: AVPlayerItem)?
     /// Owns the second player + volume ramp during a crossfade overlap; its player is promoted to
-    /// `player` in `finishCrossfade` when the fade completes. (W-50 collaborator.)
+    /// `player` in `finishCrossfade` when the fade completes.
     private let crossfadeRamp = CrossfadeRamp()
     private var isCrossfading = false
 
@@ -302,7 +302,7 @@ final class StreamingPlaybackController {
     private var consecutiveFailures = 0
     /// Retries of the CURRENT track before giving up and skipping — a brief network blip
     /// shouldn't skip the track (let alone cascade through the queue). Reset on a genuine
-    /// track change / successful load. (W-26 / AUDIO-06)
+    /// track change / successful load.
     private var sameTrackRetries = 0
     static let maxSameTrackRetries = 3
     /// True once the current track's end has been handled — de-dupes the end notification
@@ -433,7 +433,7 @@ final class StreamingPlaybackController {
         // A unique suite per instance under test: persisted queue / now-playing state must never
         // leak between tests that each build their own controller or MusicModel (a shared suite let
         // one test's seeded queue restore into the next, e.g. "seek with nothing playing"). Tests
-        // that deliberately verify cross-instance restore inject a shared `defaults:`. (W-49)
+        // that deliberately verify cross-instance restore inject a shared `defaults:`.
         return UserDefaults(suiteName: "io.tonebox.tests.music.\(UUID().uuidString)") ?? .standard
     }
 
@@ -443,7 +443,7 @@ final class StreamingPlaybackController {
     /// server. Static + isolated so it's unit-testable without a live server.
     @MainActor
     /// The URL to DOWNLOAD a track for offline use: the original file for a library track
-    /// (download.view, no transcode), or the enclosure URL for a podcast episode. (W-34 / DL-04)
+    /// (download.view, no transcode), or the enclosure URL for a podcast episode.
     static func resolveDownloadURL(songID: String) throws -> URL {
         if MediaKind(id: songID) == .podcastEpisode, let url = URL(string: songID) {
             return url // podcast episode — its id IS the enclosure URL
@@ -459,7 +459,7 @@ final class StreamingPlaybackController {
         // Prefer an offline download when present.
         if let local = MusicDownloadStore.shared.localURL(for: songID) { return local }
         // Offline mode: never fall back to streaming — only downloaded content plays. Without
-        // this the shipped toggle did nothing and Baton streamed anyway (PROD-01). (W-53)
+        // this the shipped toggle did nothing and Baton streamed anyway.
         if isOfflineMode {
             throw NavidromeError.transport("Offline mode is on — this track isn't downloaded.")
         }
@@ -492,7 +492,7 @@ final class StreamingPlaybackController {
         self.streamURLProvider = streamURLProvider
         self.coverArtURLProvider = coverArtURLProvider
         // Environment decides the persistence store + whether to touch system Now Playing, unless a
-        // caller injects them explicitly (tests do, to share/verify a specific store). (W-49)
+        // caller injects them explicitly (tests do, to share/verify a specific store).
         self.defaults = defaults ?? Self.defaultStore(environment: environment)
         self.systemNowPlaying = systemNowPlaying ?? !environment.isTesting
         let defaults = self.defaults // the resolved, non-optional store for the settings reads below
@@ -500,7 +500,7 @@ final class StreamingPlaybackController {
         let downloader: @MainActor (URL, String) async -> URL? = gaplessPrefetchDownloader ?? { streamURL, songID in
             // Stream the (transcoded) next track to the ephemeral prefetch cache so the
             // boundary can hand off from a local file — zero-gap even for streams.
-            // W-05/PER-03: treat a non-HTTP or error response as failure (was `?? true`),
+            // /PER-03: treat a non-HTTP or error response as failure (was `?? true`),
             // so an error page never gets cached and handed to the gapless boundary.
             guard let (temp, response) = try? await URLSession.shared.download(from: streamURL),
                   (response as? HTTPURLResponse).map({ (200 ..< 300).contains($0.statusCode) }) ?? false
@@ -590,7 +590,7 @@ final class StreamingPlaybackController {
                     self.onProgressUpdate?(song, self.currentTime, self.duration)
                 }
                 // Persist queue + playhead ~every 15 s so a quit mid-track restores near
-                // the real position (persistQueue otherwise only runs on transport events). (W-11)
+                // the real position (persistQueue otherwise only runs on transport events).
                 if self.duration > 1, abs(self.currentTime - self.lastQueuePersistTime) >= 15 {
                     self.lastQueuePersistTime = self.currentTime
                     self.persistQueue()
@@ -630,7 +630,7 @@ final class StreamingPlaybackController {
     // Radio-awareness hooks for media-key / Now Playing remote commands. Wired by MusicModel; nil
     // (no-op) in tests / when radio isn't used. Stored here because extensions can't hold stored
     // properties — the routing logic lives in StreamingPlaybackController+RemoteCommands.swift.
-    // (W-50 extraction / W-29 / AUDIO-05)
+    //
     @ObservationIgnored var radioIsOnAir: (@MainActor () -> Bool)?
     @ObservationIgnored var radioRemote: RadioRemote?
 
@@ -658,10 +658,10 @@ final class StreamingPlaybackController {
     private var pendingResumeOffset: TimeInterval?
     /// The `currentTime` at the last progress save, so `onProgressUpdate` fires ~every 5 s.
     private var lastProgressSaveTime: TimeInterval = 0
-    /// The `currentTime` at the last queue persist, so the playhead is saved ~every 15 s. (W-11)
+    /// The `currentTime` at the last queue persist, so the playhead is saved ~every 15 s.
     private var lastQueuePersistTime: TimeInterval = 0
     /// Whether the loaded item's track-start side effects have fired. A restored queue
-    /// loads paused (no start), so the first `resume()` must fire them. (W-11)
+    /// loads paused (no start), so the first `resume()` must fire them.
     private var startNotifiedForCurrentItem = false
 
     /// Notifies listeners a track began and arms its resume offset (podcasts). Call in place of
@@ -757,7 +757,7 @@ final class StreamingPlaybackController {
         state = .playing
         // First play of a restored (loaded-paused) item: fire the track-start side effects
         // (history / "now playing") and stamp the scrobble timestamp now, so a restored
-        // track doesn't scrobble against app-launch time. (W-11)
+        // track doesn't scrobble against app-launch time.
         if !startNotifiedForCurrentItem, let song = nowPlaying {
             notifyTrackStarted(song)
         }
@@ -781,10 +781,10 @@ final class StreamingPlaybackController {
         player.pause()
         if state == .playing { state = .paused }
         pushNowPlaying()
-        persistQueue() // capture the playhead where the user paused (W-11)
+        persistQueue() // capture the playhead where the user paused
     }
 
-    /// Persist the queue + playhead immediately (called on app termination). (W-11)
+    /// Persist the queue + playhead immediately (called on app termination).
     func persistNow() { persistQueue() }
 
     /// Stops playback cleanly (keeps the queue so it can be restarted / persisted).
@@ -793,9 +793,9 @@ final class StreamingPlaybackController {
         cancelCrossfade()
         player.pause()
         // Seek the player to the start too, so a later play() resumes from 0:00 — matching the
-        // scrubber we reset below — instead of continuing from where Stop was pressed. (W-24 / AUDIO-10)
+        // scrubber we reset below — instead of continuing from where Stop was pressed.
         player.seek(to: .zero)
-        cancelGaplessPrefetch() // don't keep downloading a "next" track after Stop (W-28 / AUDIO-17)
+        cancelGaplessPrefetch() // don't keep downloading a "next" track after Stop
         state = .idle
         currentTime = 0
         isBuffering = false
@@ -906,7 +906,7 @@ final class StreamingPlaybackController {
         } else if removingCurrent {
             // Land on the current track's successor: subtract the items removed BEFORE the
             // current index, else a multi-select spanning items before AND at the current
-            // track skips past the intended next track. (W-24 / AUDIO-11)
+            // track skips past the intended next track.
             let removedBeforeCurrent = offsets.filter { $0 < currentIndex }.count
             currentIndex = min(max(0, currentIndex - removedBeforeCurrent), max(0, queue.count - 1))
             if queue.isEmpty { stop() } else { loadCurrent(autoplay: state == .playing) }
@@ -979,7 +979,7 @@ final class StreamingPlaybackController {
     }
 
     // Loudness-normalization math (loudnessHeadroom + loudnessMultiplier + normalizationGain) lives
-    // in StreamingPlaybackController+Loudness.swift — pure ReplayGain functions, W-50 extraction.
+    // in StreamingPlaybackController+Loudness.swift — pure ReplayGain functions,  extraction.
 
     /// Ramp the fade envelope to `target` over `duration`, then run `then` (e.g. pause).
     /// Cancels any in-flight fade. Used for the sleep-timer fade-out.
@@ -1011,7 +1011,7 @@ final class StreamingPlaybackController {
 
 
     // Sleep-timer (fixed-time + end-of-track, with a fade-out) lives in
-    // StreamingPlaybackController+SleepTimer.swift (W-50 extraction).
+    // StreamingPlaybackController+SleepTimer.swift.
 
     // MARK: - Loading
 
@@ -1096,7 +1096,7 @@ final class StreamingPlaybackController {
         isBuffering = false
         // First, retry the SAME track with a capped backoff, preserving the playhead — a brief
         // outage (Wi-Fi blip, server restart) then recovers in place instead of skipping the
-        // track and cascade-skipping the rest of the queue. (W-26 / AUDIO-06)
+        // track and cascade-skipping the rest of the queue.
         if sameTrackRetries < Self.maxSameTrackRetries {
             sameTrackRetries += 1
             let resumeAt = currentTime
@@ -1228,7 +1228,7 @@ final class StreamingPlaybackController {
         let planned = plannedNextIndex()
         // Reap in-flight prefetches for tracks that are no longer the planned next (e.g. after
         // rapid skipping), so stale full-file downloads don't pile up competing with the live
-        // stream on the same link. (W-28 / AUDIO-17)
+        // stream on the same link.
         let plannedID = planned.map { queue[$0].id }
         gaplessPrefetcher.reap(keeping: plannedID)
         // Drop a preload that no longer matches (mode off, queue reordered, crossfade on…).
@@ -1248,7 +1248,7 @@ final class StreamingPlaybackController {
         // streamURLProvider already resolves to a file URL) so the handoff is gap-free.
         let preloadURL = GaplessPreload.preloadURL(stream: streamURL, cached: gaplessPrefetcher.cachedURL(for: songID))
         let item = AVPlayerItem(asset: AVURLAsset(url: preloadURL))
-        configureAudioMix?(item) // attach EQ at preload creation, before it plays (W-22 / AUDIO-28)
+        configureAudioMix?(item) // attach EQ at preload creation, before it plays
         guard player.canInsert(item, after: current) else { return }
         player.insert(item, after: current)
         gaplessPreload = (planned, item)
@@ -1386,7 +1386,7 @@ final class StreamingPlaybackController {
             let more = await relatedProvider(seed)
             guard let self else { return }
             self.autoplayFetching = false
-            // Freshness (W-23 / AUDIO-16): a user action may have happened while we were fetching.
+            // Freshness: a user action may have happened while we were fetching.
             if playFirstNew {
                 // The end-of-queue continuation must not yank playback if the user stopped or
                 // started something else in the meantime.
@@ -1462,7 +1462,7 @@ final class StreamingPlaybackController {
         guard state == .playing, !isCrossfading,
               Crossfade.inWindow(currentTime: currentTime, duration: duration, window: window) else { return }
         // Never crossfade a podcast (spoken word) — and crossfading suppresses the outgoing
-        // track's end handler, which is a podcast's only played/auto-remove trigger. (W-27 / AUDIO-12)
+        // track's end handler, which is a podcast's only played/auto-remove trigger.
         if nowPlaying?.isPodcastEpisode == true { return }
         guard case let .play(nextIndex) = Self.onTrackEnd(current: currentIndex, count: queue.count, repeatMode: repeatMode),
               nextIndex != currentIndex, queue.indices.contains(nextIndex) else { return }
@@ -1477,11 +1477,11 @@ final class StreamingPlaybackController {
         didHandleEnd = true // suppress the outgoing track's normal end handler
         // ...but still report the outgoing track as completed, so its final progress is saved
         // (played-state, download auto-remove) — the suppressed handler was their only trigger.
-        // Harmless for music; correctness for any non-podcast that reports progress. (W-27 / AUDIO-12)
+        // Harmless for music; correctness for any non-podcast that reports progress.
         if let outgoing = nowPlaying, duration > 0 { onProgressUpdate?(outgoing, duration, duration) }
         // Attach the EQ tap to the incoming item BEFORE it plays, or the EQ would silently
         // switch off at the first crossfade boundary and stay off for every crossfaded
-        // track thereafter. (W-22 / AUDIO-02)
+        // track thereafter.
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         configureAudioMix?(item)
         let outgoing = player
@@ -1546,7 +1546,7 @@ final class StreamingPlaybackController {
         applyVolume()
     }
 
-    // MARK: - Persistence (REQ-14)
+    // MARK: - Persistence
 
     /// Snapshot of the queue for cross-launch restore.
     private struct QueueSnapshot: Codable {

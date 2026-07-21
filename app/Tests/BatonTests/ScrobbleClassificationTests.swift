@@ -2,10 +2,10 @@ import Foundation
 import Testing
 @testable import Baton
 
-/// W-08: the transient-vs-permanent split that keeps an offline session from destroying
+/// : the transient-vs-permanent split that keeps an offline session from destroying
 /// the scrobbles the durable queue exists to protect.
 @MainActor
-@Suite("Scrobble failure classification (W-08)")
+@Suite("Scrobble failure classification")
 struct ScrobbleClassificationTests {
     @Test("network / 5xx / 429 / not-configured are transient")
     func transient() {

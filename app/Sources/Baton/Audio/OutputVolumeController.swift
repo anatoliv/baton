@@ -58,7 +58,7 @@ final class OutputVolumeController {
     private static let pendingDeviceKey = "tonebox.outputVolume.pendingDeviceID"
     private static let pendingOriginalKey = "tonebox.outputVolume.pendingOriginal"
     /// The stable device UID saved alongside the ephemeral id, so recovery can confirm the id
-    /// still names the same physical device before touching its volume. (W-45 / AUDIO-22)
+    /// still names the same physical device before touching its volume.
     private static let pendingDeviceUIDKey = "tonebox.outputVolume.pendingDeviceUID"
 
     private init() {
@@ -79,7 +79,7 @@ final class OutputVolumeController {
         clearPendingRestore()
         // AudioDeviceIDs aren't stable across reboots / coreaudiod restarts — the id may now name
         // a DIFFERENT device. Only restore if the current UID for this id matches the saved one;
-        // otherwise skip rather than change some other output's volume. (W-45 / AUDIO-22)
+        // otherwise skip rather than change some other output's volume.
         if let savedUID, Self.deviceUID(deviceID) != savedUID {
             log.notice("recover: device id \(deviceID) now names a different device — skipping restore")
             return
@@ -294,7 +294,7 @@ final class OutputVolumeController {
 
     /// Human-readable device name for logs (e.g. "MacBook Pro Speakers", "JBL PartyBox").
     /// Returns "?" if the device is gone or unnamed.
-    /// The device's stable UID (survives reboots), for verifying a persisted ephemeral id. (AUDIO-22)
+    /// The device's stable UID (survives reboots), for verifying a persisted ephemeral id.
     static func deviceUID(_ deviceID: AudioDeviceID) -> String? {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceUID,

@@ -1,8 +1,8 @@
 import XCTest
 @testable import Baton
 
-/// W-47: characterization tests pinning the exact current behaviour of the controller's riskiest
-/// PURE logic — ReplayGain loudness math and queue-advance decisions — so a later refactor (W-50)
+/// : characterization tests pinning the exact current behaviour of the controller's riskiest
+/// PURE logic — ReplayGain loudness math and queue-advance decisions — so a later refactor
 /// can't silently change it. Values are computed from first principles, not copied from the impl.
 @MainActor
 final class LoudnessAdvanceCharacterizationTests: XCTestCase {

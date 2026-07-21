@@ -66,7 +66,7 @@ public enum SpeechService {
     }
 
     /// One quick retry on connection-refused / lost / timeout — the self-hosted TTS host may
-    /// be waking up (a cold GPU box). (W-19 / SPEECH-06)
+    /// be waking up (a cold GPU box).
     private static func sendWithRetry(_ request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
         do {
             return try await session.data(for: request)

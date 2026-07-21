@@ -2,7 +2,7 @@ import Foundation
 
 /// Configuration for Baton's spoken-summary feature (the `speak_summary` MCP tool):
 /// where the TTS services live, how task categories map to voices, and how a summary is
-/// delivered. Third leaf of the W-51 module-boundary split (after BatonDSP + BatonSubsonicModels):
+/// delivered. Third leaf of the  module-boundary split (after BatonDSP + BatonSubsonicModels):
 /// the TTS config + synthesis layer, extracted so it has no dependency on the app. The playback
 /// engine + notifier stay in the app (they tie into MusicModel); this is the pure part.
 ///
@@ -21,7 +21,7 @@ public enum SpeechConfig {
     static let alertNotificationKey = "tonebox.speech.alertNotification"
     static let alertBannerKey = "tonebox.speech.alertBanner"
     /// Maximum characters accepted by speak_summary — a summary, not an essay. Beyond this
-    /// the tool errors rather than reading a 50 KB blob aloud (SPEECH-06). (W-19)
+    /// the tool errors rather than reading a 50 KB blob aloud.
     public static let maxSummaryChars = 2000
 
     /// Overridable in tests; `.standard` in production.
@@ -67,8 +67,8 @@ public enum SpeechConfig {
 
     /// Whether an agent may make speech play immediately (`mode:"auto"`) without a
     /// confirmation. Off by default: an auto-play summary is otherwise an audio-spam /
-    /// social-engineering vector if the MCP token leaks (SEC-12). When off, `auto` is
-    /// downgraded to a banner. (W-19)
+    /// social-engineering vector if the MCP token leaks. When off, `auto` is
+    /// downgraded to a banner.
     public static var allowAutoPlay: Bool {
         get { defaults.object(forKey: allowAutoPlayKey) as? Bool ?? false }
         set { defaults.set(newValue, forKey: allowAutoPlayKey) }
@@ -122,7 +122,7 @@ public enum SpeechConfig {
     ///
     /// - **Announce immediately**: speak now; plus any checked alert surfaces.
     /// - **Let the agent decide**: the agent may speak now only if it asked (`mode:"auto"`) *and*
-    ///   `allowAutoPlay` is on (SEC-12) — otherwise the summary waits; either way it surfaces
+    ///   `allowAutoPlay` is on — otherwise the summary waits; either way it surfaces
     ///   through the checked alerts. The agent's notify-vs-banner choice defers to the user's
     ///   surfaces: the agent owns *timing*, the user owns *where it shows*.
     ///
@@ -196,7 +196,7 @@ public enum SpeechConfig {
         }
         let map = voiceMap()
         // Case-insensitive category lookup so "Ops"/"OPS" resolve like "ops" instead of
-        // silently falling through to "default". (W-19 / SPEECH-09)
+        // silently falling through to "default".
         let key = (category?.isEmpty == false) ? category!.lowercased() : "default"
         let lowered = Dictionary(map.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { a, _ in a })
         let spec = lowered[key] ?? lowered["default"] ?? "kokoro:af_heart"

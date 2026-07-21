@@ -2,7 +2,7 @@ import Foundation
 
 // The Subsonic/Navidrome *domain* value types (NavidromeSong, NavidromeAlbum,
 // ReplayGain, NavidromeError, …) now live in the BatonSubsonicModels SPM module — the
-// second leaf of the W-51 module-boundary split. Re-exported so every existing call
+// second leaf of the  module-boundary split. Re-exported so every existing call
 // site keeps referring to them unqualified. The Subsonic *wire* decoders below stay in
 // the app (they map onto the domain types via each `toDomain()`).
 @_exported import BatonSubsonicModels

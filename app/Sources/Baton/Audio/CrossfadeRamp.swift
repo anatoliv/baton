@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 
 /// Owns the **second player** and the volume ramp that make a crossfade audible, extracted from
-/// `StreamingPlaybackController` as a collaborator type (W-50). The controller still owns the
+/// `StreamingPlaybackController` as a collaborator type. The controller still owns the
 /// transport core — it decides *when* to fade (`maybeStartCrossfade`) and does the promotion
 /// (`finishCrossfade` reassigns the main player + advances the queue) — but the messy part, a
 /// whole second `AVQueuePlayer` playing under an async gain ramp, lives here behind a narrow

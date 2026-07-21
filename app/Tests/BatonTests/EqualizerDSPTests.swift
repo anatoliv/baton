@@ -78,7 +78,7 @@ struct EqualizerDSPTests {
     }
 
     @MainActor
-    @Test("W-41 / TOOL-06: preset lookup is case-insensitive and stores the canonical name")
+    @Test(" / TOOL-06: preset lookup is case-insensitive and stores the canonical name")
     func presetLookupCaseInsensitive() {
         let eq = MusicEqualizer()
         eq.apply(preset: "bass boost")

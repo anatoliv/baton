@@ -51,7 +51,7 @@ final class NavidromeScrobbleDestination: ScrobbleDestination {
         let client = try NavidromeConfig.makeClient()
         for scrobble in batch {
             // Pass the track's real start time (ms) so a delayed/offline flush is credited at the
-            // listen time, not the flush time. (W-31 / SCR-03)
+            // listen time, not the flush time.
             try await client.scrobble(id: scrobble.songID, submission: true, time: scrobble.startedAt * 1000)
         }
     }

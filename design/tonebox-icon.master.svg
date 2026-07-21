@@ -1,6 +1,0 @@
-<!-- Tonebox STATIC app icon master — floating waveform mark on transparency (Finder/Launchpad). 16pt slot uses a 2-line variant. Regenerate appiconset PNGs via rsvg-convert. -->
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <path d="M 180.80 328.00 Q 328.00 217.60 512.00 328.00 T 843.20 328.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="1.0"/>
-  <path d="M 180.80 512.00 Q 328.00 401.60 512.00 512.00 T 843.20 512.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.82"/>
-  <path d="M 180.80 696.00 Q 328.00 806.40 512.00 696.00 T 843.20 696.00" stroke="#E07A4B" stroke-width="71.76" stroke-linecap="round" fill="none" opacity="0.64"/>
-</svg>

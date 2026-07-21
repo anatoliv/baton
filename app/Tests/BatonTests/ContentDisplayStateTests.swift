@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-55: the load / empty / error state a screen shows is derived by a pure resolver, so the
+/// : the load / empty / error state a screen shows is derived by a pure resolver, so the
 /// priority (loading → error → empty → content) is testable independent of any SwiftUI view.
 final class ContentDisplayStateTests: XCTestCase {
     func testLoadingWinsWhileFetching() {

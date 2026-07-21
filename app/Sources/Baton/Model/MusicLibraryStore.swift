@@ -137,7 +137,7 @@ final class MusicLibraryStore {
     /// from the *previous* server (Subsonic ids, playlists, and stars are all per-server), so drop
     /// them before the caller reloads from the new one — otherwise a switch shows the old server's
     /// albums/artists/playlists until each view happens to refetch. Also forgets the cached
-    /// connection (`refreshConnection`). (W-63 / PROD-13) `lastError` is cleared so a failure from
+    /// connection (`refreshConnection`). `lastError` is cleared so a failure from
     /// the old server doesn't linger over the new connection. `albumSort` is a user preference, kept.
     func resetForServerChange() {
         searchResults = .empty
@@ -201,7 +201,7 @@ final class MusicLibraryStore {
     }
 
     /// Subsonic caps a getAlbumList2 page at 500; a big library has more, so we page through
-    /// them all instead of silently showing an arbitrary (sort-dependent) 500. (W-54 / PROD-02)
+    /// them all instead of silently showing an arbitrary (sort-dependent) 500.
     static let albumPageSize = 500
     static let albumFetchCeiling = 20_000 // safety bound for a pathological library
 

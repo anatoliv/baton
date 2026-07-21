@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-/// Versioned, corruption-safe persistence for a Codable payload. (W-12 / Foundation F1)
+/// Versioned, corruption-safe persistence for a Codable payload.
 ///
 /// Baton's stores used to do `try? decode else start-empty`, and the next mutation wrote
 /// the empty state back over the old file — so one corrupt/truncated file (power loss) or

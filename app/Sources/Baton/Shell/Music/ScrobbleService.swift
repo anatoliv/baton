@@ -61,11 +61,11 @@ final class ScrobbleService {
     @ObservationIgnored private var flushing: Set<String> = []
     /// Per-destination backoff so a persistently-erroring server isn't hammered once per
     /// completed play. Cleared on success and on the reconnect edge. In-memory: a launch
-    /// retries once, which is fine. (W-08 / SCR-02)
+    /// retries once, which is fine.
     @ObservationIgnored private var retryState: [String: (failures: Int, nextAt: Date)] = [:]
     /// Whether the network is currently reachable (updated by the path monitor). When
     /// offline we don't even attempt a drain, so items wait with attempts untouched. In
-    /// tests (no monitor) this stays true so drains run deterministically. (W-08)
+    /// tests (no monitor) this stays true so drains run deterministically.
     @ObservationIgnored private var isOnline = true
     /// Dedup key of the last completed listen (songID@startedAt) — a belt-and-suspenders guard
     /// against a repeated eligibility callback double-counting a single play.
@@ -202,9 +202,9 @@ final class ScrobbleService {
     }
 
     /// Classifies a submit failure. Transient failures (network, 5xx, 429, and — until
-    /// W-31's per-provider handling — unclassified errors) are retried without burning an
+    /// 's per-provider handling — unclassified errors) are retried without burning an
     /// attempt; definitive rejections (4xx, auth, Subsonic protocol errors) count so a
-    /// genuinely-undeliverable listen still retires. (W-08 / SCR-01)
+    /// genuinely-undeliverable listen still retires.
     static func isTransient(_ error: Error) -> Bool {
         if error is URLError { return true }
         if let nav = error as? NavidromeError {

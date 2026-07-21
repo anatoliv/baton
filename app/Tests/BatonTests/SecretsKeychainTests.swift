@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-13: account-controlling secrets live in the Keychain, migrated transparently from any
+/// : account-controlling secrets live in the Keychain, migrated transparently from any
 /// legacy plaintext UserDefaults copy, and never written back to UserDefaults.
 @MainActor
 final class SecretsKeychainTests: XCTestCase {

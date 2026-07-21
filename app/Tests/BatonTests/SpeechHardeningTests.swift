@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-19: speak_summary hardening — case-insensitive category, gated auto-play, temp cleanup.
+/// : speak_summary hardening — case-insensitive category, gated auto-play, temp cleanup.
 @MainActor
 final class SpeechHardeningTests: XCTestCase {
     override func setUp() {

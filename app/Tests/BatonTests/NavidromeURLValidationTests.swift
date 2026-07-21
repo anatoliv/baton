@@ -1,8 +1,8 @@
 import XCTest
 @testable import Baton
 
-/// W-16: the server-URL validator accepts only http/https with a host — a `file://` would
-/// otherwise make URLSession read local files (SEC-11), and a hostless URL is unusable.
+/// : the server-URL validator accepts only http/https with a host — a `file://` would
+/// otherwise make URLSession read local files, and a hostless URL is unusable.
 @MainActor
 final class NavidromeURLValidationTests: XCTestCase {
     func testHttpAndHttpsWithHostAreValid() {
@@ -20,7 +20,7 @@ final class NavidromeURLValidationTests: XCTestCase {
         XCTAssertNil(NavidromeConfig.validatedURL(""))
     }
 
-    // W-59: the connect flow's cleartext-connection warning.
+    // : the connect flow's cleartext-connection warning.
     func testIsInsecureFlagsHTTPButNotHTTPSOrInvalid() {
         XCTAssertTrue(NavidromeConfig.isInsecure("http://music.lan:4533"))
         XCTAssertFalse(NavidromeConfig.isInsecure("https://music.example.com"))

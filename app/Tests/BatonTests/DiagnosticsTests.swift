@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-61 / DIST-11: the diagnostics log export must be readable AND privacy-safe — it redacts the
+///  / DIST-11: the diagnostics log export must be readable AND privacy-safe — it redacts the
 /// server address, IPs, `*.local` hosts, home paths, and Subsonic auth the same way crash reports do.
 final class DiagnosticsTests: XCTestCase {
     private func line(_ msg: String) -> Diagnostics.LogLine {

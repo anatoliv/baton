@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-03: a control-socket client that sends a request then closes before reading
+/// : a control-socket client that sends a request then closes before reading
 /// the reply must not crash the app (unhandled SIGPIPE on `write`). Exercises the
 /// SIGPIPE-safe write helper directly over a socketpair.
 final class ControlSocketIOTests: XCTestCase {

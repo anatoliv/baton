@@ -3,7 +3,7 @@ import SwiftUI
 /// A consistent load / empty / error presentation for data-backed screens, so Baton is honest
 /// everywhere instead of leaving a blank grid when a fetch is loading, returned nothing, or failed.
 /// Screens derive a `ContentDisplayState` from their store's `isLoading` / `lastError` / emptiness
-/// and overlay `contentState(...)`; the resolution is a pure function (unit-tested). (W-55)
+/// and overlay `contentState(...)`; the resolution is a pure function (unit-tested).
 enum ContentDisplayState: Equatable {
     case loading
     case empty

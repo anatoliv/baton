@@ -1,7 +1,7 @@
 import Foundation
 
 /// Sleep timer — pause after N minutes (with a gentle fade-out) or when the current track ends.
-/// Extracted from `StreamingPlaybackController` (W-50). Kept as an extension so it drives the same
+/// Extracted from `StreamingPlaybackController`. Kept as an extension so it drives the same
 /// fade/volume envelope; the members it touches are module-internal for that reason.
 extension StreamingPlaybackController {
     // MARK: - Sleep timer
@@ -53,5 +53,5 @@ extension StreamingPlaybackController {
     }
 
     // Audio-focus API (acquire/duck/release, capture shims, crash recovery — REQ-13) lives
-    // in StreamingPlaybackController+AudioFocus.swift (W-50 extraction).
+    // in StreamingPlaybackController+AudioFocus.swift.
 }

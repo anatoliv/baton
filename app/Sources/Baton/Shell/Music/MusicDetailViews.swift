@@ -693,7 +693,7 @@ struct MusicPlaylistDetail: View {
     private var songs: [NavidromeSong] { orderedSongs }
     private var name: String { loaded?.name ?? playlist.name }
     /// Reorder is only meaningful on the full, unfiltered list. Size is no longer a limit:
-    /// persistence batches the overwrite (`setPlaylistSongsChunked`, W-60) so arbitrarily large
+    /// persistence batches the overwrite (`setPlaylistSongsChunked`, ) so arbitrarily large
     /// playlists reorder without overflowing the request URL.
     private var canReorder: Bool {
         filter.trimmingCharacters(in: .whitespaces).isEmpty

@@ -7,7 +7,7 @@ import Foundation
 // only the fields we use — not the full Subsonic schema — so the wire shape (the
 // `*Wire` decoders in the app's NavidromeModels.swift) can evolve without churn.
 //
-// This is the second leaf of the W-51 module-boundary split (after BatonDSP): the
+// This is the second leaf of the  module-boundary split (after BatonDSP): the
 // foundational model layer, extracted so it has no dependency on the app. Everything
 // here is `public` (call sites are unchanged — the app re-exports the module) and
 // explicitly `Sendable` (a `public` type gets no implicit Sendable conformance across
@@ -17,7 +17,7 @@ import Foundation
 /// The provenance/streaming model of a playable row. Library tracks resolve through the Subsonic
 /// stream/download endpoints from an opaque id; podcast episodes stream directly from the remote
 /// enclosure URL that doubles as their id. Behaviour (stream URL, resume, scrobble) branches on
-/// this rather than on ad-hoc id string tests. (W-52 / STRUCT-06)
+/// this rather than on ad-hoc id string tests.
 public enum MediaKind: Hashable, Sendable {
     case libraryTrack
     case podcastEpisode
@@ -185,7 +185,7 @@ public struct NavidromeSong: Identifiable, Hashable, Codable, Sendable {
     /// carries its enclosure URL as its id (an absolute http(s) string), whereas a library track
     /// carries an opaque Subsonic id. This is the single source of truth for that distinction:
     /// stream resolution, resume/progress routing, and the now-playing scrobble guard all read it
-    /// rather than re-testing the id's prefix inline. (W-52 / STRUCT-06)
+    /// rather than re-testing the id's prefix inline.
     public var mediaKind: MediaKind { MediaKind(id: id) }
 
     /// True for a client-side podcast episode (its id is a remote enclosure URL streamed directly),

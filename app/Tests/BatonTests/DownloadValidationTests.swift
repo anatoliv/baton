@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-05 + W-06: never adopt an HTTP error page as audio; never adopt (and thus never
+///  + : never adopt an HTTP error page as audio; never adopt (and thus never
 /// let Remove delete) a user's own music files that happen to be in the download folder.
 @MainActor
 final class DownloadValidationTests: XCTestCase {
@@ -16,7 +16,7 @@ final class DownloadValidationTests: XCTestCase {
         return HTTPURLResponse(url: URL(string: "https://s/x")!, statusCode: status, httpVersion: nil, headerFields: headers)!
     }
 
-    // MARK: W-05 — download response validation
+    // MARK:  — download response validation
 
     func testRejects404() throws {
         let f = try tempFile(bytes: 4096); defer { try? FileManager.default.removeItem(at: f) }
@@ -39,7 +39,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertNoThrow(try MusicDownloadStore.validateDownloadResponse(http(200, type: "audio/mpeg"), fileURL: f))
     }
 
-    // MARK: W-06 — foreign-file adoption guard
+    // MARK:  — foreign-file adoption guard
 
     func testForeignMusicFilenamesNotAdopted() {
         XCTAssertFalse(MusicDownloadStore.isPlausibleSubsonicID("01 - Song"))
@@ -52,7 +52,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertTrue(MusicDownloadStore.isPlausibleSubsonicID("al-1234567890abcdef"))
     }
 
-    // MARK: W-34 — original-quality downloads + honest extensions
+    // MARK:  — original-quality downloads + honest extensions
 
     func testFileExtensionFromContentType() {
         XCTAssertEqual(MusicDownloadStore.fileExtension(forContentType: "audio/flac"), "flac")
@@ -66,7 +66,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertEqual(u.absoluteString, "https://cdn.example.com/ep.m4a")
     }
 
-    // MARK: W-33 — batch failure tracking + cooperative cancellation
+    // MARK:  — batch failure tracking + cooperative cancellation
 
     override func tearDown() {
         NavidromeMockURLProtocol.handler = nil
@@ -97,7 +97,7 @@ final class DownloadValidationTests: XCTestCase {
 
     func testFailedDownloadIsTrackedAndClearedOnRetrySuccess() async {
         let id = "https://feeds.example.com/fail.mp3"
-        // A 500 must not be adopted as audio; the failure is tracked (not just logged). (DL-02)
+        // A 500 must not be adopted as audio; the failure is tracked (not just logged).
         let store = stubStore(status: 500)
         let failed = await store.download(podcastSong(id))
         XCTAssertFalse(failed, "a 500 is a failed download")
@@ -114,7 +114,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertFalse(store.failedIDs.contains(id), "a successful retry clears the failure")
     }
 
-    // MARK: W-33 / DL-09 — LRU storage-cap eviction planner
+    // MARK:  / DL-09 — LRU storage-cap eviction planner
 
     func testEvictionPlanIsNoOpWhenUnderCapOrUnlimited() {
         let items = [(id: "a", bytes: Int64(100)), (id: "b", bytes: Int64(100))]
@@ -159,7 +159,7 @@ final class DownloadValidationTests: XCTestCase {
         let store = stubStore(status: 200)
         let songs = (0 ..< 3).map { podcastSong("https://feeds.example.com/ok\($0).mp3") }
         // The batch runs on the main actor and can't start until we await, by which point the
-        // cancel has already landed — so it stops before completing all three. (DL-07)
+        // cancel has already landed — so it stops before completing all three.
         let task = Task { await store.download(songs) }
         task.cancel()
         let completed = await task.value

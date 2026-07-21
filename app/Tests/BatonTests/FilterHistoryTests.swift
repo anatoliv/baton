@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-49 unit sweep: FilterHistory's dedup / recency / cap / remove logic, exercised against an
+///  unit sweep: FilterHistory's dedup / recency / cap / remove logic, exercised against an
 /// injected store so the developer's real filter history is never touched.
 final class FilterHistoryTests: XCTestCase {
     override func setUp() {

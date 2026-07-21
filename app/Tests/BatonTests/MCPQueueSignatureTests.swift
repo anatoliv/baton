@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-40 / MCP-06: the queue-change signature must be order-sensitive. The old signature sampled
+///  / MCP-06: the queue-change signature must be order-sensitive. The old signature sampled
 /// only count/first/last, so a middle-of-queue reorder produced an identical value and agent UIs
 /// went stale. `queueDigest` folds every id in order, so any reorder changes it.
 @MainActor

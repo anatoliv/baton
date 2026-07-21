@@ -49,13 +49,13 @@ final class MusicModel {
     /// Retained so the audio-mix closure keeps a strong reference to the tap processor.
     @ObservationIgnored private let eqProcessor: AudioEQProcessor
     /// Ducks the music transport while a spoken summary plays (owned here; the engine holds it
-    /// weakly). (W-43)
+    /// weakly).
     @ObservationIgnored private let speechDucker: ControllerSpeechDucker
 
     /// The single composition root: `environment` decides production-vs-test config once and is
     /// threaded to the player + equalizer (the stores that persist state / touch the system), so no
     /// store sniffs the runtime for itself. Tests can build `MusicModel(environment: .testing)`;
-    /// the default auto-detects. (W-49)
+    /// the default auto-detects.
     init(environment: BatonEnvironment = .current) {
         music = StreamingPlaybackController(environment: environment)
         musicEqualizer = MusicEqualizer(environment: environment)
@@ -63,19 +63,19 @@ final class MusicModel {
         scrobbler = ScrobbleService(listenBrainz: musicScrobbler, lastfm: musicLastFM, localArchive: musicHistory)
         // Radio ducks the library transport while a station is on the air.
         internetRadio.duckController = music
-        // A spoken summary ducks the library transport so it's audible over the music. (W-43)
+        // A spoken summary ducks the library transport so it's audible over the music.
         speechDucker = ControllerSpeechDucker(controller: music)
         speech.ducking = speechDucker
-        // Downloads LRU eviction ranks by last-played time from history. (W-33 / DL-09)
+        // Downloads LRU eviction ranks by last-played time from history.
         MusicDownloadStore.shared.lastPlayedProvider = { [musicHistory] in musicHistory.lastPlayedByID() }
         wire()
         // Restore the persisted queue (paused, at the saved position) so relaunch picks up
         // where the user left off. After wire() so track-start side effects are connected;
-        // restoreQueue itself never auto-plays. (W-11)
+        // restoreQueue itself never auto-plays.
         music.restoreQueue()
         // Route media-key / Now Playing commands to the radio when a station is on air, so a
         // play/next key drives the radio instead of resuming the library player over the live
-        // stream (double audio). (W-29 / AUDIO-05)
+        // stream (double audio).
         music.radioIsOnAir = { [internetRadio] in internetRadio.onAirStation != nil }
         music.radioRemote = .init(
             play: { [internetRadio] in if let s = internetRadio.onAirStation, !internetRadio.isPlaying(s) { internetRadio.play(s) } },
@@ -91,7 +91,7 @@ final class MusicModel {
     /// server and would resolve wrong (or fail) against the new one. Stop and clear the transport,
     /// then reset the library; callers reload from the new server afterwards. Podcasts, radio, and
     /// pins are URL/RSS-based (server-independent) and are intentionally left untouched.
-    /// (W-63 / PROD-13)
+    ///
     func handleActiveServerChanged() {
         music.stop()
         music.clearQueue()
@@ -102,7 +102,7 @@ final class MusicModel {
     /// is a real switch (the active server actually changed) the previous server's queue + caches
     /// are cleared first via `handleActiveServerChanged`; a no-op re-select — e.g. saving a
     /// credential edit to the already-active server — keeps the queue and just refreshes the
-    /// cached connection so nothing playing is disrupted. (W-63 / PROD-13)
+    /// cached connection so nothing playing is disrupted.
     func selectServer(id: UUID) async {
         let changed = NavidromeConfig.activeServerID() != id
         NavidromeConfig.setActiveServer(id: id)
@@ -119,7 +119,7 @@ final class MusicModel {
 
     /// A client-side podcast episode plays with its enclosure URL as its id (an absolute
     /// http(s) string); library tracks use Subsonic ids. That distinction is enough to route
-    /// resume/progress to podcasts only. Delegates to the typed `NavidromeSong.mediaKind`. (W-52)
+    /// resume/progress to podcasts only. Delegates to the typed `NavidromeSong.mediaKind`.
     static func isPodcastEpisode(_ song: NavidromeSong) -> Bool {
         song.isPodcastEpisode
     }
@@ -189,7 +189,7 @@ final class MusicModel {
 /// Ducks the library transport for the duration of a spoken summary by acquiring a
 /// `StreamingPlaybackController` audio-focus duck token on begin and releasing it on end, so a
 /// summary is audible over lowered music and the exact prior level is restored after. Holds the
-/// token between the paired calls; begin is idempotent while a duck is already held. (W-43)
+/// token between the paired calls; begin is idempotent while a duck is already held.
 @MainActor
 final class ControllerSpeechDucker: SpeechDucking {
     private let controller: StreamingPlaybackController
