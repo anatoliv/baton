@@ -2,7 +2,7 @@ import XCTest
 import Sentry
 @testable import Baton
 
-/// W-10: the Sentry scrubber is a shipped privacy promise ("your server address and
+/// : the Sentry scrubber is a shipped privacy promise ("your server address and
 /// credentials are never attached"). It must strip the server host, Subsonic auth,
 /// LAN IPs, and home paths from every field of an event — not just the top-level user.
 final class CrashReportingScrubberTests: XCTestCase {

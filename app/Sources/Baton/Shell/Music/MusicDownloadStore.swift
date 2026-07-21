@@ -24,12 +24,12 @@ final class MusicDownloadStore {
     /// Songs whose most recent download attempt failed, keyed by id — retained (not just the id) so
     /// the Downloads screen can offer a working Retry without re-resolving the track. Surfaced so a
     /// partly-failed batch is visible (not just logged) instead of the spinner vanishing with the
-    /// user none the wiser. Cleared per id on a successful (re)download. (W-33 / DL-02)
+    /// user none the wiser. Cleared per id on a successful (re)download.
     private(set) var failedDownloads: [String: NavidromeSong] = [:]
     /// Ids of failed downloads (compat shim over `failedDownloads`).
     var failedIDs: Set<String> { Set(failedDownloads.keys) }
     /// Live download progress per in-flight song id (0…1), so the Downloads screen can show a real
-    /// progress bar instead of an opaque spinner. Absent once a download finishes. (W-33 / DL-03)
+    /// progress bar instead of an opaque spinner. Absent once a download finishes.
     private(set) var downloadProgress: [String: Double] = [:]
     /// albumID → count of that album's downloaded tracks. Observable, so an album row's
     /// download badge (full vs partial) updates as tracks are cached/removed. Albums have a
@@ -62,10 +62,10 @@ final class MusicDownloadStore {
     /// download. Legacy downloads with no entry fall back to the parsed filename.
     @ObservationIgnored private var meta: [String: DownloadMeta] = [:]
     /// URLSession used for downloads. Injectable so tests can stub HTTP responses
-    /// (W-05 / reused by W-33). Defaults to `.shared`.
+    ///. Defaults to `.shared`.
     @ObservationIgnored var urlSession: URLSession = .shared
     /// Supplies each song id's last-played time for LRU storage-cap eviction. Wired by MusicModel
-    /// from play history; nil ⇒ never-played ordering (cap still enforced by size). (W-33 / DL-09)
+    /// from play history; nil ⇒ never-played ordering (cap still enforced by size).
     @ObservationIgnored var lastPlayedProvider: (() -> [String: Date])?
 
     /// A downloaded track, resolved for display + playback by `downloadedItems()`.
@@ -193,7 +193,7 @@ final class MusicDownloadStore {
     }
 
     /// Map a response Content-Type to a file extension so a downloaded original is named
-    /// honestly (a FLAC as .flac, an AAC podcast as .m4a — not a lying .mp3). (W-34 / DL-04)
+    /// honestly (a FLAC as .flac, an AAC podcast as .m4a — not a lying .mp3).
     static func fileExtension(forContentType type: String?) -> String {
         switch (type ?? "").lowercased() {
         case let t where t.contains("flac"): return "flac"
@@ -265,7 +265,7 @@ final class MusicDownloadStore {
     // MARK: - Download
 
     /// Directory holding persisted resume data for interrupted downloads, so a blip at 95 % of a
-    /// long episode resumes from the partial rather than restarting. (W-33 / DL-08)
+    /// long episode resumes from the partial rather than restarting.
     private var resumeDirectory: URL { directory.appendingPathComponent(".resume", isDirectory: true) }
 
     /// Resume-data file for a song id (id sanitized to a filesystem-safe name).
@@ -303,22 +303,22 @@ final class MusicDownloadStore {
             // podcast episodes (id is the enclosure URL, streamed directly) — so this one path
             // downloads both. Playback then prefers the local file via `localURL(for:)`.
             // Download the ORIGINAL file (download.view for library tracks), not a transcoded
-            // stream, so a FLAC library isn't stored as lossy MP3. (W-34 / DL-04)
+            // stream, so a FLAC library isn't stored as lossy MP3.
             let url = try StreamingPlaybackController.resolveDownloadURL(songID: song.id)
-            // Report byte-level progress to the UI (W-33 / DL-03).
+            // Report byte-level progress to the UI.
             let observer = DownloadProgressObserver(songID: song.id) { [weak self] id, fraction in
                 Task { @MainActor in if self?.downloadProgress[id] != nil { self?.downloadProgress[id] = fraction } }
             }
             let temp: URL
             let response: URLResponse
-            // Resume from persisted partial data if a prior attempt was interrupted (W-33 / DL-08).
+            // Resume from persisted partial data if a prior attempt was interrupted.
             if let resume = persistedResumeData(for: song.id) {
                 (temp, response) = try await urlSession.download(resumeFrom: resume, delegate: observer)
             } else {
                 (temp, response) = try await urlSession.download(from: url, delegate: observer)
             }
             clearResumeData(for: song.id) // completed → the partial is no longer needed
-            // W-05: URLSession.download does NOT throw on 4xx/5xx. Without this check a
+            // : URLSession.download does NOT throw on 4xx/5xx. Without this check a
             // 404, a 500, or a reverse-proxy HTML login page would be saved as a
             // completed `.mp3`, marked downloaded, and then preferred over streaming
             // forever (re-download blocked by the isDownloaded guard).
@@ -350,7 +350,7 @@ final class MusicDownloadStore {
             failedDownloads[song.id] = nil // a retry that succeeds clears the prior failure
             // Keep the download folder under any configured size cap, evicting least-recently-played
             // first. Mark the just-downloaded track as most-recent so a freshly-fetched-but-unplayed
-            // file isn't the first thing evicted. (W-33 / DL-09)
+            // file isn't the first thing evicted.
             var lastPlayed = lastPlayedProvider?() ?? [:]
             lastPlayed[song.id] = Date()
             enforceStorageCap(lastPlayed: lastPlayed)
@@ -358,7 +358,7 @@ final class MusicDownloadStore {
         } catch {
             downloadLog
                 .error("download \(song.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-            // Persist any partial so a retry resumes instead of restarting from zero. (W-33 / DL-08)
+            // Persist any partial so a retry resumes instead of restarting from zero.
             if let resume = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
                 saveResumeData(resume, for: song.id)
             }
@@ -370,7 +370,7 @@ final class MusicDownloadStore {
     /// Downloads a set of tracks sequentially (album / playlist). Cooperatively cancellable: a
     /// cancelled enclosing `Task` (e.g. the Downloads screen's Cancel) stops the batch between
     /// items rather than plowing through the whole album. Returns the count actually downloaded.
-    /// (W-33 / DL-07)
+    ///
     @discardableResult
     func download(_ songs: [NavidromeSong]) async -> Int {
         var completed = 0
@@ -383,7 +383,7 @@ final class MusicDownloadStore {
 
     /// Re-attempt every track whose last download failed (the Downloads screen's "Retry failed").
     /// Self-sufficient — it re-downloads the retained failed songs (resuming from partials where
-    /// available), so the caller needs no track lookup. (W-33 / DL-02)
+    /// available), so the caller needs no track lookup.
     func retryFailed() async {
         for song in failedDownloads.values.sorted(by: { $0.id < $1.id }) {
             if Task.isCancelled { break }
@@ -391,7 +391,7 @@ final class MusicDownloadStore {
         }
     }
 
-    /// A download that must not be adopted as a valid file (W-05).
+    /// A download that must not be adopted as a valid file.
     enum DownloadError: Error, LocalizedError {
         case badStatus(Int)
         case notAudio(String)
@@ -407,7 +407,7 @@ final class MusicDownloadStore {
 
     /// Reject an HTTP error page, a login/redirect stub, or an empty body being saved
     /// as audio: require a 2xx status, a non-text Content-Type, and a plausible size.
-    /// Pure/static so it's unit-testable without a session (W-05).
+    /// Pure/static so it's unit-testable without a session.
     static func validateDownloadResponse(_ response: URLResponse, fileURL: URL) throws {
         if let http = response as? HTTPURLResponse {
             guard (200 ..< 300).contains(http.statusCode) else {
@@ -431,7 +431,7 @@ final class MusicDownloadStore {
             saveManifest()
         }
         // Legacy "<id>.mp3": only unlink it if we have provenance (a metadata entry we
-        // wrote). Never delete a bare file we can't attribute to Baton. (W-06)
+        // wrote). Never delete a bare file we can't attribute to Baton.
         if meta[songID] != nil {
             try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(songID).mp3"))
         }
@@ -483,7 +483,7 @@ final class MusicDownloadStore {
     }
 
     /// Optional download size cap in bytes (0 = unlimited). When set, the store evicts the
-    /// least-recently-played downloads until the total fits. (W-33 / DL-09)
+    /// least-recently-played downloads until the total fits.
     static let storageCapKey = "baton.downloads.storageCapBytes"
     var storageCapBytes: Int64 {
         get { Int64(UserDefaults.standard.integer(forKey: Self.storageCapKey)) }
@@ -492,7 +492,7 @@ final class MusicDownloadStore {
 
     /// Pure LRU planner: which ids to evict so `items` fits under `capBytes`, dropping the
     /// least-recently-played first (a never-played download counts as oldest). Returns [] when
-    /// the cap is unlimited (≤0) or the total already fits. Unit-tested in isolation. (DL-09)
+    /// the cap is unlimited (≤0) or the total already fits. Unit-tested in isolation.
     static func evictionPlan(items: [(id: String, bytes: Int64)], lastPlayed: [String: Date], capBytes: Int64) -> [String] {
         let total = items.reduce(Int64(0)) { $0 + $1.bytes }
         guard capBytes > 0, total > capBytes else { return [] }
@@ -540,7 +540,7 @@ final class MusicDownloadStore {
     private var metaURL: URL { directory.appendingPathComponent(Self.metaName) }
     private var collectionsURL: URL { directory.appendingPathComponent(Self.collectionsName) }
 
-    // Versioned, corruption-safe sidecars (W-12): a corrupt file is preserved aside, not
+    // Versioned, corruption-safe sidecars: a corrupt file is preserved aside, not
     // silently wiped over on the next save; a write failure is logged, never swallowed.
     private var collectionsStore: VersionedStore<[String: Set<String>]> { VersionedStore(fileURL: collectionsURL) }
     private var manifestStore: VersionedStore<[String: String]> { VersionedStore(fileURL: manifestURL) }
@@ -569,7 +569,7 @@ final class MusicDownloadStore {
         // Legacy "<id>.mp3" files not referenced by the manifest. Only adopt files we
         // can attribute to Baton — a metadata sidecar entry, or a basename shaped like a
         // Subsonic id — so pointing the download folder at an existing music library
-        // never adopts (and later lets the user delete via Remove) their own files. (W-06)
+        // never adopts (and later lets the user delete via Remove) their own files.
         let manifestFiles = Set(manifest.values)
         if let files = try? FileManager.default.contentsOfDirectory(atPath: directory.path) {
             for file in files where file.hasSuffix(".mp3") && !manifestFiles.contains(file) {
@@ -585,7 +585,7 @@ final class MusicDownloadStore {
 
     /// A bare "<id>.mp3" is adopted as a legacy download only if its basename looks like
     /// a Subsonic/Navidrome id (id-like charset, no spaces, reasonably long) — this
-    /// rejects a user's own music files such as "01 - Song.mp3". (W-06)
+    /// rejects a user's own music files such as "01 - Song.mp3".
     static func isPlausibleSubsonicID(_ s: String) -> Bool {
         guard s.count >= 16, s.count <= 64 else { return false }
         return s.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
@@ -604,7 +604,7 @@ final class MusicDownloadStore {
 
 /// Observes a single download task's byte-progress and forwards the completed fraction (0…1) to a
 /// callback keyed by song id, so the store can publish a live progress bar instead of an opaque
-/// spinner. Passed as the per-task delegate to `URLSession.download(from:delegate:)`. (W-33 / DL-03)
+/// spinner. Passed as the per-task delegate to `URLSession.download(from:delegate:)`.
 private final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate {
     private let songID: String
     private let onProgress: @Sendable (String, Double) -> Void

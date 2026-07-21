@@ -3,11 +3,11 @@ import os
 
 // Pure equalizer DSP — parametric bands, RBJ peaking biquads, and the lock-protected coefficient
 // set the audio-thread tap reads. Foundation + os only, no app/UI/state dependencies. Extracted
-// from the Baton target as the first SPM module of the W-51 boundary split; the app re-exports it
+// from the Baton target as the first SPM module of the  boundary split; the app re-exports it
 // (`@_exported import BatonDSP`) so existing `EQBand`/`Biquad`/… call sites are unchanged.
 
 /// Equalizer parameter limits + the default band layout — pure config the DSP and the store share.
-/// Lives with the DSP (not the store) so the DSP has no back-reference to `MusicEqualizer`. (W-51)
+/// Lives with the DSP (not the store) so the DSP has no back-reference to `MusicEqualizer`.
 public enum EQLimits {
     /// ISO-ish 10-band centre frequencies (Hz) — the default band layout.
     public static let frequencies: [Double] = [32, 64, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000]
@@ -93,7 +93,7 @@ public struct Biquad: Sendable {
     public static func peaking(frequency f0: Double, sampleRate fs: Double, q: Double, gainDB: Double) -> Biquad {
         guard gainDB != 0, fs > 0 else { return .identity }
         // Clamp against a zero/negative Q and a centre at/above Nyquist — both yield an
-        // unstable/NaN filter that would propagate through the cascade. (AUDIO-26)
+        // unstable/NaN filter that would propagate through the cascade.
         let qSafe = max(q, 0.1)
         let f = min(max(f0, 1), fs * 0.45)
         let a = pow(10.0, gainDB / 40.0)
@@ -136,7 +136,7 @@ public struct Biquad: Sendable {
 /// audio render thread. Uses an unfair lock (short critical sections, no priority issues).
 public final class EQCoefficients: @unchecked Sendable {
     /// One band's rate-independent parameters, so a tap can compute biquads for its OWN
-    /// sample rate instead of a hardcoded 44.1 kHz. (W-21 / AUDIO-01)
+    /// sample rate instead of a hardcoded 44.1 kHz.
     public struct BandSpec: Sendable {
         public let frequency: Double
         public let q: Double
@@ -174,8 +174,8 @@ public final class EQCoefficients: @unchecked Sendable {
 
     /// If the band set changed since `knownGeneration`, recompute biquads for `sampleRate` into
     /// `dest` and return the new generation, band count, and an auto pre-gain that keeps the
-    /// combined boost from clipping (AUDIO-08). Non-blocking (trylock) and only does real work
-    /// on a change, so the steady-state render path just fast-returns nil. (W-21)
+    /// combined boost from clipping. Non-blocking (trylock) and only does real work
+    /// on a change, so the steady-state render path just fast-returns nil.
     public func refreshIfChanged(
         knownGeneration: UInt64, sampleRate: Double,
         into dest: UnsafeMutablePointer<Biquad>, capacity: Int

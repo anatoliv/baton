@@ -40,7 +40,7 @@ struct BatonApp: App {
         CrashReporting.startIfEnabled()
         // Start Sparkle's background update scheduler at launch — not lazily from the
         // Settings UI — so a user who just plays music still receives automatic checks.
-        // Gated on a genuinely-live channel so a placeholder-key dev build stays dormant. (W-09)
+        // Gated on a genuinely-live channel so a placeholder-key dev build stays dormant.
         if UpdateChannel.isConfiguredFromBundle {
             MainActor.assumeIsolated { _ = SparkleUpdater.shared }
         }
@@ -59,7 +59,7 @@ struct BatonApp: App {
                 // brand; the player wires the dynamic artwork accent explicitly on top.
                 .tint(.batonOrange)
                 .task {
-                    BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips (W-19)
+                    BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips
                     if mcp == nil {
                         let s = BatonMCPServer(music: music); s.start(); mcp = s
                         // Start the fast-path listener sharing the server's focus registry.
@@ -79,7 +79,7 @@ struct BatonApp: App {
                             object: nil, queue: .main
                         ) { _ in
                             MainActor.assumeIsolated {
-                                music.music.persistNow() // save queue + playhead on quit (W-11)
+                                music.music.persistNow() // save queue + playhead on quit
                                 sock.stop(); s.stop()
                             }
                         }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Media-key / Now Playing remote-command handling, extracted from `StreamingPlaybackController`
-/// (W-50). When an internet-radio station is on air the library player is suspended, so a play/next
+///. When an internet-radio station is on air the library player is suspended, so a play/next
 /// key must drive the *radio* (via the `RadioRemote` closures `MusicModel` wires) rather than resume
 /// the library player over the live stream. Pure routing over the public transport API — no private
 /// state — so it's a clean extraction and directly unit-testable (see the remote-routing tests).
@@ -9,7 +9,7 @@ extension StreamingPlaybackController {
     /// Radio-awareness for the media keys / Now Playing remote commands: when an internet-radio
     /// station is on air the library player is suspended, so a play/next key must drive the RADIO
     /// — not resume the library player over the live stream (double audio). Wired by MusicModel,
-    /// which knows both transports; nil (and thus a no-op) in tests / when radio isn't used. (W-29 / AUDIO-05)
+    /// which knows both transports; nil (and thus a no-op) in tests / when radio isn't used.
     struct RadioRemote {
         let play: @MainActor () -> Void
         let pause: @MainActor () -> Void

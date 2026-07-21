@@ -12,7 +12,7 @@ private final class MockDestination: ScrobbleDestination {
     let maxBatch: Int
     var failFirst: Int
     /// When true, `submit` throws a *permanent* rejection (burns a queue attempt); otherwise
-    /// a *transient* failure (retried without burning an attempt — W-08).
+    /// a *transient* failure (retried without burning an attempt — ).
     let permanentFailure: Bool
 
     private(set) var nowPlayingCalls: [Scrobble] = []
@@ -176,7 +176,7 @@ struct ScrobbleServiceTests {
         await service.flushAllAndWait()
         #expect(nav.submitted.isEmpty)                                       // held back
         #expect(queue.take(destination: "navidrome", limit: 10).count == 1) // still queued
-        // W-08: a transient failure must NOT count against maxAttempts.
+        // : a transient failure must NOT count against maxAttempts.
         #expect(queue.take(destination: "navidrome", limit: 10).first?.attempts == 0)
 
         await service.flushAllAndWait()
@@ -194,7 +194,7 @@ struct ScrobbleServiceTests {
         #expect(queue.take(destination: "navidrome", limit: 10).first?.attempts == 1)
     }
 
-    @Test("an offline stretch never burns attempts or drops the head scrobble (SCR-01)")
+    @Test("an offline stretch never burns attempts or drops the head scrobble")
     func offlineDoesNotDropScrobbles() async {
         let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm")
         let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 1000) // always transient-fails

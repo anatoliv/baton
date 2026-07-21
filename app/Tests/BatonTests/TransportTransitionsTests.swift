@@ -2,7 +2,7 @@ import XCTest
 @testable import Baton
 
 /// Covers the pure crossfade + gapless-preload collaborators extracted from
-/// `StreamingPlaybackController` (W-50): the blend curve, the trigger window, the prefetch gate,
+/// `StreamingPlaybackController`: the blend curve, the trigger window, the prefetch gate,
 /// and the preload-URL choice. The AVFoundation player wiring and the actual gap-free audio stay
 /// in the controller and need on-device validation — this pins the decision/math around them.
 final class TransportTransitionsTests: XCTestCase {

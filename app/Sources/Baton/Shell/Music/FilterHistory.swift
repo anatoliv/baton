@@ -9,7 +9,7 @@ enum FilterHistory {
     static let defaultSize = 15
 
     /// Backing store. Injectable so tests exercise the dedup/cap/remove logic without touching
-    /// (and overwriting) the developer's real filter history. (W-49 / TEST-13)
+    /// (and overwriting) the developer's real filter history.
     nonisolated(unsafe) static var defaults: UserDefaults = .standard
 
     /// Max entries kept per screen. Clamped to a sane range so a bad default can't make

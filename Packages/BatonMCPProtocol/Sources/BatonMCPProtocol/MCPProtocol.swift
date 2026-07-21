@@ -2,7 +2,7 @@ import Foundation
 
 // The MCP transport protocol layer — JSON-RPC envelopes, the security-hardened HTTP/1.1
 // request parser, response framing, and the constant-time token compare. Fourth leaf of the
-// W-51 module split: pure (`Foundation` only), zero app dependencies. The MCP *server*
+//  module split: pure (`Foundation` only), zero app dependencies. The MCP *server*
 // (BatonMCPServer, which ties into MusicModel) stays in the app and re-exports this module.
 
 // MARK: - Constants
@@ -100,7 +100,7 @@ public struct HTTPRequestMessage: Sendable {
     }
 
     /// Extracts the bearer token from `Authorization: Bearer <token>` only. The `?token=`
-    /// query form was dropped so the secret can't leak into logs/referrers/history. (W-14)
+    /// query form was dropped so the secret can't leak into logs/referrers/history.
     public var bearerToken: String? {
         guard let auth = headers["authorization"] else { return nil }
         let parts = auth.split(separator: " ", maxSplits: 1)
@@ -169,7 +169,7 @@ public struct HTTPRequestMessage: Sendable {
 
         // Reject chunked transfer encoding explicitly (unsupported) rather than
         // silently treating it as a zero-length body. (Fuller read-deadline and a
-        // 501 response are W-39; here we only need to not misparse it.)
+        // 501 response are ; here we only need to not misparse it.)
         if let te = headers["transfer-encoding"], te.lowercased().contains("chunked") {
             return .malformed
         }

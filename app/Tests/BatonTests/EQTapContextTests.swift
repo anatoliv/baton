@@ -2,7 +2,7 @@ import AVFoundation
 import XCTest
 @testable import Baton
 
-/// W-20 + W-21: each EQ tap owns its own filter state, coefficients are computed for the tap's
+///  + : each EQ tap owns its own filter state, coefficients are computed for the tap's
 /// ACTUAL sample rate (not a hardcoded 44.1 kHz), a combined boost can't clip, and unstable
 /// filter inputs are guarded.
 final class EQTapContextTests: XCTestCase {
@@ -30,7 +30,7 @@ final class EQTapContextTests: XCTestCase {
         return buf[0]
     }
 
-    // MARK: W-20 — per-tap state
+    // MARK:  — per-tap state
 
     func testProcessProducesFiniteOutput() {
         let ctx = EQTapContext(coefficients: coeffs([spec(1000, 1, 6)]))
@@ -56,7 +56,7 @@ final class EQTapContextTests: XCTestCase {
         for (p, q) in zip(runProcess(x, input), runProcess(y, input)) { XCTAssertEqual(p, q, accuracy: 1e-5) }
     }
 
-    // MARK: W-21 — sample rate, clipping, guards
+    // MARK:  — sample rate, clipping, guards
 
     func testBandPeaksAtCentreForTheActualRate() {
         let b48 = firstBiquad([spec(1000, 1, 6)], sampleRate: 48000)

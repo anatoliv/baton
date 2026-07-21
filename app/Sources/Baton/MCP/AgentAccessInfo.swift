@@ -4,7 +4,7 @@ import Foundation
 /// file, parsed for display in the Settings → Agents pane so a user can see how (and whether) AI
 /// agents can reach Baton, and copy the endpoint + token. Reading the file (rather than the live
 /// server object) keeps the pane decoupled and reflects exactly what agents themselves discover.
-/// (W-57 / DIST/agent discoverability)
+///
 struct AgentAccessInfo: Equatable {
     var url: String
     var token: String

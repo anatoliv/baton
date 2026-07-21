@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-49 / TEST-04: SpeechService takes an injectable URLSession, so its request shaping and
+///  / TEST-04: SpeechService takes an injectable URLSession, so its request shaping and
 /// response handling are testable against a stubbed transport instead of a live TTS host.
 final class SpeechServiceTests: XCTestCase {
     override func setUp() {

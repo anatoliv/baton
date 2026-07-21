@@ -83,7 +83,7 @@ final class MusicNowPlayingCenter {
     /// merged in asynchronously by `loadArtworkIfNeeded`, so it isn't included here). Factored out
     /// of `update` so the key mapping — title/artist/album, duration only when known, a clamped
     /// elapsed time, and the play/pause rate the OS interpolates from — is testable without
-    /// touching the OS `MPNowPlayingInfoCenter` (which is gated off under XCTest). (W-49)
+    /// touching the OS `MPNowPlayingInfoCenter` (which is gated off under XCTest).
     nonisolated static func nowPlayingInfo(
         song: NavidromeSong,
         isPlaying: Bool,

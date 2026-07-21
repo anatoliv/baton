@@ -3,7 +3,7 @@ import Foundation
 /// An injectable at-rest secret store, so components that persist credentials don't write them as
 /// plaintext and stay unit-testable without touching the real login Keychain. The production
 /// default is the Keychain (via `NavidromeKeychain`); tests inject an in-memory store. This is the
-/// secret-store seam the webhook store (SEC-19) and the composition root reference. (W-51)
+/// secret-store seam the webhook store and the composition root reference.
 @MainActor
 protocol SecretStore {
     /// The stored secret for `key`, or nil if absent.
@@ -13,7 +13,7 @@ protocol SecretStore {
 }
 
 /// Keychain-backed secret store — the app default. Under XCTest, `NavidromeKeychain` auto-routes to
-/// an in-memory store (W-13), so this is already test-safe; tests may still inject
+/// an in-memory store, so this is already test-safe; tests may still inject
 /// `InMemorySecretStore` for explicit isolation.
 struct KeychainSecretStore: SecretStore {
     func secret(for key: String) -> String? { NavidromeKeychain.secret(account: key) }

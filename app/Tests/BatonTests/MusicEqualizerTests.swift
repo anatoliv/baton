@@ -21,7 +21,7 @@ struct MusicEqualizerTests {
         #expect(boost.b0 > cut.b0)
     }
 
-    /// W-49 / TEST-13: the EQ persists to its injected store, never to `.standard` — so running
+    ///  / TEST-13: the EQ persists to its injected store, never to `.standard` — so running
     /// the suite can't overwrite the developer's real equalizer settings.
     @Test("EQ writes to the injected store, not .standard")
     @MainActor

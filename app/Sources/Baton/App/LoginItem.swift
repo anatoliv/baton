@@ -4,7 +4,7 @@ import ServiceManagement
 
 /// Launch-at-login control, backed by `SMAppService.mainApp` (the modern, sandbox-safe replacement
 /// for the deprecated `SMLoginItemSetEnabled`). Registering adds Baton to the user's login items so
-/// its menu-bar controller is available right after boot; unregistering removes it. (W-58)
+/// its menu-bar controller is available right after boot; unregistering removes it.
 enum LoginItem {
     private static let log = Logger(subsystem: "io.tonebox.baton", category: "login-item")
 

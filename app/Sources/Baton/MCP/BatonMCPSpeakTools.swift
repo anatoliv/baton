@@ -61,7 +61,7 @@ enum BatonMCPSpeakTools {
         // The user's Settings → Speech → Delivery decides the concrete surfaces. When they defer
         // to the agent, the requested `mode` is honored (with the SEC-12 auto-play gate on an
         // agent's `auto`, so a leaked token can't blast audio); otherwise their own surfaces
-        // compose — speak-now and/or notification and/or banner. (W-19)
+        // compose — speak-now and/or notification and/or banner.
         let plan = SpeechConfig.deliveryPlan(
             announceImmediately: SpeechConfig.announceImmediately,
             allowAgentAutoPlay: SpeechConfig.allowAutoPlay,
@@ -106,7 +106,7 @@ enum BatonMCPSpeakTools {
         var fallback: String?
         if plan.notify {
             // If notifications are denied/undelivered, fall back to an in-app banner and say so —
-            // never report "notified" for a summary the user will never see. (W-43 / SPEECH-03)
+            // never report "notified" for a summary the user will never see.
             switch await SpeechNotifier.post(text: text, utterance: utterance) {
             case .delivered:
                 delivered.append("notified")
@@ -131,7 +131,7 @@ enum BatonMCPSpeakTools {
 
     /// Delete staged clips older than a day. Call at launch so orphaned WAVs (a summary that
     /// was never played/dismissed) don't accumulate. Played clips are deleted immediately by
-    /// the playback engine. (W-19 / SPEECH-04)
+    /// the playback engine.
     static func sweepStaleTempFiles(olderThan seconds: TimeInterval = 86_400, now: Date = Date()) {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(

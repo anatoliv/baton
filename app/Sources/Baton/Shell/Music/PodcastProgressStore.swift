@@ -44,9 +44,9 @@ final class PodcastProgressStore {
 
     // MARK: - Load / persist
 
-    /// Versioned, corruption-safe backing for per-episode progress (W-12). Writing through
+    /// Versioned, corruption-safe backing for per-episode progress. Writing through
     /// it synchronously and in-order also fixes the prior fire-and-forget `Task.detached`
-    /// writes, which could land an older snapshot over a newer one (POD-01). The file is a
+    /// writes, which could land an older snapshot over a newer one. The file is a
     /// small dict; an atomic write every ~5 s on the main actor is negligible.
     private var store: VersionedStore<[String: Progress]> {
         VersionedStore(fileURL: storeURL, keepBackup: true)

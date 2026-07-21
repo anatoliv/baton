@@ -36,7 +36,7 @@ final class MusicGaplessCacheTests: XCTestCase {
         XCTAssertNotNil(cache.localURL(for: "s3"), "the most-recently stored file must survive")
     }
 
-    /// W-28 / AUDIO-18: the cache also evicts by byte budget, not just entry count.
+    ///  / AUDIO-18: the cache also evicts by byte budget, not just entry count.
     func testEvictsByByteBudget() {
         func sized(_ bytes: Int) -> URL {
             let u = FileManager.default.temporaryDirectory.appendingPathComponent("sz-\(UUID().uuidString).bin")

@@ -72,7 +72,7 @@ enum PodcastFeedParser {
     static func parse(_ data: Data) throws -> ParsedPodcastFeed {
         let parser = XMLParser(data: data)
         // Explicitly refuse external entities / DTDs — self-documents the XXE-safety that was
-        // relying on the platform default. (W-35 / SEC-13)
+        // relying on the platform default.
         parser.shouldResolveExternalEntities = false
         parser.externalEntityResolvingPolicy = .never
         let delegate = Delegate()
@@ -228,7 +228,7 @@ extension PodcastFeedParser {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         // Numeric-offset AND named-zone (EST/PDT — RFC 822 allows them) variants, with/without
-        // seconds; real feeds use all of these. (W-35 / POD-02)
+        // seconds; real feeds use all of these.
         let formats = [
             "EEE, dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy HH:mm Z", "dd MMM yyyy HH:mm:ss Z",
             "EEE, dd MMM yyyy HH:mm:ss zzz", "EEE, dd MMM yyyy HH:mm zzz", "dd MMM yyyy HH:mm:ss zzz",

@@ -8,7 +8,7 @@ final class MusicPersonalizationTests: XCTestCase {
 
     private func isolatedHistory() -> MusicPlayHistory {
         let suite = UserDefaults(suiteName: "personalization-test-\(UUID().uuidString)")!
-        // Inject a unique directory too: the archive persists to an on-disk JSONL (W-32), so
+        // Inject a unique directory too: the archive persists to an on-disk JSONL, so
         // sharing the default file would let other tests' plays leak in and skew the profile.
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("perso-\(UUID())", isDirectory: true)
         return MusicPlayHistory(defaults: suite, directory: dir)

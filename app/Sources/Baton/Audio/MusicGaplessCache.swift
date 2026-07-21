@@ -15,7 +15,7 @@ private let gaplessCacheLog = Logger(subsystem: "io.tonebox.baton", category: "G
 final class MusicGaplessCache {
     private let directory: URL
     private let maxEntries: Int
-    /// Byte budget: 6 raw FLACs can be hundreds of MB, so cap on size too, not just count. (AUDIO-18)
+    /// Byte budget: 6 raw FLACs can be hundreds of MB, so cap on size too, not just count.
     private let maxBytes: Int64
 
     init(maxEntries: Int = 6, maxBytes: Int64 = 200 * 1024 * 1024, directory: URL? = nil) {

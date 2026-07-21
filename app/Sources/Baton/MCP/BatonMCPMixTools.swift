@@ -299,7 +299,7 @@ enum MixBuilder {
         return buildMix(candidates: candidates, targetSeconds: targetSeconds, seed: seed, using: &rng)
     }
 
-    /// Seedable overload (deterministic given the generator) so tests can pin the shuffle. (W-42)
+    /// Seedable overload (deterministic given the generator) so tests can pin the shuffle.
     static func buildMix(
         candidates: [NavidromeSong],
         targetSeconds: Int,
@@ -313,7 +313,7 @@ enum MixBuilder {
         let pool = filtered.isEmpty ? usable : filtered
 
         // De-dup by id (defensive; caller usually de-dups), then SHUFFLE so "another 45-min jazz
-        // mix" isn't the identical track list every time (MIX-02), then greedily fill.
+        // mix" isn't the identical track list every time, then greedily fill.
         var seen = Set<String>()
         var ordered = pool.filter { seen.insert($0.id).inserted }
         ordered.shuffle(using: &generator)

@@ -143,7 +143,7 @@ struct MusicDownloadsView: View {
         }
     }
 
-    // MARK: - Download activity (W-33)
+    // MARK: - Download activity
 
     /// Live progress for in-flight downloads + a Retry for failures, shown above the list.
     @ViewBuilder private var downloadActivityBanner: some View {

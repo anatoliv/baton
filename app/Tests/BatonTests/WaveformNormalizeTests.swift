@@ -3,7 +3,7 @@ import XCTest
 
 /// Covers `WaveformExtractor.normalizeBars` — the pure reduction behind the scrubber's
 /// waveform (empty-bucket fill + 0…1 normalization), extracted from the AVAssetReader loop
-/// so it's testable without a real audio file. (W-49 unit sweep)
+/// so it's testable without a real audio file.
 final class WaveformNormalizeTests: XCTestCase {
     func testNormalizesToLoudestBar() {
         let bars = WaveformExtractor.normalizeBars(peaks: [0.25, 0.5, 1.0, 0.75], counts: [1, 1, 1, 1])

@@ -256,8 +256,8 @@ final class AudioFocusHardeningTests: XCTestCase {
         XCTAssertEqual(c.volumePercent, 80)
     }
 
-    /// W-15: over the REAL socket (accept loop + per-connection threads), an idle client that
-    /// connects and sends nothing must not starve a real client (SOCK-02). Uses an expectation
+    /// : over the REAL socket (accept loop + per-connection threads), an idle client that
+    /// connects and sends nothing must not starve a real client. Uses an expectation
     /// so the main run loop keeps pumping — the socket's dispatch hops to the main actor.
     func testRealSocketServesDespiteAnIdleClient() {
         let c = makeController()
@@ -266,7 +266,7 @@ final class AudioFocusHardeningTests: XCTestCase {
         let registry = BatonAudioFocusRegistry()
         // Keep the socket path SHORT: a Unix-domain address (`sun_path`) caps at ~104 bytes, and
         // the default /var/folders temp dir + a full UUID + "/control.sock" overflows it, so bind()
-        // silently fails and no socket is ever created. A short /tmp dir stays well under. (SOCK-02)
+        // silently fails and no socket is ever created. A short /tmp dir stays well under.
         let dir = URL(fileURLWithPath: "/tmp").appendingPathComponent("bsk-\(UUID().uuidString.prefix(8))")
         let socket = BatonControlSocket(focus: registry, controller: c, directory: dir)
         socket.start()

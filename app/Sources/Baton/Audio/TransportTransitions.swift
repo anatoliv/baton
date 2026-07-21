@@ -1,7 +1,7 @@
 import Foundation
 
 /// The pure math + timing behind a **crossfade** transition, factored out of
-/// `StreamingPlaybackController` as a narrow collaborator (W-50). The controller still owns the
+/// `StreamingPlaybackController` as a narrow collaborator. The controller still owns the
 /// two `AVQueuePlayer`s and the async ramp loop; this owns *when* a fade should start and *what
 /// gains* to apply at each step — the parts that are pure and can be unit-tested without
 /// AVFoundation or on-device playback. (The gap-free audio itself still needs device validation.)
@@ -23,7 +23,7 @@ enum Crossfade {
 }
 
 /// The pure decisions behind the **gapless** next-track preload, factored out of the controller
-/// (W-50). The controller owns the `AVQueuePlayer` insert + the prefetch task; this owns the two
+///. The controller owns the `AVQueuePlayer` insert + the prefetch task; this owns the two
 /// choices that are pure: whether a metered connection permits pre-caching, and which URL to
 /// preload for a gap-free handoff.
 enum GaplessPreload {
@@ -43,7 +43,7 @@ enum GaplessPreload {
 }
 
 /// The pure **fade envelope** ramp used by the sleep-timer fade-out (and any timed volume fade),
-/// factored out of the controller (W-50). The controller owns the `Task` loop + the sleep between
+/// factored out of the controller. The controller owns the `Task` loop + the sleep between
 /// steps; this owns the interpolation, so the curve is unit-testable.
 enum Fade {
     /// The fade multiplier at step `i` of `steps`, linearly interpolated `start → target`.
@@ -53,7 +53,7 @@ enum Fade {
     }
 }
 
-/// The pure composition of the **effective player volume**, factored out of `applyVolume` (W-50):
+/// The pure composition of the **effective player volume**, factored out of `applyVolume`:
 /// the user's level, the current track's loudness-normalization multiplier, and the fade envelope,
 /// multiplied together. Mute is handled separately (`player.isMuted`), so it isn't a factor here.
 enum PlaybackVolume {
@@ -65,7 +65,7 @@ enum PlaybackVolume {
 }
 
 /// The pure decision behind **resume-from-saved-position** (podcasts), factored out of the
-/// controller (W-50). Only resume when the saved offset is meaningfully into the track and not
+/// controller. Only resume when the saved offset is meaningfully into the track and not
 /// essentially finished — otherwise start from the top, so a stale near-start or near-end offset
 /// doesn't drop you into silence or replay the last few seconds.
 enum PlaybackResume {
@@ -76,7 +76,7 @@ enum PlaybackResume {
 }
 
 /// The pure **end-of-track boundary** test, centralised from the three controller sites that each
-/// hand-rolled it (W-50). A wrong boundary is a correctness bug — too early clips the track, too
+/// hand-rolled it. A wrong boundary is a correctness bug — too early clips the track, too
 /// late leaves the transport parked showing "playing" — so it's worth one tested definition:
 /// within `tolerance` (0.35 s) of a known-duration track's end.
 enum TrackBoundary {

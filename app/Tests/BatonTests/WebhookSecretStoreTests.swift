@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-51 / SEC-19: webhook header values (which can carry an Authorization secret) are stored in the
+///  / SEC-19: webhook header values (which can carry an Authorization secret) are stored in the
 /// injectable SecretStore, never in the plaintext defaults plist, and re-injected on load.
 @MainActor
 final class WebhookSecretStoreTests: XCTestCase {

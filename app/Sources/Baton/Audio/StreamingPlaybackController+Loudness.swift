@@ -1,9 +1,9 @@
 import Foundation
 
-/// ReplayGain loudness-normalization math, extracted from `StreamingPlaybackController` (W-50).
+/// ReplayGain loudness-normalization math, extracted from `StreamingPlaybackController`.
 /// Pure, side-effect-free functions of a track's ReplayGain tags + the loudness mode + pre-amp —
 /// no player, queue, or actor state — so they're unit-tested directly (see
-/// `LoudnessAdvanceCharacterizationTests`, W-47) and safe to reason about in isolation. They stay
+/// `LoudnessAdvanceCharacterizationTests`, ) and safe to reason about in isolation. They stay
 /// static members of the controller (via this extension) so `Self.loudnessMultiplier(...)` /
 /// `Self.normalizationGain(...)` call sites are unchanged.
 extension StreamingPlaybackController {
@@ -11,7 +11,7 @@ extension StreamingPlaybackController {
     /// only attenuates (0…1), so without headroom a quiet track's positive ReplayGain just clips
     /// against the ceiling and never actually plays louder. Reserving ~6 dB of headroom turns
     /// every RG adjustment into an attenuation that fits — consistent loudness at a slightly
-    /// lower absolute level. (W-44 / AUDIO-23) A DSP gain stage would avoid the level drop.
+    /// lower absolute level. A DSP gain stage would avoid the level drop.
     static var loudnessHeadroom: Float { 0.5 } // ≈ -6 dB
 
     /// The effective `player.volume` multiplier for the loudness mode, including the headroom.

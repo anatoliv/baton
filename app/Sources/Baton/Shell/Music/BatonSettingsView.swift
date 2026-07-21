@@ -251,7 +251,7 @@ private struct BatonServersPane: View {
         reload()
         pendingDelete = nil
         // If the active server changed (or is now gone), clear the removed server's queue +
-        // caches and re-point the library at whatever is now active. (W-63)
+        // caches and re-point the library at whatever is now active.
         if wasActive {
             model.handleActiveServerChanged()
             Task { await model.musicLibrary.loadAlbums() }
@@ -264,7 +264,7 @@ private struct BatonServersPane: View {
 /// Settings → Agents: makes the MCP control surface discoverable. Shows whether an AI agent can
 /// reach Baton right now (read live from the server's `mcp.json` discovery file), the connection
 /// URL + bearer token (copyable), the fast-path socket, and where agents look for all of it — so
-/// the "AI can control your music" story isn't invisible. (W-57)
+/// the "AI can control your music" story isn't invisible.
 private struct BatonAgentsPane: View {
     @State private var info: AgentAccessInfo?
     @State private var revealToken = false
@@ -463,7 +463,7 @@ private struct BatonAboutPane: View {
                         }
                     }
                 }
-                Text("Exports Baton's own log entries from the last hour to a text file — with your server address, IPs, and paths redacted — for troubleshooting \"won't load\" / \"update failed\" reports. (W-61)")
+                Text("Exports Baton's own log entries from the last hour to a text file — with your server address, IPs, and paths redacted — for troubleshooting \"won't load\" / \"update failed\" reports.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -473,7 +473,7 @@ private struct BatonAboutPane: View {
 
 /// Launch-at-login toggle, reflecting + driving `SMAppService.mainApp`. Reads the live OS status
 /// on appear (the user may change it in System Settings) and surfaces a failure rather than lying
-/// about the state. (W-58)
+/// about the state.
 private struct BatonLoginItemToggle: View {
     @State private var enabled = LoginItem.isEnabled
     @State private var error: String?
@@ -519,7 +519,7 @@ private struct BatonUpdatesControls: View {
             .buttonStyle(.borderedProminent)
             Spacer()
         }
-        // Surface the last check outcome so a broken feed is visible, not silent. (W-61 / DIST-09)
+        // Surface the last check outcome so a broken feed is visible, not silent.
         if let result = SparkleUpdater.shared.lastCheckResult {
             LabeledContent("Last check") {
                 Text(result)

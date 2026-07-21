@@ -15,7 +15,7 @@ enum BatonRuntime {
 /// `BatonRuntime.isTest` checks that were baked into individual stores' production defaults: stores
 /// now take an explicit `environment` (defaulting to the auto-detected `.current`) instead of each
 /// deciding for itself, and `MusicModel(environment:)` threads one value through the whole player.
-/// `.current` is the *only* place that sniffs the runtime. (W-49 / ARCH-32)
+/// `.current` is the *only* place that sniffs the runtime.
 enum BatonEnvironment: Sendable {
     /// The shipping app: real UserDefaults, system Now Playing, network monitoring, Keychain.
     case production

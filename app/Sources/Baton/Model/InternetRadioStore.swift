@@ -100,7 +100,7 @@ final class InternetRadioStore {
     // MARK: Playback
 
     init() {
-        // Surface a station whose stream fails as a toast, rather than a silent "on air". (W-30)
+        // Surface a station whose stream fails as a toast, rather than a silent "on air".
         engine.onError = { [weak self] message in
             self?.duckController?.postToast(message, symbol: "wifi.slash")
         }
@@ -293,7 +293,7 @@ final class RadioPlaybackEngine {
     @ObservationIgnored private var metadataOutput: AVPlayerItemMetadataOutput?
     @ObservationIgnored private var metadataReceiver: ICYMetadataReceiver?
     /// Called (on the main actor) when a station's stream fails to play — so the store can toast
-    /// the user and the UI stops showing a dead station as "on air". (W-30 / RAD-01)
+    /// the user and the UI stops showing a dead station as "on air".
     @ObservationIgnored var onError: (@MainActor (String) -> Void)?
 
     init() {
@@ -320,7 +320,7 @@ final class RadioPlaybackEngine {
         metadataReceiver = receiver
 
         // Surface a failed stream (wrong URL, 404, geo-block, TLS) instead of sitting silently
-        // "on air" forever: on .failed, report it and stop. (W-30 / RAD-01)
+        // "on air" forever: on .failed, report it and stop.
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             let status = item.status
             let message = item.error?.localizedDescription

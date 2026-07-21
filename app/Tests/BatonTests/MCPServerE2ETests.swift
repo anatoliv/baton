@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-46 (Foundation F5): boot the REAL MCP server on a loopback port with a temp discovery
+///  (Foundation F5): boot the REAL MCP server on a loopback port with a temp discovery
 /// directory and drive it over HTTP — the end-to-end contract for the defining agent surface.
 @MainActor
 final class MCPServerE2ETests: XCTestCase {
@@ -16,7 +16,7 @@ final class MCPServerE2ETests: XCTestCase {
         model = MusicModel()
         server = BatonMCPServer(music: model, discoveryDirectory: tempDir)
         server.start()
-        // start() binds asynchronously (awaits the listener reaching .ready — W-38); poll.
+        // start() binds asynchronously (awaits the listener reaching .ready — ); poll.
         let deadline = Date().addingTimeInterval(5)
         while server.boundPort == nil, Date() < deadline {
             try? await Task.sleep(nanoseconds: 20_000_000)
@@ -60,7 +60,7 @@ final class MCPServerE2ETests: XCTestCase {
         XCTAssertGreaterThan(tools?.count ?? 0, 0, "tools/list should return the tool catalog")
     }
 
-    // MARK: - Session & stream lifecycle (W-39)
+    // MARK: - Session & stream lifecycle
 
     /// The server mints an `Mcp-Session-Id` at initialize (spec: server-assigned, unforgeable).
     func testInitializeMintsSessionIdHeader() async throws {

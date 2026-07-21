@@ -17,8 +17,8 @@ private let lastfmLog = Logger(subsystem: "io.tonebox.baton", category: "LastFM"
 @Observable
 final class MusicLastFM: ScrobbleDestination {
     var apiKey: String { didSet { UserDefaults.standard.set(apiKey, forKey: Self.keyKey) } } // public identifier
-    var apiSecret: String { didSet { NavidromeKeychain.setSecret(apiSecret, account: Self.secretKey) } } // Keychain (W-13)
-    private(set) var sessionKey: String { didSet { NavidromeKeychain.setSecret(sessionKey, account: Self.sessionKeyKey) } } // Keychain (W-13)
+    var apiSecret: String { didSet { NavidromeKeychain.setSecret(apiSecret, account: Self.secretKey) } } // Keychain
+    private(set) var sessionKey: String { didSet { NavidromeKeychain.setSecret(sessionKey, account: Self.sessionKeyKey) } } // Keychain
     /// The token from a `getToken` request, awaiting the user's browser authorization.
     private(set) var pendingToken: String?
 
@@ -37,7 +37,7 @@ final class MusicLastFM: ScrobbleDestination {
         self.session = session
         let d = UserDefaults.standard
         apiKey = d.string(forKey: Self.keyKey) ?? ""
-        // Secret + session key from the Keychain (migrate-on-read handles existing installs). (W-13)
+        // Secret + session key from the Keychain (migrate-on-read handles existing installs).
         apiSecret = NavidromeKeychain.secret(account: Self.secretKey) ?? ""
         sessionKey = NavidromeKeychain.secret(account: Self.sessionKeyKey) ?? ""
     }

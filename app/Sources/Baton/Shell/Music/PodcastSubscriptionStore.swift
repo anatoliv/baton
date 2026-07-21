@@ -49,7 +49,7 @@ final class PodcastSubscriptionStore {
 
     /// Reads persisted subscriptions once, then kicks off a background refresh so episode lists
     /// are current. Safe to call from `.task` on every appearance.
-    /// Versioned, corruption-safe backing for the subscription list (W-12). keepBackup
+    /// Versioned, corruption-safe backing for the subscription list. keepBackup
     /// because a lost subscription list is irreplaceable user data.
     private var store: VersionedStore<[PodcastChannel]> {
         VersionedStore(fileURL: storeURL, keepBackup: true, encoder: .podcast, decoder: .podcast)

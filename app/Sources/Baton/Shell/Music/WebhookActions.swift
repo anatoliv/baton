@@ -164,7 +164,7 @@ enum WebhookTemplate {
 /// Owns the user's webhook actions (persisted as JSON in UserDefaults) and runs them. The HTTP
 /// sender is injectable so the runner can be unit-tested without the network.
 ///
-/// SECURITY (W-51 / SEC-19): a webhook action's header values can carry an `Authorization: Bearer …`
+/// SECURITY: a webhook action's header values can carry an `Authorization: Bearer …`
 /// secret. The action list is persisted as JSON in UserDefaults (a user-readable plist) for its
 /// structure, but header *values* are moved to an injectable `SecretStore` (the Keychain in the app)
 /// and blanked in the persisted JSON, so no auth token lands in cleartext. The value is re-injected
@@ -255,7 +255,7 @@ final class WebhookActionStore {
 
     private func persist() {
         // Move header values into the secret store and persist the list with them blanked, so an
-        // auth token in a header never lands in the cleartext defaults plist. (W-51 / SEC-19)
+        // auth token in a header never lands in the cleartext defaults plist.
         var sanitized = actions
         for i in sanitized.indices {
             for j in sanitized[i].headers.indices {
@@ -281,7 +281,7 @@ enum PodcastWebhookTokens {
         ("enclosureUrl", "Direct audio URL"),
         ("feedUrl", "Show RSS feed URL"),
         ("guid", "Episode GUID"),
-        ("pubDate", "Publish date (ISO-8601)"),
+        ("pubDate", "Publish date"),
         ("durationSec", "Duration in seconds"),
         ("episodeImageUrl", "Episode artwork URL"),
         ("channelImageUrl", "Show artwork URL"),
@@ -426,7 +426,7 @@ struct WebhookActionEditor: View {
                     Picker("Method", selection: $draft.method) {
                         ForEach(WebhookAction.Method.allCases) { Text($0.rawValue).tag($0) }
                     }
-                    TextField("URL", text: $draft.urlTemplate, prompt: Text("https://web-01/transcribe"))
+                    TextField("URL", text: $draft.urlTemplate, prompt: Text("https://example.com/transcribe"))
                         .textContentType(.URL)
                 }
                 Section("Headers") {

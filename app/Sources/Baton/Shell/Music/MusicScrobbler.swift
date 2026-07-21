@@ -15,7 +15,7 @@ private let scrobbleLog = Logger(subsystem: "io.tonebox.baton", category: "Scrob
 final class MusicScrobbler: ScrobbleDestination {
     /// The ListenBrainz user token (Settings → Music → Scrobbling). Empty ⇒ disabled.
     var token: String {
-        didSet { NavidromeKeychain.setSecret(token, account: Self.tokenKey) } // Keychain (W-13)
+        didSet { NavidromeKeychain.setSecret(token, account: Self.tokenKey) } // Keychain
     }
 
     @ObservationIgnored static let tokenKey = "tonebox.music.listenBrainzToken"
@@ -26,7 +26,7 @@ final class MusicScrobbler: ScrobbleDestination {
 
     init(session: URLSession = .shared) {
         self.session = session
-        token = NavidromeKeychain.secret(account: Self.tokenKey) ?? "" // Keychain, migrate-on-read (W-13)
+        token = NavidromeKeychain.secret(account: Self.tokenKey) ?? "" // Keychain, migrate-on-read
     }
 
     /// The play position (seconds) at which a track counts as "listened" per the standard
@@ -58,7 +58,7 @@ final class MusicScrobbler: ScrobbleDestination {
     // MARK: - Wire format
 
     /// Builds one ListenBrainz `listen` object. `nonisolated static` + pure (no `self`) so the
-    /// wire shape is unit-testable off the main actor without a live network destination. (W-49)
+    /// wire shape is unit-testable off the main actor without a live network destination.
     nonisolated static func payload(for scrobble: Scrobble, includeTimestamp: Bool) -> [String: Any] {
         var metadata: [String: Any] = [
             "artist_name": scrobble.artist,

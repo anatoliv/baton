@@ -58,7 +58,7 @@ final class PodcastCapabilityTests: XCTestCase {
         XCTAssertEqual(store.support, .unknown)
     }
 
-    /// W-36 / POD-08: an "unsupported" verdict expires after the TTL so a server that later
+    ///  / POD-08: an "unsupported" verdict expires after the TTL so a server that later
     /// gains podcast support is re-probed instead of hidden forever.
     func testUnsupportedVerdictExpires() throws {
         let defaults = try makeDefaults()

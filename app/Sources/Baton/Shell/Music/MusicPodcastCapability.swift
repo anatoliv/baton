@@ -123,12 +123,12 @@ final class PodcastCapabilityStore {
         "tonebox.podcast.supported.at.\(serverID.uuidString)"
     }
     /// Re-probe an `unsupported` verdict after this long — a server may gain podcast support
-    /// later (Navidrome #793), and we shouldn't hide the tab forever. (W-36 / POD-08)
+    /// later (Navidrome #793), and we shouldn't hide the tab forever.
     static let unsupportedTTL: TimeInterval = 7 * 24 * 60 * 60
     /// Injectable clock for tests.
     nonisolated(unsafe) static var now: () -> Date = { Date() }
 
-    func persisted(for serverID: UUID) -> Bool? { // internal for W-36 expiry test
+    func persisted(for serverID: UUID) -> Bool? { // internal for  expiry test
         let key = Self.storageKey(for: serverID)
         guard defaults.object(forKey: key) != nil else { return nil }
         let supported = defaults.bool(forKey: key)

@@ -3,7 +3,7 @@ import XCTest
 
 /// Pins the ListenBrainz `listen` wire shape built by `MusicScrobbler.payload` — the JSON
 /// object submitted to `submit-listens`. A wrong key or a `listened_at` on a "now playing"
-/// ping is silently rejected by the server, so the shape is worth locking. (W-49 unit sweep)
+/// ping is silently rejected by the server, so the shape is worth locking.
 final class ListenBrainzPayloadTests: XCTestCase {
     private func scrobble(
         artist: String = "Miles Davis",

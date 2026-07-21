@@ -92,7 +92,7 @@ final class MixBuilderTests: XCTestCase {
         XCTAssertFalse(mix.isEmpty)
     }
 
-    // MARK: - W-42 / MIX-02: shuffle
+    // MARK: -  / MIX-02: shuffle
 
     private struct SeededRNG: RandomNumberGenerator {
         var state: UInt64

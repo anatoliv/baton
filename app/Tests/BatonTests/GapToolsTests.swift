@@ -44,7 +44,7 @@ final class GapToolsTests: XCTestCase {
             XCTAssertTrue(names.contains(tool), "missing tool \(tool)")
         }
         // 21 existing (18 music_* incl. music_build_mix + audio_suspend/audio_resume
-        // + speak_summary) + 10 new = 31. NOTE: a bare count is brittle; W-41/W-46
+        // + speak_summary) + 10 new = 31. NOTE: a bare count is brittle; /
         // replace this with a schema snapshot of the full catalog.
         XCTAssertEqual(names.count, 31, "unexpected total tool count: \(names.count)")
     }

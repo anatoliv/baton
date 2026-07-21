@@ -22,7 +22,7 @@ struct MusicLoudnessTests {
         #expect(gain(song(track: -6), .off) == 1)
     }
 
-    /// W-44 / AUDIO-23: with headroom, a quiet (+6 dB) track ends up LOUDER than a reference
+    ///  / AUDIO-23: with headroom, a quiet (+6 dB) track ends up LOUDER than a reference
     /// (0 dB) track instead of both clipping at the 1.0 ceiling — the boost actually applies.
     @Test("Headroom lets a quiet track's positive ReplayGain raise it above reference")
     func headroomAppliesPositiveGain() {

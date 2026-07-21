@@ -1,6 +1,6 @@
 import XCTest
 
-/// W-48: launch/smoke UI test — proves Baton boots to the foreground without crashing, the
+/// : launch/smoke UI test — proves Baton boots to the foreground without crashing, the
 /// baseline every UI regression builds on. Runs via the `BatonUITests` scheme in a GUI-capable
 /// environment (the XCUITest runner + a signed/bundled app); it is intentionally excluded from the
 /// `Baton` unit-test scheme so the headless `scripts/test.sh` gate never attempts a UI session.
