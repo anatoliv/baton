@@ -687,23 +687,109 @@ The `mode` input decides how a spoken line is delivered:
 
 ### The voices themselves
 
-Baton speaks through self-hosted, OpenAI-compatible text-to-speech servers on your own
-network, so the audio never leaves your machines. There are two engines:
+When Baton speaks, the actual voice comes from a **text-to-speech (TTS) engine**. You have
+three options, from zero-effort to best-quality:
 
-- **Kokoro** for fast, natural preset voices (the default).
-- **Chatterbox** for premium voices and **voice cloning**, so a category can speak in a voice
-  you've cloned.
+1. **Nothing at all — the built-in Mac voice.** If you set nothing up, Baton uses macOS's own
+   speech (the same engine as VoiceOver). It just works, offline, no install. The voice is a
+   bit robotic, but a summary is never dropped.
+2. **Kokoro** — a small, free voice server you run yourself. Fast, natural-sounding, 50+ preset
+   voices (including Spanish). Runs on any Mac or PC **with no graphics card**.
+3. **Chatterbox** — a higher-quality voice server that can also **clone a voice** from a short
+   sample. Needs an **NVIDIA graphics card (GPU)**, so it usually lives on a separate machine.
 
-Enter each server's address in the Speech pane and use **Test this connection** to check it.
-Baton shows a green check with the number of voices it found, or the error if it can't reach
-the server.
+Everything below is optional — set up as much or as little as you like. Baton talks to both
+servers the same way (the OpenAI "audio/speech" format), so any service that speaks that format
+can be plugged in, self-hosted or cloud.
+
+#### Which one should I use?
+
+| | **Mac built-in** | **Kokoro** | **Chatterbox** |
+|---|---|---|---|
+| Setup effort | none | a few minutes | more involved |
+| Needs a GPU? | no | **no** (runs on CPU) | **yes** (NVIDIA) |
+| Voice quality | basic | very good | best |
+| Voice cloning | no | no | **yes** |
+| Best for | trying it out | everyday summaries, ops/alerts | premium or cloned voices |
+
+A good path: start with the **Mac voice** to see the feature, add **Kokoro** for pleasant
+everyday voices, and only add **Chatterbox** if you want top quality or a cloned voice.
+
+#### Where does the voice server run? (this Mac vs another machine)
+
+A "voice server" is just a small program that turns text into audio and answers over your
+network. It can run either place:
+
+- **On the same Mac as Baton (local).** Simplest. The address is `http://127.0.0.1:<port>` —
+  `127.0.0.1` means "this machine." **Kokoro** is perfect here because it needs no GPU.
+- **On another machine on your network (remote).** For example a Linux box with an NVIDIA GPU
+  for **Chatterbox**. You reach it by that machine's name (`http://mybox.local:<port>`) or its
+  LAN address (`http://<your-lan-ip>:<port>`).
+
+Either way there's **no cloud account and nothing leaves your own network** — this is different
+from a hosted service like ElevenLabs, where your text is sent to someone else's servers.
+
+#### Setting up Kokoro (no GPU needed)
+
+Kokoro ships as a ready-to-run container. On the machine where you want it (your Mac, or any
+always-on box) with [Docker](https://docs.docker.com/get-docker/) installed, run:
+
+```sh
+docker run -d --restart unless-stopped -p 8880:8880 \
+  ghcr.io/remsky/kokoro-fastapi-cpu:latest
+```
+
+That's the whole install — Kokoro now answers at `http://<that-machine>:8880`. (`-d` runs it in
+the background; `--restart unless-stopped` brings it back after a reboot.) Confirm it's alive:
+`curl http://localhost:8880/health` should return `200`.
+
+> Use the **CPU** image above — it works everywhere and is plenty fast (a short sentence in well
+> under a second). There's a GPU image too, but for a model this small the GPU buys nothing.
+
+#### Setting up Chatterbox (needs an NVIDIA GPU)
+
+Chatterbox is built from its project repo and needs an NVIDIA GPU with recent drivers
+(CUDA 12.8+). With Docker installed on that machine:
+
+```sh
+git clone --depth 1 https://github.com/devnen/Chatterbox-TTS-Server.git
+cd Chatterbox-TTS-Server
+docker compose up -d --build        # serves on port 8004
+```
+
+It then answers at `http://<that-machine>:8004`. The first build takes a while (it downloads the
+voice model). To use a **cloned voice**, drop a 5–10 second `.wav` sample of the target voice
+into its voices folder; it shows up in Baton's voice list by filename (e.g. `Emily.wav`).
+
+> Chatterbox is the heavier engine — reach for it when you want the best quality or a custom
+> cloned voice, not for every routine "build finished" line.
+
+#### Pointing Baton at your server(s)
+
+Open **Settings → Speech** and enter the address for whichever engine you set up:
+
+- **Kokoro base URL** — e.g. `http://127.0.0.1:8880` (same Mac) or `http://mybox.local:8880`
+  (another machine).
+- **Chatterbox base URL** — e.g. `http://mybox.local:8004`.
+
+Press **Test this connection**. Baton shows a green check with the number of voices it found, or
+the error if it can't reach the server. Once connected, each row of the [voice
+map](#one-voice-per-agent-the-voice-map) gets a voice picker (populated live from that server)
+and a ▶︎ **Preview** button, so you can hear a voice before assigning it.
 
 > [!NOTE]
-> You don't have to run any TTS servers to use this. If none are set up (or one is
-> unreachable), Baton falls back to the built-in macOS voice, so `speak_summary` still works
-> and a line is never silently dropped. That fallback is on by default; turn it off if you'd
-> rather an unreachable server report an error. For setting up Kokoro and Chatterbox, see
-> [`docs/tts-speak-summary.md`](docs/tts-speak-summary.md).
+> **First connection to another machine:** modern macOS asks permission before an app talks to
+> devices on your local network, so the very first test may fail once with an "offline"-sounding
+> error. Approve Baton under **System Settings → Privacy & Security → Local Network** and test
+> again. It's a one-time macOS permission, not a Baton problem. (A server on the *same* Mac via
+> `127.0.0.1` isn't affected.)
+
+> [!NOTE]
+> You don't have to run any of this. With no servers set up (or if one is unreachable), Baton
+> falls back to the built-in macOS voice, so `speak_summary` always works and a line is never
+> silently dropped. The fallback is on by default; turn it off in Settings → Speech if you'd
+> rather an unreachable server report an error. Deeper operator notes (self-hosting specifics,
+> GPU tips) live in [`docs/tts-speak-summary.md`](docs/tts-speak-summary.md).
 
 ### Examples
 
@@ -721,6 +807,50 @@ A multi-agent run, so you can follow along by ear:
 Because `speak_summary` is just another tool on Baton's [control
 server](#letting-an-agent-control-your-music), any MCP client that can reach Baton can use it,
 the same way it uses the music tools.
+
+### Controlling when an agent speaks
+
+`speak_summary` is a tool the agent *chooses* to call — Baton never speaks on its own. So
+**you** decide when a summary is read aloud, either per request or as a standing rule.
+
+**Per request (no setup).** Just ask for it in the moment:
+
+> "Run the tests and **say** the result when you're done."
+> → the agent runs the tests, then calls `speak_summary` with something like "All 467 tests
+> passed" — and stays silent on the next task unless you ask again.
+
+**A standing rule (Claude Code).** Put a one-line instruction in a `CLAUDE.md` — `./CLAUDE.md`
+for one project, `~/.claude/CLAUDE.md` for all of them. Two useful shapes:
+
+- **Opt-in (recommended) — silent unless asked:**
+
+  ```md
+  Spoken summaries: default do NOT speak. Only call `mcp__baton__speak_summary` when I
+  explicitly ask in that message (e.g. "…and say", "speak the summary"). Then speak one
+  short sentence (voice `af_bella`). If Baton isn't connected, skip silently.
+  ```
+
+- **Always — a spoken line after every task:**
+
+  ```md
+  When you finish a task, call `mcp__baton__speak_summary` with a one-sentence summary
+  (voice `af_bella`). If Baton isn't connected, skip silently.
+  ```
+
+**A standing rule (Cursor).** The same idea lives in a Cursor **Rule** — add a project rule in
+`.cursor/rules/` (or a global rule under Cursor → Settings → Rules) with the same wording,
+e.g.:
+
+```md
+Spoken summaries: default do NOT speak. Only call the baton `speak_summary` tool when I
+explicitly ask in that message (e.g. "…and say", "speak the summary"). Then speak one short
+sentence (voice `af_bella`). If Baton isn't connected, skip silently.
+```
+
+Pick a voice per line with the `voice` input (`kokoro:af_bella`, `chatterbox:Emily.wav`, or a
+bare id like `af_nova`), or let the [voice map](#one-voice-per-agent-the-voice-map) choose by
+`category`. A `CLAUDE.md` or Cursor rule takes effect on the **next** session — a running one
+won't reload it mid-task — and Baton must be running for the call to land.
 
 ---
 
@@ -794,6 +924,23 @@ claude mcp add --transport http baton \
   }
 }
 ```
+
+**Cursor.** Same `mcpServers` block, in `~/.cursor/mcp.json` (all projects) or
+`.cursor/mcp.json` (one project). Cursor infers HTTP from the `url`, so the `type` field
+isn't needed:
+
+```json
+{
+  "mcpServers": {
+    "baton": {
+      "url": "http://127.0.0.1:8787/mcp",
+      "headers": { "Authorization": "Bearer <token-from-mcp.json>" }
+    }
+  }
+}
+```
+
+Then enable **baton** under Cursor → Settings → MCP; its tools appear to the agent there.
 
 Baton has to be running for any of this to work, which is another reason for the
 [menu-bar controller](#playing-music): it keeps Baton (and the server) alive in the
