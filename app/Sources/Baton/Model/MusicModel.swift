@@ -45,6 +45,13 @@ final class MusicModel {
     let pins = PinStore()
     /// One-off spoken task summaries (the `speak_summary` MCP tool) + in-app banner state.
     let speech = SpeechPlaybackEngine()
+    /// Bounded, persisted history of spoken summaries, so any past one can be replayed. (Speech)
+    let speechHistory = SpeechHistoryStore()
+
+    /// Re-synthesize and play a past spoken summary from history, in its original voice.
+    func replaySpokenSummary(_ entry: SpeechHistoryStore.Entry) {
+        Task { await SpeechSummaryReplay.play(entry, on: speech) }
+    }
 
     /// Retained so the audio-mix closure keeps a strong reference to the tap processor.
     @ObservationIgnored private let eqProcessor: AudioEQProcessor

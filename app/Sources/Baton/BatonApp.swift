@@ -145,6 +145,16 @@ struct BatonApp: App {
         .defaultSize(width: 1040, height: 660)
         .defaultPosition(.center)
 
+        // Spoken-summary history — replay any past summary an agent spoke through Baton.
+        Window("Spoken Summaries", id: SpeechHistoryView.windowID) {
+            SpeechHistoryView()
+                .environment(music)
+                .tint(.batonOrange)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 460, height: 560)
+        .defaultPosition(.center)
+
         // Always-available menu-bar controller — current track + compact transport,
         // reachable even when every window is closed. Binds to live player state.
         MenuBarExtra {

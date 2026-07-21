@@ -90,6 +90,17 @@ enum BatonMCPSpeakTools {
             throw BatonMCPToolError(message: error.localizedDescription)
         }
 
+        // Record every spoken summary so any past one can be replayed later, keeping the resolved
+        // voice ("engine:voice", or nil when the system-voice fallback was used) so Replay reproduces
+        // the same sound.
+        let usedFallback = engineUsed.hasPrefix("system")
+        music.speechHistory.record(
+            text: text,
+            voice: usedFallback ? nil : "\(voice.engine.rawValue):\(voice.voice)",
+            engine: usedFallback ? "system" : voice.engine.rawValue,
+            category: category
+        )
+
         // Execute every surface the plan calls for — they compose, so a summary can be spoken
         // now AND leave a notification, or wait as both a banner and a notification.
         var delivered: [String] = []
