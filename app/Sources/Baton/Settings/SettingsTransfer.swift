@@ -44,6 +44,7 @@ enum SettingsTransfer {
         "baton.personalization.rationale",
         "baton.help.requestedTopic",                    // transient navigation
         "baton.settings.selectedCategory",              // which Settings tab was open
+        "baton.speech.history",                         // spoken-summary history (session data, not a setting)
         "tonebox.music.downloadFolder",                 // a path that may not exist on the target
     ]
 
