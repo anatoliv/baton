@@ -35,9 +35,17 @@ enum SpeechNotifier {
         }
     }
 
+    /// Whether a notification could actually be delivered — so a caller can honestly report a
+    /// fallback instead of claiming success when notifications are off. (W-43 / SPEECH-03)
+    enum PostResult { case delivered, denied }
+
     /// Post a notification whose Play action will play `utterance` (server audio or native voice).
-    static func post(text: String, utterance: SpeechPlaybackEngine.Utterance) async {
+    /// Returns `.denied` (without posting) when notifications aren't authorized, so `speak_summary`
+    /// can fall back to an in-app banner rather than silently dropping the summary.
+    static func post(text: String, utterance: SpeechPlaybackEngine.Utterance) async -> PostResult {
         await requestAuthorizationIfNeeded()
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        guard status == .authorized || status == .provisional else { return .denied }
         let content = UNMutableNotificationContent()
         content.title = "Task complete"
         content.body = text
@@ -49,7 +57,12 @@ enum SpeechNotifier {
         let request = UNNotificationRequest(
             identifier: UUID().uuidString, content: content, trigger: nil
         )
-        try? await UNUserNotificationCenter.current().add(request)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            return .delivered
+        } catch {
+            return .denied
+        }
     }
 }
 

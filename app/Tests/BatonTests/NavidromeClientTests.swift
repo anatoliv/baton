@@ -58,6 +58,15 @@ final class NavidromeClientTests: XCTestCase {
         XCTAssertFalse(url.absoluteString.contains("sesame"))
     }
 
+    /// W-37 / NET-06: the salt is stable per client, so two URLs for the same resource are
+    /// byte-identical and URLCache/AsyncImage can cache them (was a fresh salt every call).
+    func testSaltIsStablePerClient() throws {
+        let client = NavidromeClient(credentials: creds(.tokenSalt), session: mockSession())
+        let a = try client.makeURL("getCoverArt.view", query: [URLQueryItem(name: "id", value: "art1")], json: false)
+        let b = try client.makeURL("getCoverArt.view", query: [URLQueryItem(name: "id", value: "art1")], json: false)
+        XCTAssertEqual(a.absoluteString, b.absoluteString, "same resource must yield an identical URL")
+    }
+
     /// apiKey request carries apiKey and NOT u/t/s.
     func testAPIKeyQueryShape() throws {
         let client = NavidromeClient(credentials: creds(.apiKey), session: mockSession())
@@ -239,6 +248,14 @@ final class NavidromeClientTests: XCTestCase {
         XCTAssertTrue(url.contains("submission=true"))
     }
 
+    func testScrobbleIncludesStartTime() async throws { // W-31 / SCR-03
+        NavidromeMockURLProtocol.handler = { req in navidromeOK(#"{"subsonic-response":{"status":"ok"}}"#, req) }
+        let client = NavidromeClient(credentials: creds(), session: mockSession())
+        try await client.scrobble(id: "s7", submission: true, time: 1_700_000_000_000)
+        let url = try XCTUnwrap(NavidromeMockURLProtocol.lastRequestURL?.absoluteString)
+        XCTAssertTrue(url.contains("time=1700000000000"), "scrobble must carry the real start time: \(url)")
+    }
+
     func testGetLyricsDecodesSyncedLines() async throws {
         NavidromeMockURLProtocol.handler = { req in
             let json = """
@@ -395,6 +412,20 @@ final class NavidromeClientTests: XCTestCase {
         await assertThrows(client, expected: .http(status: 500))
     }
 
+    func testHTTP401MapsToUnauthorized() async { // W-25 / NET-09 (reverse-proxy auth)
+        NavidromeMockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: "HTTP/1.1", headerFields: nil)!, Data())
+        }
+        await assertThrows(NavidromeClient(credentials: creds(), session: mockSession()), expected: .unauthorized)
+    }
+
+    func testHTTP403MapsToUnauthorized() async {
+        NavidromeMockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: "HTTP/1.1", headerFields: nil)!, Data())
+        }
+        await assertThrows(NavidromeClient(credentials: creds(), session: mockSession()), expected: .unauthorized)
+    }
+
     // MARK: - notConfigured (REQ-1)
 
     func testMakeClientThrowsWhenUnconfigured() {
@@ -424,6 +455,40 @@ final class NavidromeClientTests: XCTestCase {
         } catch {
             XCTFail("Threw unexpected error \(error)", file: file, line: line)
         }
+    }
+
+    // MARK: - Chunked playlist reorder (W-60 / PROD-10)
+
+    /// A large reorder must be batched — one `createPlaylist` overwrite with the first chunk, then
+    /// `updatePlaylist` appends for the rest — so no single request URL overflows, and the
+    /// concatenated server order equals the requested order exactly.
+    func testChunkedReorderBatchesLargePlaylistPreservingOrder() async throws {
+        // setPlaylistSongsChunked awaits each request before issuing the next, so the mock handler
+        // is invoked serially and the await chain establishes ordering — no lock needed.
+        nonisolated(unsafe) var captured: [URL] = []
+        NavidromeMockURLProtocol.handler = { req in
+            captured.append(req.url!)
+            return navidromeOK(#"{"subsonic-response":{"status":"ok"}}"#, req)
+        }
+        let client = NavidromeClient(credentials: creds(), session: mockSession())
+        let ids = (0 ..< 250).map { "s\($0)" }
+        try await client.setPlaylistSongsChunked(id: "PL", songIDs: ids, name: "Big", chunkSize: 100)
+
+        let urls = captured
+        XCTAssertEqual(urls.count, 3, "250 ids at chunk 100 → 1 overwrite + 2 appends")
+
+        func items(_ url: URL, _ name: String) -> [String] {
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .filter { $0.name == name }.compactMap(\.value) ?? []
+        }
+        // First request overwrites with the first 100 ids in order.
+        XCTAssertTrue(urls[0].path.contains("createPlaylist"))
+        XCTAssertEqual(items(urls[0], "songId"), Array(ids[0 ..< 100]))
+        // Remaining requests append the rest in order via updatePlaylist/songIdToAdd.
+        XCTAssertTrue(urls[1].path.contains("updatePlaylist"))
+        XCTAssertTrue(urls[2].path.contains("updatePlaylist"))
+        let appended = items(urls[1], "songIdToAdd") + items(urls[2], "songIdToAdd")
+        XCTAssertEqual(appended, Array(ids[100 ..< 250]))
     }
 }
 

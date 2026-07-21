@@ -62,6 +62,16 @@ final class PodcastFeedTests: XCTestCase {
         XCTAssertEqual(tuesday.id, "https://cdn.example/tue.mp3")
     }
 
+    /// W-35 / POD-02: pubDate parses numeric-offset, named-zone (EST/PDT), and ISO-8601 forms.
+    func testParsesNamedZoneAndISODates() {
+        XCTAssertNotNil(PodcastFeedParser.parseRFC822("Mon, 13 Jul 2026 09:00:00 GMT"))
+        XCTAssertNotNil(PodcastFeedParser.parseRFC822("Mon, 13 Jul 2026 09:00:00 -0400"))
+        XCTAssertNotNil(PodcastFeedParser.parseRFC822("Mon, 13 Jul 2026 09:00:00 EST"))
+        XCTAssertNotNil(PodcastFeedParser.parseRFC822("Mon, 13 Jul 2026 09:00:00 PDT"))
+        XCTAssertNotNil(PodcastFeedParser.parseRFC822("2026-07-13T09:00:00Z"))
+        XCTAssertNil(PodcastFeedParser.parseRFC822("not a date"))
+    }
+
     func testDurationAndURLHelpers() {
         XCTAssertEqual(PodcastFeedParser.parseDuration("1:02:03"), 3723)
         XCTAssertEqual(PodcastFeedParser.parseDuration("90"), 90)

@@ -44,14 +44,28 @@ struct MusicAlbumDetail: View {
         return songs.reduce(0) { $0 + ($1.duration ?? 0) }
     }
 
-    /// "N tracks · 47 min · 2015" — the meta after the (separately-linked) artist.
+    /// "N tracks · 47 min · 2015 · Jazz · EP · 12 plays" — the meta after the (linked) artist.
     private var detailText: String {
         var parts: [String] = []
         let count = songs.isEmpty ? (album.songCount ?? 0) : songs.count
         if count > 0 { parts.append("\(count) track\(count == 1 ? "" : "s")") }
         if totalSeconds > 0 { parts.append(MusicAlbumCard.albumDuration(totalSeconds)) }
-        if let year = album.year { parts.append(String(year)) }
+        // Prefer the full original release date ("1975-09-27") when the server has it; else the year.
+        if let full = album.originalReleaseDate, full.count > 4 {
+            parts.append(full)
+        } else if let year = album.year {
+            parts.append(String(year))
+        }
+        if let genre = album.genres.first ?? album.genre, !genre.isEmpty { parts.append(genre) }
+        if let type = album.releaseTypeLabel { parts.append(type) }
+        if let plays = album.playCount, plays > 0 { parts.append("\(plays) play\(plays == 1 ? "" : "s")") }
         return parts.joined(separator: " · ")
+    }
+
+    /// Whether the album spans more than one disc — drives the disc section headers.
+    private var discNumbers: [Int] {
+        let discs = Set(songs.compactMap { $0.discNumber }.filter { $0 > 0 })
+        return discs.count > 1 ? discs.sorted() : []
     }
 
     /// A nav target for the album's artist, when the server gave us an artist id.
@@ -71,7 +85,7 @@ struct MusicAlbumDetail: View {
             VStack(alignment: .leading, spacing: 0) {
                 MusicAlbumBanner(
                     name: album.name,
-                    artist: album.artist,
+                    artist: album.displayArtistName,
                     artistDestination: artistDestination,
                     detail: detailText,
                     heroImage: heroImage,
@@ -135,6 +149,11 @@ struct MusicAlbumDetail: View {
         } else {
             LazyVStack(spacing: 2) {
                 ForEach(Array(visibleSongs.enumerated()), id: \.element.id) { index, song in
+                    // Multi-disc albums get a "Disc N" header before each disc's first track.
+                    if !discNumbers.isEmpty,
+                       index == 0 || visibleSongs[index - 1].discNumber != song.discNumber {
+                        discHeader(song.discNumber ?? 1)
+                    }
                     // Trust the server's track number only when it's a plausible one;
                     // auto-imports carry garbage values (e.g. 3639), so fall back to the
                     // row position.
@@ -146,6 +165,15 @@ struct MusicAlbumDetail: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
         }
+    }
+
+    private func discHeader(_ disc: Int) -> some View {
+        Text("Disc \(disc)")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
     }
 
     /// Load the hero image once from the album cover (falls back to the first track's cover).
@@ -397,6 +425,7 @@ struct MusicArtistDetail: View {
         case .title: list.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         case .artist: list.sort { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
         case .duration: list.sort { ($0.duration ?? 0) < ($1.duration ?? 0) }
+        case .plays: list.sort { ($0.playCount ?? 0) < ($1.playCount ?? 0) }
         }
         if !sortAscending { list.reverse() }
         return list
@@ -663,12 +692,11 @@ struct MusicPlaylistDetail: View {
     private var library: MusicLibraryStore { model.musicLibrary }
     private var songs: [NavidromeSong] { orderedSongs }
     private var name: String { loaded?.name ?? playlist.name }
-    /// Reorder is only meaningful on the full, unfiltered list. Also capped by size:
-    /// persisting a reorder overwrites the playlist by sending every id in a GET URL, so
-    /// very large playlists are excluded to stay well under proxy/server URL limits (and
-    /// avoid any risk of a truncated overwrite).
+    /// Reorder is only meaningful on the full, unfiltered list. Size is no longer a limit:
+    /// persistence batches the overwrite (`setPlaylistSongsChunked`, W-60) so arbitrarily large
+    /// playlists reorder without overflowing the request URL.
     private var canReorder: Bool {
-        filter.trimmingCharacters(in: .whitespaces).isEmpty && orderedSongs.count <= 200
+        filter.trimmingCharacters(in: .whitespaces).isEmpty
     }
     private var isPublic: Bool { loaded?.isPublic ?? playlist.isPublic }
 
@@ -681,12 +709,18 @@ struct MusicPlaylistDetail: View {
         return songs.reduce(0) { $0 + ($1.duration ?? 0) }
     }
 
-    /// "N songs · 42 min · Shared" — the banner meta line.
+    private var owner: String? { (loaded?.owner ?? playlist.owner)?.trimmingCharacters(in: .whitespaces) }
+    private var playlistComment: String? {
+        (loaded?.comment ?? playlist.comment)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// "N songs · 42 min · by alice · Shared" — the banner meta line.
     private var detailText: String {
         var parts: [String] = []
         let count = songs.isEmpty ? playlist.songCount : songs.count
         if count > 0 { parts.append("\(count) song\(count == 1 ? "" : "s")") }
         if totalSeconds > 0 { parts.append(MusicAlbumCard.albumDuration(totalSeconds)) }
+        if let owner, !owner.isEmpty { parts.append("by \(owner)") }
         if isPublic { parts.append("Shared") }
         return parts.joined(separator: " · ")
     }
@@ -710,6 +744,15 @@ struct MusicPlaylistDetail: View {
                     downloadStatus: DownloadStatusBadge.status(playlistID: playlist.id),
                     onBack: { dismiss() }
                 )
+
+                if let playlistComment, !playlistComment.isEmpty {
+                    Text(playlistComment)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                }
 
                 MusicBrowseHeader(
                     title: "Songs",

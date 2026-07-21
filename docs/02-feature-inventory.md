@@ -2,7 +2,7 @@
 
 Exhaustive inventory of what the in-Tonebox player **already does**, grouped, with
 each capability traced to its implementing type / file so it's traceable during
-extraction. Paths are relative to `apps/tonebox-mac/Sources/Tonebox/`.
+extraction. Paths are relative to `app/Sources/Baton/`.
 
 > Reading note: "verified" here means read from source. Line numbers are as of the
 > commit this suite was written against; treat them as anchors, not guarantees.
@@ -238,15 +238,15 @@ Chromecast/Sonos/UPnP (gap, see [05](05-roadmap-new-features.md)).
 
 ## H. Control layers (in-app + agent)
 
-- **Natural-language interpreter** — `Audio/MusicCommandInterpreter.swift`:
-  deterministic, offline parse of "play some jazz" / "turn it down" / "skip" into a
-  `MusicIntent`; falls through to an optional LLM classifier
-  (`AppModel+Music.swift:159`). Also drives voice control ("Tonebox, play…") via
-  wake words, opt-in (`DictationMusicControl`).
-- **Shared execution** — `AppModel+Music.swift`: `performMusicCommand` /
-  `execute(_:)` run intents against the player + client. Album-vs-loose-search
-  resolution in `resolvePlayQueue` / `bestAlbumMatch` (:92, :108) is shared by the
-  in-app assistant *and* the `music_play` MCP tool.
+- **Agent / natural-language control** — Baton ships **no** in-app NL command
+  interpreter; natural-language control is done by the *client* agent driving the MCP
+  tool catalog (`MCP/BatonMCPTools.swift`). "Play some jazz" resolves to `music_search`
+  + `music_play`; "turn it down" to `music_set_volume`, etc. — the agent maps intent to
+  tools, so there is no `MusicIntent`/interpreter type to maintain.
+- **Shared execution** — the `music_play` tool's album-vs-loose-search resolution
+  (`resolvePlayQueue` / `bestAlbumMatch`, `MCP/BatonMCPTools.swift`) runs against the
+  same `MusicModel` graph (`Model/MusicModel.swift`) the in-app UI drives, so tool and
+  UI paths stay consistent.
 - **MCP tools** — the control surface shipped in Baton 0.1.0 as **30 tools**
   (`app/Sources/Baton/MCP/BatonMCPTools.swift` + `BatonMCPMixTools.swift`): the 17
   `music_*` control tools this inventory traces, plus `music_build_mix`, 10
@@ -278,7 +278,7 @@ Unix-socket fast-path; see [04](04-integration-and-mcp.md).
 | EQ | `Audio/MusicEqualizer.swift`, `Audio/AudioEQProcessor.swift` |
 | Now-playing / media keys / ducking | `Audio/MusicNowPlayingCenter.swift`, `Audio/OutputVolumeController.swift` |
 | Subsonic client / config / models | `Integrations/Navidrome/*` |
-| Library state | `Model/MusicLibraryStore.swift`, `Model/AppModel+Music.swift`, `Model/AppModel+Playback.swift` |
+| Library / music state | `Model/MusicModel.swift`, `Model/MusicLibraryStore.swift` |
 | History / scrobbling | `Shell/Music/MusicPlayHistory.swift`, `MusicScrobbler.swift`, `MusicLastFM.swift` |
 | UI | `Shell/Music/*` (~32 files) |
-| Agent control | `MCP/MCPTools.swift`, `MCP/MCPServer.swift`, `Audio/MusicCommandInterpreter.swift` |
+| Agent control | `MCP/BatonMCPTools.swift`, `MCP/BatonMCPServer.swift` |

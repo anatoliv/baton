@@ -35,6 +35,17 @@ final class BatonAudioFocusRegistry {
     /// A handle with no live owner auto-expires after this long (§4.3 "time-bounded").
     static let handleMaxAge: TimeInterval = 10 * 60
 
+    /// The lowest volume an **agent-supplied** duck level may request, so `duck` always means
+    /// "dim but still audible" — an agent that wants true silence must use `pause` mode, not duck
+    /// to 0. The user's own configured duck level (Settings → Playback) is NOT subject to this;
+    /// they may choose full silence for their own spoken summaries if they like.
+    nonisolated static let agentDuckFloorPercent = 5
+
+    /// Clamp an agent's explicit `duckToPercent` to the audible floor … 100.
+    nonisolated static func clampAgentDuck(_ percent: Int) -> Int {
+        max(agentDuckFloorPercent, min(percent, 100))
+    }
+
     /// Injectable clock so tests can drive the time-bound without waiting.
     private let now: () -> Date
 

@@ -47,6 +47,10 @@ struct MusicSearchView: View {
 /// filters its starred set locally; Search runs a server query on submit.
 struct MusicCollectionView: View {
     @Environment(MusicModel.self) private var model
+    @Environment(BatonCommandRouter.self) private var router
+    /// The focus-request token this view has already honored (so a ⌘F issued while a *different*
+    /// tab was showing still focuses once this Search view mounts). (menu review #2)
+    @State private var honoredFocusToken = 0
 
     /// Where the songs/albums/artists come from. Read via a direct property access
     /// (not a keypath subscript) so `@Observable` change tracking actually fires.
@@ -68,6 +72,16 @@ struct MusicCollectionView: View {
     @State private var filterText = ""
     @State private var sort: SongSort
     @State private var sortAscending: Bool
+    /// Attribute filters applied on top of the text query, over the already-fetched rows.
+    /// `likedOnly` keeps only starred items; `ratingFilter` narrows by star rating
+    /// (see `RatingFilter`). Both apply to the Songs and Albums segments (Artists carry
+    /// no like/rating metadata, so the filter control is hidden there).
+    @State private var likedOnly = false
+    @State private var ratingFilter: RatingFilter = .any
+    /// Genre filter (nil = any). Values come from the loaded rows' genre metadata.
+    @State private var genreFilter: String?
+    /// Format floor: any / lossless-only / lossy-only (from the tracks' `suffix`/`bitDepth`).
+    @State private var formatFilter: FormatFilter = .any
     /// Multi-select state (ids + Shift-range anchor) — the shared model used by every
     /// browse screen. Song ids here; the same model type drives albums/artists/playlists.
     @State private var sel = MusicMultiSelect()
@@ -130,8 +144,74 @@ struct MusicCollectionView: View {
         var label: String { rawValue.capitalized }
     }
 
+    /// Star-rating filter: any, only unrated, or a "≥ N stars" floor.
+    enum RatingFilter: Hashable {
+        case any
+        case unrated
+        case atLeast(Int)
+
+        /// Does a rating (0 = unrated, 1…5) pass this filter?
+        func accepts(_ rating: Int) -> Bool {
+            switch self {
+            case .any: true
+            case .unrated: rating == 0
+            case let .atLeast(n): rating >= n
+            }
+        }
+
+        var isActive: Bool { self != .any }
+    }
+
+    /// Format filter: any, lossless-only, or lossy-only. A track is "lossless" when its `suffix`
+    /// is a known lossless container or the server reports a `bitDepth` (hi-res signal).
+    enum FormatFilter: Hashable, CaseIterable {
+        case any, lossless, lossy
+
+        var isActive: Bool { self != .any }
+        var label: String {
+            switch self {
+            case .any: "Any format"
+            case .lossless: "Lossless"
+            case .lossy: "Lossy"
+            }
+        }
+
+        private static let losslessSuffixes: Set<String> = ["flac", "alac", "wav", "aiff", "aif", "ape", "wv", "dsf", "dff"]
+
+        func accepts(_ song: NavidromeSong) -> Bool {
+            guard isActive else { return true }
+            let isLossless = Self.losslessSuffixes.contains((song.suffix ?? "").lowercased()) || (song.bitDepth ?? 0) > 0
+            return self == .lossless ? isLossless : !isLossless
+        }
+    }
+
+    /// Whether any attribute filter (liked / rating / genre / format) is narrowing the results.
+    private var filtersActive: Bool {
+        likedOnly || ratingFilter.isActive || genreFilter != nil || formatFilter.isActive
+    }
+
+    /// Distinct genres present in the loaded rows, for the genre picker (empty ⇒ picker hidden).
+    private var availableGenres: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        func add(_ names: [String]) {
+            for name in names where !name.isEmpty && seen.insert(name.lowercased()).inserted { out.append(name) }
+        }
+        for song in results.songs { add(song.genres.isEmpty ? [song.genre].compactMap { $0 } : song.genres) }
+        for album in results.albums { add(album.genres.isEmpty ? [album.genre].compactMap { $0 } : album.genres) }
+        return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private static func genres(of song: NavidromeSong) -> [String] {
+        song.genres.isEmpty ? [song.genre].compactMap { $0 } : song.genres
+    }
+
+    private static func genres(of album: NavidromeAlbum) -> [String] {
+        album.genres.isEmpty ? [album.genre].compactMap { $0 } : album.genres
+    }
+
     enum SongSort: String, CaseIterable, Identifiable, MusicSortField {
-        case rating, title, artist, duration
+        case rating, title, artist, duration, plays
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -139,6 +219,7 @@ struct MusicCollectionView: View {
             case .title: "Title"
             case .artist: "Artist"
             case .duration: "Duration"
+            case .plays: "Plays"
             }
         }
     }
@@ -159,19 +240,36 @@ struct MusicCollectionView: View {
                 $0.title.lowercased().contains(query) || ($0.artist ?? "").lowercased().contains(query)
             }
         }
+        if likedOnly { list = list.filter { library.isLiked($0) } }
+        if ratingFilter.isActive { list = list.filter { ratingFilter.accepts(library.rating($0)) } }
+        if let genreFilter {
+            list = list.filter { Self.genres(of: $0).contains { $0.caseInsensitiveCompare(genreFilter) == .orderedSame } }
+        }
+        if formatFilter.isActive { list = list.filter { formatFilter.accepts($0) } }
         switch sort {
         case .rating: list.sort { ratingFor($0) < ratingFor($1) }
         case .title: list.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         case .artist: list.sort { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
         case .duration: list.sort { ($0.duration ?? 0) < ($1.duration ?? 0) }
+        case .plays: list.sort { ($0.playCount ?? 0) < ($1.playCount ?? 0) }
         }
         if !sortAscending { list.reverse() }
         return list
     }
 
     private var albums: [NavidromeAlbum] {
-        guard !searchMode, !query.isEmpty else { return results.albums }
-        return results.albums.filter { $0.name.lowercased().contains(query) || ($0.artist ?? "").lowercased().contains(query) }
+        var list = results.albums
+        if !searchMode, !query.isEmpty {
+            list = list.filter { $0.name.lowercased().contains(query) || ($0.artist ?? "").lowercased().contains(query) }
+        }
+        if likedOnly { list = list.filter(\.isLiked) }
+        if ratingFilter.isActive { list = list.filter { ratingFilter.accepts(library.rating(id: $0.id, userRating: $0.userRating)) } }
+        if let genreFilter {
+            list = list.filter { Self.genres(of: $0).contains { $0.caseInsensitiveCompare(genreFilter) == .orderedSame } }
+        }
+        // Format is a track attribute; on the Albums segment it narrows to albums that have at
+        // least one matching track loaded (best-effort — album rows carry no per-track format).
+        return list
     }
 
     private var artists: [NavidromeArtist] {
@@ -203,6 +301,48 @@ struct MusicCollectionView: View {
         case .songs: results.songs.count
         case .albums: results.albums.count
         case .artists: results.artists.count
+        }
+    }
+
+    /// The funnel dropdown: a Liked-only toggle + a star-rating floor, with a Clear action.
+    /// Hidden on the Artists segment (artists carry no like/rating metadata). The funnel
+    /// fills in and tints when any filter is active, so a narrowed list is never a mystery.
+    @ViewBuilder private var filterMenu: some View {
+        if segment != .artists {
+            Menu {
+                Toggle("Liked only", isOn: $likedOnly)
+                Picker("Rating", selection: $ratingFilter) {
+                    Text("Any rating").tag(RatingFilter.any)
+                    Text("Unrated").tag(RatingFilter.unrated)
+                    ForEach(1...5, id: \.self) { n in
+                        Text(String(repeating: "★", count: n) + (n < 5 ? "+" : "")).tag(RatingFilter.atLeast(n))
+                    }
+                }
+                if !availableGenres.isEmpty {
+                    Picker("Genre", selection: $genreFilter) {
+                        Text("Any genre").tag(String?.none)
+                        ForEach(availableGenres, id: \.self) { g in Text(g).tag(String?.some(g)) }
+                    }
+                }
+                if segment == .songs {
+                    Picker("Format", selection: $formatFilter) {
+                        ForEach(FormatFilter.allCases, id: \.self) { f in Text(f.label).tag(f) }
+                    }
+                }
+                Divider()
+                Button("Clear Filters") {
+                    likedOnly = false
+                    ratingFilter = .any
+                    genreFilter = nil
+                    formatFilter = .any
+                }
+                .disabled(!filtersActive)
+            } label: {
+                Image(systemName: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(filtersActive ? Color.accentColor : Color.secondary)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help(filtersActive ? "Filters active — click to change" : "Filter by liked / rating")
         }
     }
 
@@ -249,7 +389,10 @@ struct MusicCollectionView: View {
                     }
                 },
                 sortMenu: {
-                    MusicSortControls(ascending: $sortAscending, selection: $sort)
+                    HStack(spacing: 8) {
+                        filterMenu
+                        MusicSortControls(ascending: $sortAscending, selection: $sort)
+                    }
                 }
             )
             Group {
@@ -261,6 +404,18 @@ struct MusicCollectionView: View {
             }
         }
         .task { await onAppear() }
+        // Find (⌘F) focuses the Search field. Handle both cases: the token bumped while this view
+        // is already showing (onChange), and a ⌘F that also switched to Search from another tab —
+        // the token changed before this view mounted, so honor it on appear. (menu review #2)
+        .onChange(of: router.focusSearchToken) { _, token in
+            if searchMode { honoredFocusToken = token; filterFocused = true }
+        }
+        .onAppear {
+            if searchMode, honoredFocusToken != router.focusSearchToken {
+                honoredFocusToken = router.focusSearchToken
+                Task { @MainActor in filterFocused = true }
+            }
+        }
         // Selection is song-specific; drop it when leaving the Songs segment so a stale
         // batch bar can't act on songs you're no longer looking at.
         .onChange(of: segment) { clearSelection() }
@@ -541,6 +696,7 @@ struct MusicCollectionView: View {
                             song: song,
                             isSelected: sel.contains(song.id),
                             showLikeBadge: showLikeBadge,
+                            showMetadataColumns: true,
                             onToggleSelect: { selectClicked(song.id) }
                         ) {
                             model.music.play(songs, startAt: index, source: source)
@@ -563,6 +719,9 @@ struct MusicCollectionView: View {
                 Text("Title")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Genre").frame(width: 100, alignment: .leading)
+            Text("Fmt").frame(width: 88, alignment: .leading)
+            Text("Year").frame(width: 44, alignment: .trailing)
             Text("Time").frame(width: 52, alignment: .trailing)
             Text("Rating").frame(width: 110, alignment: .center)
         }
@@ -572,7 +731,7 @@ struct MusicCollectionView: View {
     private var albumsView: some View {
         Group {
             if layout == .list {
-                cappedTable(header: BrowseColumns.header("Album", showTime: true, showRating: true, selectable: true)) {
+                cappedTable(header: BrowseColumns.header("Album", showTime: true, showRating: true, selectable: true, showGenre: true, showYear: true, showLike: true)) {
                     ForEach(albums) { album in
                         MusicAlbumRow(
                             album: album,
@@ -783,6 +942,10 @@ struct MusicLikedSongRow: View {
     var showSelect: Bool = true
     /// A leading track number (album detail only) — nil hides the column entirely.
     var trackNumber: Int? = nil
+    /// Show the Genre / Format / Year metadata columns — only on tables whose header carries the
+    /// matching labels (the Liked / Search song list). Off elsewhere to avoid unlabeled/redundant
+    /// columns (e.g. album detail already shows genre/year in its meta line).
+    var showMetadataColumns: Bool = false
     /// When set (playlist detail), adds a "Remove from Playlist" item to the context menu.
     var onRemoveFromPlaylist: (() -> Void)? = nil
     var onToggleSelect: () -> Void = {}
@@ -836,7 +999,7 @@ struct MusicLikedSongRow: View {
                     .font(.body.weight(isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent ? Color.accentColor : .primary)
                     .lineLimit(1)
-                if let artist = song.artist, !artist.isEmpty {
+                if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
@@ -862,6 +1025,20 @@ struct MusicLikedSongRow: View {
             }
 
             DownloadStatusBadge(songID: song.id)
+
+            if showMetadataColumns {
+                Text(song.genres.first ?? song.genre ?? "")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(width: 100, alignment: .leading)
+                Text(song.qualityLabel ?? "")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .frame(width: 88, alignment: .leading)
+                Text(song.year.map(String.init) ?? "")
+                    .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+            }
 
             Text(song.duration.map { MusicTrackRow.formatDuration($0) } ?? "—")
                 .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
@@ -938,7 +1115,8 @@ struct LikedSongGridCell: View {
             coverURL: coverURL,
             placeholder: "music.note",
             title: song.title,
-            subtitle: song.artist ?? "",
+            subtitle: [song.displayArtistName, song.genres.first ?? song.genre].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+            trailingTop: song.qualityLabel,
             trailingBottom: song.duration.map { MusicTrackRow.formatDuration($0) },
             isHovering: hovering,
             isPlayingSource: isCurrent,

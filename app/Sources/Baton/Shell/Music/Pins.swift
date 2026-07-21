@@ -3,7 +3,7 @@ import Observation
 import OSLog
 import SwiftUI
 
-private let pinLog = Logger(subsystem: "io.tonebox.macos", category: "Pins")
+private let pinLog = Logger(subsystem: "io.tonebox.baton", category: "Pins")
 
 // MARK: - Model
 

@@ -22,6 +22,18 @@ struct MusicLoudnessTests {
         #expect(gain(song(track: -6), .off) == 1)
     }
 
+    /// W-44 / AUDIO-23: with headroom, a quiet (+6 dB) track ends up LOUDER than a reference
+    /// (0 dB) track instead of both clipping at the 1.0 ceiling — the boost actually applies.
+    @Test("Headroom lets a quiet track's positive ReplayGain raise it above reference")
+    func headroomAppliesPositiveGain() {
+        let quiet = StreamingPlaybackController.loudnessMultiplier(for: song(track: 6), mode: .track, preampDB: 0)
+        let reference = StreamingPlaybackController.loudnessMultiplier(for: song(track: 0), mode: .track, preampDB: 0)
+        #expect(quiet > reference)
+        #expect(quiet <= 1.0) // still within the player's [0,1] range
+        // Loudness off → no headroom, unity.
+        #expect(StreamingPlaybackController.loudnessMultiplier(for: song(track: 6), mode: .off, preampDB: 0) == 1)
+    }
+
     @Test("No ReplayGain data returns unity (library without tags plays normally)")
     func noData() {
         let bare = NavidromeSong(id: "s", title: "t", artist: nil, album: nil, albumID: nil, duration: nil, coverArtID: nil)

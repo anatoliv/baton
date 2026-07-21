@@ -58,6 +58,20 @@ final class PodcastCapabilityTests: XCTestCase {
         XCTAssertEqual(store.support, .unknown)
     }
 
+    /// W-36 / POD-08: an "unsupported" verdict expires after the TTL so a server that later
+    /// gains podcast support is re-probed instead of hidden forever.
+    func testUnsupportedVerdictExpires() throws {
+        let defaults = try makeDefaults()
+        let serverID = try activateServer(in: defaults)
+        PodcastCapabilityStore.now = { Date(timeIntervalSince1970: 1_000_000) }
+        defer { PodcastCapabilityStore.now = { Date() } }
+        let store = PodcastCapabilityStore(defaults: defaults)
+        store.record(.unsupported) // stamped at 1_000_000
+        XCTAssertEqual(store.persisted(for: serverID), false, "within TTL the verdict is remembered")
+        PodcastCapabilityStore.now = { Date(timeIntervalSince1970: 1_000_000 + 8 * 86_400) }
+        XCTAssertNil(store.persisted(for: serverID), "past TTL the unsupported verdict is re-probed")
+    }
+
     // MARK: - Helpers
 
     private func makeDefaults() throws -> UserDefaults {

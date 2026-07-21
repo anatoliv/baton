@@ -11,23 +11,31 @@ private final class MockDestination: ScrobbleDestination {
     var active: Bool
     let maxBatch: Int
     var failFirst: Int
+    /// When true, `submit` throws a *permanent* rejection (burns a queue attempt); otherwise
+    /// a *transient* failure (retried without burning an attempt — W-08).
+    let permanentFailure: Bool
 
     private(set) var nowPlayingCalls: [Scrobble] = []
     private(set) var submitted: [Scrobble] = []
     private(set) var submitCallCount = 0
 
-    init(_ id: String, active: Bool = true, maxBatch: Int = 50, failFirst: Int = 0) {
+    init(_ id: String, active: Bool = true, maxBatch: Int = 50, failFirst: Int = 0, permanentFailure: Bool = false) {
         destinationID = id
         self.active = active
         self.maxBatch = maxBatch
         self.failFirst = failFirst
+        self.permanentFailure = permanentFailure
     }
 
     var isActive: Bool { active }
     func sendNowPlaying(_ scrobble: Scrobble) async { nowPlayingCalls.append(scrobble) }
     func submit(_ batch: [Scrobble]) async throws {
         submitCallCount += 1
-        if submitCallCount <= failFirst { throw ScrobbleError.service("mock") }
+        if submitCallCount <= failFirst {
+            throw permanentFailure
+                ? NavidromeError.subsonic(code: 0, message: "mock")
+                : NavidromeError.transport("mock")
+        }
         submitted.append(contentsOf: batch)
     }
 }
@@ -158,21 +166,44 @@ struct ScrobbleServiceTests {
         #expect(queue.pendingDestinations.contains("listenbrainz") == false)
     }
 
-    @Test("a failed submission is retried on the next flush, not lost")
+    @Test("a transient failure is retried on the next flush, not lost, without burning an attempt")
     func failedSubmissionRetries() async {
         let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm")
-        let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 1)   // first submit throws
+        let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 1)   // first submit throws (transient)
         let (service, queue) = makeService(lb: lb, fm: fm, nav: nav)
 
         service.completed(librarySong(), startedAt: start)
         await service.flushAllAndWait()
         #expect(nav.submitted.isEmpty)                                       // held back
         #expect(queue.take(destination: "navidrome", limit: 10).count == 1) // still queued
-        #expect(queue.take(destination: "navidrome", limit: 10).first?.attempts == 1)
+        // W-08: a transient failure must NOT count against maxAttempts.
+        #expect(queue.take(destination: "navidrome", limit: 10).first?.attempts == 0)
 
         await service.flushAllAndWait()
         #expect(nav.submitted.count == 1)                                    // delivered on retry
         #expect(queue.pendingDestinations.contains("navidrome") == false)
+    }
+
+    @Test("a permanent rejection burns an attempt")
+    func permanentRejectionBurnsAttempt() async {
+        let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm")
+        let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 1, permanentFailure: true)
+        let (service, queue) = makeService(lb: lb, fm: fm, nav: nav)
+        service.completed(librarySong(), startedAt: start)
+        await service.flushAllAndWait()
+        #expect(queue.take(destination: "navidrome", limit: 10).first?.attempts == 1)
+    }
+
+    @Test("an offline stretch never burns attempts or drops the head scrobble (SCR-01)")
+    func offlineDoesNotDropScrobbles() async {
+        let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm")
+        let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 1000) // always transient-fails
+        let (service, queue) = makeService(lb: lb, fm: fm, nav: nav)
+        service.completed(librarySong("s1"), startedAt: start)
+        for _ in 0 ..< (ScrobbleQueue.maxAttempts + 5) { await service.flushAllAndWait() }
+        let head = queue.take(destination: "navidrome", limit: 10).first
+        #expect(head != nil)
+        #expect(head?.attempts == 0)
     }
 }
 

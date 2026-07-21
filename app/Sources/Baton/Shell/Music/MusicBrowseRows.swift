@@ -3,11 +3,17 @@ import SwiftUI
 /// Column geometry shared by the album/playlist table rows and their headers.
 enum BrowseColumns {
     static let thumb: CGFloat = 40
+    static let genre: CGFloat = 120
+    static let year: CGFloat = 48
     static let tracks: CGFloat = 58
     static let time: CGFloat = 84
+    static let like: CGFloat = 26
     static let rating: CGFloat = 96
 
-    static func header(_ primary: String, showTime: Bool, showRating: Bool = false, selectable: Bool = false) -> some View {
+    static func header(
+        _ primary: String, showTime: Bool, showRating: Bool = false, selectable: Bool = false,
+        showGenre: Bool = false, showYear: Bool = false, showLike: Bool = false
+    ) -> some View {
         HStack(spacing: 12) {
             HStack(spacing: 12) {
                 if selectable { Color.clear.frame(width: 18, height: 1) }  // checkbox slot
@@ -15,8 +21,11 @@ enum BrowseColumns {
                 Text(primary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if showGenre { Text("Genre").frame(width: genre, alignment: .leading) }
+            if showYear { Text("Year").frame(width: year, alignment: .trailing) }
             Text("Tracks").frame(width: tracks, alignment: .trailing)
             if showTime { Text("Time").frame(width: time, alignment: .trailing) }
+            if showLike { Image(systemName: "heart").frame(width: like, alignment: .center) }
             if showRating { Text("Rating").frame(width: rating, alignment: .center) }
         }
         .font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
@@ -379,6 +388,8 @@ struct MusicAlbumRow: View {
 
     private var tracksText: String { album.songCount.map { "\($0)" } ?? "—" }
     private var timeText: String { (album.duration).map { MusicAlbumCard.albumDuration($0) } ?? "—" }
+    private var genreText: String { album.genres.first ?? album.genre ?? "" }
+    private var yearText: String { album.year.map(String.init) ?? "" }
 
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
@@ -390,6 +401,7 @@ struct MusicAlbumRow: View {
                 MusicRowThumb(url: coverURL, isHovering: hovering, isWorking: working)
             }
             .buttonStyle(.plain).help("Play \(title)")
+            .accessibilityLabel("Play \(title)")
 
             NavigationLink(value: album) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -401,6 +413,8 @@ struct MusicAlbumRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(subtitle.isEmpty ? title : "\(title), \(subtitle)")
+            .accessibilityHint("Opens album")
 
             if hovering {
                 MusicRowActions(actions: [
@@ -415,11 +429,32 @@ struct MusicAlbumRow: View {
 
             DownloadStatusBadge(albumID: album.id, totalTracks: album.songCount)
 
+            Text(genreText)
+                .font(.callout).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(width: BrowseColumns.genre, alignment: .leading)
+            Text(yearText)
+                .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                .frame(width: BrowseColumns.year, alignment: .trailing)
             Group {
                 Text(tracksText).frame(width: BrowseColumns.tracks, alignment: .trailing)
                 Text(timeText).frame(width: BrowseColumns.time, alignment: .trailing)
             }
-            .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            .monospacedDigit()
+            .font(.callout)
+            .foregroundStyle(.secondary)
+
+            MusicLikeHeart(
+                isLiked: model.musicLibrary.isLiked(id: album.id, isLiked: album.isLiked),
+                help: model.musicLibrary.isLiked(id: album.id, isLiked: album.isLiked) ? "Unlike album" : "Like album"
+            ) {
+                Task {
+                    await model.musicLibrary.toggleLike(
+                        id: album.id, currentLiked: album.isLiked, userRating: album.userRating
+                    )
+                }
+            }
+            .frame(width: BrowseColumns.like, alignment: .center)
 
             MusicStarRating(rating: model.musicLibrary.rating(id: album.id, userRating: album.userRating)) { newRating in
                 Task {
@@ -600,6 +635,7 @@ struct MusicPlaylistRow: View {
                 MusicRowThumb(url: coverURL, placeholder: "music.note.list", isHovering: hovering, isWorking: working)
             }
             .buttonStyle(.plain).help("Play \(playlist.name)")
+            .accessibilityLabel("Play \(playlist.name)")
 
             NavigationLink(value: playlist) {
                 HStack(spacing: 6) {
@@ -611,6 +647,8 @@ struct MusicPlaylistRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(playlist.isPublic ? "\(playlist.name), shared playlist" : "\(playlist.name), playlist")
+            .accessibilityHint("Opens playlist")
 
             if hovering {
                 MusicRowActions(actions: [

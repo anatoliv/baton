@@ -8,10 +8,14 @@ enum FilterHistory {
     static let sizeKey = "tonebox.filterHistorySize"
     static let defaultSize = 15
 
+    /// Backing store. Injectable so tests exercise the dedup/cap/remove logic without touching
+    /// (and overwriting) the developer's real filter history. (W-49 / TEST-13)
+    nonisolated(unsafe) static var defaults: UserDefaults = .standard
+
     /// Max entries kept per screen. Clamped to a sane range so a bad default can't make
     /// the list unbounded or empty.
     static var maxSize: Int {
-        let stored = UserDefaults.standard.object(forKey: sizeKey) as? Int
+        let stored = defaults.object(forKey: sizeKey) as? Int
         return min(100, max(1, stored ?? defaultSize))
     }
 
@@ -19,7 +23,7 @@ enum FilterHistory {
 
     /// The saved terms for a screen, most-recent first.
     static func items(_ key: String) -> [String] {
-        (UserDefaults.standard.array(forKey: storageKey(key)) as? [String]) ?? []
+        (defaults.array(forKey: storageKey(key)) as? [String]) ?? []
     }
 
     /// Record `term` as the most recent for `key` (trimmed; empty ignored). Any existing
@@ -31,19 +35,19 @@ enum FilterHistory {
         var list = items(key).filter { $0.caseInsensitiveCompare(trimmed) != .orderedSame }
         list.insert(trimmed, at: 0)
         if list.count > maxSize { list = Array(list.prefix(maxSize)) }
-        UserDefaults.standard.set(list, forKey: storageKey(key))
+        defaults.set(list, forKey: storageKey(key))
     }
 
     /// Remove one saved term from a screen's history.
     static func remove(_ term: String, from key: String) {
         let list = items(key).filter { $0 != term }
-        if list.isEmpty { UserDefaults.standard.removeObject(forKey: storageKey(key)) }
-        else { UserDefaults.standard.set(list, forKey: storageKey(key)) }
+        if list.isEmpty { defaults.removeObject(forKey: storageKey(key)) }
+        else { defaults.set(list, forKey: storageKey(key)) }
     }
 
     /// Wipe a single screen's history.
     static func clear(_ key: String) {
-        UserDefaults.standard.removeObject(forKey: storageKey(key))
+        defaults.removeObject(forKey: storageKey(key))
     }
 
     /// The screens that keep filter history — used by Settings to clear them all at once.

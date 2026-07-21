@@ -6,8 +6,9 @@ Claude Code, Cursor, Windsurf/Cascade, Aider, or a plain CLI agent. The abstract
 matters; §10 maps it onto each harness's concrete features.
 
 It is grounded in a real case study: the **Baton** extraction, where Tonebox's music player is
-being carved into a standalone macOS app. Cited commits are from
-`~/Projects/tonebox/apps/tonebox-mac` and the wave plan in `~/Projects/baton/ORCHESTRATION-PLAN.md`.
+being carved into a standalone macOS app. The extracted code now lives in the Baton repo
+(`~/Projects/baton`, `app/Sources/Baton/...`); the wave plan is in
+`~/Projects/baton/ORCHESTRATION-PLAN.md`.
 
 ---
 
@@ -145,11 +146,11 @@ Do not trust your mental model of the module boundaries — measure it before sp
 ```bash
 # 1. What files will each slice touch? (list them explicitly)
 # 2. Does slice A import/reference anything owned by slice B?
-grep -rn "NavidromeKeychain\|NavidromeConfig" apps/tonebox-mac/Sources/Tonebox/Audio/
-grep -rn "StreamingPlaybackController"          apps/tonebox-mac/Sources/Tonebox/Integrations/
+grep -rn "NavidromeKeychain\|NavidromeConfig" app/Sources/Baton/Audio/
+grep -rn "StreamingPlaybackController"          app/Sources/Baton/Integrations/
 
 # 3. Count shared call-sites of the symbol you're moving — this sizes the blast radius.
-grep -rn "appModel.music\b" apps/tonebox-mac/Sources | wc -l
+grep -rn "appModel.music\b" app/Sources/Baton | wc -l
 ```
 
 If a grep shows cross-references between two intended slices, they are **not disjoint** — either
@@ -326,8 +327,8 @@ Every code agent gets a fill-in-the-blanks brief. Ambiguity here is how agents d
 ## Agent brief: W1-keychain
 
 **Scope — files you MAY edit (exhaustive):**
-- apps/tonebox-mac/.../Integrations/Navidrome/NavidromeConfig.swift
-- apps/tonebox-mac/.../Integrations/Navidrome/NavidromeKeychain.swift  (new file)
+- app/Sources/Baton/Integrations/Navidrome/NavidromeConfig.swift
+- app/Sources/Baton/Integrations/Navidrome/NavidromeKeychain.swift  (new file)
 
 **DO NOT TOUCH:**
 - Audio/*  (sibling agent W1-audio-focus owns it this wave)

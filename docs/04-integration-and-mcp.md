@@ -391,7 +391,7 @@ duck bridge), and **hybrid delegation** is wired: when Baton is running, Tonebox
 command/voice/agent music actions delegate to Baton over MCP; otherwise they run
 in-process exactly as before.
 
-**Delegation seam** (`AppModel+Music.swift`): `execute(_ intent:)` first tries
+**Delegation seam** (Tonebox's music command path): `execute(_ intent:)` first tries
 `delegateToBatonIfRunning`, which delegates **iff** the user prefers Baton *and* it's
 running, otherwise returns `nil` and falls through to `executeInProcess`. It is a pure
 no-op when Baton is absent (no `mcp.json` / connection refused ⇒ `isRunning()` false).
@@ -403,7 +403,7 @@ no-op when Baton is absent (no `mcp.json` / connection refused ⇒ `isRunning()`
 
 | Tonebox event | Baton call | Notes |
 |---|---|---|
-| Voice/command "play some jazz" | `music_play` (via `BatonClient`) | `MusicCommandInterpreter` intent maps 1:1 |
+| Voice/command "play some jazz" | `music_play` (via `BatonClient`) | Tonebox's parsed music intent maps 1:1 |
 | Command palette / voice pause/next/volume/now-playing | `music_pause` / `music_next` / … | Delegated when Baton is running |
 | Dictation **start** | `audio_suspend(owner:"tonebox-dictation")` → store handle | Via `BatonControl.suspendForCapture()` |
 | Dictation **terminal** (idle/complete/error) | `audio_resume(handle)` | Via `BatonControl.resumeAfterCapture()`; replays the exact handle; no-op if the user changed state |

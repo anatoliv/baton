@@ -20,4 +20,18 @@ struct MusicEqualizerTests {
         #expect(cut.b0 != 1)
         #expect(boost.b0 > cut.b0)
     }
+
+    /// W-49 / TEST-13: the EQ persists to its injected store, never to `.standard` — so running
+    /// the suite can't overwrite the developer's real equalizer settings.
+    @Test("EQ writes to the injected store, not .standard")
+    @MainActor
+    func usesInjectedStoreNotStandard() {
+        let key = MusicEqualizer.enabledKey
+        let before = UserDefaults.standard.bool(forKey: key)
+        let suite = UserDefaults(suiteName: "eq-test-\(UUID().uuidString)")!
+        let eq = MusicEqualizer(defaults: suite)
+        eq.isEnabled = true
+        #expect(suite.bool(forKey: key), "the toggle must persist to the injected store")
+        #expect(UserDefaults.standard.bool(forKey: key) == before, "it must not touch .standard")
+    }
 }

@@ -86,7 +86,7 @@ struct MiniPlayerWindowView: View {
                     .font(.callout.weight(.semibold)).lineLimit(1)
                     .contentShape(Rectangle())
                     .onTapGesture { if player.nowPlaying != nil { openFull() } }
-                Text(player.nowPlaying?.artist ?? "")
+                Text(player.nowPlaying?.displayArtistName ?? "")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 if let context = playingFrom {
                     Text(context).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
@@ -137,7 +137,7 @@ struct MiniPlayerWindowView: View {
                                 HStack(spacing: 8) {
                                     Text(item.song.title).font(.caption).lineLimit(1)
                                     Spacer(minLength: 4)
-                                    Text(item.song.artist ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(item.song.displayArtistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 .padding(.vertical, 3).padding(.horizontal, 6)
                                 .contentShape(Rectangle())
@@ -177,7 +177,10 @@ struct MiniPlayerWindowView: View {
                     .foregroundStyle(player.isShuffled ? accent : .secondary)
             }
             .help("Shuffle")
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(player.isShuffled ? "On" : "Off")
             Button { player.previous() } label: { Image(systemName: "backward.fill") }
+                .accessibilityLabel("Previous track")
             Button { player.isPlaying ? player.pause() : player.resume() } label: {
                 ZStack {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -187,12 +190,16 @@ struct MiniPlayerWindowView: View {
                 }
             }
             .disabled(player.nowPlaying == nil)
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
             Button { player.next() } label: { Image(systemName: "forward.fill") }
+                .accessibilityLabel("Next track")
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                     .foregroundStyle(player.repeatMode == .off ? .secondary : accent)
             }
             .help("Repeat")
+            .accessibilityLabel("Repeat")
+            .accessibilityValue(player.repeatMode.rawValue)
         }
         .buttonStyle(.plain)
         .font(.title3)

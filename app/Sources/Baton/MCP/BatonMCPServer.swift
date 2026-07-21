@@ -2,6 +2,10 @@ import Foundation
 import Network
 import Observation
 import OSLog
+// The MCP transport protocol (JSON-RPC, HTTP parsing/framing, token compare) is the fourth
+// leaf of the W-51 module split. Re-exported so every call site stays unqualified; the server
+// itself (which ties into MusicModel) stays in the app.
+@_exported import BatonMCPProtocol
 
 private let batonServerLog = Logger(subsystem: "io.tonebox.baton", category: "MCPServer")
 
@@ -37,6 +41,11 @@ final class BatonMCPServer {
     /// The MCP session id each open SSE stream belongs to (when the client sent one) — used
     /// to auto-expire that session's audio-focus handles when its stream closes (§4.3).
     @ObservationIgnored private var streamSessions: [ObjectIdentifier: String] = [:]
+    /// Server-minted session ids currently valid. The server assigns one at `initialize` (spec:
+    /// server-assigned, so a client can't forge or guess one — SEC-15); later POST/GET/DELETE must
+    /// carry a known id or get 404. Capped as a backstop against a client that never DELETEs.
+    @ObservationIgnored private var activeSessions: Set<String> = []
+    static let maxActiveSessions = 64
     /// Polls the player for state changes to emit `resources/updated` notifications.
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     /// Last-seen state signatures so a poll only notifies on an actual change.
@@ -45,15 +54,21 @@ final class BatonMCPServer {
 
     private let queueLabel = "io.tonebox.baton.mcp"
 
-    init(music: MusicModel, focus: BatonAudioFocusRegistry = BatonAudioFocusRegistry()) {
+    /// Overridable for hermetic tests so the discovery file + second-instance guard use a temp
+    /// dir instead of the shared app-support location (which a running app owns). (W-46)
+    @ObservationIgnored private let discoveryDirOverride: URL?
+
+    init(music: MusicModel, focus: BatonAudioFocusRegistry = BatonAudioFocusRegistry(), discoveryDirectory: URL? = nil) {
         self.music = music
         self.focus = focus
-        let defaults = UserDefaults.standard
-        if let existing = defaults.string(forKey: BatonMCPConstants.tokenDefaultsKey), !existing.isEmpty {
+        self.discoveryDirOverride = discoveryDirectory
+        // The bearer token grants full remote control, so it lives in the Keychain, not
+        // plaintext UserDefaults (migrate-on-read handles existing installs). (W-13)
+        if let existing = NavidromeKeychain.secret(account: BatonMCPConstants.tokenDefaultsKey) {
             token = existing
         } else {
             let fresh = BatonMCPAuth.generateToken()
-            defaults.set(fresh, forKey: BatonMCPConstants.tokenDefaultsKey)
+            NavidromeKeychain.setSecret(fresh, account: BatonMCPConstants.tokenDefaultsKey)
             token = fresh
         }
     }
@@ -64,9 +79,26 @@ final class BatonMCPServer {
     /// begins the change-poll, and writes the discovery file. Idempotent.
     func start() {
         guard listener == nil else { return }
+        // Don't steal a live instance's control surface: if another Baton process already
+        // owns the endpoint (its pid is alive), refuse rather than overwrite its mcp.json /
+        // control.sock and cause split-brain control. A dead pid means a stale file — proceed. (W-14)
+        if let pid = liveForeignOwnerPid() {
+            lastError = "Another Baton instance (pid \(pid)) already owns the MCP endpoint."
+            batonServerLog.error("MCP server not started: pid \(pid) already owns the endpoint")
+            return
+        }
+        Task { @MainActor in await self.startScanning() }
+    }
+
+    /// Bind the first free port, walking upward on a conflict. Awaits the listener actually
+    /// reaching `.ready` before declaring success and advertising it — NWListener.start is
+    /// async, so the old synchronous "return true" could publish a port the server never
+    /// owned. (W-38 / MCP-02)
+    private func startScanning() async {
         for offset in 0 ..< BatonMCPConstants.portScanRange {
             let port = BatonMCPConstants.defaultPort + UInt16(offset)
-            if bind(port: port) {
+            if let listener = await bind(port: port) {
+                self.listener = listener
                 boundPort = port
                 isRunning = true
                 lastError = nil
@@ -76,6 +108,7 @@ final class BatonMCPServer {
                 return
             }
         }
+        isRunning = false
         lastError = "No free port in \(BatonMCPConstants.defaultPort)…\(BatonMCPConstants.defaultPort + UInt16(BatonMCPConstants.portScanRange))."
         batonServerLog.error("MCP server failed to bind any port")
     }
@@ -86,37 +119,58 @@ final class BatonMCPServer {
         for (_, conn) in streams { conn.cancel() }
         streams.removeAll()
         streamSessions.removeAll()
+        activeSessions.removeAll()
         listener?.cancel()
         listener = nil
         isRunning = false
         boundPort = nil
+        // Remove the discovery file so a stale token+port doesn't linger after quit/crash
+        // for another process to harvest. (W-14)
+        if let dir = discoveryDirectory() {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("mcp.json"))
+        }
     }
 
-    private func bind(port: UInt16) -> Bool {
+    /// Try to bind `port`, returning the listener only once it reaches `.ready`, or nil on
+    /// `.failed`/`.cancelled` (so the caller advances to the next port). (W-38 / MCP-02)
+    private func bind(port: UInt16) async -> NWListener? {
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback // loopback-only: unreachable off-device
         params.allowLocalEndpointReuse = true
         guard let nwPort = NWEndpoint.Port(rawValue: port),
               let listener = try? NWListener(using: params, on: nwPort)
-        else { return false }
+        else { return nil }
 
         listener.newConnectionHandler = { [weak self] conn in
             Task { @MainActor in self?.accept(conn) }
         }
-        listener.stateUpdateHandler = { [weak self] state in
-            if case let .failed(err) = state {
-                Task { @MainActor in
-                    self?.lastError = "Listener failed: \(err.localizedDescription)"
-                    batonServerLog.error("MCP listener failed: \(err.localizedDescription)")
+        let ready: Bool = await withCheckedContinuation { continuation in
+            // Network.framework invokes stateUpdateHandler serially on the listener's queue
+            // (`.main` below), so this single-resume guard is never touched concurrently — hence
+            // `nonisolated(unsafe)` rather than a lock. Guards against resuming the continuation
+            // more than once (ready→failed, or a late .cancelled).
+            nonisolated(unsafe) var resumed = false
+            listener.stateUpdateHandler = { [weak self] state in
+                switch state {
+                case .ready:
+                    if !resumed { resumed = true; continuation.resume(returning: true) }
+                case let .failed(err):
+                    Task { @MainActor in
+                        self?.lastError = "Listener failed: \(err.localizedDescription)"
+                        batonServerLog.error("MCP listener failed on port \(port): \(err.localizedDescription)")
+                    }
+                    if !resumed { resumed = true; continuation.resume(returning: false) }
+                case .cancelled:
+                    if !resumed { resumed = true; continuation.resume(returning: false) }
+                default:
+                    break
                 }
             }
+            listener.start(queue: .main)
         }
-        listener.start(queue: .main)
-        self.listener = listener
-        // NWListener.start is async; if the port was taken it transitions to .failed
-        // shortly after (surfaced via stateUpdateHandler). For the common case the
-        // first port is free; a busy port is rare on loopback for a per-user app.
-        return true
+        if ready { return listener }
+        listener.cancel()
+        return nil
     }
 
     // MARK: - Connection handling
@@ -153,6 +207,15 @@ final class BatonMCPServer {
     }
 
     private func route(_ request: HTTPRequestMessage, on conn: NWConnection) {
+        // DNS-rebinding defense (the listener is loopback-bound, but a rebinding web page
+        // sends the attacker's Host/Origin): require a loopback Host and reject a
+        // cross-origin Origin before doing anything else. (W-14)
+        guard Self.isLoopbackHost(request.headers["host"]),
+              Self.isAllowedOrigin(request.headers["origin"])
+        else {
+            sendAndClose(conn, HTTPResponse.empty(status: "403 Forbidden"))
+            return
+        }
         // Auth gate — constant-time compare; loopback + token both required.
         guard let provided = request.bearerToken,
               BatonMCPAuth.constantTimeEquals(provided, token)
@@ -166,18 +229,49 @@ final class BatonMCPServer {
             return
         }
 
+        // A request that carries a session id must carry a *known* one (GET/DELETE never carry
+        // `initialize`, which mints the id, so validating them here is safe). (W-39 / SEC-15)
+        if request.method != "POST", let sid = request.sessionID, !activeSessions.contains(sid) {
+            sendAndClose(conn, HTTPResponse.empty(status: "404 Not Found"))
+            return
+        }
+
         switch request.method {
         case "GET":
+            // The SSE stream requires an `Accept: text/event-stream`; a plain GET is a client
+            // error, not a stream to open. (W-39 / MCP-10)
+            guard request.acceptsEventStream else {
+                sendAndClose(conn, HTTPResponse.empty(status: "405 Method Not Allowed"))
+                return
+            }
             // Open an SSE stream for server→client notifications.
             openStream(conn, sessionID: request.sessionID)
         case "POST":
             handlePost(request, on: conn)
         case "DELETE":
-            // Session teardown — nothing persistent to clean up beyond the stream.
+            // Session teardown: cancel the session's streams and expire its audio-focus handles.
+            if let sid = request.sessionID { endSession(sid) }
             sendAndClose(conn, HTTPResponse.empty(status: "200 OK"))
         default:
             sendAndClose(conn, HTTPResponse.empty(status: "405 Method Not Allowed"))
         }
+    }
+
+    /// A Host header naming loopback (or absent, for HTTP/1.0 clients — the socket is
+    /// loopback-bound anyway). Rejects `Host: evil.com` from a DNS-rebinding page. (W-14)
+    static func isLoopbackHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return true }
+        let name = host.hasPrefix("[") // [::1]:port
+            ? String(host.dropFirst().prefix(while: { $0 != "]" }))
+            : host.split(separator: ":").first.map(String.init) ?? host
+        return name == "127.0.0.1" || name == "localhost" || name == "::1"
+    }
+
+    /// An Origin that's absent, `null`, or loopback. Rejects a cross-origin browser page. (W-14)
+    static func isAllowedOrigin(_ origin: String?) -> Bool {
+        guard let origin = origin?.lowercased(), origin != "null" else { return true }
+        guard let host = URL(string: origin)?.host?.lowercased() else { return false }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
 
     // MARK: - POST (JSON-RPC)
@@ -200,6 +294,14 @@ final class BatonMCPServer {
         let id = dict["id"]
         let params = (dict["params"] as? [String: Any]) ?? [:]
 
+        // A non-initialize POST carrying a session id must carry a known one. (W-39 / SEC-15)
+        if method != "initialize", let sid = request.sessionID, !activeSessions.contains(sid) {
+            sendAndClose(conn, HTTPResponse.json(
+                JSONRPC.error(id: id, code: JSONRPCError.invalidRequest, message: "Unknown or expired session."),
+                status: "404 Not Found"))
+            return
+        }
+
         // Notifications (no id) get a 202 with no body.
         if id == nil {
             sendAndClose(conn, HTTPResponse.empty(status: "202 Accepted"))
@@ -209,8 +311,32 @@ final class BatonMCPServer {
         Task { @MainActor in
             let response = await self.dispatch(
                 method: method, id: id, params: params, sessionID: request.sessionID)
-            self.sendAndClose(conn, HTTPResponse.json(response, sessionID: request.sessionID))
+            // The server mints the session id at `initialize` and returns it in the response
+            // header; other methods echo the client's id back unchanged. (W-39)
+            let responseSession = method == "initialize" ? self.mintSession() : request.sessionID
+            self.sendAndClose(conn, HTTPResponse.json(response, sessionID: responseSession))
         }
+    }
+
+    /// Mint and register a new session id (returned to the client at `initialize`). Backstop-capped
+    /// so a client that never issues DELETE can't grow the set without bound.
+    private func mintSession() -> String {
+        if activeSessions.count >= Self.maxActiveSessions, let evict = activeSessions.first {
+            endSession(evict)
+        }
+        let sid = UUID().uuidString
+        activeSessions.insert(sid)
+        return sid
+    }
+
+    /// Tear a session down: forget it, cancel any SSE stream it owns (which expires that session's
+    /// audio-focus handles via `handleStreamClosed`), and expire any focus handles it still holds.
+    private func endSession(_ sessionID: String) {
+        activeSessions.remove(sessionID)
+        for (key, sid) in streamSessions where sid == sessionID {
+            streams[key]?.cancel()
+        }
+        _ = focus.expireHandles(forConnection: sessionID, on: music.music)
     }
 
     private func dispatch(
@@ -330,7 +456,11 @@ final class BatonMCPServer {
         lastQueueSignature = queueSignature()
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
+                // With no SSE client listening (the common case) there are no notifications to
+                // emit, so poll slowly — just often enough to keep the focus-expiry safety net
+                // live — instead of waking the main actor at 500 ms forever. (W-40 / ARCH-17)
+                let hasStreams = self?.streams.isEmpty == false
+                try? await Task.sleep(for: .milliseconds(hasStreams ? 500 : 2000))
                 self?.emitStateChangeIfNeeded()
                 // Belt-and-braces for a client that vanished without a clean stream-close:
                 // auto-expire any focus handle past the time-bound so music can't stay
@@ -369,7 +499,23 @@ final class BatonMCPServer {
 
     private func queueSignature() -> String {
         let p = music.music
-        return "\(p.queue.count)|\(p.queue.first?.id ?? "-")|\(p.queue.last?.id ?? "-")|\(p.queueSource?.id ?? "-")"
+        // Order-sensitive: sampling only count/first/last missed a middle-of-queue reorder (same
+        // ends, same count) so agent UIs went stale after a reorder (W-40 / MCP-06). Fold every id
+        // in order into a stable digest instead.
+        return "\(p.queue.count)|\(Self.queueDigest(ids: p.queue.map(\.id)))|\(p.queueSource?.id ?? "-")"
+    }
+
+    /// A stable, order-sensitive digest of the queue's ids. FNV-1a — deterministic (unlike the
+    /// per-process-seeded `Hasher`), so it's directly testable and consistent enough for the poll
+    /// to compare successive snapshots. An id separator byte keeps `["ab","c"]` ≠ `["a","bc"]`.
+    static func queueDigest(ids: [String]) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
+        let prime: UInt64 = 0x0000_0100_0000_01b3 // FNV prime
+        for id in ids {
+            for byte in id.utf8 { hash = (hash ^ UInt64(byte)) &* prime }
+            hash = (hash ^ 0x2f) &* prime // "/" separator between ids
+        }
+        return String(hash, radix: 16)
     }
 
     // MARK: - Discovery file
@@ -397,16 +543,33 @@ final class BatonMCPServer {
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-            try data.write(to: url, options: .atomic)
-            // Token is a secret — restrict to the owner (0600).
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            // Create the file 0600 from the start — the token is a secret and a
+            // write-then-chmod leaves a brief world-readable window. (W-14)
+            try? FileManager.default.removeItem(at: url)
+            if !FileManager.default.createFile(atPath: url.path, contents: data,
+                                               attributes: [.posixPermissions: 0o600]) {
+                batonServerLog.error("failed to write discovery file at \(url.path, privacy: .public)")
+            }
         } catch {
             batonServerLog.error("failed to write discovery file: \(error.localizedDescription)")
         }
     }
 
+    /// The pid recorded in an existing discovery file, if that process is still alive and
+    /// isn't us — i.e. another Baton instance already owns the MCP endpoint. (W-14)
+    private func liveForeignOwnerPid() -> Int32? {
+        guard let dir = discoveryDirectory(),
+              let data = try? Data(contentsOf: dir.appendingPathComponent("mcp.json")),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pid = obj["pid"] as? Int, pid > 0 else { return nil }
+        let me = ProcessInfo.processInfo.processIdentifier
+        guard Int32(pid) != me else { return nil }
+        return kill(pid_t(pid), 0) == 0 ? Int32(pid) : nil // ESRCH ⇒ dead ⇒ stale, ignore
+    }
+
     private func discoveryDirectory() -> URL? {
-        FileManager.default
+        if let discoveryDirOverride { return discoveryDirOverride }
+        return FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent("Baton", isDirectory: true)

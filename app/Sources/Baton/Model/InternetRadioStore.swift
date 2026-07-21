@@ -4,7 +4,7 @@ import Observation
 import OSLog
 import SwiftUI
 
-private let radioStoreLog = Logger(subsystem: "io.tonebox.macos", category: "InternetRadio")
+private let radioStoreLog = Logger(subsystem: "io.tonebox.baton", category: "InternetRadio")
 
 // MARK: - Details resolved off-server
 
@@ -98,6 +98,13 @@ final class InternetRadioStore {
     }
 
     // MARK: Playback
+
+    init() {
+        // Surface a station whose stream fails as a toast, rather than a silent "on air". (W-30)
+        engine.onError = { [weak self] message in
+            self?.duckController?.postToast(message, symbol: "wifi.slash")
+        }
+    }
 
     var onAirStation: NavidromeRadioStation? { engine.currentStation }
     func isOnAir(_ station: NavidromeRadioStation) -> Bool { engine.currentStation?.id == station.id }
@@ -282,12 +289,18 @@ final class RadioPlaybackEngine {
 
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private var rateObservation: NSKeyValueObservation?
+    @ObservationIgnored private var statusObservation: NSKeyValueObservation?
     @ObservationIgnored private var metadataOutput: AVPlayerItemMetadataOutput?
     @ObservationIgnored private var metadataReceiver: ICYMetadataReceiver?
+    /// Called (on the main actor) when a station's stream fails to play — so the store can toast
+    /// the user and the UI stops showing a dead station as "on air". (W-30 / RAD-01)
+    @ObservationIgnored var onError: (@MainActor (String) -> Void)?
 
     init() {
         rateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-            MainActor.assumeIsolated { self?.isPlaying = player.timeControlStatus == .playing }
+            // KVO can fire off-main; read the Sendable value, then hop to the main actor.
+            let playing = player.timeControlStatus == .playing
+            Task { @MainActor in self?.isPlaying = playing }
         }
     }
 
@@ -305,6 +318,20 @@ final class RadioPlaybackEngine {
         item.add(output)
         metadataOutput = output
         metadataReceiver = receiver
+
+        // Surface a failed stream (wrong URL, 404, geo-block, TLS) instead of sitting silently
+        // "on air" forever: on .failed, report it and stop. (W-30 / RAD-01)
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            let status = item.status
+            let message = item.error?.localizedDescription
+            Task { @MainActor in
+                guard let self, status == .failed else { return }
+                let msg = message ?? "The station is unavailable."
+                radioStoreLog.error("radio item failed: \(msg, privacy: .public)")
+                self.onError?(msg)
+                self.stop()
+            }
+        }
 
         player.replaceCurrentItem(with: item)
         player.play()
@@ -326,6 +353,8 @@ final class RadioPlaybackEngine {
     func stop() {
         player.pause()
         player.replaceCurrentItem(with: nil)
+        statusObservation?.invalidate()
+        statusObservation = nil
         currentStation = nil
         isPlaying = false
         nowPlayingTitle = nil

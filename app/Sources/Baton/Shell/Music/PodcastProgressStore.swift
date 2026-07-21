@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let podcastProgressLog = Logger(subsystem: "io.tonebox.macos", category: "PodcastProgress")
+private let podcastProgressLog = Logger(subsystem: "io.tonebox.baton", category: "PodcastProgress")
 
 /// Per-episode listening progress for client-side podcasts: how far you got, and whether an
 /// episode is finished. This is what makes podcasts *resumable* — the one content type where
@@ -44,31 +44,22 @@ final class PodcastProgressStore {
 
     // MARK: - Load / persist
 
+    /// Versioned, corruption-safe backing for per-episode progress (W-12). Writing through
+    /// it synchronously and in-order also fixes the prior fire-and-forget `Task.detached`
+    /// writes, which could land an older snapshot over a newer one (POD-01). The file is a
+    /// small dict; an atomic write every ~5 s on the main actor is negligible.
+    private var store: VersionedStore<[String: Progress]> {
+        VersionedStore(fileURL: storeURL, keepBackup: true)
+    }
+
     func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
-        if let data = try? Data(contentsOf: storeURL),
-           let saved = try? JSONDecoder().decode([String: Progress].self, from: data) {
-            progress = saved
-        }
+        if let saved = store.load() { progress = saved }
     }
 
     private func persist() {
-        // Encode the snapshot on the main actor (cheap, in-order), then write to disk off it —
-        // progress saves every ~5 s during playback, and blocking the main thread on file IO
-        // that often is the one hot path worth keeping off it.
-        guard let data = try? JSONEncoder().encode(progress) else { return }
-        let url = storeURL
-        Task.detached(priority: .utility) {
-            do {
-                try FileManager.default.createDirectory(
-                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-                )
-                try data.write(to: url, options: .atomic)
-            } catch {
-                podcastProgressLog.error("persist failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        store.save(progress)
     }
 
     // MARK: - Queries

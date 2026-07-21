@@ -15,9 +15,12 @@ struct BatonConnectSheet: View {
     @State private var connecting = false
     @State private var errorText: String?
 
+    private var urlIsValid: Bool { NavidromeConfig.validatedURL(urlString) != nil }
+    private var isInsecure: Bool { NavidromeConfig.isInsecure(urlString) }
+
     private var canConnect: Bool {
         !connecting
-            && !urlString.trimmingCharacters(in: .whitespaces).isEmpty
+            && urlIsValid
             && !password.isEmpty
             && (authMode == .apiKey || !username.trimmingCharacters(in: .whitespaces).isEmpty)
     }
@@ -43,6 +46,16 @@ struct BatonConnectSheet: View {
                 SecureField(authMode == .apiKey ? "API key" : "Password", text: $password)
             }
             .formStyle(.grouped)
+
+            if !urlString.trimmingCharacters(in: .whitespaces).isEmpty, !urlIsValid {
+                Label("Enter a full server URL, including https:// (or http:// for a local server).", systemImage: "link")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if isInsecure {
+                Label("This is an unencrypted (http) connection — your \(authMode == .apiKey ? "API key" : "username and password") are sent in the clear. Prefer https unless this server is on your local network.", systemImage: "lock.open")
+                    .font(.callout).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if let errorText {
                 Label(errorText, systemImage: "exclamationmark.triangle.fill")
@@ -78,9 +91,7 @@ struct BatonConnectSheet: View {
             let entry = NavidromeConfig.addServer(
                 displayName: NavidromeConfig.defaultName(urlString: urlString, username: username),
                 urlString: urlString, username: username, secret: password, authMode: authMode)
-            NavidromeConfig.setActiveServer(id: entry.id)
-            model.musicLibrary.refreshConnection()
-            await model.musicLibrary.loadAlbums()
+            await model.selectServer(id: entry.id)
             dismiss()
         } catch {
             errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

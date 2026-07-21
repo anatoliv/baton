@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let downloadLog = Logger(subsystem: "io.tonebox.macos", category: "MusicDownloads")
+private let downloadLog = Logger(subsystem: "io.tonebox.baton", category: "MusicDownloads")
 
 /// Offline downloads for music. Fetches a track's stream to a user-chosen folder (an
 /// Application Support cache by default) and serves it from disk on later plays — the
@@ -21,6 +21,16 @@ final class MusicDownloadStore {
     private(set) var downloadedIDs: Set<String> = []
     /// Song ids currently downloading.
     private(set) var inFlight: Set<String> = []
+    /// Songs whose most recent download attempt failed, keyed by id — retained (not just the id) so
+    /// the Downloads screen can offer a working Retry without re-resolving the track. Surfaced so a
+    /// partly-failed batch is visible (not just logged) instead of the spinner vanishing with the
+    /// user none the wiser. Cleared per id on a successful (re)download. (W-33 / DL-02)
+    private(set) var failedDownloads: [String: NavidromeSong] = [:]
+    /// Ids of failed downloads (compat shim over `failedDownloads`).
+    var failedIDs: Set<String> { Set(failedDownloads.keys) }
+    /// Live download progress per in-flight song id (0…1), so the Downloads screen can show a real
+    /// progress bar instead of an opaque spinner. Absent once a download finishes. (W-33 / DL-03)
+    private(set) var downloadProgress: [String: Double] = [:]
     /// albumID → count of that album's downloaded tracks. Observable, so an album row's
     /// download badge (full vs partial) updates as tracks are cached/removed. Albums have a
     /// natural per-song key (`albumID`) and a track total (`songCount`), so this alone gives
@@ -51,6 +61,12 @@ final class MusicDownloadStore {
     /// songID → cached track metadata (title / artist / album / duration), written on
     /// download. Legacy downloads with no entry fall back to the parsed filename.
     @ObservationIgnored private var meta: [String: DownloadMeta] = [:]
+    /// URLSession used for downloads. Injectable so tests can stub HTTP responses
+    /// (W-05 / reused by W-33). Defaults to `.shared`.
+    @ObservationIgnored var urlSession: URLSession = .shared
+    /// Supplies each song id's last-played time for LRU storage-cap eviction. Wired by MusicModel
+    /// from play history; nil ⇒ never-played ordering (cap still enforced by size). (W-33 / DL-09)
+    @ObservationIgnored var lastPlayedProvider: (() -> [String: Date])?
 
     /// A downloaded track, resolved for display + playback by `downloadedItems()`.
     struct DownloadItem: Identifiable, Hashable {
@@ -167,13 +183,25 @@ final class MusicDownloadStore {
 
     // MARK: - Filename templating
 
-    /// Render the template for a song into a safe, de-duplicated `<name>.mp3`.
-    func filename(for song: NavidromeSong) -> String {
+    /// Render the template for a song into a safe, de-duplicated `<name>.<ext>`.
+    func filename(for song: NavidromeSong, ext: String = "mp3") -> String {
         Self.renderFilename(
             template: filenameTemplate,
             artist: song.artist, album: song.album, title: song.title, id: song.id,
-            taken: manifest
+            taken: manifest, ext: ext
         )
+    }
+
+    /// Map a response Content-Type to a file extension so a downloaded original is named
+    /// honestly (a FLAC as .flac, an AAC podcast as .m4a — not a lying .mp3). (W-34 / DL-04)
+    static func fileExtension(forContentType type: String?) -> String {
+        switch (type ?? "").lowercased() {
+        case let t where t.contains("flac"): return "flac"
+        case let t where t.contains("mp4") || t.contains("m4a") || t.contains("aac"): return "m4a"
+        case let t where t.contains("ogg") || t.contains("opus"): return "ogg"
+        case let t where t.contains("wav"): return "wav"
+        default: return "mp3"
+        }
     }
 
     /// Pure filename renderer (unit-tested). Substitutes the tokens, sanitizes the
@@ -182,7 +210,7 @@ final class MusicDownloadStore {
     nonisolated static func renderFilename(
         template: String,
         artist: String?, album: String?, title: String, id: String,
-        taken: [String: String]
+        taken: [String: String], ext: String = "mp3"
     ) -> String {
         let tokens: [(String, String)] = [
             ("{artist}", (artist ?? "").trimmingCharacters(in: .whitespaces)),
@@ -195,10 +223,10 @@ final class MusicDownloadStore {
         base = sanitize(base)
         if base.isEmpty { base = id }
 
-        var candidate = "\(base).mp3"
+        var candidate = "\(base).\(ext)"
         let owner = taken.first { $0.value.caseInsensitiveCompare(candidate) == .orderedSame }?.key
         if let owner, owner != id {
-            candidate = "\(base) [\(id.prefix(6))].mp3"
+            candidate = "\(base) [\(id.prefix(6))].\(ext)"
         }
         return candidate
     }
@@ -236,18 +264,72 @@ final class MusicDownloadStore {
 
     // MARK: - Download
 
-    /// Downloads one track's stream to disk (no-op if already present / in flight).
-    func download(_ song: NavidromeSong) async {
-        guard !isDownloaded(song.id), !inFlight.contains(song.id) else { return }
+    /// Directory holding persisted resume data for interrupted downloads, so a blip at 95 % of a
+    /// long episode resumes from the partial rather than restarting. (W-33 / DL-08)
+    private var resumeDirectory: URL { directory.appendingPathComponent(".resume", isDirectory: true) }
+
+    /// Resume-data file for a song id (id sanitized to a filesystem-safe name).
+    private func resumeFileURL(for songID: String) -> URL {
+        let safe = songID.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "_" }
+        return resumeDirectory.appendingPathComponent(String(safe) + ".resume")
+    }
+
+    private func persistedResumeData(for songID: String) -> Data? {
+        try? Data(contentsOf: resumeFileURL(for: songID))
+    }
+
+    private func saveResumeData(_ data: Data, for songID: String) {
+        try? FileManager.default.createDirectory(at: resumeDirectory, withIntermediateDirectories: true)
+        try? data.write(to: resumeFileURL(for: songID))
+    }
+
+    private func clearResumeData(for songID: String) {
+        try? FileManager.default.removeItem(at: resumeFileURL(for: songID))
+    }
+
+    /// Downloads one track's stream to disk (no-op if already present / in flight). Reports live
+    /// progress via `downloadProgress` and resumes from persisted partial data when present.
+    @discardableResult
+    func download(_ song: NavidromeSong) async -> Bool {
+        guard !isDownloaded(song.id), !inFlight.contains(song.id) else { return isDownloaded(song.id) }
         inFlight.insert(song.id)
-        defer { inFlight.remove(song.id) }
+        downloadProgress[song.id] = 0
+        defer {
+            inFlight.remove(song.id)
+            downloadProgress[song.id] = nil
+        }
         do {
             // resolveStreamURL handles both library tracks (Subsonic stream id) and client-side
             // podcast episodes (id is the enclosure URL, streamed directly) — so this one path
             // downloads both. Playback then prefers the local file via `localURL(for:)`.
-            let url = try StreamingPlaybackController.resolveStreamURL(songID: song.id)
-            let (temp, _) = try await URLSession.shared.download(from: url)
-            let name = filename(for: song)
+            // Download the ORIGINAL file (download.view for library tracks), not a transcoded
+            // stream, so a FLAC library isn't stored as lossy MP3. (W-34 / DL-04)
+            let url = try StreamingPlaybackController.resolveDownloadURL(songID: song.id)
+            // Report byte-level progress to the UI (W-33 / DL-03).
+            let observer = DownloadProgressObserver(songID: song.id) { [weak self] id, fraction in
+                Task { @MainActor in if self?.downloadProgress[id] != nil { self?.downloadProgress[id] = fraction } }
+            }
+            let temp: URL
+            let response: URLResponse
+            // Resume from persisted partial data if a prior attempt was interrupted (W-33 / DL-08).
+            if let resume = persistedResumeData(for: song.id) {
+                (temp, response) = try await urlSession.download(resumeFrom: resume, delegate: observer)
+            } else {
+                (temp, response) = try await urlSession.download(from: url, delegate: observer)
+            }
+            clearResumeData(for: song.id) // completed → the partial is no longer needed
+            // W-05: URLSession.download does NOT throw on 4xx/5xx. Without this check a
+            // 404, a 500, or a reverse-proxy HTML login page would be saved as a
+            // completed `.mp3`, marked downloaded, and then preferred over streaming
+            // forever (re-download blocked by the isDownloaded guard).
+            do {
+                try Self.validateDownloadResponse(response, fileURL: temp)
+            } catch {
+                try? FileManager.default.removeItem(at: temp)
+                throw error
+            }
+            let ext = Self.fileExtension(forContentType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"))
+            let name = filename(for: song, ext: ext)
             let destination = directory.appendingPathComponent(name)
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: temp, to: destination)
@@ -265,17 +347,80 @@ final class MusicDownloadStore {
             // instantly later (and it survives relaunches).
             let downloadedID = song.id
             Task { _ = await WaveformExtractor.bars(forSongID: downloadedID, url: destination) }
+            failedDownloads[song.id] = nil // a retry that succeeds clears the prior failure
+            // Keep the download folder under any configured size cap, evicting least-recently-played
+            // first. Mark the just-downloaded track as most-recent so a freshly-fetched-but-unplayed
+            // file isn't the first thing evicted. (W-33 / DL-09)
+            var lastPlayed = lastPlayedProvider?() ?? [:]
+            lastPlayed[song.id] = Date()
+            enforceStorageCap(lastPlayed: lastPlayed)
+            return true
         } catch {
             downloadLog
                 .error("download \(song.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            // Persist any partial so a retry resumes instead of restarting from zero. (W-33 / DL-08)
+            if let resume = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
+                saveResumeData(resume, for: song.id)
+            }
+            failedDownloads[song.id] = song
+            return false
         }
     }
 
-    /// Downloads a set of tracks sequentially (album / playlist).
-    func download(_ songs: [NavidromeSong]) async {
+    /// Downloads a set of tracks sequentially (album / playlist). Cooperatively cancellable: a
+    /// cancelled enclosing `Task` (e.g. the Downloads screen's Cancel) stops the batch between
+    /// items rather than plowing through the whole album. Returns the count actually downloaded.
+    /// (W-33 / DL-07)
+    @discardableResult
+    func download(_ songs: [NavidromeSong]) async -> Int {
+        var completed = 0
         for song in songs {
+            if Task.isCancelled { break }
+            if await download(song) { completed += 1 }
+        }
+        return completed
+    }
+
+    /// Re-attempt every track whose last download failed (the Downloads screen's "Retry failed").
+    /// Self-sufficient — it re-downloads the retained failed songs (resuming from partials where
+    /// available), so the caller needs no track lookup. (W-33 / DL-02)
+    func retryFailed() async {
+        for song in failedDownloads.values.sorted(by: { $0.id < $1.id }) {
+            if Task.isCancelled { break }
             await download(song)
         }
+    }
+
+    /// A download that must not be adopted as a valid file (W-05).
+    enum DownloadError: Error, LocalizedError {
+        case badStatus(Int)
+        case notAudio(String)
+        case tooSmall(Int)
+        var errorDescription: String? {
+            switch self {
+            case .badStatus(let c): return "server returned HTTP \(c)"
+            case .notAudio(let t): return "response was \(t), not audio"
+            case .tooSmall(let n): return "response too small (\(n) bytes)"
+            }
+        }
+    }
+
+    /// Reject an HTTP error page, a login/redirect stub, or an empty body being saved
+    /// as audio: require a 2xx status, a non-text Content-Type, and a plausible size.
+    /// Pure/static so it's unit-testable without a session (W-05).
+    static func validateDownloadResponse(_ response: URLResponse, fileURL: URL) throws {
+        if let http = response as? HTTPURLResponse {
+            guard (200 ..< 300).contains(http.statusCode) else {
+                throw DownloadError.badStatus(http.statusCode)
+            }
+            if let type = http.value(forHTTPHeaderField: "Content-Type")?.lowercased(),
+               type.contains("text/html") || type.contains("application/json") || type.contains("text/plain") {
+                throw DownloadError.notAudio(type)
+            }
+        }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let size = (attrs?[.size] as? NSNumber)?.intValue ?? 0
+        guard size >= 1024 else { throw DownloadError.tooSmall(size) }
     }
 
     /// Removes a downloaded track from disk (both templated and legacy names).
@@ -285,7 +430,11 @@ final class MusicDownloadStore {
             manifest[songID] = nil
             saveManifest()
         }
-        try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(songID).mp3"))
+        // Legacy "<id>.mp3": only unlink it if we have provenance (a metadata entry we
+        // wrote). Never delete a bare file we can't attribute to Baton. (W-06)
+        if meta[songID] != nil {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(songID).mp3"))
+        }
         if let entry = meta[songID] { adjustAggregates(entry, delta: -1); meta[songID] = nil; saveMeta() }
         downloadedIDs.remove(songID)
     }
@@ -333,6 +482,41 @@ final class MusicDownloadStore {
         }
     }
 
+    /// Optional download size cap in bytes (0 = unlimited). When set, the store evicts the
+    /// least-recently-played downloads until the total fits. (W-33 / DL-09)
+    static let storageCapKey = "baton.downloads.storageCapBytes"
+    var storageCapBytes: Int64 {
+        get { Int64(UserDefaults.standard.integer(forKey: Self.storageCapKey)) }
+        set { UserDefaults.standard.set(Int(newValue), forKey: Self.storageCapKey) }
+    }
+
+    /// Pure LRU planner: which ids to evict so `items` fits under `capBytes`, dropping the
+    /// least-recently-played first (a never-played download counts as oldest). Returns [] when
+    /// the cap is unlimited (≤0) or the total already fits. Unit-tested in isolation. (DL-09)
+    static func evictionPlan(items: [(id: String, bytes: Int64)], lastPlayed: [String: Date], capBytes: Int64) -> [String] {
+        let total = items.reduce(Int64(0)) { $0 + $1.bytes }
+        guard capBytes > 0, total > capBytes else { return [] }
+        let ordered = items.sorted { (lastPlayed[$0.id] ?? .distantPast) < (lastPlayed[$1.id] ?? .distantPast) }
+        var evict: [String] = []
+        var running = total
+        for item in ordered where running > capBytes {
+            evict.append(item.id)
+            running -= item.bytes
+        }
+        return evict
+    }
+
+    /// Enforce `storageCapBytes` by deleting the least-recently-played downloads. `lastPlayed`
+    /// maps a download id to its last listen time (supplied by the caller from play history, so
+    /// this stays decoupled). No-op when the cap is unlimited or everything fits.
+    @discardableResult
+    func enforceStorageCap(lastPlayed: [String: Date]) -> [String] {
+        let items = downloadedItems().map { (id: $0.id, bytes: $0.byteSize) }
+        let evict = Self.evictionPlan(items: items, lastPlayed: lastPlayed, capBytes: storageCapBytes)
+        for id in evict { delete(id) }
+        return evict
+    }
+
     /// Byte size of a single file (0 if unreadable).
     nonisolated static func fileByteSize(at url: URL) -> Int64 {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey])
@@ -356,41 +540,18 @@ final class MusicDownloadStore {
     private var metaURL: URL { directory.appendingPathComponent(Self.metaName) }
     private var collectionsURL: URL { directory.appendingPathComponent(Self.collectionsName) }
 
-    private func loadCollections() {
-        guard let data = try? Data(contentsOf: collectionsURL),
-              let decoded = try? JSONDecoder().decode([String: Set<String>].self, from: data)
-        else { downloadedCollections = [:]; return }
-        downloadedCollections = decoded
-    }
+    // Versioned, corruption-safe sidecars (W-12): a corrupt file is preserved aside, not
+    // silently wiped over on the next save; a write failure is logged, never swallowed.
+    private var collectionsStore: VersionedStore<[String: Set<String>]> { VersionedStore(fileURL: collectionsURL) }
+    private var manifestStore: VersionedStore<[String: String]> { VersionedStore(fileURL: manifestURL) }
+    private var metaStore: VersionedStore<[String: DownloadMeta]> { VersionedStore(fileURL: metaURL) }
 
-    private func saveCollections() {
-        guard let data = try? JSONEncoder().encode(downloadedCollections) else { return }
-        try? data.write(to: collectionsURL, options: .atomic)
-    }
-
-    private func loadManifest() {
-        guard let data = try? Data(contentsOf: manifestURL),
-              let decoded = try? JSONDecoder().decode([String: String].self, from: data)
-        else { manifest = [:]; return }
-        manifest = decoded
-    }
-
-    private func saveManifest() {
-        guard let data = try? JSONEncoder().encode(manifest) else { return }
-        try? data.write(to: manifestURL, options: .atomic)
-    }
-
-    private func loadMeta() {
-        guard let data = try? Data(contentsOf: metaURL),
-              let decoded = try? JSONDecoder().decode([String: DownloadMeta].self, from: data)
-        else { meta = [:]; return }
-        meta = decoded
-    }
-
-    private func saveMeta() {
-        guard let data = try? JSONEncoder().encode(meta) else { return }
-        try? data.write(to: metaURL, options: .atomic)
-    }
+    private func loadCollections() { downloadedCollections = collectionsStore.load() ?? [:] }
+    private func saveCollections() { collectionsStore.save(downloadedCollections) }
+    private func loadManifest() { manifest = manifestStore.load() ?? [:] }
+    private func saveManifest() { manifestStore.save(manifest) }
+    private func loadMeta() { meta = metaStore.load() ?? [:] }
+    private func saveMeta() { metaStore.save(meta) }
 
     private func ensureDirectoryAndRescan() {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -405,15 +566,29 @@ final class MusicDownloadStore {
         {
             ids.insert(id)
         }
-        // Legacy "<id>.mp3" files not referenced by the manifest.
+        // Legacy "<id>.mp3" files not referenced by the manifest. Only adopt files we
+        // can attribute to Baton — a metadata sidecar entry, or a basename shaped like a
+        // Subsonic id — so pointing the download folder at an existing music library
+        // never adopts (and later lets the user delete via Remove) their own files. (W-06)
         let manifestFiles = Set(manifest.values)
         if let files = try? FileManager.default.contentsOfDirectory(atPath: directory.path) {
             for file in files where file.hasSuffix(".mp3") && !manifestFiles.contains(file) {
-                ids.insert((file as NSString).deletingPathExtension)
+                let id = (file as NSString).deletingPathExtension
+                if meta[id] != nil || Self.isPlausibleSubsonicID(id) {
+                    ids.insert(id)
+                }
             }
         }
         downloadedIDs = ids
         rebuildAggregates()
+    }
+
+    /// A bare "<id>.mp3" is adopted as a legacy download only if its basename looks like
+    /// a Subsonic/Navidrome id (id-like charset, no spaces, reasonably long) — this
+    /// rejects a user's own music files such as "01 - Song.mp3". (W-06)
+    static func isPlausibleSubsonicID(_ s: String) -> Bool {
+        guard s.count >= 16, s.count <= 64 else { return false }
+        return s.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
     }
 
     /// Recomputes the per-album downloaded-track counts from scratch (called after a rescan).
@@ -424,5 +599,25 @@ final class MusicDownloadStore {
             albums[albumID, default: 0] += 1
         }
         downloadedAlbumCounts = albums
+    }
+}
+
+/// Observes a single download task's byte-progress and forwards the completed fraction (0…1) to a
+/// callback keyed by song id, so the store can publish a live progress bar instead of an opaque
+/// spinner. Passed as the per-task delegate to `URLSession.download(from:delegate:)`. (W-33 / DL-03)
+private final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate {
+    private let songID: String
+    private let onProgress: @Sendable (String, Double) -> Void
+    private var observation: NSKeyValueObservation?
+
+    init(songID: String, onProgress: @escaping @Sendable (String, Double) -> Void) {
+        self.songID = songID
+        self.onProgress = onProgress
+    }
+
+    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+        observation = task.progress.observe(\.fractionCompleted, options: [.new]) { [songID, onProgress] progress, _ in
+            onProgress(songID, progress.fractionCompleted)
+        }
     }
 }

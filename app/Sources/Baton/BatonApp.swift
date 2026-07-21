@@ -24,6 +24,13 @@ struct BatonApp: App {
     /// for the app's lifetime so tapping a spoken-summary notification plays the audio.
     @State private var speechNotifier: SpeechNotificationDelegate?
 
+    /// Owns the floating speaking-HUD panel (Pause/Resume/Stop over any Space while a summary
+    /// plays). Retained for the app's lifetime; observes `music.speech` to show/hide the panel.
+    @State private var speakingHUD: SpeakingHUDPresenter?
+
+    /// Bridges menu-bar commands (Go / Find / Now Playing) into the main window's state.
+    @State private var commandRouter = BatonCommandRouter()
+
     /// Window id for the custom About panel (opened from the app menu).
     static let aboutWindowID = "baton-about"
 
@@ -31,6 +38,12 @@ struct BatonApp: App {
         // Start opt-in crash reporting if (and only if) the user turned it on
         // and a DSN is baked into this build. No-op otherwise. See CrashReporting.
         CrashReporting.startIfEnabled()
+        // Start Sparkle's background update scheduler at launch — not lazily from the
+        // Settings UI — so a user who just plays music still receives automatic checks.
+        // Gated on a genuinely-live channel so a placeholder-key dev build stays dormant. (W-09)
+        if UpdateChannel.isConfiguredFromBundle {
+            MainActor.assumeIsolated { _ = SparkleUpdater.shared }
+        }
     }
 
     var body: some Scene {
@@ -40,11 +53,13 @@ struct BatonApp: App {
         Window("Baton", id: MusicWindowView.windowID) {
             MusicWindowView()
                 .environment(music)
+                .environment(commandRouter)
                 // Anchor the whole app to Baton brand orange (also installed as the
                 // `AccentColor` asset). Brand ⇄ Dynamic rule: chrome + actions are
                 // brand; the player wires the dynamic artwork accent explicitly on top.
                 .tint(.batonOrange)
                 .task {
+                    BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips (W-19)
                     if mcp == nil {
                         let s = BatonMCPServer(music: music); s.start(); mcp = s
                         // Start the fast-path listener sharing the server's focus registry.
@@ -55,13 +70,18 @@ struct BatonApp: App {
                         UNUserNotificationCenter.current().delegate = notifier
                         SpeechNotifier.registerCategory()
                         speechNotifier = notifier
+                        // Bring up the floating speaking HUD (independent, all-Spaces panel).
+                        speakingHUD = SpeakingHUDPresenter(model: music)
                         // Tear both down on app quit so the accept threads stop and the
                         // control.sock file / advertised endpoints don't linger.
                         NotificationCenter.default.addObserver(
                             forName: NSApplication.willTerminateNotification,
                             object: nil, queue: .main
                         ) { _ in
-                            MainActor.assumeIsolated { sock.stop(); s.stop() }
+                            MainActor.assumeIsolated {
+                                music.music.persistNow() // save queue + playhead on quit (W-11)
+                                sock.stop(); s.stop()
+                            }
                         }
                     }
                 }
@@ -74,7 +94,8 @@ struct BatonApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1120, height: 760)
         .commands {
-            BatonAppCommands()
+            BatonAppCommands(model: music)
+            GoMenuCommands(router: commandRouter)
             PlaybackMenuCommands(model: music)
             // "Check for Updates…" under About (disabled until the appcast
             // channel is live). See SparkleUpdater / UpdateChannel.

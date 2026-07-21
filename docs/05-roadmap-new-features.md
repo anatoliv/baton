@@ -29,13 +29,13 @@ plain signed HTTP (`NavidromeClient.streamURL` :112), so a cast target can pull
 directly.
 **Why:** whole-home audio is table-stakes for a "real" player.
 
-### 3. Downloads manager + first-class offline mode — **M**
-**Gap:** downloads exist (`MusicDownloadStore`) but there's no *screen* for them and
-no global offline toggle.
-**Plan:** a Downloads screen (what's downloaded, storage used, evict, auto-download
-a playlist/mix), a global **Offline** toggle that hides un-downloaded content and
-routes all playback to local files, and download-on-Wi-Fi-only (reuse
-`NetworkReachability`).
+### 3. Downloads manager + first-class offline mode — **SHIPPED**
+**Shipped:** the Downloads tab (`app/Sources/Baton/Shell/Music/MusicDownloadsView.swift`)
+lists what's downloaded with a global **Offline mode** toggle
+(`baton.music.offlineMode`) and multi-select batch actions; downloads themselves are
+managed by `app/Sources/Baton/Shell/Music/MusicDownloadStore.swift`.
+**To extend:** auto-download a playlist/mix and download-on-Wi-Fi-only (reuse
+`app/Sources/Baton/Audio/NetworkReachability.swift`).
 **Why:** table-stakes for a standalone player; also the iOS companion depends on it.
 
 ### 4. Sonic-analysis mood mixes — **L**
@@ -53,35 +53,37 @@ natural agent tool (`music_start_radio` seeded by sonic features).
 
 ## Tier 2 — parity wins & depth
 
-### 5. Podcasts — **S–M**
-**Gap:** none today; Subsonic already exposes it.
-**Plan:** wire `getPodcasts` / `getPodcastEpisodes` / `subscribe/unsubscribe`
-(unimplemented in `NavidromeClient` today — add methods + wire types in
-`NavidromeModels.swift`). Mostly UI (subscriptions, episode list, resume position)
-+ a few client calls. Add MCP tools (`music_list_podcasts`, `music_play_episode`).
+### 5. Podcasts — **SHIPPED**
+**Shipped:** a Podcasts tab that routes between **server-side** Subsonic podcasts (when
+the server exposes them) and **client-side RSS** subscriptions Baton fetches directly
+(`app/Sources/Baton/Shell/Music/MusicPodcastsView.swift`,
+`ClientPodcastsView.swift`, `MusicPodcastCapability.swift`); subscriptions, episode
+lists, and resume position persist via the podcast stores on `MusicModel`
+(`app/Sources/Baton/Model/MusicModel.swift`).
+**To extend:** dedicated podcast MCP tools (`music_list_podcasts`, `music_play_episode`).
 **Why:** cheap parity win the open clients already have.
 
-### 6. Internet radio stations — **S**
-**Gap:** none today; Subsonic exposes `getInternetRadioStations` (+ CRUD).
-**Plan:** add the client calls + a simple stations list; playback is just a stream
-URL into the existing engine.
+### 6. Internet radio stations — **SHIPPED**
+**Shipped:** a stations list backed by `app/Sources/Baton/Model/InternetRadioStore.swift`
+with the UI in `app/Sources/Baton/Shell/Music/MusicRadioView.swift`; playback is the
+station's stream URL straight into the existing engine.
 **Why:** cheapest parity win on the board.
 
-### 7. Multi-server / account switching — **S–M**
-**Gap:** single-server today (`NavidromeConfig.swift:5`).
-**Plan:** store N `ServerConnection` records with an active selection; quick-switch
-in the menu bar. Natural once `NavidromeConfig` is decoupled for extraction
-([03](03-architecture.md) Phase 1). Likes/ratings are per-server (server-side), so
-switching is clean.
+### 7. Multi-server / account switching — **SHIPPED**
+**Shipped:** `app/Sources/Baton/Integrations/Navidrome/NavidromeConfig.swift` persists
+a list of saved servers (`NavidromeServerEntry`) with an active-server selection and
+migrates a legacy single-server config in on first read; server editing/switching UI is
+in `app/Sources/Baton/Shell/Music/BatonServerEditSheet.swift`. Likes/ratings are
+per-server (server-side), so switching stays clean.
 **Why:** power-users run more than one library.
 
-### 8. Parametric EQ + crossfeed / DSP — **M**
-**Gap:** 10-band graphic EQ (`MusicEqualizer.swift`) is good but below
-Plexamp/Roon.
-**Plan:** upgrade toward parametric bands (freq/Q/gain per band), per-output presets,
-and headphone crossfeed. The `MTAudioProcessingTap` render path
-(`AudioEQProcessor.swift`) and RBJ biquad math already exist — this is extending an
-existing engine, not a new one. Add a `music_set_eq` tool.
+### 8. Parametric EQ + crossfeed / DSP — **partly SHIPPED**
+**Shipped:** the equalizer is already **parametric** — each band carries its own centre
+frequency, Q, and gain (`app/Sources/Baton/Audio/MusicEqualizer.swift`), with the legacy
+10-band graphic API mapping onto the parametric model; the `MTAudioProcessingTap` render
+path and RBJ biquad math are in `app/Sources/Baton/Audio/AudioEQProcessor.swift`, and the
+`music_set_eq` MCP tool is live (`app/Sources/Baton/MCP/BatonMCPTools.swift`).
+**To extend:** per-output presets and headphone crossfeed.
 **Why:** audiophile credibility; differentiates from every streaming app.
 
 ### 9. Lyrics upgrades — **S**
@@ -101,9 +103,10 @@ existing. Full "wild ideas" list in [08](08-open-questions-and-ideas.md).
 ### 10. Natural-language mix building — **M**
 **Plan:** an MCP prompt + tool flow so "make me a 40-minute focus mix that starts
 mellow and ends upbeat" resolves to a concrete queue, using search + (eventually)
-sonic features. The deterministic `MusicCommandInterpreter` + LLM fallback
-(`AppModel+Music.swift:159`) is the seed; extend to *composition*, not just single
-commands.
+sonic features. The existing MCP tool catalog
+(`app/Sources/Baton/MCP/BatonMCPTools.swift`) — search + play + queue + `music_build_mix`
+— is the seed the client agent already composes over; extend it to *composition*, not
+just single commands.
 **Why:** the flagship agent interaction; nothing mainstream does this locally.
 
 ### 11. Cross-app automations with Tonebox — **M**

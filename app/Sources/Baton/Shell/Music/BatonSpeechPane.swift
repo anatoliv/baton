@@ -14,6 +14,10 @@ struct BatonSpeechPane: View {
     @State private var kokoroHost = SpeechConfig.kokoroBaseURL
     @State private var chatterboxHost = SpeechConfig.chatterboxBaseURL
     @State private var fallbackEnabled = SpeechConfig.fallbackEnabled
+    @State private var announceImmediately = SpeechConfig.announceImmediately
+    @State private var alertNotification = SpeechConfig.alertWithNotification
+    @State private var alertBanner = SpeechConfig.alertWithBanner
+    @State private var allowAutoPlay = SpeechConfig.allowAutoPlay
 
     /// The map rendered as ordered, editable rows (a `[String: String]` dict has no order).
     @State private var rows: [VoiceRow] = []
@@ -37,6 +41,7 @@ struct BatonSpeechPane: View {
     var body: some View {
         Form {
             hostsSection
+            deliverySection
             mapSection
             resetSection
         }
@@ -50,12 +55,61 @@ struct BatonSpeechPane: View {
             Button("Reset to Defaults", role: .destructive) {
                 SpeechConfig.resetToDefaults()
                 fallbackEnabled = SpeechConfig.fallbackEnabled
+                announceImmediately = SpeechConfig.announceImmediately
+                alertNotification = SpeechConfig.alertWithNotification
+                alertBanner = SpeechConfig.alertWithBanner
+                allowAutoPlay = SpeechConfig.allowAutoPlay
                 loadRows()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Restores the default category → voice map and the fallback toggle. Your server addresses are kept.")
+            Text("Restores the default category → voice map, the fallback toggle, and delivery preferences. Your server addresses are kept.")
         }
+    }
+
+    // MARK: - Delivery
+
+    private var deliverySection: some View {
+        Section("Delivery") {
+            // Primary: one timing choice. `false` == let the agent decide, `true` == announce now.
+            Picker("When a summary arrives", selection: $announceImmediately) {
+                Text("Let the agent decide").tag(false)
+                Text("Announce immediately").tag(true)
+            }
+            .pickerStyle(.radioGroup)
+            .onChange(of: announceImmediately) { _, on in SpeechConfig.announceImmediately = on; enforceReachable() }
+            Text(announceImmediately
+                 ? "Every summary is spoken as soon as the audio is ready. Your own opt-in, so it isn't gated."
+                 : "The agent decides whether a summary is urgent enough to speak right away (if you allow it just below) or simply wait — and it reaches you through the alerts below.")
+                .font(.callout).foregroundStyle(.secondary)
+
+            // The auto-play gate — a refinement of "Let the agent decide", not a peer. Irrelevant
+            // (and disabled) once you've chosen to announce everything yourself.
+            Toggle("Allow the agent to play it immediately", isOn: $allowAutoPlay)
+                .onChange(of: allowAutoPlay) { _, on in SpeechConfig.allowAutoPlay = on }
+                .disabled(announceImmediately)
+                .padding(.leading, 18)
+            Text("Lets an agent's `mode: \"auto\"` speak without confirmation. Off by default — a safety gate so a leaked token can't blast audio; when off, an agent's summaries just wait as the alerts below.")
+                .font(.callout).foregroundStyle(.secondary)
+                .padding(.leading, 18)
+
+            // Alert surfaces — independent, and available under BOTH primary choices.
+            Toggle("Alert with a notification", isOn: $alertNotification)
+                .onChange(of: alertNotification) { _, on in SpeechConfig.alertWithNotification = on; enforceReachable() }
+            Toggle("Alert with an in-app banner", isOn: $alertBanner)
+                .onChange(of: alertBanner) { _, on in SpeechConfig.alertWithBanner = on; enforceReachable() }
+            Text("Where summaries show up — pick either, both, or neither. A notification and a banner each carry a **Play** button; with **Announce immediately** they're a replayable record. If a waiting summary would have nowhere to go, a banner is kept on so it's never lost.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Keep the reachability invariant the resolver enforces visible in the UI: under "Let the
+    /// agent decide", a summary that isn't spoken needs a surface — so if both alerts are off,
+    /// snap the banner back on. Mirrors `SpeechConfig.deliveryPlan`.
+    private func enforceReachable() {
+        guard !announceImmediately, !alertNotification, !alertBanner else { return }
+        alertBanner = true
+        SpeechConfig.alertWithBanner = true
     }
 
     private var resetSection: some View {

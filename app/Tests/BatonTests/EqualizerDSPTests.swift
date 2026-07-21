@@ -78,6 +78,18 @@ struct EqualizerDSPTests {
     }
 
     @MainActor
+    @Test("W-41 / TOOL-06: preset lookup is case-insensitive and stores the canonical name")
+    func presetLookupCaseInsensitive() {
+        let eq = MusicEqualizer()
+        eq.apply(preset: "bass boost")
+        #expect(eq.preset == "Bass Boost")
+        eq.apply(preset: "  FLAT ")
+        #expect(eq.preset == "Flat")
+        eq.apply(preset: "nonexistent")
+        #expect(eq.preset == "Flat") // unknown ignored, previous kept
+    }
+
+    @MainActor
     @Test("Disabled equalizer publishes an all-flat pass-through")
     func disabledIsFlat() {
         let eq = MusicEqualizer()

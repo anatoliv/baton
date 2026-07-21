@@ -174,9 +174,29 @@ enum NavidromeConfig {
     }
 
     static var serverURL: URL? {
-        let raw = serverURLString.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, let url = URL(string: raw), url.scheme != nil else { return nil }
+        validatedURL(serverURLString)
+    }
+
+    /// A usable server URL: http/https only, with a host. Rejects `file://`, `ftp://`, and a
+    /// hostless `https://` — a `file://` here would make `URLSession` read local files. (W-16)
+    static func validatedURL(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty
+        else { return nil }
         return url
+    }
+
+    /// Whether the active server connects over cleartext http:// (for an "insecure" indicator).
+    static var isInsecureConnection: Bool {
+        serverURL?.scheme?.lowercased() == "http"
+    }
+
+    /// Whether a candidate server URL string would connect over cleartext http:// — drives the
+    /// connect flow's "unencrypted connection" warning. False for an invalid or https URL. (W-59)
+    static func isInsecure(_ raw: String) -> Bool {
+        validatedURL(raw)?.scheme?.lowercased() == "http"
     }
 
     static var username: String {
@@ -251,8 +271,19 @@ enum NavidromeConfig {
         credentials() != nil
     }
 
+    /// Shared URLSession with a sane request timeout for JSON endpoints — a wedged LAN server
+    /// (a sleeping NAS, a half-up reverse proxy) then fails fast instead of stalling on
+    /// URLSession.shared's 60 s default, which the interactive search/connect paths inherit.
+    /// (W-25 / NET-01)
+    static let sharedSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
+
     /// Builds a client from the stored config, or throws `.notConfigured`.
-    static func makeClient(session: URLSession = .shared) throws -> NavidromeClient {
+    static func makeClient(session: URLSession = sharedSession) throws -> NavidromeClient {
         guard let credentials = credentials() else { throw NavidromeError.notConfigured }
         return NavidromeClient(credentials: credentials, session: session)
     }
@@ -278,8 +309,7 @@ enum NavidromeConfig {
         authMode: NavidromeAuthMode,
         session: URLSession = .shared
     ) async throws -> ConnectInfo {
-        let raw = urlString.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, let url = URL(string: raw), url.scheme != nil else {
+        guard let url = validatedURL(urlString) else { // http/https + host only (W-16)
             throw NavidromeError.invalidURL
         }
         if authMode == .tokenSalt, username.isEmpty {

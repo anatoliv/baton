@@ -57,10 +57,10 @@ that:
    ReplayGain / EQ depth that already beats the mainstream desktop apps.
 4. **Local-first + private.** Loopback binding, token auth, secrets in the
    Keychain. Nothing phones home by default.
-5. **One behavior, many surfaces.** The in-app assistant, dictation commands, and
-   MCP tools must resolve to the *same* operations — as they already do today
-   (`AppModel+Music.swift` reuses the `music_*` operations; verified at
-   `AppModel+Music.swift:4–7`).
+5. **One behavior, many surfaces.** The in-app UI and the MCP tools must resolve to
+   the *same* operations — as they already do today (the `music_*` tools and the
+   Music UI drive the same `MusicModel` graph; `app/Sources/Baton/Model/MusicModel.swift`,
+   `app/Sources/Baton/MCP/BatonMCPTools.swift`).
 6. **Race-safe coordination.** The audio-focus contract must survive concurrent
    agents and user intervention without leaving music silently paused.
 

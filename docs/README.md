@@ -49,13 +49,15 @@ dictating" is a first-class interaction, not a hack.
 | 06 | [`06-improvements-existing.md`](06-improvements-existing.md) | Shipped-but-needs-hardening items mined from the code + git log |
 | 07 | [`07-competitive-analysis.md`](07-competitive-analysis.md) | Expanded competitor analysis (Spotify, Apple Music, Plexamp, Symfonium, Roon, Navidrome-web, Feishin, foobar2000, YT Music, Tidal) |
 | 08 | [`08-open-questions-and-ideas.md`](08-open-questions-and-ideas.md) | Self-audit of this suite: gaps, open decisions, and "wild ideas" |
+| 09 | [`09-function-value-review.md`](09-function-value-review.md) | Opinionated review: every function scored by **value** + execution, ranked, with a verdict each |
+| 10 | [`10-findings-implementation.md`](10-findings-implementation.md) | Turns **09**'s four findings into test-validated work: plan, ships-now vs staged, the agent-native pillar, casting-provider spec, validation log |
 
 ## How to read this
 
 - Building the extraction? Start at **03** (architecture) then **06** (what to
   harden as you move it).
 - Wiring an agent or Tonebox as a client? Go straight to **04**.
-- Pitching / prioritizing? **01**, **05**, **07**.
+- Pitching / prioritizing? **01**, **05**, **07**, **09**.
 
 ## Source-of-truth pointers (where the code lives)
 
@@ -77,8 +79,8 @@ those are historical provenance, not the current location.
   `NavidromeModels.swift`.
 - Tonebox-as-client (in the Tonebox repo):
   `Sources/Tonebox/Integrations/Baton/BatonClient.swift` (music delegation) +
-  `BatonControl.swift` (dictation duck bridge); delegation seam in
-  `Model/AppModel+Music.swift`.
+  `BatonControl.swift` (dictation duck bridge); delegation seam in Tonebox's music
+  command path.
 - Existing competitive doc: `docs/music-player-competitive-comparison.html`.
 - Local release/notarization: `scripts/publish.sh` (Release build → Developer ID
   sign → notarize/staple → DMG → Sparkle appcast; the credentialed stages are
@@ -109,7 +111,7 @@ in 0.1.0. What follows is the current state.
   **crash recovery**, plus the **Unix-socket fast-path** (~0.08 ms round-trip)
   sharing the same focus registry (`BatonAudioFocusRegistry`).
 - **Tonebox is a client.** `BatonClient` + `BatonControl` ship; hybrid delegation is
-  wired (`AppModel+Music.swift`, pref `tonebox.music.preferBaton` default on).
+  wired (pref `tonebox.music.preferBaton` default on).
 - **Signed + notarizable.** `scripts/publish.sh` produces a Developer ID-signed,
   notarized+stapled DMG and Sparkle appcast (credentialed stages opt-in); a
   `Baton-0.1.0.dmg` builds from it.

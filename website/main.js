@@ -6,28 +6,35 @@
 
   /* ---------- Theme toggle ---------- */
   var root = document.documentElement;
-  var media = window.matchMedia("(prefers-color-scheme: dark)");
   var toggle = document.getElementById("theme-toggle");
+  var themeColor = document.getElementById("theme-color");
 
   function currentTheme() {
     var explicit = root.getAttribute("data-theme");
     if (explicit === "light" || explicit === "dark") return explicit;
-    return media.matches ? "dark" : "light";
+    return "dark"; // dark is the default
+  }
+
+  function syncThemeColor(theme) {
+    if (themeColor) themeColor.setAttribute("content", theme === "light" ? "#faf6f0" : "#171310");
   }
 
   function applyTheme(theme) {
-    root.setAttribute("data-theme", theme);
+    syncThemeColor(theme);
     try {
-      // If the choice matches the system, forget it so the site follows
-      // the OS again (including future OS theme changes).
-      var system = media.matches ? "dark" : "light";
-      if (theme === system) {
+      // Dark is the default. Persist only an explicit light choice; picking
+      // dark forgets the preference so the site returns to its default.
+      if (theme === "dark") {
         localStorage.removeItem("baton-theme");
         root.removeAttribute("data-theme");
       } else {
+        root.setAttribute("data-theme", theme);
         localStorage.setItem("baton-theme", theme);
       }
-    } catch (e) { /* storage unavailable — session-only toggle still works */ }
+    } catch (e) {
+      /* storage unavailable — still reflect the choice for this session */
+      root.setAttribute("data-theme", theme);
+    }
     if (toggle) {
       toggle.setAttribute(
         "aria-label",
@@ -35,6 +42,8 @@
       );
     }
   }
+
+  syncThemeColor(currentTheme());
 
   if (toggle) {
     toggle.setAttribute(

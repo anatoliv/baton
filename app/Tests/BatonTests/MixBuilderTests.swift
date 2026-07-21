@@ -92,6 +92,36 @@ final class MixBuilderTests: XCTestCase {
         XCTAssertFalse(mix.isEmpty)
     }
 
+    // MARK: - W-42 / MIX-02: shuffle
+
+    private struct SeededRNG: RandomNumberGenerator {
+        var state: UInt64
+        init(_ seed: UInt64) { state = seed &+ 0x9E37_79B9_7F4A_7C15 }
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    func testShuffleIsDeterministicForSameSeed() {
+        let pool = songs(50)
+        var r1 = SeededRNG(42); var r2 = SeededRNG(42)
+        let a = MixBuilder.buildMix(candidates: pool, targetSeconds: 1800, seed: .init(), using: &r1)
+        let b = MixBuilder.buildMix(candidates: pool, targetSeconds: 1800, seed: .init(), using: &r2)
+        XCTAssertEqual(a.map(\.id), b.map(\.id))
+    }
+
+    func testDifferentSeedsVaryTheMix() {
+        let pool = songs(50)
+        var r1 = SeededRNG(1); var r2 = SeededRNG(2)
+        let a = MixBuilder.buildMix(candidates: pool, targetSeconds: 1800, seed: .init(), using: &r1)
+        let b = MixBuilder.buildMix(candidates: pool, targetSeconds: 1800, seed: .init(), using: &r2)
+        XCTAssertNotEqual(a.map(\.id), b.map(\.id), "different seeds should produce a different mix")
+    }
+
     // MARK: - Prompt parsing
 
     func testParsePromptMinutes() {

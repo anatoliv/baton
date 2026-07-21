@@ -322,6 +322,7 @@ private struct RadioStationListRow: View {
                     }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(isPlaying ? "Stop \(station.name)" : "Play \(station.name)")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(station.name)
@@ -338,6 +339,8 @@ private struct RadioStationListRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(station.name)\(isOnAir ? ", on air" : "")\(subtitle.isEmpty ? "" : ", \(subtitle)")")
 
             // Fixed-width slot for the on-air equalizer so the website column stays
             // vertically aligned across rows whether or not a station is playing.

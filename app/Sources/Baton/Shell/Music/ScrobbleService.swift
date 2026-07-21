@@ -3,7 +3,7 @@ import Network
 import Observation
 import OSLog
 
-private let serviceLog = Logger(subsystem: "io.tonebox.macos", category: "ScrobbleService")
+private let serviceLog = Logger(subsystem: "io.tonebox.baton", category: "ScrobbleService")
 
 /// The single owner of scrobble *policy*. The playback engine emits two clean signals —
 /// `nowPlaying` at the downbeat and `completed` once a track passes the listen threshold — and
@@ -59,6 +59,14 @@ final class ScrobbleService {
 
     /// Guards against overlapping flushes of the same destination.
     @ObservationIgnored private var flushing: Set<String> = []
+    /// Per-destination backoff so a persistently-erroring server isn't hammered once per
+    /// completed play. Cleared on success and on the reconnect edge. In-memory: a launch
+    /// retries once, which is fine. (W-08 / SCR-02)
+    @ObservationIgnored private var retryState: [String: (failures: Int, nextAt: Date)] = [:]
+    /// Whether the network is currently reachable (updated by the path monitor). When
+    /// offline we don't even attempt a drain, so items wait with attempts untouched. In
+    /// tests (no monitor) this stays true so drains run deterministically. (W-08)
+    @ObservationIgnored private var isOnline = true
     /// Dedup key of the last completed listen (songID@startedAt) — a belt-and-suspenders guard
     /// against a repeated eligibility callback double-counting a single play.
     @ObservationIgnored private var lastCompletedKey: String?
@@ -72,7 +80,7 @@ final class ScrobbleService {
         queue: ScrobbleQueue = ScrobbleQueue(),
         defaults: UserDefaults = .standard,
         now: @escaping () -> Date = { Date() },
-        monitorNetwork: Bool = !BatonRuntime.isTest,
+        monitorNetwork: Bool = !BatonEnvironment.current.isTesting,
         autoFlush: Bool = true
     ) {
         self.listenBrainz = listenBrainz
@@ -89,8 +97,14 @@ final class ScrobbleService {
         if monitorNetwork {
             // Retry queued scrobbles the moment connectivity returns.
             pathMonitor.pathUpdateHandler = { [weak self] path in
-                guard path.status == .satisfied else { return }
-                Task { @MainActor in self?.flushAll() }
+                let satisfied = path.status == .satisfied
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.isOnline = satisfied
+                    guard satisfied else { return }
+                    self.retryState.removeAll() // connectivity returned — retry immediately
+                    self.flushAll()
+                }
             }
             pathMonitor.start(queue: DispatchQueue(label: "io.tonebox.scrobble.path"))
         }
@@ -162,8 +176,9 @@ final class ScrobbleService {
     /// overlapping triggers don't double-submit the same batch.
     private func drain(_ destination: ScrobbleDestination) async {
         let id = destination.destinationID
-        guard destination.isActive, !flushing.contains(id),
+        guard isOnline, destination.isActive, !flushing.contains(id),
               queue.pendingDestinations.contains(id) else { return }
+        if let s = retryState[id], now() < s.nextAt { return } // backing off
         flushing.insert(id)
         defer { flushing.remove(id) }
         while true {
@@ -172,12 +187,41 @@ final class ScrobbleService {
             do {
                 try await destination.submit(batch.map(\.scrobble))
                 queue.resolve(batch)
+                retryState[id] = nil // success clears backoff
             } catch {
-                queue.fail(batch)
-                serviceLog.error("\(id, privacy: .public) flush deferred: \(error.localizedDescription, privacy: .public)")
+                // A transient failure (offline/timeout/5xx/429) must NOT count against
+                // maxAttempts — otherwise an offline evening permanently drops scrobbles.
+                let transient = Self.isTransient(error)
+                queue.fail(batch, countsAsAttempt: !transient)
+                let failures = (retryState[id]?.failures ?? 0) + 1
+                retryState[id] = (failures, now().addingTimeInterval(Self.backoffInterval(failures)))
+                serviceLog.error("\(id, privacy: .public) flush deferred (\(transient ? "transient" : "permanent", privacy: .public)): \(error.localizedDescription, privacy: .public)")
                 break
             }
         }
+    }
+
+    /// Classifies a submit failure. Transient failures (network, 5xx, 429, and — until
+    /// W-31's per-provider handling — unclassified errors) are retried without burning an
+    /// attempt; definitive rejections (4xx, auth, Subsonic protocol errors) count so a
+    /// genuinely-undeliverable listen still retires. (W-08 / SCR-01)
+    static func isTransient(_ error: Error) -> Bool {
+        if error is URLError { return true }
+        if let nav = error as? NavidromeError {
+            switch nav {
+            case .transport, .notConfigured, .decoding: return true
+            case .http(let status): return status == 429 || (500...599).contains(status)
+            case .invalidURL, .unauthorized, .subsonic: return false
+            }
+        }
+        return true // unknown (e.g. Last.fm/ListenBrainz) → retry rather than drop
+    }
+
+    /// Backoff after N consecutive failures. The first failure retries immediately (an
+    /// isolated blip shouldn't stall a scrobble); sustained failure backs off 5 s → 300 s.
+    static func backoffInterval(_ failures: Int) -> TimeInterval {
+        guard failures > 1 else { return 0 }
+        return min(300, 5 * pow(2, Double(min(failures - 1, 6))))
     }
 
     // MARK: - Routing

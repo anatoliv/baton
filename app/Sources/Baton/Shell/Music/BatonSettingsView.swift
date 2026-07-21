@@ -71,6 +71,8 @@ struct BatonSettingsView: View {
             BatonActionsPane()
         case .speech:
             BatonSpeechPane()
+        case .agents:
+            BatonAgentsPane()
         case .about:
             BatonAboutPane()
         }
@@ -84,6 +86,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case equalizer
     case actions
     case speech
+    case agents
     case about
 
     var id: Self { self }
@@ -95,6 +98,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .equalizer: "Equalizer"
         case .actions: "Actions"
         case .speech: "Speech"
+        case .agents: "Agents"
         case .about: "About"
         }
     }
@@ -106,6 +110,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .equalizer: "slider.horizontal.3"
         case .actions: "bolt.horizontal.circle"
         case .speech: "waveform"
+        case .agents: "sparkles"
         case .about: "info.circle"
         }
     }
@@ -234,10 +239,10 @@ private struct BatonServersPane: View {
     }
 
     private func switchTo(_ server: NavidromeServerEntry) {
-        NavidromeConfig.setActiveServer(id: server.id)
-        activeID = NavidromeConfig.activeServerID()
-        model.musicLibrary.refreshConnection()
-        Task { await model.musicLibrary.loadAlbums() }
+        Task {
+            await model.selectServer(id: server.id)
+            activeID = NavidromeConfig.activeServerID()
+        }
     }
 
     private func remove(_ server: NavidromeServerEntry) {
@@ -245,11 +250,124 @@ private struct BatonServersPane: View {
         NavidromeConfig.removeServer(id: server.id)
         reload()
         pendingDelete = nil
-        // If the active server changed (or is now gone), re-point the library.
+        // If the active server changed (or is now gone), clear the removed server's queue +
+        // caches and re-point the library at whatever is now active. (W-63)
         if wasActive {
-            model.musicLibrary.refreshConnection()
+            model.handleActiveServerChanged()
             Task { await model.musicLibrary.loadAlbums() }
         }
+    }
+}
+
+// MARK: - Agents pane
+
+/// Settings → Agents: makes the MCP control surface discoverable. Shows whether an AI agent can
+/// reach Baton right now (read live from the server's `mcp.json` discovery file), the connection
+/// URL + bearer token (copyable), the fast-path socket, and where agents look for all of it — so
+/// the "AI can control your music" story isn't invisible. (W-57)
+private struct BatonAgentsPane: View {
+    @State private var info: AgentAccessInfo?
+    @State private var revealToken = false
+
+    private func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                HStack(spacing: 14) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 30)).foregroundStyle(.tint).frame(width: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Agent control").font(.title3.bold())
+                        Text("Baton hosts a local MCP server so AI agents can play, queue, and read your music — and duck it while they speak.")
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            if let info {
+                Section("Connection") {
+                    LabeledContent("Status") {
+                        Label("Running", systemImage: "checkmark.circle.fill").foregroundStyle(.green).labelStyle(.titleAndIcon)
+                    }
+                    LabeledContent("Endpoint") {
+                        HStack {
+                            Text(info.url).font(.callout.monospaced()).foregroundStyle(.secondary)
+                                .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                            Button { copy(info.url) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless)
+                        }
+                    }
+                    LabeledContent("Token") {
+                        HStack {
+                            Text(revealToken ? info.token : String(repeating: "•", count: 24))
+                                .font(.callout.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            Button { revealToken.toggle() } label: { Image(systemName: revealToken ? "eye.slash" : "eye") }.buttonStyle(.borderless)
+                            Button { copy(info.token) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless)
+                        }
+                    }
+                    if let socket = info.unixSocket {
+                        LabeledContent("Fast-path socket") {
+                            Text(socket).font(.callout.monospaced()).foregroundStyle(.secondary)
+                                .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                }
+                Text("The token grants full remote control of playback. Keep it private; anything with it (and loopback access) can drive Baton. It regenerates if you delete it from the Keychain.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Section("Connection") {
+                    LabeledContent("Status") {
+                        Label("Not running yet", systemImage: "circle").foregroundStyle(.orange).labelStyle(.titleAndIcon)
+                    }
+                    Text("The MCP server starts with the main window. If it never appears here, another Baton instance may already own the endpoint.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Discovery") {
+                if let dir = AgentAccessInfo.discoveryDirectory {
+                    LabeledContent("Agents look in") {
+                        Text(dir.appendingPathComponent("mcp.json").path)
+                            .font(.callout.monospaced()).foregroundStyle(.secondary)
+                            .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+                Text("An MCP client (Claude Desktop, an agent SDK, or Tonebox) reads this file to find the endpoint + token automatically — no manual setup.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+
+            if let info {
+                Section("Client configuration") {
+                    Text(configSnippet(info))
+                        .font(.callout.monospaced()).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Copy configuration") { copy(configSnippet(info)) }
+                    Text("Paste into a client that speaks MCP Streamable HTTP (e.g. an agent SDK, or an `mcpServers` config). The bearer token authorizes every request — keep it private.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { info = AgentAccessInfo.loadCurrent() }
+    }
+
+    /// A ready-to-paste MCP client config for the running server (Streamable HTTP + bearer token).
+    private func configSnippet(_ info: AgentAccessInfo) -> String {
+        """
+        {
+          "mcpServers": {
+            "baton": {
+              "url": "\(info.url)",
+              "headers": { "Authorization": "Bearer \(info.token)" }
+            }
+          }
+        }
+        """
     }
 }
 
@@ -300,6 +418,12 @@ private struct BatonAboutPane: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
+            Section("Startup") {
+                BatonLoginItemToggle()
+                Text("Adds Baton to your macOS login items so its menu-bar controls are ready right after you sign in. You can also manage this in System Settings → General → Login Items.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+
             Section("Updates") {
                 LabeledContent("Feed") {
                     Text(UpdateChannel.feedURLFromBundle)
@@ -329,9 +453,50 @@ private struct BatonAboutPane: View {
                     ? "Off by default. When on, Baton sends crash and error reports to its developer to help fix bugs. It never sends your music, library, server address, or account, and no IP or identifiers."
                     : "This build has no reporting endpoint configured, so nothing can be sent.")
                     .font(.callout).foregroundStyle(.secondary)
+
+                Divider()
+                LabeledContent("Logs") {
+                    Button("Export Logs…") {
+                        let text = Diagnostics.recentLogText(minutes: 60)
+                        if let url = Diagnostics.writeExport(text) {
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        }
+                    }
+                }
+                Text("Exports Baton's own log entries from the last hour to a text file — with your server address, IPs, and paths redacted — for troubleshooting \"won't load\" / \"update failed\" reports. (W-61)")
+                    .font(.callout).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Launch-at-login toggle, reflecting + driving `SMAppService.mainApp`. Reads the live OS status
+/// on appear (the user may change it in System Settings) and surfaces a failure rather than lying
+/// about the state. (W-58)
+private struct BatonLoginItemToggle: View {
+    @State private var enabled = LoginItem.isEnabled
+    @State private var error: String?
+
+    var body: some View {
+        Toggle("Launch Baton at login", isOn: $enabled)
+            .onChange(of: enabled) { _, newValue in
+                do {
+                    try LoginItem.setEnabled(newValue)
+                    error = nil
+                } catch {
+                    // Revert the toggle to the true OS state and explain.
+                    self.error = error.localizedDescription
+                    enabled = LoginItem.isEnabled
+                }
+            }
+        if let error {
+            Text("Couldn't change the login item: \(error)").font(.callout).foregroundStyle(.orange)
+        }
+        if LoginItem.requiresApproval {
+            Text("Approve Baton in System Settings → General → Login Items to enable this.")
+                .font(.callout).foregroundStyle(.orange)
+        }
     }
 }
 
@@ -353,6 +518,17 @@ private struct BatonUpdatesControls: View {
             }
             .buttonStyle(.borderedProminent)
             Spacer()
+        }
+        // Surface the last check outcome so a broken feed is visible, not silent. (W-61 / DIST-09)
+        if let result = SparkleUpdater.shared.lastCheckResult {
+            LabeledContent("Last check") {
+                Text(result)
+                    .font(.callout)
+                    .foregroundStyle(SparkleUpdater.shared.lastError == nil ? .secondary : Color.orange)
+            }
+        }
+        if let error = SparkleUpdater.shared.lastError {
+            Text(error).font(.callout).foregroundStyle(.orange).textSelection(.enabled)
         }
     }
 }
@@ -471,27 +647,30 @@ private struct BatonPlaybackPane: View {
             Text("Overlaps the end of one track with the start of the next for a smooth transition. Off is a clean cut.")
                 .font(.callout).foregroundStyle(.secondary)
 
-            // Gapless and crossfade are mutually exclusive — only offer gapless
-            // when crossfade is off (matches the controller's own guard).
-            if player.crossfadeSeconds < 0.5 {
-                Toggle("Gapless playback", isOn: Binding(
-                    get: { player.gaplessEnabled },
-                    set: { player.gaplessEnabled = $0 }
+            // Gapless and crossfade are mutually exclusive (the controller suppresses gapless
+            // while crossfade > 0). Keep the toggle visible either way so it's discoverable —
+            // disabling + explaining it beats hiding it, which reads as "gapless is gone".
+            let crossfadeOn = player.crossfadeSeconds >= 0.5
+            Toggle("Gapless playback", isOn: Binding(
+                get: { player.gaplessEnabled },
+                set: { player.gaplessEnabled = $0 }
+            ))
+            .disabled(crossfadeOn)
+            Text(crossfadeOn
+                ? "Unavailable while crossfade is on — the two are mutually exclusive. Set Crossfade to Off to use gapless."
+                : "For albums recorded without gaps (live, DJ sets, classical) — preloads the next track so it starts with no gap. Downloaded tracks are seamless; streamed tracks are prefetched to a small cache so their handoff is gap-free too.")
+                .font(.callout).foregroundStyle(.secondary)
+            if player.gaplessEnabled, !crossfadeOn {
+                Toggle("Prefetch streamed tracks on Wi-Fi only", isOn: Binding(
+                    get: { player.gaplessPrefetchWifiOnly },
+                    set: { player.gaplessPrefetchWifiOnly = $0 }
                 ))
-                Text("For albums recorded without gaps (live, DJ sets, classical) — preloads the next track so it starts with no gap. Downloaded tracks are seamless; streamed tracks are prefetched to a small cache so their handoff is gap-free too.")
+                Text("Skip the next-track prefetch on metered connections (personal hotspot, Low Data Mode). Playback still works — the streamed handoff just isn't pre-cached.")
                     .font(.callout).foregroundStyle(.secondary)
-                if player.gaplessEnabled {
-                    Toggle("Prefetch streamed tracks on Wi-Fi only", isOn: Binding(
-                        get: { player.gaplessPrefetchWifiOnly },
-                        set: { player.gaplessPrefetchWifiOnly = $0 }
-                    ))
-                    Text("Skip the next-track prefetch on metered connections (personal hotspot, Low Data Mode). Playback still works — the streamed handoff just isn't pre-cached.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if gaplessCacheBytes > 0 {
-                        Button("Clear prefetch cache (\(ByteCountFormatter.string(fromByteCount: gaplessCacheBytes, countStyle: .file)))", role: .destructive) {
-                            player.clearGaplessCache()
-                            gaplessCacheBytes = player.gaplessCacheSizeBytes
-                        }
+                if gaplessCacheBytes > 0 {
+                    Button("Clear prefetch cache (\(ByteCountFormatter.string(fromByteCount: gaplessCacheBytes, countStyle: .file)))", role: .destructive) {
+                        player.clearGaplessCache()
+                        gaplessCacheBytes = player.gaplessCacheSizeBytes
                     }
                 }
             }
@@ -507,6 +686,20 @@ private struct BatonPlaybackPane: View {
                     model.musicRadioBans.clear()
                 }
             }
+
+            LabeledContent("Duck to") {
+                HStack {
+                    Slider(value: Binding(
+                        get: { Double(player.duckPercent) },
+                        set: { player.duckPercent = Int($0) }
+                    ), in: 0 ... 80, step: 5)
+                    Text("\(player.duckPercent)%")
+                        .foregroundStyle(.secondary).monospacedDigit()
+                        .frame(width: sliderValueWidth, alignment: .trailing)
+                }
+            }
+            Text("How far the music dims to be heard over a spoken summary, or while an agent dictates/records (cooperative audio focus). Restored automatically afterwards. An agent may still request a specific level for a given task.")
+                .font(.callout).foregroundStyle(.secondary)
         }
     }
 

@@ -111,7 +111,7 @@ owns the music graph, still hosted by Tonebox.
   `musicRadioBans`, `musicScrobbler`, `musicLastFM`, `musicEqualizer`.
 - Move the wiring currently in `AppModel` (`relatedProvider` closure at
   `AppModel.swift:746`, scrobble hooks, `configureAudioMix`) onto `MusicModel`.
-- Repoint the `music_*` MCP tools and `AppModel+Music.swift` at `MusicModel` instead
+- Repoint the `music_*` MCP tools and the music command path at `MusicModel` instead
   of `appModel.music` / `appModel.musicLibrary`.
 - **Exit test:** Tonebox behaves identically; music code no longer references task /
   session types. This is the seam the standalone app will cut along.
@@ -161,9 +161,9 @@ owns the music graph, still hosted by Tonebox.
 **Goal:** Baton hosts the music MCP server; it becomes the primary control surface.
 
 - Port `MCPServer` + the music tool catalog into Baton (drop the task/session tools).
-- Upgrade transport from one-shot HTTP (`MCPServer.swift:294–313`,
-  `Connection: close`) to **Streamable HTTP** with a persistent stream for
-  server→client **notifications** (today there are none over MCP —
+- Upgrade transport to **Streamable HTTP + SSE** with a persistent stream for
+  server→client **notifications** (the pre-extraction Tonebox server was
+  request-per-connection with `Connection: close` and had no MCP notifications —
   see [README audit](README.md#audit--review-notes)).
 - Add MCP **resources** for now-playing + queue with `resources/updated`
   notifications.

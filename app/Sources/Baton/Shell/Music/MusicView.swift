@@ -6,6 +6,7 @@ import SwiftUI
 /// Gated on a configured connection.
 struct MusicView: View {
     @Environment(MusicModel.self) private var model
+    @Environment(BatonCommandRouter.self) private var router
     @State private var tab: MusicTab = .home
     @State private var path = NavigationPath()
     @State private var newPlaylistName = ""
@@ -19,6 +20,9 @@ struct MusicView: View {
     @State private var hideEmptyPlaylists = false
     @State private var albumSearch = ""
     @State private var albumSortAscending = true
+    /// Album attribute filters (over the loaded set): genre + liked-only.
+    @State private var albumGenreFilter: String?
+    @State private var albumLikedOnly = false
     // List ⇄ Grid layout per browse screen (Albums / Playlists default to grid).
     @AppStorage("tonebox.music.albumLayout") private var albumLayout: MusicBrowseLayout = .grid
     @AppStorage(ArtistHeuristics.hideAutoImportsKey) private var hideAutoImports = false
@@ -53,8 +57,48 @@ struct MusicView: View {
         if !q.isEmpty {
             list = list.filter { $0.name.lowercased().contains(q) || ($0.artist ?? "").lowercased().contains(q) }
         }
+        if albumLikedOnly { list = list.filter { library.isLiked(id: $0.id, isLiked: $0.isLiked) } }
+        if let albumGenreFilter {
+            list = list.filter { album in
+                let genres = album.genres.isEmpty ? [album.genre].compactMap { $0 } : album.genres
+                return genres.contains { $0.caseInsensitiveCompare(albumGenreFilter) == .orderedSame }
+            }
+        }
         if !albumSortAscending { list.reverse() }
         return list
+    }
+
+    /// Distinct genres across the loaded albums, for the album genre filter (empty ⇒ hidden).
+    private var albumGenres: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for album in library.albums {
+            let genres = album.genres.isEmpty ? [album.genre].compactMap { $0 } : album.genres
+            for g in genres where !g.isEmpty && seen.insert(g.lowercased()).inserted { out.append(g) }
+        }
+        return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private var albumFiltersActive: Bool { albumLikedOnly || albumGenreFilter != nil }
+
+    @ViewBuilder private var albumFilterMenu: some View {
+        Menu {
+            Toggle("Liked only", isOn: $albumLikedOnly)
+            if !albumGenres.isEmpty {
+                Picker("Genre", selection: $albumGenreFilter) {
+                    Text("Any genre").tag(String?.none)
+                    ForEach(albumGenres, id: \.self) { g in Text(g).tag(String?.some(g)) }
+                }
+            }
+            Divider()
+            Button("Clear Filters") { albumLikedOnly = false; albumGenreFilter = nil }
+                .disabled(!albumFiltersActive)
+        } label: {
+            Image(systemName: albumFiltersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                .foregroundStyle(albumFiltersActive ? Color.accentColor : Color.secondary)
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Filter albums")
     }
     /// Shared namespace so the mini-bar artwork morphs into the full-screen hero.
     @Namespace private var artNamespace
@@ -192,6 +236,28 @@ struct MusicView: View {
                 // keying on it would leave the window wash stuck between episodes.
                 .onChange(of: model.music.nowPlaying?.id) { _, _ in
                     paletteLoader.update(url: nowPlayingCoverURL)
+                }
+                // Menu-bar navigation (Go / Find / Now Playing) routed via BatonCommandRouter.
+                .onChange(of: router.pendingTab) { _, new in
+                    guard let new else { return }
+                    tab = new
+                    path = NavigationPath()
+                    router.pendingTab = nil
+                }
+                .onChange(of: router.showNowPlayingToken) { _, _ in
+                    guard model.music.nowPlaying != nil else { return }
+                    path = NavigationPath()
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.85)) { showFullScreen = true }
+                }
+                // Global Space = Play/Pause. Focusable so it receives the key when nothing else
+                // holds focus; a focused text field (search/filter) consumes Space itself, so
+                // typing spaces still works. (menu review #4 — verify on-device)
+                .focusable()
+                .focusEffectDisabled()
+                .onKeyPress(.space) {
+                    guard model.music.nowPlaying != nil else { return .ignored }
+                    model.music.isPlaying ? model.music.pause() : model.music.resume()
+                    return .handled
                 }
             } else {
                 MusicNotConnectedView()
@@ -414,7 +480,7 @@ struct MusicView: View {
                 filterFocused: $albumFilterFocused,
                 filterHistoryKey: "albums",
                 layout: $albumLayout,
-                accessory: { EmptyView() },
+                accessory: { albumFilterMenu },
                 leading: {
                     if albumSel.isEmpty {
                         MusicMiniTransport()
@@ -444,7 +510,7 @@ struct MusicView: View {
             )
             if albumLayout == .list {
                 VStack(spacing: 0) {
-                    BrowseColumns.header("Album", showTime: true, showRating: true, selectable: true)
+                    BrowseColumns.header("Album", showTime: true, showRating: true, selectable: true, showGenre: true, showYear: true, showLike: true)
                         .padding(.horizontal, 10).padding(.vertical, 6)
                     Divider()
                     ScrollView {
@@ -463,6 +529,19 @@ struct MusicView: View {
                 .frame(maxWidth: .infinity).padding(.horizontal, 16)
             } else {
                 ScrollView { albumGrid(filteredAlbums).padding(12) }
+                    .contentState(
+                        ContentDisplayState.resolve(
+                            isLoading: library.isLoading && library.albums.isEmpty,
+                            error: library.lastError,
+                            isEmpty: filteredAlbums.isEmpty
+                        ),
+                        emptyTitle: albumSearch.isEmpty ? "No albums" : "No matches",
+                        emptyMessage: albumSearch.isEmpty
+                            ? "This library has no albums yet."
+                            : "No albums match “\(albumSearch)”.",
+                        emptySymbol: "square.stack",
+                        onRetry: { Task { await library.loadAlbums() } }
+                    )
             }
         }
         .task { if library.albums.isEmpty { await library.loadAlbums() } }
@@ -746,7 +825,15 @@ struct MusicAlbumCard: View {
 
     private var cardSubtitle: String {
         let artist = (album.artist ?? "").trimmingCharacters(in: .whitespaces)
-        return artist.isEmpty ? "" : album.name
+        var base = artist.isEmpty ? "" : album.name
+        var meta: [String] = []
+        if let year = album.year { meta.append(String(year)) }
+        if let genre = album.genres.first ?? album.genre, !genre.isEmpty { meta.append(genre) }
+        if !meta.isEmpty {
+            let suffix = meta.joined(separator: " · ")
+            base = base.isEmpty ? suffix : "\(base) · \(suffix)"
+        }
+        return base
     }
 
     private var trackCountText: String? {

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let podcastCapabilityLog = Logger(subsystem: "io.tonebox.macos", category: "PodcastCapability")
+private let podcastCapabilityLog = Logger(subsystem: "io.tonebox.baton", category: "PodcastCapability")
 
 /// Tracks whether the *active* Subsonic server actually implements the podcast API.
 ///
@@ -119,14 +119,29 @@ final class PodcastCapabilityStore {
     private static func storageKey(for serverID: UUID) -> String {
         "tonebox.podcast.supported.\(serverID.uuidString)"
     }
+    private static func stampKey(for serverID: UUID) -> String {
+        "tonebox.podcast.supported.at.\(serverID.uuidString)"
+    }
+    /// Re-probe an `unsupported` verdict after this long — a server may gain podcast support
+    /// later (Navidrome #793), and we shouldn't hide the tab forever. (W-36 / POD-08)
+    static let unsupportedTTL: TimeInterval = 7 * 24 * 60 * 60
+    /// Injectable clock for tests.
+    nonisolated(unsafe) static var now: () -> Date = { Date() }
 
-    private func persisted(for serverID: UUID) -> Bool? {
+    func persisted(for serverID: UUID) -> Bool? { // internal for W-36 expiry test
         let key = Self.storageKey(for: serverID)
         guard defaults.object(forKey: key) != nil else { return nil }
-        return defaults.bool(forKey: key)
+        let supported = defaults.bool(forKey: key)
+        if !supported {
+            // Expire a stale "unsupported" so it gets re-probed.
+            let stamp = defaults.double(forKey: Self.stampKey(for: serverID))
+            if stamp == 0 || Self.now().timeIntervalSince1970 - stamp > Self.unsupportedTTL { return nil }
+        }
+        return supported
     }
 
     private func persist(_ supported: Bool, for serverID: UUID) {
         defaults.set(supported, forKey: Self.storageKey(for: serverID))
+        defaults.set(Self.now().timeIntervalSince1970, forKey: Self.stampKey(for: serverID))
     }
 }

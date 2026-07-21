@@ -178,8 +178,18 @@ struct FullScreenNowPlaying: View {
             VStack(spacing: 6) {
                 Text(player.nowPlaying?.title ?? "Nothing playing")
                     .font(.system(size: 32, weight: .bold)).lineLimit(1)
-                Text([player.nowPlaying?.artist, player.nowPlaying?.album].compactMap(\.self).joined(separator: " · "))
+                Text([player.nowPlaying?.displayArtistName, player.nowPlaying?.album].compactMap(\.self).joined(separator: " · "))
                     .font(.title3).foregroundStyle(.white.opacity(0.72)).lineLimit(1)
+                if let song = player.nowPlaying {
+                    HStack(spacing: 6) {
+                        if let quality = song.qualityLabel { MusicMetaBadge(quality) }
+                        if let genre = song.genres.first ?? song.genre, !genre.isEmpty { MusicMetaBadge(genre) }
+                        if let year = song.year { MusicMetaBadge(String(year)) }
+                        if let plays = song.playCount, plays > 0 {
+                            MusicMetaBadge("\(plays) play\(plays == 1 ? "" : "s")")
+                        }
+                    }
+                }
             }
             if let song = player.nowPlaying {
                 MusicRatingCluster(song: song, tint: palette.uiAccent)
@@ -228,7 +238,10 @@ struct FullScreenNowPlaying: View {
                     .foregroundStyle(player.isShuffled ? palette.uiAccent : .white.opacity(0.7))
             }
             .help("Shuffle")
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(player.isShuffled ? "On" : "Off")
             Button { player.previous() } label: { Image(systemName: "backward.fill").font(.title2) }
+                .accessibilityLabel("Previous track")
             Button { player.isPlaying ? player.pause() : player.resume() } label: {
                 ZStack {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -238,12 +251,16 @@ struct FullScreenNowPlaying: View {
                 }
             }
             .keyboardShortcut(.space, modifiers: [])
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
             Button { player.next() } label: { Image(systemName: "forward.fill").font(.title2) }
+                .accessibilityLabel("Next track")
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.title3)
                     .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.7) : palette.uiAccent)
             }
             .help("Repeat")
+            .accessibilityLabel("Repeat")
+            .accessibilityValue(player.repeatMode.rawValue)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)

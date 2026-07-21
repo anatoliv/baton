@@ -72,6 +72,24 @@ final class MusicNowPlayingCenter {
             artworkTask?.cancel()
             return
         }
+        var info = Self.nowPlayingInfo(song: song, isPlaying: isPlaying, currentTime: currentTime, duration: duration)
+        if let lastArtwork { info[MPMediaItemPropertyArtwork] = lastArtwork }
+        center.nowPlayingInfo = info
+        center.playbackState = isPlaying ? .playing : .paused
+        loadArtworkIfNeeded(url: artworkURL)
+    }
+
+    /// Pure mapping of a track + transport state to the Now Playing info dictionary (artwork is
+    /// merged in asynchronously by `loadArtworkIfNeeded`, so it isn't included here). Factored out
+    /// of `update` so the key mapping — title/artist/album, duration only when known, a clamped
+    /// elapsed time, and the play/pause rate the OS interpolates from — is testable without
+    /// touching the OS `MPNowPlayingInfoCenter` (which is gated off under XCTest). (W-49)
+    nonisolated static func nowPlayingInfo(
+        song: NavidromeSong,
+        isPlaying: Bool,
+        currentTime: TimeInterval,
+        duration: TimeInterval
+    ) -> [String: Any] {
         var info: [String: Any] = [:]
         info[MPMediaItemPropertyTitle] = song.title
         info[MPMediaItemPropertyArtist] = song.artist ?? ""
@@ -79,10 +97,7 @@ final class MusicNowPlayingCenter {
         if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, currentTime)
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        if let lastArtwork { info[MPMediaItemPropertyArtwork] = lastArtwork }
-        center.nowPlayingInfo = info
-        center.playbackState = isPlaying ? .playing : .paused
-        loadArtworkIfNeeded(url: artworkURL)
+        return info
     }
 
     /// Fetches the cover asynchronously and merges it into the live info dict when

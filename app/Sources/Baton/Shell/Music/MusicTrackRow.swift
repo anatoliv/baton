@@ -19,13 +19,20 @@ struct MusicTrackRow: View {
                 Text(song.title)
                     .lineLimit(1)
                     .foregroundStyle(isCurrent ? Color.accentColor : .primary)
-                if let artist = song.artist, !artist.isEmpty {
+                if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
+            // VoiceOver reads the track as one phrase ("Title, by Artist, now playing") instead of
+            // two separate text nodes; the rating/like controls stay individually accessible. (W-56)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(trackAccessibilityLabel)
             Spacer(minLength: 8)
 
             DownloadStatusBadge(songID: song.id)
+            if let quality = song.qualityLabel {
+                MusicMetaBadge(quality)
+            }
             if let duration = song.duration {
                 Text(Self.formatDuration(duration))
                     .font(.callout.monospacedDigit())
@@ -46,6 +53,13 @@ struct MusicTrackRow: View {
             songRemovalMenuItem(showConfirm: $showRemoveConfirm)
         }
         .songRemovalConfirm(song, model, isPresented: $showRemoveConfirm)
+    }
+
+    private var trackAccessibilityLabel: String {
+        var label = song.title
+        if let artist = song.artist, !artist.isEmpty { label += ", by \(artist)" }
+        if isCurrent { label += ", now playing" }
+        return label
     }
 
     static func formatDuration(_ seconds: Int) -> String {
@@ -73,8 +87,11 @@ struct MusicStarRating: View {
                 }
                 .buttonStyle(.plain)
                 .help("Rate \(star)")
+                .accessibilityLabel("Rate \(star) star\(star == 1 ? "" : "s")")
+                .accessibilityAddTraits(star <= rating ? .isSelected : [])
             }
         }
+        .accessibilityValue(rating == 0 ? "Not rated" : "\(rating) of 5 stars")
     }
 }
 
@@ -86,5 +103,53 @@ struct MusicRatingStars: View {
         MusicStarRating(rating: model.musicLibrary.rating(song)) { newRating in
             Task { await model.musicLibrary.setRating(song, rating: newRating) }
         }
+    }
+}
+
+/// A like (heart) toggle — pink when liked, muted otherwise. Reused for tracks, albums, and
+/// artists so the affordance is identical everywhere.
+struct MusicLikeHeart: View {
+    let isLiked: Bool
+    var help: String = ""
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isLiked ? "heart.fill" : "heart")
+                .font(.subheadline)
+                .foregroundStyle(isLiked ? AnyShapeStyle(Color.pink) : AnyShapeStyle(.secondary.opacity(0.55)))
+                .frame(width: 22, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help.isEmpty ? (isLiked ? "Unlike" : "Like") : help)
+        .accessibilityAddTraits(isLiked ? .isSelected : [])
+    }
+}
+
+/// A small, subtle metadata pill — format/quality (e.g. "FLAC · 24/96"), genre, or a release-type
+/// badge. Deliberately understated so it reads as secondary chrome, not a control.
+struct MusicMetaBadge: View {
+    let text: String
+    var prominent = false
+
+    init(_ text: String, prominent: Bool = false) {
+        self.text = text
+        self.prominent = prominent
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.medium))
+            .monospacedDigit()
+            .foregroundStyle(prominent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(prominent ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.14))
+            )
+            .fixedSize()
+            .accessibilityLabel(text)
     }
 }

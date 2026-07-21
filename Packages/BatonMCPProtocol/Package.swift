@@ -1,0 +1,9 @@
+// swift-tools-version:6.0
+import PackageDescription
+
+let package = Package(
+    name: "BatonMCPProtocol",
+    platforms: [.macOS(.v15)],
+    products: [.library(name: "BatonMCPProtocol", targets: ["BatonMCPProtocol"])],
+    targets: [.target(name: "BatonMCPProtocol")]
+)

@@ -256,6 +256,71 @@ final class AudioFocusHardeningTests: XCTestCase {
         XCTAssertEqual(c.volumePercent, 80)
     }
 
+    /// W-15: over the REAL socket (accept loop + per-connection threads), an idle client that
+    /// connects and sends nothing must not starve a real client (SOCK-02). Uses an expectation
+    /// so the main run loop keeps pumping — the socket's dispatch hops to the main actor.
+    func testRealSocketServesDespiteAnIdleClient() {
+        let c = makeController()
+        c.setVolume(percent: 80)
+        c.play([song("a")])
+        let registry = BatonAudioFocusRegistry()
+        // Keep the socket path SHORT: a Unix-domain address (`sun_path`) caps at ~104 bytes, and
+        // the default /var/folders temp dir + a full UUID + "/control.sock" overflows it, so bind()
+        // silently fails and no socket is ever created. A short /tmp dir stays well under. (SOCK-02)
+        let dir = URL(fileURLWithPath: "/tmp").appendingPathComponent("bsk-\(UUID().uuidString.prefix(8))")
+        let socket = BatonControlSocket(focus: registry, controller: c, directory: dir)
+        socket.start()
+        defer { socket.stop(); try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("control.sock").path
+
+        let idle = Self.connectUnix(path) // connects, sends nothing
+        defer { if idle >= 0 { close(idle) } }
+
+        // Drive SUSPEND from a background thread; the socket dispatches the duck to the main actor
+        // via DispatchQueue.main.sync, so keep the main run loop pumping (draining the main queue)
+        // here for that hop to complete. Pump RunLoop explicitly rather than wait(for:) — on this
+        // toolchain wait(for:) parks the main thread in a mode that doesn't service the main
+        // dispatch queue, so the socket's main.sync would never return. The ducked volume is the
+        // ground truth that the real client was served despite the idle one.
+        DispatchQueue.global().async {
+            let fd = Self.connectUnix(path)
+            guard fd >= 0 else { return }
+            defer { close(fd) }
+            _ = "SUSPEND dictation duck 20\n".withCString { send(fd, $0, strlen($0), 0) }
+            var buf = [UInt8](repeating: 0, count: 256)
+            _ = recv(fd, &buf, buf.count, 0) // drain the HANDLE reply so writeAll never blocks
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while c.volumePercent != 20, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(c.volumePercent, 20, "duck applied via the real socket despite an idle client")
+    }
+
+    /// Connect a raw Unix-domain client to `path`, returning the fd (or -1). `nonisolated` so a
+    /// background queue can call it.
+    nonisolated static func connectUnix(_ path: String) -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return -1 }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: addr.sun_path) else { close(fd); return -1 }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: bytes.count) { dst in
+                for (i, b) in bytes.enumerated() { dst[i] = CChar(bitPattern: b) }
+                dst[bytes.count] = 0
+            }
+        }
+        let r = withUnsafePointer(to: &addr) { aptr in
+            aptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if r != 0 { close(fd); return -1 }
+        return fd
+    }
+
     func testSocketRoundTripLatencyUnderBudget() {
         let c = makeController()
         c.play([song("a")])
@@ -275,5 +340,25 @@ final class AudioFocusHardeningTests: XCTestCase {
 
         print("MEASURED socket suspend→resume round-trip: \(String(format: "%.4f", elapsedMS)) ms")
         XCTAssertLessThan(elapsedMS, 50, "fast-path round-trip must be well under 50 ms")
+    }
+}
+
+/// Covers the agent-duck floor: an agent's explicit `duckToPercent` is clamped so `duck` always
+/// stays audible (true silence must go through `pause`). The user's own configured level is not
+/// affected — that path never calls `clampAgentDuck`.
+final class AgentDuckFloorTests: XCTestCase {
+    func testFloorsBelowFive() {
+        XCTAssertEqual(BatonAudioFocusRegistry.clampAgentDuck(0), 5)
+        XCTAssertEqual(BatonAudioFocusRegistry.clampAgentDuck(3), 5)
+    }
+
+    func testKeepsInRangeValues() {
+        XCTAssertEqual(BatonAudioFocusRegistry.clampAgentDuck(5), 5)
+        XCTAssertEqual(BatonAudioFocusRegistry.clampAgentDuck(20), 20)
+        XCTAssertEqual(BatonAudioFocusRegistry.clampAgentDuck(80), 80)
+    }
+
+    func testCapsAtHundred() {
+        XCTAssertEqual(BatonAudioFocusRegistry.clampAgentDuck(150), 100)
     }
 }

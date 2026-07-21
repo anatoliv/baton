@@ -4,7 +4,7 @@ Things that are **shipped and working** but have known limitations, edge cases, 
 tech debt worth hardening — mined from the code and the recent git log. Format: what's
 there → the limitation → the suggested improvement (and why).
 
-Paths relative to `apps/tonebox-mac/Sources/Tonebox/`.
+Paths relative to `app/Sources/Baton/`.
 
 ---
 
@@ -117,14 +117,15 @@ influence server-side recommendations.
 ban to a server-side rating-1 signal (the "mark for removal" pattern already exists,
 `MusicLibraryStore.markForRemoval` :351) so other clients respect it.
 
-## 11. MCP transport is one-shot HTTP (no notifications)
-**There:** JSON-RPC over HTTP, one request per connection, `Connection: close`
-(`MCPServer.swift:294–313`); no server→client notifications over MCP.
-**Limitation:** agents can't subscribe to now-playing/queue changes — they must poll
-`music_now_playing`. Multiple concurrent long-lived clients aren't first-class.
-**Improve:** Streamable HTTP + `notifications/resources/updated`
-([04](04-integration-and-mcp.md) §5, [03](03-architecture.md) Phase 4). This is the
-enabling change for the whole agent-observability story.
+## 11. MCP transport is Streamable HTTP + SSE (shipped)
+**There:** `app/Sources/Baton/MCP/BatonMCPServer.swift` serves `POST /mcp` (JSON-RPC) +
+`GET /mcp` (SSE, `text/event-stream`) with a server-minted `Mcp-Session-Id`, multi-client;
+`notifications/resources/updated` are emitted so agents subscribe to now-playing/queue
+changes instead of polling `music_now_playing` ([04](04-integration-and-mcp.md) §5,
+[03](03-architecture.md) Phase 4). This was the enabling change for the whole
+agent-observability story.
+**To harden:** richer per-resource change granularity and backpressure on slow SSE
+consumers.
 
 ## 12. Now-playing/library MCP tools return prose, not always structured JSON
 **There:** transport tools return the `nowPlayingSummary` **string**

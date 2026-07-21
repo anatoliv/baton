@@ -57,11 +57,17 @@ undecided — and a "wild ideas" section for things **none** of the competitors 
 - **Multi-platform strategy.** iOS companion is roadmap ([05](05-roadmap-new-features.md)
   #1); does the MCP-server-as-control-surface idea extend to iOS (background limits
   make hosting a server hard) or does iOS become a *client* of the Mac?
-- **Which optional deps ship.** LLM fallback for NL commands
-  (`AppModel+Music.swift:159`) needs *an* LLM — does Baton bundle a config for that, or
-  stay deterministic-only and let the *client* agent do the NL?
+- **Which optional deps ship.** Baton ships **no** in-app NL interpreter today —
+  natural-language control is delegated to the *client* agent driving the MCP tool
+  catalog (`app/Sources/Baton/MCP/BatonMCPTools.swift`). Open question: do we ever bundle
+  a local LLM for on-device NL, or stay MCP-only and let the client agent own it?
 - **Server support scope.** Navidrome-first, but Subsonic/OpenSubsonic broadly — do
   we test against Jellyfin (via its Subsonic shim), Airsonic, Gonic, Ampache?
+- **Default appearance — decided: forced dark.** The app forces a **dark** color scheme
+  as its default (`preferredColorScheme(.dark)` in `MusicView.swift` /
+  `FullScreenNowPlaying.swift` / `MiniPlayerWindowView.swift`) so text/icons stay legible
+  over the color-from-artwork backdrop and the player reads consistently. Intentional and
+  shipped; a user-facing light/auto option is a possible future, not a current goal.
 
 ## 4. Wild ideas (nobody in the field does these)
 
@@ -70,7 +76,7 @@ Lean into the agent-controllable angle — this is where Baton is unique.
 1. **Natural-language mix composition.** "Make me a 40-minute focus mix that starts
    mellow and ramps up." An MCP prompt + tool flow that *composes* a queue (search +
    sonic features + duration budgeting), not just runs a single command. Extends the
-   `MusicCommandInterpreter` from *commands* to *curation*. ([05](05-roadmap-new-features.md) #10)
+   MCP tool catalog from *commands* to *curation*. ([05](05-roadmap-new-features.md) #10)
 2. **Agent-built, self-maintaining playlists.** "Keep a playlist of everything I like
    this month that I haven't skipped." An agent subscribed to now-playing +
    likes/skips maintains it continuously via `music_create/add_to_playlist`.
@@ -85,9 +91,9 @@ Lean into the agent-controllable angle — this is where Baton is unique.
    *why* a track is in your mix ("because you liked three albums by this artist and it
    matches the tempo of your last focus session").
 6. **Voice + agent hand-off.** "Tonebox, play something" (voice) → the agent picks
-   based on calendar/time/recent context, not just a keyword search. The wake-word
-   path (`MusicCommandInterpreter.wakeWords`) already exists; route the ambiguous case
-   to an agent instead of the local LLM classifier.
+   based on calendar/time/recent context, not just a keyword search. Route the ambiguous
+   case to an agent over Baton's MCP tools (`app/Sources/Baton/MCP/BatonMCPTools.swift`)
+   rather than a local keyword classifier.
 7. **Shareable control tokens.** A scoped, expiring MCP token that lets a *trusted*
    remote agent (e.g. a home-automation hub) control playback — "play the dinner mix
    at 7pm" as a scheduled agent action.

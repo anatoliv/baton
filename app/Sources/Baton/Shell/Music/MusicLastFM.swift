@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let lastfmLog = Logger(subsystem: "io.tonebox.macos", category: "LastFM")
+private let lastfmLog = Logger(subsystem: "io.tonebox.baton", category: "LastFM")
 
 /// Scrobbles to **Last.fm**. Unlike ListenBrainz (a single token), Last.fm needs an app
 /// **API key + shared secret** (register a free API account at last.fm/api/account/create)
@@ -16,9 +16,9 @@ private let lastfmLog = Logger(subsystem: "io.tonebox.macos", category: "LastFM"
 @MainActor
 @Observable
 final class MusicLastFM: ScrobbleDestination {
-    var apiKey: String { didSet { UserDefaults.standard.set(apiKey, forKey: Self.keyKey) } }
-    var apiSecret: String { didSet { UserDefaults.standard.set(apiSecret, forKey: Self.secretKey) } }
-    private(set) var sessionKey: String { didSet { UserDefaults.standard.set(sessionKey, forKey: Self.sessionKeyKey) } }
+    var apiKey: String { didSet { UserDefaults.standard.set(apiKey, forKey: Self.keyKey) } } // public identifier
+    var apiSecret: String { didSet { NavidromeKeychain.setSecret(apiSecret, account: Self.secretKey) } } // Keychain (W-13)
+    private(set) var sessionKey: String { didSet { NavidromeKeychain.setSecret(sessionKey, account: Self.sessionKeyKey) } } // Keychain (W-13)
     /// The token from a `getToken` request, awaiting the user's browser authorization.
     private(set) var pendingToken: String?
 
@@ -37,8 +37,9 @@ final class MusicLastFM: ScrobbleDestination {
         self.session = session
         let d = UserDefaults.standard
         apiKey = d.string(forKey: Self.keyKey) ?? ""
-        apiSecret = d.string(forKey: Self.secretKey) ?? ""
-        sessionKey = d.string(forKey: Self.sessionKeyKey) ?? ""
+        // Secret + session key from the Keychain (migrate-on-read handles existing installs). (W-13)
+        apiSecret = NavidromeKeychain.secret(account: Self.secretKey) ?? ""
+        sessionKey = NavidromeKeychain.secret(account: Self.sessionKeyKey) ?? ""
     }
 
     // MARK: - Auth (two-step browser flow)

@@ -132,10 +132,10 @@ struct BatonServerEditSheet: View {
                 targetID = entry.id
             }
 
-            // Make the just-saved server active and re-point the library.
-            NavidromeConfig.setActiveServer(id: targetID)
-            model.musicLibrary.refreshConnection()
-            await model.musicLibrary.loadAlbums()
+            // Make the just-saved server active and re-point the library. selectServer only
+            // wipes the queue when the active server actually changes, so editing the current
+            // server's credentials doesn't interrupt playback. (W-63)
+            await model.selectServer(id: targetID)
             onSaved()
             dismiss()
         } catch {

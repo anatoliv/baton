@@ -87,11 +87,18 @@ enum WaveformExtractor {
             CMSampleBufferInvalidate(buffer)
         }
         guard reader.status == .completed || reader.status == .reading, sampleIndex > 0 else { return nil }
+        return normalizeBars(peaks: peaks, counts: counts)
+    }
 
-        // Fill any empty trailing buckets with the last real value, then normalize.
+    /// Pure reduction step, factored out of `extract` so it's testable without a real audio
+    /// file: fill empty buckets (a bar with no samples, e.g. from a sparse tail) with the last
+    /// real value, then scale to 0…1 by the loudest bar. Returns nil for an all-silent input,
+    /// so callers fall back to a plain bar rather than drawing a flat line. (W-49)
+    nonisolated static func normalizeBars(peaks: [Float], counts: [Int]) -> [Float]? {
+        var peaks = peaks
         var last: Float = 0
         for i in peaks.indices {
-            if counts[i] == 0 { peaks[i] = last } else { last = peaks[i] }
+            if i < counts.count, counts[i] == 0 { peaks[i] = last } else { last = peaks[i] }
         }
         let maxPeak = peaks.max() ?? 1
         guard maxPeak > 0 else { return nil }

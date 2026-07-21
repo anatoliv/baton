@@ -43,9 +43,10 @@ final class GapToolsTests: XCTestCase {
         for tool in expected {
             XCTAssertTrue(names.contains(tool), "missing tool \(tool)")
         }
-        // 20 existing (18 music_* incl. music_build_mix + audio_suspend/audio_resume)
-        // + 10 new = 30.
-        XCTAssertEqual(names.count, 30, "unexpected total tool count: \(names.count)")
+        // 21 existing (18 music_* incl. music_build_mix + audio_suspend/audio_resume
+        // + speak_summary) + 10 new = 31. NOTE: a bare count is brittle; W-41/W-46
+        // replace this with a schema snapshot of the full catalog.
+        XCTAssertEqual(names.count, 31, "unexpected total tool count: \(names.count)")
     }
 
     func testGetQueueIsAnnotatedReadOnly() {

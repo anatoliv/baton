@@ -3,7 +3,7 @@ import Observation
 import OSLog
 import SwiftUI
 
-private let webhookLog = Logger(subsystem: "io.tonebox.macos", category: "WebhookActions")
+private let webhookLog = Logger(subsystem: "io.tonebox.baton", category: "WebhookActions")
 
 // MARK: - Model
 
@@ -163,24 +163,39 @@ enum WebhookTemplate {
 
 /// Owns the user's webhook actions (persisted as JSON in UserDefaults) and runs them. The HTTP
 /// sender is injectable so the runner can be unit-tested without the network.
+///
+/// SECURITY (W-51 / SEC-19): a webhook action's header values can carry an `Authorization: Bearer …`
+/// secret. The action list is persisted as JSON in UserDefaults (a user-readable plist) for its
+/// structure, but header *values* are moved to an injectable `SecretStore` (the Keychain in the app)
+/// and blanked in the persisted JSON, so no auth token lands in cleartext. The value is re-injected
+/// from the secret store on load, so editing + request-building see it transparently. Both the
+/// `defaults` and the `secrets` store are injectable so the store is fully unit-testable.
 @MainActor
 @Observable
 final class WebhookActionStore {
     private(set) var actions: [WebhookAction] = []
 
     private let defaults: UserDefaults
+    private let secrets: any SecretStore
     private let storageKey = "tonebox.webhookActions"
     /// Performs the request, returning the HTTP status code. Injected for tests.
     private let send: (URLRequest) async throws -> Int
 
+    /// Keychain account key for a header's secret value — the header id is a globally unique UUID.
+    private static func secretKey(_ header: WebhookAction.Header) -> String {
+        "tonebox.webhook.header.\(header.id.uuidString)"
+    }
+
     init(
         defaults: UserDefaults = .standard,
+        secrets: any SecretStore = KeychainSecretStore(),
         send: @escaping (URLRequest) async throws -> Int = { request in
             let (_, response) = try await URLSession.shared.data(for: request)
             return (response as? HTTPURLResponse)?.statusCode ?? 0
         }
     ) {
         self.defaults = defaults
+        self.secrets = secrets
         self.send = send
         load()
     }
@@ -197,6 +212,8 @@ final class WebhookActionStore {
     }
 
     func delete(_ action: WebhookAction) {
+        // Remove the action's header secrets from the store so nothing is stranded.
+        for header in action.headers { secrets.setSecret(nil, for: Self.secretKey(header)) }
         actions.removeAll { $0.id == action.id }
         persist()
     }
@@ -226,12 +243,28 @@ final class WebhookActionStore {
 
     private func load() {
         guard let data = defaults.data(forKey: storageKey),
-              let decoded = try? JSONDecoder().decode([WebhookAction].self, from: data) else { return }
+              var decoded = try? JSONDecoder().decode([WebhookAction].self, from: data) else { return }
+        // Re-inject each header's secret value from the secret store (blanked in the plaintext JSON).
+        for i in decoded.indices {
+            for j in decoded[i].headers.indices {
+                decoded[i].headers[j].value = secrets.secret(for: Self.secretKey(decoded[i].headers[j])) ?? ""
+            }
+        }
         actions = decoded
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(actions) else { return }
+        // Move header values into the secret store and persist the list with them blanked, so an
+        // auth token in a header never lands in the cleartext defaults plist. (W-51 / SEC-19)
+        var sanitized = actions
+        for i in sanitized.indices {
+            for j in sanitized[i].headers.indices {
+                let header = sanitized[i].headers[j]
+                secrets.setSecret(header.value, for: Self.secretKey(header))
+                sanitized[i].headers[j].value = ""
+            }
+        }
+        guard let data = try? JSONEncoder().encode(sanitized) else { return }
         defaults.set(data, forKey: storageKey)
     }
 }
