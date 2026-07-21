@@ -50,7 +50,7 @@ final class MusicLibraryStoreTests: XCTestCase {
         )
     }
 
-    /// W-54 / PROD-02: the Albums tab pages past the 500-per-request Subsonic cap instead of
+    ///  / PROD-02: the Albums tab pages past the 500-per-request Subsonic cap instead of
     /// silently showing an arbitrary 500-album subset.
     func testLoadAlbumsPagesBeyond500() async {
         NavidromeMockURLProtocol.handler = { req in
@@ -74,9 +74,9 @@ final class MusicLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.albums.count, 700, "should page past the 500 cap")
     }
 
-    /// W-49 fixture: a generated large library (10k albums across 20 pages) proves the paging path
+    ///  fixture: a generated large library (10k albums across 20 pages) proves the paging path
     /// handles real-world scale — every page is fetched and assembled, not truncated. Pairs with
-    /// the W-54 pagination it exercises.
+    /// the  pagination it exercises.
     func testLoadsLargeGeneratedLibraryAcrossManyPages() async {
         let total = 10_000
         NavidromeMockURLProtocol.handler = { req in
@@ -99,7 +99,7 @@ final class MusicLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.albums.count, total, "the full 10k-album library must load across all pages")
     }
 
-    /// W-63 / PROD-13: switching servers must drop the previous server's browse results (Subsonic
+    ///  / PROD-13: switching servers must drop the previous server's browse results (Subsonic
     /// ids are per-server) instead of showing them against the new connection.
     func testResetForServerChangeDropsPreviousServerLibrary() async {
         NavidromeMockURLProtocol.handler = { req in

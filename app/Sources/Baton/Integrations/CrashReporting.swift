@@ -82,7 +82,7 @@ enum CrashReporting {
             #else
             options.environment = "release"
             #endif
-            // W-10: this app promises "nothing identifying leaves the machine", yet
+            // : this app promises "nothing identifying leaves the machine", yet
             // sentry-cocoa 8.x defaults attach request URLs (server host + Subsonic
             // auth) via network breadcrumbs/tracking/failed-request capture and via
             // sampled spans (which bypass beforeSend). Disable every such path, drop
@@ -102,7 +102,7 @@ enum CrashReporting {
         log.notice("Remote crash reporting started")
     }
 
-    // MARK: - Scrubbing (W-10) — pure, unit-tested in CrashReportingScrubberTests
+    // MARK: - Scrubbing — pure, unit-tested in CrashReportingScrubberTests
 
     /// Redacts anything that could identify the user's server or machine: URLs,
     /// RFC-1918 / link-local IPs, `*.local` hosts, Subsonic auth params, and home paths.

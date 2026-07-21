@@ -46,7 +46,7 @@ struct NavidromeClient {
 
     /// A stable salt+token computed once per client, so repeated URLs for the same resource
     /// (especially artwork) are byte-identical and URLCache/AsyncImage actually cache them
-    /// instead of refetching on every recomputation. Subsonic permits salt reuse. (W-37 / NET-06)
+    /// instead of refetching on every recomputation. Subsonic permits salt reuse.
     private let cachedSalt: String
     private let cachedToken: String
 
@@ -89,7 +89,7 @@ struct NavidromeClient {
             items.append(URLQueryItem(name: "apiKey", value: credentials.secret))
         case .tokenSalt:
             items.append(URLQueryItem(name: "u", value: credentials.username))
-            items.append(URLQueryItem(name: "t", value: cachedToken)) // stable per client (W-37)
+            items.append(URLQueryItem(name: "t", value: cachedToken)) // stable per client
             items.append(URLQueryItem(name: "s", value: cachedSalt))
         }
         return items
@@ -124,7 +124,7 @@ struct NavidromeClient {
     }
 
     /// The ORIGINAL file (download.view — no transcode) for offline downloads, so a FLAC library
-    /// isn't stored as lossy MP3 at the server's default bitrate. (W-34 / DL-04)
+    /// isn't stored as lossy MP3 at the server's default bitrate.
     func downloadURL(songID: String) throws -> URL {
         try makeURL("download.view", query: [URLQueryItem(name: "id", value: songID)], json: false)
     }
@@ -308,7 +308,7 @@ struct NavidromeClient {
     /// `true` counts it as played. Best-effort — a scrobble failure never blocks
     /// playback.
     /// `time` is Unix milliseconds when the track STARTED — Subsonic accepts it precisely so an
-    /// offline/delayed flush credits the play at the real listen time, not at flush time. (W-31 / SCR-03)
+    /// offline/delayed flush credits the play at the real listen time, not at flush time.
     func scrobble(id: String, submission: Bool = true, time: Int? = nil) async throws {
         var query = [
             URLQueryItem(name: "id", value: id),
@@ -363,7 +363,7 @@ struct NavidromeClient {
     }
 
     /// Replaces a playlist's tracks with `songIDs` in order, sending them in bounded batches so
-    /// large playlists don't overflow the request-line/proxy URL limit (W-60 / PROD-10). The
+    /// large playlists don't overflow the request-line/proxy URL limit. The
     /// first batch overwrites via `setPlaylistSongs` (createPlaylist), and each subsequent batch
     /// appends in order via `updatePlaylist(songIDsToAdd:)` — so the final server order equals the
     /// concatenation of the batches, i.e. exactly `songIDs`. `chunkSize` keeps each request well
@@ -397,7 +397,7 @@ struct NavidromeClient {
     // MARK: - Transport
 
     /// One retry with a short backoff for an idempotent GET — a single transient blip
-    /// (timeout, dropped connection) shouldn't fail an otherwise-fine read. (W-25 / NET-02)
+    /// (timeout, dropped connection) shouldn't fail an otherwise-fine read.
     static func dataWithOneRetry(session: URLSession, request: URLRequest) async throws -> (Data, URLResponse) {
         do {
             return try await session.data(for: request)
@@ -431,7 +431,7 @@ struct NavidromeClient {
         guard (200 ... 299).contains(http.statusCode) else {
             navidromeLog.error("\(endpoint, privacy: .public): HTTP \(http.statusCode, privacy: .public)")
             // A reverse proxy in front of Navidrome answers 401/403 for bad credentials — map
-            // it to the actionable "check your credentials" error, not a generic HTTP code. (NET-09)
+            // it to the actionable "check your credentials" error, not a generic HTTP code.
             if http.statusCode == 401 || http.statusCode == 403 { throw NavidromeError.unauthorized }
             throw NavidromeError.http(status: http.statusCode)
         }

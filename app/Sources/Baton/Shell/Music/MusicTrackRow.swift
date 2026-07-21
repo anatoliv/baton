@@ -24,7 +24,7 @@ struct MusicTrackRow: View {
                 }
             }
             // VoiceOver reads the track as one phrase ("Title, by Artist, now playing") instead of
-            // two separate text nodes; the rating/like controls stay individually accessible. (W-56)
+            // two separate text nodes; the rating/like controls stay individually accessible.
             .accessibilityElement(children: .combine)
             .accessibilityLabel(trackAccessibilityLabel)
             Spacer(minLength: 8)

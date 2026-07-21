@@ -1,6 +1,6 @@
 import Foundation
 
-/// Audio-focus coordination (REQ-13), extracted from `StreamingPlaybackController` as a W-50
+/// Audio-focus coordination, extracted from `StreamingPlaybackController` as a 
 /// decomposition step: owner-token capture so an assistant/recording can pause or duck the music
 /// and have it restored, last-writer-wins between owners, generation-guarded auto-resume (a manual
 /// transport change cancels it), the capture-shim wrappers, and crash recovery of a stranded duck

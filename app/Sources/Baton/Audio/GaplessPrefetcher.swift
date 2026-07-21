@@ -3,7 +3,7 @@ import Foundation
 
 /// Owns the **gapless prefetch machinery** — the in-flight download tasks, the ephemeral disk
 /// cache, and the downloader — extracted from `StreamingPlaybackController` as a collaborator
-/// (W-50). Downloading the (transcoded) next stream to a local file lets the boundary hand off
+///. Downloading the (transcoded) next stream to a local file lets the boundary hand off
 /// from a file for a truly zero-gap transition even on streams AVFoundation won't pre-buffer.
 ///
 /// The controller keeps the transport-core parts that this can't own: the preloaded item lives

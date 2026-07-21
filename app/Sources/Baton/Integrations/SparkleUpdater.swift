@@ -20,7 +20,7 @@ final class SparkleUpdater {
     @ObservationIgnored private let eventLogger = UpdaterEventLogger()
 
     /// Last update check outcome, surfaced in About → Diagnostics so a broken appcast URL is
-    /// visible to the user AND the developer instead of failing silently. (W-61 / DIST-09)
+    /// visible to the user AND the developer instead of failing silently.
     private(set) var lastCheckDate: Date?
     private(set) var lastCheckResult: String?
     private(set) var lastError: String?
@@ -62,7 +62,7 @@ final class SparkleUpdater {
 /// Bridges Sparkle's `SPUUpdaterDelegate` callbacks to a log line (`Log.updates`) and a single
 /// `onEvent` closure, so update outcomes are recorded rather than silently swallowed. Kept as a
 /// distinct `NSObject` because `SparkleUpdater` is a value-semantics `@Observable`, not an NSObject.
-/// (W-61 / DIST-09)
+///
 final class UpdaterEventLogger: NSObject, SPUUpdaterDelegate {
     /// A normalized update outcome the UI can render.
     enum Event {

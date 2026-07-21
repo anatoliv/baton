@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// W-09: the update-channel liveness gate must be precise. A placeholder/empty key,
+/// : the update-channel liveness gate must be precise. A placeholder/empty key,
 /// an http (non-TLS) feed, or a hostless URL is "not configured"; only a real https
 /// channel with automatic checks enabled counts as live.
 final class UpdateChannelTests: XCTestCase {

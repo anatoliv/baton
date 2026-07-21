@@ -178,7 +178,7 @@ enum NavidromeConfig {
     }
 
     /// A usable server URL: http/https only, with a host. Rejects `file://`, `ftp://`, and a
-    /// hostless `https://` — a `file://` here would make `URLSession` read local files. (W-16)
+    /// hostless `https://` — a `file://` here would make `URLSession` read local files.
     static func validatedURL(_ raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, let url = URL(string: trimmed),
@@ -194,7 +194,7 @@ enum NavidromeConfig {
     }
 
     /// Whether a candidate server URL string would connect over cleartext http:// — drives the
-    /// connect flow's "unencrypted connection" warning. False for an invalid or https URL. (W-59)
+    /// connect flow's "unencrypted connection" warning. False for an invalid or https URL.
     static func isInsecure(_ raw: String) -> Bool {
         validatedURL(raw)?.scheme?.lowercased() == "http"
     }
@@ -274,7 +274,7 @@ enum NavidromeConfig {
     /// Shared URLSession with a sane request timeout for JSON endpoints — a wedged LAN server
     /// (a sleeping NAS, a half-up reverse proxy) then fails fast instead of stalling on
     /// URLSession.shared's 60 s default, which the interactive search/connect paths inherit.
-    /// (W-25 / NET-01)
+    ///
     static let sharedSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
@@ -309,7 +309,7 @@ enum NavidromeConfig {
         authMode: NavidromeAuthMode,
         session: URLSession = .shared
     ) async throws -> ConnectInfo {
-        guard let url = validatedURL(urlString) else { // http/https + host only (W-16)
+        guard let url = validatedURL(urlString) else { // http/https + host only
             throw NavidromeError.invalidURL
         }
         if authMode == .tokenSalt, username.isEmpty {

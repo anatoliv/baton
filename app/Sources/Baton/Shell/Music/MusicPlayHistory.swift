@@ -38,7 +38,7 @@ final class MusicPlayHistory: LocalListenRecording {
 
     /// Append-only JSONL archive on disk (O(1) per-play writes) — was a full re-encode of the
     /// whole array into UserDefaults on every listen, which janked and bloated the plist as the
-    /// archive grew. (W-32 / SCR-10)
+    /// archive grew.
     @ObservationIgnored private let historyURL: URL
 
     init(defaults: UserDefaults = .standard, clock: @escaping () -> Date = { Date() }, directory: URL? = nil) {
@@ -140,7 +140,7 @@ final class MusicPlayHistory: LocalListenRecording {
     func playCount(since: Date) -> Int { entries.reduce(0) { $0 + ($1.playedAt >= since ? 1 : 0) } }
 
     /// Most-recent listen time per song id — feeds the downloads LRU storage-cap eviction so the
-    /// least-recently-played downloads are dropped first. (W-33 / DL-09)
+    /// least-recently-played downloads are dropped first.
     func lastPlayedByID() -> [String: Date] {
         var map: [String: Date] = [:]
         for entry in entries {

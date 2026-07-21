@@ -2,7 +2,7 @@ import AVFoundation
 import XCTest
 @testable import Baton
 
-/// W-11: the persisted queue is actually restored on launch, and resuming a restored
+/// : the persisted queue is actually restored on launch, and resuming a restored
 /// (loaded-paused) track fires its start side effects exactly once — so a restored track
 /// logs history / "now playing" and scrobbles against the resume time, not app-launch time.
 @MainActor

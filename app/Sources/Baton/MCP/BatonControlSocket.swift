@@ -34,7 +34,7 @@ final class BatonControlSocket: @unchecked Sendable {
     private var acceptThread: Thread?
 
     // Shared mutable state is touched from both the main actor (start/stop) and the accept /
-    // per-connection threads, so it lives behind a lock — plain vars were a data race (UB). (W-15)
+    // per-connection threads, so it lives behind a lock — plain vars were a data race (UB).
     private let stateLock = NSLock()
     private var _listenFD: Int32 = -1
     private var _stopped = false
@@ -125,7 +125,7 @@ final class BatonControlSocket: @unchecked Sendable {
         }
 
         // Set umask around bind() so the socket file is created 0600 from the start — there's
-        // otherwise a TOCTOU window between bind() (at the process umask) and chmod. (W-15 / SOCK-06)
+        // otherwise a TOCTOU window between bind() (at the process umask) and chmod.
         let savedMask = umask(0o077)
         let bound = withUnsafePointer(to: &addr) { aptr in
             aptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
@@ -162,13 +162,13 @@ final class BatonControlSocket: @unchecked Sendable {
         }
         // Wake any in-flight client threads blocked in read() so they exit promptly; each
         // thread's own defer closes its fd (shutdown, not close, avoids a double-close race
-        // if an fd number is reused). (W-15 / SOCK-04)
+        // if an fd number is reused).
         let fds = stateLock.withLock { _clientFDs }
         for fd in fds { shutdown(fd, SHUT_RDWR) }
         unlink(socketURL.path)
     }
 
-    // MARK: - SIGPIPE-safe socket I/O (W-03)
+    // MARK: - SIGPIPE-safe socket I/O
 
     /// Prevent a peer that closes mid-reply from raising SIGPIPE — which, unhandled,
     /// terminates the whole app. macOS supports this per-socket option; with it set,
@@ -210,7 +210,7 @@ final class BatonControlSocket: @unchecked Sendable {
             Self.setNoSigPipe(clientFD) // SIGPIPE-proof this connection too
             trackClient(clientFD)
             // Serve each connection on its own thread so a slow/stuck/idle client can't starve
-            // the fast-path for others — the accept loop keeps accepting. (W-15 / SOCK-02)
+            // the fast-path for others — the accept loop keeps accepting.
             let t = Thread { [weak self] in self?.handleClient(clientFD) }
             t.name = "io.tonebox.baton.control-client"
             t.start()

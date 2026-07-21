@@ -36,7 +36,7 @@ enum SpeechNotifier {
     }
 
     /// Whether a notification could actually be delivered — so a caller can honestly report a
-    /// fallback instead of claiming success when notifications are off. (W-43 / SPEECH-03)
+    /// fallback instead of claiming success when notifications are off.
     enum PostResult { case delivered, denied }
 
     /// Post a notification whose Play action will play `utterance` (server audio or native voice).

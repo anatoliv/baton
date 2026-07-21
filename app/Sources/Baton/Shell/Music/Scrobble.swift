@@ -107,7 +107,7 @@ final class ScrobbleQueue {
     /// For a *transient* failure (offline, timeout, 5xx — `countsAsAttempt: false`) the
     /// items stay queued with their attempt count UNCHANGED, so a long offline session
     /// can't burn through maxAttempts and permanently drop the very scrobbles the durable
-    /// queue exists to protect. (W-08)
+    /// queue exists to protect.
     func fail(_ items: [QueuedScrobble], countsAsAttempt: Bool = true) {
         guard !items.isEmpty else { return }
         guard countsAsAttempt else { return } // transient — leave the queue untouched
@@ -138,7 +138,7 @@ final class ScrobbleQueue {
         guard let data = defaults.data(forKey: Self.storageKey) else { return }
         guard let decoded = try? JSONDecoder().decode([QueuedScrobble].self, from: data) else {
             // Corrupt blob: preserve it aside rather than starting empty and overwriting the
-            // queued scrobbles on the next save. (W-12)
+            // queued scrobbles on the next save.
             defaults.set(data, forKey: Self.storageKey + ".corrupt")
             queueLog.error("scrobble queue was unreadable — preserved under \(Self.storageKey, privacy: .public).corrupt; starting empty")
             return

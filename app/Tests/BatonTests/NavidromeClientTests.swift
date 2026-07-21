@@ -58,7 +58,7 @@ final class NavidromeClientTests: XCTestCase {
         XCTAssertFalse(url.absoluteString.contains("sesame"))
     }
 
-    /// W-37 / NET-06: the salt is stable per client, so two URLs for the same resource are
+    ///  / NET-06: the salt is stable per client, so two URLs for the same resource are
     /// byte-identical and URLCache/AsyncImage can cache them (was a fresh salt every call).
     func testSaltIsStablePerClient() throws {
         let client = NavidromeClient(credentials: creds(.tokenSalt), session: mockSession())
@@ -248,7 +248,7 @@ final class NavidromeClientTests: XCTestCase {
         XCTAssertTrue(url.contains("submission=true"))
     }
 
-    func testScrobbleIncludesStartTime() async throws { // W-31 / SCR-03
+    func testScrobbleIncludesStartTime() async throws { //  / SCR-03
         NavidromeMockURLProtocol.handler = { req in navidromeOK(#"{"subsonic-response":{"status":"ok"}}"#, req) }
         let client = NavidromeClient(credentials: creds(), session: mockSession())
         try await client.scrobble(id: "s7", submission: true, time: 1_700_000_000_000)
@@ -412,7 +412,7 @@ final class NavidromeClientTests: XCTestCase {
         await assertThrows(client, expected: .http(status: 500))
     }
 
-    func testHTTP401MapsToUnauthorized() async { // W-25 / NET-09 (reverse-proxy auth)
+    func testHTTP401MapsToUnauthorized() async { //  / NET-09 (reverse-proxy auth)
         NavidromeMockURLProtocol.handler = { request in
             (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: "HTTP/1.1", headerFields: nil)!, Data())
         }
@@ -426,7 +426,7 @@ final class NavidromeClientTests: XCTestCase {
         await assertThrows(NavidromeClient(credentials: creds(), session: mockSession()), expected: .unauthorized)
     }
 
-    // MARK: - notConfigured (REQ-1)
+    // MARK: - notConfigured
 
     func testMakeClientThrowsWhenUnconfigured() {
         // No creds → makeClient throws. (verify uses ephemeral config; here we
@@ -457,7 +457,7 @@ final class NavidromeClientTests: XCTestCase {
         }
     }
 
-    // MARK: - Chunked playlist reorder (W-60 / PROD-10)
+    // MARK: - Chunked playlist reorder
 
     /// A large reorder must be batched — one `createPlaylist` overwrite with the first chunk, then
     /// `updatePlaylist` appends for the rest — so no single request URL overflows, and the

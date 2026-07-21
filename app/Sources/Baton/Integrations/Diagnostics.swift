@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 /// In-app diagnostics: a shareable export of Baton's own recent log lines, for "podcasts won't
-/// load" / "updates don't work" reports where there is otherwise no evidence path. (W-61 / DIST-11)
+/// load" / "updates don't work" reports where there is otherwise no evidence path.
 ///
 /// Privacy: the export is redacted with the same rules as crash reports (`CrashReporting.redact`),
 /// so a user can share a log without leaking their server address, LAN IPs, `*.local` hosts, home

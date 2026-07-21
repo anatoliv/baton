@@ -662,7 +662,7 @@ enum BatonMCPToolCatalog {
     /// Resolves the single playlist a destructive delete may target. Exact id or
     /// exact (case-insensitive) name only — a substring-only match refuses and lists
     /// candidates rather than deleting the wrong one. Pure (no client) so it's unit
-    /// testable (W-07).
+    /// testable.
     static func exactPlaylistToDelete(
         name: String?, playlistID: String?, from all: [NavidromePlaylist]
     ) throws -> NavidromePlaylist {

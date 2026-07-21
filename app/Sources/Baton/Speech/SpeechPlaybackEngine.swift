@@ -2,14 +2,14 @@ import AVFoundation
 import Foundation
 import Observation
 // The TTS config + synthesis layer (SpeechConfig, SpeechService, speechLog) is the third leaf
-// of the W-51 module split. Re-exported so every existing call site stays unqualified; the
+// of the  module split. Re-exported so every existing call site stays unqualified; the
 // playback engine + notifier stay in the app (they tie into MusicModel).
 @_exported import BatonSpeech
 
 /// Ducks (or pauses) the music transport while a spoken summary plays, and restores it after.
 /// Abstracted so the engine can be tested with a fake that only records begin/end pairing —
 /// the concrete implementation acquires/releases a `StreamingPlaybackController` focus token.
-/// (W-43 / SPEECH-01)
+///
 @MainActor
 protocol SpeechDucking: AnyObject {
     func beginSpeechDuck()
@@ -25,7 +25,7 @@ protocol SpeechDucking: AnyObject {
 /// library player instead of fighting it, and restores the level once the whole speaking session
 /// drains. Utterances queue FIFO — two rapid `speak_summary` calls play in order rather than
 /// cutting each other off — and the file/native paths stop one another so `.file` and `.native`
-/// can never sound at once. (W-43)
+/// can never sound at once.
 ///
 /// Also owns the transient in-app "banner" alert state (`pendingAlert`) that the UI observes
 /// for `mode: "banner"` — a summary waiting for the user to press Play.
@@ -93,7 +93,7 @@ final class SpeechPlaybackEngine {
     @ObservationIgnored private var replayNativeText: String?
     /// Pending utterances behind the one currently playing — drained FIFO so two rapid summaries
     /// play in order instead of interrupting each other. Each carries its source text (when known)
-    /// for the HUD label. (W-43 / SPEECH-02)
+    /// for the HUD label.
     @ObservationIgnored private var utteranceQueue: [(utterance: Utterance, text: String?)] = []
 
     /// Pending utterances behind the active one (test visibility for FIFO behaviour).
@@ -261,7 +261,7 @@ final class SpeechPlaybackEngine {
     private func startFile(_ url: URL) {
         defer {
             // Delete the staged clip once consumed — AVAudioPlayer(data:) keeps its own copy,
-            // so nothing accumulates in tmp after playback. (W-19 / SPEECH-04)
+            // so nothing accumulates in tmp after playback.
             if url.deletingLastPathComponent().lastPathComponent == "baton-speech" {
                 try? FileManager.default.removeItem(at: url)
             }
@@ -304,7 +304,7 @@ final class SpeechPlaybackEngine {
         let utterance = AVSpeechUtterance(string: text)
         // Prefer an enhanced/premium voice for the current locale if one is installed. Use the
         // BCP-47 form ("en-US") — Locale.current.identifier is "en_US" (underscore), which the
-        // voice initializer rejects, previously yielding nil. (W-19 / SPEECH-07)
+        // voice initializer rejects, previously yielding nil.
         utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier(.bcp47))
             ?? AVSpeechSynthesisVoice(language: "en-US")
         let delegate = SynthDelegate(

@@ -3,7 +3,7 @@ import Observation
 import os
 // Re-export the DSP module so EQBand/Biquad/EQCoefficients/EQPreset/EQLimits stay visible to every
 // existing call site (store, tap processor, settings, tests) via `import Baton` — no per-file churn
-// as the DSP moves to its own SPM module. (W-51)
+// as the DSP moves to its own SPM module.
 @_exported import BatonDSP
 
 /// A parametric equalizer for the music player. Each band carries its own centre
@@ -45,7 +45,7 @@ final class MusicEqualizer {
 
     /// Where the EQ config persists. Injectable so tests never touch the developer's real EQ
     /// settings — under XCTest `defaultStore()` returns a throwaway suite instead of `.standard`,
-    /// which running the suite would otherwise overwrite. (W-49 / TEST-13)
+    /// which running the suite would otherwise overwrite.
     @ObservationIgnored private let defaults: UserDefaults
 
     /// `.standard` in production; a unique throwaway suite per instance in the test environment.
@@ -129,7 +129,7 @@ final class MusicEqualizer {
     /// Apply a named preset (graphic or parametric). Unknown names are ignored.
     func apply(preset name: String) {
         // Case-insensitive lookup — an agent (via music_set_eq) guesses casing constantly, and a
-        // "flat" that silently did nothing was a foot-gun. Store the canonical name. (W-41 / TOOL-06)
+        // "flat" that silently did nothing was a foot-gun. Store the canonical name.
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard let p = Self.presets.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) else { return }
         bands = p.bands
@@ -188,7 +188,7 @@ final class MusicEqualizer {
             EQCoefficients.BandSpec(frequency: band.frequency, q: band.q, gainDB: active ? band.gainDB : 0)
         }
         // Reference biquads for the UI response curve are computed at 44.1 kHz; each audio tap
-        // recomputes for its own actual rate from the specs. (W-21)
+        // recomputes for its own actual rate from the specs.
         let reference = specs.map { Biquad.peaking(frequency: $0.frequency, sampleRate: 44_100, q: $0.q, gainDB: $0.gainDB) }
         coefficients.setBands(specs, reference: reference)
     }

@@ -4,7 +4,7 @@ import XCTest
 
 /// Covers `MusicNowPlayingCenter.nowPlayingInfo` — the pure track→Now-Playing-dict mapping
 /// (Control Center / media keys / Bluetooth remotes read this), extracted from `update` so it's
-/// testable without the OS `MPNowPlayingInfoCenter` singleton. (W-49 unit sweep)
+/// testable without the OS `MPNowPlayingInfoCenter` singleton.
 final class NowPlayingInfoTests: XCTestCase {
     private func song(title: String = "So What", artist: String? = "Miles Davis", album: String? = "Kind of Blue") -> NavidromeSong {
         NavidromeSong(id: "s1", title: title, artist: artist, album: album, duration: 544)

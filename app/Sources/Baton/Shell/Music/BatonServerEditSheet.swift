@@ -134,7 +134,7 @@ struct BatonServerEditSheet: View {
 
             // Make the just-saved server active and re-point the library. selectServer only
             // wipes the queue when the active server actually changes, so editing the current
-            // server's credentials doesn't interrupt playback. (W-63)
+            // server's credentials doesn't interrupt playback.
             await model.selectServer(id: targetID)
             onSaved()
             dismiss()
