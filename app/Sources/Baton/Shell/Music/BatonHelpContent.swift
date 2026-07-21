@@ -227,6 +227,26 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.3",
+            date: "2026",
+            highlight: "Move your whole Baton setup to another Mac — export your settings and import them safely.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Settings → About → Back up & restore: export your "
+                        + "preferences (playback, equalizer, layouts, spoken-summary "
+                        + "voices, webhooks, and your server list) to a file, and "
+                        + "import them on another Mac."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Optionally include server passwords and scrobbler logins "
+                        + "— doing so encrypts the file with a passphrase you set, so "
+                        + "your secrets never travel in the clear."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.2",
             date: "2026",
             highlight: "Tune how quickly playback recovers from a stalled connection.",
