@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Baton's unified Settings window. A chromeless sidebar + detail layout matching
 /// Tonebox's Settings design: a top spacer row reserves space for the traffic
@@ -443,6 +444,10 @@ private struct BatonAboutPane: View {
                 }
             }
 
+            Section("Back up & restore") {
+                BatonSettingsBackupControls()
+            }
+
             Section("Diagnostics") {
                 Toggle("Send crash & error reports", isOn: $crashUploadEnabled)
                     .disabled(!CrashReporting.isConfigured)
@@ -468,6 +473,170 @@ private struct BatonAboutPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Export / import of all durable Baton settings, so a setup can move between Macs. Preferences are
+/// always exported; secrets (server passwords, scrobbler logins) are opt-in and, when included, the
+/// whole file is encrypted under a passphrase you set. See `SettingsTransfer`.
+private struct BatonSettingsBackupControls: View {
+    @State private var showExportOptions = false
+    @State private var includeSecrets = false
+    @State private var passphrase = ""
+    @State private var passphraseConfirm = ""
+
+    @State private var isExporting = false
+    @State private var exportDocument: SettingsBackupDocument?
+
+    @State private var isImporting = false
+    @State private var pendingImportData: Data?
+    @State private var showImportPassphrase = false
+    @State private var importPassphrase = ""
+
+    @State private var message: AlertMessage?
+
+    private struct AlertMessage: Identifiable { let id = UUID(); let title: String; let body: String }
+
+    var body: some View {
+        Group {
+            LabeledContent("Settings") {
+                HStack {
+                    Button("Export…") {
+                        includeSecrets = false; passphrase = ""; passphraseConfirm = ""
+                        showExportOptions = true
+                    }
+                    Button("Import…") { isImporting = true }
+                }
+            }
+            Text("Move your Baton setup to another Mac. Preferences — playback, equalizer, layouts, spoken-summary voices, webhooks, and your server list — are always included. Server passwords and scrobbler logins are optional; including them encrypts the file with a passphrase you set.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+        .sheet(isPresented: $showExportOptions) { exportOptionsSheet }
+        .sheet(isPresented: $showImportPassphrase) { importPassphraseSheet }
+        .fileExporter(
+            isPresented: $isExporting,
+            document: exportDocument ?? SettingsBackupDocument(data: Data()),
+            contentType: .json,
+            defaultFilename: "Baton Settings"
+        ) { _ in }
+        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
+            if case let .success(url) = result { beginImport(from: url) }
+        }
+        .alert(item: $message) { msg in
+            Alert(title: Text(msg.title), message: Text(msg.body), dismissButton: .default(Text("OK")))
+        }
+    }
+
+    private var exportOptionsSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Export Settings").font(.headline)
+            Toggle("Include accounts & passwords", isOn: $includeSecrets)
+            Text(includeSecrets
+                ? "Server passwords and scrobbler logins are included, and the file is encrypted with the passphrase below — you'll need it to import."
+                : "A plain, shareable file with your preferences and server list — no passwords. You'll re-enter server passwords on the other Mac.")
+                .font(.callout).foregroundStyle(.secondary)
+            if includeSecrets {
+                SecureField("Passphrase", text: $passphrase)
+                SecureField("Confirm passphrase", text: $passphraseConfirm)
+                if !passphrase.isEmpty, passphrase != passphraseConfirm {
+                    Text("Passphrases don't match.").font(.callout).foregroundStyle(.red)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { showExportOptions = false }
+                Button("Export…") { runExport() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(includeSecrets && (passphrase.isEmpty || passphrase != passphraseConfirm))
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+    }
+
+    private var importPassphraseSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Encrypted Backup").font(.headline)
+            Text("This backup includes accounts and passwords. Enter the passphrase it was exported with.")
+                .font(.callout).foregroundStyle(.secondary)
+            SecureField("Passphrase", text: $importPassphrase)
+            HStack {
+                Spacer()
+                Button("Cancel") { showImportPassphrase = false; pendingImportData = nil }
+                Button("Import") {
+                    let data = pendingImportData
+                    showImportPassphrase = false
+                    pendingImportData = nil
+                    if let data { applyImport(data, passphrase: importPassphrase) }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(importPassphrase.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+    }
+
+    private func runExport() {
+        do {
+            let result = try SettingsTransfer.makeExport(
+                includeSecrets: includeSecrets,
+                passphrase: includeSecrets ? passphrase : nil
+            )
+            exportDocument = SettingsBackupDocument(data: result.data)
+            showExportOptions = false
+            // Present the Save panel on the next runloop so it isn't swallowed by the sheet dismissal.
+            DispatchQueue.main.async { isExporting = true }
+        } catch {
+            showExportOptions = false
+            message = AlertMessage(title: "Export failed", body: error.localizedDescription)
+        }
+    }
+
+    private func beginImport(from url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            message = AlertMessage(title: "Import failed", body: "Couldn't read that file.")
+            return
+        }
+        do {
+            if try SettingsTransfer.inspect(data).encrypted {
+                pendingImportData = data
+                importPassphrase = ""
+                showImportPassphrase = true
+            } else {
+                applyImport(data, passphrase: nil)
+            }
+        } catch {
+            message = AlertMessage(title: "Import failed", body: error.localizedDescription)
+        }
+    }
+
+    private func applyImport(_ data: Data, passphrase: String?) {
+        do {
+            let result = try SettingsTransfer.applyImport(data, passphrase: passphrase)
+            var summary = "Imported \(result.preferenceCount) preference\(result.preferenceCount == 1 ? "" : "s")"
+            if result.secretCount > 0 {
+                summary += " and \(result.secretCount) account\(result.secretCount == 1 ? "" : "s")"
+            }
+            summary += ". Quit and reopen Baton for everything to take effect."
+            message = AlertMessage(title: "Settings imported", body: summary)
+        } catch {
+            message = AlertMessage(title: "Import failed", body: error.localizedDescription)
+        }
+    }
+}
+
+/// A `FileDocument` so a settings backup saves via the system Save panel. The bytes are the JSON
+/// envelope from `SettingsTransfer` — plain, or AES-GCM-encrypted when it carries secrets.
+struct SettingsBackupDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    var data: Data
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
 
