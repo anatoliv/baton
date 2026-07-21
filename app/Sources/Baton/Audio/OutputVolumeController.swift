@@ -30,7 +30,7 @@ final class OutputVolumeController {
     /// controllers fighting over the same device.
     static let shared = OutputVolumeController()
 
-    private let log = Logger(subsystem: "io.tonebox.macos", category: "output-volume")
+    private let log = Logger(subsystem: "io.tonebox.baton", category: "output-volume")
 
     /// Read-back match tolerance. Wider than a built-in speaker's 1/16 (0.0625)
     /// volume-step quantization, so a legitimately snapped level isn't mistaken for a
@@ -57,6 +57,9 @@ final class OutputVolumeController {
     /// relaunch) can be recovered on next launch instead of stranding the volume low.
     private static let pendingDeviceKey = "tonebox.outputVolume.pendingDeviceID"
     private static let pendingOriginalKey = "tonebox.outputVolume.pendingOriginal"
+    /// The stable device UID saved alongside the ephemeral id, so recovery can confirm the id
+    /// still names the same physical device before touching its volume. (W-45 / AUDIO-22)
+    private static let pendingDeviceUIDKey = "tonebox.outputVolume.pendingDeviceUID"
 
     private init() {
         recoverStuckVolumeFromPreviousSession()
@@ -72,7 +75,15 @@ final class OutputVolumeController {
         guard defaults.object(forKey: Self.pendingDeviceKey) != nil else { return }
         let deviceID = AudioDeviceID(defaults.integer(forKey: Self.pendingDeviceKey))
         let original = defaults.float(forKey: Self.pendingOriginalKey)
+        let savedUID = defaults.string(forKey: Self.pendingDeviceUIDKey)
         clearPendingRestore()
+        // AudioDeviceIDs aren't stable across reboots / coreaudiod restarts — the id may now name
+        // a DIFFERENT device. Only restore if the current UID for this id matches the saved one;
+        // otherwise skip rather than change some other output's volume. (W-45 / AUDIO-22)
+        if let savedUID, Self.deviceUID(deviceID) != savedUID {
+            log.notice("recover: device id \(deviceID) now names a different device — skipping restore")
+            return
+        }
         let ok = Self.setVolume(original, of: deviceID)
         log.error(
             "recover: previous session left device \(deviceID) (\(Self.deviceName(deviceID), privacy: .public)) ducked; restore to \(original, format: .fixed(precision: 2)) \(ok ? "ok" : "skipped(device gone)", privacy: .public)"
@@ -83,12 +94,14 @@ final class OutputVolumeController {
         let defaults = UserDefaults.standard
         defaults.set(Int(snap.deviceID), forKey: Self.pendingDeviceKey)
         defaults.set(snap.originalVolume, forKey: Self.pendingOriginalKey)
+        defaults.set(Self.deviceUID(snap.deviceID), forKey: Self.pendingDeviceUIDKey)
     }
 
     private func clearPendingRestore() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: Self.pendingDeviceKey)
         defaults.removeObject(forKey: Self.pendingOriginalKey)
+        defaults.removeObject(forKey: Self.pendingDeviceUIDKey)
     }
     /// Where the in-flight fade is heading (nil when idle). Lets `duck()` recover
     /// the user's true level when a restore-fade is still ramping back up.
@@ -281,6 +294,23 @@ final class OutputVolumeController {
 
     /// Human-readable device name for logs (e.g. "MacBook Pro Speakers", "JBL PartyBox").
     /// Returns "?" if the device is gone or unnamed.
+    /// The device's stable UID (survives reboots), for verifying a persisted ephemeral id. (AUDIO-22)
+    static func deviceUID(_ deviceID: AudioDeviceID) -> String? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(deviceID, &addr) else { return nil }
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = withUnsafeMutablePointer(to: &uid) {
+            AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, $0)
+        }
+        guard status == noErr, let cf = uid?.takeRetainedValue() else { return nil }
+        return cf as String
+    }
+
     static func deviceName(_ deviceID: AudioDeviceID) -> String {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioObjectPropertyName,

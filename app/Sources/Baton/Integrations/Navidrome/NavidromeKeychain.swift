@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 import Security
 
-private let navidromeSecretsLog = Logger(subsystem: "io.tonebox", category: "navidrome-secrets")
+private let navidromeSecretsLog = Logger(subsystem: "io.tonebox.baton", category: "navidrome-secrets")
 
 /// Keychain storage for the Navidrome connection secret (password or API
 /// key), fully self-contained so the music player can be extracted into a
@@ -84,6 +84,7 @@ enum NavidromeKeychain {
 
     /// Removes the stored secret under `account`.
     static func deleteSecret(account: String) {
+        ensureTestIsolation()
         if inMemoryStore != nil {
             inMemoryStore?[account] = nil
             return
@@ -101,7 +102,15 @@ enum NavidromeKeychain {
 
     // MARK: - Raw Security-framework access
 
+    /// Under XCTest, route all access through the in-memory store by default so tests never
+    /// touch (or prompt for) the real login Keychain. Tests that need a specific fixture set
+    /// `inMemoryStore` explicitly; this only kicks in when they haven't.
+    private static func ensureTestIsolation() {
+        if inMemoryStore == nil, BatonEnvironment.current.isTesting { inMemoryStore = [:] }
+    }
+
     private static func read(account: String) -> Data? {
+        ensureTestIsolation()
         if let store = inMemoryStore { return store[account] }
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -124,6 +133,7 @@ enum NavidromeKeychain {
     }
 
     private static func write(_ data: Data, account: String) {
+        ensureTestIsolation()
         if inMemoryStore != nil {
             inMemoryStore?[account] = data
             return

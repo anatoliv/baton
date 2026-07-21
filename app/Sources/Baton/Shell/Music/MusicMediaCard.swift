@@ -395,6 +395,17 @@ struct MusicMediaCard: View {
             metadata
         }
         .animation(.easeOut(duration: 0.16), value: isHovering)
+        // VoiceOver reads the card as one actionable element ("Title, subtitle, button") instead of
+        // announcing the artwork, title, and each badge separately. (W-56 / accessibility)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Plays this item")
+    }
+
+    /// The spoken label: title, then subtitle when present.
+    private var accessibilityLabel: String {
+        subtitle.isEmpty ? title : "\(title), \(subtitle)"
     }
 
     private var artwork: some View {

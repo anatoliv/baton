@@ -17,20 +17,34 @@ packages:
   # Same library and pin Tonebox uses, so the Markdown theming matches.
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
-    from: "2.4.1"
+    exactVersion: "2.4.1"
   # Opt-in remote crash & error reporting. Dormant unless the user enables
   # it (Settings, About → Diagnostics, default OFF) AND a DSN is baked into
   # the build via Config/Sentry.local.xcconfig (gitignored). See CrashReporting.
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
-    from: "8.0.0"
+    # Pinned to the tested minor (W-17): the W-10 privacy hardening depends on
+    # sentry-cocoa's 8.58.x auto-instrumentation option names/defaults.
+    exactVersion: "8.58.4"
   # Auto-update. Same framework and pin Tonebox uses. The appcast feed +
   # EdDSA public key are set in the Info.plist below; SUEnableAutomaticChecks
   # is the "the feed is actually live" switch. See SparkleUpdater / UpdateChannel
   # and docs/RELEASE-APPCAST-HOSTING.md.
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: "2.6.0"
+    exactVersion: "2.9.4" # pinned to the tested version (W-17)
+  # Local module: the pure equalizer DSP, first leaf of the W-51 module-boundary split.
+  BatonDSP:
+    path: ../Packages/BatonDSP
+  # Local module: the Subsonic/Navidrome domain value types, second leaf of the W-51 split.
+  BatonSubsonicModels:
+    path: ../Packages/BatonSubsonicModels
+  # Local module: the TTS config + synthesis layer, third leaf of the W-51 split.
+  BatonSpeech:
+    path: ../Packages/BatonSpeech
+  # Local module: the MCP transport protocol (JSON-RPC, HTTP parse/frame, auth), fourth leaf.
+  BatonMCPProtocol:
+    path: ../Packages/BatonMCPProtocol
 
 settings:
   base:
@@ -40,8 +54,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.5.0"
+    CURRENT_PROJECT_VERSION: "5"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -59,6 +73,10 @@ targets:
       - package: MarkdownUI
       - package: Sentry
       - package: Sparkle
+      - package: BatonDSP
+      - package: BatonSubsonicModels
+      - package: BatonSpeech
+      - package: BatonMCPProtocol
     # Feeds the SENTRY_DSN build setting (and thus the SentryDSN Info.plist
     # key). The committed Config/Sentry.xcconfig defaults SENTRY_DSN to empty
     # and optionally #include?s Config/Sentry.local.xcconfig (gitignored),
@@ -89,9 +107,15 @@ targets:
         # expressed — INFOPLIST_KEY_* only supports flat keys.
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_HARDENED_RUNTIME: YES
+        # Localization groundwork (W-64): adopt a String Catalog and let the compiler extract
+        # SwiftUI `Text("…")` strings into it, so the whole UI is localizable when target locales
+        # are chosen — no per-string wrapping needed. English is the development/source language.
+        LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
     info:
       path: Info.plist
       properties:
+        CFBundleDevelopmentRegion: en
         CFBundleDisplayName: Baton
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
@@ -148,8 +172,33 @@ targets:
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Baton.app/Contents/MacOS/Baton
     dependencies:
       - target: Baton
+      - package: Sentry # W-10: CrashReportingScrubberTests builds synthetic Sentry events
+
+  # W-48: launch/smoke UI tests. Deliberately kept OUT of the `Baton` scheme's test action below,
+  # so the headless `scripts/test.sh` gate (which runs `-scheme Baton`) never tries to launch a UI
+  # session it can't. Run explicitly with `-scheme BatonUITests` on a machine with a GUI + signed app.
+  BatonUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: Tests/BatonUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Baton
+    dependencies:
+      - target: Baton
 
 schemes:
+  BatonUITests:
+    build:
+      targets:
+        BatonUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - BatonUITests
+  Baton:
   Baton:
     build:
       targets:

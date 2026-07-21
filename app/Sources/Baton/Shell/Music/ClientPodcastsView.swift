@@ -311,6 +311,7 @@ private struct ClientPodcastListRow: View {
                     .overlay { PodcastRowThumbOverlay(hover: hover) }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Open \(channel.title)")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(channel.title).font(.body.weight(.medium)).lineLimit(1)
@@ -319,6 +320,8 @@ private struct ClientPodcastListRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(channel.title), podcast, \(channel.episodes.count) episode\(channel.episodes.count == 1 ? "" : "s")")
 
             PodcastEpisodeCountColumn(count: channel.episodes.count)
 
@@ -330,6 +333,7 @@ private struct ClientPodcastListRow: View {
                     .foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .accessibilityLabel("More actions for \(channel.title)")
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))

@@ -96,7 +96,7 @@ struct MusicPanelTrackRow: View {
                     .font(.callout.weight(isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent ? Color.accentColor : .primary)
                     .lineLimit(1)
-                if let artist = song.artist, !artist.isEmpty {
+                if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -104,6 +104,9 @@ struct MusicPanelTrackRow: View {
                 }
             }
             Spacer(minLength: 6)
+            if let quality = song.qualityLabel {
+                MusicMetaBadge(quality)
+            }
             if let duration = song.duration {
                 Text(MusicTrackRow.formatDuration(duration))
                     .font(.caption.monospacedDigit())

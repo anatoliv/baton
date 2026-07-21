@@ -78,7 +78,7 @@ struct MusicDownloadsView: View {
 
     var body: some View {
         Group {
-            if items.isEmpty {
+            if items.isEmpty, store.inFlight.isEmpty, store.failedIDs.isEmpty {
                 empty
             } else {
                 VStack(spacing: 0) {
@@ -116,6 +116,7 @@ struct MusicDownloadsView: View {
                         },
                         sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
                     )
+                    downloadActivityBanner
                     content
                 }
             }
@@ -140,6 +141,37 @@ struct MusicDownloadsView: View {
         } message: {
             Text("Removes the selected files from disk. You can download them again later.")
         }
+    }
+
+    // MARK: - Download activity (W-33)
+
+    /// Live progress for in-flight downloads + a Retry for failures, shown above the list.
+    @ViewBuilder private var downloadActivityBanner: some View {
+        if !store.inFlight.isEmpty || !store.failedIDs.isEmpty {
+            HStack(spacing: 12) {
+                if !store.inFlight.isEmpty {
+                    ProgressView(value: aggregateDownloadProgress).frame(width: 130)
+                    Text("Downloading \(store.inFlight.count) track\(store.inFlight.count == 1 ? "" : "s")…")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if !store.failedIDs.isEmpty {
+                    Label("\(store.failedIDs.count) failed", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).labelStyle(.titleAndIcon)
+                    Button("Retry") { Task { await store.retryFailed() } }
+                        .buttonStyle(.bordered).controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(.quaternary.opacity(0.4))
+        }
+    }
+
+    /// Mean completion fraction across in-flight downloads (0…1) for the aggregate bar.
+    private var aggregateDownloadProgress: Double {
+        let ids = store.inFlight
+        guard !ids.isEmpty else { return 0 }
+        return ids.reduce(0.0) { $0 + (store.downloadProgress[$1] ?? 0) } / Double(ids.count)
     }
 
     // MARK: - Selection bar

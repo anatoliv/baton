@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let queueLog = Logger(subsystem: "io.tonebox.macos", category: "ScrobbleQueue")
+private let queueLog = Logger(subsystem: "io.tonebox.baton", category: "ScrobbleQueue")
 
 /// An immutable snapshot of a single play, captured the moment playback begins. It holds
 /// exactly what every scrobble destination needs, decoupled from the live library, so it can
@@ -102,10 +102,15 @@ final class ScrobbleQueue {
         save()
     }
 
-    /// Record a failed delivery: bump each item's attempt count, retiring any that have
-    /// exhausted `maxAttempts`. The items stay queued (in place) for a later retry.
-    func fail(_ items: [QueuedScrobble]) {
+    /// Record a failed delivery. For a *permanent* rejection (`countsAsAttempt: true`)
+    /// bump each item's attempt count, retiring any that have exhausted `maxAttempts`.
+    /// For a *transient* failure (offline, timeout, 5xx — `countsAsAttempt: false`) the
+    /// items stay queued with their attempt count UNCHANGED, so a long offline session
+    /// can't burn through maxAttempts and permanently drop the very scrobbles the durable
+    /// queue exists to protect. (W-08)
+    func fail(_ items: [QueuedScrobble], countsAsAttempt: Bool = true) {
         guard !items.isEmpty else { return }
+        guard countsAsAttempt else { return } // transient — leave the queue untouched
         let ids = Set(items.map(\.id))
         var retired = 0
         pending = pending.compactMap { entry in
@@ -130,15 +135,22 @@ final class ScrobbleQueue {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = defaults.data(forKey: Self.storageKey),
-              let decoded = try? JSONDecoder().decode([QueuedScrobble].self, from: data)
-        else { return }
+        guard let data = defaults.data(forKey: Self.storageKey) else { return }
+        guard let decoded = try? JSONDecoder().decode([QueuedScrobble].self, from: data) else {
+            // Corrupt blob: preserve it aside rather than starting empty and overwriting the
+            // queued scrobbles on the next save. (W-12)
+            defaults.set(data, forKey: Self.storageKey + ".corrupt")
+            queueLog.error("scrobble queue was unreadable — preserved under \(Self.storageKey, privacy: .public).corrupt; starting empty")
+            return
+        }
         pending = decoded
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(pending) {
-            defaults.set(data, forKey: Self.storageKey)
+        do {
+            defaults.set(try JSONEncoder().encode(pending), forKey: Self.storageKey)
+        } catch {
+            queueLog.error("scrobble queue save failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

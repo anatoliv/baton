@@ -1,197 +1,11 @@
 import Foundation
 
-// MARK: - Domain types
-
-//
-// The small, Sendable value types the rest of the app (StreamingPlaybackController,
-// the `music_*` MCP tools) works with. They deliberately expose only the fields we
-// use — not the full Subsonic schema — so the wire shape can evolve without churn.
-
-/// One playable track resolved from the Navidrome (Subsonic) library.
-struct NavidromeSong: Identifiable, Hashable, Codable {
-    let id: String
-    let title: String
-    let artist: String?
-    let album: String?
-    var albumID: String?
-    /// Track length in whole seconds, when the server reports it.
-    let duration: Int?
-    /// Cover-art id (feed to `coverArtURL(id:)`), when present.
-    let coverArtID: String?
-    /// A *direct* artwork URL that bypasses the Subsonic cover-art path. Set for client-side
-    /// podcast episodes, whose art is a plain web image (no `coverArtID`); nil for library
-    /// tracks, which resolve art from `coverArtID`. When present, every now-playing surface
-    /// prefers it (see `displayArtworkURL(...)`).
-    var artworkURL: URL?
-    /// Whether the current user has "liked" (starred) this track. Runtime/display
-    /// state refreshed from the server; deliberately NOT persisted in the queue.
-    var isLiked: Bool = false
-    /// The current user's 1–5 rating (nil / 0 = unrated). Same: server-refreshed,
-    /// not persisted in the queue snapshot.
-    var userRating: Int?
-    /// Pre-measured loudness (ReplayGain / R128) from the server, used to even out
-    /// track-to-track volume. Nil when the server/file has no gain data.
-    var replayGain: ReplayGain?
-    /// 1-based track number within its album, when the server reports it (Subsonic `track`).
-    var track: Int?
-
-    /// "Artist — Title" for one-line display / agent responses.
-    var displayLine: String {
-        if let artist, !artist.isEmpty { return "\(artist) — \(title)" }
-        return title
-    }
-
-    /// The artwork URL a now-playing surface should show: a direct `artworkURL` (podcasts)
-    /// wins; otherwise the Subsonic cover-art URL built from `coverArtID` at the requested
-    /// size via `resolve`. Nil when the song has no art of either kind.
-    func displayArtworkURL(size: Int, resolve: (_ coverArtID: String, _ size: Int) -> URL?) -> URL? {
-        if let artworkURL { return artworkURL }
-        guard let coverArtID else { return nil }
-        return resolve(coverArtID, size)
-    }
-
-    /// Persist identity/metadata + ReplayGain (static, safe to cache) — rating/like state
-    /// is always re-fetched from the server, so a stale persisted queue never carries
-    /// wrong like/rating values.
-    enum CodingKeys: String, CodingKey {
-        case id, title, artist, album, albumID, duration, coverArtID, artworkURL, replayGain, track
-    }
-}
-
-/// OpenSubsonic per-track loudness metadata (dB gains + linear peaks) for normalization.
-struct ReplayGain: Hashable, Codable {
-    var trackGain: Double?
-    var albumGain: Double?
-    var trackPeak: Double?
-    var albumPeak: Double?
-}
-
-/// A search / browse album hit.
-struct NavidromeAlbum: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let artist: String?
-    var artistID: String?
-    var songCount: Int?
-    /// Total album length in whole seconds, when the server reports it.
-    var duration: Int?
-    var coverArtID: String?
-    var year: Int?
-    var isLiked: Bool = false
-    var userRating: Int?
-}
-
-/// A genre with its item counts (for browse).
-struct NavidromeGenre: Identifiable, Hashable {
-    var id: String {
-        name
-    }
-
-    let name: String
-    let songCount: Int?
-    let albumCount: Int?
-}
-
-/// Lyrics for a track — `synced` when each line carries a start time (karaoke).
-struct NavidromeLyrics: Equatable {
-    var synced: Bool
-    var lines: [Line]
-
-    struct Line: Equatable {
-        /// Start time in seconds, when synced.
-        var start: Double?
-        var text: String
-    }
-
-    var isEmpty: Bool {
-        lines.isEmpty
-    }
-}
-
-/// A search artist hit.
-struct NavidromeArtist: Identifiable, Hashable {
-    let id: String
-    let name: String
-    var albumCount: Int?
-    /// Server cover-art id for the artist portrait (feed to `coverArtURL(id:)`), when
-    /// the server provides one. Falls back to a monogram avatar in the UI.
-    var coverArtID: String?
-    /// A direct portrait URL (`artistImageUrl`), often external/last.fm — used only if
-    /// `coverArtID` is absent.
-    var imageURLString: String?
-}
-
-/// Extra artist detail from `getArtistInfo2` — biography + a portrait image.
-struct NavidromeArtistInfo: Hashable {
-    let biography: String?
-    let imageURL: URL?
-}
-
-/// `search3` result set, split by kind.
-struct NavidromeSearchResults {
-    var songs: [NavidromeSong]
-    var albums: [NavidromeAlbum]
-    var artists: [NavidromeArtist]
-
-    static let empty = NavidromeSearchResults(songs: [], albums: [], artists: [])
-}
-
-/// A playlist. `songs` is empty in the list view (`getPlaylists`) and populated
-/// by `getPlaylist(id:)`.
-struct NavidromePlaylist: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let songCount: Int
-    /// Total play time in seconds, when the server provides it.
-    var duration: Int?
-    var isPublic: Bool = false
-    /// Server-generated cover art id (a mosaic of member tracks), when the server
-    /// provides one. Feed to `coverArtURL(id:)`.
-    var coverArtID: String?
-    var songs: [NavidromeSong] = []
-}
-
-// MARK: - Errors
-
-/// A Navidrome/Subsonic client failure. Mirrors `JiraClientError`: transport vs.
-/// HTTP vs. protocol-level (Subsonic `status: failed`) faults are distinct so the
-/// UI and the `music_*` tools can give the user an actionable message.
-enum NavidromeError: Error, LocalizedError, Equatable {
-    /// No server URL / credentials configured yet.
-    case notConfigured
-    /// The configured base URL could not form a valid request URL.
-    case invalidURL
-    /// Networking failed before an HTTP response (offline, TLS, timeout).
-    case transport(String)
-    /// A non-2xx HTTP status.
-    case http(status: Int)
-    /// Wrong username/password or an invalid/revoked API key
-    /// (Subsonic error 40 / 41 / 44).
-    case unauthorized
-    /// Any other Subsonic protocol error (`status: failed`).
-    case subsonic(code: Int, message: String)
-    /// The response body didn't decode as a Subsonic JSON envelope.
-    case decoding(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .notConfigured:
-            "No music server is configured. Add one in Settings → Music."
-        case .invalidURL:
-            "The music server URL is invalid."
-        case let .transport(detail):
-            "Couldn't reach the music server: \(detail)"
-        case let .http(status):
-            "The music server returned HTTP \(status)."
-        case .unauthorized:
-            "The music server rejected your credentials. Use your Navidrome username (this is often NOT your email address) and password — check them in the Navidrome web UI."
-        case let .subsonic(code, message):
-            "Music server error \(code): \(message)"
-        case let .decoding(detail):
-            "Couldn't read the music server's response: \(detail)"
-        }
-    }
-}
+// The Subsonic/Navidrome *domain* value types (NavidromeSong, NavidromeAlbum,
+// ReplayGain, NavidromeError, …) now live in the BatonSubsonicModels SPM module — the
+// second leaf of the W-51 module-boundary split. Re-exported so every existing call
+// site keeps referring to them unqualified. The Subsonic *wire* decoders below stay in
+// the app (they map onto the domain types via each `toDomain()`).
+@_exported import BatonSubsonicModels
 
 // MARK: - Wire types (Subsonic JSON envelope)
 
@@ -223,12 +37,32 @@ struct SubsonicResponse: Decodable {
     let album: AlbumDetailWire?
     let similarSongs2: SongsWire?
     let songsByGenre: SongsWire?
+    let randomSongs: SongsWire?
     let lyricsList: LyricsListWire?
     let openSubsonicExtensions: [OpenSubsonicExtensionWire]?
 
     var isOK: Bool {
         status == "ok"
     }
+}
+
+/// Parse a Subsonic/RFC3339 timestamp ("2024-01-15T10:30:00.000Z", with or without fractional
+/// seconds) into a `Date`. Navidrome emits ISO8601. A fresh formatter per call keeps it free of
+/// shared-state / Sendable concerns on the decoding thread (dates are sparse in a response).
+enum SubsonicDate {
+    static func parse(_ string: String?) -> Date? {
+        guard let string, !string.isEmpty else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: string) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: string)
+    }
+}
+
+/// OpenSubsonic `ItemGenre` — `{ "name": "Jazz" }` entries in a `genres[]` array.
+struct ItemGenreWire: Decodable {
+    let name: String?
 }
 
 struct SubsonicWireError: Decodable {
@@ -279,9 +113,13 @@ struct PlaylistWire: Decodable {
     let isPublic: Bool?
     let coverArt: String?
     let entry: [SongWire]?
+    let owner: String?
+    let comment: String?
+    let created: String?
+    let changed: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, songCount, duration, coverArt, entry
+        case id, name, songCount, duration, coverArt, entry, owner, comment, created, changed
         case isPublic = "public"
     }
 
@@ -293,7 +131,11 @@ struct PlaylistWire: Decodable {
             duration: duration,
             isPublic: isPublic ?? false,
             coverArtID: coverArt,
-            songs: (entry ?? []).map { $0.toDomain() }
+            songs: (entry ?? []).map { $0.toDomain() },
+            owner: owner,
+            comment: comment,
+            created: SubsonicDate.parse(created),
+            changed: SubsonicDate.parse(changed)
         )
     }
 }
@@ -311,13 +153,19 @@ struct ArtistWire: Decodable {
     let albumCount: Int?
     let coverArt: String?
     let artistImageUrl: String?
+    let starred: String?
+    let musicBrainzId: String?
+    let roles: [String]?
     func toDomain() -> NavidromeArtist {
         NavidromeArtist(
             id: id,
             name: name ?? "(unknown)",
             albumCount: albumCount,
             coverArtID: coverArt,
-            imageURLString: artistImageUrl
+            imageURLString: artistImageUrl,
+            isLiked: starred != nil,
+            musicBrainzID: musicBrainzId,
+            roles: roles ?? []
         )
     }
 }
@@ -334,6 +182,32 @@ struct AlbumWire: Decodable {
     let year: Int?
     let starred: String?
     let userRating: Int?
+    // Extended metadata (OpenSubsonic `AlbumID3`).
+    let genre: String?
+    let genres: [ItemGenreWire]?
+    let playCount: Int?
+    let played: String?
+    let created: String?
+    let releaseTypes: [String]?
+    let isCompilation: Bool?
+    let originalReleaseDate: ReleaseDateWire?
+    let musicBrainzId: String?
+    let displayArtist: String?
+
+    /// OpenSubsonic `originalReleaseDate` — `{ "year": 1975, "month": 9, "day": 27 }`.
+    struct ReleaseDateWire: Decodable {
+        let year: Int?
+        let month: Int?
+        let day: Int?
+        var formatted: String? {
+            guard let year else { return nil }
+            if let month, let day {
+                return String(format: "%04d-%02d-%02d", year, month, day)
+            }
+            return String(year)
+        }
+    }
+
     func toDomain() -> NavidromeAlbum {
         NavidromeAlbum(
             id: id,
@@ -345,7 +219,17 @@ struct AlbumWire: Decodable {
             coverArtID: coverArt,
             year: year,
             isLiked: starred != nil,
-            userRating: userRating
+            userRating: userRating,
+            genre: genre,
+            genres: (genres ?? []).compactMap(\.name),
+            playCount: playCount,
+            played: SubsonicDate.parse(played),
+            created: SubsonicDate.parse(created),
+            releaseTypes: releaseTypes ?? [],
+            isCompilation: isCompilation ?? false,
+            originalReleaseDate: originalReleaseDate?.formatted,
+            musicBrainzID: musicBrainzId,
+            displayArtist: displayArtist
         )
     }
 }
@@ -362,6 +246,24 @@ struct SongWire: Decodable {
     let userRating: Int?
     let track: Int?
     let replayGain: ReplayGainWire?
+    // Extended metadata (Subsonic + OpenSubsonic `Child`).
+    let year: Int?
+    let discNumber: Int?
+    let genre: String?
+    let genres: [ItemGenreWire]?
+    let bitRate: Int?
+    let suffix: String?
+    let contentType: String?
+    let size: Int?
+    let samplingRate: Int?
+    let bitDepth: Int?
+    let channelCount: Int?
+    let playCount: Int?
+    let played: String?
+    let bpm: Int?
+    let comment: String?
+    let musicBrainzId: String?
+    let displayArtist: String?
 
     struct ReplayGainWire: Decodable {
         let trackGain: Double?
@@ -385,7 +287,24 @@ struct SongWire: Decodable {
                 ReplayGain(trackGain: $0.trackGain, albumGain: $0.albumGain,
                            trackPeak: $0.trackPeak, albumPeak: $0.albumPeak)
             },
-            track: track
+            track: track,
+            year: year,
+            discNumber: discNumber,
+            genre: genre,
+            genres: (genres ?? []).compactMap(\.name),
+            bitRate: bitRate,
+            suffix: suffix,
+            contentType: contentType,
+            size: size,
+            samplingRate: samplingRate,
+            bitDepth: bitDepth,
+            channelCount: channelCount,
+            playCount: playCount,
+            played: SubsonicDate.parse(played),
+            bpm: bpm,
+            comment: comment,
+            musicBrainzID: musicBrainzId,
+            displayArtist: displayArtist
         )
     }
 }

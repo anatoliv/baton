@@ -295,15 +295,28 @@ enum MixBuilder {
         targetSeconds: Int,
         seed: Seed
     ) -> [NavidromeSong] {
+        var rng = SystemRandomNumberGenerator()
+        return buildMix(candidates: candidates, targetSeconds: targetSeconds, seed: seed, using: &rng)
+    }
+
+    /// Seedable overload (deterministic given the generator) so tests can pin the shuffle. (W-42)
+    static func buildMix(
+        candidates: [NavidromeSong],
+        targetSeconds: Int,
+        seed: Seed,
+        using generator: inout some RandomNumberGenerator
+    ) -> [NavidromeSong] {
         let usable = candidates.filter { ($0.duration ?? 0) > 0 }
         guard !usable.isEmpty, targetSeconds > 0 else { return [] }
 
         let filtered = applySeed(usable, seed: seed)
         let pool = filtered.isEmpty ? usable : filtered
 
-        // De-dup by id (defensive; caller usually de-dups) and greedily fill.
+        // De-dup by id (defensive; caller usually de-dups), then SHUFFLE so "another 45-min jazz
+        // mix" isn't the identical track list every time (MIX-02), then greedily fill.
         var seen = Set<String>()
-        let ordered = pool.filter { seen.insert($0.id).inserted }
+        var ordered = pool.filter { seen.insert($0.id).inserted }
+        ordered.shuffle(using: &generator)
 
         // Overshooting by up to one average-track-length past the target is acceptable;
         // that lets the last track push us over the line rather than always stopping short.
@@ -326,7 +339,105 @@ enum MixBuilder {
 
         // Guarantee at least one track when the target is smaller than the shortest song.
         if chosen.isEmpty, let first = ordered.first { chosen.append(first) }
-        return chosen
+
+        // Reorder the chosen set for *flow* — spread artists, and shape the tempo curve to the
+        // prompt's mood — without changing which tracks were selected (duration stays on target).
+        return curate(chosen, mood: Mood.detect(seed.keywords))
+    }
+
+    // MARK: - Sonic-aware curation (F2 — docs/09 finding #6)
+
+    /// A tempo/energy steer parsed from the prompt. Drives how the final track set is *ordered*
+    /// (not which tracks are picked). `.neutral` leaves the tempo order alone (used for the
+    /// random "Discover" surface, which is meant to stay a shuffle) and only de-clumps artists.
+    enum Mood: Equatable {
+        case neutral, energetic, chill, focus
+
+        /// Map free-text keywords to a mood. First match wins; unknown → `.neutral`.
+        static func detect(_ keywords: [String]) -> Mood {
+            let set = Set(keywords.map { $0.lowercased() })
+            func any(_ words: [String]) -> Bool { words.contains { set.contains($0) } }
+            if any(["upbeat", "energetic", "energy", "workout", "gym", "run", "running",
+                    "party", "dance", "hype", "pump", "fast"]) { return .energetic }
+            if any(["chill", "chilled", "mellow", "calm", "relax", "relaxing", "sleep",
+                    "sleepy", "evening", "night", "ambient", "slow", "wind"]) { return .chill }
+            if any(["focus", "focused", "study", "studying", "work", "working",
+                    "concentrate", "deep", "reading"]) { return .focus }
+            return .neutral
+        }
+    }
+
+    /// The tempo the `.focus` mood clusters around — a calm, steady, non-distracting pace.
+    private static let focusTargetBPM = 100
+
+    /// Reorder a chosen track set for a pleasing listen: shape the tempo progression to the mood,
+    /// then interleave so the same artist never plays back-to-back when it can be avoided.
+    /// **Pure and deterministic** — same input, same output — and it never adds/drops a track, so
+    /// callers keep whatever duration/selection they built. Tracks with no `bpm` degrade
+    /// gracefully (kept in incoming order, appended after the tempo-shaped ones).
+    static func curate(_ songs: [NavidromeSong], mood: Mood) -> [NavidromeSong] {
+        spreadArtists(tempoSorted(songs, mood: mood))
+    }
+
+    /// Order by the mood's tempo shape using the server-provided `bpm` (a real sonic feature the
+    /// server extracts from the file). Stable for equal tempos; `.neutral` is the identity.
+    /// Songs without `bpm` are kept in their original order and appended at the end.
+    static func tempoSorted(_ songs: [NavidromeSong], mood: Mood) -> [NavidromeSong] {
+        guard mood != .neutral else { return songs }
+        var withBPM: [(song: NavidromeSong, index: Int)] = []
+        var withoutBPM: [NavidromeSong] = []
+        for (i, song) in songs.enumerated() {
+            if let bpm = song.bpm, bpm > 0 { withBPM.append((song, i)) } else { withoutBPM.append(song) }
+        }
+        // Sort key per mood; the original index is the stable tie-breaker.
+        func key(_ bpm: Int) -> Int {
+            switch mood {
+            case .energetic: return bpm       // ascending: build up
+            case .chill: return -bpm          // descending: wind down
+            case .focus: return abs(bpm - focusTargetBPM) // cluster around a steady pace
+            case .neutral: return 0
+            }
+        }
+        let ordered = withBPM.sorted { a, b in
+            let ka = key(a.song.bpm ?? 0), kb = key(b.song.bpm ?? 0)
+            return ka != kb ? ka < kb : a.index < b.index
+        }.map(\.song)
+        return ordered + withoutBPM
+    }
+
+    /// Interleave so no two adjacent tracks share an artist when the pool allows it (i.e. as long
+    /// as no single artist owns more than half the set). Greedy largest-remaining-bucket with a
+    /// "not the same artist as the last emitted" constraint — the standard optimal de-clumping.
+    /// Order-preserving for an already-diverse list (every artist distinct ⇒ identity).
+    static func spreadArtists(_ songs: [NavidromeSong]) -> [NavidromeSong] {
+        guard songs.count > 2 else { return songs }
+        // Buckets in first-appearance order, each keeping its songs in incoming order.
+        var order: [String] = []
+        var buckets: [String: [NavidromeSong]] = [:]
+        for song in songs {
+            let artist = (song.artist?.lowercased()).flatMap { $0.isEmpty ? nil : $0 } ?? "\u{0}\(song.id)"
+            if buckets[artist] == nil { order.append(artist); buckets[artist] = [] }
+            buckets[artist]!.append(song)
+        }
+        var result: [NavidromeSong] = []
+        result.reserveCapacity(songs.count)
+        var last: String? = nil
+        while result.count < songs.count {
+            // Among buckets that still have tracks and aren't the last-emitted artist, take the
+            // one with the most remaining (tie → earliest first-appearance, for determinism).
+            var best: String? = nil
+            var bestCount = -1
+            for artist in order {
+                let count = buckets[artist]?.count ?? 0
+                if count > 0, artist != last, count > bestCount { best = artist; bestCount = count }
+            }
+            // If only the last-emitted artist has tracks left, we're forced to repeat it.
+            let artist = best ?? order.first { !(buckets[$0]?.isEmpty ?? true) }
+            guard let artist else { break }
+            result.append(buckets[artist]!.removeFirst())
+            last = artist
+        }
+        return result
     }
 
     /// Restrict to songs matching the seed's genre/artist when the metadata allows it.

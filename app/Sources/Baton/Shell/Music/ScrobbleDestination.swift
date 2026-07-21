@@ -42,15 +42,17 @@ final class NavidromeScrobbleDestination: ScrobbleDestination {
     var maxBatch: Int { 1 }
 
     func sendNowPlaying(_ scrobble: Scrobble) async {
-        guard !BatonRuntime.isTest, NavidromeConfig.isConfigured else { return }
+        guard !BatonEnvironment.current.isTesting, NavidromeConfig.isConfigured else { return }
         try? await NavidromeConfig.makeClient().scrobble(id: scrobble.songID, submission: false)
     }
 
     func submit(_ batch: [Scrobble]) async throws {
-        guard !BatonRuntime.isTest else { return }
+        guard !BatonEnvironment.current.isTesting else { return }
         let client = try NavidromeConfig.makeClient()
         for scrobble in batch {
-            try await client.scrobble(id: scrobble.songID, submission: true)
+            // Pass the track's real start time (ms) so a delayed/offline flush is credited at the
+            // listen time, not the flush time. (W-31 / SCR-03)
+            try await client.scrobble(id: scrobble.songID, submission: true, time: scrobble.startedAt * 1000)
         }
     }
 }

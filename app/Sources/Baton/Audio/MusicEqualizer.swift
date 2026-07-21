@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 import os
+// Re-export the DSP module so EQBand/Biquad/EQCoefficients/EQPreset/EQLimits stay visible to every
+// existing call site (store, tap processor, settings, tests) via `import Baton` — no per-file churn
+// as the DSP moves to its own SPM module. (W-51)
+@_exported import BatonDSP
 
 /// A parametric equalizer for the music player. Each band carries its own centre
 /// frequency, Q (bandwidth), and gain, so bands can be reshaped — not just boosted or
@@ -16,12 +20,12 @@ import os
 @Observable
 final class MusicEqualizer {
     /// ISO-ish 10-band centre frequencies (Hz) — the default band layout.
-    nonisolated static let frequencies: [Double] = [32, 64, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000]
+    nonisolated static let frequencies: [Double] = EQLimits.frequencies
     /// Default Q for the graphic-style bands (moderately wide, so neighbours overlap).
-    nonisolated static let defaultQ: Double = 1.0
+    nonisolated static let defaultQ: Double = EQLimits.defaultQ
 
     var isEnabled: Bool {
-        didSet { UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey); publish(); onToggle?() }
+        didSet { defaults.set(isEnabled, forKey: Self.enabledKey); publish(); onToggle?() }
     }
     /// Called when `isEnabled` flips — AppModel uses it to attach/detach the audio-mix tap.
     @ObservationIgnored var onToggle: (() -> Void)?
@@ -30,7 +34,7 @@ final class MusicEqualizer {
     private(set) var bands: [EQBand]
 
     var preset: String {
-        didSet { UserDefaults.standard.set(preset, forKey: Self.presetKey) }
+        didSet { defaults.set(preset, forKey: Self.presetKey) }
     }
 
     /// Legacy shim: per-band gains in dB, one per band. Reads/writes `bands[i].gainDB`.
@@ -39,20 +43,31 @@ final class MusicEqualizer {
     /// Shared, lock-protected coefficients the audio-thread tap reads.
     @ObservationIgnored let coefficients = EQCoefficients()
 
+    /// Where the EQ config persists. Injectable so tests never touch the developer's real EQ
+    /// settings — under XCTest `defaultStore()` returns a throwaway suite instead of `.standard`,
+    /// which running the suite would otherwise overwrite. (W-49 / TEST-13)
+    @ObservationIgnored private let defaults: UserDefaults
+
+    /// `.standard` in production; a unique throwaway suite per instance in the test environment.
+    static func defaultStore(environment: BatonEnvironment = .current) -> UserDefaults {
+        guard environment.isTesting else { return .standard }
+        return UserDefaults(suiteName: "io.tonebox.tests.eq.\(UUID().uuidString)") ?? .standard
+    }
+
     @ObservationIgnored static let enabledKey = "tonebox.music.eq.enabled"
     @ObservationIgnored static let gainsKey = "tonebox.music.eq.gains"
     @ObservationIgnored static let presetKey = "tonebox.music.eq.preset"
     @ObservationIgnored static let bandsKey = "tonebox.music.eq.bands"
 
     /// Gain limits (dB) enforced on every edit.
-    nonisolated static let minGain: Double = -12
-    nonisolated static let maxGain: Double = 12
+    nonisolated static let minGain: Double = EQLimits.minGain
+    nonisolated static let maxGain: Double = EQLimits.maxGain
     /// Q limits — narrow (surgical) to wide (gentle shelf-like) peaks.
-    nonisolated static let minQ: Double = 0.3
-    nonisolated static let maxQ: Double = 10
+    nonisolated static let minQ: Double = EQLimits.minQ
+    nonisolated static let maxQ: Double = EQLimits.maxQ
     /// Frequency limits (Hz) — the audible band.
-    nonisolated static let minFrequency: Double = 20
-    nonisolated static let maxFrequency: Double = 20_000
+    nonisolated static let minFrequency: Double = EQLimits.minFrequency
+    nonisolated static let maxFrequency: Double = EQLimits.maxFrequency
 
     /// The default flat band layout: one peaking band per default frequency.
     static func defaultBands() -> [EQBand] {
@@ -83,8 +98,10 @@ final class MusicEqualizer {
         ]),
     ]
 
-    init() {
-        let d = UserDefaults.standard
+    init(environment: BatonEnvironment = .current, defaults: UserDefaults? = nil) {
+        let store = defaults ?? MusicEqualizer.defaultStore(environment: environment)
+        self.defaults = store
+        let d = store
         isEnabled = d.bool(forKey: Self.enabledKey)
         preset = d.string(forKey: Self.presetKey) ?? "Flat"
         // Prefer the parametric config; fall back to legacy gains-only storage; else default.
@@ -111,9 +128,12 @@ final class MusicEqualizer {
 
     /// Apply a named preset (graphic or parametric). Unknown names are ignored.
     func apply(preset name: String) {
-        guard let p = Self.presets.first(where: { $0.name == name }) else { return }
+        // Case-insensitive lookup — an agent (via music_set_eq) guesses casing constantly, and a
+        // "flat" that silently did nothing was a foot-gun. Store the canonical name. (W-41 / TOOL-06)
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard let p = Self.presets.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) else { return }
         bands = p.bands
-        preset = name
+        preset = p.name
         persistAndPublish()
     }
 
@@ -153,7 +173,7 @@ final class MusicEqualizer {
     // MARK: - Persistence + publishing
 
     private func persistAndPublish() {
-        let d = UserDefaults.standard
+        let d = defaults
         if let data = try? JSONEncoder().encode(bands) { d.set(data, forKey: Self.bandsKey) }
         // Keep the legacy gains key in sync so an older build reads sane gains.
         d.set(bands.map(\.gainDB), forKey: Self.gainsKey)
@@ -163,130 +183,13 @@ final class MusicEqualizer {
     /// Recompute biquad coefficients from the current bands and hand them to the tap.
     /// When disabled, publish an all-flat set so an attached tap is a pass-through.
     private func publish() {
-        let sampleRate = 44_100.0
         let active = isEnabled
-        let biquads = bands.map { band in
-            Biquad.peaking(
-                frequency: band.frequency,
-                sampleRate: sampleRate,
-                q: band.q,
-                gainDB: active ? band.gainDB : 0
-            )
+        let specs = bands.map { band in
+            EQCoefficients.BandSpec(frequency: band.frequency, q: band.q, gainDB: active ? band.gainDB : 0)
         }
-        coefficients.set(biquads)
-    }
-}
-
-/// One parametric peaking band: centre frequency (Hz), Q (bandwidth), and gain (dB).
-struct EQBand: Codable, Equatable, Sendable, Identifiable {
-    var frequency: Double
-    var q: Double
-    var gainDB: Double
-    /// Stable identity for `ForEach` in the editor — derived from the centre frequency
-    /// at construction so reorders don't churn identities during a drag.
-    let id: UUID
-
-    init(frequency: Double, q: Double, gainDB: Double, id: UUID = UUID()) {
-        self.frequency = frequency
-        self.q = q
-        self.gainDB = gainDB
-        self.id = id
-    }
-
-    private enum CodingKeys: String, CodingKey { case frequency, q, gainDB }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        frequency = try c.decode(Double.self, forKey: .frequency)
-        q = try c.decode(Double.self, forKey: .q)
-        gainDB = try c.decode(Double.self, forKey: .gainDB)
-        id = UUID()
-    }
-
-    /// Clamp all parameters into the equalizer's supported ranges.
-    func clamped() -> EQBand {
-        EQBand(
-            frequency: min(MusicEqualizer.maxFrequency, max(MusicEqualizer.minFrequency, frequency)),
-            q: min(MusicEqualizer.maxQ, max(MusicEqualizer.minQ, q)),
-            gainDB: min(MusicEqualizer.maxGain, max(MusicEqualizer.minGain, gainDB)),
-            id: id
-        )
-    }
-}
-
-/// A named preset — either a graphic preset (gains on the default band layout) or a
-/// parametric one (explicit frequency/Q/gain bands).
-struct EQPreset: Sendable {
-    let name: String
-    let bands: [EQBand]
-
-    static func graphic(_ name: String, _ gains: [Double]) -> EQPreset {
-        EQPreset(name: name, bands: zip(MusicEqualizer.frequencies, gains).map {
-            EQBand(frequency: $0, q: MusicEqualizer.defaultQ, gainDB: $1)
-        })
-    }
-
-    static func parametric(_ name: String, _ bands: [EQBand]) -> EQPreset {
-        EQPreset(name: name, bands: bands)
-    }
-}
-
-/// A single peaking-EQ biquad (RBJ cookbook), normalized by a0.
-struct Biquad: Sendable {
-    var b0: Float, b1: Float, b2: Float, a1: Float, a2: Float
-
-    static let identity = Biquad(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
-
-    static func peaking(frequency f0: Double, sampleRate fs: Double, q: Double, gainDB: Double) -> Biquad {
-        guard gainDB != 0 else { return .identity }
-        let a = pow(10.0, gainDB / 40.0)
-        let w0 = 2 * Double.pi * f0 / fs
-        let alpha = sin(w0) / (2 * q)
-        let cosW = cos(w0)
-        let b0 = 1 + alpha * a
-        let b1 = -2 * cosW
-        let b2 = 1 - alpha * a
-        let a0 = 1 + alpha / a
-        let a1 = -2 * cosW
-        let a2 = 1 - alpha / a
-        return Biquad(
-            b0: Float(b0 / a0), b1: Float(b1 / a0), b2: Float(b2 / a0),
-            a1: Float(a1 / a0), a2: Float(a2 / a0)
-        )
-    }
-
-    /// Magnitude response |H(e^{jω})| at frequency `f0` (Hz) for sample rate `fs`.
-    /// Used by the UI to draw the combined response curve (and testable in isolation).
-    func magnitude(atFrequency f0: Double, sampleRate fs: Double) -> Double {
-        let w = 2 * Double.pi * f0 / fs
-        // Numerator/denominator evaluated on the unit circle: z = e^{jw}.
-        let cos1 = cos(w), cos2 = cos(2 * w)
-        let sin1 = sin(w), sin2 = sin(2 * w)
-        let numRe = Double(b0) + Double(b1) * cos1 + Double(b2) * cos2
-        let numIm = -(Double(b1) * sin1 + Double(b2) * sin2)
-        let denRe = 1 + Double(a1) * cos1 + Double(a2) * cos2
-        let denIm = -(Double(a1) * sin1 + Double(a2) * sin2)
-        let numMag = (numRe * numRe + numIm * numIm).squareRoot()
-        let denMag = (denRe * denRe + denIm * denIm).squareRoot()
-        return denMag == 0 ? 1 : numMag / denMag
-    }
-}
-
-/// Thread-safe holder for the current biquad set — written on the main actor, read on the
-/// audio render thread. Uses an unfair lock (short critical sections, no priority issues).
-final class EQCoefficients: @unchecked Sendable {
-    private var lock = os_unfair_lock_s()
-    private var biquads: [Biquad] = []
-
-    func set(_ new: [Biquad]) {
-        os_unfair_lock_lock(&lock)
-        biquads = new
-        os_unfair_lock_unlock(&lock)
-    }
-
-    func snapshot() -> [Biquad] {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
-        return biquads
+        // Reference biquads for the UI response curve are computed at 44.1 kHz; each audio tap
+        // recomputes for its own actual rate from the specs. (W-21)
+        let reference = specs.map { Biquad.peaking(frequency: $0.frequency, sampleRate: 44_100, q: $0.q, gainDB: $0.gainDB) }
+        coefficients.setBands(specs, reference: reference)
     }
 }

@@ -87,7 +87,7 @@ extension NavidromeClient {
     private func performRadioJSON(_ endpoint: String, query: [URLQueryItem] = []) async throws -> RadioSubsonicResponse {
         let url = try makeURL(endpoint, query: query)
         var request = URLRequest(url: url)
-        request.setValue("Tonebox (macOS; Navidrome-Integration)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Baton (macOS; Navidrome-Integration)", forHTTPHeaderField: "User-Agent")
 
         let data: Data
         let response: URLResponse

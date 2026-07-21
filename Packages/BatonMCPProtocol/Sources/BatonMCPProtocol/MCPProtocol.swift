@@ -1,61 +1,72 @@
 import Foundation
 
+// The MCP transport protocol layer — JSON-RPC envelopes, the security-hardened HTTP/1.1
+// request parser, response framing, and the constant-time token compare. Fourth leaf of the
+// W-51 module split: pure (`Foundation` only), zero app dependencies. The MCP *server*
+// (BatonMCPServer, which ties into MusicModel) stays in the app and re-exports this module.
+
 // MARK: - Constants
 
 /// Protocol/version constants and hard limits for the Baton MCP server. Mirrors the
 /// hardening of Tonebox's in-app server (1 MB request cap, current MCP revision).
-enum BatonMCPConstants {
+public enum BatonMCPConstants {
     /// The MCP protocol revision Baton speaks. Matches Tonebox's server.
-    static let protocolVersion = "2025-06-18"
+    public static let protocolVersion = "2025-06-18"
     /// Server identity reported in `initialize`.
-    static let serverName = "baton"
-    static let serverVersion = "0.1.0"
+    public static let serverName = "baton"
+    public static let serverVersion = "0.1.0"
     /// Reject any single HTTP request body larger than this (defensive; the tool
     /// payloads are tiny).
-    static let maxRequestBytes = 1_048_576 // 1 MB
+    public static let maxRequestBytes = 1_048_576 // 1 MB
     /// First port to try; the server walks upward if it's taken.
-    static let defaultPort: UInt16 = 8787
+    public static let defaultPort: UInt16 = 8787
     /// How many consecutive ports to try before giving up.
-    static let portScanRange = 16
+    public static let portScanRange = 16
     /// UserDefaults key holding the persisted bearer token.
-    static let tokenDefaultsKey = "baton.mcp.token"
+    public static let tokenDefaultsKey = "baton.mcp.token"
     /// Resource URIs.
-    static let nowPlayingURI = "baton://now-playing"
-    static let queueURI = "baton://queue"
+    public static let nowPlayingURI = "baton://now-playing"
+    public static let queueURI = "baton://queue"
 }
 
 // MARK: - JSON-RPC
 
 /// A parsed JSON-RPC 2.0 request (or notification, when `id` is nil).
-struct JSONRPCRequest {
-    let id: Any? // String, Int, or NSNull — echoed verbatim in the response.
-    let method: String
-    let params: [String: Any]
+public struct JSONRPCRequest {
+    public let id: Any? // String, Int, or NSNull — echoed verbatim in the response.
+    public let method: String
+    public let params: [String: Any]
     /// A notification (no `id`) expects no response.
-    var isNotification: Bool { id == nil }
+    public var isNotification: Bool { id == nil }
+
+    public init(id: Any?, method: String, params: [String: Any]) {
+        self.id = id
+        self.method = method
+        self.params = params
+    }
 }
 
-enum JSONRPCError {
-    static let parseError = -32_700
-    static let invalidRequest = -32_600
-    static let methodNotFound = -32_601
-    static let invalidParams = -32_602
-    static let internalError = -32_603
+public enum JSONRPCError {
+    public static let parseError = -32_700
+    public static let invalidRequest = -32_600
+    public static let methodNotFound = -32_601
+    public static let invalidParams = -32_602
+    public static let internalError = -32_603
 }
 
 /// Builds JSON-RPC response envelopes as `[String: Any]` dictionaries ready for
 /// `JSONSerialization`.
-enum JSONRPC {
-    static func result(id: Any?, _ result: Any) -> [String: Any] {
+public enum JSONRPC {
+    public static func result(id: Any?, _ result: Any) -> [String: Any] {
         ["jsonrpc": "2.0", "id": id ?? NSNull(), "result": result]
     }
 
-    static func error(id: Any?, code: Int, message: String) -> [String: Any] {
+    public static func error(id: Any?, code: Int, message: String) -> [String: Any] {
         ["jsonrpc": "2.0", "id": id ?? NSNull(), "error": ["code": code, "message": message]]
     }
 
     /// A server-initiated notification (no `id`) — e.g. `notifications/resources/updated`.
-    static func notification(method: String, params: [String: Any]? = nil) -> [String: Any] {
+    public static func notification(method: String, params: [String: Any]? = nil) -> [String: Any] {
         var out: [String: Any] = ["jsonrpc": "2.0", "method": method]
         if let params { out["params"] = params }
         return out
@@ -64,7 +75,7 @@ enum JSONRPC {
     /// Serialize a JSON object to compact UTF-8 data. Never throws in practice — the
     /// dictionaries built here are always JSON-legal — but falls back to an empty
     /// object rather than crashing.
-    static func data(_ object: [String: Any]) -> Data {
+    public static func data(_ object: [String: Any]) -> Data {
         (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
     }
 }
@@ -73,42 +84,47 @@ enum JSONRPC {
 
 /// A minimally-parsed HTTP/1.1 request read off an `NWConnection`. Only what the MCP
 /// transport needs: method, path, a few headers, and the body.
-struct HTTPRequestMessage {
-    let method: String
-    let path: String
-    let query: [String: String]
-    let headers: [String: String] // lower-cased keys
-    let body: Data
+public struct HTTPRequestMessage: Sendable {
+    public let method: String
+    public let path: String
+    public let query: [String: String]
+    public let headers: [String: String] // lower-cased keys
+    public let body: Data
 
-    /// Extracts the bearer token from `Authorization: Bearer <token>` or the
-    /// `?token=` query param (the latter for discovery-style GETs).
-    var bearerToken: String? {
-        if let auth = headers["authorization"] {
-            let parts = auth.split(separator: " ", maxSplits: 1)
-            if parts.count == 2, parts[0].lowercased() == "bearer" {
-                return String(parts[1]).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return query["token"]
+    public init(method: String, path: String, query: [String: String], headers: [String: String], body: Data) {
+        self.method = method
+        self.path = path
+        self.query = query
+        self.headers = headers
+        self.body = body
     }
 
-    var acceptsEventStream: Bool {
+    /// Extracts the bearer token from `Authorization: Bearer <token>` only. The `?token=`
+    /// query form was dropped so the secret can't leak into logs/referrers/history. (W-14)
+    public var bearerToken: String? {
+        guard let auth = headers["authorization"] else { return nil }
+        let parts = auth.split(separator: " ", maxSplits: 1)
+        guard parts.count == 2, parts[0].lowercased() == "bearer" else { return nil }
+        return String(parts[1]).trimmingCharacters(in: .whitespaces)
+    }
+
+    public var acceptsEventStream: Bool {
         (headers["accept"] ?? "").lowercased().contains("text/event-stream")
     }
 
-    var sessionID: String? { headers["mcp-session-id"] }
+    public var sessionID: String? { headers["mcp-session-id"] }
 
     /// Parse a full request from raw bytes. Returns nil if headers are incomplete
     /// (caller keeps reading) — or `.some(nil)` semantics are avoided by returning
     /// `.incomplete`.
-    enum ParseResult {
+    public enum ParseResult: Sendable {
         case complete(HTTPRequestMessage)
         case incomplete
         case tooLarge
         case malformed
     }
 
-    static func parse(_ buffer: Data) -> ParseResult {
+    public static func parse(_ buffer: Data) -> ParseResult {
         // Find the CRLFCRLF header/body separator.
         guard let headerEndRange = buffer.range(of: Data("\r\n\r\n".utf8)) else {
             if buffer.count > BatonMCPConstants.maxRequestBytes { return .tooLarge }
@@ -131,9 +147,13 @@ struct HTTPRequestMessage {
         if let qIdx = rawTarget.firstIndex(of: "?") {
             path = String(rawTarget[rawTarget.startIndex ..< qIdx])
             let queryString = String(rawTarget[rawTarget.index(after: qIdx)...])
-            for pair in queryString.split(separator: "&") {
-                let kv = pair.split(separator: "=", maxSplits: 1)
-                let key = kv[0].removingPercentEncoding ?? String(kv[0])
+            for pair in queryString.split(separator: "&") where !pair.isEmpty {
+                // Keep empty subsequences so "=", "=v", and "k=" parse without
+                // trapping on kv[0] (a bare "=" previously crashed pre-auth).
+                let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                let rawKey = kv[0]
+                guard !rawKey.isEmpty else { continue } // skip "=value" with no key
+                let key = rawKey.removingPercentEncoding ?? String(rawKey)
                 let value = kv.count > 1 ? (kv[1].removingPercentEncoding ?? String(kv[1])) : ""
                 query[key] = value
             }
@@ -147,10 +167,25 @@ struct HTTPRequestMessage {
             headers[key] = value
         }
 
+        // Reject chunked transfer encoding explicitly (unsupported) rather than
+        // silently treating it as a zero-length body. (Fuller read-deadline and a
+        // 501 response are W-39; here we only need to not misparse it.)
+        if let te = headers["transfer-encoding"], te.lowercased().contains("chunked") {
+            return .malformed
+        }
         // Determine body length; wait for the whole body before completing.
+        // Content-Length must be a non-negative integer within the cap: a negative
+        // value previously passed the `> maxRequestBytes` check and then built an
+        // inverted Data range (`bodyStart ..< bodyStart-1`), trapping pre-auth.
         let bodyStart = headerEndRange.upperBound
         let available = buffer.count - buffer.distance(from: buffer.startIndex, to: bodyStart)
-        let contentLength = headers["content-length"].flatMap { Int($0) } ?? 0
+        let contentLength: Int
+        if let raw = headers["content-length"] {
+            guard let n = Int(raw), n >= 0 else { return .malformed }
+            contentLength = n
+        } else {
+            contentLength = 0
+        }
         if contentLength > BatonMCPConstants.maxRequestBytes { return .tooLarge }
         if available < contentLength { return .incomplete }
         let body = buffer.subdata(in: bodyStart ..< buffer.index(bodyStart, offsetBy: contentLength))
@@ -164,19 +199,19 @@ struct HTTPRequestMessage {
 // MARK: - HTTP response building
 
 /// Small helpers for framing HTTP/1.1 responses (single-shot JSON and SSE headers).
-enum HTTPResponse {
+public enum HTTPResponse {
     /// A complete `Connection: close` JSON response.
-    static func json(_ object: [String: Any], status: String = "200 OK", sessionID: String? = nil) -> Data {
+    public static func json(_ object: [String: Any], status: String = "200 OK", sessionID: String? = nil) -> Data {
         let body = JSONRPC.data(object)
         return raw(body, contentType: "application/json", status: status, sessionID: sessionID)
     }
 
     /// An empty response (used for accepted notifications → 202).
-    static func empty(status: String) -> Data {
+    public static func empty(status: String) -> Data {
         raw(Data(), contentType: "application/json", status: status)
     }
 
-    static func raw(_ body: Data, contentType: String, status: String, sessionID: String? = nil) -> Data {
+    public static func raw(_ body: Data, contentType: String, status: String, sessionID: String? = nil) -> Data {
         var head = "HTTP/1.1 \(status)\r\n"
         head += "Content-Type: \(contentType)\r\n"
         head += "Content-Length: \(body.count)\r\n"
@@ -189,7 +224,7 @@ enum HTTPResponse {
 
     /// The headers for an SSE stream (kept open; events written incrementally). The
     /// stream stays alive until the client disconnects.
-    static func sseHeaders(sessionID: String? = nil) -> Data {
+    public static func sseHeaders(sessionID: String? = nil) -> Data {
         var head = "HTTP/1.1 200 OK\r\n"
         head += "Content-Type: text/event-stream\r\n"
         head += "Cache-Control: no-cache\r\n"
@@ -199,7 +234,7 @@ enum HTTPResponse {
     }
 
     /// Frames one JSON object as an SSE `data:` event.
-    static func sseEvent(_ object: [String: Any]) -> Data {
+    public static func sseEvent(_ object: [String: Any]) -> Data {
         let json = String(data: JSONRPC.data(object), encoding: .utf8) ?? "{}"
         return Data("data: \(json)\n\n".utf8)
     }
@@ -207,9 +242,9 @@ enum HTTPResponse {
 
 // MARK: - Token compare
 
-enum BatonMCPAuth {
+public enum BatonMCPAuth {
     /// Constant-time token comparison — avoids leaking length/prefix via timing.
-    static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+    public static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
         let ab = Array(a.utf8)
         let bb = Array(b.utf8)
         guard ab.count == bb.count else { return false }
@@ -219,7 +254,7 @@ enum BatonMCPAuth {
     }
 
     /// Generates a ~256-bit random token, hex-encoded.
-    static func generateToken() -> String {
+    public static func generateToken() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         for i in bytes.indices { bytes[i] = UInt8.random(in: 0 ... 255) }
         return bytes.map { String(format: "%02x", $0) }.joined()

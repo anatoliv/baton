@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let podcastLog = Logger(subsystem: "io.tonebox.macos", category: "NavidromePodcasts")
+private let podcastLog = Logger(subsystem: "io.tonebox.baton", category: "NavidromePodcasts")
 
 // MARK: - Domain types
 
@@ -103,7 +103,7 @@ extension NavidromeClient {
     private func performPodcastJSON(_ endpoint: String, query: [URLQueryItem] = []) async throws -> PodcastSubsonicResponse {
         let url = try makeURL(endpoint, query: query)
         var request = URLRequest(url: url)
-        request.setValue("Tonebox (macOS; Navidrome-Integration)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Baton (macOS; Navidrome-Integration)", forHTTPHeaderField: "User-Agent")
 
         let data: Data
         let response: URLResponse

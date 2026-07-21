@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import OSLog
 
-private let navidromeLog = Logger(subsystem: "io.tonebox.macos", category: "Navidrome")
+private let navidromeLog = Logger(subsystem: "io.tonebox.baton", category: "Navidrome")
 
 /// How the client authenticates each Subsonic request.
 enum NavidromeAuthMode: String, Codable, CaseIterable {
@@ -42,11 +42,19 @@ struct NavidromeClient {
     /// Subsonic level; OpenSubsonic servers accept it and layer extensions on top.
     private let apiVersion = "1.16.1"
     /// Client identifier (`c`) — shows up in the server's play/activity logs.
-    private let clientName = "tonebox"
+    private let clientName = "baton"
+
+    /// A stable salt+token computed once per client, so repeated URLs for the same resource
+    /// (especially artwork) are byte-identical and URLCache/AsyncImage actually cache them
+    /// instead of refetching on every recomputation. Subsonic permits salt reuse. (W-37 / NET-06)
+    private let cachedSalt: String
+    private let cachedToken: String
 
     init(credentials: NavidromeCredentials, session: URLSession = .shared) {
         self.credentials = credentials
         self.session = session
+        self.cachedSalt = Self.makeSalt()
+        self.cachedToken = Self.token(password: credentials.secret, salt: cachedSalt)
     }
 
     // MARK: - Auth primitives (pure — unit-tested directly)
@@ -80,10 +88,9 @@ struct NavidromeClient {
         case .apiKey:
             items.append(URLQueryItem(name: "apiKey", value: credentials.secret))
         case .tokenSalt:
-            let salt = Self.makeSalt()
             items.append(URLQueryItem(name: "u", value: credentials.username))
-            items.append(URLQueryItem(name: "t", value: Self.token(password: credentials.secret, salt: salt)))
-            items.append(URLQueryItem(name: "s", value: salt))
+            items.append(URLQueryItem(name: "t", value: cachedToken)) // stable per client (W-37)
+            items.append(URLQueryItem(name: "s", value: cachedSalt))
         }
         return items
     }
@@ -114,6 +121,12 @@ struct NavidromeClient {
             URLQueryItem(name: "id", value: songID),
             URLQueryItem(name: "format", value: "mp3"),
         ], json: false)
+    }
+
+    /// The ORIGINAL file (download.view — no transcode) for offline downloads, so a FLAC library
+    /// isn't stored as lossy MP3 at the server's default bitrate. (W-34 / DL-04)
+    func downloadURL(songID: String) throws -> URL {
+        try makeURL("download.view", query: [URLQueryItem(name: "id", value: songID)], json: false)
     }
 
     /// Signed cover-art URL. `size` (px) is optional; nil returns full size.
@@ -270,6 +283,16 @@ struct NavidromeClient {
         return (response.similarSongs2?.song ?? []).map { $0.toDomain() }
     }
 
+    /// Random songs from the library (`getRandomSongs`) — the autoplay fallback when the server has
+    /// no similarity data (Navidrome's getSimilarSongs2 needs a Last.fm agent, so it's often empty),
+    /// so "continuous radio" keeps playing instead of stopping dead at the queue's end.
+    func getRandomSongs(count: Int = 50) async throws -> [NavidromeSong] {
+        let response = try await performJSON("getRandomSongs.view", query: [
+            URLQueryItem(name: "size", value: String(count)),
+        ])
+        return (response.randomSongs?.song ?? []).map { $0.toDomain() }
+    }
+
     /// Structured (optionally time-synced) lyrics for a song (`getLyricsBySongId`).
     /// Returns nil when the server has no lyrics for the track.
     func getLyrics(songID: String) async throws -> NavidromeLyrics? {
@@ -284,11 +307,15 @@ struct NavidromeClient {
     /// Records a play (`scrobble`). `submission: false` marks "now playing";
     /// `true` counts it as played. Best-effort — a scrobble failure never blocks
     /// playback.
-    func scrobble(id: String, submission: Bool = true) async throws {
-        _ = try await performJSON("scrobble.view", query: [
+    /// `time` is Unix milliseconds when the track STARTED — Subsonic accepts it precisely so an
+    /// offline/delayed flush credits the play at the real listen time, not at flush time. (W-31 / SCR-03)
+    func scrobble(id: String, submission: Bool = true, time: Int? = nil) async throws {
+        var query = [
             URLQueryItem(name: "id", value: id),
             URLQueryItem(name: "submission", value: submission ? "true" : "false"),
-        ])
+        ]
+        if let time { query.append(URLQueryItem(name: "time", value: String(time))) }
+        _ = try await performJSON("scrobble.view", query: query)
     }
 
     // MARK: - Playlist CRUD
@@ -335,6 +362,24 @@ struct NavidromeClient {
         _ = try await performJSON("createPlaylist.view", query: query)
     }
 
+    /// Replaces a playlist's tracks with `songIDs` in order, sending them in bounded batches so
+    /// large playlists don't overflow the request-line/proxy URL limit (W-60 / PROD-10). The
+    /// first batch overwrites via `setPlaylistSongs` (createPlaylist), and each subsequent batch
+    /// appends in order via `updatePlaylist(songIDsToAdd:)` — so the final server order equals the
+    /// concatenation of the batches, i.e. exactly `songIDs`. `chunkSize` keeps each request well
+    /// under typical 8 KB request-line ceilings (an id + `&songId=` is ~40 bytes → ~4 KB at 100).
+    func setPlaylistSongsChunked(id: String, songIDs: [String], name: String? = nil, chunkSize: Int = 100) async throws {
+        precondition(chunkSize > 0, "chunkSize must be positive")
+        let batches = stride(from: 0, to: songIDs.count, by: chunkSize).map { start in
+            Array(songIDs[start ..< min(start + chunkSize, songIDs.count)])
+        }
+        // Empty playlist: still overwrite so a clear-all reorder persists.
+        try await setPlaylistSongs(id: id, songIDs: batches.first ?? [], name: name)
+        for batch in batches.dropFirst() {
+            try await updatePlaylist(id: id, songIDsToAdd: batch)
+        }
+    }
+
     /// Deletes a playlist (`deletePlaylist`).
     func deletePlaylist(id: String) async throws {
         _ = try await performJSON("deletePlaylist.view", query: [URLQueryItem(name: "id", value: id)])
@@ -351,15 +396,27 @@ struct NavidromeClient {
 
     // MARK: - Transport
 
+    /// One retry with a short backoff for an idempotent GET — a single transient blip
+    /// (timeout, dropped connection) shouldn't fail an otherwise-fine read. (W-25 / NET-02)
+    static func dataWithOneRetry(session: URLSession, request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch let error as URLError where
+            error.code == .timedOut || error.code == .networkConnectionLost || error.code == .cannotConnectToHost {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            return try await session.data(for: request)
+        }
+    }
+
     private func performJSON(_ endpoint: String, query: [URLQueryItem] = []) async throws -> SubsonicResponse {
         let url = try makeURL(endpoint, query: query)
         var request = URLRequest(url: url)
-        request.setValue("Tonebox (macOS; Navidrome-Integration)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Baton (macOS; Navidrome-Integration)", forHTTPHeaderField: "User-Agent")
 
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await Self.dataWithOneRetry(session: session, request: request)
         } catch {
             navidromeLog
                 .error(
@@ -373,6 +430,9 @@ struct NavidromeClient {
         }
         guard (200 ... 299).contains(http.statusCode) else {
             navidromeLog.error("\(endpoint, privacy: .public): HTTP \(http.statusCode, privacy: .public)")
+            // A reverse proxy in front of Navidrome answers 401/403 for bad credentials — map
+            // it to the actionable "check your credentials" error, not a generic HTTP code. (NET-09)
+            if http.statusCode == 401 || http.statusCode == 403 { throw NavidromeError.unauthorized }
             throw NavidromeError.http(status: http.statusCode)
         }
 

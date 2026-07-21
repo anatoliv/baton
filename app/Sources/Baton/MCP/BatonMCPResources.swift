@@ -157,9 +157,20 @@ enum BatonMCPResources {
     private static func albumJSON(_ album: NavidromeAlbum) -> [String: Any] {
         var out: [String: Any] = ["id": album.id, "name": album.name]
         if let artist = album.artist { out["artist"] = artist }
+        if let display = album.displayArtist, display != album.artist { out["display_artist"] = display }
         if let songCount = album.songCount { out["song_count"] = songCount }
         if let duration = album.duration { out["duration_seconds"] = duration }
         if let year = album.year { out["year"] = year }
+        let genres = album.genres.isEmpty ? [album.genre].compactMap { $0 } : album.genres
+        if !genres.isEmpty { out["genres"] = genres }
+        if let type = album.releaseTypeLabel { out["release_type"] = type }
+        if let plays = album.playCount { out["play_count"] = plays }
+        if let rating = album.userRating, rating > 0 { out["rating"] = rating }
+        out["liked"] = album.isLiked
+        if let date = album.originalReleaseDate { out["original_release_date"] = date }
+        if let played = album.played { out["last_played"] = ISO8601DateFormatter().string(from: played) }
+        if let created = album.created { out["added"] = ISO8601DateFormatter().string(from: created) }
+        if let mbid = album.musicBrainzID { out["musicbrainz_id"] = mbid }
         return out
     }
 
@@ -167,6 +178,9 @@ enum BatonMCPResources {
     private static func artistJSON(_ artist: NavidromeArtist) -> [String: Any] {
         var out: [String: Any] = ["id": artist.id, "name": artist.name]
         if let albumCount = artist.albumCount { out["album_count"] = albumCount }
+        out["liked"] = artist.isLiked
+        if !artist.roles.isEmpty { out["roles"] = artist.roles }
+        if let mbid = artist.musicBrainzID { out["musicbrainz_id"] = mbid }
         return out
     }
 }

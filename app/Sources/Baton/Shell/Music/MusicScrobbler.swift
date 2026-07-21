@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let scrobbleLog = Logger(subsystem: "io.tonebox.macos", category: "Scrobbler")
+private let scrobbleLog = Logger(subsystem: "io.tonebox.baton", category: "Scrobbler")
 
 /// Submits listens to **ListenBrainz** (the open, MusicBrainz-backed scrobbling service).
 /// Chosen for a personal player because it needs only a **user token** (from your
@@ -15,7 +15,7 @@ private let scrobbleLog = Logger(subsystem: "io.tonebox.macos", category: "Scrob
 final class MusicScrobbler: ScrobbleDestination {
     /// The ListenBrainz user token (Settings → Music → Scrobbling). Empty ⇒ disabled.
     var token: String {
-        didSet { UserDefaults.standard.set(token, forKey: Self.tokenKey) }
+        didSet { NavidromeKeychain.setSecret(token, account: Self.tokenKey) } // Keychain (W-13)
     }
 
     @ObservationIgnored static let tokenKey = "tonebox.music.listenBrainzToken"
@@ -26,7 +26,7 @@ final class MusicScrobbler: ScrobbleDestination {
 
     init(session: URLSession = .shared) {
         self.session = session
-        token = UserDefaults.standard.string(forKey: Self.tokenKey) ?? ""
+        token = NavidromeKeychain.secret(account: Self.tokenKey) ?? "" // Keychain, migrate-on-read (W-13)
     }
 
     /// The play position (seconds) at which a track counts as "listened" per the standard
@@ -57,7 +57,9 @@ final class MusicScrobbler: ScrobbleDestination {
 
     // MARK: - Wire format
 
-    private func payload(for scrobble: Scrobble, includeTimestamp: Bool) -> [String: Any] {
+    /// Builds one ListenBrainz `listen` object. `nonisolated static` + pure (no `self`) so the
+    /// wire shape is unit-testable off the main actor without a live network destination. (W-49)
+    nonisolated static func payload(for scrobble: Scrobble, includeTimestamp: Bool) -> [String: Any] {
         var metadata: [String: Any] = [
             "artist_name": scrobble.artist,
             "track_name": scrobble.track,
@@ -79,7 +81,7 @@ final class MusicScrobbler: ScrobbleDestination {
         let includeTimestamp = listenType != "playing_now"
         let body: [String: Any] = [
             "listen_type": listenType,
-            "payload": scrobbles.map { payload(for: $0, includeTimestamp: includeTimestamp) },
+            "payload": scrobbles.map { Self.payload(for: $0, includeTimestamp: includeTimestamp) },
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else {
             throw ScrobbleError.service("ListenBrainz: could not encode payload")

@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let gaplessCacheLog = Logger(subsystem: "io.tonebox.macos", category: "GaplessPrefetch")
+private let gaplessCacheLog = Logger(subsystem: "io.tonebox.baton", category: "GaplessPrefetch")
 
 /// A tiny, ephemeral on-disk cache for the **next** gapless track. When the upcoming track
 /// is a network stream (not a permanent offline download), the player prefetches it here so
@@ -15,9 +15,12 @@ private let gaplessCacheLog = Logger(subsystem: "io.tonebox.macos", category: "G
 final class MusicGaplessCache {
     private let directory: URL
     private let maxEntries: Int
+    /// Byte budget: 6 raw FLACs can be hundreds of MB, so cap on size too, not just count. (AUDIO-18)
+    private let maxBytes: Int64
 
-    init(maxEntries: Int = 6, directory: URL? = nil) {
+    init(maxEntries: Int = 6, maxBytes: Int64 = 200 * 1024 * 1024, directory: URL? = nil) {
         self.maxEntries = max(1, maxEntries)
+        self.maxBytes = max(1, maxBytes)
         if let directory {
             self.directory = directory
         } else {
@@ -57,20 +60,27 @@ final class MusicGaplessCache {
         return dest
     }
 
-    /// Delete the oldest files (by modification date) so at most `maxEntries` remain, never
-    /// evicting `keeping` (the one just stored).
+    /// Delete the oldest files (by modification date) until at most `maxEntries` AND at most
+    /// `maxBytes` remain, never evicting `keeping` (the one just stored).
     func evictOld(keeping keepID: String? = nil) {
         guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]
-        ), files.count > maxEntries else { return }
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey], options: [.skipsHiddenFiles]
+        ) else { return }
         let keepName = keepID.map { fileURL(for: $0).lastPathComponent }
+        func size(_ u: URL) -> Int64 { Int64((try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
         let sorted = files.sorted { a, b in
             let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return da < db // oldest first
         }
-        for url in sorted.prefix(files.count - maxEntries) where url.lastPathComponent != keepName {
+        var count = files.count
+        var total = files.reduce(Int64(0)) { $0 + size($1) }
+        for url in sorted where url.lastPathComponent != keepName {
+            guard count > maxEntries || total > maxBytes else { break }
+            let s = size(url)
             try? FileManager.default.removeItem(at: url)
+            count -= 1
+            total -= s
         }
     }
 

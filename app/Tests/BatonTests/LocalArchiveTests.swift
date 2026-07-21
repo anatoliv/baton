@@ -10,8 +10,13 @@ private func song(_ id: String, artist: String? = "Artist", album: String? = nil
 
 @MainActor
 private func freshHistory() -> MusicPlayHistory {
-    MusicPlayHistory(defaults: UserDefaults(suiteName: "hist-\(UUID())")!,
-                     clock: { Date(timeIntervalSince1970: 1_700_000_000) })
+    // Inject a unique directory: the archive is an on-disk JSONL (W-32), so without this every
+    // test would share ~/Library/Application Support/Baton/play-history.jsonl and see each other's
+    // entries. (W-49 hygiene)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hist-\(UUID())", isDirectory: true)
+    return MusicPlayHistory(defaults: UserDefaults(suiteName: "hist-\(UUID())")!,
+                            clock: { Date(timeIntervalSince1970: 1_700_000_000) },
+                            directory: dir)
 }
 
 // MARK: - Archive

@@ -170,7 +170,7 @@ struct NowPlayingBar: View {
                 .font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
             Text(isRadio
                  ? (radio.engine.nowPlayingTitle ?? "On air · live")
-                 : (player.nowPlaying?.artist ?? ""))
+                 : (player.nowPlaying?.displayArtistName ?? ""))
                 .font(.callout).foregroundStyle(.secondary).lineLimit(1)
         }
     }
@@ -466,7 +466,7 @@ private struct MusicQueueRow: View {
                     .font(.callout.weight(isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent ? Color.accentColor : .primary)
                     .lineLimit(1)
-                if let artist = song.artist, !artist.isEmpty {
+                if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -474,6 +474,9 @@ private struct MusicQueueRow: View {
                 }
             }
             Spacer(minLength: 6)
+            if let quality = song.qualityLabel {
+                MusicMetaBadge(quality)
+            }
             if hovering, !isCurrent {
                 Button {
                     model.music.removeFromQueue(at: IndexSet(integer: index))

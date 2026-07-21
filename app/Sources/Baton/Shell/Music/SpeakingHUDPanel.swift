@@ -1,0 +1,361 @@
+import AppKit
+import Observation
+import SwiftUI
+
+/// The **speaking HUD** as a small, self-contained floating panel.
+///
+/// A spoken summary is usually triggered by an agent (the `speak_summary` MCP tool) while the
+/// user is working in another app, so the old in-app overlay — pinned to the bottom of the main
+/// Baton window — was unreachable exactly when it mattered (window closed, minimized, or on
+/// another Space). This lifts the pause / resume / stop controls into an independent `NSPanel`
+/// that floats over whatever Space/app is active while a summary plays, then hides when it ends.
+///
+/// Treatment mirrors `MiniPlayerWindowConfigurator`: borderless + transparent so the glass
+/// refracts what's behind it, always-on-top, non-activating (clicking a control never steals
+/// focus from the user's frontmost app), joins **all Spaces + fullscreen**, and is draggable —
+/// its last drop position is remembered across summaries and launches.
+///
+/// The waiting-to-play `banner` (mode = "banner") deliberately stays in-app (see
+/// `SpeechAlertOverlay`): pressing Play there is a "look at Baton" interaction, not a live control.
+@MainActor
+final class SpeakingHUDPresenter {
+    private let model: MusicModel
+    private var speech: SpeechPlaybackEngine { model.speech }
+    private var panel: FloatingHUDPanel?
+    private var moveObserver: NSObjectProtocol?
+    private var resizeObserver: NSObjectProtocol?
+
+    /// Persisted panel frame (size + position) — its "remember last size + position". Stored as an
+    /// `NSStringFromRect` string so a fresh install starts at the default, and returning users don't.
+    private static let frameDefaultsKey = "BatonSpeakingHUDFrame"
+
+    init(model: MusicModel) {
+        self.model = model
+        armObservation()
+        syncVisibility() // handle the (rare) case where a summary is already speaking at wire-up
+    }
+
+    // MARK: - Observation
+
+    /// Re-arming, view-less observation of `speech.isSpeaking` — the panel's visibility is the
+    /// only thing driven from AppKit; the SwiftUI content observes the rest of the engine itself.
+    private func armObservation() {
+        withObservationTracking {
+            _ = speech.isSpeaking
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.syncVisibility()
+                self.armObservation()
+            }
+        }
+    }
+
+    /// After a summary finishes, the card lingers this long for Replay before auto-closing.
+    private static let autoCloseDelay: Duration = .seconds(60)
+    private var autoCloseTask: Task<Void, Never>?
+    /// Set by `userClose()` so the finish that `cancel()` triggers can't re-linger the card — the ×
+    /// always wins and the window closes. Cleared when the next summary starts speaking.
+    private var userClosed = false
+
+    private func syncVisibility() {
+        if speech.isSpeaking {
+            userClosed = false
+            autoCloseTask?.cancel()
+            autoCloseTask = nil
+            show()
+        } else if !userClosed, let panel, panel.isVisible, speech.canReplay {
+            // A summary just finished: keep the card up for Replay, then auto-close after a minute.
+            scheduleAutoClose()
+        } else {
+            panel?.orderOut(nil)
+        }
+    }
+
+    private func scheduleAutoClose() {
+        autoCloseTask?.cancel()
+        autoCloseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: SpeakingHUDPresenter.autoCloseDelay)
+            guard let self, !Task.isCancelled else { return }
+            self.panel?.orderOut(nil)
+        }
+    }
+
+    /// The card's × button — stop speaking and close the window immediately, and make sure the
+    /// linger-for-Replay path can't bring it back (so × reliably closes without more speech). Also
+    /// dismisses the in-app "Play" banner for the same summary, so both close together.
+    fileprivate func userClose() {
+        userClosed = true
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        speech.cancel() // stop any audio now (silent close)
+        speech.dismissBanner() // close the in-app banner for this summary at the same time
+        panel?.orderOut(nil)
+    }
+
+    // MARK: - Panel lifecycle
+
+    private func show() {
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        restorePosition(panel)
+        panel.orderFrontRegardless() // show without activating Baton or stealing key focus
+    }
+
+    /// The card's default size and its resize floor — same width as `MiniPlayerWindowView`. The
+    /// panel is **user-resizable** (drag any edge); the content fills whatever size you pick, and
+    /// the last size + position are remembered.
+    static let defaultSize = NSSize(width: 320, height: 230)
+    static let minSize = NSSize(width: 260, height: 150)
+    /// Corner radius of the card (and the window's content layer, so the shadow follows the shape).
+    static let cornerRadius: CGFloat = 16
+
+    private func makePanel() -> FloatingHUDPanel {
+        let hosting = NSHostingController(
+            rootView: SpeakingHUDContent(
+                onClose: { [weak self] in self?.userClose() },
+                onReplay: { [weak self] in self?.speech.replayLast() }
+            )
+            .environment(model)
+            .tint(.batonOrange)
+        )
+
+        let panel = FloatingHUDPanel(
+            contentRect: NSRect(origin: .zero, size: Self.defaultSize),
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
+            backing: .buffered, defer: false
+        )
+        panel.contentViewController = hosting
+        panel.contentMinSize = Self.minSize
+        panel.level = .floating
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = true // drag the HUD body to move it (edges resize)
+        panel.acceptsMouseMovedEvents = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        // Follow the user everywhere, including over other apps in fullscreen (W: all Spaces).
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.animationBehavior = .utilityWindow
+
+        // NB: we deliberately do NOT round/clip the window's content layer (no `masksToBounds`).
+        // A clipping layer on a live-resizing borderless panel makes the hosted SwiftUI ScrollView
+        // blank out mid-resize. The rounded look comes from the SwiftUI `speakingCardSurface`
+        // instead, and the window's shadow is derived from that content's (rounded) alpha shape.
+
+        // Remember the last size + position (persist the whole frame on move OR resize).
+        let persist: @Sendable (Notification) -> Void = { [weak panel] _ in
+            guard let panel else { return }
+            MainActor.assumeIsolated {
+                panel.invalidateShadow()
+                UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameDefaultsKey)
+            }
+        }
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main, using: persist
+        )
+        resizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: panel, queue: .main, using: persist
+        )
+        return panel
+    }
+
+    // MARK: - Frame ("remember last size + position", clamped to a live screen)
+
+    private func restorePosition(_ panel: NSPanel) {
+        if let frame = savedFrame(), frameIsOnScreen(frame) {
+            panel.setFrame(frame, display: false)
+        } else {
+            positionBottomCenter(panel)
+        }
+    }
+
+    private func savedFrame() -> NSRect? {
+        guard let s = UserDefaults.standard.string(forKey: Self.frameDefaultsKey) else { return nil }
+        let r = NSRectFromString(s)
+        return r.isEmpty ? nil : r
+    }
+
+    /// A remembered frame is only reused if it still lands on a connected display — otherwise a
+    /// since-disconnected monitor would strand the HUD off-screen.
+    private func frameIsOnScreen(_ frame: NSRect) -> Bool {
+        NSScreen.screens.contains { $0.visibleFrame.intersects(frame) }
+    }
+
+    /// First-run default: default size, bottom-center of the **active** display. `NSScreen.main` is
+    /// the screen with the active/key window.
+    private func positionBottomCenter(_ panel: NSPanel) {
+        panel.setContentSize(Self.defaultSize)
+        guard let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        let size = panel.frame.size
+        panel.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2, y: visible.minY + 24))
+    }
+}
+
+/// A borderless panel that can still become key so the HUD's buttons are clickable — a plain
+/// borderless `NSWindow` cannot. Combined with `.nonactivatingPanel`, clicking a control acts on
+/// the HUD without activating Baton or pulling focus from the user's frontmost app.
+final class FloatingHUDPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+/// The HUD body: a spoken-summary card that mirrors `MiniPlayerWindowView` — same width, corner
+/// radius, glass surface, scrubber (`MusicScrubber`), transport button sizes, and dark scheme. No
+/// title; the auto-scrolling, highlight-what's-speaking transcript fills all the space above the
+/// scrubber. ∓10s seek flanks a Play/Pause button that becomes **Replay** when the summary ends,
+/// and an × in the top-right corner stops & closes. Reads live state from `model.speech`.
+private struct SpeakingHUDContent: View {
+    @Environment(MusicModel.self) private var model
+    private var speech: SpeechPlaybackEngine { model.speech }
+    /// × button — stop speaking and dismiss (wired to the presenter's `userClose()`).
+    var onClose: () -> Void
+    /// Replay button — re-speak the last summary (presenter → `speech.replayLast()`).
+    var onReplay: () -> Void
+
+    /// The accent that tints the scrubber, matching the mini player's warm fill.
+    private var accent: Color { .batonOrange }
+    private var text: String { speech.currentText ?? speech.lastSummaryText ?? "" }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Transcript greedily fills all the space above the controls — no dead gap above the bar.
+            transcript.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            // Scrubber + transport, pinned together at the very bottom (no gap below the bar).
+            VStack(spacing: 10) {
+                // The scrubber renders its own elapsed / −remaining labels — server audio only,
+                // since the built-in voice has no duration to scrub.
+                if let d = speech.duration {
+                    MusicScrubber(currentTime: (speech.progress ?? 0) * d, duration: d, tint: accent) {
+                        speech.seek(to: $0)
+                    }
+                }
+                transport
+            }
+            .padding(.top, 10)
+        }
+        .padding(14)
+        // Fill whatever size the (resizable) window is — the transcript takes the slack, so there's
+        // never a forced gap; resize the window to taste.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // × pinned right up in the card's top-right corner (small inset off the rounded edge).
+        .overlay(alignment: .topTrailing) { closeButton.padding(7) }
+        .speakingCardSurface(cornerRadius: SpeakingHUDPresenter.cornerRadius)
+        .preferredColorScheme(.dark)
+    }
+
+    private var closeButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Stop & close")
+    }
+
+    // MARK: Transcript (fills the space, auto-scrolls to the spoken sentence)
+
+    private var transcript: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(sentences.enumerated()), id: \.offset) { index, sentence in
+                        Text(sentence.text)
+                            .font(.callout)
+                            .foregroundStyle(index == activeSentence ? .primary : .secondary)
+                            .fontWeight(index == activeSentence ? .semibold : .regular)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(index)
+                    }
+                }
+                .padding(.trailing, 18) // keep text clear of the corner × button
+            }
+            .onChange(of: activeSentence) { _, i in
+                withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(i, anchor: .center) }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// The summary split into sentences, each tagged with the character offset of its end — so the
+    /// spoken position (a char index) maps to the sentence to highlight and scroll to.
+    private var sentences: [(text: String, end: Int)] {
+        let s = text
+        guard !s.isEmpty else { return [] }
+        var out: [(String, Int)] = []
+        s.enumerateSubstrings(in: s.startIndex ..< s.endIndex, options: .bySentences) { sub, range, _, _ in
+            let end = s.distance(from: s.startIndex, to: range.upperBound)
+            let piece = (sub ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !piece.isEmpty { out.append((piece, end)) }
+        }
+        return out.isEmpty ? [(s, s.count)] : out
+    }
+
+    /// The character index spoken so far — from the built-in voice's live word range, or (for server
+    /// audio) estimated from playback progress.
+    private var spokenCharIndex: Int {
+        if let r = speech.spokenRange { return r.location + r.length }
+        if let p = speech.progress { return Int(p * Double(text.count)) }
+        return 0
+    }
+
+    private var activeSentence: Int {
+        let idx = spokenCharIndex
+        for (i, s) in sentences.enumerated() where idx <= s.end { return i }
+        return max(0, sentences.count - 1)
+    }
+
+    // MARK: Transport (∓10s seek · Play/Pause/Replay) — copies the mini player's sizing/style
+
+    private var transport: some View {
+        HStack(spacing: 20) {
+            Button { speech.seek(by: -10) } label: { Image(systemName: "gobackward.10") }
+                .foregroundStyle(speech.canSeek ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .disabled(!speech.canSeek)
+                .help("Back 10 seconds")
+
+            if speech.isSpeaking {
+                Button { speech.togglePause() } label: {
+                    Image(systemName: speech.isPaused ? "play.circle.fill" : "pause.circle.fill")
+                        .font(.system(size: 32))
+                }
+                .help(speech.isPaused ? "Resume" : "Pause")
+            } else {
+                Button(action: onReplay) {
+                    Image(systemName: "arrow.counterclockwise.circle.fill").font(.system(size: 32))
+                }
+                .help("Replay")
+            }
+
+            Button { speech.seek(by: 10) } label: { Image(systemName: "goforward.10") }
+                .foregroundStyle(speech.canSeek ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .disabled(!speech.canSeek)
+                .help("Forward 10 seconds")
+        }
+        .buttonStyle(.plain)
+        .font(.title3)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private extension View {
+    /// The mini player's panel surface, replicated so the speaking card looks identical: real
+    /// **Liquid Glass** on macOS 26+ (the borderless, transparent window refracts what's behind it),
+    /// falling back to the opaque rounded window-background fill on older systems.
+    @ViewBuilder
+    func speakingCardSurface(cornerRadius: CGFloat) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        } else {
+            background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+            )
+        }
+    }
+}
