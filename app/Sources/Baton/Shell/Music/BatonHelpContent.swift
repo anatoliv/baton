@@ -227,6 +227,112 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.5.0",
+            date: "2026",
+            highlight: "Take control of a spoken summary — pause, resume, or stop it, with a live progress bar.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A speaking HUD appears while a summary plays, with "
+                        + "Pause / Resume and Stop — so a long read no longer has "
+                        + "to run to the end."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Pause / Resume / Stop Speaking are in the Playback menu "
+                        + "too (Stop is \u{2303}\u{2318}.), and the HUD shows a "
+                        + "progress bar for server-synthesized audio."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.4.0",
+            date: "2026",
+            highlight: "Drive Baton from the keyboard and the menu bar — a Go menu, ⌘F search, Space to play, and a tidier status menu.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A Go menu to jump to any section (⌘1–8), plus Now "
+                        + "Playing (⌘0) and Toggle Sidebar (⌃⌘S). ⌘F jumps to "
+                        + "Search, and Space plays/pauses."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "The Audio menu gained quick Gapless / Crossfade toggles "
+                        + "and a Loudness picker next to the Equalizer."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The menu-bar controller no longer stretches to the width "
+                        + "of a long track title, hides a blank \u{201C}Unknown\u{201D} "
+                        + "artist, and adds Mute plus Settings, Check for Updates, "
+                        + "and About."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A configurable duck level (Settings → Playback) controls "
+                        + "how far the music dims for a spoken summary or while an "
+                        + "agent dictates."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.3.0",
+            date: "2026",
+            highlight: "Decide how spoken summaries reach you — announce right away, or wait quietly as a notification or banner.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Settings → Speech → Delivery: choose whether an "
+                        + "agent's spoken summary is announced immediately or "
+                        + "waits, and pick where it shows up — a macOS "
+                        + "notification, an in-app banner, or both."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A safety gate — off by default — controls whether an "
+                        + "agent may speak a summary immediately without your "
+                        + "confirmation, so a leaked token can't play audio at you."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "speak_summary now reports every surface a summary "
+                        + "reached (spoken, notified, banner), so an agent knows "
+                        + "exactly what happened."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.2.0",
+            date: "2026",
+            highlight: "Filter Search and Liked by what you love, and three playback fixes from real-world use.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Filter Search and Liked results by liked state and "
+                        + "star rating — a funnel next to Sort narrows songs and "
+                        + "albums to just what you're looking for."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Autoplay now keeps a continuous radio going at the end "
+                        + "of the queue even on servers without similarity data, "
+                        + "falling back to fresh tracks from your library."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Turning the equalizer on or off now takes effect "
+                        + "immediately on the playing track."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Settings, Agents adds a ready-to-paste MCP client "
+                        + "configuration so any agent that speaks MCP over HTTP "
+                        + "can connect with one copy."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.1.0",
             date: "2026",
             highlight: "The first standalone Baton: your self-hosted library, played with real depth, and controllable by an AI agent.",

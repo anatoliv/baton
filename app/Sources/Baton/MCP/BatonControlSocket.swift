@@ -30,11 +30,27 @@ final class BatonControlSocket: @unchecked Sendable {
     /// The playback controller the focus commands act on (`MusicModel.music` in the app).
     private let controller: StreamingPlaybackController
 
-    /// Listening socket fd (-1 when down).
-    private var listenFD: Int32 = -1
     private let socketURL: URL
     private var acceptThread: Thread?
-    private var stopped = false
+
+    // Shared mutable state is touched from both the main actor (start/stop) and the accept /
+    // per-connection threads, so it lives behind a lock — plain vars were a data race (UB). (W-15)
+    private let stateLock = NSLock()
+    private var _listenFD: Int32 = -1
+    private var _stopped = false
+    private var _clientFDs: Set<Int32> = []
+
+    /// Listening socket fd (-1 when down).
+    private var listenFD: Int32 {
+        get { stateLock.withLock { _listenFD } }
+        set { stateLock.withLock { _listenFD = newValue } }
+    }
+    private var stopped: Bool {
+        get { stateLock.withLock { _stopped } }
+        set { stateLock.withLock { _stopped = newValue } }
+    }
+    private func trackClient(_ fd: Int32) { stateLock.withLock { _ = _clientFDs.insert(fd) } }
+    private func untrackClient(_ fd: Int32) { stateLock.withLock { _ = _clientFDs.remove(fd) } }
 
     /// The canonical socket path inside the app-support `dir` (the same directory `mcp.json`
     /// lives in). Static so the discovery-file writer can advertise it without an instance.
@@ -91,6 +107,7 @@ final class BatonControlSocket: @unchecked Sendable {
             controlSocketLog.error("control socket: socket() failed errno \(errno)")
             return
         }
+        Self.setNoSigPipe(fd) // a client closing mid-reply must not kill the app
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -107,17 +124,21 @@ final class BatonControlSocket: @unchecked Sendable {
             }
         }
 
+        // Set umask around bind() so the socket file is created 0600 from the start — there's
+        // otherwise a TOCTOU window between bind() (at the process umask) and chmod. (W-15 / SOCK-06)
+        let savedMask = umask(0o077)
         let bound = withUnsafePointer(to: &addr) { aptr in
             aptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
                 bind(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
+        umask(savedMask)
         guard bound == 0 else {
             controlSocketLog.error("control socket: bind() failed errno \(errno)")
             close(fd)
             return
         }
-        // Owner-only (0600) — same trust model as the MCP token file.
+        // Owner-only (0600) — same trust model as the MCP token file (backstop to the umask).
         chmod(path, 0o600)
         guard listen(fd, 8) == 0 else {
             controlSocketLog.error("control socket: listen() failed errno \(errno)")
@@ -139,7 +160,41 @@ final class BatonControlSocket: @unchecked Sendable {
             close(listenFD)
             listenFD = -1
         }
+        // Wake any in-flight client threads blocked in read() so they exit promptly; each
+        // thread's own defer closes its fd (shutdown, not close, avoids a double-close race
+        // if an fd number is reused). (W-15 / SOCK-04)
+        let fds = stateLock.withLock { _clientFDs }
+        for fd in fds { shutdown(fd, SHUT_RDWR) }
         unlink(socketURL.path)
+    }
+
+    // MARK: - SIGPIPE-safe socket I/O (W-03)
+
+    /// Prevent a peer that closes mid-reply from raising SIGPIPE — which, unhandled,
+    /// terminates the whole app. macOS supports this per-socket option; with it set,
+    /// `write` to a gone peer returns -1/EPIPE instead of signalling.
+    /// Internal (not private) so `ControlSocketIOTests` can exercise it over a socketpair.
+    static func setNoSigPipe(_ fd: Int32) {
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+    }
+
+    /// Write the whole string, looping on partial writes and EINTR. Returns false if
+    /// the peer has gone away (EPIPE/other error) so the caller stops serving it.
+    @discardableResult
+    static func writeAll(_ fd: Int32, _ string: String) -> Bool {
+        let bytes = Array(string.utf8)
+        return bytes.withUnsafeBytes { raw -> Bool in
+            guard let base = raw.baseAddress else { return true }
+            var offset = 0
+            while offset < bytes.count {
+                let n = write(fd, base.advanced(by: offset), bytes.count - offset)
+                if n > 0 { offset += n; continue }
+                if n < 0 && errno == EINTR { continue }
+                return false // EPIPE or other error — peer gone
+            }
+            return true
+        }
     }
 
     // MARK: - Accept loop (background thread)
@@ -152,20 +207,25 @@ final class BatonControlSocket: @unchecked Sendable {
                 if errno == EINTR { continue }
                 break
             }
-            handleClient(clientFD)
+            Self.setNoSigPipe(clientFD) // SIGPIPE-proof this connection too
+            trackClient(clientFD)
+            // Serve each connection on its own thread so a slow/stuck/idle client can't starve
+            // the fast-path for others — the accept loop keeps accepting. (W-15 / SOCK-02)
+            let t = Thread { [weak self] in self?.handleClient(clientFD) }
+            t.name = "io.tonebox.baton.control-client"
+            t.start()
         }
     }
 
-    /// Serve one client connection: read lines, dispatch each, reply. Blocking; one client at
-    /// a time is plenty for a single-consumer audio-focus fast-path.
+    /// Serve one client connection: read lines, dispatch each, reply. Runs on its own thread.
     private func handleClient(_ fd: Int32) {
-        defer { close(fd) }
+        defer { untrackClient(fd); close(fd) }
         // Each socket connection is one fast-path "session": when it closes, expire its
         // handles so a crashed caller can't leave Baton suspended.
         let connectionID = "sock-\(UInt64(fd)):\(UInt64(bitPattern: Int64(Date().timeIntervalSince1970 * 1000)))"
         var buffer = Data()
         var readBuf = [UInt8](repeating: 0, count: 4096)
-        while !stopped {
+        serve: while !stopped {
             let n = read(fd, &readBuf, readBuf.count)
             if n <= 0 { break }
             buffer.append(contentsOf: readBuf[0 ..< n])
@@ -179,7 +239,7 @@ final class BatonControlSocket: @unchecked Sendable {
                     .trimmingCharacters(in: .whitespaces)
                 if line.isEmpty { continue }
                 let reply = dispatchLine(line, connectionID: connectionID)
-                _ = reply.withCString { cstr in write(fd, cstr, strlen(cstr)) }
+                if !Self.writeAll(fd, reply) { break serve } // peer gone — stop, then expire handles
             }
         }
         // Connection dropped — expire this session's focus handles (crash safety).
@@ -208,7 +268,7 @@ final class BatonControlSocket: @unchecked Sendable {
             let owner = parts[1]
             let mode: StreamingPlaybackController.AudioFocusToken.Mode =
                 (parts.count >= 3 && parts[2].lowercased() == "duck") ? .duck : .pause
-            let duckPct = (parts.count >= 4 ? Int(parts[3]) : nil) ?? 20
+            let duckPct = (parts.count >= 4 ? Int(parts[3]) : nil).map(BatonAudioFocusRegistry.clampAgentDuck) ?? controller.duckPercent
             let result = focus.suspend(
                 owner: owner, mode: mode, duckToPercent: duckPct,
                 connectionID: connectionID, on: controller

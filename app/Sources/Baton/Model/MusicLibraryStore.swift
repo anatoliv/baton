@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let musicStoreLog = Logger(subsystem: "io.tonebox.macos", category: "MusicLibrary")
+private let musicStoreLog = Logger(subsystem: "io.tonebox.baton", category: "MusicLibrary")
 
 /// How to sort/scope the Albums browse tab. Most map directly to a `getAlbumList2`
 /// server sort; `tracks` and `duration` have no API equivalent, so they fetch a
@@ -133,6 +133,24 @@ final class MusicLibraryStore {
         coverURLCache.removeAll()
     }
 
+    /// The active server changed: every browse result and optimistic rating override was sourced
+    /// from the *previous* server (Subsonic ids, playlists, and stars are all per-server), so drop
+    /// them before the caller reloads from the new one — otherwise a switch shows the old server's
+    /// albums/artists/playlists until each view happens to refetch. Also forgets the cached
+    /// connection (`refreshConnection`). (W-63 / PROD-13) `lastError` is cleared so a failure from
+    /// the old server doesn't linger over the new connection. `albumSort` is a user preference, kept.
+    func resetForServerChange() {
+        searchResults = .empty
+        albums = []
+        artists = []
+        starred = .empty
+        playlists = []
+        genres = []
+        ratingOverrides.removeAll()
+        lastError = nil
+        refreshConnection()
+    }
+
     // MARK: - Rating state
 
     /// The effective like/rating for a song — an optimistic override if present,
@@ -182,14 +200,24 @@ final class MusicLibraryStore {
         ) }
     }
 
+    /// Subsonic caps a getAlbumList2 page at 500; a big library has more, so we page through
+    /// them all instead of silently showing an arbitrary (sort-dependent) 500. (W-54 / PROD-02)
+    static let albumPageSize = 500
+    static let albumFetchCeiling = 20_000 // safety bound for a pathological library
+
     func loadAlbums() async {
         let sort = albumSort
         await run { client in
-            // 500 is the Subsonic max page — enough for the client-side Tracks /
-            // Play-time sorts to be meaningful across the library, not just a page.
-            var list = try await client.getAlbumList2(type: sort.apiType, size: 500)
-            if let comparator = sort.clientComparator { list.sort(by: comparator) }
-            self.albums = list
+            var all: [NavidromeAlbum] = []
+            var offset = 0
+            while true {
+                let page = try await client.getAlbumList2(type: sort.apiType, size: Self.albumPageSize, offset: offset)
+                all.append(contentsOf: page)
+                if page.count < Self.albumPageSize || all.count >= Self.albumFetchCeiling { break }
+                offset += Self.albumPageSize
+            }
+            if let comparator = sort.clientComparator { all.sort(by: comparator) }
+            self.albums = all
         }
     }
 
@@ -292,7 +320,13 @@ final class MusicLibraryStore {
 
     /// Songs similar to a seed (song or artist id) — powers radio/discovery.
     func similarSongs(seedID: String) async -> [NavidromeSong] {
-        await (try? clientProvider().getSimilarSongs(id: seedID)) ?? []
+        guard let client = try? clientProvider() else { return [] }
+        // Prefer true "similar" tracks. Many self-hosted Navidrome servers have no Last.fm agent,
+        // so getSimilarSongs2 returns nothing — fall back to random library tracks so autoplay
+        // ("continuous radio") keeps playing instead of stopping at the queue's end. (autoplay fix)
+        let similar = (try? await client.getSimilarSongs(id: seedID)) ?? []
+        if !similar.isEmpty { return similar }
+        return (try? await client.getRandomSongs()) ?? []
     }
 
     /// A one-off album list of a given `getAlbumList2` kind (newest / random / frequent …),
@@ -329,6 +363,28 @@ final class MusicLibraryStore {
             if next.isLiked { try await client.star(id: song.id) } else { try await client.unstar(id: song.id) }
         } catch {
             ratingOverrides[song.id] = current // revert
+            reportFailure(error)
+        }
+    }
+
+    /// The effective like state for any starrable entity by id (album / artist / song) — an
+    /// optimistic override if present, else the entity's own snapshot.
+    func isLiked(id: String, isLiked: Bool) -> Bool {
+        ratingOverrides[id]?.isLiked ?? isLiked
+    }
+
+    /// Toggle like for any starrable entity by id (album / artist / song). Updates the optimistic
+    /// `@Observable` override so the heart flips at once, then stars/unstars on the server
+    /// (reverting on failure). `currentLiked`/`userRating` seed the baseline when no override exists.
+    func toggleLike(id: String, currentLiked: Bool, userRating: Int?) async {
+        let base = ratingOverrides[id] ?? MusicRatingState(isLiked: currentLiked, userRating: userRating)
+        let next = MusicRatingState(isLiked: !base.isLiked, userRating: base.userRating)
+        ratingOverrides[id] = next
+        do {
+            let client = try clientProvider()
+            if next.isLiked { try await client.star(id: id) } else { try await client.unstar(id: id) }
+        } catch {
+            ratingOverrides[id] = base // revert
             reportFailure(error)
         }
     }
@@ -422,7 +478,7 @@ final class MusicLibraryStore {
     /// afterwards (the `createPlaylist` overwrite doesn't carry it).
     func reorderPlaylist(id: String, songIDs: [String], name: String?, isPublic: Bool) async {
         await mutatePlaylist { client in
-            try await client.setPlaylistSongs(id: id, songIDs: songIDs, name: name)
+            try await client.setPlaylistSongsChunked(id: id, songIDs: songIDs, name: name)
             try await client.updatePlaylist(id: id, isPublic: isPublic)
         }
     }

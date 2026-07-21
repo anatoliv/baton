@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-let speechLog = Logger(subsystem: "io.tonebox.macos", category: "Speech")
+public let speechLog = Logger(subsystem: "io.tonebox.baton", category: "Speech")
 
 /// Synthesizes speech by calling an OpenAI-compatible `/v1/audio/speech` endpoint — Kokoro
 /// for fast preset voices, Chatterbox for cloned/premium voices — and returns WAV `Data`.
@@ -9,13 +9,15 @@ let speechLog = Logger(subsystem: "io.tonebox.macos", category: "Speech")
 /// This is the first JSON-body POST in the codebase (the Navidrome client is GET-only); it
 /// mirrors that client's transport idiom: build a `URLRequest`, `URLSession.data(for:)`,
 /// validate the `HTTPURLResponse`, and surface typed errors.
-enum SpeechService {
-    struct SynthError: Error, LocalizedError {
-        let message: String
-        var errorDescription: String? { message }
+public enum SpeechService {
+    public struct SynthError: Error, LocalizedError, Sendable {
+        public let message: String
+        public var errorDescription: String? { message }
+
+        public init(message: String) { self.message = message }
     }
 
-    static func synthesize(text: String, voice: SpeechConfig.Voice) async throws -> Data {
+    public static func synthesize(text: String, voice: SpeechConfig.Voice, session: URLSession = .shared) async throws -> Data {
         let base = SpeechConfig.baseURL(for: voice.engine).trimmingCharacters(in: .whitespaces)
         guard var comps = URLComponents(string: base), comps.host != nil else {
             throw SynthError(message: "Invalid \(voice.engine.rawValue) TTS host \"\(base)\". Set it in Settings → Speech.")
@@ -47,7 +49,7 @@ enum SpeechService {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await sendWithRetry(request, session: session)
         } catch {
             throw SynthError(message: "Couldn't reach the \(voice.engine.rawValue) TTS service at \(base): \(error.localizedDescription)")
         }
@@ -63,10 +65,22 @@ enum SpeechService {
         return data
     }
 
+    /// One quick retry on connection-refused / lost / timeout — the self-hosted TTS host may
+    /// be waking up (a cold GPU box). (W-19 / SPEECH-06)
+    private static func sendWithRetry(_ request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch let error as URLError where
+            error.code == .cannotConnectToHost || error.code == .networkConnectionLost || error.code == .timedOut {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            return try await session.data(for: request)
+        }
+    }
+
     /// Fetch the available voice ids from an engine's `GET /v1/audio/voices`. Handles both
     /// response shapes seen in the wild: Kokoro returns `{"voices":[{"id":…}]}`, Chatterbox
     /// returns `{"voices":["Emily.wav", …]}`. Returns the ids/names, sorted.
-    static func listVoices(engine: SpeechConfig.Engine) async throws -> [String] {
+    public static func listVoices(engine: SpeechConfig.Engine, session: URLSession = .shared) async throws -> [String] {
         let base = SpeechConfig.baseURL(for: engine).trimmingCharacters(in: .whitespaces)
         guard var comps = URLComponents(string: base), comps.host != nil else {
             throw SynthError(message: "Invalid \(engine.rawValue) TTS host \"\(base)\".")
@@ -81,7 +95,7 @@ enum SpeechService {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             throw SynthError(message: "Couldn't reach \(engine.rawValue) at \(base): \(error.localizedDescription)")
         }

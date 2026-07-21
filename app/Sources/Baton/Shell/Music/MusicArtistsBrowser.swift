@@ -393,6 +393,7 @@ struct MusicArtistListRow: View {
             } label: { avatar }
                 .buttonStyle(.plain)
                 .help("Play \(artist.name)")
+                .accessibilityLabel("Play \(artist.name)")
 
             NavigationLink(value: artist) {
                 HStack(spacing: 8) {
@@ -404,6 +405,8 @@ struct MusicArtistListRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(artist.name)
+            .accessibilityHint("Opens artist")
 
             if hovering {
                 MusicRowActions(actions: [

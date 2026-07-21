@@ -36,6 +36,21 @@ final class MusicGaplessCacheTests: XCTestCase {
         XCTAssertNotNil(cache.localURL(for: "s3"), "the most-recently stored file must survive")
     }
 
+    /// W-28 / AUDIO-18: the cache also evicts by byte budget, not just entry count.
+    func testEvictsByByteBudget() {
+        func sized(_ bytes: Int) -> URL {
+            let u = FileManager.default.temporaryDirectory.appendingPathComponent("sz-\(UUID().uuidString).bin")
+            FileManager.default.createFile(atPath: u.path, contents: Data(repeating: 0, count: bytes))
+            return u
+        }
+        let cache = MusicGaplessCache(maxEntries: 100, maxBytes: 100, directory: tempDir())
+        _ = cache.store(tempFile: sized(80), songID: "old")
+        _ = cache.store(tempFile: sized(80), songID: "new") // total 160 > 100 → evict "old"
+        XCTAssertNil(cache.localURL(for: "old"), "byte budget should evict the older entry")
+        XCTAssertNotNil(cache.localURL(for: "new"), "the just-stored entry is kept")
+        XCTAssertLessThanOrEqual(cache.sizeBytes(), 100)
+    }
+
     func testSizeBytesReflectsStoredFiles() {
         let cache = MusicGaplessCache(directory: tempDir())
         XCTAssertEqual(cache.sizeBytes(), 0)

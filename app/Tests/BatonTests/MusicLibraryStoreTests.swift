@@ -50,6 +50,81 @@ final class MusicLibraryStoreTests: XCTestCase {
         )
     }
 
+    /// W-54 / PROD-02: the Albums tab pages past the 500-per-request Subsonic cap instead of
+    /// silently showing an arbitrary 500-album subset.
+    func testLoadAlbumsPagesBeyond500() async {
+        NavidromeMockURLProtocol.handler = { req in
+            let offset = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "offset" }?.value.flatMap(Int.init) ?? 0
+            let count = offset == 0 ? 500 : (offset == 500 ? 200 : 0) // 700 total across two pages
+            let albums = (0 ..< count).map { #"{"id":"a\#(offset + $0)","name":"Album","artist":"X"}"# }.joined(separator: ",")
+            let json = #"{"subsonic-response":{"status":"ok","albumList2":{"album":[\#(albums)]}}}"#
+            let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+            return (response, Data(json.utf8))
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [NavidromeMockURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let built = NavidromeClient(
+            credentials: NavidromeCredentials(baseURL: URL(string: "https://m.example.com")!, username: "u", secret: "p", authMode: .tokenSalt),
+            session: session
+        )
+        let store = MusicLibraryStore(clientProvider: { built })
+        await store.loadAlbums()
+        XCTAssertEqual(store.albums.count, 700, "should page past the 500 cap")
+    }
+
+    /// W-49 fixture: a generated large library (10k albums across 20 pages) proves the paging path
+    /// handles real-world scale — every page is fetched and assembled, not truncated. Pairs with
+    /// the W-54 pagination it exercises.
+    func testLoadsLargeGeneratedLibraryAcrossManyPages() async {
+        let total = 10_000
+        NavidromeMockURLProtocol.handler = { req in
+            let offset = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "offset" }?.value.flatMap(Int.init) ?? 0
+            let count = max(0, min(500, total - offset)) // 500-per-page until the 10k library is drained
+            let albums = (0 ..< count).map { #"{"id":"a\#(offset + $0)","name":"Album","artist":"X"}"# }.joined(separator: ",")
+            let json = #"{"subsonic-response":{"status":"ok","albumList2":{"album":[\#(albums)]}}}"#
+            let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+            return (response, Data(json.utf8))
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [NavidromeMockURLProtocol.self]
+        let built = NavidromeClient(
+            credentials: NavidromeCredentials(baseURL: URL(string: "https://m.example.com")!, username: "u", secret: "p", authMode: .tokenSalt),
+            session: URLSession(configuration: config)
+        )
+        let store = MusicLibraryStore(clientProvider: { built })
+        await store.loadAlbums()
+        XCTAssertEqual(store.albums.count, total, "the full 10k-album library must load across all pages")
+    }
+
+    /// W-63 / PROD-13: switching servers must drop the previous server's browse results (Subsonic
+    /// ids are per-server) instead of showing them against the new connection.
+    func testResetForServerChangeDropsPreviousServerLibrary() async {
+        NavidromeMockURLProtocol.handler = { req in
+            let json = #"{"subsonic-response":{"status":"ok","albumList2":{"album":[{"id":"a1","name":"A","artist":"X"}]}}}"#
+            let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+            return (response, Data(json.utf8))
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [NavidromeMockURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let built = NavidromeClient(
+            credentials: NavidromeCredentials(baseURL: URL(string: "https://m.example.com")!, username: "u", secret: "p", authMode: .tokenSalt),
+            session: session
+        )
+        let store = MusicLibraryStore(clientProvider: { built })
+        await store.loadAlbums()
+        store.lastError = "stale error from previous server"
+        XCTAssertFalse(store.albums.isEmpty)
+
+        store.resetForServerChange()
+
+        XCTAssertTrue(store.albums.isEmpty, "previous server's albums must be dropped on switch")
+        XCTAssertNil(store.lastError, "a stale error from the previous server must not linger")
+    }
+
     func testToggleLikeIsOptimistic() async {
         let library = store()
         let track = song("s1", liked: false)

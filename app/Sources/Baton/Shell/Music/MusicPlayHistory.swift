@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let historyLog = Logger(subsystem: "io.tonebox.macos", category: "PlayHistory")
+private let historyLog = Logger(subsystem: "io.tonebox.baton", category: "PlayHistory")
 
 /// Baton's **private, on-device listening archive** — a free, local alternative to
 /// Last.fm/ListenBrainz. It records each *completed* listen (fed by `ScrobbleService` once a
@@ -36,9 +36,19 @@ final class MusicPlayHistory: LocalListenRecording {
     /// ~200k plays is many years of heavy listening; the oldest are dropped past it.
     @ObservationIgnored static let maxEntries = 200_000
 
-    init(defaults: UserDefaults = .standard, clock: @escaping () -> Date = { Date() }) {
+    /// Append-only JSONL archive on disk (O(1) per-play writes) — was a full re-encode of the
+    /// whole array into UserDefaults on every listen, which janked and bloated the plist as the
+    /// archive grew. (W-32 / SCR-10)
+    @ObservationIgnored private let historyURL: URL
+
+    init(defaults: UserDefaults = .standard, clock: @escaping () -> Date = { Date() }, directory: URL? = nil) {
         self.defaults = defaults
         self.clock = clock
+        let dir = directory ?? (try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+        ).appendingPathComponent("Baton", isDirectory: true)) ?? FileManager.default.temporaryDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        self.historyURL = dir.appendingPathComponent("play-history.jsonl")
         isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         load()
     }
@@ -60,8 +70,12 @@ final class MusicPlayHistory: LocalListenRecording {
            abs(playedAt.timeIntervalSince(last.playedAt)) < 60 {
             return
         }
-        insert(Entry(song: song, playedAt: playedAt))
-        save()
+        let entry = Entry(song: song, playedAt: playedAt)
+        let wasNewest = entries.first.map { entry.playedAt >= $0.playedAt } ?? true
+        insert(entry)
+        // Fast path (the live case): the new play is the newest, so just append one line —
+        // O(1), no full re-encode. An out-of-order insert (rare) falls back to a rewrite.
+        if wasNewest { appendLine(entry) } else { rewriteFile() }
     }
 
     /// Insert keeping `entries` sorted most-recent-first and bounded.
@@ -77,6 +91,7 @@ final class MusicPlayHistory: LocalListenRecording {
 
     func clear() {
         entries.removeAll()
+        try? FileManager.default.removeItem(at: historyURL)
         defaults.removeObject(forKey: Self.storageKey)
     }
 
@@ -123,6 +138,18 @@ final class MusicPlayHistory: LocalListenRecording {
 
     /// Total plays since `since` — the headline windowed stat.
     func playCount(since: Date) -> Int { entries.reduce(0) { $0 + ($1.playedAt >= since ? 1 : 0) } }
+
+    /// Most-recent listen time per song id — feeds the downloads LRU storage-cap eviction so the
+    /// least-recently-played downloads are dropped first. (W-33 / DL-09)
+    func lastPlayedByID() -> [String: Date] {
+        var map: [String: Date] = [:]
+        for entry in entries {
+            let id = entry.song.id
+            if let existing = map[id], existing >= entry.playedAt { continue }
+            map[id] = entry.playedAt
+        }
+        return map
+    }
 
     /// Plays per calendar day since `since`, oldest-first — the listening trend. Days with no
     /// plays are included as zero so a chart doesn't collapse gaps.
@@ -180,7 +207,7 @@ final class MusicPlayHistory: LocalListenRecording {
         entries.append(contentsOf: newEntries)
         entries.sort { $0.playedAt > $1.playedAt }
         if entries.count > Self.maxEntries { entries.removeLast(entries.count - Self.maxEntries) }
-        save()
+        rewriteFile()
         historyLog.info("imported \(newEntries.count, privacy: .public) of \(listens.count, privacy: .public) listens")
         return newEntries.count
     }
@@ -207,15 +234,54 @@ final class MusicPlayHistory: LocalListenRecording {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = defaults.data(forKey: Self.storageKey),
-              let decoded = try? JSONDecoder().decode([Entry].self, from: data)
-        else { return }
-        entries = decoded
+        migrateFromDefaultsIfNeeded()
+        guard let data = try? Data(contentsOf: historyURL), !data.isEmpty else { return }
+        let decoder = JSONDecoder()
+        // The file is append-order (oldest→newest); the UI wants newest-first.
+        var loaded: [Entry] = []
+        for line in data.split(separator: 0x0A) where !line.isEmpty {
+            if let e = try? decoder.decode(Entry.self, from: Data(line)) { loaded.append(e) }
+        }
+        entries = loaded.reversed()
+        if entries.count > Self.maxEntries {
+            entries.removeLast(entries.count - Self.maxEntries)
+            rewriteFile() // compact past the cap
+        }
     }
 
-    private func save() {
-        if let data = try? JSONEncoder().encode(entries) {
-            defaults.set(data, forKey: Self.storageKey)
+    /// One-time migration of the legacy UserDefaults blob into the JSONL file.
+    private func migrateFromDefaultsIfNeeded() {
+        guard !FileManager.default.fileExists(atPath: historyURL.path),
+              let data = defaults.data(forKey: Self.storageKey),
+              let decoded = try? JSONDecoder().decode([Entry].self, from: data) else { return }
+        entries = decoded
+        rewriteFile()
+        defaults.removeObject(forKey: Self.storageKey)
+        historyLog.notice("migrated \(decoded.count, privacy: .public) play-history entries to JSONL")
+    }
+
+    /// Append one entry as a JSONL line (O(1)) — the live hot path.
+    private func appendLine(_ entry: Entry) {
+        guard var line = try? JSONEncoder().encode(entry) else { return }
+        line.append(0x0A)
+        if !FileManager.default.fileExists(atPath: historyURL.path) {
+            try? line.write(to: historyURL, options: .atomic)
+            return
         }
+        if let handle = try? FileHandle(forWritingTo: historyURL) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: line)
+        }
+    }
+
+    /// Rewrite the whole file in chronological (append) order — used on trim/import/out-of-order.
+    private func rewriteFile() {
+        let encoder = JSONEncoder()
+        var out = Data()
+        for entry in entries.reversed() {
+            if var line = try? encoder.encode(entry) { line.append(0x0A); out.append(line) }
+        }
+        try? out.write(to: historyURL, options: .atomic)
     }
 }

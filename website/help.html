@@ -15,9 +15,8 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://baton.tonebox.io/og.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#faf6f0" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#171310" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#171310" id="theme-color">
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path d="M150 560Q330 430 512 560T874 560" stroke="%23E98345" stroke-width="104" stroke-linecap="round" fill="none"/><path d="M150 792Q330 922 512 792T874 792" stroke="%23E98345" stroke-width="104" stroke-linecap="round" fill="none" opacity=".7"/><g fill="%23E98345"><path d="M360 400h60v-252h-60z"/><path d="M420 148Q560 164 560 300Q560 356 500 372Q548 316 512 264Q476 214 420 236z"/><g transform="translate(316 396) rotate(-22)"><ellipse rx="104" ry="80"/></g></g></svg>'>
 <link rel="stylesheet" href="styles.css">
 <style>
@@ -30,8 +29,9 @@
 .doc-layout { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: clamp(2rem, 5vw, 4rem); margin-top: clamp(2rem, 4vw, 3rem); align-items: start; }
 .doc-toc { position: sticky; top: 5.2rem; font-size: 0.9rem; border-left: 2px solid var(--line); padding-left: 1rem; }
 .doc-toc strong { display: block; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 0.55rem; }
-.doc-toc a { display: block; color: var(--ink-dim); text-decoration: none; padding: 0.28rem 0; line-height: 1.3; }
+.doc-toc a { display: block; color: var(--ink-dim); text-decoration: none; padding: 0.28rem 0; line-height: 1.3; border-left: 2px solid transparent; margin-left: -1rem; padding-left: calc(1rem - 2px); transition: color 0.15s ease, border-color 0.15s ease; }
 .doc-toc a:hover { color: var(--accent); }
+.doc-toc a.is-current { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
 .doc-body { min-width: 0; }
 .doc-body > section + section { margin-top: 2.6rem; }
 .doc-body h2 { font-family: var(--serif); font-size: var(--step-2); font-weight: 700; letter-spacing: -0.01em; margin: 0 0 0.7rem; scroll-margin-top: 5.5rem; }
@@ -288,6 +288,7 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
           <li>“Turn it down” / “skip this” / “play some jazz.”</li>
         </ul>
         <p>…and the agent carries them out in Baton, searching your library, building a queue, starting playback, rating tracks, and creating playlists. The control surface exposes the same operations Baton's own UI uses, so anything the agent does is something you could have done by hand. You don't need an agent to use Baton; this is an extra surface on top of a complete player.</p>
+        <p><strong>Four pieces, one pillar.</strong> Baton's agent side isn't a scattering of tricks — it's one connected capability: the <strong>MCP control server</strong> (the interface), <strong>audio focus</strong> (so another app can duck the music and hand it back politely), the <strong>menu-bar controller</strong> (which keeps Baton — and the server — reachable even with every window closed), and <strong>spoken summaries</strong> (so the agent can talk back). Together they mean an agent can connect, steer playback, duck around your dictation, and speak a result aloud — all with no window open.</p>
 
         <h3>Connecting a client</h3>
         <p>The server runs automatically while Baton is open, so there's nothing to switch on. When it starts, Baton writes a discovery file with everything a client needs at <code>~/Library/Application&nbsp;Support/Baton/mcp.json</code>:</p>
@@ -460,6 +461,61 @@ kbd { font-family: var(--mono); font-size: 0.82em; background: var(--bg-sunken);
   <p class="footer-note">Baton is a sibling of Tonebox, the audio-capture app. They duck and resume each other's audio politely.</p>
 </footer>
 
+<script>
+/* Scrollspy: highlight the on-this-page link for the section in view. */
+(function () {
+  var toc = document.querySelector(".doc-toc");
+  if (!toc) return;
+  var links = Array.prototype.slice.call(toc.querySelectorAll("a[href^='#']"));
+  if (!links.length) return;
+
+  // Pair each link with its target section, keeping document order.
+  var items = links.map(function (a) {
+    var id = decodeURIComponent(a.getAttribute("href").slice(1));
+    return { link: a, section: document.getElementById(id) };
+  }).filter(function (it) { return it.section; });
+  if (!items.length) return;
+
+  var current = null;
+  function setCurrent(link) {
+    if (link === current) return;
+    if (current) current.classList.remove("is-current");
+    if (link) link.classList.add("is-current");
+    current = link;
+  }
+
+  // The line, below the sticky header, that decides "what's at the top".
+  var LINE = 120;
+
+  function update() {
+    // Bottom of page: last section wins even if it's short.
+    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 2) {
+      setCurrent(items[items.length - 1].link);
+      return;
+    }
+    var active = items[0].link;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].section.getBoundingClientRect().top <= LINE) {
+        active = items[i].link;
+      } else {
+        break;
+      }
+    }
+    setCurrent(active);
+  }
+
+  var ticking = false;
+  function onScroll() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () { ticking = false; update(); });
+  }
+
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll, { passive: true });
+  update();
+})();
+</script>
 <script src="main.js"></script>
 </body>
 </html>

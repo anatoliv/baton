@@ -68,6 +68,18 @@ struct PlaybackMenuCommands: Commands {
 
             Divider()
 
+            // Spoken-summary controls — enabled only while a summary is speaking, so a long one
+            // can be paused/stopped without reaching for the HUD. (mirrors the HUD buttons)
+            Button(model.speech.isPaused ? "Resume Speaking" : "Pause Speaking") {
+                model.speech.togglePause()
+            }
+            .disabled(!model.speech.isSpeaking)
+            Button("Stop Speaking") { model.speech.cancel() }
+                .keyboardShortcut(".", modifiers: [.command, .control])
+                .disabled(!model.speech.isSpeaking)
+
+            Divider()
+
             Button(isBarMinimized ? "Expand Player Bar" : "Minimize Player Bar") {
                 UserDefaults.standard.set(!isBarMinimized, forKey: "tonebox.music.barCollapsed")
             }

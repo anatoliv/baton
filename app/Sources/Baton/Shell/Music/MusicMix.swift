@@ -39,7 +39,9 @@ enum MusicMixCatalog {
                 forgottenFavorites(model)
             },
             MusicMix(id: "discover", title: "Discover", subtitle: "A random shuffle", icon: "shuffle", color: .blue) {
-                (await model.musicLibrary.mixSongs(type: "random")).shuffled()
+                // Stay a shuffle (fresh each open), but spread artists so it never stacks the
+                // same artist back-to-back (F2 — sonic-aware discovery, docs/09 finding #6).
+                MixBuilder.curate(await model.musicLibrary.mixSongs(type: "random").shuffled(), mood: .neutral)
             },
         ]
     }
@@ -55,7 +57,7 @@ enum MusicMixCatalog {
             .map { index, genre in
                 MusicMix(id: "genre-\(genre.name)", title: genre.name, subtitle: "\(genre.songCount ?? 0) songs",
                          icon: "guitars.fill", color: palette[index % palette.count]) {
-                    (await model.musicLibrary.songsByGenre(genre.name)).shuffled()
+                    MixBuilder.curate(await model.musicLibrary.songsByGenre(genre.name).shuffled(), mood: .neutral)
                 }
             }
     }
@@ -64,7 +66,10 @@ enum MusicMixCatalog {
     @MainActor private static func forgottenFavorites(_ model: MusicModel) -> [NavidromeSong] {
         let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
         let recentIDs = Set(model.musicHistory.entries.filter { $0.playedAt >= cutoff }.map(\.song.id))
-        return model.musicLibrary.starred.songs.filter { !recentIDs.contains($0.id) }.shuffled()
+        let pool = model.musicLibrary.starred.songs.filter { !recentIDs.contains($0.id) }.shuffled()
+        // Keep the nostalgic shuffle, but spread artists so it doesn't clump (F2 — consistent
+        // with Discover / genre mixes).
+        return MixBuilder.curate(pool, mood: .neutral)
     }
 }
 
@@ -85,7 +90,7 @@ struct MusicMixDetail: View {
 
     /// Sort fields for a mix's tracks — defaults to the mix's own (ranked) order.
     enum MixSort: String, CaseIterable, Identifiable, MusicSortField {
-        case mix, name, artist, duration
+        case mix, name, artist, duration, plays
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -93,6 +98,7 @@ struct MusicMixDetail: View {
             case .name: "Name"
             case .artist: "Artist"
             case .duration: "Duration"
+            case .plays: "Plays"
             }
         }
     }
@@ -121,6 +127,7 @@ struct MusicMixDetail: View {
         case .name: list.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         case .artist: list.sort { ($0.artist ?? "").localizedCaseInsensitiveCompare($1.artist ?? "") == .orderedAscending }
         case .duration: list.sort { ($0.duration ?? 0) < ($1.duration ?? 0) }
+        case .plays: list.sort { ($0.playCount ?? 0) < ($1.playCount ?? 0) }
         }
         if !sortAscending { list.reverse() }
         return list

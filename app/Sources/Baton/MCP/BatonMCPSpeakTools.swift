@@ -23,8 +23,11 @@ enum BatonMCPSpeakTools {
             (fast preset voices, default) or Chatterbox (premium / cloned voice). `mode` \
             controls delivery: 'notify' (default — a macOS notification with a Play button), \
             'banner' (an in-app banner with Play), or 'auto' (speak immediately, no \
-            confirmation). If the self-hosted TTS server is unreachable, Baton falls back to \
-            the built-in macOS voice (unless disabled in Settings). Keep summaries short.
+            confirmation). The user's Speech → Delivery settings may override this and route the \
+            summary to one or more surfaces (speak now, notification, banner); the returned \
+            `delivered` list reflects what actually happened. If the self-hosted TTS server is \
+            unreachable, Baton falls back to the built-in macOS voice (unless disabled in \
+            Settings). Keep summaries short.
             """,
             "inputSchema": [
                 "type": "object",
@@ -44,15 +47,28 @@ enum BatonMCPSpeakTools {
 
     static func run(_ args: [String: Any], _ music: MusicModel) async throws -> String {
         let text = try requireString(args, "text")
+        guard text.count <= SpeechConfig.maxSummaryChars else {
+            throw BatonMCPToolError(message: "Summary is too long (\(text.count) chars; max \(SpeechConfig.maxSummaryChars)). Keep it to a sentence or two.")
+        }
         let category = optionalString(args, "category")
         let explicitVoice = optionalString(args, "voice")
         let engineOverride = optionalString(args, "engine")
             .flatMap { SpeechConfig.Engine(rawValue: $0.lowercased()) }
-        let mode = (optionalString(args, "mode") ?? "notify").lowercased()
-
-        guard ["auto", "banner", "notify"].contains(mode) else {
-            throw BatonMCPToolError(message: "Unknown mode \"\(mode)\" — use 'notify', 'banner', or 'auto'.")
+        let requestedMode = (optionalString(args, "mode") ?? "notify").lowercased()
+        guard ["auto", "banner", "notify"].contains(requestedMode) else {
+            throw BatonMCPToolError(message: "Unknown mode \"\(requestedMode)\" — use 'notify', 'banner', or 'auto'.")
         }
+        // The user's Settings → Speech → Delivery decides the concrete surfaces. When they defer
+        // to the agent, the requested `mode` is honored (with the SEC-12 auto-play gate on an
+        // agent's `auto`, so a leaked token can't blast audio); otherwise their own surfaces
+        // compose — speak-now and/or notification and/or banner. (W-19)
+        let plan = SpeechConfig.deliveryPlan(
+            announceImmediately: SpeechConfig.announceImmediately,
+            allowAgentAutoPlay: SpeechConfig.allowAutoPlay,
+            notification: SpeechConfig.alertWithNotification,
+            banner: SpeechConfig.alertWithBanner,
+            requestedMode: requestedMode
+        )
 
         let voice = SpeechConfig.resolve(
             category: category, explicitVoice: explicitVoice, engineOverride: engineOverride
@@ -74,25 +90,65 @@ enum BatonMCPSpeakTools {
             throw BatonMCPToolError(message: error.localizedDescription)
         }
 
-        switch mode {
-        case "auto":
-            music.speech.play(utterance)
-            return status("speaking", mode: mode, engine: engineUsed, voice: voice, text: text)
-        case "banner":
-            music.speech.presentBanner(text: text, utterance: utterance)
-            return status("banner_shown", mode: mode, engine: engineUsed, voice: voice, text: text)
-        default: // "notify"
-            await SpeechNotifier.post(text: text, utterance: utterance)
-            return status("notified", mode: mode, engine: engineUsed, voice: voice, text: text)
+        // Execute every surface the plan calls for — they compose, so a summary can be spoken
+        // now AND leave a notification, or wait as both a banner and a notification.
+        var delivered: [String] = []
+        var bannerShown = false
+        if plan.speakNow {
+            music.speech.play(utterance, text: text)
+            delivered.append("speaking")
         }
+        if plan.banner {
+            music.speech.presentBanner(text: text, utterance: utterance)
+            bannerShown = true
+            delivered.append("banner_shown")
+        }
+        var fallback: String?
+        if plan.notify {
+            // If notifications are denied/undelivered, fall back to an in-app banner and say so —
+            // never report "notified" for a summary the user will never see. (W-43 / SPEECH-03)
+            switch await SpeechNotifier.post(text: text, utterance: utterance) {
+            case .delivered:
+                delivered.append("notified")
+            case .denied:
+                fallback = "notifications-denied"
+                if !bannerShown {
+                    music.speech.presentBanner(text: text, utterance: utterance)
+                    bannerShown = true
+                    delivered.append("banner_shown")
+                }
+            }
+        }
+        return status(delivered: delivered, engine: engineUsed, voice: voice, text: text, fallback: fallback)
     }
 
     // MARK: - Helpers
 
+    /// Directory holding staged speech clips.
+    static var tempDirectory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("baton-speech", isDirectory: true)
+    }
+
+    /// Delete staged clips older than a day. Call at launch so orphaned WAVs (a summary that
+    /// was never played/dismissed) don't accumulate. Played clips are deleted immediately by
+    /// the playback engine. (W-19 / SPEECH-04)
+    static func sweepStaleTempFiles(olderThan seconds: TimeInterval = 86_400, now: Date = Date()) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: tempDirectory, includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+        for url in files {
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modified, now.timeIntervalSince(modified) > seconds {
+                try? fm.removeItem(at: url)
+            }
+        }
+    }
+
     /// Write synthesized audio to a temp file so a later confirmation (banner tap / notification
     /// Play action) can play it instantly without re-synthesizing.
     private static func writeTemp(_ data: Data) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("baton-speech", isDirectory: true)
+        let dir = tempDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("\(UUID().uuidString).wav")
         do { try data.write(to: url) } catch {
@@ -101,14 +157,18 @@ enum BatonMCPSpeakTools {
         return url
     }
 
-    private static func status(_ status: String, mode: String, engine: String, voice: SpeechConfig.Voice, text: String) -> String {
-        BatonMCPToolCatalog.jsonText([
-            "status": status,
-            "mode": mode,
+    private static func status(delivered: [String], engine: String, voice: SpeechConfig.Voice, text: String, fallback: String? = nil) -> String {
+        var payload: [String: Any] = [
+            // `status` is the primary surface (first action taken); `delivered` is the full set,
+            // since a summary can reach the user through more than one surface at once.
+            "status": delivered.first ?? "queued",
+            "delivered": delivered,
             "engine": engine,
             "voice": voice.voice,
             "chars": text.count,
-        ])
+        ]
+        if let fallback { payload["fallback"] = fallback }
+        return BatonMCPToolCatalog.jsonText(payload)
     }
 
     private static func requireString(_ args: [String: Any], _ key: String) throws -> String {

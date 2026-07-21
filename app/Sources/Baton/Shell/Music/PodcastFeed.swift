@@ -71,6 +71,10 @@ enum PodcastFeedError: Error, LocalizedError, Equatable {
 enum PodcastFeedParser {
     static func parse(_ data: Data) throws -> ParsedPodcastFeed {
         let parser = XMLParser(data: data)
+        // Explicitly refuse external entities / DTDs — self-documents the XXE-safety that was
+        // relying on the platform default. (W-35 / SEC-13)
+        parser.shouldResolveExternalEntities = false
+        parser.externalEntityResolvingPolicy = .never
         let delegate = Delegate()
         parser.delegate = delegate
         guard parser.parse() else {
@@ -223,11 +227,21 @@ extension PodcastFeedParser {
         guard !trimmed.isEmpty else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        for format in ["EEE, dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy HH:mm Z", "dd MMM yyyy HH:mm:ss Z"] {
+        // Numeric-offset AND named-zone (EST/PDT — RFC 822 allows them) variants, with/without
+        // seconds; real feeds use all of these. (W-35 / POD-02)
+        let formats = [
+            "EEE, dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy HH:mm Z", "dd MMM yyyy HH:mm:ss Z",
+            "EEE, dd MMM yyyy HH:mm:ss zzz", "EEE, dd MMM yyyy HH:mm zzz", "dd MMM yyyy HH:mm:ss zzz",
+        ]
+        for format in formats {
             formatter.dateFormat = format
             if let date = formatter.date(from: trimmed) { return date }
         }
-        return nil
+        // Some feeds put an ISO-8601 timestamp in <pubDate>.
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: trimmed) { return date }
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return iso.date(from: trimmed)
     }
 
     /// Trims and validates an http(s) URL string; nil for anything else (mailto:, blank, …).

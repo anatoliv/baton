@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let streamingLog = Logger(subsystem: "io.tonebox.macos", category: "StreamingPlayback")
+let streamingLog = Logger(subsystem: "io.tonebox.baton", category: "StreamingPlayback")
 
 /// Streams music from a Navidrome (Subsonic) server and plays it locally on the
 /// Mac via `AVPlayer`. A deliberate **sibling** to the recording-playback
@@ -71,11 +71,11 @@ final class StreamingPlaybackController {
 
     /// When set, playback pauses at this instant (sleep timer). Exposed so the UI can
     /// show a live countdown; the actual pause is driven by `sleepTimerTask`.
-    private(set) var sleepTimerEndsAt: Date?
+    var sleepTimerEndsAt: Date?
     /// Sleep-timer variant that pauses when the current track finishes rather than at
     /// a fixed time. Checked in `handleEnded`.
-    private(set) var sleepAfterCurrentTrack = false
-    private var sleepTimerTask: Task<Void, Never>?
+    var sleepAfterCurrentTrack = false
+    var sleepTimerTask: Task<Void, Never>?
 
     /// Repeat mode: off (stop at end), all (loop the queue), one (replay track).
     private(set) var repeatMode: RepeatMode = .off
@@ -121,14 +121,22 @@ final class StreamingPlaybackController {
 
     /// Re-apply the EQ mix to the current item (call when the EQ is toggled on/off).
     func refreshAudioMix() {
-        if let item = player.currentItem { configureAudioMix?(item) }
+        guard nowPlaying != nil, player.currentItem != nil else { return }
+        // AVFoundation binds an item's audioMix (the EQ tap) when the item starts playing, NOT when
+        // it's reassigned on a live item — so toggling the EQ on/off had no audible effect on the
+        // current track. Reload the current track at its position so the tap attaches (EQ on) or
+        // drops (EQ off) immediately. A no-op reassign suffices only when nothing is loaded.
+        // (EQ live-toggle fix)
+        let wasPlaying = state == .playing
+        pendingSeek = currentTime
+        loadCurrent(autoplay: wasPlaying)
     }
     /// Guards against overlapping autoplay fetches.
     @ObservationIgnored private var autoplayFetching = false
 
     /// A 0…1 fade envelope multiplied into the output volume — used for the sleep-timer
     /// fade-out (and available for other gentle fades). 1 = no fade.
-    @ObservationIgnored private var fadeMultiplier: Float = 1
+    @ObservationIgnored var fadeMultiplier: Float = 1
     @ObservationIgnored private var fadeTask: Task<Void, Never>?
 
     /// Track-to-track loudness normalization using the server's ReplayGain/R128 data —
@@ -182,6 +190,20 @@ final class StreamingPlaybackController {
         }
     }
 
+    /// How far the music dims (target volume %) when something needs to be heard over it — a
+    /// spoken summary, or an agent taking cooperative audio focus in `duck` mode (dictation /
+    /// recording). This is the level for spoken summaries and the **default** for an agent duck;
+    /// an `audio_focus` call may still pass its own `duckToPercent` to override it per request.
+    /// Restored on release. Persisted.
+    var duckPercent: Int = 20 {
+        didSet {
+            let clamped = max(0, min(duckPercent, 100))
+            if clamped != duckPercent { duckPercent = clamped; return }
+            guard duckPercent != oldValue else { return }
+            defaults.set(duckPercent, forKey: Self.duckKey)
+        }
+    }
+
     enum RepeatMode: String, CaseIterable { case off, all, one }
 
     enum LoudnessMode: String, CaseIterable, Identifiable {
@@ -224,24 +246,8 @@ final class StreamingPlaybackController {
     /// The current queue's origin, if known. Set by `play(_:source:)`.
     private(set) var queueSource: QueueSource?
 
-    /// What to do when a track ends, given the repeat mode (pure — unit-tested).
-    enum Advance: Equatable { case replay, play(Int), stop }
-
-    static func onTrackEnd(current: Int, count: Int, repeatMode: RepeatMode) -> Advance {
-        guard count > 0 else { return .stop }
-        switch repeatMode {
-        case .one: return .replay
-        case .all: return current + 1 < count ? .play(current + 1) : .play(0)
-        case .off: return current + 1 < count ? .play(current + 1) : .stop
-        }
-    }
-
-    /// What a manual Next press does — wraps for .all/.one, stops for .off.
-    static func onManualNext(current: Int, count: Int, repeatMode: RepeatMode) -> Advance {
-        guard count > 0 else { return .stop }
-        if current + 1 < count { return .play(current + 1) }
-        return repeatMode == .off ? .stop : .play(0)
-    }
+    // Queue-advance decision logic (the pure `Advance` enum + `onTrackEnd`/`onManualNext`) lives
+    // in StreamingPlaybackController+Advance.swift — first extraction of the W-50 decomposition.
 
     /// Player volume as a percentage 0–100. Mapped to `AVPlayer.volume` (0…1).
     /// Persisted; does NOT move the macOS system output volume.
@@ -277,9 +283,9 @@ final class StreamingPlaybackController {
     /// queued ahead. Inserted into the `AVQueuePlayer` so the OS auto-advances with no gap;
     /// `handleEnded` reconciles our logical state once the outgoing item's end fires.
     private var gaplessPreload: (index: Int, item: AVPlayerItem)?
-    /// The second player used only during a crossfade overlap; promoted to `player` when
-    /// the fade completes. Nil when not crossfading.
-    private var crossfadePlayer: AVQueuePlayer?
+    /// Owns the second player + volume ramp during a crossfade overlap; its player is promoted to
+    /// `player` in `finishCrossfade` when the fade completes. (W-50 collaborator.)
+    private let crossfadeRamp = CrossfadeRamp()
     private var isCrossfading = false
 
     /// True when true-gapless is active: gapless toggle on and no crossfade set (a nonzero
@@ -294,6 +300,11 @@ final class StreamingPlaybackController {
     /// Consecutive stream-load failures; guards the auto-skip so an all-unplayable
     /// queue can't loop forever.
     private var consecutiveFailures = 0
+    /// Retries of the CURRENT track before giving up and skipping — a brief network blip
+    /// shouldn't skip the track (let alone cascade through the queue). Reset on a genuine
+    /// track change / successful load. (W-26 / AUDIO-06)
+    private var sameTrackRetries = 0
+    static let maxSameTrackRetries = 3
     /// True once the current track's end has been handled — de-dupes the end notification
     /// and the periodic-observer fallback. Reset on load / seek-off-end.
     private var didHandleEnd = false
@@ -308,15 +319,16 @@ final class StreamingPlaybackController {
     /// Counts how many times the queued gapless-next stream item was swapped for a local
     /// prefetched file (the zero-gap-on-streams path).
     private(set) var gaplessLocalSwapCountForTesting = 0
+    /// Exposes the private true-gapless-active predicate so a test can assert the
+    /// gapless ⊕ crossfade mutual-exclusivity invariant (F3 — the audiophile crown
+    /// jewels must never silently regress).
+    var isGaplessModeForTesting: Bool { isGaplessMode }
     #endif
 
-    /// Ephemeral disk cache for prefetched next-track audio (zero-gap on streams).
-    @ObservationIgnored private let gaplessCache: MusicGaplessCache
-    /// Downloads a network stream URL to a local file for the gapless prefetch. Injectable
-    /// for tests; the default streams to `gaplessCache` via `URLSession`.
-    @ObservationIgnored private let gaplessPrefetchDownloader: @MainActor (URL, String) async -> URL?
-    /// In-flight prefetch tasks keyed by song id (de-dupes + cancelable).
-    @ObservationIgnored private var prefetchTasks: [String: Task<Void, Never>] = [:]
+    /// Owns the gapless prefetch machinery (in-flight tasks + the ephemeral disk cache + the
+    /// downloader). The preloaded item itself lives in the main player's queue, so the swap +
+    /// boundary reconciliation stay here; this owns only the self-contained prefetch subsystem.
+    @ObservationIgnored private let gaplessPrefetcher: GaplessPrefetcher
     /// Whether the current network connection is metered (cellular / hotspot / Low Data).
     /// Injectable for tests; the default reads the shared `NetworkReachability`.
     @ObservationIgnored private let networkIsMetered: @MainActor () -> Bool
@@ -335,7 +347,7 @@ final class StreamingPlaybackController {
     /// suspend time, and auto-resume is cancelled if the counter has moved since. The
     /// internal gapless-advance / end-of-track paths deliberately do NOT bump it — an
     /// auto-advance between suspend and release must not look like user intervention.
-    @ObservationIgnored private var stateGeneration = 0
+    @ObservationIgnored var stateGeneration = 0
 
     /// Bump the intervention counter. Call from genuine user/external transport actions.
     private func bumpStateGeneration() { stateGeneration &+= 1 }
@@ -371,12 +383,12 @@ final class StreamingPlaybackController {
     /// The single current audio-focus holder, if any. Last-writer-wins: a new
     /// `acquireAudioFocusSuspend` replaces any prior holder (the older token then releases
     /// as a no-op, since it's no longer `currentFocus`).
-    @ObservationIgnored private var currentFocus: AudioFocusToken?
+    @ObservationIgnored var currentFocus: AudioFocusToken?
 
     /// The audio-focus token held by the `"capture"` owner (recording/dictation), if the
     /// `suspendForCapture()` wrapper is currently ducking. Backs the legacy
     /// `suspendedForCapture` flag.
-    @ObservationIgnored private var captureToken: AudioFocusToken?
+    @ObservationIgnored var captureToken: AudioFocusToken?
     /// True while a `suspendForCapture()` is actively ducking playback it paused. Kept as a
     /// computed shim over the capture token so existing call sites / tests are unchanged.
     private var suspendedForCapture: Bool { captureToken?.didSuspend == true }
@@ -401,6 +413,7 @@ final class StreamingPlaybackController {
     static let crossfadeKey = "tonebox.navidrome.crossfade"
     static let gaplessKey = "tonebox.navidrome.gapless"
     static let gaplessWifiOnlyKey = "tonebox.navidrome.gaplessWifiOnly"
+    static let duckKey = "tonebox.navidrome.duckPercent"
     /// Crash-recovery record for an active audio-focus duck: the player volume we lowered
     /// FROM, persisted the instant a duck is placed so a crash/force-quit while ducked can
     /// restore the user's level on next launch (mirrors `OutputVolumeController`). Only the
@@ -411,13 +424,17 @@ final class StreamingPlaybackController {
     /// Where the queue + volume persist. Production uses `.standard`; under XCTest
     /// it defaults to an isolated suite so tests can NEVER pollute the real app's
     /// stored queue/volume (which once restored a phantom test track on launch).
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
 
     /// The persistence store to use when none is injected: `.standard` in
     /// production, an isolated suite under XCTest.
-    static func defaultStore() -> UserDefaults {
-        guard BatonRuntime.isTest else { return .standard }
-        return UserDefaults(suiteName: "io.tonebox.tests.music") ?? .standard
+    static func defaultStore(environment: BatonEnvironment = .current) -> UserDefaults {
+        guard environment.isTesting else { return .standard }
+        // A unique suite per instance under test: persisted queue / now-playing state must never
+        // leak between tests that each build their own controller or MusicModel (a shared suite let
+        // one test's seeded queue restore into the next, e.g. "seek with nothing playing"). Tests
+        // that deliberately verify cross-instance restore inject a shared `defaults:`. (W-49)
+        return UserDefaults(suiteName: "io.tonebox.tests.music.\(UUID().uuidString)") ?? .standard
     }
 
     /// Resolves a queue item's `id` to a playable URL. Handles three cases: an offline
@@ -425,12 +442,29 @@ final class StreamingPlaybackController {
     /// `PodcastEpisode.asSong`), and the normal case of a Subsonic media id streamed from the
     /// server. Static + isolated so it's unit-testable without a live server.
     @MainActor
+    /// The URL to DOWNLOAD a track for offline use: the original file for a library track
+    /// (download.view, no transcode), or the enclosure URL for a podcast episode. (W-34 / DL-04)
+    static func resolveDownloadURL(songID: String) throws -> URL {
+        if MediaKind(id: songID) == .podcastEpisode, let url = URL(string: songID) {
+            return url // podcast episode — its id IS the enclosure URL
+        }
+        return try NavidromeConfig.makeClient().downloadURL(songID: songID)
+    }
+
+    /// The "prefer downloads / play only offline" toggle (Settings + Downloads screen).
+    static let offlineModeKey = "baton.music.offlineMode"
+    static var isOfflineMode: Bool { UserDefaults.standard.bool(forKey: offlineModeKey) }
+
     static func resolveStreamURL(songID: String) throws -> URL {
         // Prefer an offline download when present.
         if let local = MusicDownloadStore.shared.localURL(for: songID) { return local }
+        // Offline mode: never fall back to streaming — only downloaded content plays. Without
+        // this the shipped toggle did nothing and Baton streamed anyway (PROD-01). (W-53)
+        if isOfflineMode {
+            throw NavidromeError.transport("Offline mode is on — this track isn't downloaded.")
+        }
         // A podcast episode carries its enclosure URL as its id — play it directly.
-        if let url = URL(string: songID), let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
+        if MediaKind(id: songID) == .podcastEpisode, let url = URL(string: songID) {
             return url
         }
         // Otherwise it's a Subsonic media id — stream from the configured server.
@@ -444,11 +478,12 @@ final class StreamingPlaybackController {
         coverArtURLProvider: @escaping @MainActor (String) -> URL? = { songID in
             // A podcast enclosure URL has no derivable cover art — skip the (bogus) server
             // lookup so now-playing falls back to a placeholder rather than a broken request.
-            if let url = URL(string: songID), url.scheme?.hasPrefix("http") == true { return nil }
+            if MediaKind(id: songID) == .podcastEpisode { return nil }
             return (try? NavidromeConfig.makeClient())?.coverArtURL(id: songID, size: 600)
         },
-        defaults: UserDefaults = StreamingPlaybackController.defaultStore(),
-        systemNowPlaying: Bool = !BatonRuntime.isTest,
+        environment: BatonEnvironment = .current,
+        defaults: UserDefaults? = nil,
+        systemNowPlaying: Bool? = nil,
         gaplessCache: MusicGaplessCache? = nil,
         gaplessPrefetchDownloader: (@MainActor (URL, String) async -> URL?)? = nil,
         networkIsMetered: (@MainActor () -> Bool)? = nil
@@ -456,18 +491,23 @@ final class StreamingPlaybackController {
         self.networkIsMetered = networkIsMetered ?? { NetworkReachability.shared.isMetered }
         self.streamURLProvider = streamURLProvider
         self.coverArtURLProvider = coverArtURLProvider
-        self.defaults = defaults
-        self.systemNowPlaying = systemNowPlaying
+        // Environment decides the persistence store + whether to touch system Now Playing, unless a
+        // caller injects them explicitly (tests do, to share/verify a specific store). (W-49)
+        self.defaults = defaults ?? Self.defaultStore(environment: environment)
+        self.systemNowPlaying = systemNowPlaying ?? !environment.isTesting
+        let defaults = self.defaults // the resolved, non-optional store for the settings reads below
         let cache = gaplessCache ?? MusicGaplessCache()
-        self.gaplessCache = cache
-        self.gaplessPrefetchDownloader = gaplessPrefetchDownloader ?? { streamURL, songID in
+        let downloader: @MainActor (URL, String) async -> URL? = gaplessPrefetchDownloader ?? { streamURL, songID in
             // Stream the (transcoded) next track to the ephemeral prefetch cache so the
             // boundary can hand off from a local file — zero-gap even for streams.
+            // W-05/PER-03: treat a non-HTTP or error response as failure (was `?? true`),
+            // so an error page never gets cached and handed to the gapless boundary.
             guard let (temp, response) = try? await URLSession.shared.download(from: streamURL),
-                  (response as? HTTPURLResponse).map({ (200 ..< 300).contains($0.statusCode) }) ?? true
+                  (response as? HTTPURLResponse).map({ (200 ..< 300).contains($0.statusCode) }) ?? false
             else { return nil }
             return cache.store(tempFile: temp, songID: songID)
         }
+        self.gaplessPrefetcher = GaplessPrefetcher(cache: cache, downloader: downloader)
         if let stored = defaults.object(forKey: Self.volumeKey) as? Int {
             volumePercent = stored
         }
@@ -483,6 +523,7 @@ final class StreamingPlaybackController {
         crossfadeSeconds = defaults.object(forKey: Self.crossfadeKey) as? Double ?? 0
         gaplessEnabled = defaults.bool(forKey: Self.gaplessKey)
         gaplessPrefetchWifiOnly = defaults.bool(forKey: Self.gaplessWifiOnlyKey)
+        duckPercent = defaults.object(forKey: Self.duckKey) as? Int ?? 20
         applyVolume()
         player.isMuted = false
         attachPlayerObservers()
@@ -498,18 +539,23 @@ final class StreamingPlaybackController {
         // audio is actually flowing. `.error` level so it persists to the log store.
         // Doubles as the UI buffering signal (`isBuffering`).
         timeControlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-            MainActor.assumeIsolated {
-                switch player.timeControlStatus {
+            // KVO can fire on AVFoundation's internal queues; read Sendable values
+            // here, then hop to the main actor (assumeIsolated would trap off-main).
+            let status = player.timeControlStatus
+            let rate = player.rate
+            let waitReason = player.reasonForWaitingToPlay?.rawValue ?? "unknown"
+            Task { @MainActor in
+                guard let self else { return }
+                switch status {
                 case .playing:
-                    self?.isBuffering = false
-                    streamingLog.info("player: audio flowing (rate \(player.rate, privacy: .public))")
+                    self.isBuffering = false
+                    streamingLog.info("player: audio flowing (rate \(rate, privacy: .public))")
                 case .waitingToPlayAtSpecifiedRate:
                     // Only "buffering" while we actually intend to play (not paused).
-                    self?.isBuffering = (self?.state == .playing)
-                    let reason = player.reasonForWaitingToPlay?.rawValue ?? "unknown"
-                    streamingLog.error("player: waiting to play — reason \(reason, privacy: .public)")
+                    self.isBuffering = (self.state == .playing)
+                    streamingLog.error("player: waiting to play — reason \(waitReason, privacy: .public)")
                 case .paused:
-                    self?.isBuffering = false
+                    self.isBuffering = false
                 @unknown default:
                     break
                 }
@@ -531,7 +577,7 @@ final class StreamingPlaybackController {
                 // seekable and its duration may be unknown until audio actually flows.
                 if let offset = self.pendingResumeOffset, self.duration > 1 {
                     self.pendingResumeOffset = nil
-                    if offset > 2, offset < self.duration - 5 {
+                    if PlaybackResume.shouldResume(offset: offset, duration: self.duration) {
                         self.lastProgressSaveTime = offset
                         self.seek(to: offset)
                         return
@@ -542,6 +588,12 @@ final class StreamingPlaybackController {
                    abs(self.currentTime - self.lastProgressSaveTime) >= 5 {
                     self.lastProgressSaveTime = self.currentTime
                     self.onProgressUpdate?(song, self.currentTime, self.duration)
+                }
+                // Persist queue + playhead ~every 15 s so a quit mid-track restores near
+                // the real position (persistQueue otherwise only runs on transport events). (W-11)
+                if self.duration > 1, abs(self.currentTime - self.lastQueuePersistTime) >= 15 {
+                    self.lastQueuePersistTime = self.currentTime
+                    self.persistQueue()
                 }
                 // Fire an external scrobble once the track's been played long enough.
                 if !self.scrobbledCurrent, let song = self.nowPlaying, self.duration > 30,
@@ -558,8 +610,7 @@ final class StreamingPlaybackController {
                 // end handler so the transport doesn't get stuck showing "playing" with a
                 // parked player. handleEnded() flips the state, so this won't re-fire.
                 if self.state == .playing,
-                   self.duration > 1,
-                   self.currentTime >= self.duration - 0.35,
+                   TrackBoundary.isAtEnd(currentTime: self.currentTime, duration: self.duration),
                    self.player.timeControlStatus == .paused
                 {
                     self.handleEnded()
@@ -576,19 +627,23 @@ final class StreamingPlaybackController {
         timeObserverToken = nil
     }
 
+    // Radio-awareness hooks for media-key / Now Playing remote commands. Wired by MusicModel; nil
+    // (no-op) in tests / when radio isn't used. Stored here because extensions can't hold stored
+    // properties — the routing logic lives in StreamingPlaybackController+RemoteCommands.swift.
+    // (W-50 extraction / W-29 / AUDIO-05)
+    @ObservationIgnored var radioIsOnAir: (@MainActor () -> Bool)?
+    @ObservationIgnored var radioRemote: RadioRemote?
+
     /// Wires the macOS Now Playing remote commands to the transport (once).
     private func configureNowPlaying() {
         guard systemNowPlaying else { return }
         nowPlayingCenter.configure(.init(
-            play: { [weak self] in self?.resume() },
-            pause: { [weak self] in self?.pause() },
-            toggle: { [weak self] in
-                guard let self else { return }
-                self.isPlaying ? self.pause() : self.resume()
-            },
-            next: { [weak self] in self?.next() },
-            previous: { [weak self] in self?.previous() },
-            seek: { [weak self] in self?.seek(to: $0) }
+            play: { [weak self] in self?.handleRemotePlay() },
+            pause: { [weak self] in self?.handleRemotePause() },
+            toggle: { [weak self] in self?.handleRemoteToggle() },
+            next: { [weak self] in self?.handleRemoteNext() },
+            previous: { [weak self] in self?.handleRemotePrevious() },
+            seek: { [weak self] in self?.handleRemoteSeek(to: $0) }
         ))
     }
 
@@ -603,11 +658,17 @@ final class StreamingPlaybackController {
     private var pendingResumeOffset: TimeInterval?
     /// The `currentTime` at the last progress save, so `onProgressUpdate` fires ~every 5 s.
     private var lastProgressSaveTime: TimeInterval = 0
+    /// The `currentTime` at the last queue persist, so the playhead is saved ~every 15 s. (W-11)
+    private var lastQueuePersistTime: TimeInterval = 0
+    /// Whether the loaded item's track-start side effects have fired. A restored queue
+    /// loads paused (no start), so the first `resume()` must fire them. (W-11)
+    private var startNotifiedForCurrentItem = false
 
     /// Notifies listeners a track began and arms its resume offset (podcasts). Call in place of
     /// `onTrackStarted?(song)` so every start path resumes + logs identically.
     private func notifyTrackStarted(_ song: NavidromeSong) {
         currentTrackStartedAt = Date()
+        startNotifiedForCurrentItem = true
         onTrackStarted?(song)
         pendingResumeOffset = resumeOffsetProvider?(song)
         lastProgressSaveTime = 0
@@ -688,12 +749,18 @@ final class StreamingPlaybackController {
         // "waiting to play — no item" state). It's also nil right after a restore that failed
         // to buffer. In either case — or when parked at the end — reload the current track
         // from the top instead of calling play() on an empty player.
-        if player.currentItem == nil || (duration > 1 && currentTime >= duration - 0.35) {
+        if player.currentItem == nil || TrackBoundary.isAtEnd(currentTime: currentTime, duration: duration) {
             loadCurrent(autoplay: true)
             return
         }
         player.play()
         state = .playing
+        // First play of a restored (loaded-paused) item: fire the track-start side effects
+        // (history / "now playing") and stamp the scrobble timestamp now, so a restored
+        // track doesn't scrobble against app-launch time. (W-11)
+        if !startNotifiedForCurrentItem, let song = nowPlaying {
+            notifyTrackStarted(song)
+        }
         // Gapless: a resume from paused (notably a restored-on-launch queue, which loads
         // paused and so skipped the preload) must buffer the next track now, or the first
         // boundary after pressing play would fall back to a reload (gap).
@@ -709,18 +776,26 @@ final class StreamingPlaybackController {
     /// Pauses without bumping the intervention counter — used by the audio-focus
     /// suspend path, which pauses playback *for* an owner and must not have its own
     /// pause read back as user intervention. `pause()` is the user-facing wrapper.
-    private func pauseInternal() {
+    func pauseInternal() {
         cancelCrossfade()
         player.pause()
         if state == .playing { state = .paused }
         pushNowPlaying()
+        persistQueue() // capture the playhead where the user paused (W-11)
     }
+
+    /// Persist the queue + playhead immediately (called on app termination). (W-11)
+    func persistNow() { persistQueue() }
 
     /// Stops playback cleanly (keeps the queue so it can be restarted / persisted).
     func stop() {
         bumpStateGeneration()
         cancelCrossfade()
         player.pause()
+        // Seek the player to the start too, so a later play() resumes from 0:00 — matching the
+        // scrubber we reset below — instead of continuing from where Stop was pressed. (W-24 / AUDIO-10)
+        player.seek(to: .zero)
+        cancelGaplessPrefetch() // don't keep downloading a "next" track after Stop (W-28 / AUDIO-17)
         state = .idle
         currentTime = 0
         isBuffering = false
@@ -829,7 +904,11 @@ final class StreamingPlaybackController {
             currentIndex = idx
             preloadGaplessNextIfNeeded() // removed a queued track — the next may have changed
         } else if removingCurrent {
-            currentIndex = min(currentIndex, max(0, queue.count - 1))
+            // Land on the current track's successor: subtract the items removed BEFORE the
+            // current index, else a multi-select spanning items before AND at the current
+            // track skips past the intended next track. (W-24 / AUDIO-11)
+            let removedBeforeCurrent = offsets.filter { $0 < currentIndex }.count
+            currentIndex = min(max(0, currentIndex - removedBeforeCurrent), max(0, queue.count - 1))
             if queue.isEmpty { stop() } else { loadCurrent(autoplay: state == .playing) }
         }
         persistQueue()
@@ -870,7 +949,7 @@ final class StreamingPlaybackController {
             }
         }
         // Moving the playhead off the end re-arms end handling.
-        if duration <= 1 || target < duration - 0.35 { didHandleEnd = false }
+        if !TrackBoundary.isAtEnd(currentTime: target, duration: duration) { didHandleEnd = false }
         pushNowPlaying()
     }
 
@@ -894,22 +973,24 @@ final class StreamingPlaybackController {
 
     /// Push the effective volume to AVPlayer: the user's level times the current track's
     /// loudness-normalization multiplier. (Mute is separate — `player.isMuted`.)
-    private func applyVolume() {
-        let base = Float(volumePercent) / 100
-        let norm = nowPlaying.map { Self.normalizationGain(for: $0, mode: loudnessMode, preampDB: loudnessPreampDB) } ?? 1
-        player.volume = base * norm * fadeMultiplier
+    func applyVolume() {
+        let mult = Self.loudnessMultiplier(for: nowPlaying, mode: loudnessMode, preampDB: loudnessPreampDB)
+        player.volume = PlaybackVolume.effective(percent: volumePercent, loudness: mult, fade: fadeMultiplier)
     }
+
+    // Loudness-normalization math (loudnessHeadroom + loudnessMultiplier + normalizationGain) lives
+    // in StreamingPlaybackController+Loudness.swift — pure ReplayGain functions, W-50 extraction.
 
     /// Ramp the fade envelope to `target` over `duration`, then run `then` (e.g. pause).
     /// Cancels any in-flight fade. Used for the sleep-timer fade-out.
-    private func fade(to target: Float, duration: Double, then: (@MainActor () -> Void)? = nil) {
+    func fade(to target: Float, duration: Double, then: (@MainActor () -> Void)? = nil) {
         fadeTask?.cancel()
         let start = fadeMultiplier
         fadeTask = Task { @MainActor [weak self] in
             let steps = 20
             for i in 1 ... steps {
                 if Task.isCancelled { return }
-                self?.fadeMultiplier = start + (target - start) * Float(i) / Float(steps)
+                self?.fadeMultiplier = Fade.multiplier(step: i, of: steps, start: start, target: target)
                 self?.applyVolume()
                 try? await Task.sleep(for: .seconds(duration / Double(steps)))
             }
@@ -921,236 +1002,28 @@ final class StreamingPlaybackController {
     }
 
     /// Reset the fade envelope to full (called when playback (re)starts a track).
-    private func resetFade() {
+    func resetFade() {
         fadeTask?.cancel()
         fadeTask = nil
         fadeMultiplier = 1
         applyVolume()
     }
 
-    /// Linear volume multiplier from a track's ReplayGain (pure, unit-testable). Applies the
-    /// chosen gain (track or album) + a pre-amp in dB, clamps by the peak so boosting a quiet
-    /// track never clips, and caps the boost. Returns 1 when off or the track has no data —
-    /// so a library without ReplayGain tags simply plays at normal volume.
-    static func normalizationGain(for song: NavidromeSong, mode: LoudnessMode, preampDB: Double) -> Float {
-        guard mode != .off, let rg = song.replayGain else { return 1 }
-        let gainDB: Double?
-        let peak: Double?
-        switch mode {
-        case .track: gainDB = rg.trackGain ?? rg.albumGain; peak = rg.trackPeak ?? rg.albumPeak
-        case .album: gainDB = rg.albumGain ?? rg.trackGain; peak = rg.albumPeak ?? rg.trackPeak
-        case .off: return 1
-        }
-        guard let gainDB else { return 1 }
-        var linear = pow(10.0, (gainDB + preampDB) / 20.0)
-        if let peak, peak > 0 { linear = min(linear, 1.0 / peak) } // headroom: never clip
-        return Float(min(max(linear, 0), 4)) // cap so a huge boost can't blast the speakers
-    }
 
-    // MARK: - Sleep timer
-
-    /// Pauses playback after `minutes` (nil/≤0 cancels). Clears any "after current
-    /// track" timer. The countdown is exposed via `sleepTimerEndsAt` for the UI.
-    func setSleepTimer(minutes: Int?) {
-        sleepTimerTask?.cancel()
-        sleepAfterCurrentTrack = false
-        guard let minutes, minutes > 0 else {
-            sleepTimerEndsAt = nil
-            return
-        }
-        sleepTimerEndsAt = Date().addingTimeInterval(TimeInterval(minutes) * 60)
-        sleepTimerTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(minutes * 60))
-            guard let self, !Task.isCancelled else { return }
-            // Gentle fade-out over ~5s, then pause. resume()/next track resets the envelope.
-            self.fade(to: 0, duration: 5) { [weak self] in
-                self?.pause()
-                self?.fadeMultiplier = 1
-                self?.applyVolume()
-                self?.onSleepFire?() // also stop internet radio (separate engine)
-            }
-            self.sleepTimerEndsAt = nil
-        }
-    }
-
-    /// Arms a sleep timer that pauses when the current track finishes.
-    func sleepAtEndOfTrack() {
-        sleepTimerTask?.cancel()
-        sleepTimerEndsAt = nil
-        sleepAfterCurrentTrack = true
-    }
-
-    /// Clears any pending sleep timer (fixed-time or end-of-track). Also aborts an
-    /// in-progress fade-out and restores full volume if the timer was mid-fade.
-    func cancelSleepTimer() {
-        sleepTimerTask?.cancel()
-        sleepTimerTask = nil
-        sleepTimerEndsAt = nil
-        sleepAfterCurrentTrack = false
-        if fadeMultiplier < 1 { resetFade() }
-    }
-
-    /// Whether any sleep timer is currently armed.
-    var sleepTimerArmed: Bool {
-        sleepTimerEndsAt != nil || sleepAfterCurrentTrack
-    }
-
-    // MARK: - Audio focus API (owner-token capture coordination, REQ-13)
-
-    /// Acquire audio focus by suspending playback for `owner`. If something is currently
-    /// `.playing`, pause it (without registering as a user intervention) and record the
-    /// owner + the current `stateGeneration`; otherwise return a token flagged
-    /// `didSuspend == false` so its release is a clean no-op.
-    ///
-    /// Only one owner holds the suspend at a time — **last-writer-wins**: a new acquire
-    /// replaces any prior holder, and the older token then releases as a no-op (it's no
-    /// longer `currentFocus`). Returns the token to hand back to `releaseAudioFocus(_:)`.
-    @discardableResult
-    func acquireAudioFocusSuspend(owner: String) -> AudioFocusToken {
-        cancelCrossfade()
-        // Capture the generation BEFORE our own pause so the internal pause doesn't read
-        // back as intervention; pauseInternal() deliberately doesn't bump it either.
-        let generation = stateGeneration
-        let didSuspend = state == .playing
-        if didSuspend { pauseInternal() }
-        let token = AudioFocusToken(owner: owner, generation: generation, didSuspend: didSuspend, mode: .pause)
-        currentFocus = token
-        persistActiveSuspend(token)
-        return token
-    }
-
-    /// Acquire audio focus by **ducking** the player volume for `owner` — lowering it to
-    /// `toPercent` (0–100) instead of pausing, so an assistant can talk over quieted music.
-    /// Records the pre-duck `volumePercent` on the token and restores it verbatim on release.
-    /// Only ducks when currently `.playing` *and* the target is actually lower than the
-    /// present level; otherwise returns a `didSuspend == false` no-op token (release is then
-    /// a clean no-op). Like the pause path, it doesn't bump the intervention counter, so a
-    /// user's subsequent volume/transport change still cancels the auto-restore.
-    @discardableResult
-    func acquireAudioFocusDuck(owner: String, toPercent: Int) -> AudioFocusToken {
-        cancelCrossfade()
-        let generation = stateGeneration
-        let target = max(0, min(toPercent, 100))
-        let previous = volumePercent
-        // Only a genuine downward duck counts as "suspended". Nothing playing, or a target
-        // at/above the current level, leaves a clean no-op token.
-        let didSuspend = state == .playing && target < previous
-        if didSuspend {
-            // Lower the persisted `volumePercent` to the target WITHOUT bumping the
-            // intervention counter — this is a focus duck, not a user volume change, so a
-            // later user volume/transport change still cancels the auto-restore. Persisting
-            // the ducked level (rather than only touching AVPlayer.volume) is what makes the
-            // duck observable and crash-recoverable: a crash while ducked leaves the stored
-            // level low, which `recoverStuckDuckFromPreviousSession()` puts back on relaunch.
-            setVolumeForFocus(target)
-        }
-        let token = AudioFocusToken(
-            owner: owner, generation: generation, didSuspend: didSuspend,
-            mode: .duck, previousVolumePercent: didSuspend ? previous : nil
-        )
-        currentFocus = token
-        persistActiveSuspend(token)
-        return token
-    }
-
-    /// Set the player volume for an audio-focus duck/restore without bumping the intervention
-    /// counter. Assigns `volumePercent` (which persists + drives `applyVolume()`), so the
-    /// change is observable and survives across launches — but skips the user-facing
-    /// `setVolume(percent:)` so it doesn't register as user intervention.
-    private func setVolumeForFocus(_ percent: Int) {
-        volumePercent = max(0, min(percent, 100))
-    }
-
-    /// Release audio focus held by `token`, resuming playback **only if** all hold: this is
-    /// still the current holder, it actually suspended playback, and the user hasn't touched
-    /// the transport since (the live `stateGeneration` still equals the token's). Any manual
-    /// play/pause/seek/next/previous/stop in between bumps `stateGeneration` and cancels the
-    /// auto-resume. Otherwise this is a no-op. Clears the holder either way.
-    /// Returns whether it actually resumed/restored (`true`) or declined as a no-op
-    /// (`false`) — the cross-process registry uses this to report an accurate `resumed`
-    /// outcome for ducks, whose restore isn't otherwise observable from transport state.
-    @discardableResult
-    func releaseAudioFocus(_ token: AudioFocusToken) -> Bool {
-        guard currentFocus == token else { return false } // stale/superseded token → no-op
-        currentFocus = nil
-        clearActiveSuspend()
-        guard token.didSuspend, stateGeneration == token.generation else { return false }
-        switch token.mode {
-        case .pause:
-            // Only unpause if still paused (user hasn't intervened into another state).
-            guard state == .paused else { return false }
-            resume()
-            return true
-        case .duck:
-            // Restore the exact pre-duck level, but only if the user hasn't changed the
-            // volume/transport since (generation is unchanged, checked above). Route through
-            // the focus setter so restoring doesn't itself count as user intervention.
-            guard let previous = token.previousVolumePercent else { return false }
-            setVolumeForFocus(previous)
-            return true
-        }
-    }
-
-    /// Owner string used by the `suspendForCapture()` / `resumeAfterCapture()` shims.
-    private static let captureOwner = "capture"
-
-    /// Pauses music because a recording/dictation session is starting. Thin wrapper over
-    /// `acquireAudioFocusSuspend(owner:)` — stores the `"capture"` token so
-    /// `resumeAfterCapture()` can restore it. Behaviour is identical to before.
-    func suspendForCapture() {
-        captureToken = acquireAudioFocusSuspend(owner: Self.captureOwner)
-    }
-
-    /// Resumes music after recording/dictation ends — but only if this controller paused it
-    /// and the user didn't intervene. Thin wrapper over `releaseAudioFocus(_:)`; idempotent
-    /// (a nil / already-released capture token is a clean no-op).
-    func resumeAfterCapture() {
-        guard let token = captureToken else { return }
-        captureToken = nil
-        releaseAudioFocus(token)
-    }
-
-    // MARK: - Audio-focus crash recovery
-
-    /// Persist the pre-duck volume the moment a ducking focus is placed, so a crash while
-    /// ducked can be undone on next launch. Pause-mode focus needs no record (a relaunch
-    /// restores the queue paused regardless). Clears any stale record for the pause path.
-    private func persistActiveSuspend(_ token: AudioFocusToken) {
-        if token.mode == .duck, token.didSuspend, let previous = token.previousVolumePercent {
-            defaults.set(previous, forKey: Self.activeSuspendVolumeKey)
-        } else {
-            defaults.removeObject(forKey: Self.activeSuspendVolumeKey)
-        }
-    }
-
-    /// Clear the active-suspend record — the focus was released cleanly.
-    private func clearActiveSuspend() {
-        defaults.removeObject(forKey: Self.activeSuspendVolumeKey)
-    }
-
-    /// If a previous run persisted a pending duck volume and never cleared it, that run
-    /// died while ducked — restore the user's stored level now. Runs once at launch, before
-    /// any new focus is placed, so it can't fight a live duck. Idempotent: clears the record
-    /// so a subsequent launch doesn't re-restore.
-    func recoverStuckDuckFromPreviousSession() {
-        guard defaults.object(forKey: Self.activeSuspendVolumeKey) != nil else { return }
-        let previous = defaults.integer(forKey: Self.activeSuspendVolumeKey)
-        defaults.removeObject(forKey: Self.activeSuspendVolumeKey)
-        // Restore the persisted user level (the queue loads paused, so applyVolume() alone
-        // suffices — no need to touch the transport).
-        volumePercent = max(0, min(previous, 100))
-        streamingLog.error("audio-focus: recovered stranded duck volume → \(previous, privacy: .public)%")
-    }
+    // Sleep-timer (fixed-time + end-of-track, with a fade-out) lives in
+    // StreamingPlaybackController+SleepTimer.swift (W-50 extraction).
 
     // MARK: - Loading
 
-    private func loadCurrent(autoplay: Bool) {
+    private func loadCurrent(autoplay: Bool, isRetry: Bool = false) {
         #if DEBUG
         loadCurrentCountForTesting += 1
         #endif
+        if !isRetry { sameTrackRetries = 0 } // a genuine (non-retry) load starts a fresh track
         // A fresh item can end again — clear the end-handled guard.
         didHandleEnd = false
         scrobbledCurrent = false
+        startNotifiedForCurrentItem = false // set true by notifyTrackStarted (autoplay path)
         guard let song = nowPlaying else {
             state = .idle
             return
@@ -1220,8 +1093,27 @@ final class StreamingPlaybackController {
     /// and — so one dud track doesn't stall the whole queue — auto-skips to the next
     /// after a short beat, unless every track has failed (guarded to avoid a loop).
     private func handleLoadFailure(_ message: String) {
-        state = .error(message)
         isBuffering = false
+        // First, retry the SAME track with a capped backoff, preserving the playhead — a brief
+        // outage (Wi-Fi blip, server restart) then recovers in place instead of skipping the
+        // track and cascade-skipping the rest of the queue. (W-26 / AUDIO-06)
+        if sameTrackRetries < Self.maxSameTrackRetries {
+            sameTrackRetries += 1
+            let resumeAt = currentTime
+            let attempt = sameTrackRetries
+            state = .loading
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Double(attempt) * 1.0)) // 1s, 2s, 3s
+                guard let self, case .loading = self.state else { return }
+                if resumeAt > 1 { self.pendingSeek = resumeAt }
+                self.loadCurrent(autoplay: true, isRetry: true)
+            }
+            return
+        }
+        // Exhausted same-track retries — treat it as a genuinely bad track and move on, with
+        // the existing guard so an all-unplayable queue can't loop forever.
+        sameTrackRetries = 0
+        state = .error(message)
         consecutiveFailures += 1
         guard queue.count > 1, consecutiveFailures < queue.count else { return }
         Task { [weak self] in
@@ -1241,6 +1133,9 @@ final class StreamingPlaybackController {
     #if DEBUG
     /// Test seam: drives the end-of-track handler without a real AVPlayer clock.
     func simulateTrackEndedForTesting() { handleEnded() }
+    /// Test seam: drives the load-failure handler without a real stream failure.
+    func simulateLoadFailureForTesting(_ message: String = "test failure") { handleLoadFailure(message) }
+    var sameTrackRetriesForTesting: Int { sameTrackRetries }
     #endif
 
     /// A track finished. Hard-cut to the next queued track, or stop cleanly at the
@@ -1331,6 +1226,11 @@ final class StreamingPlaybackController {
     /// call after any queue mutation or setting change.
     private func preloadGaplessNextIfNeeded() {
         let planned = plannedNextIndex()
+        // Reap in-flight prefetches for tracks that are no longer the planned next (e.g. after
+        // rapid skipping), so stale full-file downloads don't pile up competing with the live
+        // stream on the same link. (W-28 / AUDIO-17)
+        let plannedID = planned.map { queue[$0].id }
+        gaplessPrefetcher.reap(keeping: plannedID)
         // Drop a preload that no longer matches (mode off, queue reordered, crossfade on…).
         if let existing = gaplessPreload, !isGaplessMode || existing.index != planned {
             player.remove(existing.item)
@@ -1346,8 +1246,9 @@ final class StreamingPlaybackController {
         guard let streamURL = try? streamURLProvider(songID) else { return }
         // Prefer an already-prefetched local file (or an offline download, which
         // streamURLProvider already resolves to a file URL) so the handoff is gap-free.
-        let preloadURL = streamURL.isFileURL ? streamURL : (gaplessCache.localURL(for: songID) ?? streamURL)
+        let preloadURL = GaplessPreload.preloadURL(stream: streamURL, cached: gaplessPrefetcher.cachedURL(for: songID))
         let item = AVPlayerItem(asset: AVURLAsset(url: preloadURL))
+        configureAudioMix?(item) // attach EQ at preload creation, before it plays (W-22 / AUDIO-28)
         guard player.canInsert(item, after: current) else { return }
         player.insert(item, after: current)
         gaplessPreload = (planned, item)
@@ -1364,20 +1265,15 @@ final class StreamingPlaybackController {
     /// the queued gapless next), swap the streaming item for the local file so the boundary
     /// is a gap-free local handoff.
     private func startGaplessPrefetch(songID: String, streamURL: URL, index: Int) {
-        guard prefetchTasks[songID] == nil else { return }
+        guard !gaplessPrefetcher.isPrefetching(songID) else { return }
         // Respect the user's "Wi-Fi only" preference on metered connections — the streamed
         // handoff still works, it just isn't pre-cached (a small buffer at the seam).
-        if gaplessPrefetchWifiOnly, networkIsMetered() {
+        if !GaplessPreload.shouldPrefetch(wifiOnly: gaplessPrefetchWifiOnly, metered: networkIsMetered()) {
             streamingLog.info("gapless prefetch skipped — metered connection (Wi-Fi only)")
             return
         }
-        let downloader = gaplessPrefetchDownloader
-        prefetchTasks[songID] = Task { @MainActor [weak self] in
-            let local = await downloader(streamURL, songID)
-            guard let self else { return }
-            self.prefetchTasks[songID] = nil
-            guard let local else { return }
-            self.adoptPrefetchedNext(songID: songID, index: index, localURL: local)
+        gaplessPrefetcher.prefetch(songID: songID, from: streamURL, index: index) { [weak self] songID, index, local in
+            self?.adoptPrefetchedNext(songID: songID, index: index, localURL: local)
         }
     }
 
@@ -1400,12 +1296,11 @@ final class StreamingPlaybackController {
 
     /// Cancels any in-flight gapless prefetch downloads (queue cleared / stopped).
     private func cancelGaplessPrefetch() {
-        for (_, task) in prefetchTasks { task.cancel() }
-        prefetchTasks.removeAll()
+        gaplessPrefetcher.cancelAll()
     }
 
     /// Current size of the gapless prefetch cache on disk, in bytes.
-    var gaplessCacheSizeBytes: Int64 { gaplessCache.sizeBytes() }
+    var gaplessCacheSizeBytes: Int64 { gaplessPrefetcher.cacheSizeBytes }
 
     /// Empties the gapless prefetch cache. Safe during playback: cancels in-flight
     /// prefetches and drops any queued preload that may point at a file we're deleting, then
@@ -1416,7 +1311,7 @@ final class StreamingPlaybackController {
             player.remove(preload.item)
             gaplessPreload = nil
         }
-        gaplessCache.clear()
+        gaplessPrefetcher.clearCache()
         preloadGaplessNextIfNeeded()
     }
 
@@ -1486,10 +1381,21 @@ final class StreamingPlaybackController {
             return
         }
         autoplayFetching = true
+        let generation = stateGeneration
         Task { [weak self] in
             let more = await relatedProvider(seed)
             guard let self else { return }
             self.autoplayFetching = false
+            // Freshness (W-23 / AUDIO-16): a user action may have happened while we were fetching.
+            if playFirstNew {
+                // The end-of-queue continuation must not yank playback if the user stopped or
+                // started something else in the meantime.
+                guard self.stateGeneration == generation, self.nowPlaying?.id == seed.id else { return }
+            } else {
+                // A background top-up is harmless to append, but not onto a queue the user
+                // cleared or replaced — so require the seed to still be present.
+                guard self.queue.contains(where: { $0.id == seed.id }) else { return }
+            }
             let existing = Set(self.queue.map(\.id))
             let fresh = more.filter { !existing.contains($0.id) }
             guard !fresh.isEmpty else {
@@ -1513,9 +1419,12 @@ final class StreamingPlaybackController {
     /// by `loadCurrent` and the crossfade promotion so both paths behave identically.
     private func attachItemObservers(_ item: AVPlayerItem) {
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            MainActor.assumeIsolated {
+            // KVO can fire off-main; read Sendable values, then hop to the main actor.
+            let status = item.status
+            let failureMessage = item.error?.localizedDescription
+            Task { @MainActor in
                 guard let self else { return }
-                switch item.status {
+                switch status {
                 case .readyToPlay:
                     streamingLog.info("stream item ready to play")
                     self.consecutiveFailures = 0
@@ -1525,7 +1434,7 @@ final class StreamingPlaybackController {
                         self.seek(to: target)
                     }
                 case .failed:
-                    let message = item.error?.localizedDescription
+                    let message = failureMessage
                         ?? "Playback failed — the track may be an unsupported format (e.g. Ogg/Opus)."
                     streamingLog.error("stream item failed: \(message, privacy: .public)")
                     self.handleLoadFailure(message)
@@ -1550,8 +1459,11 @@ final class StreamingPlaybackController {
         // A real crossfade window, or neither (classic hard cut / true-gapless handoff).
         // Gapless no longer blends here — the AVQueuePlayer auto-advances the audio itself.
         let window = crossfadeSeconds
-        guard window > 0, state == .playing, !isCrossfading,
-              duration > window + 1, currentTime >= duration - window else { return }
+        guard state == .playing, !isCrossfading,
+              Crossfade.inWindow(currentTime: currentTime, duration: duration, window: window) else { return }
+        // Never crossfade a podcast (spoken word) — and crossfading suppresses the outgoing
+        // track's end handler, which is a podcast's only played/auto-remove trigger. (W-27 / AUDIO-12)
+        if nowPlaying?.isPodcastEpisode == true { return }
         guard case let .play(nextIndex) = Self.onTrackEnd(current: currentIndex, count: queue.count, repeatMode: repeatMode),
               nextIndex != currentIndex, queue.indices.contains(nextIndex) else { return }
         startCrossfade(to: nextIndex, duration: window)
@@ -1563,32 +1475,32 @@ final class StreamingPlaybackController {
         guard let url = try? streamURLProvider(queue[nextIndex].id) else { return }
         isCrossfading = true
         didHandleEnd = true // suppress the outgoing track's normal end handler
-        let next = AVQueuePlayer(playerItem: AVPlayerItem(asset: AVURLAsset(url: url)))
-        next.isMuted = isMuted
-        next.volume = 0
-        next.play()
-        crossfadePlayer = next
+        // ...but still report the outgoing track as completed, so its final progress is saved
+        // (played-state, download auto-remove) — the suppressed handler was their only trigger.
+        // Harmless for music; correctness for any non-podcast that reports progress. (W-27 / AUDIO-12)
+        if let outgoing = nowPlaying, duration > 0 { onProgressUpdate?(outgoing, duration, duration) }
+        // Attach the EQ tap to the incoming item BEFORE it plays, or the EQ would silently
+        // switch off at the first crossfade boundary and stay off for every crossfaded
+        // track thereafter. (W-22 / AUDIO-02)
+        let item = AVPlayerItem(asset: AVURLAsset(url: url))
+        configureAudioMix?(item)
         let outgoing = player
-        let startOut = outgoing.volume
         let targetIn = Float(volumePercent) / 100
             * Self.normalizationGain(for: queue[nextIndex], mode: loudnessMode, preampDB: loudnessPreampDB)
-        Task { @MainActor [weak self] in
-            let steps = 24
-            for i in 1 ... steps {
-                guard let self, self.isCrossfading, self.crossfadePlayer === next else { return }
-                let t = Float(i) / Float(steps)
-                outgoing.volume = startOut * (1 - t)
-                next.volume = targetIn * t
-                try? await Task.sleep(for: .seconds(seconds / Double(steps)))
-            }
-            self?.finishCrossfade(to: nextIndex, promoted: next, retiring: outgoing)
+        // The collaborator owns the second player + the ramp loop; we promote the incoming player
+        // when it hands it back on completion.
+        crossfadeRamp.begin(
+            item: item, targetIn: targetIn, isMuted: isMuted,
+            outgoing: outgoing, startOut: outgoing.volume, duration: seconds
+        ) { [weak self] promoted in
+            self?.finishCrossfade(to: nextIndex, promoted: promoted, retiring: outgoing)
         }
     }
 
     /// Retire the outgoing player, promote the crossfade player to `player`, and advance
     /// the queue — the "hard cut" that happens under the cover of the completed fade.
     private func finishCrossfade(to nextIndex: Int, promoted: AVQueuePlayer, retiring: AVQueuePlayer) {
-        guard isCrossfading, crossfadePlayer === promoted, queue.indices.contains(nextIndex) else { return }
+        guard isCrossfading, crossfadeRamp.player === promoted, queue.indices.contains(nextIndex) else { return }
         retiring.pause()
         detachPlayerObservers()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
@@ -1597,7 +1509,7 @@ final class StreamingPlaybackController {
         player = promoted
         loadedItem = promoted.currentItem
         gaplessPreload = nil
-        crossfadePlayer = nil
+        crossfadeRamp.clearAfterPromotion() // release the ramp's ref without pausing the now-main player
         isCrossfading = false
         currentIndex = nextIndex
         currentTime = 0
@@ -1626,11 +1538,10 @@ final class StreamingPlaybackController {
 
     /// Abort an in-flight crossfade (a transport action interrupted it): stop the second
     /// player, restore the current player's volume, and let the action proceed normally.
-    private func cancelCrossfade() {
+    func cancelCrossfade() {
         guard isCrossfading else { return }
         isCrossfading = false
-        crossfadePlayer?.pause()
-        crossfadePlayer = nil
+        crossfadeRamp.cancel()
         didHandleEnd = false
         applyVolume()
     }

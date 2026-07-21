@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let podcastStoreLog = Logger(subsystem: "io.tonebox.macos", category: "PodcastSubscriptions")
+private let podcastStoreLog = Logger(subsystem: "io.tonebox.baton", category: "PodcastSubscriptions")
 
 /// Owns the user's *client-side* podcast subscriptions — the ones Baton fetches directly from
 /// RSS feeds, independent of the music server. Subscriptions and their last-fetched episodes
@@ -32,7 +32,7 @@ final class PodcastSubscriptionStore {
         directory: URL? = nil,
         fetch: @escaping (URL) async throws -> Data = { url in
             var request = URLRequest(url: url)
-            request.setValue("Tonebox (macOS; Podcasts)", forHTTPHeaderField: "User-Agent")
+            request.setValue("Baton (macOS; Podcasts)", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: request)
             if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
                 throw PodcastFeedError.invalidFeed("HTTP \(http.statusCode)")
@@ -49,26 +49,23 @@ final class PodcastSubscriptionStore {
 
     /// Reads persisted subscriptions once, then kicks off a background refresh so episode lists
     /// are current. Safe to call from `.task` on every appearance.
+    /// Versioned, corruption-safe backing for the subscription list (W-12). keepBackup
+    /// because a lost subscription list is irreplaceable user data.
+    private var store: VersionedStore<[PodcastChannel]> {
+        VersionedStore(fileURL: storeURL, keepBackup: true, encoder: .podcast, decoder: .podcast)
+    }
+
     func loadIfNeeded() async {
         guard !loaded else { return }
         loaded = true
-        if let data = try? Data(contentsOf: storeURL),
-           let saved = try? JSONDecoder.podcast.decode([PodcastChannel].self, from: data) {
+        if let saved = store.load() {
             channels = saved.sorted(by: Self.byRecency)
         }
         await refresh()
     }
 
     private func persist() {
-        do {
-            let data = try JSONEncoder.podcast.encode(channels)
-            try FileManager.default.createDirectory(
-                at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            try data.write(to: storeURL, options: .atomic)
-        } catch {
-            podcastStoreLog.error("persist failed: \(error.localizedDescription, privacy: .public)")
-        }
+        store.save(channels) // logs on failure; a corrupt file is preserved, never wiped
     }
 
     // MARK: - Mutations

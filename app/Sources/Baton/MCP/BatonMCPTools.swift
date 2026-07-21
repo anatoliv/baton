@@ -214,7 +214,7 @@ enum BatonMCPToolCatalog {
                 properties: [
                     "owner": ["type": "string", "description": "Stable id of the suspender, e.g. 'tonebox.dictation'."],
                     "mode": ["type": "string", "description": "'pause' (default) or 'duck' (lower player volume to duckToPercent, restored on resume)."],
-                    "duckToPercent": ["type": "integer", "description": "Target volume percent for mode='duck' (default 20)."],
+                    "duckToPercent": ["type": "integer", "description": "Target volume percent for mode='duck'. Omit to use the user's configured duck level (Settings → Playback); pass a value only when the context needs a different level. An explicit value is floored to 5% (duck stays audible) — for true silence use mode='pause', not duck."],
                 ],
                 required: ["owner"]
             ),
@@ -360,8 +360,29 @@ enum BatonMCPToolCatalog {
     static func songJSON(_ song: NavidromeSong) -> [String: Any] {
         var out: [String: Any] = ["id": song.id, "title": song.title]
         if let artist = song.artist { out["artist"] = artist }
+        if let display = song.displayArtist, display != song.artist { out["display_artist"] = display }
         if let album = song.album { out["album"] = album }
         if let duration = song.duration { out["duration_seconds"] = duration }
+        if let track = song.track { out["track"] = track }
+        if let disc = song.discNumber { out["disc"] = disc }
+        if let year = song.year { out["year"] = year }
+        let genres = song.genres.isEmpty ? [song.genre].compactMap { $0 } : song.genres
+        if !genres.isEmpty { out["genres"] = genres }
+        if let quality = song.qualityLabel { out["quality"] = quality }
+        if let suffix = song.suffix { out["format"] = suffix }
+        if let bitRate = song.bitRate { out["bit_rate_kbps"] = bitRate }
+        if let rate = song.samplingRate { out["sampling_rate_hz"] = rate }
+        if let depth = song.bitDepth { out["bit_depth"] = depth }
+        if let channels = song.channelCount { out["channels"] = channels }
+        if let type = song.contentType { out["content_type"] = type }
+        if let size = song.size { out["size_bytes"] = size }
+        if let plays = song.playCount { out["play_count"] = plays }
+        if let rating = song.userRating, rating > 0 { out["rating"] = rating }
+        out["liked"] = song.isLiked
+        if let bpm = song.bpm { out["bpm"] = bpm }
+        if let comment = song.comment, !comment.isEmpty { out["comment"] = comment }
+        if let played = song.played { out["last_played"] = ISO8601DateFormatter().string(from: played) }
+        if let mbid = song.musicBrainzID { out["musicbrainz_id"] = mbid }
         return out
     }
 
@@ -569,10 +590,15 @@ enum BatonMCPToolCatalog {
     private static func musicLike(_ args: [String: Any], _ music: MusicModel) async throws -> String {
         let song = try await resolveMusicSong(args, music)
         let unlike = (args["unlike"] as? Bool) ?? false
-        let client = try musicClient()
-        do {
-            if unlike { try await client.unstar(id: song.id) } else { try await client.star(id: song.id) }
-        } catch { throw musicError(error) }
+        _ = try musicClient() // fail fast if no server is configured
+        // Route through the library store (not the raw client) so the optimistic @Observable
+        // `ratingOverrides` cache updates and the on-screen heart refreshes immediately — the same
+        // path the in-app like button uses. `toggleLike` flips, so only toggle when the desired
+        // state differs, keeping an explicit like/unlike idempotent. (write-through to the server
+        // happens inside the store)
+        if music.musicLibrary.isLiked(song) != !unlike {
+            await music.musicLibrary.toggleLike(song)
+        }
         return "\(unlike ? "Unliked" : "Liked") \(song.displayLine)."
     }
 
@@ -581,7 +607,11 @@ enum BatonMCPToolCatalog {
             throw BatonMCPToolError(message: "Provide 'rating' as an integer 0–5 (0 clears).")
         }
         let song = try await resolveMusicSong(args, music)
-        do { try await musicClient().setRating(id: song.id, rating: rating) } catch { throw musicError(error) }
+        _ = try musicClient() // fail fast if no server is configured
+        // Route through the library store so the optimistic @Observable `ratingOverrides` cache
+        // updates and the on-screen stars refresh immediately — the same path the in-app star
+        // control uses. (write-through to the server happens inside the store)
+        await music.musicLibrary.setRating(song, rating: rating)
         return rating == 0 ? "Cleared the rating on \(song.displayLine)." : "Rated \(song.displayLine) \(rating)★."
     }
 
@@ -615,11 +645,47 @@ enum BatonMCPToolCatalog {
     private static func musicDeletePlaylist(_ args: [String: Any], _ music: MusicModel) async throws -> String {
         let client = try musicClient()
         do {
-            let id = try await resolvePlaylistID(args, client: client)
-            try await client.deletePlaylist(id: id)
+            // Destructive: never fuzzy-match (see exactPlaylistToDelete). Echo what
+            // was deleted so the agent has confirmation of the exact target.
+            let all = try await client.getPlaylists()
+            let target = try exactPlaylistToDelete(
+                name: optionalString(args, "name"),
+                playlistID: optionalString(args, "playlist_id"),
+                from: all
+            )
+            try await client.deletePlaylist(id: target.id)
             await music.musicLibrary.loadPlaylists()
-            return "Deleted the playlist."
+            return "Deleted the playlist \"\(target.name)\" [\(target.id)]."
         } catch { throw musicError(error) }
+    }
+
+    /// Resolves the single playlist a destructive delete may target. Exact id or
+    /// exact (case-insensitive) name only — a substring-only match refuses and lists
+    /// candidates rather than deleting the wrong one. Pure (no client) so it's unit
+    /// testable (W-07).
+    static func exactPlaylistToDelete(
+        name: String?, playlistID: String?, from all: [NavidromePlaylist]
+    ) throws -> NavidromePlaylist {
+        if let id = playlistID {
+            guard let match = all.first(where: { $0.id == id }) else {
+                throw BatonMCPToolError(message: "No playlist with id \"\(id)\".")
+            }
+            return match
+        }
+        guard let name else {
+            throw BatonMCPToolError(message: "Provide either 'name' or 'playlist_id'.")
+        }
+        let lowered = name.lowercased()
+        let exact = all.filter { $0.name.lowercased() == lowered }
+        if exact.count == 1 { return exact[0] }
+        if exact.count > 1 {
+            let list = exact.map { "\($0.name) [\($0.id)]" }.joined(separator: ", ")
+            throw BatonMCPToolError(message: "Multiple playlists are named \"\(name)\" — pass 'playlist_id' to choose: \(list).")
+        }
+        let near = all.filter { $0.name.lowercased().contains(lowered) }
+        if near.isEmpty { throw BatonMCPToolError(message: "No playlist named \"\(name)\".") }
+        let list = near.map { "\($0.name) [\($0.id)]" }.joined(separator: ", ")
+        throw BatonMCPToolError(message: "No playlist is exactly named \"\(name)\". Delete requires an exact name or 'playlist_id'. Did you mean: \(list)?")
     }
 
     private static func resolvePlaylistID(_ args: [String: Any], client: NavidromeClient) async throws -> String {
@@ -832,7 +898,9 @@ enum BatonMCPToolCatalog {
         let owner = optionalString(args, "owner") ?? "unknown"
         let mode: StreamingPlaybackController.AudioFocusToken.Mode =
             optionalString(args, "mode") == "duck" ? .duck : .pause
-        let duckTo = optionalInt(args, "duckToPercent") ?? 20
+        // An agent's explicit level is floored (duck stays audible); omitting it uses the user's
+        // own configured level, which they may set all the way to silence.
+        let duckTo = optionalInt(args, "duckToPercent").map(BatonAudioFocusRegistry.clampAgentDuck) ?? music.music.duckPercent
         // Scope the handle to the caller's MCP session so it auto-expires when that
         // session's SSE stream closes (spec §4.3), not just via the 10-min sweep.
         let out = focus.suspend(
