@@ -313,10 +313,22 @@ final class StreamingPlaybackController {
     /// `handleLoadFailure` ladder a hard failure uses (same-track retry preserving the playhead, then
     /// skip). Cancelled the instant audio flows or we pause/stop.
     private var stallWatchdog: Task<Void, Never>?
-    /// How long the player may sit buffering before we treat it as a stall and recover. Generous so a
-    /// legitimately slow connection still gets to fill its buffer; a retry preserves the playhead, so
-    /// even a false positive just resumes in place.
-    static let stallTimeout: TimeInterval = 20
+    /// How long the player may sit buffering before we treat it as a stall and recover (see
+    /// `stallWatchdog`). User-configurable in Settings → Playback and clamped to a sane range:
+    /// generous by default so a legitimately slow connection still fills its buffer, but low enough
+    /// that a blocked one recovers promptly. A retry preserves the playhead, so even a premature fire
+    /// just resumes in place. Persisted.
+    var stallTimeoutSeconds: Double = 20 {
+        didSet {
+            let clamped = min(max(stallTimeoutSeconds, Self.minStallTimeout), Self.maxStallTimeout)
+            if clamped != stallTimeoutSeconds { stallTimeoutSeconds = clamped; return }
+            guard stallTimeoutSeconds != oldValue else { return }
+            defaults.set(stallTimeoutSeconds, forKey: Self.stallTimeoutKey)
+        }
+    }
+    static let defaultStallTimeout: Double = 20
+    static let minStallTimeout: Double = 5
+    static let maxStallTimeout: Double = 120
     /// True once the current track's end has been handled — de-dupes the end notification
     /// and the periodic-observer fallback. Reset on load / seek-off-end.
     private var didHandleEnd = false
@@ -426,6 +438,7 @@ final class StreamingPlaybackController {
     static let gaplessKey = "tonebox.navidrome.gapless"
     static let gaplessWifiOnlyKey = "tonebox.navidrome.gaplessWifiOnly"
     static let duckKey = "tonebox.navidrome.duckPercent"
+    static let stallTimeoutKey = "tonebox.navidrome.stallTimeout"
     /// Crash-recovery record for an active audio-focus duck: the player volume we lowered
     /// FROM, persisted the instant a duck is placed so a crash/force-quit while ducked can
     /// restore the user's level on next launch (mirrors `OutputVolumeController`). Only the
@@ -536,6 +549,7 @@ final class StreamingPlaybackController {
         gaplessEnabled = defaults.bool(forKey: Self.gaplessKey)
         gaplessPrefetchWifiOnly = defaults.bool(forKey: Self.gaplessWifiOnlyKey)
         duckPercent = defaults.object(forKey: Self.duckKey) as? Int ?? 20
+        stallTimeoutSeconds = defaults.object(forKey: Self.stallTimeoutKey) as? Double ?? Self.defaultStallTimeout
         applyVolume()
         player.isMuted = false
         attachPlayerObservers()
@@ -1156,13 +1170,14 @@ final class StreamingPlaybackController {
     /// left untouched. On a real stall it enters the same recovery ladder as a hard load failure.
     private func armStallWatchdog() {
         guard stallWatchdog == nil else { return }
+        let timeout = stallTimeoutSeconds
         stallWatchdog = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.stallTimeout))
+            try? await Task.sleep(for: .seconds(timeout))
             guard let self, !Task.isCancelled else { return }
             self.stallWatchdog = nil
             guard self.state == .playing, self.isBuffering,
                   self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
-            streamingLog.error("player: buffering stalled > \(Self.stallTimeout, privacy: .public)s — recovering")
+            streamingLog.error("player: buffering stalled > \(timeout, privacy: .public)s — recovering")
             self.handleLoadFailure(
                 "Playback stalled — the connection may be blocked or too slow (check VPN or network filtering)."
             )

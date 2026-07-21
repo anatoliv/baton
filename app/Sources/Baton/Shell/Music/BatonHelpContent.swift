@@ -227,6 +227,20 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.2",
+            date: "2026",
+            highlight: "Tune how quickly playback recovers from a stalled connection.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Settings → Playback → Stall timeout: choose how long "
+                        + "playback waits on a stalled stream before it recovers. "
+                        + "Lower it to recover faster on a flaky, filtered, or VPN "
+                        + "network; raise it to tolerate a legitimately slow connection."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.1",
             date: "2026",
             highlight: "Playback recovers from a stalled connection instead of spinning forever — a fix for flaky, filtered, or VPN networks.",
