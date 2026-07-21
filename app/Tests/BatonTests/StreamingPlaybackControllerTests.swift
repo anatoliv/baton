@@ -271,6 +271,19 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         c.stop()
     }
 
+    func testStallTimeoutClampsAndPersists() {
+        let c = makeController()
+        XCTAssertEqual(c.stallTimeoutSeconds, StreamingPlaybackController.defaultStallTimeout)
+        // Out-of-range values clamp to the allowed window (same guard as the Settings slider).
+        c.stallTimeoutSeconds = 999
+        XCTAssertEqual(c.stallTimeoutSeconds, StreamingPlaybackController.maxStallTimeout)
+        c.stallTimeoutSeconds = 1
+        XCTAssertEqual(c.stallTimeoutSeconds, StreamingPlaybackController.minStallTimeout)
+        // A valid value persists and is restored by a fresh controller on the same store.
+        c.stallTimeoutSeconds = 30
+        XCTAssertEqual(makeController().stallTimeoutSeconds, 30, "stall timeout must persist across launches")
+    }
+
     ///  / AUDIO-11: removing a selection that spans items BEFORE and including the current
     /// track must land on the current track's true successor, not skip past it.
     func testRemoveSpanningCurrentLandsOnSuccessor() {

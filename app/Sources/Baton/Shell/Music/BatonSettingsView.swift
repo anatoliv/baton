@@ -601,6 +601,7 @@ private struct BatonPlaybackPane: View {
         player.gaplessEnabled = false
         player.gaplessPrefetchWifiOnly = false
         player.autoplayEnabled = false
+        player.stallTimeoutSeconds = StreamingPlaybackController.defaultStallTimeout
         offlineMode = false
         filterHistorySize = FilterHistory.defaultSize
         advancedExpanded = false
@@ -699,6 +700,20 @@ private struct BatonPlaybackPane: View {
                 }
             }
             Text("How far the music dims to be heard over a spoken summary, or while an agent dictates/records (cooperative audio focus). Restored automatically afterwards. An agent may still request a specific level for a given task.")
+                .font(.callout).foregroundStyle(.secondary)
+
+            LabeledContent("Stall timeout") {
+                HStack {
+                    Slider(value: Binding(
+                        get: { player.stallTimeoutSeconds },
+                        set: { player.stallTimeoutSeconds = $0 }
+                    ), in: StreamingPlaybackController.minStallTimeout ... StreamingPlaybackController.maxStallTimeout, step: 5)
+                    Text("\(Int(player.stallTimeoutSeconds))s")
+                        .foregroundStyle(.secondary).monospacedDigit()
+                        .frame(width: sliderValueWidth, alignment: .trailing)
+                }
+            }
+            Text("How long playback waits on a stalled stream before recovering — it retries where it left off, then moves on. Lower recovers faster on a flaky, filtered, or VPN network; higher tolerates a legitimately slow connection. Default 20s.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
