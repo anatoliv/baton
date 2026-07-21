@@ -78,6 +78,12 @@ struct PlaybackMenuCommands: Commands {
                 .keyboardShortcut(".", modifiers: [.command, .control])
                 .disabled(!model.speech.isSpeaking)
 
+            Button("Replay Last Summary") { model.speech.replayLast() }
+                .keyboardShortcut("r", modifiers: [.command, .control])
+                .disabled(!model.speech.canReplay)
+            Button("Recent Summaries…") { openWindow(id: SpeechHistoryView.windowID) }
+                .disabled(model.speechHistory.entries.isEmpty)
+
             Divider()
 
             Button(isBarMinimized ? "Expand Player Bar" : "Minimize Player Bar") {

@@ -227,6 +227,25 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.4",
+            date: "2026",
+            highlight: "Replay a spoken summary — the last one anytime, or any recent one from a new history list.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Playback → Replay Last Summary (\u{2303}\u{2318}R) re-speaks the "
+                        + "most recent spoken summary anytime — even after the "
+                        + "speaking HUD has closed."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Playback → Recent Summaries opens a Spoken Summaries "
+                        + "window listing your last 50, each with Replay (in its "
+                        + "original voice) and Copy."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.3",
             date: "2026",
             highlight: "Move your whole Baton setup to another Mac — export your settings and import them safely.",
