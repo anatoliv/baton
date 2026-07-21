@@ -305,6 +305,18 @@ final class StreamingPlaybackController {
     /// track change / successful load.
     private var sameTrackRetries = 0
     static let maxSameTrackRetries = 3
+    /// Watchdog for a mid-stream buffering STALL. AVPlayer's `automaticallyWaitsToMinimizeStalling`
+    /// waits *indefinitely* on a slow-but-open connection — the classic symptom behind a corporate
+    /// proxy / TLS-inspection middlebox or a high-latency, jittery link — so the UI shows an endless
+    /// spinner and never recovers. When the player sits in `waitingToPlayAtSpecifiedRate` while we
+    /// intend to play, we arm this; if it's still stalled after `stallTimeout` we route into the same
+    /// `handleLoadFailure` ladder a hard failure uses (same-track retry preserving the playhead, then
+    /// skip). Cancelled the instant audio flows or we pause/stop.
+    private var stallWatchdog: Task<Void, Never>?
+    /// How long the player may sit buffering before we treat it as a stall and recover. Generous so a
+    /// legitimately slow connection still gets to fill its buffer; a retry preserves the playhead, so
+    /// even a false positive just resumes in place.
+    static let stallTimeout: TimeInterval = 20
     /// True once the current track's end has been handled — de-dupes the end notification
     /// and the periodic-observer fallback. Reset on load / seek-off-end.
     private var didHandleEnd = false
@@ -549,13 +561,18 @@ final class StreamingPlaybackController {
                 switch status {
                 case .playing:
                     self.isBuffering = false
+                    self.cancelStallWatchdog()
                     streamingLog.info("player: audio flowing (rate \(rate, privacy: .public))")
                 case .waitingToPlayAtSpecifiedRate:
                     // Only "buffering" while we actually intend to play (not paused).
                     self.isBuffering = (self.state == .playing)
                     streamingLog.error("player: waiting to play — reason \(waitReason, privacy: .public)")
+                    // A slow-but-open connection can wait here forever (corporate proxy / VPN /
+                    // TLS inspection). Arm the watchdog so playback recovers instead of spinning.
+                    if self.isBuffering { self.armStallWatchdog() } else { self.cancelStallWatchdog() }
                 case .paused:
                     self.isBuffering = false
+                    self.cancelStallWatchdog()
                 @unknown default:
                     break
                 }
@@ -796,6 +813,7 @@ final class StreamingPlaybackController {
         // scrubber we reset below — instead of continuing from where Stop was pressed.
         player.seek(to: .zero)
         cancelGaplessPrefetch() // don't keep downloading a "next" track after Stop
+        cancelStallWatchdog()
         state = .idle
         currentTime = 0
         isBuffering = false
@@ -1016,6 +1034,7 @@ final class StreamingPlaybackController {
     // MARK: - Loading
 
     private func loadCurrent(autoplay: Bool, isRetry: Bool = false) {
+        cancelStallWatchdog() // a fresh load supersedes any pending stall watchdog
         #if DEBUG
         loadCurrentCountForTesting += 1
         #endif
@@ -1094,6 +1113,7 @@ final class StreamingPlaybackController {
     /// after a short beat, unless every track has failed (guarded to avoid a loop).
     private func handleLoadFailure(_ message: String) {
         isBuffering = false
+        cancelStallWatchdog() // recovery is taking over; don't let a pending watchdog double-fire
         // First, retry the SAME track with a capped backoff, preserving the playhead — a brief
         // outage (Wi-Fi blip, server restart) then recovers in place instead of skipping the
         // track and cascade-skipping the rest of the queue.
@@ -1128,6 +1148,31 @@ final class StreamingPlaybackController {
                 break
             }
         }
+    }
+
+    /// Arm the stall watchdog if it isn't already running (see `stallWatchdog`). Fires once after
+    /// `stallTimeout`; before acting it re-checks that we're *still* stalled — intending to play and
+    /// the player still `waitingToPlayAtSpecifiedRate` — so a connection that recovers on its own is
+    /// left untouched. On a real stall it enters the same recovery ladder as a hard load failure.
+    private func armStallWatchdog() {
+        guard stallWatchdog == nil else { return }
+        stallWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.stallTimeout))
+            guard let self, !Task.isCancelled else { return }
+            self.stallWatchdog = nil
+            guard self.state == .playing, self.isBuffering,
+                  self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
+            streamingLog.error("player: buffering stalled > \(Self.stallTimeout, privacy: .public)s — recovering")
+            self.handleLoadFailure(
+                "Playback stalled — the connection may be blocked or too slow (check VPN or network filtering)."
+            )
+        }
+    }
+
+    /// Cancel any pending stall watchdog (audio resumed, we paused/stopped, or recovery took over).
+    private func cancelStallWatchdog() {
+        stallWatchdog?.cancel()
+        stallWatchdog = nil
     }
 
     #if DEBUG
