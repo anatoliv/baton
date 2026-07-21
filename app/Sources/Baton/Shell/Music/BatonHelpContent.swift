@@ -227,6 +227,65 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.1",
+            date: "2026",
+            highlight: "Playback recovers from a stalled connection instead of spinning forever — a fix for flaky, filtered, or VPN networks.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Playback no longer hangs on an endless buffering spinner "
+                        + "when the connection is slow or blocked (a VPN, or corporate "
+                        + "network filtering). Baton now detects the stall, retries the "
+                        + "track where it left off, and moves on if it can't recover."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "In-app Help now walks through setting up spoken-summary "
+                        + "voices (Kokoro and Chatterbox) step by step, and covers "
+                        + "connecting Cursor as an agent."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.6.0",
+            date: "2026",
+            highlight: "A floating speaking HUD you can move anywhere, richer library metadata across every screen, and sonic-aware mixes.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A floating speaking HUD: spoken-summary controls now "
+                        + "live in a resizable, always-on-top mini-player card that "
+                        + "follows you across Spaces and works even when the main "
+                        + "window is closed \u{2014} with an auto-scrolling transcript, "
+                        + "\u{00B1}10s seek, and Play / Pause / Replay."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Richer library metadata: Genre, Year, and format/quality "
+                        + "now appear as real, aligned columns in the Liked and "
+                        + "Search lists and on album and song cards, and full "
+                        + "multi-artist names show everywhere a track appears."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "New ways to narrow and order: filter the Albums browser "
+                        + "by genre and liked, and sort a mix by play count."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Sonic-aware mixes \u{2014} music_build_mix and the "
+                        + "built-in mixes now order tracks by tempo and space out "
+                        + "the same artist, for a smoother listen."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Rating or liking a track from an agent now updates the "
+                        + "stars and heart in the UI right away, instead of waiting "
+                        + "for a reload."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.5.0",
             date: "2026",
             highlight: "Take control of a spoken summary — pause, resume, or stop it, with a live progress bar.",

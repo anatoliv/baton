@@ -88,7 +88,7 @@ rate, create playlists, report what's playing), so an agent like Claude, or Tone
 control your music from a natural request.
 
 **How do agents control my music?**
-You point an MCP client (like Claude Desktop or Claude Code) at Baton's local address and
+You point an MCP client (like Claude Desktop, Claude Code, or Cursor) at Baton's local address and
 token, then ask the agent for what you want: *"play a focus mix," "what's this song, and like
 it," "make a playlist of this month's likes."* The agent calls Baton's tools to do it.
 Because the tools mirror Baton's own actions, an agent can only do things you could do
@@ -118,9 +118,13 @@ claude mcp add --transport http baton \
   --header "Authorization: Bearer <token-from-mcp.json>"
 ```
 
+For Cursor, put the same `mcpServers` block in `~/.cursor/mcp.json` (or `.cursor/mcp.json` for
+one project) with the `url` and a `headers` `Authorization: Bearer <token>`, then enable
+**baton** under Cursor → Settings → MCP.
+
 Baton has to be running for the server to be live. See
-[Connecting an agent to Baton](HELP.md#connecting-an-agent-to-baton) for a Claude Desktop
-config example and the full details.
+[Connecting an agent to Baton](HELP.md#connecting-an-agent-to-baton) for Claude Desktop and
+Cursor config examples, opt-in "speak only when asked" rules, and the full details.
 
 ## Playback
 
