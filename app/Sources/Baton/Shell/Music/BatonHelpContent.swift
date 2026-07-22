@@ -227,6 +227,20 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.8",
+            date: "2026",
+            highlight: "Baton now tells agents which version it actually is.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "The MCP server reported Baton as version \u{201C}0.1.0\u{201D} to every "
+                        + "connected agent \u{2014} in the connection handshake and in the "
+                        + "discovery file agents read \u{2014} no matter which version was "
+                        + "actually running. It now reports the real one."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.7",
             date: "2026",
             highlight: "Try the Navidrome demo server from Settings too — not just on the very "
