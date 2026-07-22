@@ -8,3 +8,4 @@ app/Info.plist
 # Local Sentry DSN override (the base xcconfig + .example are committed; the
 # real DSN lives here and must never be committed or mirrored).
 app/Config/Sentry.local.xcconfig
+website/appcast.xml
