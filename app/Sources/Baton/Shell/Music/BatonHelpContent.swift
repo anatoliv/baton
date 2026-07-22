@@ -227,6 +227,22 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.7",
+            date: "2026",
+            highlight: "Try the Navidrome demo server from Settings too — not just on the very "
+                + "first screen.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Settings \u{2192} Servers \u{2192} Add Server now offers \u{201C}Try "
+                        + "the demo server\u{201D}, the same one-click prefill as the first-run "
+                        + "connect screen. Previously it was reachable only before you\u{2019}d "
+                        + "connected anything, so there was no easy way to add the demo "
+                        + "alongside your own library."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.6",
             date: "2026",
             highlight: "A fix for the full-screen player\u{2019}s artwork sitting still when it "
