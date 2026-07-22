@@ -68,6 +68,12 @@ coordinate **audio focus** (duck the music while you dictate, then bring it back
 design, tool catalog, and security model are in
 [`docs/04-integration-and-mcp.md`](docs/04-integration-and-mcp.md).
 
+![Baton's Agents settings pane: the MCP server's status, loopback endpoint, masked bearer token,
+fast-path socket, the discovery file agents read, and a ready-to-paste client configuration
+block](screenshots/baton-agents.png)
+
+<sub>The bearer token is masked in this screenshot; the app shows it only when you reveal it.</sub>
+
 > **Status:** the control server is live while Baton is running. It exposes 28 `music_*`
 > operations (including `music_build_mix`), the `audio_suspend` / `audio_resume` focus
 > hand-off, and a `speak_summary` tool; it publishes now-playing, queue, playlists, liked,
