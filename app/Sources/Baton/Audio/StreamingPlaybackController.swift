@@ -36,6 +36,10 @@ final class StreamingPlaybackController {
         let id = UUID()
         let text: String
         let symbol: String
+        /// How long the UI holds it. Confirmations ("Added to queue") are glanceable, but a
+        /// failure now carries a diagnosis ("HTTP 401 · missing bearer token") that can't be read
+        /// in the default beat — so callers reporting an error ask for longer.
+        var seconds: Double = 1.9
     }
 
     private(set) var toast: Toast?
@@ -43,8 +47,12 @@ final class StreamingPlaybackController {
     /// Post a transient confirmation toast (auto-dismissed by the UI). Call from the main
     /// actor; several actions across the browse rows funnel their feedback through here so
     /// there's always a visible response even when the queue popover isn't open.
-    func postToast(_ text: String, symbol: String = "checkmark.circle.fill") {
-        toast = Toast(text: text, symbol: symbol)
+    func postToast(
+        _ text: String,
+        symbol: String = "checkmark.circle.fill",
+        seconds: Double = 1.9
+    ) {
+        toast = Toast(text: text, symbol: symbol, seconds: seconds)
     }
 
     /// Ordered play queue. Persisted across launches.
