@@ -587,17 +587,44 @@ Most of these come from the **Playback** menu, which is available anywhere in th
 | Play or pause | Command, Control, P |
 | Next track | Command, Control, Right |
 | Previous track | Command, Control, Left |
+| Skip back ten seconds | Option, Command, Left |
+| Skip forward ten seconds | Option, Command, Right |
 | Volume up | Command, Control, Up |
 | Volume down | Command, Control, Down |
 | Mute or unmute | Command, Control, M |
+| Like or unlike the current track | Command, Control, L |
+| Rate the current track | Command, Control, 1 to 5 |
+| Clear the rating | Command, Control, 0 |
+| Get info about the current track | Command, I |
+| Show the queue | Command, U |
 | Collapse or expand the player bar | Command, Control, J |
 | Open the mini-player | Command, Option, M |
 | Open the equalizer | Option, Command, E |
 | Open Settings | Command, comma |
 
+And for moving around your library:
+
+| Action | Shortcut |
+|---|---|
+| Go to a section in the sidebar | Command, 1 to 9 |
+| Find | Command, F |
+| Show what's playing now | Command, 0 |
+| Refresh the library from the server | Command, R |
+| Replay the last spoken summary | Command, Control, R |
+| Stop speaking | Command, Control, period |
+
 The Playback menu also holds **Shuffle**, **Repeat**, and the **Sleep Timer**. In the
-full-screen player, **Space** toggles play and pause and **Escape** exits. In browse lists,
-**Command and A** selects everything.
+full-screen player, **Space** toggles play and pause and **Escape** exits.
+
+In song lists — Liked, search results, and the tracks inside an album or playlist — click the
+list once, then use the **up and down arrows** to move through it. **Return** plays the
+highlighted track and **Command and Return** queues it up next. **Command and A** selects
+everything, and in the queue the **Delete** key removes the row you're pointing at.
+
+Baton also follows the system **Reduce Motion** setting (System Settings → Accessibility →
+Display). Turn it on and the continuous animations — the breathing artwork in the full-screen
+player, the equalizer bars, the zoom on hover — hold still, while hover and selection stay
+just as visible.
 
 ---
 

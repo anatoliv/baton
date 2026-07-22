@@ -12,6 +12,7 @@ struct ClientPodcastsView: View {
     @State private var selected: PodcastChannel?
     @State private var filterText = ""
     @State private var showingAdd = false
+    @State private var refreshing = false
     @State private var showSel = MusicMultiSelect()
     @FocusState private var filterFocused: Bool
     @AppStorage("tonebox.music.clientPodcastLayout") private var layout: MusicBrowseLayout = .grid
@@ -49,19 +50,18 @@ struct ClientPodcastsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let selected, let live = store.channels.first(where: { $0.id == selected.id }) {
-                ClientPodcastChannelDetail(channel: live) { self.selected = nil }
-            } else {
-                browser
+        browser
+            // Push onto the ambient NavigationStack (from `MusicView`) for back-swipe / ⌘[ parity
+            // with the rest of the app. Re-derive the live channel so freshly-fetched episodes show.
+            .navigationDestination(item: $selected) { channel in
+                ClientPodcastChannelDetail(channel: store.channels.first(where: { $0.id == channel.id }) ?? channel)
             }
-        }
-        .task { await store.loadIfNeeded() }
-        .onChange(of: store.channels) { _, channels in
-            // A removed show shouldn't strand the detail view on nothing.
-            if let selected, !channels.contains(where: { $0.id == selected.id }) { self.selected = nil }
-        }
-        .sheet(isPresented: $showingAdd) { AddPodcastSheet() }
+            .task { await store.loadIfNeeded() }
+            .onChange(of: store.channels) { _, channels in
+                // A removed show shouldn't strand the detail view on nothing.
+                if let selected, !channels.contains(where: { $0.id == selected.id }) { self.selected = nil }
+            }
+            .sheet(isPresented: $showingAdd) { AddPodcastSheet() }
     }
 
     // MARK: - Browser
@@ -82,7 +82,11 @@ struct ClientPodcastsView: View {
                     accessory: { EmptyView() },
                     // Add Show lives on the second row (leading), matching Radio's Add Station.
                     leading: {
-                        if showSel.isEmpty { addButton } else { showSelectionBar }
+                        if showSel.isEmpty {
+                            HStack(spacing: 8) { addButton; refreshButton }
+                        } else {
+                            showSelectionBar
+                        }
                     },
                     sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
                 )
@@ -128,6 +132,22 @@ struct ClientPodcastsView: View {
         Button { showingAdd = true } label: { Label("Add Show", systemImage: "plus") }
             .buttonStyle(.borderless)
             .help("Subscribe to a podcast by its RSS feed URL")
+    }
+
+    /// Refresh all feeds from the header — previously only reachable by first selecting a show.
+    private var refreshButton: some View {
+        Button {
+            Task { refreshing = true; await store.refresh(); refreshing = false }
+        } label: {
+            if refreshing {
+                ProgressView().controlSize(.small)
+            } else {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(refreshing)
+        .help("Check all subscribed feeds for new episodes")
     }
 
     private var channelsScroll: some View {
@@ -364,8 +384,8 @@ private struct ClientPodcastListRow: View {
 /// per-episode download step, unlike the server-side podcasts.
 private struct ClientPodcastChannelDetail: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     let channel: PodcastChannel
-    let onBack: () -> Void
 
     /// Hero artwork, decoded once (mirrors the album/artist page — a direct feed image URL,
     /// loaded into an `Image` so the banner backdrop doesn't flicker on re-render).
@@ -419,7 +439,7 @@ private struct ClientPodcastChannelDetail: View {
                     heroImage: heroImage,
                     accentColor: ArtistMonogram.color(channel.title),
                     placeholderIcon: "mic",
-                    onBack: onBack
+                    onBack: { dismiss() }
                 )
                 if let description = channel.description {
                     Text(description)

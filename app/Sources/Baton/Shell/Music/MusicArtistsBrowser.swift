@@ -132,7 +132,7 @@ extension View {
             Button("Mark for removal", role: .destructive, action: confirm)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every track by this artist will be unliked and rated lowest (★) — the signal your pipeline uses to prune it. Subsonic can't delete files directly.")
+            Text("Every track by this artist will be unliked and rated lowest (★) so a library-cleanup tool can remove them later. Subsonic can't delete files directly.")
         }
     }
 }
@@ -280,7 +280,7 @@ struct MusicArtistsBrowser: View {
             Button("Mark All for Removal", role: .destructive) { batchRemove() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every track by the selected artists is unliked and rated 1 star — the signal the cleanup pipeline uses to prune them.")
+            Text("Every track by the selected artists is unliked and rated 1 star, so a library-cleanup tool can remove them later.")
         }
     }
 
@@ -532,7 +532,7 @@ struct ArtistGridCell: View {
                     .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
             }
         }
-        .scaleEffect(hovering ? 1.06 : 1)
+        .hoverLift(hovering)
         .zIndex(hovering ? 1 : 0)
         .animation(.easeOut(duration: 0.16), value: hovering)
         .onHover { hovering = $0 }

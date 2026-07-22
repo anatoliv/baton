@@ -19,6 +19,12 @@ struct MiniPlayerWindowView: View {
     @State private var paletteLoader = ArtworkPaletteLoader()
 
     private var player: StreamingPlaybackController { model.music }
+    private var radio: InternetRadioStore { model.internetRadio }
+    /// While a station is on air it ducks the library player, so the mini player reflects the radio
+    /// transport instead of the stale library track — matching `NowPlayingBar`'s takeover.
+    private var radioStation: NavidromeRadioStation? { radio.onAirStation }
+    private var isRadio: Bool { radioStation != nil }
+    private var isPlaying: Bool { isRadio ? radio.engine.isPlaying : player.isPlaying }
 
     private var artworkURL: URL? {
         player.nowPlaying?.displayArtworkURL(size: 120) { id, size in
@@ -42,30 +48,39 @@ struct MiniPlayerWindowView: View {
         VStack(spacing: 10) {
             header
 
-            // The scrubber renders its own elapsed / −remaining time labels.
-            MusicScrubber(currentTime: player.currentTime, duration: player.duration, tint: accent) {
-                player.seek(to: $0)
+            // The scrubber renders its own elapsed / −remaining time labels. Radio has no
+            // duration to seek, so it's hidden while a station is on air.
+            if !isRadio {
+                MusicScrubber(currentTime: player.currentTime, duration: player.duration, tint: accent) {
+                    player.seek(to: $0)
+                }
             }
 
             transport
 
             if expanded {
+                // Volume governs the library player and, on air, the radio stream too.
                 MusicVolumeControl(
                     percent: player.volumePercent,
                     isMuted: player.isMuted,
                     tint: accent,
-                    onChange: { player.setVolume(percent: $0) },
-                    onToggleMute: { player.toggleMute() }
+                    onChange: { player.setVolume(percent: $0); if isRadio { radio.engine.setVolume(percent: $0) } },
+                    onToggleMute: { player.toggleMute(); if isRadio { radio.engine.setMuted(player.isMuted) } }
                 )
-                ratingRow
-                upNextSection
+                // Rating + Up Next are library-only — radio has neither.
+                if !isRadio {
+                    ratingRow
+                    upNextSection
+                }
             }
 
             expandToggle
         }
         .animation(.easeInOut(duration: 0.2), value: expanded)
         .onAppear { paletteLoader.update(url: artworkURL) }
-        .onChange(of: player.nowPlaying?.coverArtID) { _, _ in paletteLoader.update(url: artworkURL) }
+        // Key on the song id, not coverArtID — podcast episodes share a nil coverArtID (their art is
+        // a direct URL), so keying on the cover id would never refresh the wash between episodes.
+        .onChange(of: player.nowPlaying?.id) { _, _ in paletteLoader.update(url: artworkURL) }
         // Return-to-full-player, pinned to the panel's top-right corner.
         .overlay(alignment: .topTrailing) { expandButton }
         .padding(14)
@@ -75,28 +90,47 @@ struct MiniPlayerWindowView: View {
         .background(MiniPlayerWindowConfigurator())
     }
 
-    /// Artwork + title (both open the full player) + "Playing from …" + like.
-    private var header: some View {
-        HStack(spacing: 12) {
-            artwork
-                .onTapGesture { openFull() }
-                .help("Open full player")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(player.nowPlaying?.title ?? "Nothing playing")
-                    .font(.callout.weight(.semibold)).lineLimit(1)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if player.nowPlaying != nil { openFull() } }
-                Text(player.nowPlaying?.displayArtistName ?? "")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                if let context = playingFrom {
-                    Text(context).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+    /// Artwork + title (both open the full player) + "Playing from …" + like. Radio takes over with
+    /// station art / name / live track and an "On air" line (no like — a station can't be liked).
+    @ViewBuilder private var header: some View {
+        if let station = radioStation {
+            HStack(spacing: 12) {
+                RadioArtworkView(station: station, cornerRadius: 8)
+                    .frame(width: 52, height: 52)
+                    .onTapGesture { openFull() }
+                    .help("Open full player")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(station.name).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text(radio.engine.nowPlayingTitle ?? "On air · live")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Label("On air", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption2).foregroundStyle(Color.accentColor).lineLimit(1)
                 }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
-            likeButton
+            .padding(.trailing, 22)
+        } else {
+            HStack(spacing: 12) {
+                artwork
+                    .onTapGesture { openFull() }
+                    .help("Open full player")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(player.nowPlaying?.title ?? "Nothing playing")
+                        .font(.callout.weight(.semibold)).lineLimit(1)
+                        .contentShape(Rectangle())
+                        .onTapGesture { if player.nowPlaying != nil { openFull() } }
+                    Text(player.nowPlaying?.displayArtistName ?? "")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if let context = playingFrom {
+                        Text(context).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                likeButton
+            }
+            // Reserve room so the title never runs under the corner expand button.
+            .padding(.trailing, 22)
         }
-        // Reserve room so the title never runs under the corner expand button.
-        .padding(.trailing, 22)
     }
 
     private var playingFrom: String? {
@@ -169,40 +203,63 @@ struct MiniPlayerWindowView: View {
         dismissWindow(id: MiniPlayerWindowView.windowID)
     }
 
-    /// Shuffle · previous · play/pause · next · repeat — parity with the full-screen player.
-    private var transport: some View {
-        HStack(spacing: 20) {
-            Button { player.toggleShuffle() } label: {
-                Image(systemName: "shuffle")
-                    .foregroundStyle(player.isShuffled ? accent : .secondary)
-            }
-            .help("Shuffle")
-            .accessibilityLabel("Shuffle")
-            .accessibilityValue(player.isShuffled ? "On" : "Off")
-            Button { player.previous() } label: { Image(systemName: "backward.fill") }
-                .accessibilityLabel("Previous track")
-            Button { player.isPlaying ? player.pause() : player.resume() } label: {
-                ZStack {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+    /// Shuffle · previous · play/pause · next · repeat — parity with the full-screen player. Radio
+    /// swaps in prev/next-station and drops shuffle/repeat (a stream has no queue to shuffle).
+    @ViewBuilder private var transport: some View {
+        if isRadio {
+            HStack(spacing: 20) {
+                Button { radio.playAdjacent(-1) } label: { Image(systemName: "backward.fill") }
+                    .help("Previous station")
+                    .accessibilityLabel("Previous station")
+                Button { radio.engine.isPlaying ? radio.engine.pause() : radio.engine.resume() } label: {
+                    Image(systemName: radio.engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 32))
-                        .opacity(player.isBuffering ? 0 : 1)
-                    if player.isBuffering { ProgressView().controlSize(.small) }
                 }
+                .accessibilityLabel(radio.engine.isPlaying ? "Pause" : "Play")
+                Button { radio.playAdjacent(1) } label: { Image(systemName: "forward.fill") }
+                    .help("Next station")
+                    .accessibilityLabel("Next station")
             }
-            .disabled(player.nowPlaying == nil)
-            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-            Button { player.next() } label: { Image(systemName: "forward.fill") }
-                .accessibilityLabel("Next track")
-            Button { player.cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                    .foregroundStyle(player.repeatMode == .off ? .secondary : accent)
+            .buttonStyle(.plain)
+            .font(.title3)
+        } else {
+            HStack(spacing: 20) {
+                Button { player.toggleShuffle() } label: {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(player.isShuffled ? accent : .secondary)
+                }
+                .help("Shuffle")
+                .accessibilityLabel("Shuffle")
+                .accessibilityValue(player.isShuffled ? "On" : "Off")
+                .disabled(player.queue.isEmpty)
+                Button { player.previous() } label: { Image(systemName: "backward.fill") }
+                    .disabled(player.queue.isEmpty)
+                    .accessibilityLabel("Previous track")
+                Button { player.isPlaying ? player.pause() : player.resume() } label: {
+                    ZStack {
+                        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 32))
+                            .opacity(player.isBuffering ? 0 : 1)
+                        if player.isBuffering { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(player.nowPlaying == nil)
+                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+                Button { player.next() } label: { Image(systemName: "forward.fill") }
+                    .disabled(player.queue.isEmpty)
+                    .accessibilityLabel("Next track")
+                Button { player.cycleRepeat() } label: {
+                    Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                        .foregroundStyle(player.repeatMode == .off ? .secondary : accent)
+                }
+                .help("Repeat")
+                .accessibilityLabel("Repeat")
+                .accessibilityValue(player.repeatMode.rawValue)
+                .disabled(player.queue.isEmpty)
             }
-            .help("Repeat")
-            .accessibilityLabel("Repeat")
-            .accessibilityValue(player.repeatMode.rawValue)
+            .buttonStyle(.plain)
+            .font(.title3)
         }
-        .buttonStyle(.plain)
-        .font(.title3)
     }
 
     /// Like / unlike the current track (heart, pink when liked).

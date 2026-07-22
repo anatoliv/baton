@@ -33,13 +33,22 @@ final class SpeechHistoryStore {
         load()
     }
 
-    /// Record a spoken summary at the top of the history, trimming to `maxEntries`.
-    func record(text: String, voice: String?, engine: String, category: String?) {
+    /// Record a spoken summary at the top of the history, trimming to `maxEntries`. Returns the new
+    /// entry's id so callers can mark it as the now-playing summary.
+    @discardableResult
+    func record(text: String, voice: String?, engine: String, category: String?) -> Entry.ID {
         let entry = Entry(id: UUID(), text: text, voice: voice, engine: engine, category: category, date: Date())
         entries.insert(entry, at: 0)
         if entries.count > Self.maxEntries {
             entries.removeLast(entries.count - Self.maxEntries)
         }
+        save()
+        return entry.id
+    }
+
+    /// Remove a single summary from the history (per-row delete in the Spoken Summaries window).
+    func remove(_ entry: Entry) {
+        entries.removeAll { $0.id == entry.id }
         save()
     }
 

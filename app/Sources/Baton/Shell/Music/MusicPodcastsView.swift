@@ -32,6 +32,8 @@ struct MusicPodcastsView: View {
 /// maps to a `NavidromeSong` by its `streamID`, the same media id `stream`/`getSong` use.
 struct ServerPodcastsView: View {
     @Environment(MusicModel.self) private var model
+    /// Optional so the view still previews/renders outside the main window's router.
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
 
     @State private var channels: [NavidromePodcastChannel] = []
     @State private var newest: [NavidromePodcastEpisode] = []
@@ -81,14 +83,19 @@ struct ServerPodcastsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let selected {
-                MusicPodcastChannelDetail(channel: selected) { self.selected = nil }
-            } else {
-                channelBrowser
+        channelBrowser
+            // Push the channel onto the ambient NavigationStack (from `MusicView`) so back-swipe,
+            // ⌘[, and the animated push match Albums/Artists/Playlists. Selecting a channel sets
+            // `selected`; popping clears it.
+            .navigationDestination(item: $selected) { channel in
+                MusicPodcastChannelDetail(channel: channel)
             }
-        }
-        .task { await loadIfNeeded() }
+            .task { await loadIfNeeded() }
+            // ⌘R Refresh Library: `loadIfNeeded` is one-shot per launch, so without this the
+            // server's channels stay as they were when the tab first opened.
+            .onChange(of: router?.refreshLibraryToken) { _, _ in
+                Task { loaded = false; await loadIfNeeded() }
+            }
     }
 
     // MARK: - Channel browser
@@ -209,17 +216,17 @@ struct ServerPodcastsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 40)
     }
 
-    /// Shown when the server can't serve podcasts at all — it doesn't implement the Subsonic
-    /// podcast API. The Podcasts nav item normally hides on such servers; this covers the brief
-    /// window before that probe resolves, and the case where the tab was already open.
+    /// Shown for the brief window between detecting the server can't serve podcasts and the router
+    /// swapping to Baton's own client-side subscriptions (which handle exactly this case). Recording
+    /// the `.unsupported` verdict flips `MusicPodcastsView` to `ClientPodcastsView`, so this is
+    /// transient — the copy just needs to be honest if it flashes.
     private var unsupportedState: some View {
         VStack(spacing: 8) {
             Image(systemName: "mic.slash").font(.system(size: 34)).foregroundStyle(.secondary)
-            Text("Podcasts aren't available on this server").font(.headline)
-            Text("Your music server doesn't implement the Subsonic podcast API, so Baton can't "
-                + "list or play podcasts from it — Navidrome, in particular, doesn't support "
-                + "podcasts. A future Baton update will add its own podcast subscriptions that "
-                + "work with any server.")
+            Text("Switching to Baton's podcast subscriptions").font(.headline)
+            Text("This server doesn't implement the Subsonic podcast API (Navidrome doesn't), so "
+                + "Baton uses its own RSS subscriptions instead — they work with any server. "
+                + "One moment…")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 40)
@@ -254,6 +261,7 @@ struct ServerPodcastsView: View {
             channels = try await channelList
             newest = latest ?? []
             model.podcastCapability.record(.supported)
+            registerEpisodes()
         } catch {
             // A 501/404 means the server has no podcast API — show the honest "unsupported"
             // state and tell the shared store so the nav item hides. Anything else is a real
@@ -265,6 +273,25 @@ struct ServerPodcastsView: View {
                 loadError = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
             }
         }
+    }
+
+    /// Teach the app which playback ids are server podcast episodes. Their `streamID`s are opaque
+    /// Subsonic ids, so without this the player would treat them as library tracks: no resume, no
+    /// progress recorded, no "Continue listening" on Home — and they'd scrobble as music.
+    private func registerEpisodes() {
+        let all = channels.flatMap { channel in
+            channel.episodes.compactMap { episode -> PodcastProgressStore.ServerEpisode? in
+                guard let streamID = episode.streamID else { return nil }
+                return PodcastProgressStore.ServerEpisode(
+                    id: streamID,
+                    title: episode.title,
+                    channel: channel.title,
+                    coverArtID: episode.coverArtID ?? channel.coverArtID,
+                    duration: episode.duration.map(Double.init)
+                )
+            }
+        }
+        model.podcastProgress.registerServerEpisodes(all)
     }
 }
 
@@ -436,8 +463,8 @@ private struct LatestEpisodeCard: View {
 /// rest of the show. Only "completed" episodes carry a stream id — the others render disabled.
 private struct MusicPodcastChannelDetail: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     let channel: NavidromePodcastChannel
-    let onBack: () -> Void
 
     @State private var episodes: [NavidromePodcastEpisode]
     @State private var loading = false
@@ -447,9 +474,8 @@ private struct MusicPodcastChannelDetail: View {
     /// server and then reconcile.
     @State private var downloading: Set<String> = []
 
-    init(channel: NavidromePodcastChannel, onBack: @escaping () -> Void) {
+    init(channel: NavidromePodcastChannel) {
         self.channel = channel
-        self.onBack = onBack
         _episodes = State(initialValue: channel.episodes)
     }
 
@@ -470,7 +496,7 @@ private struct MusicPodcastChannelDetail: View {
                     heroImage: heroImage,
                     accentColor: ArtistMonogram.color(channel.title),
                     placeholderIcon: "mic",
-                    onBack: onBack
+                    onBack: { dismiss() }
                 )
 
                 if let description = channel.description {
@@ -547,7 +573,28 @@ private struct MusicPodcastChannelDetail: View {
         if let client = try? NavidromeConfig.makeClient(),
            let full = try? await client.getPodcastChannel(id: channel.id) {
             episodes = full.episodes
+            registerEpisodes()
         }
+    }
+
+    /// Keep the server-episode registry in step with this list. The tab-level load registers what
+    /// it fetched, but an episode only gains a `streamID` once the server finishes downloading it —
+    /// so episodes that become playable here would otherwise be unknown to the player (no resume,
+    /// no progress, and they'd scrobble as music).
+    private func registerEpisodes() {
+        model.podcastProgress.registerServerEpisodes(
+            episodes.compactMap { episode in
+                episode.streamID.map {
+                    PodcastProgressStore.ServerEpisode(
+                        id: $0,
+                        title: episode.title,
+                        channel: channel.title,
+                        coverArtID: episode.coverArtID ?? channel.coverArtID,
+                        duration: episode.duration.map(Double.init)
+                    )
+                }
+            }
+        )
     }
 
     /// Asks the server to download a not-yet-downloaded episode, then reconciles the list so the
@@ -567,6 +614,7 @@ private struct MusicPodcastChannelDetail: View {
                 try? await Task.sleep(nanoseconds: 1_200_000_000)
                 if let full = try? await client.getPodcastChannel(id: channel.id) {
                     episodes = full.episodes
+                    registerEpisodes()
                 }
             } catch {
                 model.music.postToast("Download failed", symbol: "exclamationmark.triangle.fill")
@@ -588,21 +636,34 @@ private struct PodcastEpisodeRow: View {
     let onPlay: () -> Void
     @State private var hover = false
 
+    /// The episode's playback id is its `streamID` — the same key the progress store uses — so
+    /// resume/played state works for server podcasts exactly as for client ones.
+    private var pid: String? { episode.streamID }
+    private var isPlayed: Bool { pid.map { model.podcastProgress.isPlayed(id: $0) } ?? false }
+    private var progressFraction: Double? {
+        guard let pid, let f = model.podcastProgress.fraction(id: pid), f > 0, f < 1 else { return nil }
+        return f
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: isCurrent ? "speaker.wave.2.fill" : "mic")
                 .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
                 .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(episode.title)
                     .font(.body)
-                    .foregroundStyle(episode.isPlayable ? .primary : .secondary)
+                    .foregroundStyle(isCurrent ? Color.accentColor : (isPlayed ? .secondary : (episode.isPlayable ? .primary : .secondary)))
                     .lineLimit(1)
                 if let meta = metaLine {
                     Text(meta).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
+                if let fraction = progressFraction { progressBar(fraction) }
             }
             Spacer()
+            if isPlayed, !isCurrent {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary).help("Played")
+            }
             trailing
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
@@ -610,6 +671,29 @@ private struct PodcastEpisodeRow: View {
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { if episode.isPlayable { onPlay() } }
+        .contextMenu {
+            if episode.isPlayable { Button("Play", systemImage: "play.fill", action: onPlay) }
+            if let pid {
+                if isPlayed {
+                    Button("Mark as Unplayed", systemImage: "circle") { model.podcastProgress.markUnplayed(id: pid) }
+                } else {
+                    Button("Mark as Played", systemImage: "checkmark.circle") { model.podcastProgress.markPlayed(id: pid) }
+                }
+            }
+            if !episode.isPlayable, !isDownloading, !episode.isDownloadingOnServer {
+                Button("Download", systemImage: "arrow.down.circle", action: onDownload)
+            }
+        }
+    }
+
+    private func progressBar(_ fraction: Double) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.25))
+                Capsule().fill(Color.accentColor).frame(width: max(2, geo.size.width * fraction))
+            }
+        }
+        .frame(height: 3).frame(maxWidth: 220)
     }
 
     /// Trailing control: play (playable, on hover/current), a download progress spinner
@@ -638,7 +722,10 @@ private struct PodcastEpisodeRow: View {
     private var metaLine: String? {
         var parts: [String] = []
         if let date = episode.publishDate.flatMap(Self.formatDate) { parts.append(date) }
-        if let seconds = episode.duration, seconds > 0 {
+        // Prefer "N min left" while an episode is in progress; else its total length.
+        if let pid, let remaining = model.podcastProgress.remaining(id: pid), remaining > 60 {
+            parts.append("\(Int(remaining / 60)) min left")
+        } else if let seconds = episode.duration, seconds > 0 {
             parts.append(String(format: "%d min", max(1, seconds / 60)))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

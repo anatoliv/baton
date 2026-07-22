@@ -96,7 +96,7 @@ struct BatonApp: App {
         .commands {
             BatonAppCommands(model: music)
             GoMenuCommands(router: commandRouter)
-            PlaybackMenuCommands(model: music)
+            PlaybackMenuCommands(model: music, router: commandRouter)
             // "Check for Updates…" under About (disabled until the appcast
             // channel is live). See SparkleUpdater / UpdateChannel.
             UpdatesMenuCommands()
@@ -145,20 +145,22 @@ struct BatonApp: App {
         .defaultSize(width: 1040, height: 660)
         .defaultPosition(.center)
 
-        // Spoken-summary history — replay any past summary an agent spoke through Baton.
+        // Spoken-summary history — a two-pane window: the history list on the left, the same player
+        // card as the floating speaking HUD on the right, so a replay plays inline here.
         Window("Spoken Summaries", id: SpeechHistoryView.windowID) {
             SpeechHistoryView()
                 .environment(music)
                 .tint(.batonOrange)
         }
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 460, height: 560)
-        .defaultPosition(.center)
+        // First-run size only; thereafter `SummariesWindowAccessor` restores the saved frame
+        // (size + position) via AppKit autosave, so the window reopens where you left it.
+        .defaultSize(width: 720, height: 560)
 
         // Always-available menu-bar controller — current track + compact transport,
         // reachable even when every window is closed. Binds to live player state.
         MenuBarExtra {
-            BatonMenuBarContent(model: music)
+            BatonMenuBarContent(model: music, router: commandRouter)
         } label: {
             BatonMenuBarLabel(model: music)
         }
