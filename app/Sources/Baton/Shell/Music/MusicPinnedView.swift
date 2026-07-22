@@ -10,6 +10,7 @@ struct MusicPinnedView: View {
 
     @State private var filterText = ""
     @State private var kindFilter: PinnedItem.Kind?
+    @State private var showClearConfirm = false
     @FocusState private var filterFocused: Bool
     @AppStorage("tonebox.music.laterLayout") private var layout: MusicBrowseLayout = .list
 
@@ -66,6 +67,12 @@ struct MusicPinnedView: View {
             }
         }
         .task { store.loadIfNeeded() }
+        // Destructive, so confirm — matching History/Downloads/Playlists clear flows.
+        .confirmationDialog("Clear all saved items?", isPresented: $showClearConfirm, titleVisibility: .visible) {
+            Button("Clear All", role: .destructive) { store.clear() }
+        } message: {
+            Text("Removes all \(store.pins.count) items from Later. The songs, albums, and shows themselves aren't affected.")
+        }
     }
 
     /// Inline All / Album / Episode … segmented pills — the Later analogue of Liked's
@@ -100,7 +107,7 @@ struct MusicPinnedView: View {
 
     private var clearMenu: some View {
         Menu {
-            Button("Clear All…", role: .destructive) { store.clear() }
+            Button("Clear All…", role: .destructive) { showClearConfirm = true }
         } label: {
             Image(systemName: "ellipsis.circle").font(.callout).foregroundStyle(.secondary)
         }
@@ -282,7 +289,7 @@ private struct PinnedCard: View {
             isPlayingSource: isCurrent,
             onPlay: onPlay
         )
-        .scaleEffect(hover ? 1.06 : 1)
+        .hoverLift(hover)
         .zIndex(hover ? 1 : 0)
         .animation(.easeOut(duration: 0.16), value: hover)
         .onHover { hover = $0 }

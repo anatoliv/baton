@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The full in-app music player: search + browse (albums / artists / playlists /
@@ -29,6 +30,13 @@ struct MusicView: View {
     @AppStorage("tonebox.music.playlistLayout") private var playlistLayout: MusicBrowseLayout = .grid
     /// Collapse the left rail to an icons-only strip. Persisted.
     @AppStorage("tonebox.music.railCollapsed") private var railCollapsed = false
+    /// Sidebar sections the user has hidden (comma-separated `MusicTab` raw values). Home is never
+    /// hideable, and hidden sections stay reachable from the Go menu.
+    @AppStorage("baton.sidebar.hiddenTabs") private var hiddenTabsCSV = ""
+    /// The library-error banner text the user has dismissed (hidden until a *different* error occurs).
+    @State private var dismissedError: String?
+    /// Keyboard-nav focus row in the Albums list layout (↑/↓ move, Return opens).
+    @State private var albumKbIndex: Int?
     /// Close action for the pop-out window (nil inline). Drives the rail's close button.
     @Environment(\.musicWindowClose) private var windowClose
     @State private var closeHovering = false
@@ -40,6 +48,21 @@ struct MusicView: View {
     @State private var showPlaylistDeleteConfirm = false
     @FocusState private var albumFilterFocused: Bool
     @FocusState private var playlistFilterFocused: Bool
+
+    /// Whether the user is currently typing in a text field anywhere in the app.
+    ///
+    /// A focused SwiftUI `TextField` on macOS makes the window's shared field editor (an
+    /// `NSTextView`) the first responder, so this is the reliable cross-window test. Used to keep
+    /// the global Space = Play/Pause handler from stealing the space bar mid-word — SwiftUI hands
+    /// the key to the focusable *ancestor* before the focused text field, so the handler has to
+    /// stand down explicitly.
+    static var isEditingText: Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+        if responder is NSTextView { return true }
+        // A plain NSTextField that is its own responder (no field editor yet).
+        if let field = responder as? NSTextField { return field.isEditable }
+        return false
+    }
 
     private var orderedAlbumIDs: [String] { filteredAlbums.map(\.id) }
     private var selectedAlbums: [NavidromeAlbum] { filteredAlbums.filter { albumSel.contains($0.id) } }
@@ -249,13 +272,32 @@ struct MusicView: View {
                     path = NavigationPath()
                     withAnimation(.spring(response: 0.42, dampingFraction: 0.85)) { showFullScreen = true }
                 }
+                // ⌘R — refetch every collection (and radio/podcast stores) for a server whose
+                // content changed while Baton was open; the per-tab `if empty` guards otherwise
+                // never re-fetch. A toast confirms.
+                .onChange(of: router.refreshLibraryToken) { _, _ in
+                    dismissedError = nil
+                    Task {
+                        await library.reloadAll()
+                        await model.internetRadio.reload()
+                        await model.podcastSubscriptions.refresh()
+                        model.music.postToast("Library refreshed", symbol: "arrow.clockwise")
+                    }
+                }
                 // Global Space = Play/Pause. Focusable so it receives the key when nothing else
-                // holds focus; a focused text field (search/filter) consumes Space itself, so
-                // typing spaces still works. (menu review #4 — verify on-device)
+                // holds focus. While the full-screen hero is up it owns Space (its play button has
+                // `.keyboardShortcut(.space)`), so this defers to avoid a double-toggle.
+                // (menu review #4)
+                //
+                // The text-field guard is load-bearing, not defensive: `.onKeyPress` on a focusable
+                // ancestor sees the key *before* a focused descendant TextField does, so without it
+                // every search/filter field silently ate spaces AND toggled playback — "daft punk"
+                // typed as "daftpunk" while the music stopped. Verified on-device.
                 .focusable()
                 .focusEffectDisabled()
                 .onKeyPress(.space) {
-                    guard model.music.nowPlaying != nil else { return .ignored }
+                    guard !showFullScreen, !Self.isEditingText, model.music.nowPlaying != nil
+                    else { return .ignored }
                     model.music.isPlaying ? model.music.pause() : model.music.resume()
                     return .handled
                 }
@@ -264,14 +306,45 @@ struct MusicView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 480)
+        // Track inspector (⌘I / "Get Info") — any row or the now-playing surface sets the song.
+        .sheet(item: inspectorSongBinding) { song in
+            MusicTrackInspector(song: song)
+        }
+    }
+
+    /// Binding into the model's inspector-song for the ⌘I "Get Info" sheet.
+    private var inspectorSongBinding: Binding<NavidromeSong?> {
+        Binding(get: { model.inspectorSong }, set: { model.inspectorSong = $0 })
     }
 
     /// Left navigation rail — sections + selection highlight. Collapses to an
     /// icons-only strip to save space; collapse toggle pinned top-right.
+    /// Sections the user has hidden from the rail (Home is never hideable).
+    private var hiddenTabs: Set<MusicTab> {
+        Set(hiddenTabsCSV.split(separator: ",").compactMap { MusicTab(rawValue: String($0)) })
+    }
+
+    /// The rail's visible sections — all minus the hidden ones.
+    private var visibleTabs: [MusicTab] {
+        let hidden = hiddenTabs
+        return MusicTab.allCases.filter { !hidden.contains($0) }
+    }
+
+    /// Hide a section from the rail; if it was selected, fall back to Home.
+    private func hideTab(_ item: MusicTab) {
+        guard item != .home else { return }
+        var hidden = hiddenTabs
+        hidden.insert(item)
+        hiddenTabsCSV = MusicTab.allCases.filter { hidden.contains($0) }.map(\.rawValue).joined(separator: ",")
+        if tab == item { tab = .home; path = NavigationPath() }
+    }
+
+    private func showAllTabs() { hiddenTabsCSV = "" }
+
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 3) {
             railHeader
-            ForEach(MusicTab.allCases) { item in
+            ForEach(visibleTabs) { item in
                 sidebarRow(item)
             }
             Spacer()
@@ -347,6 +420,16 @@ struct MusicView: View {
             .animation(.easeInOut(duration: 0.18), value: selected)
         }
         .buttonStyle(.plain)
+        // Right-click to hide a section from the rail (still reachable via the Go menu). Home can't
+        // be hidden; "Show All Sections" appears once anything is hidden.
+        .contextMenu {
+            if item != .home {
+                Button("Hide \(item.label)", systemImage: "eye.slash") { hideTab(item) }
+            }
+            if !hiddenTabs.isEmpty {
+                Button("Show All Sections", systemImage: "eye") { showAllTabs() }
+            }
+        }
     }
 
     /// The rail's top line: a single round **close** button (pop-out window only) and the
@@ -432,7 +515,11 @@ struct MusicView: View {
         case .downloads:
             MusicDownloadStore.shared.downloadedIDs.isEmpty ? nil : MusicDownloadStore.shared.downloadedIDs.count
         case .podcasts:
-            model.podcastSubscriptions.channels.isEmpty ? nil : model.podcastSubscriptions.channels.count
+            // On a server with native podcasts the tab shows *server* channels (not on the model),
+            // so the client-subscription count would be misleading — show no badge there. Only the
+            // client-side backend (what the badge can actually count) gets a badge.
+            model.podcastCapability.support == .supported || model.podcastSubscriptions.channels.isEmpty
+                ? nil : model.podcastSubscriptions.channels.count
         case .later:
             model.pins.pins.isEmpty ? nil : model.pins.pins.count
         }
@@ -440,11 +527,17 @@ struct MusicView: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            // Every browse tab (incl. Search) renders its own two-row header.
-            if let error = library.lastError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout).foregroundStyle(.orange)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
+            // A library-level error banner across every tab — now dismissible, so a transient error
+            // on one fetch doesn't haunt unrelated tabs until the next reload.
+            if let error = library.lastError, error != dismissedError {
+                HStack(spacing: 6) {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout).foregroundStyle(.orange)
+                    Spacer(minLength: 6)
+                    Button { dismissedError = error } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Dismiss")
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
             }
             tabContent
         }
@@ -513,27 +606,55 @@ struct MusicView: View {
                     BrowseColumns.header("Album", showTime: true, showRating: true, selectable: true, showGenre: true, showYear: true, showLike: true)
                         .padding(.horizontal, 10).padding(.vertical, 6)
                     Divider()
-                    ScrollView {
-                        LazyVStack(spacing: 2) {
-                            ForEach(filteredAlbums) { album in
-                                MusicAlbumRow(
-                                    album: album,
-                                    isSelected: albumSel.contains(album.id),
-                                    onToggleSelect: { albumSel.clicked(album.id, ordered: orderedAlbumIDs) }
-                                )
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 2) {
+                                ForEach(Array(filteredAlbums.enumerated()), id: \.element.id) { index, album in
+                                    MusicAlbumRow(
+                                        album: album,
+                                        isSelected: albumSel.contains(album.id),
+                                        highlighted: albumKbIndex == index,
+                                        onToggleSelect: { albumSel.clicked(album.id, ordered: orderedAlbumIDs) }
+                                    )
+                                    .id(album.id)
+                                }
                             }
+                            .padding(.vertical, 8)
                         }
-                        .padding(.vertical, 8)
+                        // Same loading/empty treatment as the grid — the list layout previously showed a
+                        // bare column header over nothing on a slow or empty fetch. (global banner owns errors)
+                        .contentState(
+                            ContentDisplayState.resolve(
+                                isLoading: library.isLoading && library.albums.isEmpty,
+                                error: nil,
+                                isEmpty: filteredAlbums.isEmpty
+                            ),
+                            emptyTitle: albumSearch.isEmpty ? "No albums" : "No matches",
+                            emptyMessage: albumSearch.isEmpty
+                                ? "This library has no albums yet."
+                                : "No albums match “\(albumSearch)”.",
+                            emptySymbol: "square.stack",
+                            onRetry: { Task { await library.loadAlbums() } }
+                        )
+                        // ↑/↓ move a highlighted album, Return opens it (navigates).
+                        .keyboardRowNavigation(
+                            highlighted: $albumKbIndex, count: filteredAlbums.count, proxy: proxy,
+                            idForIndex: { filteredAlbums[$0].id },
+                            onActivate: { path.append(filteredAlbums[$0]) }
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity).padding(.horizontal, 16)
             } else {
                 ScrollView { albumGrid(filteredAlbums).padding(12) }
+                    // The dismissible library banner owns error reporting (no double-report); the grid
+                    // handles loading/empty, and suppresses "empty" during an error so it isn't
+                    // mislabeled "No albums" while the banner explains the real failure.
                     .contentState(
                         ContentDisplayState.resolve(
                             isLoading: library.isLoading && library.albums.isEmpty,
-                            error: library.lastError,
-                            isEmpty: filteredAlbums.isEmpty
+                            error: nil,
+                            isEmpty: filteredAlbums.isEmpty && library.lastError == nil
                         ),
                         emptyTitle: albumSearch.isEmpty ? "No albums" : "No matches",
                         emptyMessage: albumSearch.isEmpty
@@ -553,7 +674,7 @@ struct MusicView: View {
             Button("Mark All for Removal", role: .destructive) { batchAlbumRemove() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every track in the selected albums is unliked and rated 1 star — the signal the cleanup pipeline uses to prune them.")
+            Text("Every track in the selected albums is unliked and rated 1 star, so a library-cleanup tool can remove them later.")
         }
     }
 
@@ -591,33 +712,33 @@ struct MusicView: View {
                     }
                 }
             )
-            if library.playlists.isEmpty {
-                VStack(spacing: 8) {
-                    Spacer()
-                    Image(systemName: "music.note.list").font(.largeTitle).foregroundStyle(.tertiary)
-                    Text("No playlists yet").foregroundStyle(.secondary)
-                    Text("Create one with “New Playlist”, or save a queue as a playlist.")
-                        .font(.callout).foregroundStyle(.tertiary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if filteredPlaylists.isEmpty {
-                VStack(spacing: 8) {
-                    Spacer()
-                    Image(systemName: "magnifyingglass").font(.largeTitle).foregroundStyle(.tertiary)
-                    Text("No playlists match “\(playlistSearch)”").foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if playlistLayout == .list {
-                VStack(spacing: 0) {
-                    BrowseColumns.header("Playlist", showTime: true, selectable: true)
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                    Divider()
+            Group {
+                if playlistLayout == .list {
+                    VStack(spacing: 0) {
+                        BrowseColumns.header("Playlist", showTime: true, selectable: true)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                        Divider()
+                        ScrollView {
+                            LazyVStack(spacing: 2) {
+                                ForEach(filteredPlaylists) { playlist in
+                                    MusicPlaylistRow(
+                                        playlist: playlist,
+                                        isSelected: playlistSel.contains(playlist.id),
+                                        onToggleSelect: { playlistSel.clicked(playlist.id, ordered: orderedPlaylistIDs) }
+                                    ) {
+                                        Task { await library.deletePlaylist(id: playlist.id) }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+                    .frame(maxWidth: .infinity).padding(.horizontal, 16)
+                } else {
                     ScrollView {
-                        LazyVStack(spacing: 2) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                             ForEach(filteredPlaylists) { playlist in
-                                MusicPlaylistRow(
+                                PlaylistGridCell(
                                     playlist: playlist,
                                     isSelected: playlistSel.contains(playlist.id),
                                     onToggleSelect: { playlistSel.clicked(playlist.id, ordered: orderedPlaylistIDs) }
@@ -626,26 +747,24 @@ struct MusicView: View {
                                 }
                             }
                         }
-                        .padding(.vertical, 8)
+                        .padding(12)
                     }
-                }
-                .frame(maxWidth: .infinity).padding(.horizontal, 16)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
-                        ForEach(filteredPlaylists) { playlist in
-                            PlaylistGridCell(
-                                playlist: playlist,
-                                isSelected: playlistSel.contains(playlist.id),
-                                onToggleSelect: { playlistSel.clicked(playlist.id, ordered: orderedPlaylistIDs) }
-                            ) {
-                                Task { await library.deletePlaylist(id: playlist.id) }
-                            }
-                        }
-                    }
-                    .padding(12)
                 }
             }
+            // Unified loading/empty treatment (was two hand-rolled VStacks + no loading state).
+            .contentState(
+                ContentDisplayState.resolve(
+                    isLoading: library.isLoading && library.playlists.isEmpty,
+                    error: nil,
+                    isEmpty: filteredPlaylists.isEmpty
+                ),
+                emptyTitle: playlistSearch.isEmpty ? "No playlists yet" : "No matches",
+                emptyMessage: playlistSearch.isEmpty
+                    ? "Create one with “New Playlist”, or save a queue as a playlist."
+                    : "No playlists match “\(playlistSearch)”.",
+                emptySymbol: "music.note.list",
+                onRetry: { Task { await library.loadPlaylists() } }
+            )
         }
         .task { if library.playlists.isEmpty { await library.loadPlaylists() } }
         .onChange(of: orderedPlaylistIDs) { playlistSel.reconcile(orderedPlaylistIDs) }
@@ -784,7 +903,7 @@ struct AlbumGridCell: View {
                         .padding(6).shadow(color: .black.opacity(0.4), radius: 2, y: 1)
                 }
             }
-            .scaleEffect(hovering ? 1.06 : 1)
+            .hoverLift(hovering)
             .zIndex(hovering ? 1 : 0)
             .animation(.easeOut(duration: 0.16), value: hovering)
             .onHover { hovering = $0 }

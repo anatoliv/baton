@@ -48,9 +48,40 @@ final class MusicModel {
     /// Bounded, persisted history of spoken summaries, so any past one can be replayed. (Speech)
     let speechHistory = SpeechHistoryStore()
 
-    /// Re-synthesize and play a past spoken summary from history, in its original voice.
+    /// True while the "Spoken Summaries" window is the key (focused) window — set by
+    /// `SpeechHistoryView`. When it is, that window shows the player inline in its detail pane, so
+    /// the floating speaking HUD stays hidden to avoid a redundant duplicate card on top of it.
+    /// The HUD's ambient role is untouched when the window isn't focused (or is closed).
+    var summariesWindowIsForeground = false
+
+    /// The history entry currently playing / most recently played, so the Spoken Summaries list can
+    /// highlight it and the detail pane can show its metadata. Set both when replaying from the list
+    /// and when a fresh summary is spoken (see `BatonMCPSpeakTools`).
+    var nowPlayingSummaryID: SpeechHistoryStore.Entry.ID?
+
+    /// The track whose info inspector is open (⌘I / "Get Info"). `MusicView` presents it as a sheet;
+    /// any row or the now-playing surface sets it. Nil when closed.
+    var inspectorSong: NavidromeSong?
+
+    /// Re-synthesize and play a past spoken summary from history, in its original voice. Stops any
+    /// current/paused utterance first so it starts *now* rather than queuing behind it — this is a
+    /// deliberate user action (Replay / the pane's Play), not an agent's FIFO summary.
     func replaySpokenSummary(_ entry: SpeechHistoryStore.Entry) {
+        nowPlayingSummaryID = entry.id
+        speech.cancel()
         Task { await SpeechSummaryReplay.play(entry, on: speech) }
+    }
+
+    /// Delete one summary from history, clearing the now-playing marker if it pointed at it.
+    func deleteSpokenSummary(_ entry: SpeechHistoryStore.Entry) {
+        if nowPlayingSummaryID == entry.id { nowPlayingSummaryID = nil }
+        speechHistory.remove(entry)
+    }
+
+    /// Clear all spoken-summary history and the now-playing marker together.
+    func clearSpokenSummaries() {
+        nowPlayingSummaryID = nil
+        speechHistory.clear()
     }
 
     /// Retained so the audio-mix closure keeps a strong reference to the tap processor.
@@ -68,6 +99,11 @@ final class MusicModel {
         musicEqualizer = MusicEqualizer(environment: environment)
         eqProcessor = AudioEQProcessor(coefficients: musicEqualizer.coefficients)
         scrobbler = ScrobbleService(listenBrainz: musicScrobbler, lastfm: musicLastFM, localArchive: musicHistory)
+        // Server-side podcast episodes carry opaque Subsonic ids, so the id-only default can't
+        // spot them; teach the scrobbler to consult the registry too or episodes scrobble as music.
+        scrobbler.isPodcast = { [podcastProgress] song in
+            MusicModel.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id)
+        }
         // Radio ducks the library transport while a station is on the air.
         internetRadio.duckController = music
         // A spoken summary ducks the library transport so it's audible over the music.
@@ -127,8 +163,20 @@ final class MusicModel {
     /// A client-side podcast episode plays with its enclosure URL as its id (an absolute
     /// http(s) string); library tracks use Subsonic ids. That distinction is enough to route
     /// resume/progress to podcasts only. Delegates to the typed `NavidromeSong.mediaKind`.
+    ///
+    /// Note this is the *id-only* test: it cannot see server-side podcast episodes, whose ids are
+    /// opaque Subsonic ids. Use the instance method `isPodcast(_:)` for anything that must treat
+    /// both podcast backends alike.
     static func isPodcastEpisode(_ song: NavidromeSong) -> Bool {
         song.isPodcastEpisode
+    }
+
+    /// True for a podcast episode from **either** backend — a client-side RSS enclosure (known
+    /// from its id) or a server-side episode (known from the registry the Podcasts screen fills).
+    /// Resume, progress, and scrobble-exclusion all key off this so the two backends behave
+    /// identically; see [[baton-podcasts]].
+    func isPodcast(_ song: NavidromeSong) -> Bool {
+        Self.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id)
     }
 
     /// Wire the stores together — continuous radio, history + scrobbling on track start,
@@ -152,13 +200,13 @@ final class MusicModel {
         // Podcast resume: when a podcast episode starts, hand the player its saved offset so it
         // picks up where you left off. Library tracks (non-URL ids) never resume.
         music.resumeOffsetProvider = { [podcastProgress] song in
-            guard Self.isPodcastEpisode(song) else { return nil }
+            guard Self.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id) else { return nil }
             return podcastProgress.resumeOffset(id: song.id)
         }
         // Podcast progress: persist position periodically + at end. When an episode crosses
         // into "played", auto-remove its download (storage hygiene, opt-out via UserDefaults).
         music.onProgressUpdate = { [podcastProgress] song, time, duration in
-            guard Self.isPodcastEpisode(song) else { return }
+            guard Self.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id) else { return }
             podcastProgress.record(id: song.id, position: time, duration: duration)
             // Auto-remove the download only when the episode actually reaches its end (the
             // end-of-track handler reports time == duration) — NOT at the 97%-played mark, so a

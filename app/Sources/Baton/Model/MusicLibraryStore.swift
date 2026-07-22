@@ -233,6 +233,16 @@ final class MusicLibraryStore {
         await run { client in self.playlists = try await client.getPlaylists() }
     }
 
+    /// Force-refetch every core collection — the ⌘R "Refresh Library" path, for a server whose
+    /// content changed underneath an open Baton. Runs concurrently; each `load*` reconciles its store.
+    func reloadAll() async {
+        async let albums: Void = loadAlbums()
+        async let artists: Void = loadArtists()
+        async let playlists: Void = loadPlaylists()
+        async let starred: Void = loadStarred()
+        _ = await (albums, artists, playlists, starred)
+    }
+
     func loadGenres() async {
         await run { client in self.genres = try await client.getGenres() }
     }

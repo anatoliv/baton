@@ -247,7 +247,7 @@ struct MusicMixCard: View {
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)))
-            .scaleEffect(hovering ? 1.02 : 1)
+            .hoverLift(hovering, scale: 1.02)
             .animation(.easeOut(duration: 0.14), value: hovering)
         }
         .buttonStyle(.plain)

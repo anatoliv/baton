@@ -522,3 +522,73 @@ struct MusicMediaCard: View {
         }
     }
 }
+
+/// A hover "lift" that respects **Reduce Motion**: scales up on hover normally, but holds still when
+/// the user has asked for reduced motion (the card's other hover cues — background tint, shadow —
+/// still signal the hover). One helper so every card/row across the app gates motion identically.
+extension View {
+    func hoverLift(_ hovering: Bool, scale: CGFloat = 1.06) -> some View {
+        modifier(HoverLift(hovering: hovering, scale: scale))
+    }
+}
+
+private struct HoverLift: ViewModifier {
+    let hovering: Bool
+    let scale: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.scaleEffect(hovering && !reduceMotion ? scale : 1)
+    }
+}
+
+/// Arrow-key row navigation for the app's custom (non-`List`) browse tables. Apply to the focusable
+/// scroll container; the rows must carry `.id(idForIndex(i))` and reflect `highlighted == i`. ↑/↓
+/// move the focus row (scrolling it into view), Return activates it, ⌘Return alt-activates. One
+/// shared modifier so Liked/Search, album/playlist detail, and the Albums list all navigate alike.
+struct KeyboardRowNavigation: ViewModifier {
+    @Binding var highlighted: Int?
+    let count: Int
+    let proxy: ScrollViewProxy
+    let idForIndex: (Int) -> AnyHashable
+    let onActivate: (Int) -> Void
+    var onAltActivate: ((Int) -> Void)?
+
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.upArrow) { move(-1) }
+            .onKeyPress(.downArrow) { move(1) }
+            .onKeyPress(.return, phases: .down) { press in
+                guard let i = highlighted, i < count else { return .ignored }
+                if press.modifiers.contains(.command), let onAltActivate { onAltActivate(i) }
+                else { onActivate(i) }
+                return .handled
+            }
+    }
+
+    private func move(_ delta: Int) -> KeyPress.Result {
+        guard count > 0 else { return .ignored }
+        let next = min(max((highlighted ?? -1) + delta, 0), count - 1)
+        highlighted = next
+        withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(idForIndex(next), anchor: .center) }
+        return .handled
+    }
+}
+
+extension View {
+    func keyboardRowNavigation(
+        highlighted: Binding<Int?>,
+        count: Int,
+        proxy: ScrollViewProxy,
+        idForIndex: @escaping (Int) -> AnyHashable,
+        onActivate: @escaping (Int) -> Void,
+        onAltActivate: ((Int) -> Void)? = nil
+    ) -> some View {
+        modifier(KeyboardRowNavigation(
+            highlighted: highlighted, count: count, proxy: proxy,
+            idForIndex: idForIndex, onActivate: onActivate, onAltActivate: onAltActivate
+        ))
+    }
+}

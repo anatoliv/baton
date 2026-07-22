@@ -14,9 +14,28 @@ struct BatonConnectSheet: View {
     @State private var authMode: NavidromeAuthMode = NavidromeConfig.authMode
     @State private var connecting = false
     @State private var errorText: String?
+    /// Which field is focused on open — the URL, unless it's already prefilled, then the username.
+    @FocusState private var focus: Field?
+
+    private enum Field { case url, username, password }
 
     private var urlIsValid: Bool { NavidromeConfig.validatedURL(urlString) != nil }
     private var isInsecure: Bool { NavidromeConfig.isInsecure(urlString) }
+
+    /// The public Navidrome demo, offered on first run so someone without a server of their own
+    /// can still evaluate Baton. This is **third-party infrastructure** — the Navidrome project
+    /// runs it for their own purposes and can take it down or change its sign-in without notice —
+    /// so a failure against it is attributed explicitly rather than reading as a bug in Baton.
+    static let demoHost = "demo.navidrome.org"
+
+    /// Whether a URL points at the public demo. Matches on **host**, so a user who edited the
+    /// scheme, port, or path still gets the demo-specific failure message. Static (not inlined
+    /// into the view) so it can be unit-tested.
+    static func isDemoServer(_ urlString: String) -> Bool {
+        NavidromeConfig.validatedURL(urlString)?.host?.lowercased() == demoHost
+    }
+
+    private var isDemoTarget: Bool { Self.isDemoServer(urlString) }
 
     private var canConnect: Bool {
         !connecting
@@ -31,6 +50,14 @@ struct BatonConnectSheet: View {
                 Text("Connect your music").font(.title3.bold())
                 Text("Baton plays your own library from any Navidrome or Subsonic-compatible server.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                // First-run help for the not-yet-self-hosting downloader.
+                HStack(spacing: 12) {
+                    Link("What's a Navidrome server?", destination: URL(string: "https://www.navidrome.org")!)
+                    Button("Try the demo server") { fillDemo() }
+                        .buttonStyle(.link)
+                        .help("Fills the public Navidrome demo (read-only; availability isn't guaranteed)")
+                }
+                .font(.callout)
             }
 
             Form {
@@ -40,10 +67,13 @@ struct BatonConnectSheet: View {
                 }
                 TextField("Server URL", text: $urlString, prompt: Text("https://music.example.com"))
                     .textContentType(.URL)
+                    .focused($focus, equals: .url)
                 if authMode == .tokenSalt {
                     TextField("Username", text: $username)
+                        .focused($focus, equals: .username)
                 }
                 SecureField(authMode == .apiKey ? "API key" : "Password", text: $password)
+                    .focused($focus, equals: .password)
             }
             .formStyle(.grouped)
 
@@ -76,6 +106,22 @@ struct BatonConnectSheet: View {
         }
         .padding(20)
         .frame(width: 440)
+        .onAppear {
+            // Land on the first empty field so the user can type immediately.
+            focus = urlString.trimmingCharacters(in: .whitespaces).isEmpty ? .url
+                : (authMode == .tokenSalt && username.isEmpty ? .username : .password)
+        }
+    }
+
+    /// Prefill the public Navidrome demo so a curious downloader can evaluate Baton with no setup.
+    /// It's a read-only public server whose availability isn't under our control.
+    private func fillDemo() {
+        authMode = .tokenSalt
+        urlString = "https://\(Self.demoHost)"
+        username = "demo"
+        password = "demo"
+        errorText = nil
+        focus = nil
     }
 
     private func connect() async {
@@ -94,7 +140,14 @@ struct BatonConnectSheet: View {
             await model.selectServer(id: entry.id)
             dismiss()
         } catch {
-            errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            // Don't let someone else's downtime look like our bug: the demo is a public server we
+            // don't run, and it's the very first thing a new user is invited to click.
+            errorText = isDemoTarget
+                ? "Couldn't reach the public Navidrome demo. That server is run by the Navidrome "
+                    + "project, not by Baton, and it can be offline or change its sign-in at any "
+                    + "time — connect your own server to get started. (\(detail))"
+                : detail
         }
     }
 }

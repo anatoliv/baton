@@ -720,6 +720,8 @@ private struct BatonPlaybackPane: View {
     /// Offline mode toggle — same key `MusicDownloadsView` reads.
     @AppStorage("baton.music.offlineMode") private var offlineMode = false
     @AppStorage(MusicModel.autoRemoveFinishedKey) private var autoRemoveFinishedPodcasts = true
+    /// Show the current track/station title in the menu-bar item (off by default).
+    @AppStorage(BatonMenuBarText.showTitleKey) private var menuBarShowTitle = false
     /// Whether the niche "Advanced" area (filter history) is expanded. Persisted so
     /// power users who open it keep it open; collapsed by default for everyone else.
     @AppStorage("baton.settings.playbackAdvancedExpanded") private var advancedExpanded = false
@@ -738,6 +740,7 @@ private struct BatonPlaybackPane: View {
     var body: some View {
         Form {
             soundSection
+            menuBarSection
             downloadsSection
             scrobblingSection
             advancedSection
@@ -750,6 +753,16 @@ private struct BatonPlaybackPane: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Restores Sound and Browse preferences to their defaults. Your scrobbling accounts and download folder are kept.")
+        }
+    }
+
+    /// Menu-bar controller options.
+    private var menuBarSection: some View {
+        Section("Menu Bar") {
+            Toggle(isOn: $menuBarShowTitle) {
+                Text("Show track title in menu bar")
+                Text("Adds the current track (or station) title beside the menu-bar icon.")
+            }
         }
     }
 
@@ -771,6 +784,7 @@ private struct BatonPlaybackPane: View {
         player.gaplessPrefetchWifiOnly = false
         player.autoplayEnabled = false
         player.stallTimeoutSeconds = StreamingPlaybackController.defaultStallTimeout
+        menuBarShowTitle = false
         offlineMode = false
         filterHistorySize = FilterHistory.defaultSize
         advancedExpanded = false
@@ -1124,10 +1138,17 @@ private struct BatonEqualizerPane: View {
             }
 
             Section("Response") {
-                EQResponseCurve(bands: eq.bands, selected: selectedBand)
-                    .frame(height: 120)
-                    .padding(.vertical, 6)
-                    .opacity(eq.isEnabled ? 1 : 0.4)
+                EQResponseCurve(
+                    bands: eq.bands,
+                    selected: selectedBand,
+                    onSelect: { selectedBand = $0 },
+                    onFrequency: { eq.setFrequency($0, band: $1) },
+                    onGain: { eq.setGain($0, band: $1) }
+                )
+                .frame(height: 120)
+                .padding(.vertical, 6)
+                .opacity(eq.isEnabled ? 1 : 0.4)
+                .disabled(!eq.isEnabled)
             }
 
             Section("Bands") {
@@ -1282,22 +1303,77 @@ private struct EQParameterSlider: View {
 private struct EQResponseCurve: View {
     let bands: [EQBand]
     let selected: Int?
+    /// Direct manipulation: drag a band's dot to set its centre frequency (x) and gain (y). Default
+    /// no-ops keep the curve usable purely as a read-only visual.
+    var onSelect: (Int) -> Void = { _ in }
+    var onFrequency: (Double, Int) -> Void = { _, _ in }
+    var onGain: (Double, Int) -> Void = { _, _ in }
 
     private let sampleRate = 44_100.0
     private let minF = 20.0
     private let maxF = 20_000.0
     private let maxDB = 12.0
 
+    /// The band grabbed for the current drag (picked once, on the first change).
+    @State private var dragBand: Int?
+
     var body: some View {
-        Canvas { ctx, size in
-            drawGrid(&ctx, size: size)
-            drawCurve(&ctx, size: size)
-            drawHandles(&ctx, size: size)
+        GeometryReader { geo in
+            Canvas { ctx, size in
+                drawGrid(&ctx, size: size)
+                drawCurve(&ctx, size: size)
+                drawHandles(&ctx, size: size)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in handleDrag(value.location, size: geo.size) }
+                    .onEnded { _ in dragBand = nil }
+            )
         }
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.secondary.opacity(0.08))
         )
+    }
+
+    /// Grab the nearest handle on the first move, then steer its frequency + gain from the cursor.
+    private func handleDrag(_ location: CGPoint, size: CGSize) {
+        let band: Int?
+        if let dragBand {
+            band = dragBand
+        } else {
+            band = nearestBand(toX: location.x, width: size.width)
+            dragBand = band
+            if let band { onSelect(band) }
+        }
+        guard let band else { return }
+        onFrequency(frequency(atX: location.x, width: size.width), band)
+        onGain(gain(atY: location.y, height: size.height), band)
+    }
+
+    /// The band whose handle is closest to `px` horizontally, within a comfortable grab radius.
+    private func nearestBand(toX px: CGFloat, width: CGFloat) -> Int? {
+        var best: (index: Int, distance: CGFloat)?
+        for (i, band) in bands.enumerated() {
+            let d = abs(x(for: band.frequency, width: width) - px)
+            if best == nil || d < best!.distance { best = (i, d) }
+        }
+        guard let best, best.distance <= 28 else { return nil }
+        return best.index
+    }
+
+    /// Inverse of `x(for:width:)` — a horizontal position back to a (clamped) log-frequency.
+    private func frequency(atX px: CGFloat, width: CGFloat) -> Double {
+        let t = Double(min(max(px / max(width, 1), 0), 1))
+        let f = pow(10, log10(minF) + t * (log10(maxF) - log10(minF)))
+        return min(max(f, minF), maxF)
+    }
+
+    /// Inverse of `y(forDB:height:)` — a vertical position back to a (clamped) gain in dB.
+    private func gain(atY py: CGFloat, height: CGFloat) -> Double {
+        let t = 1 - Double(min(max(py / max(height, 1), 0), 1))
+        return min(max(t * 2 * maxDB - maxDB, -maxDB), maxDB)
     }
 
     /// Combined response in dB at a given frequency (sum of per-band peaking magnitudes).
@@ -1321,10 +1397,26 @@ private struct EQResponseCurve: View {
     }
 
     private func drawGrid(_ ctx: inout GraphicsContext, size: CGSize) {
+        // Faint decade verticals so the parametric editor reads like a real response graph.
+        for f in [100.0, 1_000.0, 10_000.0] {
+            let px = x(for: f, width: size.width)
+            var line = Path()
+            line.move(to: CGPoint(x: px, y: 0))
+            line.addLine(to: CGPoint(x: px, y: size.height))
+            ctx.stroke(line, with: .color(.secondary.opacity(0.12)), lineWidth: 1)
+            let label = f >= 1_000 ? "\(Int(f / 1_000))k" : "\(Int(f))"
+            ctx.draw(Text(label).font(.system(size: 8)).foregroundStyle(.secondary),
+                     at: CGPoint(x: px + 3, y: 7), anchor: .leading)
+        }
+        // 0 dB midline (emphasized) + ±12 dB labels.
         var mid = Path()
         mid.move(to: CGPoint(x: 0, y: y(forDB: 0, height: size.height)))
         mid.addLine(to: CGPoint(x: size.width, y: y(forDB: 0, height: size.height)))
         ctx.stroke(mid, with: .color(.secondary.opacity(0.25)), lineWidth: 1)
+        ctx.draw(Text("+12").font(.system(size: 8)).foregroundStyle(.secondary),
+                 at: CGPoint(x: 3, y: 7), anchor: .leading)
+        ctx.draw(Text("−12").font(.system(size: 8)).foregroundStyle(.secondary),
+                 at: CGPoint(x: 3, y: size.height - 7), anchor: .leading)
     }
 
     private func drawCurve(_ ctx: inout GraphicsContext, size: CGSize) {

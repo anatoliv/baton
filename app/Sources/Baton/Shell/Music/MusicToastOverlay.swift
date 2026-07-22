@@ -21,7 +21,9 @@ private struct MusicToastOverlay: ViewModifier {
                         .background(.thinMaterial, in: Capsule())
                         .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
                         .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
-                        .padding(.bottom, 18)
+                        // Lift above the speech "Play" banner when one is also pinned to the bottom,
+                        // so the two don't overlap (both otherwise sit at .bottom + 18pt).
+                        .padding(.bottom, model.speech.pendingAlert != nil ? 84 : 18)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .allowsHitTesting(false)
                 }

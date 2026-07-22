@@ -85,6 +85,8 @@ struct MusicCollectionView: View {
     /// Multi-select state (ids + Shift-range anchor) — the shared model used by every
     /// browse screen. Song ids here; the same model type drives albums/artists/playlists.
     @State private var sel = MusicMultiSelect()
+    /// Keyboard-navigation focus row in the songs list (↑/↓ move, Return plays, ⌘Return plays next).
+    @State private var kbIndex: Int?
     @State private var showSaveDialog = false
     @State private var saveName = ""
     @State private var showBatchRemoveConfirm = false
@@ -444,7 +446,7 @@ struct MusicCollectionView: View {
             Button("Mark All for Removal", role: .destructive) { removeAll() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Unlikes every displayed song and rates it 1 star — the signal the cleanup pipeline uses to prune them.")
+            Text("Unlikes every displayed song and rates it 1 star, so a library-cleanup tool can remove them later.")
         }
         .confirmationDialog(
             "Mark all tracks in \(selectedAlbums.count) album\(selectedAlbums.count == 1 ? "" : "s") for removal?",
@@ -656,8 +658,9 @@ struct MusicCollectionView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(c == 0)
-                .opacity(c == 0 ? 0.4 : 1)
+                // Kept enabled even at 0 so clicking shows the segment's empty state rather than
+                // reading as a broken/disabled control; dimmed to signal it's empty.
+                .opacity(c == 0 ? 0.55 : 1)
             }
         }
         .padding(2)
@@ -690,18 +693,41 @@ struct MusicCollectionView: View {
                     .padding(12)
                 }
             } else {
-                cappedTable(header: songHeader) {
-                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                        MusicLikedSongRow(
-                            song: song,
-                            isSelected: sel.contains(song.id),
-                            showLikeBadge: showLikeBadge,
-                            showMetadataColumns: true,
-                            onToggleSelect: { selectClicked(song.id) }
-                        ) {
-                            model.music.play(songs, startAt: index, source: source)
+                // Songs list — keyboard-navigable: click it, then ↑/↓ move a highlighted row,
+                // Return plays it, ⌘Return plays it next. (Same shell as `cappedTable`.)
+                ScrollViewReader { proxy in
+                    VStack(spacing: 0) {
+                        songHeader.padding(.horizontal, 10).padding(.vertical, 6)
+                        Divider()
+                        ScrollView {
+                            LazyVStack(spacing: 2) {
+                                ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                                    MusicLikedSongRow(
+                                        song: song,
+                                        isSelected: sel.contains(song.id),
+                                        showLikeBadge: showLikeBadge,
+                                        showMetadataColumns: true,
+                                        onToggleSelect: { selectClicked(song.id) },
+                                        highlighted: kbIndex == index
+                                    ) {
+                                        model.music.play(songs, startAt: index, source: source)
+                                    }
+                                    .id(song.id)
+                                }
+                            }
+                            .padding(.vertical, 8)
                         }
                     }
+                    .frame(maxWidth: .infinity).padding(.horizontal, 16)
+                    .keyboardRowNavigation(
+                        highlighted: $kbIndex, count: songs.count, proxy: proxy,
+                        idForIndex: { songs[$0].id },
+                        onActivate: { model.music.play(songs, startAt: $0, source: source) },
+                        onAltActivate: { i in
+                            model.music.playNext([songs[i]])
+                            model.music.postToast("Playing next: \(songs[i].title)", symbol: "text.line.first.and.arrowtriangle.forward")
+                        }
+                    )
                 }
             }
         }
@@ -949,6 +975,8 @@ struct MusicLikedSongRow: View {
     /// When set (playlist detail), adds a "Remove from Playlist" item to the context menu.
     var onRemoveFromPlaylist: (() -> Void)? = nil
     var onToggleSelect: () -> Void = {}
+    /// Keyboard-focus highlight (↑/↓ navigation) — distinct from multi-select and now-playing.
+    var highlighted: Bool = false
     var onPlay: () -> Void
     @State private var hovering = false
     @State private var showRemoveConfirm = false
@@ -1049,8 +1077,16 @@ struct MusicLikedSongRow: View {
         .padding(.vertical, 5).padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isCurrent ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear))
+                .fill(isCurrent ? Color.selectionTint()
+                    : (highlighted ? Color.accentColor.opacity(0.14)
+                        : (hovering ? Color.hoverTint : .clear)))
         )
+        .overlay(alignment: .leading) {
+            // A slim accent bar marks the keyboard-focused row (visible even when it's also hovered).
+            if highlighted {
+                Capsule().fill(Color.accentColor).frame(width: 3).padding(.vertical, 4)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture(count: 2, perform: onPlay)
         .onHover { hovering = $0 }
@@ -1140,7 +1176,7 @@ struct LikedSongGridCell: View {
                 SongHeartBadge(song: song, visible: hovering, size: 14).padding(6)
             }
         }
-        .scaleEffect(hovering ? 1.06 : 1)
+        .hoverLift(hovering)
         .zIndex(hovering ? 1 : 0)
         .animation(.easeOut(duration: 0.16), value: hovering)
         .onHover { hovering = $0 }

@@ -7,12 +7,22 @@ import SwiftUI
 /// the labels (Play/Pause, Mute/Unmute, Repeat: …) reflect the current transport.
 struct PlaybackMenuCommands: Commands {
     let model: MusicModel
+    /// Raises the "show queue" intent for the now-playing bar (which owns the popover state).
+    let router: BatonCommandRouter
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
     private var player: StreamingPlaybackController { model.music }
 
     private var isBarMinimized: Bool { UserDefaults.standard.bool(forKey: "tonebox.music.barCollapsed") }
+
+    private var currentIsLiked: Bool {
+        player.nowPlaying.map { model.musicLibrary.isLiked($0) } ?? false
+    }
+
+    private func rate(_ n: Int) {
+        if let song = player.nowPlaying { Task { await model.musicLibrary.setRating(song, rating: n) } }
+    }
 
     private var repeatLabel: String {
         switch player.repeatMode {
@@ -83,6 +93,37 @@ struct PlaybackMenuCommands: Commands {
                 .disabled(!model.speech.canReplay)
             Button("Recent Summaries…") { openWindow(id: SpeechHistoryView.windowID) }
                 .disabled(model.speechHistory.entries.isEmpty)
+
+            Button("Show Queue") { router.showQueueToken += 1 }
+                .keyboardShortcut("u", modifiers: .command)
+                .disabled(player.queue.isEmpty)
+
+            Button("Get Info") { model.inspectorSong = player.nowPlaying }
+                .keyboardShortcut("i", modifiers: .command)
+                .disabled(player.nowPlaying == nil)
+
+            Button(currentIsLiked ? "Unlike Current Track" : "Like Current Track") {
+                if let song = player.nowPlaying { Task { await model.musicLibrary.toggleLike(song) } }
+            }
+            .keyboardShortcut("l", modifiers: [.command, .control])
+            .disabled(player.nowPlaying == nil || model.internetRadio.onAirStation != nil)
+
+            Menu("Rate Current Track") {
+                ForEach(1 ... 5, id: \.self) { n in
+                    Button("\(n) Star\(n == 1 ? "" : "s")") { rate(n) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: [.command, .control])
+                }
+                Button("Clear Rating") { rate(0) }
+                    .keyboardShortcut("0", modifiers: [.command, .control])
+            }
+            .disabled(player.nowPlaying == nil || model.internetRadio.onAirStation != nil)
+
+            Button("Skip Back 10 Seconds") { player.seek(to: max(0, player.currentTime - 10)) }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(player.nowPlaying == nil)
+            Button("Skip Forward 10 Seconds") { player.seek(to: player.currentTime + 10) }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(player.nowPlaying == nil)
 
             Divider()
 

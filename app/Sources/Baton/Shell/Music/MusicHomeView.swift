@@ -10,18 +10,73 @@ private let homeShelfCardWidth: CGFloat = 210
 /// auto-mixes. Read-only over the existing stores; every card routes through `music.play`.
 struct MusicHomeView: View {
     @Environment(MusicModel.self) private var model
+    // Optional so Home still renders in contexts without the router (e.g. snapshot tests).
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
 
     @State private var recentlyAdded: [NavidromeAlbum] = []
     @State private var rediscover: [NavidromeAlbum] = []
     @State private var likedSeed: NavidromeSong?
     @State private var becauseYouLiked: [NavidromeSong] = []
     @State private var loaded = false
+    /// When the "Because you liked" seed was last chosen (reference-date seconds), so it rotates on
+    /// a long-running session instead of being frozen until relaunch.
+    @AppStorage("baton.home.seedAt") private var seedAtRef: Double = 0
 
     private var recentlyPlayed: [NavidromeSong] { Array(model.musicHistory.recentlyPlayed.prefix(18)) }
     private var mixes: [MusicMix] { MusicMixCatalog.auto(model) }
 
     private var isEmpty: Bool {
-        recentlyPlayed.isEmpty && recentlyAdded.isEmpty && rediscover.isEmpty && becauseYouLiked.isEmpty
+        recentlyPlayed.isEmpty && recentlyAdded.isEmpty && rediscover.isEmpty
+            && becauseYouLiked.isEmpty && continueListening.isEmpty
+    }
+
+    /// A podcast episode you started but didn't finish. Reduced to what the shelf actually needs —
+    /// a playable song plus its show, for the queue source — so that episodes from *both* podcast
+    /// backends (client RSS subscriptions and server-side channels) render through one path.
+    private struct ContinueEpisode: Identifiable {
+        let id: String
+        let song: NavidromeSong
+        let showTitle: String
+        let showID: String
+    }
+
+    /// In-progress podcast episodes, newest-listened first — the "Continue listening" source.
+    /// Client episodes are joined against the subscribed feeds; server episodes come from the
+    /// registry `PodcastProgressStore` keeps (their ids look like library tracks, so they can't be
+    /// recognised from the id alone). Both are ranked by the same last-played order.
+    private var continueListening: [ContinueEpisode] {
+        let ids = model.podcastProgress.inProgressIDs()
+        guard !ids.isEmpty else { return [] }
+        let rank = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        var out: [ContinueEpisode] = []
+        for channel in model.podcastSubscriptions.channels {
+            for episode in channel.episodes where rank[episode.enclosureURL.absoluteString] != nil {
+                out.append(ContinueEpisode(
+                    id: episode.enclosureURL.absoluteString,
+                    song: episode.asSong(
+                        channelTitle: channel.title, artwork: episode.imageURL ?? channel.imageURL),
+                    showTitle: channel.title,
+                    showID: channel.id
+                ))
+            }
+        }
+        for episode in model.podcastProgress.inProgressServerEpisodes() {
+            out.append(ContinueEpisode(
+                id: episode.id,
+                song: NavidromeSong(
+                    id: episode.id,
+                    title: episode.title,
+                    artist: episode.channel,
+                    album: episode.channel,
+                    albumID: nil,
+                    duration: episode.duration.map { Int($0) },
+                    coverArtID: episode.coverArtID
+                ),
+                showTitle: episode.channel,
+                showID: episode.channel
+            ))
+        }
+        return Array(out.sorted { (rank[$0.id] ?? .max) < (rank[$1.id] ?? .max) }.prefix(12))
     }
 
     var body: some View {
@@ -37,8 +92,9 @@ struct MusicHomeView: View {
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
+                    if !continueListening.isEmpty { continueShelf }
                     if !recentlyPlayed.isEmpty {
-                        songShelf("Jump back in", recentlyPlayed) { song in
+                        songShelf("Jump back in", recentlyPlayed, seeAll: .history) { song in
                             playFrom(recentlyPlayed, seed: song, label: "Jump back in")
                         }
                     }
@@ -48,8 +104,8 @@ struct MusicHomeView: View {
                             playFrom(becauseYouLiked, seed: song, label: label, kind: .radio)
                         }
                     }
-                    if !recentlyAdded.isEmpty { albumShelf("Recently added", recentlyAdded) }
-                    if !rediscover.isEmpty { albumShelf("Rediscover", rediscover) }
+                    if !recentlyAdded.isEmpty { albumShelf("Recently added", recentlyAdded, seeAll: .albums) }
+                    if !rediscover.isEmpty { albumShelf("Rediscover", rediscover, seeAll: .albums) }
                     mixShelf
                     if isEmpty, loaded { emptyState }
                 }
@@ -69,10 +125,26 @@ struct MusicHomeView: View {
 
     // MARK: - Shelves
 
+    /// A shelf header title, with an optional "See All" that jumps to the matching sidebar tab.
     @ViewBuilder
-    private func songShelf(_ title: String, _ songs: [NavidromeSong], onPlay: @escaping (NavidromeSong) -> Void) -> some View {
+    private func shelfHeader(_ title: String, seeAll: MusicView.MusicTab?) -> some View {
+        HStack {
+            Text(title).font(.title3.weight(.semibold))
+            Spacer()
+            if let seeAll {
+                Button("See All") { router?.pendingTab = seeAll }
+                    .buttonStyle(.plain)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.tint)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private func songShelf(_ title: String, _ songs: [NavidromeSong], seeAll: MusicView.MusicTab? = nil, onPlay: @escaping (NavidromeSong) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.title3.weight(.semibold)).padding(.horizontal, 16)
+            shelfHeader(title, seeAll: seeAll)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(songs) { song in
@@ -85,9 +157,9 @@ struct MusicHomeView: View {
     }
 
     @ViewBuilder
-    private func albumShelf(_ title: String, _ albums: [NavidromeAlbum]) -> some View {
+    private func albumShelf(_ title: String, _ albums: [NavidromeAlbum], seeAll: MusicView.MusicTab? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.title3.weight(.semibold)).padding(.horizontal, 16)
+            shelfHeader(title, seeAll: seeAll)
             ScrollView(.horizontal, showsIndicators: false) {
                 // Reuse the exact Albums-page cell — same card, track count + total time,
                 // hover-play, tap-to-open, context menu.
@@ -101,10 +173,32 @@ struct MusicHomeView: View {
         }
     }
 
+    /// "Continue listening" — resume a partially-heard podcast episode (the play path restores the
+    /// saved position by episode id). Placed first on Home since it's the most actionable shelf.
+    @ViewBuilder
+    private var continueShelf: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            shelfHeader("Continue listening", seeAll: .podcasts)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(continueListening) { item in
+                        SongShelfCard(song: item.song) {
+                            model.music.play(
+                                [item.song],
+                                source: .init(label: item.showTitle, kind: .playlist, id: item.showID)
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 6)
+            }
+        }
+    }
+
     @ViewBuilder
     private var mixShelf: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your Mixes").font(.title3.weight(.semibold)).padding(.horizontal, 16)
+            shelfHeader("Your Mixes", seeAll: .mixes)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(mixes) { mix in
@@ -129,14 +223,18 @@ struct MusicHomeView: View {
     // MARK: - Data
 
     private func loadIfNeeded() async {
-        // Seed for "Because you liked" — a most-played / recent / liked track.
-        if likedSeed == nil {
+        // Seed for "Because you liked" — a most-played / recent / liked track. Recomputed when
+        // unset or when the last pick is over 6 hours old, so a long session's Home doesn't freeze.
+        let now = Date().timeIntervalSinceReferenceDate
+        let seedStale = seedAtRef == 0 || now - seedAtRef > 6 * 3600
+        if likedSeed == nil || seedStale {
             let seed = model.musicHistory.topTracks(since: .distantPast).first?.song
                 ?? model.musicHistory.recentlyPlayed.first
                 ?? model.musicLibrary.starred.songs.first
             if let seed {
                 likedSeed = seed
                 becauseYouLiked = await model.musicLibrary.similarSongs(seedID: seed.id)
+                seedAtRef = now
             }
         }
         if recentlyAdded.isEmpty { recentlyAdded = await model.musicLibrary.albums(type: "newest", size: 16) }

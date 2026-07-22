@@ -227,6 +227,105 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.5",
+            date: "2026",
+            highlight: "A big accessibility and keyboard release: browse with the arrow keys, "
+                + "honour Reduce Motion, refresh the library with \u{2318}R — and podcasts that "
+                + "remember where you left off on any server.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Keyboard navigation in song lists — \u{2191}/\u{2193} move through "
+                        + "Liked, Search, album and playlist tracks; Return plays, "
+                        + "\u{2318}Return plays next."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Baton now respects the system Reduce Motion setting: the breathing "
+                        + "artwork, equalizer bars, and hover zoom all hold still, while "
+                        + "hover and selection stay clearly visible."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Go → Refresh Library (\u{2318}R) refetches albums, artists, "
+                        + "playlists, liked songs, stations, and podcast feeds — for a server "
+                        + "whose content changed while Baton was open."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A \u{201C}Continue listening\u{201D} shelf on Home puts every "
+                        + "part-finished podcast episode first, showing how much is left."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Playback → Like Current Track (\u{2303}\u{2318}L), plus Like in the "
+                        + "menu-bar player."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Get Info (\u{2318}I) shows a track\u{2019}s codec, bitrate, bit "
+                        + "depth, sample rate, year, play count, and download location."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "The scroll wheel now works on the volume slider and the scrubber — "
+                        + "scroll to change volume or seek."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Hide sidebar sections you don\u{2019}t use (right-click the rail); "
+                        + "show the track title in the menu bar; drag the equalizer curve "
+                        + "directly to shape a band."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Never used Navidrome? The connect screen can fill in a public demo "
+                        + "server so you can try Baton before setting anything up."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Internet radio now appears properly in the menu-bar player and the "
+                        + "mini player — both show the station and control it, instead of a "
+                        + "stale library track."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Podcasts on servers with their own podcast support (gonic, Airsonic) "
+                        + "now resume where you left off, show listening progress, and can be "
+                        + "marked played — matching Baton\u{2019}s own subscriptions."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "VoiceOver can read and adjust the position and volume sliders "
+                        + "everywhere they appear, and the main transport buttons announce "
+                        + "themselves properly."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "A playback error now offers Retry, not just Skip; the queue popover "
+                        + "shows how many tracks and how long remain, resizes, and removes a "
+                        + "row with the Delete key."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Clearing everything from Later now asks first, and podcast feeds "
+                        + "refresh from a button in the header rather than only after "
+                        + "selecting a show."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Cover art no longer re-downloads every time a row or card is "
+                        + "redrawn — browsing large libraries is faster and thumbnails "
+                        + "stop flickering."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Podcast episodes are no longer scrobbled to Last.fm or ListenBrainz "
+                        + "as music when they come from the server\u{2019}s own subscriptions."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.4",
             date: "2026",
             highlight: "Replay a spoken summary — the last one anytime, or any recent one from a new history list.",

@@ -26,6 +26,10 @@ struct ContentStatePlaceholder: View {
     var emptyTitle = "Nothing here yet"
     var emptyMessage = "Try a different filter, or check your connection."
     var emptySymbol = "tray"
+    /// Optional call-to-action in the *empty* state (e.g. "Add Station") — lets screens with a
+    /// meaningful first-run action use the shared placeholder instead of a bespoke one.
+    var emptyActionLabel: String?
+    var emptyAction: (() -> Void)?
     var onRetry: (() -> Void)?
 
     var body: some View {
@@ -37,6 +41,10 @@ struct ContentStatePlaceholder: View {
                 Label(emptyTitle, systemImage: emptySymbol)
             } description: {
                 Text(emptyMessage)
+            } actions: {
+                if let emptyActionLabel, let emptyAction {
+                    Button(emptyActionLabel, action: emptyAction).buttonStyle(.borderedProminent)
+                }
             }
         case let .failed(message):
             ContentUnavailableView {
@@ -63,13 +71,16 @@ extension View {
         emptyTitle: String = "Nothing here yet",
         emptyMessage: String = "Try a different filter, or check your connection.",
         emptySymbol: String = "tray",
+        emptyActionLabel: String? = nil,
+        emptyAction: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil
     ) -> some View {
         overlay {
             if state != .content {
                 ContentStatePlaceholder(
                     state: state, emptyTitle: emptyTitle, emptyMessage: emptyMessage,
-                    emptySymbol: emptySymbol, onRetry: onRetry
+                    emptySymbol: emptySymbol, emptyActionLabel: emptyActionLabel,
+                    emptyAction: emptyAction, onRetry: onRetry
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.background)

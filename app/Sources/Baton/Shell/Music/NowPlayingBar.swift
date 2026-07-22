@@ -24,6 +24,8 @@ extension View {
 /// `StreamingPlaybackController` (`model.music`).
 struct NowPlayingBar: View {
     @Environment(MusicModel.self) private var model
+    // Optional so the bar still renders in contexts without the router (e.g. snapshot tests).
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var showingQueue = false
@@ -70,6 +72,9 @@ struct NowPlayingBar: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                     Text(playerError).lineLimit(1)
                     Spacer(minLength: 6)
+                    // Retry re-attempts the current track at its last position (a transient stall
+                    // shouldn't force abandoning it); Skip moves on when there's somewhere to go.
+                    Button("Retry") { player.retryCurrent() }.buttonStyle(.link)
                     if player.queue.count > 1 {
                         Button("Skip") { player.next() }.buttonStyle(.link)
                     }
@@ -133,10 +138,13 @@ struct NowPlayingBar: View {
                     openWindow(id: MiniPlayerWindowView.windowID)
                     dismissWindow(id: MusicWindowView.windowID)
                 } label: {
-                    Image(systemName: "pip").foregroundStyle(.secondary)
+                    // A shrink-to-mini glyph (mirrors the mini player's expand icon) — clearer than
+                    // the video-centric "pip".
+                    Image(systemName: "arrow.down.right.and.arrow.up.left").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Switch to mini player")
+                .accessibilityLabel("Mini player")
             }
         }
         .animation(.easeInOut(duration: 0.18), value: barCollapsed)
@@ -146,12 +154,27 @@ struct NowPlayingBar: View {
         // artwork backdrop flows through the player bar, matching the main area.
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
+        // Collapsed mode hides the scrubber — keep a 2px progress hairline along the top edge so the
+        // slim bar still shows how far into the track you are.
+        .overlay(alignment: .top) {
+            if barCollapsed, !isRadio, player.duration > 0 {
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(accent)
+                        .frame(width: geo.size.width * CGFloat(min(max(player.currentTime / player.duration, 0), 1)), height: 2)
+                }
+                .frame(height: 2)
+                .allowsHitTesting(false)
+            }
+        }
         // Reconcile the current track's like/rating with the server on launch and
         // whenever the track changes — the persisted queue only has a stale
         // snapshot, so without this the heart/stars read empty after a relaunch.
         .task(id: player.nowPlaying?.id) {
             if let song = player.nowPlaying { await model.musicLibrary.refreshRating(for: song) }
         }
+        // "Show Queue" (⌘U) from the Playback menu opens the queue popover here (the bar owns it).
+        .onChange(of: router?.showQueueToken) { _, _ in if !isRadio { showingQueue = true } }
     }
 
     /// The title/artist (or station/live-track) block, shared by the library and radio bar so
@@ -224,6 +247,7 @@ struct NowPlayingBar: View {
                 Image(systemName: "backward.fill")
             }
             .help(isRadio ? "Previous station" : "Previous")
+            .accessibilityLabel(isRadio ? "Previous station" : "Previous")
             Button {
                 if isRadio {
                     radio.engine.isPlaying ? radio.engine.pause() : radio.engine.resume()
@@ -242,10 +266,12 @@ struct NowPlayingBar: View {
                     if !isRadio, player.isBuffering { ProgressView().controlSize(.small) }
                 }
             }
+            .accessibilityLabel(isPlayingNow ? "Pause" : "Play")
             Button { isRadio ? radio.playAdjacent(1) : player.next() } label: {
                 Image(systemName: "forward.fill")
             }
             .help(isRadio ? "Next station" : "Next")
+            .accessibilityLabel(isRadio ? "Next station" : "Next")
         }
         .buttonStyle(.plain)
         .disabled(!isRadio && player.nowPlaying == nil)
@@ -291,16 +317,33 @@ struct NowPlayingBar: View {
         .help(isPlayingNow ? "Pause" : "Play")
     }
 
+    /// Upcoming tracks after the current one — drives the queue-button count badge.
+    private var upcomingCount: Int { max(0, player.queue.count - player.currentIndex - 1) }
+
     private var queueButton: some View {
         Button { showingQueue.toggle() } label: {
             Image(systemName: "list.bullet")
+                // A small count of what's still queued, so length is visible without opening it
+                // (hidden at 0, like the sidebar badges — never a misleading "0").
+                .overlay(alignment: .topTrailing) {
+                    if upcomingCount > 0 {
+                        Text("\(upcomingCount)")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 3).padding(.vertical, 0.5)
+                            .background(Capsule().fill(Color.accentColor))
+                            .offset(x: 9, y: -7)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .help("Queue")
+        .accessibilityLabel("Queue")
+        .accessibilityValue(upcomingCount > 0 ? "\(upcomingCount) up next" : "Empty")
         .popover(isPresented: $showingQueue, arrowEdge: .top) {
             MusicQueueView()
                 .environment(model)
-                .frame(width: 340, height: 360)
+                .frame(minWidth: 340, idealWidth: 360, maxWidth: 460, minHeight: 320, idealHeight: 420, maxHeight: 640)
         }
     }
 
@@ -313,9 +356,29 @@ struct NowPlayingBar: View {
 
 /// The play queue popover — a reorderable list with jump-to plus queue actions.
 struct MusicQueueView: View {
+    @Environment(MusicModel.self) private var model
+
+    /// The tracks after the current one, and their summed duration — shown in the header so queue
+    /// length is legible without counting rows.
+    private var summary: String? {
+        let start = model.music.currentIndex + 1
+        let queue = model.music.queue
+        guard start < queue.count else { return nil }
+        let upcoming = queue[start...]
+        let mins = upcoming.reduce(0) { $0 + ($1.duration ?? 0) } / 60
+        let time = mins >= 60 ? "\(mins / 60) hr \(mins % 60) min" : "\(mins) min"
+        return "\(upcoming.count) track\(upcoming.count == 1 ? "" : "s") · \(time)"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Up next").font(.headline).padding(10)
+            HStack(spacing: 8) {
+                Text("Up Next").font(.headline)
+                if let summary {
+                    Text(summary).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(10)
             Divider()
             MusicQueueList()
             Divider()
@@ -380,6 +443,16 @@ struct MusicQueueList: View {
     @Environment(MusicModel.self) private var model
     /// The row currently being dragged (nil when not dragging).
     @State private var dragging: NavidromeSong?
+    /// The row under the cursor — Delete removes it (matching the hover ✕), no selection needed.
+    @State private var hoveredIndex: Int?
+
+    private func deleteHovered() -> KeyPress.Result {
+        guard let i = hoveredIndex, i != model.music.currentIndex, i < model.music.queue.count
+        else { return .ignored }
+        model.music.removeFromQueue(at: IndexSet(integer: i))
+        hoveredIndex = nil
+        return .handled
+    }
 
     var body: some View {
         if model.music.queue.isEmpty {
@@ -394,20 +467,28 @@ struct MusicQueueList: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(model.music.queue.enumerated()), id: \.element.id) { index, song in
-                        MusicQueueRow(index: index, song: song, dragging: dragging)
-                            .onDrag {
-                                dragging = song
-                                return NSItemProvider(object: song.id as NSString)
-                            }
-                            .onDrop(
-                                of: [.text],
-                                delegate: QueueDropDelegate(item: song, model: model, dragging: $dragging)
-                            )
+                        MusicQueueRow(index: index, song: song, dragging: dragging) { inside in
+                            if inside { hoveredIndex = index }
+                            else if hoveredIndex == index { hoveredIndex = nil }
+                        }
+                        .onDrag {
+                            dragging = song
+                            return NSItemProvider(object: song.id as NSString)
+                        }
+                        .onDrop(
+                            of: [.text],
+                            delegate: QueueDropDelegate(item: song, model: model, dragging: $dragging)
+                        )
                     }
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
             }
+            // Delete/Backspace removes the hovered row (the hover ✕ + context menu still work too).
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.delete) { deleteHovered() }
+            .onKeyPress(.deleteForward) { deleteHovered() }
         }
     }
 }
@@ -451,6 +532,8 @@ private struct MusicQueueRow: View {
     let song: NavidromeSong
     /// The song currently being dragged (this row dims while it's the one moving).
     var dragging: NavidromeSong?
+    /// Reports hover in/out so the list can target Delete at the hovered row.
+    var onHoverChange: (Bool) -> Void = { _ in }
     @State private var hovering = false
 
     private var isCurrent: Bool { index == model.music.currentIndex }
@@ -503,7 +586,7 @@ private struct MusicQueueRow: View {
         // compete with the drag). TapGesture doesn't fire after a drag, so
         // reorder-drag and tap-to-jump coexist.
         .simultaneousGesture(TapGesture().onEnded { model.music.jump(to: index) })
-        .onHover { hovering = $0 }
+        .onHover { hovering = $0; onHoverChange($0) }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .contextMenu {

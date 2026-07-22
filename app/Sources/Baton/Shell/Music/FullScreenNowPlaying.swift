@@ -7,6 +7,7 @@ import SwiftUI
 /// as an overlay over `MusicView`.
 struct FullScreenNowPlaying: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var isPresented: Bool
     /// Override palette for snapshots/previews (nil = live-extracted from artwork).
     var previewPalette: ArtworkPalette?
@@ -53,6 +54,24 @@ struct FullScreenNowPlaying: View {
                 }
             }
         }
+        // ←/→ seek ∓10s (the standard media-player affordance) via keyboard-shortcut buttons —
+        // same mechanism as the Space/Esc controls, so no explicit focus juggling is needed.
+        .background {
+            Group {
+                Button("Back 10 seconds") { player.seek(to: max(0, player.currentTime - 10)) }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Button("Forward 10 seconds") {
+                    player.seek(to: min(player.duration, player.currentTime + 10))
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+                // [ / ] cycle the side panel (Queue / Lyrics / Related) — keyboard access for the
+                // otherwise click-only tab picker.
+                Button("Previous panel") { cyclePanel(-1) }.keyboardShortcut("[", modifiers: [])
+                Button("Next panel") { cyclePanel(1) }.keyboardShortcut("]", modifiers: [])
+            }
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
         .preferredColorScheme(.dark)
         .onAppear { paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
         // Key on the song id, not coverArtID: podcast episodes all have a nil coverArtID
@@ -69,7 +88,7 @@ struct FullScreenNowPlaying: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "Subsonic can't delete files, so \"\(player.nowPlaying?.title ?? "this track")\" will be unliked and rated lowest (★) — the signal your pipeline uses to prune it — and skipped now."
+                "Subsonic can't delete files, so \"\(player.nowPlaying?.title ?? "this track")\" will be unliked and rated lowest (★) so a library-cleanup tool can remove it later — and skipped now."
             )
         }
     }
@@ -136,7 +155,7 @@ struct FullScreenNowPlaying: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(player.nowPlaying == nil)
-                .help("Delete — unlike + rate lowest so your pipeline prunes it")
+                .help("Delete — unlike + rate lowest so a cleanup tool can remove it later")
                 Button { withAnimation(.spring) { queueVisibleOverride = !showQueue } } label: {
                     Image(systemName: "list.bullet").font(.title3)
                         .foregroundStyle(showQueue ? .primary : .secondary)
@@ -170,11 +189,12 @@ struct FullScreenNowPlaying: View {
                 // depth shadow. Dynamic accent per the design doc's Player section.
                 .shadow(color: player.isPlaying ? palette.uiAccent.opacity(0.38) : .clear, radius: 44)
                 .shadow(color: .black.opacity(0.55), radius: player.isPlaying ? 52 : 34, y: 26)
-                // Subtle "breathing" motion while playing (Apple-Music-style life).
-                .scaleEffect(breathing && player.isPlaying ? 1.02 : 0.98)
-                .animation(.easeInOut(duration: 3.4).repeatForever(autoreverses: true), value: breathing)
+                // Subtle "breathing" motion while playing (Apple-Music-style life) — held still
+                // under Reduce Motion (the continuous repeatForever loop is exactly what it targets).
+                .scaleEffect(reduceMotion ? 1.0 : (breathing && player.isPlaying ? 1.02 : 0.98))
+                .animation(reduceMotion ? nil : .easeInOut(duration: 3.4).repeatForever(autoreverses: true), value: breathing)
                 .animation(.easeInOut(duration: 0.4), value: player.isPlaying)
-                .onAppear { breathing = true }
+                .onAppear { if !reduceMotion { breathing = true } }
             VStack(spacing: 6) {
                 Text(player.nowPlaying?.title ?? "Nothing playing")
                     .font(.system(size: 32, weight: .bold)).lineLimit(1)
@@ -295,6 +315,13 @@ struct FullScreenNowPlaying: View {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .fill(Color.white.opacity(0.08))
         )
+    }
+
+    /// Cycle the side panel selection (bracket-key access).
+    private func cyclePanel(_ delta: Int) {
+        let all = SidePanel.allCases
+        guard let i = all.firstIndex(of: sidePanel) else { return }
+        withAnimation(.easeOut(duration: 0.15)) { sidePanel = all[(i + delta + all.count) % all.count] }
     }
 
     private var queuePanel: some View {

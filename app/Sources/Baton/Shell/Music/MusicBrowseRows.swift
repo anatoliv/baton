@@ -163,6 +163,8 @@ struct DownloadStatusBadge: View {
 /// Album, Playlist, Related). `onPlay` matches the row's own tap/double-tap behavior.
 @MainActor @ViewBuilder
 func songPlaybackMenuItems(_ song: NavidromeSong, _ model: MusicModel, onPlay: @escaping () -> Void) -> some View {
+    Button("Get Info", systemImage: "info.circle") { model.inspectorSong = song }
+    Divider()
     Button("Play", systemImage: "play.fill", action: onPlay)
     Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { model.music.playNext([song]) }
     Button("Add to Queue", systemImage: "text.append") { model.music.enqueue([song]) }
@@ -270,7 +272,7 @@ extension View {
                 Task { await model.musicLibrary.markForRemoval(song) }
             }
         } message: {
-            Text("Unlikes it and sets a 1-star rating — the signal the cleanup pipeline uses to prune it.")
+            Text("Unlikes it and sets a 1-star rating, so a library-cleanup tool can remove it later.")
         }
     }
 }
@@ -357,7 +359,7 @@ extension View {
             Button("Mark for removal", role: .destructive, action: confirm)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Unlikes every track and rates it 1 star — the signal the cleanup pipeline uses to prune them.")
+            Text("Unlikes every track and rates it 1 star, so a library-cleanup tool can remove them later.")
         }
     }
 }
@@ -368,6 +370,8 @@ struct MusicAlbumRow: View {
     @Environment(MusicModel.self) private var model
     let album: NavidromeAlbum
     var isSelected = false
+    /// Keyboard-focus highlight (↑/↓ navigation in the Albums list layout).
+    var highlighted = false
     var onToggleSelect: () -> Void = {}
     @State private var hovering = false
     @State private var working = false
@@ -467,8 +471,12 @@ struct MusicAlbumRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            isSelected ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear)
+            isSelected ? Color.selectionTint()
+                : (highlighted ? Color.accentColor.opacity(0.14) : (hovering ? Color.hoverTint : .clear))
         ))
+        .overlay(alignment: .leading) {
+            if highlighted { Capsule().fill(Color.accentColor).frame(width: 3).padding(.vertical, 4) }
+        }
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isSelected)
@@ -559,7 +567,7 @@ struct PlaylistGridCell: View {
                     .padding(6).shadow(color: .black.opacity(0.4), radius: 2, y: 1)
             }
         }
-        .scaleEffect(hovering ? 1.06 : 1)
+        .hoverLift(hovering)
         .zIndex(hovering ? 1 : 0)
         .animation(.easeOut(duration: 0.16), value: hovering)
         .onHover { hovering = $0 }
