@@ -41,7 +41,22 @@ final class PodcastProgressStore {
         var channel: String
         var coverArtID: String?
         var duration: Double?
+        /// When this episode was last offered by the server. Only orders eviction — deliberately
+        /// excluded from `==` so a re-register with identical content isn't seen as a change and
+        /// doesn't trigger a pointless rewrite of the file.
+        var seenAt: Date?
+
+        static func == (a: Self, b: Self) -> Bool {
+            a.id == b.id && a.title == b.title && a.channel == b.channel
+                && a.coverArtID == b.coverArtID && a.duration == b.duration
+        }
     }
+
+    /// Ceiling on remembered server episodes. A few subscriptions with deep back catalogues reach
+    /// thousands, and nothing else ever removes them, so the file would grow for the life of the
+    /// install. Episodes carrying listening progress are **never** evicted: dropping one would
+    /// make it look like a library track again — losing resume, and scrobbling it as music.
+    static let serverEpisodeLimit = 2_000
 
     /// streamID → server episode. Kept in its own file so the progress format stays untouched.
     private(set) var serverEpisodes: [String: ServerEpisode] = [:]
@@ -138,12 +153,35 @@ final class PodcastProgressStore {
     /// repeated tab visits don't re-persist.
     func registerServerEpisodes(_ episodes: [ServerEpisode]) {
         var changed = false
-        for episode in episodes where serverEpisodes[episode.id] != episode {
+        let now = Date()
+        for var episode in episodes {
+            episode.seenAt = now
+            if serverEpisodes[episode.id] != episode { changed = true }
+            // Refresh the entry (and its seenAt) either way, so eviction order tracks what the
+            // server is still offering rather than when the metadata last happened to change.
             serverEpisodes[episode.id] = episode
-            changed = true
         }
-        guard changed else { return }
+        let evicted = pruneServerEpisodes()
+        guard changed || evicted else { return }
         serverEpisodeStore.save(serverEpisodes)
+    }
+
+    /// Drops the least-recently-seen episodes that carry no progress, until back under the limit.
+    /// Returns whether anything was removed. Entries with progress are exempt, so a heavy listener
+    /// can exceed the limit — correctness beats the ceiling.
+    @discardableResult
+    private func pruneServerEpisodes() -> Bool {
+        guard serverEpisodes.count > Self.serverEpisodeLimit else { return false }
+        var overflow = serverEpisodes.count - Self.serverEpisodeLimit
+        let evictable = serverEpisodes.values
+            .filter { progress[$0.id] == nil }
+            .sorted { ($0.seenAt ?? .distantPast) < ($1.seenAt ?? .distantPast) }
+        for episode in evictable {
+            guard overflow > 0 else { break }
+            serverEpisodes[episode.id] = nil
+            overflow -= 1
+        }
+        return true
     }
 
     /// Records playback progress. Marks the episode played once it crosses the finish

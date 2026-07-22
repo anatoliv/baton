@@ -146,6 +146,33 @@ final class PodcastProgressTests: XCTestCase {
         XCTAssertEqual(store.inProgressServerEpisodes().map(\.title), ["D", "A"])
     }
 
+    /// The registry is bounded: nothing else ever removes entries, so without a cap the file
+    /// would grow for the life of the install.
+    func testServerEpisodeRegistryIsBounded() {
+        let (store, _) = makeStore()
+        let limit = PodcastProgressStore.serverEpisodeLimit
+        store.registerServerEpisodes((0 ..< (limit + 250)).map { serverEpisode("e\($0)") })
+        XCTAssertLessThanOrEqual(store.serverEpisodes.count, limit)
+    }
+
+    /// Eviction must never drop an episode you're part-way through: without its registry entry it
+    /// would look like a library track again — no resume, and it would scrobble as music.
+    func testEvictionNeverDropsEpisodesWithProgress() {
+        let (store, _) = makeStore()
+        let limit = PodcastProgressStore.serverEpisodeLimit
+
+        // One episode, listened to, registered first so it's the least-recently-seen.
+        store.registerServerEpisodes([serverEpisode("keep-me", title: "Half heard")])
+        store.record(id: "keep-me", position: 600, duration: 2760)
+
+        // Now flood past the ceiling with untouched episodes.
+        store.registerServerEpisodes((0 ..< (limit + 100)).map { serverEpisode("bulk\($0)") })
+
+        XCTAssertTrue(store.isServerEpisode("keep-me"), "an in-progress episode must survive eviction")
+        XCTAssertEqual(store.resumeOffset(id: "keep-me"), 600)
+        XCTAssertLessThanOrEqual(store.serverEpisodes.count, limit + 1, "only the exempt entry may exceed")
+    }
+
     /// Unsubscribing drops the registry entry too, so a removed show leaves nothing behind.
     func testRemoveForgetsServerEpisodes() {
         let (store, _) = makeStore()
