@@ -227,6 +227,21 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.6",
+            date: "2026",
+            highlight: "A fix for the full-screen player\u{2019}s artwork sitting still when it "
+                + "should be gently breathing.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Opening the full-screen player while paused, then pressing play, left "
+                        + "the artwork frozen instead of slowly breathing. It now starts and "
+                        + "stops with playback \u{2014} and still holds completely still when "
+                        + "Reduce Motion is on."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.5",
             date: "2026",
             highlight: "A big accessibility and keyboard release: browse with the arrow keys, "
