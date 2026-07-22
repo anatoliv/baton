@@ -17,9 +17,18 @@ private struct MusicToastOverlay: ViewModifier {
                     Label(shown.text, systemImage: shown.symbol)
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.primary)
+                        // Failure toasts carry a diagnosis ("HTTP 401 · missing bearer token"),
+                        // so the pill has to wrap instead of growing wider than the window.
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 420, alignment: .leading)
                         .padding(.horizontal, 14).padding(.vertical, 9)
-                        .background(.thinMaterial, in: Capsule())
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+                        // Rounded rect rather than a capsule once it can be multi-line: a capsule
+                        // with two lines of text reads as a lozenge with wasted side padding.
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(.white.opacity(0.08)))
                         .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
                         // Lift above the speech "Play" banner when one is also pinned to the bottom,
                         // so the two don't overlap (both otherwise sit at .bottom + 18pt).
@@ -33,7 +42,7 @@ private struct MusicToastOverlay: ViewModifier {
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { shown = toast }
                 dismissTask?.cancel()
                 dismissTask = Task {
-                    try? await Task.sleep(nanoseconds: 1_900_000_000)
+                    try? await Task.sleep(nanoseconds: UInt64(toast.seconds * 1_000_000_000))
                     guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.25)) { shown = nil }
                 }

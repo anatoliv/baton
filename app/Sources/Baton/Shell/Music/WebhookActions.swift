@@ -180,6 +180,17 @@ final class WebhookActionStore {
     private let storageKey = "tonebox.webhookActions"
     /// Performs the request, returning the HTTP status code. Injected for tests.
     private let send: (URLRequest) async throws -> Int
+    /// Performs the request returning status **and** response body. The body is what makes a
+    /// failure diagnosable — servers explain themselves there ("missing bearer token") and we
+    /// used to throw it away, leaving the user with a bare "failed". Optional so existing
+    /// callers/tests that inject only `send` keep working.
+    private let sendWithBody: ((URLRequest) async throws -> (Int, Data))?
+
+    /// Runs the request through whichever sender was injected.
+    private func sendDetailed(_ request: URLRequest) async throws -> (Int, Data) {
+        if let sendWithBody { return try await sendWithBody(request) }
+        return (try await send(request), Data())
+    }
 
     /// Keychain account key for a header's secret value — the header id is a globally unique UUID.
     private static func secretKey(_ header: WebhookAction.Header) -> String {
@@ -192,11 +203,16 @@ final class WebhookActionStore {
         send: @escaping (URLRequest) async throws -> Int = { request in
             let (_, response) = try await URLSession.shared.data(for: request)
             return (response as? HTTPURLResponse)?.statusCode ?? 0
+        },
+        sendWithBody: ((URLRequest) async throws -> (Int, Data))? = { request in
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
         }
     ) {
         self.defaults = defaults
         self.secrets = secrets
         self.send = send
+        self.sendWithBody = sendWithBody
         load()
     }
 
@@ -220,22 +236,39 @@ final class WebhookActionStore {
 
     // MARK: Run
 
-    /// Fires `action` with `tokens`. Returns true on a 2xx response. Never throws — failures
-    /// are logged and reported false so callers can toast.
+    /// Fires `action` with `tokens`. Never throws — failures come back as a `WebhookSendResult`
+    /// so the caller can tell the user *why*, not just that something went wrong.
     @discardableResult
-    func run(_ action: WebhookAction, tokens: [String: String]) async -> Bool {
+    func run(_ action: WebhookAction, tokens: [String: String]) async -> WebhookSendResult {
+        // A header whose value resolved to nothing is never a request worth sending: URLSession
+        // drops an empty header field, so the server sees no auth at all and answers with a
+        // generic 401 that looks like a bad token. The usual cause is the Keychain refusing the
+        // secret to this binary (a re-signed build invalidates the item's ACL), which is
+        // invisible from the UI — so fail here, naming the header, instead of on the wire.
+        let emptyValued = action.headers
+            .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+            .filter { $0.value.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { $0.name.trimmingCharacters(in: .whitespaces) }
+        if let name = emptyValued.first {
+            webhookLog.error("action \(action.name, privacy: .public): header \(name, privacy: .public) has no value")
+            return .init(
+                status: nil,
+                detail: "the “\(name)” header has no value — re-enter it in Settings → Actions"
+            )
+        }
+
         guard let request = WebhookTemplate.buildRequest(action, tokens: tokens) else {
             webhookLog.error("action \(action.name, privacy: .public): invalid URL after substitution")
-            return false
+            return .init(status: nil, detail: "the URL isn’t valid once its {tokens} are filled in")
         }
         do {
-            let status = try await send(request)
-            let ok = (200 ... 299).contains(status)
-            if !ok { webhookLog.error("action \(action.name, privacy: .public): HTTP \(status)") }
-            return ok
+            let (status, body) = try await sendDetailed(request)
+            if (200 ... 299).contains(status) { return .init(status: status, detail: nil) }
+            webhookLog.error("action \(action.name, privacy: .public): HTTP \(status)")
+            return .init(status: status, detail: WebhookSendResult.summarize(body: body, status: status))
         } catch {
             webhookLog.error("action \(action.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return false
+            return .init(status: nil, detail: error.localizedDescription)
         }
     }
 
@@ -288,6 +321,23 @@ enum PodcastWebhookTokens {
         ("description", "Episode notes (plain text)"),
     ]
 
+    /// Stand-in values for the editor's **Test** button, so an action can be verified without
+    /// hunting down an episode to run it on. Deliberately obvious as a sample (example.com, a
+    /// clearly-fake GUID) so anything it reaches can tell a test apart from a real submission —
+    /// and so a transcription endpoint rejects it cheaply instead of ingesting junk.
+    static let sample: [String: String] = [
+        "title": "Test Episode",
+        "channelTitle": "Baton Test",
+        "enclosureUrl": "https://example.com/baton-test.mp3",
+        "feedUrl": "https://example.com/feed.xml",
+        "guid": "baton-test-guid",
+        "pubDate": "2026-01-01T00:00:00Z",
+        "durationSec": "60",
+        "episodeImageUrl": "https://example.com/episode.jpg",
+        "channelImageUrl": "https://example.com/show.jpg",
+        "description": "A sample request sent by Baton’s Test button.",
+    ]
+
     static func tokens(episode: PodcastEpisode, channel: PodcastChannel) -> [String: String] {
         var iso: String {
             guard let date = episode.publishDate else { return "" }
@@ -308,6 +358,70 @@ enum PodcastWebhookTokens {
     }
 }
 
+// MARK: - Send result
+
+/// The outcome of firing one action, carrying enough to tell the user what went wrong.
+///
+/// Actions talk to servers the user configured, so the failures are overwhelmingly setup
+/// mistakes — a missing header, a typo'd path, an expired token. The server almost always says
+/// exactly which ("missing bearer token"), and reporting a bare "failed" throws that away and
+/// leaves them guessing with no log to check.
+struct WebhookSendResult {
+    /// HTTP status, or nil when the request never got that far (bad URL, network error).
+    let status: Int?
+    /// Human-readable failure reason; nil on success.
+    let detail: String?
+
+    var ok: Bool { detail == nil }
+
+    /// One-line failure text for a toast: "HTTP 401 · missing bearer token".
+    var toastSuffix: String {
+        guard let detail else { return "" }
+        if let status { return " · HTTP \(status) · \(detail)" }
+        return " · \(detail)"
+    }
+
+    /// Distils a response body into something worth showing.
+    ///
+    /// Prefers the message field of a JSON error envelope — FastAPI uses `detail`, many others
+    /// `message`/`error` — because that's the sentence the server wrote for a human. Falls back
+    /// to trimmed plain text, and to a generic phrase for an empty body (or an HTML error page,
+    /// which is never useful in a toast).
+    static func summarize(body: Data, status: Int) -> String {
+        let raw = String(data: body, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let data = raw.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["detail", "message", "error", "error_description"] {
+                if let value = obj[key] as? String, !value.isEmpty { return clip(value) }
+            }
+        }
+        guard !raw.isEmpty, !raw.lowercased().hasPrefix("<") else {
+            return genericReason(for: status)
+        }
+        return clip(raw)
+    }
+
+    /// A plain-language hint when the server said nothing useful.
+    private static func genericReason(for status: Int) -> String {
+        switch status {
+        case 401, 403: "the server rejected the credentials — check the Authorization header"
+        case 404: "the server has no such path — check the URL"
+        case 405: "wrong HTTP method for that URL"
+        case 408, 504: "the server timed out"
+        case 413: "the request was too large"
+        case 422, 400: "the server rejected the request body"
+        case 500 ... 599: "the server errored"
+        default: "unexpected response"
+        }
+    }
+
+    private static func clip(_ s: String, limit: Int = 120) -> String {
+        let flat = s.replacingOccurrences(of: "\n", with: " ")
+        return flat.count <= limit ? flat : String(flat.prefix(limit)) + "…"
+    }
+}
+
 // MARK: - Runner (UI helper)
 
 /// Runs a webhook action and posts a success/failure toast. Used by the per-item menu and the
@@ -316,10 +430,14 @@ enum PodcastWebhookTokens {
 enum WebhookRunner {
     static func run(_ action: WebhookAction, tokens: [String: String], _ model: MusicModel) {
         Task {
-            let ok = await model.webhookActions.run(action, tokens: tokens)
+            let result = await model.webhookActions.run(action, tokens: tokens)
             model.music.postToast(
-                ok ? "“\(action.name)” done" : "“\(action.name)” failed",
-                symbol: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                result.ok
+                    ? "“\(action.name)” done"
+                    : "“\(action.name)” failed\(result.toastSuffix)",
+                symbol: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                // A diagnosis needs reading time; a confirmation doesn't.
+                seconds: result.ok ? 1.9 : 6
             )
         }
     }
@@ -329,13 +447,19 @@ enum WebhookRunner {
         guard !tokenSets.isEmpty else { return }
         Task {
             var ok = 0
-            for tokens in tokenSets where await model.webhookActions.run(action, tokens: tokens) { ok += 1 }
+            // Keep the first failure's reason: in a batch they're nearly always the same setup
+            // mistake repeated, and one concrete cause beats "3 failed" with no explanation.
+            var firstFailure: String?
+            for tokens in tokenSets {
+                let result = await model.webhookActions.run(action, tokens: tokens)
+                if result.ok { ok += 1 } else if firstFailure == nil { firstFailure = result.toastSuffix }
+            }
             let failed = tokenSets.count - ok
             let symbol = failed == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
             let message = failed == 0
                 ? "“\(action.name)” · \(ok) done"
-                : "“\(action.name)” · \(ok) done, \(failed) failed"
-            model.music.postToast(message, symbol: symbol)
+                : "“\(action.name)” · \(ok) done, \(failed) failed\(firstFailure ?? "")"
+            model.music.postToast(message, symbol: symbol, seconds: failed == 0 ? 1.9 : 6)
         }
     }
 }
@@ -361,7 +485,7 @@ struct BatonActionsPane: View {
                 } else {
                     ForEach(store.actions) { action in
                         HStack(spacing: 10) {
-                            Image(systemName: action.icon.isEmpty ? "bolt.horizontal.circle" : action.icon)
+                            Image(systemName: SFSymbolCatalog.resolved(action.icon))
                                 .foregroundStyle(Color.accentColor).frame(width: 22)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(action.name.isEmpty ? "(untitled)" : action.name)
@@ -403,12 +527,29 @@ struct BatonActionsPane: View {
 /// token reference so you can see what placeholders are available.
 struct WebhookActionEditor: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(MusicModel.self) private var model
     @State private var draft: WebhookAction
+    /// Outcome of the last Test, shown inline. Nil until one runs.
+    @State private var testResult: WebhookSendResult?
+    @State private var testing = false
     let onSave: (WebhookAction) -> Void
 
     init(action: WebhookAction, onSave: @escaping (WebhookAction) -> Void) {
         _draft = State(initialValue: action)
         self.onSave = onSave
+    }
+
+    /// Fires the DRAFT (not the saved copy) against the real endpoint with sample tokens, so a
+    /// misconfigured header or URL surfaces here rather than the first time you use it on an
+    /// episode — which is how an empty auth header went unnoticed through two rounds of fixes.
+    private func runTest() {
+        testing = true
+        testResult = nil
+        Task {
+            let result = await model.webhookActions.run(draft, tokens: PodcastWebhookTokens.sample)
+            testResult = result
+            testing = false
+        }
     }
 
     private var canSave: Bool {
@@ -422,7 +563,7 @@ struct WebhookActionEditor: View {
             Form {
                 Section {
                     TextField("Name", text: $draft.name, prompt: Text("Save transcript"))
-                    TextField("Icon (SF Symbol)", text: $draft.icon, prompt: Text("doc.text"))
+                    SymbolField(symbol: $draft.icon, label: "Icon (SF Symbol)")
                     Picker("Method", selection: $draft.method) {
                         ForEach(WebhookAction.Method.allCases) { Text($0.rawValue).tag($0) }
                     }
@@ -440,6 +581,35 @@ struct WebhookActionEditor: View {
                         }
                     }
                     Button { draft.headers.append(.init()) } label: { Label("Add Header", systemImage: "plus") }
+                    // A header with a value but no name is silently dropped when the request is
+                    // built — which shows up much later as an unexplained 401 from the server.
+                    // Say so here, where it can still be fixed.
+                    if draft.headers.contains(where: {
+                        $0.name.trimmingCharacters(in: .whitespaces).isEmpty
+                            && !$0.value.trimmingCharacters(in: .whitespaces).isEmpty
+                    }) {
+                        Label(
+                            "A header with a value but no name won’t be sent. Add a name (e.g. Authorization) or remove the row.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    }
+                    // The mirror image, and the harder one to spot: the name is right but the value
+                    // is blank. Header values live in the Keychain, so this is also what you see if
+                    // the stored secret can no longer be read (a re-signed build invalidates the
+                    // item's ACL) — the row looks configured while sending nothing.
+                    if draft.headers.contains(where: {
+                        !$0.name.trimmingCharacters(in: .whitespaces).isEmpty
+                            && $0.value.trimmingCharacters(in: .whitespaces).isEmpty
+                    }) {
+                        Label(
+                            "A header with a name but no value won’t be sent. Re-enter the value — stored values are kept in the Keychain and can become unreadable after an app update.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    }
                 }
                 if draft.method.sendsBody {
                     Section("Body") {
@@ -463,7 +633,30 @@ struct WebhookActionEditor: View {
                 }
             }
             .formStyle(.grouped)
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
+                Button {
+                    runTest()
+                } label: {
+                    if testing { ProgressView().controlSize(.small) } else { Text("Test") }
+                }
+                .disabled(!canSave || testing)
+                .help("Send one request to this URL using sample values, without saving")
+
+                if let testResult {
+                    Label {
+                        Text(testResult.ok
+                             ? "Worked\(testResult.status.map { " · HTTP \($0)" } ?? "")"
+                             : "Failed\(testResult.toastSuffix.trimmingCharacters(in: .whitespaces))")
+                            .font(.callout)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: testResult.ok
+                              ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    }
+                    .foregroundStyle(testResult.ok ? Color.green : Color.orange)
+                }
+
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") { onSave(draft); dismiss() }

@@ -227,6 +227,40 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.7.0",
+            date: "2026",
+            highlight: "Custom actions are far easier to get right: test one from its editor, "
+                + "pick its icon from a list, and see exactly why a request failed.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A Test button in the action editor sends one request with sample "
+                        + "values \u{2014} without saving \u{2014} and shows the result, so you "
+                        + "can confirm an action works instead of discovering it later on a "
+                        + "real episode."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Pick an action\u{2019}s icon from a searchable list of symbols with a "
+                        + "live preview, instead of typing an exact symbol name. A name that "
+                        + "doesn\u{2019}t exist now says so rather than showing nothing."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "A failed action tells you why \u{2014} the server\u{2019}s own "
+                        + "explanation, or the HTTP status \u{2014} instead of just "
+                        + "\u{201C}failed\u{201D}, and stays on screen long enough to read."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "An action whose header had no name, or whose saved value could no "
+                        + "longer be read, sent no header at all and failed with an "
+                        + "unexplained authorization error. Both are now caught and named "
+                        + "\u{2014} in the editor, and before the request is sent."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.9",
             date: "2026",
             highlight: "Housekeeping: podcast bookkeeping stays a sensible size, and the "
