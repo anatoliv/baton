@@ -19,6 +19,9 @@ struct FullScreenNowPlaying: View {
     @State private var queueVisibleOverride: Bool?
     @State private var sidePanel: SidePanel = .queue
     @State private var breathing = false
+    /// Whether the artwork should be mid-breath. Combines "the view has appeared" with "audio is
+    /// actually playing" so the repeating animation arms on playback start, not just on appear.
+    private var isBreathing: Bool { breathing && player.isPlaying }
     /// The current cover, loaded as an NSImage so the artwork can keep a fixed
     /// height and let its width follow the image's natural aspect ratio.
     @State private var coverImage: NSImage?
@@ -189,11 +192,23 @@ struct FullScreenNowPlaying: View {
                 // depth shadow. Dynamic accent per the design doc's Player section.
                 .shadow(color: player.isPlaying ? palette.uiAccent.opacity(0.38) : .clear, radius: 44)
                 .shadow(color: .black.opacity(0.55), radius: player.isPlaying ? 52 : 34, y: 26)
+                // Applied *before* the scale below so it animates the glow only — leaving the
+                // breathing loop as the sole animation driving scaleEffect (two `.animation`s
+                // racing over one property is what froze it, see below).
+                .animation(.easeInOut(duration: 0.4), value: player.isPlaying)
                 // Subtle "breathing" motion while playing (Apple-Music-style life) — held still
                 // under Reduce Motion (the continuous repeatForever loop is exactly what it targets).
-                .scaleEffect(reduceMotion ? 1.0 : (breathing && player.isPlaying ? 1.02 : 0.98))
-                .animation(reduceMotion ? nil : .easeInOut(duration: 3.4).repeatForever(autoreverses: true), value: breathing)
-                .animation(.easeInOut(duration: 0.4), value: player.isPlaying)
+                //
+                // Keyed on `isBreathing`, not `breathing`: `.animation(value:)` only fires when its
+                // value *changes*, and `breathing` changes exactly once (on appear). Opening the
+                // hero while paused therefore armed nothing, and pressing play afterwards just slid
+                // the scale to its end value and left it frozen there. Folding `isPlaying` into the
+                // value makes playback start/stop arm and disarm the loop. Verified on-device.
+                .scaleEffect(reduceMotion ? 1.0 : (isBreathing ? 1.02 : 0.98))
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 3.4).repeatForever(autoreverses: true),
+                    value: isBreathing
+                )
                 .onAppear { if !reduceMotion { breathing = true } }
             VStack(spacing: 6) {
                 Text(player.nowPlaying?.title ?? "Nothing playing")
