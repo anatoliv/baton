@@ -67,7 +67,7 @@ Baton writes, at startup (after it binds a port):
   "url": "http://127.0.0.1:8787/mcp",
   "token": "e3b0c44298fc1c149afbf4c8996fb924...",
   "pid": 41234,
-  "app": { "bundleId": "io.tonebox.baton", "version": "0.1.0" },
+  "app": { "bundleId": "io.tonebox.baton", "version": "0.6.x" },
   "fastPath": {
     "unixSocket": "~/Library/Application Support/Baton/control.sock"
   }

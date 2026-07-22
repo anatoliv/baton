@@ -916,13 +916,14 @@ It looks like this:
   "transport": "streamable-http",
   "url": "http://127.0.0.1:8787/mcp",
   "token": "b7f3c0…a1c9",
-  "app": { "bundleId": "io.tonebox.baton", "version": "0.1.0" }
+  "app": { "bundleId": "io.tonebox.baton", "version": "0.6.x" }
 }
 ```
 
 You connect a client by pointing it at that **url** over the **Streamable HTTP** transport and
 passing the **token** as a bearer token in the `Authorization` header. Both values come
-straight out of `mcp.json`.
+straight out of `mcp.json`. The token above is shortened for display, and **app.version** is
+whichever build of Baton is running — yours will show its real values.
 
 > [!NOTE]
 > The port is `8787` by default, but if something else already has it, Baton uses the next
