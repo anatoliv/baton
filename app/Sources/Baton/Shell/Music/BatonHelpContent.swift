@@ -227,6 +227,26 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.6.9",
+            date: "2026",
+            highlight: "Housekeeping: podcast bookkeeping stays a sensible size, and the "
+                + "MCP examples in Help show what Baton actually reports.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Baton remembers your server\u{2019}s podcast episodes so it can resume "
+                        + "them. That list had no ceiling and grew for the life of the install; "
+                        + "it\u{2019}s now capped, and episodes you\u{2019}re part-way through "
+                        + "are never dropped."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "The agent-setup examples in Help showed a stale app version. They now "
+                        + "make clear the value is whichever build you\u{2019}re running."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.6.8",
             date: "2026",
             highlight: "Baton now tells agents which version it actually is.",
