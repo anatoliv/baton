@@ -14,7 +14,21 @@ public enum BatonMCPConstants {
     public static let protocolVersion = "2025-06-18"
     /// Server identity reported in `initialize`.
     public static let serverName = "baton"
-    public static let serverVersion = "0.1.0"
+
+    /// The app version reported to agents — in `initialize`'s `serverInfo.version` and as
+    /// `app.version` in the `mcp.json` discovery file.
+    ///
+    /// Read from the host bundle, not hardcoded. A literal here does not track releases: it
+    /// said "0.1.0" for seven of them, so every MCP client was told Baton was 0.1.0 while the
+    /// app shipped 0.6.x. Still Foundation-only, so this module keeps its zero app dependencies.
+    public static var serverVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            ?? unknownVersion
+    }
+
+    /// Reported when there's no host bundle version to read (e.g. a bare test runner). Deliberately
+    /// not a real-looking version, so a misconfiguration is obvious rather than silently plausible.
+    public static let unknownVersion = "0.0.0"
     /// Reject any single HTTP request body larger than this (defensive; the tool
     /// payloads are tiny).
     public static let maxRequestBytes = 1_048_576 // 1 MB
