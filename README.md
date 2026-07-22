@@ -12,7 +12,7 @@ a mix, or duck the music for a call.
 Made by [Tonebox](https://tonebox.io), and given away for free.
 
 ![Baton's full-screen player: album artwork, an artwork-matched accent colour running through
-the scrubber and rating, and the Up Next queue](docs/screenshots/baton-now-playing.png)
+the scrubber and rating, and the Up Next queue](screenshots/baton-now-playing.png)
 
 <sub>Shown with the public Navidrome demo library (Creative Commons music from
 [blocsonic](https://blocsonic.com/)).</sub>
@@ -57,7 +57,7 @@ offer **Try the demo server**, which fills in the public Navidrome demo so you c
 around before setting anything up.
 
 ![Baton's Albums grid: artwork tiles with track counts and durations, section counts in the
-sidebar, and the now-playing bar below](docs/screenshots/baton-albums.png)
+sidebar, and the now-playing bar below](screenshots/baton-albums.png)
 
 ## Agent / MCP control
 
