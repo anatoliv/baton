@@ -92,4 +92,67 @@ final class PodcastProgressTests: XCTestCase {
         XCTAssertTrue(MusicModel.isPodcastEpisode(song("https://cdn.example/ep.mp3")))
         XCTAssertFalse(MusicModel.isPodcastEpisode(song("al-1234")))
     }
+
+    // MARK: - Server-side episodes
+
+    private func serverEpisode(_ id: String, title: String = "Ep", channel: String = "Show")
+        -> PodcastProgressStore.ServerEpisode {
+        .init(id: id, title: title, channel: channel, coverArtID: "art-1", duration: 2760)
+    }
+
+    /// A server episode's id is an opaque Subsonic id — indistinguishable from a library track's —
+    /// so the registry is the only thing that can classify it. Without it, resume/progress never
+    /// fire for server podcasts.
+    func testServerEpisodeRegistryClassifies() {
+        let (store, _) = makeStore()
+        XCTAssertFalse(store.isServerEpisode("sub-99"))
+        store.registerServerEpisodes([serverEpisode("sub-99")])
+        XCTAssertTrue(store.isServerEpisode("sub-99"))
+        // A library track is still not a podcast.
+        XCTAssertFalse(store.isServerEpisode("al-1234"))
+    }
+
+    /// The registry must survive a relaunch, or resume would silently stop working until the user
+    /// happened to open the Podcasts tab again.
+    func testServerEpisodeRegistryPersists() {
+        let (store, dir) = makeStore()
+        store.registerServerEpisodes([serverEpisode("sub-1", title: "One", channel: "Daily")])
+        store.record(id: "sub-1", position: 600, duration: 2760)
+
+        let reborn = PodcastProgressStore(directory: dir)
+        reborn.loadIfNeeded()
+        XCTAssertTrue(reborn.isServerEpisode("sub-1"))
+        XCTAssertEqual(reborn.resumeOffset(id: "sub-1"), 600)
+        XCTAssertEqual(reborn.inProgressServerEpisodes().map(\.title), ["One"])
+    }
+
+    /// The Home "Continue listening" shelf reads this: in-progress server episodes only, ordered
+    /// newest-listened first, with finished and untouched ones excluded.
+    func testInProgressServerEpisodesOrderingAndFiltering() {
+        let (store, _) = makeStore()
+        store.registerServerEpisodes([
+            serverEpisode("a", title: "A"), serverEpisode("b", title: "B"),
+            serverEpisode("c", title: "C"), serverEpisode("d", title: "D"),
+        ])
+        store.record(id: "a", position: 600, duration: 2760)   // mid-listen
+        store.record(id: "b", position: 2755, duration: 2760)  // finished → excluded
+        store.record(id: "c", position: 3, duration: 2760)     // barely started → excluded
+        store.record(id: "d", position: 900, duration: 2760)   // mid-listen, most recent
+
+        let titles = store.inProgressServerEpisodes().map(\.title)
+        XCTAssertEqual(titles, ["D", "A"], "newest-listened first, finished/barely-started dropped")
+        // An unregistered in-progress id (a client episode) never leaks into the server list.
+        store.record(id: "https://cdn.example/ep.mp3", position: 700, duration: 2760)
+        XCTAssertEqual(store.inProgressServerEpisodes().map(\.title), ["D", "A"])
+    }
+
+    /// Unsubscribing drops the registry entry too, so a removed show leaves nothing behind.
+    func testRemoveForgetsServerEpisodes() {
+        let (store, _) = makeStore()
+        store.registerServerEpisodes([serverEpisode("sub-1")])
+        store.record(id: "sub-1", position: 600, duration: 2760)
+        store.remove(ids: ["sub-1"])
+        XCTAssertFalse(store.isServerEpisode("sub-1"))
+        XCTAssertNil(store.resumeOffset(id: "sub-1"))
+    }
 }

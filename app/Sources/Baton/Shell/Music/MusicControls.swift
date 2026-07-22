@@ -13,6 +13,9 @@ struct MusicScrubber: View {
     var onSeek: (Double) -> Void
 
     @State private var dragProgress: Double?
+    /// Cursor x within the track while hovering — drives the "seek to" time bubble.
+    @State private var hoverX: CGFloat?
+    @State private var scroll = ScrollAdjustRelay()
 
     private var progress: Double {
         if let dragProgress { return dragProgress }
@@ -26,7 +29,9 @@ struct MusicScrubber: View {
     }
 
     var body: some View {
-        VStack(spacing: 5) {
+        // Keep the scroll relay pinned to live state each render (±5s per detent).
+        scroll.sync(currentTime, lower: 0, upper: max(duration, 0), step: 5, onSet: onSeek)
+        return VStack(spacing: 5) {
             GeometryReader { geo in
                 let width = geo.size.width
                 Group {
@@ -38,6 +43,7 @@ struct MusicScrubber: View {
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
+                .scrollWheelAdjust { if duration > 0 { scroll.tick($0) } } // scroll to seek ±5s
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
@@ -51,6 +57,25 @@ struct MusicScrubber: View {
                             dragProgress = nil
                         }
                 )
+                // Hover preview: the time you'd seek to, floating above the cursor.
+                .onContinuousHover { phase in
+                    guard duration > 0 else { hoverX = nil; return }
+                    switch phase {
+                    case let .active(point): hoverX = min(max(point.x, 0), width)
+                    case .ended: hoverX = nil
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if let hoverX, dragProgress == nil, duration > 0 {
+                        Text(Self.time((hoverX / max(width, 1)) * duration))
+                            .font(.caption2.monospacedDigit())
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                            .fixedSize()
+                            .offset(x: hoverX - 16, y: -22)
+                            .allowsHitTesting(false)
+                    }
+                }
             }
             .frame(height: waveform == nil ? 16 : 30)
 
@@ -61,6 +86,19 @@ struct MusicScrubber: View {
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(tint.opacity(0.75))
+        }
+        // VoiceOver: one adjustable element (the custom drag track has no built-in a11y). Rotor
+        // up/down seeks ±10s; the value reads elapsed-of-total.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playback position")
+        .accessibilityValue(duration > 0 ? "\(Self.time(shownTime)) of \(Self.time(duration))" : "No track")
+        .accessibilityAdjustableAction { direction in
+            guard duration > 0 else { return }
+            switch direction {
+            case .increment: onSeek(min(currentTime + 10, duration))
+            case .decrement: onSeek(max(currentTime - 10, 0))
+            @unknown default: break
+            }
         }
     }
 
@@ -109,12 +147,16 @@ struct MusicVolumeControl: View {
     /// Optional mute toggle. When nil the speaker icon is inert (legacy callers).
     var onToggleMute: (() -> Void)?
 
+    @State private var scroll = ScrollAdjustRelay()
+
     private var showSlash: Bool { isMuted || percent == 0 }
     /// The filled portion — collapsed to a stub while muted so the mute state reads.
     private var fillFraction: CGFloat { isMuted ? 0 : CGFloat(percent) / 100 }
 
     var body: some View {
-        HStack(spacing: 7) {
+        // Keep the scroll relay pinned to live state each render (±2% per detent).
+        scroll.sync(Double(percent), lower: 0, upper: 100, step: 2) { onChange(Int($0)) }
+        return HStack(spacing: 7) {
             Button { onToggleMute?() } label: {
                 Image(systemName: showSlash ? "speaker.slash.fill" : "speaker.fill")
                     .font(.caption2)
@@ -125,6 +167,7 @@ struct MusicVolumeControl: View {
             .buttonStyle(.plain)
             .disabled(onToggleMute == nil)
             .help(isMuted ? "Unmute" : "Mute")
+            .accessibilityLabel(isMuted ? "Unmute" : "Mute")
 
             GeometryReader { geo in
                 let width = geo.size.width
@@ -141,6 +184,18 @@ struct MusicVolumeControl: View {
                 )
             }
             .frame(height: 14)
+            .scrollWheelAdjust { scroll.tick($0) } // scroll over the slider to change volume
+            // VoiceOver: rotor up/down adjusts volume ±5%.
+            .accessibilityElement()
+            .accessibilityLabel("Volume")
+            .accessibilityValue("\(percent)%")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: onChange(min(percent + 5, 100))
+                case .decrement: onChange(max(percent - 5, 0))
+                @unknown default: break
+                }
+            }
         }
     }
 }
@@ -226,5 +281,86 @@ struct MusicRatingCluster: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Scroll-wheel adjustment
+
+import AppKit
+
+/// Adjusts a value by the scroll wheel while the cursor is over a control — the standard macOS
+/// convention that custom (non-AppKit) sliders otherwise lack. A hover-scoped local event monitor
+/// forwards wheel deltas to `onTick(dir)` (±1 per detent), consuming them so a parent scroll view
+/// doesn't also move. Precise (trackpad) deltas are accumulated to a threshold; mouse notches step
+/// directly. `onTick` should apply against a reference holder so it reads live state, not a stale
+/// capture (see `MusicVolumeControl` / `MusicScrubber`).
+struct ScrollWheelAdjust: ViewModifier {
+    let onTick: (Int) -> Void
+    @State private var monitor: Any?
+    @State private var accum: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                if inside, monitor == nil {
+                    monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                        handle(event)
+                        return nil // consume — don't also scroll an ancestor
+                    }
+                } else if !inside {
+                    removeMonitor()
+                }
+            }
+            .onDisappear { removeMonitor() }
+    }
+
+    private func handle(_ event: NSEvent) {
+        if event.hasPreciseScrollingDeltas {
+            accum += event.scrollingDeltaY
+            let step: CGFloat = 10
+            while abs(accum) >= step {
+                let dir = accum > 0 ? 1 : -1
+                accum -= CGFloat(dir) * step
+                onTick(event.isDirectionInvertedFromDevice ? -dir : dir)
+            }
+        } else {
+            let raw = event.deltaY
+            guard raw != 0 else { return }
+            let dir = raw > 0 ? 1 : -1
+            onTick(event.isDirectionInvertedFromDevice ? -dir : dir)
+        }
+    }
+
+    private func removeMonitor() {
+        accum = 0
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
+extension View {
+    /// Scroll-wheel over this control emits ±1 detents to `onTick`.
+    func scrollWheelAdjust(_ onTick: @escaping (Int) -> Void) -> some View {
+        modifier(ScrollWheelAdjust(onTick: onTick))
+    }
+}
+
+/// A stable reference the scroll monitor calls into. `sync(...)` is called each render to reset the
+/// working value to the live truth; `tick(dir)` then accumulates from there, so multiple detents in
+/// one gesture (before the next render) compound correctly instead of all computing off a stale base.
+@MainActor final class ScrollAdjustRelay {
+    private var value = 0.0
+    private var lower = 0.0
+    private var upper = 100.0
+    private var step = 1.0
+    private var onSet: (Double) -> Void = { _ in }
+
+    func sync(_ v: Double, lower: Double, upper: Double, step: Double, onSet: @escaping (Double) -> Void) {
+        value = v; self.lower = lower; self.upper = upper; self.step = step; self.onSet = onSet
+    }
+
+    func tick(_ dir: Int) {
+        value = min(max(value + Double(dir) * step, lower), upper)
+        onSet(value)
     }
 }

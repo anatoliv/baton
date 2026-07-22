@@ -94,7 +94,7 @@ enum BatonMCPSpeakTools {
         // voice ("engine:voice", or nil when the system-voice fallback was used) so Replay reproduces
         // the same sound.
         let usedFallback = engineUsed.hasPrefix("system")
-        music.speechHistory.record(
+        music.nowPlayingSummaryID = music.speechHistory.record(
             text: text,
             voice: usedFallback ? nil : "\(voice.engine.rawValue):\(voice.voice)",
             engine: usedFallback ? "system" : voice.engine.rawValue,

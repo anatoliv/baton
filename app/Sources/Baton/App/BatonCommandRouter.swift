@@ -13,6 +13,10 @@ final class BatonCommandRouter {
     var focusSearchToken = 0
     /// Bumped by **Now Playing** (⌘0): open the full-screen hero.
     var showNowPlayingToken = 0
+    /// Bumped by **Show Queue** (⌘U): open the now-playing bar's queue popover.
+    var showQueueToken = 0
+    /// Bumped by **Refresh Library** (⌘R): refetch all collections + radio/podcast stores.
+    var refreshLibraryToken = 0
 }
 
 /// The **Go** menu: jump to any left-rail section (⌘1…⌘8), Find (⌘F → Search + focus),
@@ -33,6 +37,13 @@ struct GoMenuCommands: Commands {
             Button("Playlists") { router.pendingTab = .playlists }.keyboardShortcut("6", modifiers: .command)
             Button("Liked") { router.pendingTab = .starred }.keyboardShortcut("7", modifiers: .command)
             Button("History") { router.pendingTab = .history }.keyboardShortcut("8", modifiers: .command)
+            Button("Later") { router.pendingTab = .later }.keyboardShortcut("9", modifiers: .command)
+
+            // The remaining sections have no numeric shortcut but must still be reachable from the
+            // menu — macOS convention allows shortcut-less menu items.
+            Button("Podcasts") { router.pendingTab = .podcasts }
+            Button("Radio") { router.pendingTab = .radio }
+            Button("Downloads") { router.pendingTab = .downloads }
 
             Divider()
 
@@ -44,6 +55,9 @@ struct GoMenuCommands: Commands {
 
             Button("Now Playing") { router.showNowPlayingToken += 1 }
                 .keyboardShortcut("0", modifiers: .command)
+
+            Button("Refresh Library") { router.refreshLibraryToken += 1 }
+                .keyboardShortcut("r", modifiers: .command)
 
             Divider()
 

@@ -55,18 +55,24 @@ struct MusicRadioView: View {
 
     var body: some View {
         Group {
-            if store.loading, store.stations.isEmpty {
-                centered { ProgressView() }
-            } else if let loadError = store.loadError, store.stations.isEmpty {
-                centered {
-                    VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.secondary)
-                        Text(loadError).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        Button("Retry") { Task { await store.reload() } }
-                    }
-                }
-            } else if store.stations.isEmpty {
-                emptyState
+            // Shared load/empty/error placeholder (was three bespoke `centered {}` stacks), keeping
+            // Radio's meaningful "Add Station" call-to-action in the empty state.
+            let state = ContentDisplayState.resolve(
+                isLoading: store.loading && store.stations.isEmpty,
+                error: store.stations.isEmpty ? store.loadError : nil,
+                isEmpty: store.stations.isEmpty
+            )
+            if state != .content {
+                ContentStatePlaceholder(
+                    state: state,
+                    emptyTitle: "No radio stations",
+                    emptyMessage: "Add an internet-radio stream URL to listen here.",
+                    emptySymbol: "dot.radiowaves.left.and.right",
+                    emptyActionLabel: "Add Station",
+                    emptyAction: { editing = nil; showEditor = true },
+                    onRetry: { Task { await store.reload() } }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
                     // Shared browse header (title · count badge · filter, then the layout
@@ -155,24 +161,6 @@ struct MusicRadioView: View {
         }
     }
 
-    private var emptyState: some View {
-        centered {
-            VStack(spacing: 10) {
-                Image(systemName: "dot.radiowaves.left.and.right").font(.largeTitle).foregroundStyle(.secondary)
-                Text("No radio stations").font(.headline)
-                Text("Add an internet-radio stream URL to listen here.")
-                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Button { editing = nil; showEditor = true } label: {
-                    Label("Add Station", systemImage: "plus")
-                }
-                .buttonStyle(.borderless).padding(.top, 4)
-            }
-        }
-    }
-
-    private func centered(@ViewBuilder _ body: () -> some View) -> some View {
-        VStack { Spacer(); body(); Spacer() }.frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
 
 private extension NavidromeRadioStation {
@@ -440,15 +428,18 @@ struct RadioArtworkView: View {
 struct EqualizerBars: View {
     var active: Bool
     var color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        if active {
+        if active && !reduceMotion {
             TimelineView(.animation) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 bars { i in 0.3 + 0.7 * abs(sin(t * 3.0 + Double(i) * 0.7)) }
             }
         } else {
-            bars { _ in 0.32 }
+            // Under Reduce Motion, show tall static bars for "on air" (no continuous animation)
+            // and short bars when idle.
+            bars { _ in active ? 0.85 : 0.32 }
         }
     }
 

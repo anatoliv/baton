@@ -1122,6 +1122,19 @@ final class StreamingPlaybackController {
         }
     }
 
+    /// User-initiated retry of the current track after an error (the now-playing bar's **Retry**).
+    /// Reuses the same-track reload path — preserving the playhead — and clears the automatic backoff
+    /// counters so a manual retry always attempts, even after auto-retries were exhausted.
+    func retryCurrent() {
+        guard nowPlaying != nil else { return }
+        sameTrackRetries = 0
+        consecutiveFailures = 0
+        let resumeAt = currentTime
+        if resumeAt > 1 { pendingSeek = resumeAt }
+        state = .loading
+        loadCurrent(autoplay: true, isRetry: true)
+    }
+
     /// A stream item failed to load (bad format, auth, network). Surfaces the error
     /// and — so one dud track doesn't stall the whole queue — auto-skips to the next
     /// after a short beat, unless every track has failed (guarded to avoid a loop).

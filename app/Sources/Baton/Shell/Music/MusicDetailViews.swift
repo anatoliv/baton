@@ -34,6 +34,8 @@ struct MusicAlbumDetail: View {
     @State private var heroImage: Image?
     @State private var filter = ""
     @State private var layout: MusicBrowseLayout = .list
+    /// Keyboard-nav focus row in the list layout (↑/↓ move, Return plays, ⌘Return plays next).
+    @State private var kbIndex: Int?
 
     private var albumSource: StreamingPlaybackController.QueueSource {
         .init(label: album.name, kind: .album, id: album.id)
@@ -81,6 +83,7 @@ struct MusicAlbumDetail: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 MusicAlbumBanner(
@@ -122,6 +125,13 @@ struct MusicAlbumDetail: View {
             }
             .padding(.bottom, 16)
         }
+        .keyboardRowNavigation(
+            highlighted: $kbIndex, count: layout == .list ? visibleSongs.count : 0, proxy: proxy,
+            idForIndex: { visibleSongs[$0].id },
+            onActivate: { model.music.play(visibleSongs, startAt: $0, source: albumSource) },
+            onAltActivate: { model.music.playNext([visibleSongs[$0]]) }
+        )
+        }
         .navigationBarBackButtonHidden(true)
         .task(id: album.id) {
             heroImage = nil
@@ -158,9 +168,10 @@ struct MusicAlbumDetail: View {
                     // auto-imports carry garbage values (e.g. 3639), so fall back to the
                     // row position.
                     let trackNo = song.track.flatMap { (1 ... 200).contains($0) ? $0 : nil } ?? (index + 1)
-                    MusicLikedSongRow(song: song, showSelect: false, trackNumber: trackNo) {
+                    MusicLikedSongRow(song: song, showSelect: false, trackNumber: trackNo, highlighted: kbIndex == index) {
                         model.music.play(visibleSongs, startAt: index, source: albumSource)
                     }
+                    .id(song.id)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
@@ -357,6 +368,8 @@ struct MusicArtistDetail: View {
     @State private var sort: MusicCollectionView.SongSort = .title
     @State private var sortAscending = true
     @State private var layout: MusicBrowseLayout = .list
+    /// Keyboard-nav focus row in the songs list layout (↑/↓ move, Return plays, ⌘Return plays next).
+    @State private var kbIndex: Int?
 
     private var isAutoImport: Bool { ArtistHeuristics.isAutoImport(artist.name) }
 
@@ -432,6 +445,7 @@ struct MusicArtistDetail: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 MusicArtistBanner(
@@ -477,6 +491,13 @@ struct MusicArtistDetail: View {
             }
             .padding(.bottom, 16)
         }
+        .keyboardRowNavigation(
+            highlighted: $kbIndex, count: layout == .list ? visibleSongs.count : 0, proxy: proxy,
+            idForIndex: { visibleSongs[$0].id },
+            onActivate: { model.music.play(visibleSongs, startAt: $0, source: source) },
+            onAltActivate: { model.music.playNext([visibleSongs[$0]]) }
+        )
+        }
         .navigationBarBackButtonHidden(true)
         .task(id: artist.id) {
             heroImage = nil
@@ -509,9 +530,10 @@ struct MusicArtistDetail: View {
         } else {
             LazyVStack(spacing: 2) {
                 ForEach(Array(visibleSongs.enumerated()), id: \.element.id) { index, song in
-                    MusicLikedSongRow(song: song, showSelect: false) {
+                    MusicLikedSongRow(song: song, showSelect: false, highlighted: kbIndex == index) {
                         model.music.play(visibleSongs, startAt: index, source: source)
                     }
+                    .id(song.id)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
@@ -684,6 +706,8 @@ struct MusicPlaylistDetail: View {
     @State private var layout: MusicBrowseLayout = .list
     @State private var renaming = false
     @State private var newName = ""
+    /// Keyboard-nav focus row in the list layout (↑/↓ move, Return plays, ⌘Return plays next).
+    @State private var kbIndex: Int?
     /// The live track order — seeded from the server, mutated during a drag-reorder, and
     /// persisted on drop. `songs` reads this so the UI reflects an in-progress reorder.
     @State private var orderedSongs: [NavidromeSong] = []
@@ -732,6 +756,7 @@ struct MusicPlaylistDetail: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 MusicAlbumBanner(
@@ -781,6 +806,13 @@ struct MusicPlaylistDetail: View {
                 }
             }
             .padding(.bottom, 16)
+        }
+        .keyboardRowNavigation(
+            highlighted: $kbIndex, count: layout == .list ? visibleSongs.count : 0, proxy: proxy,
+            idForIndex: { visibleSongs[$0].id },
+            onActivate: { model.music.play(visibleSongs, startAt: $0, source: playlistSource) },
+            onAltActivate: { model.music.playNext([visibleSongs[$0]]) }
+        )
         }
         .navigationBarBackButtonHidden(true)
         .task(id: playlist.id) {
@@ -835,7 +867,7 @@ struct MusicPlaylistDetail: View {
         } else {
             LazyVStack(spacing: 2) {
                 ForEach(Array(visibleSongs.enumerated()), id: \.element.id) { index, song in
-                    trackRow(song, index)
+                    trackRow(song, index).id(song.id)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
@@ -848,7 +880,8 @@ struct MusicPlaylistDetail: View {
         let row = MusicLikedSongRow(
             song: song,
             showSelect: false,
-            onRemoveFromPlaylist: { removeFromPlaylist(song) }
+            onRemoveFromPlaylist: { removeFromPlaylist(song) },
+            highlighted: kbIndex == index
         ) {
             model.music.play(visibleSongs, startAt: index, source: playlistSource)
         }

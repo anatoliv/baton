@@ -42,6 +42,7 @@ final class SpeakingHUDPresenter {
     private func armObservation() {
         withObservationTracking {
             _ = speech.isSpeaking
+            _ = model.summariesWindowIsForeground // hide the HUD while the window shows it inline
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -59,12 +60,15 @@ final class SpeakingHUDPresenter {
     private var userClosed = false
 
     private func syncVisibility() {
+        // While the Spoken Summaries window is focused, it plays the summary inline in its detail
+        // pane — so the floating HUD keeps out of the way (no redundant card on top of the window).
+        let windowShowsInline = model.summariesWindowIsForeground
         if speech.isSpeaking {
             userClosed = false
             autoCloseTask?.cancel()
             autoCloseTask = nil
-            show()
-        } else if !userClosed, let panel, panel.isVisible, speech.canReplay {
+            if windowShowsInline { panel?.orderOut(nil) } else { show() }
+        } else if !userClosed, !windowShowsInline, let panel, panel.isVisible, speech.canReplay {
             // A summary just finished: keep the card up for Replay, then auto-close after a minute.
             scheduleAutoClose()
         } else {
@@ -113,8 +117,7 @@ final class SpeakingHUDPresenter {
     private func makePanel() -> FloatingHUDPanel {
         let hosting = NSHostingController(
             rootView: SpeakingHUDContent(
-                onClose: { [weak self] in self?.userClose() },
-                onReplay: { [weak self] in self?.speech.replayLast() }
+                onClose: { [weak self] in self?.userClose() }
             )
             .environment(model)
             .tint(.batonOrange)
@@ -201,49 +204,45 @@ final class FloatingHUDPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// The HUD body: a spoken-summary card that mirrors `MiniPlayerWindowView` — same width, corner
-/// radius, glass surface, scrubber (`MusicScrubber`), transport button sizes, and dark scheme. No
-/// title; the auto-scrolling, highlight-what's-speaking transcript fills all the space above the
-/// scrubber. ∓10s seek flanks a Play/Pause button that becomes **Replay** when the summary ends,
-/// and an × in the top-right corner stops & closes. Reads live state from `model.speech`.
+/// The HUD body: the shared `SpeakingPlayerView` (transcript · scrubber · ∓10s / Play-Pause-Replay
+/// transport) wrapped in the glass card that mirrors `MiniPlayerWindowView` — same width, corner
+/// radius, glass surface, and a forced dark scheme. A history glyph in the top-left corner opens the
+/// full "Spoken Summaries" window, and an × in the top-right corner stops & closes. Reads live state
+/// from `model.speech`; the same player is embedded, chrome-less, in that window's detail pane.
 private struct SpeakingHUDContent: View {
-    @Environment(MusicModel.self) private var model
-    private var speech: SpeechPlaybackEngine { model.speech }
+    @Environment(\.openWindow) private var openWindow
     /// × button — stop speaking and dismiss (wired to the presenter's `userClose()`).
     var onClose: () -> Void
-    /// Replay button — re-speak the last summary (presenter → `speech.replayLast()`).
-    var onReplay: () -> Void
-
-    /// The accent that tints the scrubber, matching the mini player's warm fill.
-    private var accent: Color { .batonOrange }
-    private var text: String { speech.currentText ?? speech.lastSummaryText ?? "" }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Transcript greedily fills all the space above the controls — no dead gap above the bar.
-            transcript.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        SpeakingPlayerView()
+            .padding(14)
+            // Fill whatever size the (resizable) window is — the transcript takes the slack, so
+            // there's never a forced gap; resize the window to taste.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // History glyph top-left / × top-right — two small secondary controls in the card's
+            // top corners (the transcript is inset from both to clear them).
+            .overlay(alignment: .topLeading) { historyButton.padding(7) }
+            .overlay(alignment: .topTrailing) { closeButton.padding(7) }
+            .speakingCardSurface(cornerRadius: SpeakingHUDPresenter.cornerRadius)
+            .preferredColorScheme(.dark)
+    }
 
-            // Scrubber + transport, pinned together at the very bottom (no gap below the bar).
-            VStack(spacing: 10) {
-                // The scrubber renders its own elapsed / −remaining labels — server audio only,
-                // since the built-in voice has no duration to scrub.
-                if let d = speech.duration {
-                    MusicScrubber(currentTime: (speech.progress ?? 0) * d, duration: d, tint: accent) {
-                        speech.seek(to: $0)
-                    }
-                }
-                transport
-            }
-            .padding(.top, 10)
+    /// Opens the "Spoken Summaries" window to replay any past summary — the HUD is the surface
+    /// you're actually looking at when one plays, so it doubles as the entry to the full history.
+    private var historyButton: some View {
+        Button {
+            openWindow(id: SpeechHistoryView.windowID)
+            NSApp.activate(ignoringOtherApps: true) // bring the (non-activating) HUD's app forward
+        } label: {
+            Image(systemName: "list.bullet")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
-        .padding(14)
-        // Fill whatever size the (resizable) window is — the transcript takes the slack, so there's
-        // never a forced gap; resize the window to taste.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // × pinned right up in the card's top-right corner (small inset off the rounded edge).
-        .overlay(alignment: .topTrailing) { closeButton.padding(7) }
-        .speakingCardSurface(cornerRadius: SpeakingHUDPresenter.cornerRadius)
-        .preferredColorScheme(.dark)
+        .buttonStyle(.plain)
+        .help("Recent summaries")
     }
 
     private var closeButton: some View {
@@ -256,106 +255,5 @@ private struct SpeakingHUDContent: View {
         }
         .buttonStyle(.plain)
         .help("Stop & close")
-    }
-
-    // MARK: Transcript (fills the space, auto-scrolls to the spoken sentence)
-
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(Array(sentences.enumerated()), id: \.offset) { index, sentence in
-                        Text(sentence.text)
-                            .font(.callout)
-                            .foregroundStyle(index == activeSentence ? .primary : .secondary)
-                            .fontWeight(index == activeSentence ? .semibold : .regular)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(index)
-                    }
-                }
-                .padding(.trailing, 18) // keep text clear of the corner × button
-            }
-            .onChange(of: activeSentence) { _, i in
-                withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(i, anchor: .center) }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    /// The summary split into sentences, each tagged with the character offset of its end — so the
-    /// spoken position (a char index) maps to the sentence to highlight and scroll to.
-    private var sentences: [(text: String, end: Int)] {
-        let s = text
-        guard !s.isEmpty else { return [] }
-        var out: [(String, Int)] = []
-        s.enumerateSubstrings(in: s.startIndex ..< s.endIndex, options: .bySentences) { sub, range, _, _ in
-            let end = s.distance(from: s.startIndex, to: range.upperBound)
-            let piece = (sub ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !piece.isEmpty { out.append((piece, end)) }
-        }
-        return out.isEmpty ? [(s, s.count)] : out
-    }
-
-    /// The character index spoken so far — from the built-in voice's live word range, or (for server
-    /// audio) estimated from playback progress.
-    private var spokenCharIndex: Int {
-        if let r = speech.spokenRange { return r.location + r.length }
-        if let p = speech.progress { return Int(p * Double(text.count)) }
-        return 0
-    }
-
-    private var activeSentence: Int {
-        let idx = spokenCharIndex
-        for (i, s) in sentences.enumerated() where idx <= s.end { return i }
-        return max(0, sentences.count - 1)
-    }
-
-    // MARK: Transport (∓10s seek · Play/Pause/Replay) — copies the mini player's sizing/style
-
-    private var transport: some View {
-        HStack(spacing: 20) {
-            Button { speech.seek(by: -10) } label: { Image(systemName: "gobackward.10") }
-                .foregroundStyle(speech.canSeek ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                .disabled(!speech.canSeek)
-                .help("Back 10 seconds")
-
-            if speech.isSpeaking {
-                Button { speech.togglePause() } label: {
-                    Image(systemName: speech.isPaused ? "play.circle.fill" : "pause.circle.fill")
-                        .font(.system(size: 32))
-                }
-                .help(speech.isPaused ? "Resume" : "Pause")
-            } else {
-                Button(action: onReplay) {
-                    Image(systemName: "arrow.counterclockwise.circle.fill").font(.system(size: 32))
-                }
-                .help("Replay")
-            }
-
-            Button { speech.seek(by: 10) } label: { Image(systemName: "goforward.10") }
-                .foregroundStyle(speech.canSeek ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                .disabled(!speech.canSeek)
-                .help("Forward 10 seconds")
-        }
-        .buttonStyle(.plain)
-        .font(.title3)
-        .frame(maxWidth: .infinity)
-    }
-}
-
-private extension View {
-    /// The mini player's panel surface, replicated so the speaking card looks identical: real
-    /// **Liquid Glass** on macOS 26+ (the borderless, transparent window refracts what's behind it),
-    /// falling back to the opaque rounded window-background fill on older systems.
-    @ViewBuilder
-    func speakingCardSurface(cornerRadius: CGFloat) -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        } else {
-            background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor))
-            )
-        }
     }
 }

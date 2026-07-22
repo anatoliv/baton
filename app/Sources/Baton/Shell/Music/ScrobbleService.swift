@@ -53,6 +53,11 @@ final class ScrobbleService {
     /// be inspected before draining it deterministically via `flushAllAndWait()`.
     @ObservationIgnored private let autoFlush: Bool
 
+    /// Classifies a song as a podcast episode, which never scrobbles. Defaults to the id-only
+    /// test (client-side enclosure URLs); `MusicModel` replaces it with one that also recognises
+    /// server-side episodes, whose ids are indistinguishable from library tracks.
+    @ObservationIgnored var isPodcast: (NavidromeSong) -> Bool = { MusicModel.isPodcastEpisode($0) }
+
     /// Every destination, for draining the queue regardless of the current routing choice (items
     /// queued while in `.baton` mode must still flush even after a later switch to `.server`).
     @ObservationIgnored private var allDestinations: [ScrobbleDestination] { [navidrome, listenBrainz, lastfm] }
@@ -232,8 +237,8 @@ final class ScrobbleService {
         return [listenBrainz, lastfm].filter(\.isActive)
     }
 
-    /// Only library tracks scrobble. Podcast episodes (http(s) enclosure ids) and radio never do.
+    /// Only library tracks scrobble. Podcast episodes and radio never do.
     private func isScrobblable(_ song: NavidromeSong) -> Bool {
-        !MusicModel.isPodcastEpisode(song)
+        !isPodcast(song)
     }
 }
