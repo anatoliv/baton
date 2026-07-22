@@ -11,6 +11,12 @@ a mix, or duck the music for a call.
 
 Made by [Tonebox](https://tonebox.io), and given away for free.
 
+![Baton's full-screen player: album artwork, an artwork-matched accent colour running through
+the scrubber and rating, and the Up Next queue](docs/screenshots/baton-now-playing.png)
+
+<sub>Shown with the public Navidrome demo library (Creative Commons music from
+[blocsonic](https://blocsonic.com/)).</sub>
+
 ## What it is
 
 - **A player for *your* library.** It streams from a Navidrome or Subsonic server you run.
@@ -26,9 +32,9 @@ Made by [Tonebox](https://tonebox.io), and given away for free.
 
 ## Install
 
-Baton is a signed, notarized macOS app with Sparkle auto-update. **Baton 0.1.0 is available at
-[baton.tonebox.io](https://baton.tonebox.io)** (free, signed, notarized, and self-updating via
-a **Check for Updates** menu item), or build from source.
+Baton is a signed, notarized macOS app with Sparkle auto-update. **Download the latest release
+from [baton.tonebox.io](https://baton.tonebox.io)** (free, signed, notarized, and self-updating
+via a **Check for Updates** menu item), or build from source.
 
 ### Build from source
 
@@ -45,6 +51,13 @@ xcodebuild build -scheme Baton -configuration Release -destination 'platform=mac
 On first launch, enter your server URL and either a **username and password** or an **API
 key**. Baton verifies the connection before saving it, then loads your library. See
 [HELP.md](HELP.md#getting-connected).
+
+Don't have a server yet? Both the first-run screen and **Settings → Servers → Add Server**
+offer **Try the demo server**, which fills in the public Navidrome demo so you can look
+around before setting anything up.
+
+![Baton's Albums grid: artwork tiles with track counts and durations, section counts in the
+sidebar, and the now-playing bar below](docs/screenshots/baton-albums.png)
 
 ## Agent / MCP control
 
