@@ -41,6 +41,16 @@ struct BatonServerEditSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(existing == nil ? "Add a server" : "Edit server").font(.title3.bold())
 
+            // Same one-click demo the first-run connect sheet offers. Without it the demo was
+            // reachable only by users with NO server configured — so anyone already connected
+            // (i.e. anyone wanting to *try* a second server) had to type it by hand.
+            if existing == nil {
+                Button("Try the demo server") { fillDemo() }
+                    .buttonStyle(.link)
+                    .font(.callout)
+                    .help("Fills the public Navidrome demo (read-only; availability isn't guaranteed)")
+            }
+
             Form {
                 TextField("Name", text: $displayName, prompt: Text("My Server"))
                 Picker("Sign in with", selection: $authMode) {
@@ -79,6 +89,16 @@ struct BatonServerEditSheet: View {
         }
         .padding(20)
         .frame(width: 440)
+    }
+
+    /// Prefill the public Navidrome demo, naming it so it's obvious in the server list.
+    private func fillDemo() {
+        displayName = "Navidrome demo"
+        authMode = NavidromeDemoServer.authMode
+        urlString = NavidromeDemoServer.urlString
+        username = NavidromeDemoServer.username
+        password = NavidromeDemoServer.password
+        errorText = nil
     }
 
     private var passwordPrompt: String {
@@ -139,7 +159,9 @@ struct BatonServerEditSheet: View {
             onSaved()
             dismiss()
         } catch {
-            errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            // Attribute a demo outage to the demo, not to Baton — same copy as the connect sheet.
+            let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorText = NavidromeDemoServer.errorText(forURL: urlString, detail: detail)
         }
     }
 }
