@@ -88,6 +88,15 @@ block](screenshots/baton-agents.png)
   MCP design, and the roadmap.
 - Website: `website/`. Icon and design: `design/`. App: `app/`. Site deploy: `deploy/`.
 
+## Support
+
+Baton is free and MIT-licensed, and always will be — tips never unlock anything.
+If it earns a place in your day, a one-time tip helps keep it maintained:
+
+**[❤ GitHub Sponsors](https://github.com/sponsors/anatoliv)** · **[☕ Ko-fi](https://ko-fi.com/anatolivishnyakov)** · **[PayPal](https://paypal.me/anatolivishnyakov)**
+
+Or **[vote on what's next](https://github.com/anatoliv/baton/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap+sort%3Areactions-%2B1-desc)** — 👍 the features you want most.
+
 ## License
 
 [MIT](LICENSE), free to use, modify, and distribute. Made by
