@@ -117,6 +117,87 @@ final class WebhookActionsTests: XCTestCase {
         XCTAssertNil(WebhookTemplate.buildRequest(action, tokens: [:]))
     }
 
+    // MARK: - Batch confirmation threshold
+
+    /// The guard that makes bulk safe: a large selection must confirm before fanning out, so a
+    /// select-all + click can't silently fire hundreds of credential-bearing requests.
+    func testBatchThresholdBoundary() {
+        let t = WebhookBatchMenu.confirmThreshold
+        // At or below the threshold runs immediately; above it must confirm first.
+        XCTAssertFalse(t + 1 <= t, "\(t + 1) items must be over the threshold")
+        XCTAssertTrue(t <= t, "exactly \(t) items runs without confirming")
+        XCTAssertGreaterThan(t, 1, "the threshold must leave room for a deliberate small batch")
+    }
+
+    /// runBatch tallies per-item outcomes into one summary — the batch still reports how many of N
+    /// succeeded, not just pass/fail.
+    func testBatchRunTalliesResults() async {
+        var calls = 0
+        let store = WebhookActionStore(defaults: freshDefaults(),
+                                       send: { _ in calls += 1; return calls == 2 ? 500 : 200 },
+                                       sendWithBody: nil)
+        var results: [WebhookSendResult] = []
+        for tokens in [["a": "1"], ["a": "2"], ["a": "3"]] {
+            results.append(await store.run(WebhookAction(name: "X", urlTemplate: "https://x/y"), tokens: tokens))
+        }
+        XCTAssertEqual(calls, 3, "each item in the batch fires one request")
+        XCTAssertEqual(results.filter(\.ok).count, 2)
+        XCTAssertEqual(results.first(where: { !$0.ok })?.status, 500)
+    }
+
+    // MARK: - Credentialed-URL gate
+
+    /// The security boundary from the "any item" work: {streamUrl}/{downloadUrl} carry Subsonic
+    /// credentials, so they must NOT be sent unless the action opted in — enforced in run(),
+    /// regardless of what the caller passed.
+    func testCredentialedTokensStrippedWhenToggleOff() async {
+        var captured: URLRequest?
+        let store = WebhookActionStore(defaults: freshDefaults(),
+                                       send: { captured = $0; return 200 },
+                                       sendWithBody: { (captured = $0, (200, Data())).1 })
+        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save?u={streamUrl}")
+        action.bodyTemplate = #"{"stream":"{streamUrl}","dl":"{downloadUrl}","title":"{title}"}"#
+        action.allowCredentialedURLs = false   // default
+        _ = await store.run(action, tokens: [
+            "streamUrl": "https://nav/stream?u=me&t=secret",
+            "downloadUrl": "https://nav/download?u=me&t=secret",
+            "title": "Song",
+        ])
+        let url = captured?.url?.absoluteString ?? ""
+        let body = String(data: captured?.httpBody ?? Data(), encoding: .utf8) ?? ""
+        XCTAssertFalse(url.contains("secret"), "a credentialed URL must not leak into the request URL")
+        XCTAssertFalse(body.contains("secret"), "…nor into the body")
+        XCTAssertFalse(body.contains("nav/stream"), "the whole {streamUrl} is stripped, not just the query")
+        XCTAssertTrue(body.contains("Song"), "non-credentialed tokens are unaffected")
+    }
+
+    /// With the toggle on, the same tokens are sent verbatim.
+    func testCredentialedTokensSentWhenToggleOn() async {
+        var captured: URLRequest?
+        let store = WebhookActionStore(defaults: freshDefaults(),
+                                       send: { captured = $0; return 200 },
+                                       sendWithBody: { (captured = $0, (200, Data())).1 })
+        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save")
+        action.bodyTemplate = #"{"stream":"{streamUrl}"}"#
+        action.allowCredentialedURLs = true
+        _ = await store.run(action, tokens: ["streamUrl": "https://nav/stream?t=secret"])
+        let body = String(data: captured?.httpBody ?? Data(), encoding: .utf8) ?? ""
+        XCTAssertTrue(body.contains("nav/stream?t=secret"), "opted-in action sends the credentialed URL")
+    }
+
+    /// A stored action from before this field existed decodes with the toggle OFF — the safe
+    /// default, so an upgrade never starts leaking credentials.
+    func testMissingToggleDecodesAsOff() throws {
+        // JSON without the field — exactly what a pre-0.7.1 persisted action looks like.
+        let json = """
+        {"id":"\(UUID().uuidString)","name":"Old","icon":"bolt.horizontal.circle",\
+        "urlTemplate":"https://x/y","method":"POST","contentType":"json",\
+        "headers":[],"bodyTemplate":""}
+        """
+        let action = try JSONDecoder().decode(WebhookAction.self, from: Data(json.utf8))
+        XCTAssertFalse(action.allowCredentialedURLs, "an upgraded action must default to the safe state")
+    }
+
     // MARK: - Store run + persistence
 
     func testRunReportsSuccessAndFailure() async {

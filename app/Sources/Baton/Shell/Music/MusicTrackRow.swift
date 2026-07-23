@@ -48,6 +48,7 @@ struct MusicTrackRow: View {
             PinMenuButton(item: .song(song), model: model)
             Divider()
             songDownloadMenuItems(song, model)
+            songActionsMenu(song, model)
             songRadioMenuItem(song, model)
             Divider()
             songRemovalMenuItem(showConfirm: $showRemoveConfirm)

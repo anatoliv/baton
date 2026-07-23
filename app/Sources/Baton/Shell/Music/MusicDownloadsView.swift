@@ -201,6 +201,8 @@ struct MusicDownloadsView: View {
                 MusicBatchActions.save(model, name: "Downloads") { songs }
             }
             MusicBatchAddToPlaylistMenu(gather: { selectedItems.map(\.song) })
+            WebhookBatchMenu(tokenSets: { selectedItems.map { MusicWebhookTokens.song($0.song) } },
+                             count: sel.selectedCount(in: orderedIDs))
             MusicBatchButton(system: "trash", help: "Delete selected downloads", tint: .red) {
                 showBatchDeleteConfirm = true
             }

@@ -227,6 +227,38 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.7.1",
+            date: "2026",
+            highlight: "Custom actions now run on any item \u{2014} songs, albums, artists, "
+                + "playlists \u{2014} and across a selection, not just single podcast episodes.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Run a custom action from the \u{201C}Actions\u{201D} menu on any "
+                        + "song, album, artist, or playlist, filled with that item\u{2019}s "
+                        + "details \u{2014} not only podcast episodes."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Run an action across a whole selection from the batch bar (Liked, "
+                        + "Downloads, and podcast episodes). A selection over 25 asks first, "
+                        + "so a select-all can\u{2019}t fire hundreds of requests by accident."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "For library tracks, an action can send the audio\u{2019}s stream or "
+                        + "download URL \u{2014} but only if you turn on \u{201C}Allow "
+                        + "credentialed URLs\u{201D} for that action, since those URLs carry "
+                        + "your server login. Off by default."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The voice category field offers a dropdown of common categories, "
+                        + "while still letting you type your own."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.7.0",
             date: "2026",
             highlight: "Custom actions are far easier to get right: test one from its editor, "

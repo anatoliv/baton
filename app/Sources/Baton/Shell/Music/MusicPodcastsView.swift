@@ -683,6 +683,16 @@ private struct PodcastEpisodeRow: View {
             if !episode.isPlayable, !isDownloading, !episode.isDownloadingOnServer {
                 Button("Download", systemImage: "arrow.down.circle", action: onDownload)
             }
+            // Custom actions — server episodes get title/show/id tokens. Their audio is behind
+            // Subsonic auth (no public enclosure), so no {enclosureUrl} here; a webhook that needs
+            // the file would use {streamUrl} on the mapped song instead.
+            WebhookRunner.menu(for: {
+                [
+                    "title": episode.title,
+                    "id": episode.streamID ?? episode.id,
+                    "durationSec": episode.duration.map(String.init) ?? "",
+                ]
+            }, model)
         }
     }
 

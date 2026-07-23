@@ -28,6 +28,41 @@ struct WebhookAction: Identifiable, Codable, Hashable {
     var contentType: ContentType = .json
     /// Request body, may contain `{token}` placeholders (ignored for GET / `.none`).
     var bodyTemplate: String = ""
+    /// Whether this action may receive **credential-bearing** tokens — `{streamUrl}` /
+    /// `{downloadUrl}` for library tracks, whose URLs embed your Subsonic auth as query params.
+    /// Off by default and per-action, because such a URL grants access to your whole library to
+    /// whatever endpoint the action posts to. Only turn it on for an endpoint you fully trust.
+    var allowCredentialedURLs: Bool = false
+
+    // Custom decoding so actions saved before this field existed still load (with the toggle OFF,
+    // the safe default) instead of failing to decode and vanishing on upgrade. Encoding stays
+    // synthesized. Only `allowCredentialedURLs` is decode-if-present; every prior field has always
+    // been written, so requiring them keeps genuinely-corrupt data loud.
+    enum CodingKeys: String, CodingKey {
+        case id, name, icon, method, urlTemplate, headers, contentType, bodyTemplate, allowCredentialedURLs
+    }
+
+    init(id: UUID = UUID(), name: String, icon: String = "bolt.horizontal.circle",
+         method: Method = .post, urlTemplate: String, headers: [Header] = [],
+         contentType: ContentType = .json, bodyTemplate: String = "",
+         allowCredentialedURLs: Bool = false) {
+        self.id = id; self.name = name; self.icon = icon; self.method = method
+        self.urlTemplate = urlTemplate; self.headers = headers; self.contentType = contentType
+        self.bodyTemplate = bodyTemplate; self.allowCredentialedURLs = allowCredentialedURLs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon) ?? "bolt.horizontal.circle"
+        method = try c.decode(Method.self, forKey: .method)
+        urlTemplate = try c.decode(String.self, forKey: .urlTemplate)
+        headers = try c.decodeIfPresent([Header].self, forKey: .headers) ?? []
+        contentType = try c.decode(ContentType.self, forKey: .contentType)
+        bodyTemplate = try c.decodeIfPresent(String.self, forKey: .bodyTemplate) ?? ""
+        allowCredentialedURLs = try c.decodeIfPresent(Bool.self, forKey: .allowCredentialedURLs) ?? false
+    }
 
     enum Method: String, Codable, CaseIterable, Identifiable {
         case post = "POST", get = "GET", put = "PUT", patch = "PATCH", delete = "DELETE"
@@ -67,6 +102,10 @@ struct WebhookAction: Identifiable, Codable, Hashable {
 // MARK: - Templating + request building
 
 enum WebhookTemplate {
+    /// Tokens whose values carry Subsonic credentials (auth is embedded in the URL query). They
+    /// are stripped unless the action's `allowCredentialedURLs` is on — see `WebhookActionStore.run`.
+    static let credentialedTokenKeys: Set<String> = ["streamUrl", "downloadUrl"]
+
     /// How a token's value is escaped for the context it's spliced into, so a title with
     /// quotes, spaces, or `&`/`=` can't break the JSON, corrupt a form/query, or invalidate the
     /// URL.
@@ -257,6 +296,13 @@ final class WebhookActionStore {
             )
         }
 
+        // Enforce the credentialed-URL toggle here, at the boundary, regardless of what the
+        // caller passed: a token that carries auth must never leave unless the action opted in.
+        var tokens = tokens
+        if !action.allowCredentialedURLs {
+            for key in WebhookTemplate.credentialedTokenKeys { tokens[key] = nil }
+        }
+
         guard let request = WebhookTemplate.buildRequest(action, tokens: tokens) else {
             webhookLog.error("action \(action.name, privacy: .public): invalid URL after substitution")
             return .init(status: nil, detail: "the URL isn’t valid once its {tokens} are filled in")
@@ -442,6 +488,22 @@ enum WebhookRunner {
         }
     }
 
+    /// The **Actions** submenu for a single item, or nil when the user has no actions configured.
+    /// Every browse row that supports actions renders this the same way. `tokens` is a closure so
+    /// the (sometimes credential-fetching) token set is only built when the menu is actually used.
+    @MainActor @ViewBuilder
+    static func menu(for tokens: @escaping () -> [String: String], _ model: MusicModel) -> some View {
+        if !model.webhookActions.actions.isEmpty {
+            Menu("Actions", systemImage: "bolt.horizontal.circle") {
+                ForEach(model.webhookActions.actions) { action in
+                    Button(action.name, systemImage: SFSymbolCatalog.resolved(action.icon)) {
+                        run(action, tokens: tokens(), model)
+                    }
+                }
+            }
+        }
+    }
+
     /// Runs `action` over many token sets (a multi-selection), then posts one summary toast.
     static func runBatch(_ action: WebhookAction, tokenSets: [[String: String]], _ model: MusicModel) {
         guard !tokenSets.isEmpty else { return }
@@ -611,6 +673,13 @@ struct WebhookActionEditor: View {
                         .foregroundStyle(.orange)
                     }
                 }
+                Section {
+                    Toggle("Allow credentialed URLs", isOn: $draft.allowCredentialedURLs)
+                    Text("Lets **{streamUrl}** and **{downloadUrl}** be sent for library tracks. Those URLs embed your server credentials, so anything that receives one can read your whole library. Only turn this on for an endpoint you trust.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } header: {
+                    Text("Security")
+                }
                 if draft.method.sendsBody {
                     Section("Body") {
                         Picker("Content Type", selection: $draft.contentType) {
@@ -622,14 +691,37 @@ struct WebhookActionEditor: View {
                         }
                     }
                 }
-                Section("Available Tokens") {
-                    ForEach(PodcastWebhookTokens.reference, id: \.token) { entry in
-                        HStack {
-                            Text("{\(entry.token)}").font(.caption.monospaced()).foregroundStyle(Color.accentColor)
-                            Spacer()
-                            Text(entry.description).font(.caption).foregroundStyle(.secondary)
+                Section {
+                    Text("An action fills whatever tokens match the item you run it on — songs, albums, artists, playlists, or podcast episodes. Unknown tokens are removed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(MusicWebhookTokens.reference, id: \.kind) { group in
+                        DisclosureGroup(group.kind) {
+                            ForEach(group.tokens, id: \.token) { entry in
+                                HStack(spacing: 6) {
+                                    Text("{\(entry.token)}").font(.caption.monospaced()).foregroundStyle(Color.accentColor)
+                                    if entry.credentialed {
+                                        Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
+                                    }
+                                    Spacer()
+                                    Text(entry.description).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
+                    DisclosureGroup("Podcast episode") {
+                        ForEach(PodcastWebhookTokens.reference, id: \.token) { entry in
+                            HStack {
+                                Text("{\(entry.token)}").font(.caption.monospaced()).foregroundStyle(Color.accentColor)
+                                Spacer()
+                                Text(entry.description).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Available Tokens")
+                } footer: {
+                    Label("A locked token carries your credentials and is only sent when “Allow credentialed URLs” is on.", systemImage: "lock.fill")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
