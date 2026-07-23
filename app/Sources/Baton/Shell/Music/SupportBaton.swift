@@ -165,7 +165,7 @@ struct SupportBatonSection: View {
 
     var body: some View {
         Section("Support Baton") {
-            Text("Baton is free and open source. If it earns a place in your day, a one-time tip helps keep it maintained — entirely optional, and it never unlocks anything.")
+            Text("Baton is free and open source. If it earns a place in your day, a one-time tip helps keep it maintained. It's entirely optional, and it never unlocks anything.")
                 .font(.callout).foregroundStyle(.secondary)
 
             if options.isEmpty {
