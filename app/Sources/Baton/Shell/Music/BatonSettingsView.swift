@@ -419,6 +419,8 @@ private struct BatonAboutPane: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
+            SupportBatonSection()
+
             Section("Startup") {
                 BatonLoginItemToggle()
                 Text("Adds Baton to your macOS login items so its menu-bar controls are ready right after you sign in. You can also manage this in System Settings → General → Login Items.")
