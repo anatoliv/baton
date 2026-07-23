@@ -3,13 +3,13 @@
 *Conduct your music.*
 
 Baton plays the music you already own. Point it at your own
-[Navidrome](https://www.navidrome.org/) server — or anything that speaks the Subsonic
-API — and it streams your library with the kind of care most players skip: true gapless,
-crossfade, ReplayGain loudness matching, and a proper 10-band parametric EQ.
+[Navidrome](https://www.navidrome.org/) server (or anything that speaks the Subsonic API),
+and it streams your library with the kind of care most players skip: true gapless, crossfade,
+ReplayGain loudness matching, and a proper 10-band parametric EQ.
 
 The part that makes Baton unusual is that it can be handed off. It runs a small
-[MCP](https://modelcontextprotocol.io/) control server, so an AI agent — Claude, or
-[Tonebox](https://tonebox.io) — can pick up the baton and search, queue, build a mix, or duck
+[MCP](https://modelcontextprotocol.io/) control server, so an AI agent (Claude, or
+[Tonebox](https://tonebox.io)) can pick up the baton and search, queue, build a mix, or duck
 the music when you take a call. The control surface is really the whole point; the player is
 just the thing it conducts.
 
@@ -34,13 +34,13 @@ keys, AirPlay, and scrobbling to both ListenBrainz and Last.fm.
 And because everything the interface can do is also exposed over a token-secured MCP server on
 loopback, any agent you trust can drive playback exactly the way you do. Your server
 credentials live in the macOS Keychain, and Baton only ever talks to the one server you point
-it at — nothing else leaves your machine.
+it at. Nothing else leaves your machine.
 
 ## Install
 
 Baton is a signed, notarized macOS app with Sparkle auto-update. Download the latest release
-from [baton.tonebox.io](https://baton.tonebox.io) — it's free, signed, notarized, and updates
-itself from the **Check for Updates** menu item — or build it from source.
+from [baton.tonebox.io](https://baton.tonebox.io). It's free, signed, notarized, and updates
+itself from the **Check for Updates** menu item. Or build it from source.
 
 ### Build from source
 
@@ -69,7 +69,7 @@ sidebar, and the now-playing bar below](screenshots/baton-albums.png)
 ## Agent / MCP control
 
 Baton runs a small MCP control server on `127.0.0.1`, secured with a bearer token, so an agent
-— Claude Desktop, Claude Code, other MCP clients, or Tonebox — can search your library, queue
+(Claude Desktop, Claude Code, other MCP clients, or Tonebox) can search your library, queue
 and control playback, like and rate tracks, manage playlists, and coordinate audio focus (duck
 the music while you dictate, then bring it back). The full design, tool catalog, and security
 model live in [`docs/04-integration-and-mcp.md`](docs/04-integration-and-mcp.md).
@@ -97,7 +97,7 @@ live resources; and it writes a discovery file (endpoint URL and token) to
 
 ## Support
 
-Baton is free and MIT-licensed, and it always will be. Tips don't unlock anything — there's
+Baton is free and MIT-licensed, and it always will be. Tips don't unlock anything; there's
 nothing to unlock. But if it's earned a place in your day and you'd like to chip in, a one-time
 tip helps me keep it maintained and moving forward:
 
@@ -105,10 +105,10 @@ tip helps me keep it maintained and moving forward:
 [Ko-fi](https://ko-fi.com/anatolivishnyakov) ·
 [PayPal](https://paypal.me/anatolivishnyakov)
 
-You can also [vote on what to build next](https://github.com/anatoliv/baton/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap+sort%3Areactions-%2B1-desc)
-— the features with the most thumbs-up rise to the top.
+You can also [vote on what to build next](https://github.com/anatoliv/baton/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap+sort%3Areactions-%2B1-desc).
+The features with the most thumbs-up rise to the top.
 
 ## License
 
-[MIT](LICENSE) — free to use, change, and share. Made by [Tonebox](https://tonebox.io) and
+[MIT](LICENSE). Free to use, change, and share. Made by [Tonebox](https://tonebox.io) and
 given away.
