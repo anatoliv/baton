@@ -17,11 +17,11 @@ enum SupportLinks {
     /// github.com/sponsors/<handle> — inferred from the repo; change if your Sponsors handle differs.
     static let gitHubSponsorsHandle: String? = "anatoliv"
     /// ko-fi.com/<handle>
-    static let koFiHandle: String? = nil // TODO: set your Ko-fi handle to show this button
+    static let koFiHandle: String? = "anatolivishnyakov"
     /// buymeacoffee.com/<handle>
     static let buyMeACoffeeHandle: String? = nil // TODO: set your Buy Me a Coffee handle
     /// paypal.me/<handle>
-    static let payPalHandle: String? = nil // TODO: set your PayPal.me handle
+    static let payPalHandle: String? = "anatolivishnyakov"
 
     /// Where users vote on what to build next — open issues sorted by 👍 reactions. Kept separate
     /// from the tip buttons on purpose: tips fund the project as a whole, they don't buy a feature.
