@@ -635,6 +635,8 @@ struct MusicCollectionView: View {
                 action: batchToggleLike
             )
             MusicBatchButton(system: "arrow.down.circle", help: "Download", action: batchDownload)
+            WebhookBatchMenu(tokenSets: { selectedSongs.map { MusicWebhookTokens.song($0) } },
+                             count: selectedSongs.count)
             MusicBatchButton(system: "xmark.bin", help: "Mark for removal", action: { showBatchRemoveConfirm = true })
         }
     }
@@ -1096,6 +1098,7 @@ struct MusicLikedSongRow: View {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
             Divider()
             songDownloadMenuItems(song, model)
+            songActionsMenu(song, model)
             songRadioMenuItem(song, model)
             if let onRemoveFromPlaylist {
                 Divider()
@@ -1184,6 +1187,7 @@ struct LikedSongGridCell: View {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
             Divider()
             songDownloadMenuItems(song, model)
+            songActionsMenu(song, model)
             songRadioMenuItem(song, model)
             Divider()
             songRemovalMenuItem(showConfirm: $showRemoveConfirm)

@@ -238,6 +238,14 @@ func songDownloadMenuItems(_ song: NavidromeSong, _ model: MusicModel) -> some V
     }
 }
 
+/// The **Actions** submenu on a song row — the custom webhook actions the user configured,
+/// filled with this song's tokens (metadata always; stream/download URLs only if the action
+/// opted into credentialed URLs, enforced in the store). Nil-render when there are no actions.
+@MainActor @ViewBuilder
+func songActionsMenu(_ song: NavidromeSong, _ model: MusicModel) -> some View {
+    WebhookRunner.menu(for: { MusicWebhookTokens.song(song) }, model)
+}
+
 /// The destructive "Mark for Removal" menu item — flips the caller's confirm flag so a
 /// tap always asks first. Pair with `.songRemovalConfirm` for the dialog + action.
 @MainActor @ViewBuilder
@@ -345,6 +353,7 @@ func albumActionMenuItems(
     Button("Save as Playlist", systemImage: "square.and.arrow.down") {
         run { await AlbumActions.saveAsPlaylist(album, model) }
     }
+    WebhookRunner.menu(for: { MusicWebhookTokens.album(album) }, model)
     Divider()
     Button("Mark All for Removal", systemImage: "xmark.bin", role: .destructive) { onRemove() }
 }
@@ -595,6 +604,7 @@ func playlistActionMenuItems(
     PinMenuButton(item: .playlist(playlist), model: model)
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await PlaylistActions.download(playlist, model) } }
+    WebhookRunner.menu(for: { MusicWebhookTokens.playlist(playlist) }, model)
     Divider()
     Button("Delete", systemImage: "trash", role: .destructive) { onDelete() }
 }

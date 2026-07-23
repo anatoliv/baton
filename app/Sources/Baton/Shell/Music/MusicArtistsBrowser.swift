@@ -114,6 +114,7 @@ func artistActionMenuItems(
     PinMenuButton(item: .artist(artist), model: model)
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await ArtistActions.download(artist, model) } }
+    WebhookRunner.menu(for: { MusicWebhookTokens.artist(artist) }, model)
     Button("Save as Playlist", systemImage: "square.and.arrow.down") {
         run { await ArtistActions.saveAsPlaylist(artist, model) }
     }

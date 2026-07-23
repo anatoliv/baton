@@ -128,6 +128,7 @@ struct MusicPanelTrackRow: View {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
             Divider()
             songDownloadMenuItems(song, model)
+            songActionsMenu(song, model)
             songRadioMenuItem(song, model)
             Menu("Rate", systemImage: "star") {
                 ForEach((1 ... 5).reversed(), id: \.self) { star in

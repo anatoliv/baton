@@ -511,23 +511,12 @@ private struct ClientPodcastChannelDetail: View {
             MusicBatchButton(system: "arrow.down.circle", help: "Download selected") { downloadSelected() }
             MusicBatchButton(system: "trash.slash", help: "Remove downloads") { removeSelectedDownloads() }
             MusicBatchButton(system: "checkmark.circle", help: "Mark as played") { markSelectedPlayed() }
-            if !model.webhookActions.actions.isEmpty {
-                Menu {
-                    ForEach(model.webhookActions.actions) { action in
-                        Button(action.name, systemImage: action.icon) { runActionOnSelection(action) }
-                    }
-                } label: {
-                    Image(systemName: "bolt.horizontal.circle").font(.body).foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24).contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Run an action on the selection")
-            }
+            // Now routed through the shared component so a large selection confirms first.
+            WebhookBatchMenu(
+                tokenSets: { selectedEpisodes.map { PodcastWebhookTokens.tokens(episode: $0, channel: channel) } },
+                count: selectedEpisodes.count
+            )
         }
-    }
-
-    private func runActionOnSelection(_ action: WebhookAction) {
-        let tokenSets = selectedEpisodes.map { PodcastWebhookTokens.tokens(episode: $0, channel: channel) }
-        WebhookRunner.runBatch(action, tokenSets: tokenSets, model)
     }
 
     private func downloadSelected() {
