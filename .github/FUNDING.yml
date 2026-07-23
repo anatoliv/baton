@@ -1,0 +1,6 @@
+# Funding options shown as a "Sponsor" button on github.com/anatoliv/baton.
+# Keep these handles in sync with SupportLinks in
+# app/Sources/Baton/Shell/Music/SupportBaton.swift.
+github: [anatoliv]        # shows once GitHub Sponsors is enabled for the account
+ko_fi: anatolivishnyakov
+custom: ["https://paypal.me/anatolivishnyakov"]
