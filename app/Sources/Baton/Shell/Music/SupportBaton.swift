@@ -23,9 +23,11 @@ enum SupportLinks {
     /// paypal.me/<handle>
     static let payPalHandle: String? = "anatolivishnyakov"
 
-    /// Where users vote on what to build next — open issues sorted by 👍 reactions. Kept separate
-    /// from the tip buttons on purpose: tips fund the project as a whole, they don't buy a feature.
-    static let roadmapURL = URL(string: "https://github.com/anatoliv/baton/issues?q=is%3Aissue+is%3Aopen+sort%3Areactions-%2B1-desc")!
+    /// Where users vote on what to build next — open issues labelled `roadmap`, sorted by 👍
+    /// reactions. The label filter keeps bug reports out so the page is purely candidate features.
+    /// Kept separate from the tip buttons on purpose: tips fund the project as a whole, they don't
+    /// buy a feature.
+    static let roadmapURL = URL(string: "https://github.com/anatoliv/baton/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap+sort%3Areactions-%2B1-desc")!
 
     /// One tappable destination in the support row.
     struct Option: Identifiable {
@@ -156,14 +158,14 @@ struct SupportBatonSection: View {
                 Text("No donation options are configured in this build yet.")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
-                // Two flexible columns so long labels ("Buy Me a Coffee") never clip in the pane.
-                let columns = [GridItem(.flexible()), GridItem(.flexible())]
-                LazyVGrid(columns: columns, spacing: 8) {
+                // All donation buttons on one row, sharing width equally.
+                HStack(spacing: 8) {
                     ForEach(options) { option in
                         Button {
                             openURL(option.url)
                         } label: {
                             Label(option.title, systemImage: option.symbol)
+                                .lineLimit(1)
                                 .frame(maxWidth: .infinity)
                         }
                         .controlSize(.large)
