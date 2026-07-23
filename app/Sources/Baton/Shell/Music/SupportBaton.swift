@@ -32,7 +32,8 @@ enum SupportLinks {
     /// One tappable destination in the support row.
     struct Option: Identifiable {
         let id: String
-        let title: String
+        let title: String       // full label for buttons (About pane)
+        let shortTitle: String  // compact label for the standalone About window's text row
         let symbol: String
         let url: URL
     }
@@ -41,16 +42,29 @@ enum SupportLinks {
     static var options: [Option] {
         var out: [Option] = []
         if let h = gitHubSponsorsHandle, let url = URL(string: "https://github.com/sponsors/\(h)") {
-            out.append(.init(id: "github", title: "GitHub Sponsors", symbol: "heart.fill", url: url))
+            out.append(.init(id: "github", title: "GitHub Sponsors", shortTitle: "Sponsor", symbol: "heart.fill", url: url))
         }
         if let h = koFiHandle, let url = URL(string: "https://ko-fi.com/\(h)") {
-            out.append(.init(id: "kofi", title: "Ko-fi", symbol: "cup.and.saucer.fill", url: url))
+            out.append(.init(id: "kofi", title: "Ko-fi", shortTitle: "Ko-fi", symbol: "cup.and.saucer.fill", url: url))
         }
         if let h = buyMeACoffeeHandle, let url = URL(string: "https://www.buymeacoffee.com/\(h)") {
-            out.append(.init(id: "bmc", title: "Buy Me a Coffee", symbol: "cup.and.saucer.fill", url: url))
+            out.append(.init(id: "bmc", title: "Buy Me a Coffee", shortTitle: "Coffee", symbol: "cup.and.saucer.fill", url: url))
         }
         if let h = payPalHandle, let url = URL(string: "https://www.paypal.com/paypalme/\(h)") {
-            out.append(.init(id: "paypal", title: "PayPal", symbol: "dollarsign.circle.fill", url: url))
+            out.append(.init(id: "paypal", title: "PayPal", shortTitle: "PayPal", symbol: "dollarsign.circle.fill", url: url))
+        }
+        return out
+    }
+
+    /// A compact "Sponsor · Ko-fi · PayPal" run of links for tight surfaces (the standalone About
+    /// window), each platform linked. Only configured platforms appear.
+    static var compactLinks: AttributedString {
+        var out = AttributedString()
+        for (index, option) in options.enumerated() {
+            if index > 0 { out += AttributedString("  ·  ") }
+            var chip = AttributedString(option.shortTitle)
+            chip.link = option.url
+            out += chip
         }
         return out
     }
