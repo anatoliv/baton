@@ -38,6 +38,14 @@ struct BatonAboutView: View {
             Text("MIT License · © 2026 Anatoli Vishnyakov")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+
+            if !SupportLinks.options.isEmpty {
+                // Free & MIT — a compact, optional tip-jar row (full section lives in Settings ▸ About).
+                (Text("Support: ").foregroundStyle(.secondary)
+                    + Text(SupportLinks.compactLinks))
+                    .font(.caption)
+                    .padding(.top, 2)
+            }
         }
         .multilineTextAlignment(.center)
         .padding(28)

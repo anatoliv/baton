@@ -23,8 +23,8 @@ final class DiagnosticsTests: XCTestCase {
     }
 
     func testExportRedactsLANIPAndHomePath() {
-        let out = Diagnostics.format([line("connect 192.168.4.21 wrote /Users/you/Music/x.flac")])
-        XCTAssertFalse(out.contains("192.168.4.21"))
+        let out = Diagnostics.format([line("connect 192.0.2.6 wrote /Users/you/Music/x.flac")])
+        XCTAssertFalse(out.contains("192.0.2.6"))
         XCTAssertFalse(out.contains("/Users/you"))
     }
 
