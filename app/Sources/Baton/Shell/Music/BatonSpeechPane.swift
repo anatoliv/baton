@@ -243,11 +243,8 @@ struct BatonSpeechPane: View {
 
     private func mapRow(_ row: Binding<VoiceRow>) -> some View {
         HStack(spacing: 12) {
-            TextField(text: row.category, prompt: Text("name")) { EmptyView() }
-                .labelsHidden()
-                .textFieldStyle(.roundedBorder)
+            categoryField(row)
                 .frame(width: categoryWidth)
-                .onChange(of: row.wrappedValue.category) { _, _ in persistMap() }
 
             Picker(selection: row.engine) {
                 Text("Kokoro").tag(SpeechConfig.Engine.kokoro)
@@ -282,6 +279,35 @@ struct BatonSpeechPane: View {
             .disabled(previewing != nil)
         }
         .padding(.vertical, 2)
+    }
+
+    /// Common category names an agent might send, offered as a convenience. NOT exhaustive and
+    /// NOT a constraint: `speak_summary`'s `category` is a free string, so the field stays
+    /// editable — a dropdown that dropped unlisted categories would break the ones your agents
+    /// actually use. `default` is the fallback and always available.
+    private static let categorySuggestions = [
+        "default", "ops", "deploy", "build", "test", "research", "alert", "error", "done",
+    ]
+
+    /// An editable category name with a dropdown of common suggestions — a combo box, not a
+    /// locked picker, because the category must match whatever string the agent passes.
+    @ViewBuilder
+    private func categoryField(_ row: Binding<VoiceRow>) -> some View {
+        HStack(spacing: 4) {
+            TextField(text: row.category, prompt: Text("name")) { EmptyView() }
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: row.wrappedValue.category) { _, _ in persistMap() }
+            Menu {
+                ForEach(Self.categorySuggestions, id: \.self) { name in
+                    Button(name) { row.wrappedValue.category = name; persistMap() }
+                }
+            } label: {
+                Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("Common categories — you can also type your own")
+        }
     }
 
     @ViewBuilder
