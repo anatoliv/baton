@@ -35,7 +35,7 @@ final class WebhookActionsTests: XCTestCase {
     }
 
     func testFormBodyIsURLEncoded() throws {
-        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save")
+        var action = WebhookAction(name: "Save", urlTemplate: "https://example.test/save")
         action.contentType = .form
         action.bodyTemplate = "title={title}"
         let req = try XCTUnwrap(WebhookTemplate.buildRequest(action, tokens: ["title": "Q&A: A=B"]))
@@ -44,9 +44,9 @@ final class WebhookActionsTests: XCTestCase {
     }
 
     func testURLWithSpacesInTokenStaysValid() throws {
-        let action = WebhookAction(name: "S", urlTemplate: "https://web-01/save?t={title}")
+        let action = WebhookAction(name: "S", urlTemplate: "https://example.test/save?t={title}")
         let req = try XCTUnwrap(WebhookTemplate.buildRequest(action, tokens: ["title": "Hello World"]))
-        XCTAssertEqual(req.url?.absoluteString, "https://web-01/save?t=Hello%20World")
+        XCTAssertEqual(req.url?.absoluteString, "https://example.test/save?t=Hello%20World")
     }
 
     func testUnknownTokenStrippedNotSentLiterally() {
@@ -62,7 +62,7 @@ final class WebhookActionsTests: XCTestCase {
     // MARK: - Request building
 
     func testBuildRequestPostJSON() throws {
-        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save?u={enclosureUrl}")
+        var action = WebhookAction(name: "Save", urlTemplate: "https://example.test/save?u={enclosureUrl}")
         action.headers = [.init(name: "Authorization", value: "Bearer {guid}")]
         action.bodyTemplate = #"{"url":"{enclosureUrl}"}"#
         let req = try XCTUnwrap(WebhookTemplate.buildRequest(
@@ -70,7 +70,7 @@ final class WebhookActionsTests: XCTestCase {
         ))
         XCTAssertEqual(req.httpMethod, "POST")
         // The enclosure URL in the query is percent-encoded (was raw before the escaping fix).
-        XCTAssertEqual(req.url?.absoluteString, "https://web-01/save?u=https%3A%2F%2Fcdn%2Fep.mp3")
+        XCTAssertEqual(req.url?.absoluteString, "https://example.test/save?u=https%3A%2F%2Fcdn%2Fep.mp3")
         XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer g1")
         XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Type"), "application/json")
         XCTAssertEqual(String(data: try XCTUnwrap(req.httpBody), encoding: .utf8), #"{"url":"https://cdn/ep.mp3"}"#)
@@ -81,7 +81,7 @@ final class WebhookActionsTests: XCTestCase {
     /// "failed". The drop itself is intended (a nameless header is meaningless) — what's missing
     /// is any way for the user to find out, which `WebhookSendResult` now provides.
     func testHeaderWithEmptyNameIsDropped() throws {
-        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save")
+        var action = WebhookAction(name: "Save", urlTemplate: "https://example.test/save")
         action.headers = [
             .init(name: "  ", value: "Bearer secret-token"),   // name left blank
             .init(name: "X-Real", value: "kept"),
@@ -96,7 +96,7 @@ final class WebhookActionsTests: XCTestCase {
     /// The inverse: a properly named row is transmitted verbatim, so a 401 in the field means the
     /// header was absent or wrong — not that Baton failed to send it.
     func testNamedAuthorizationHeaderIsSent() throws {
-        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save")
+        var action = WebhookAction(name: "Save", urlTemplate: "https://example.test/save")
         action.headers = [.init(name: " Authorization ", value: "Bearer abc123")]
         let req = try XCTUnwrap(WebhookTemplate.buildRequest(action, tokens: [:]))
         XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer abc123",
@@ -104,7 +104,7 @@ final class WebhookActionsTests: XCTestCase {
     }
 
     func testGetHasNoBody() throws {
-        var action = WebhookAction(name: "Ping", urlTemplate: "https://web-01/ping")
+        var action = WebhookAction(name: "Ping", urlTemplate: "https://example.test/ping")
         action.method = .get
         action.bodyTemplate = "ignored"
         let req = try XCTUnwrap(WebhookTemplate.buildRequest(action, tokens: [:]))
@@ -155,7 +155,7 @@ final class WebhookActionsTests: XCTestCase {
         let store = WebhookActionStore(defaults: freshDefaults(),
                                        send: { captured = $0; return 200 },
                                        sendWithBody: { (captured = $0, (200, Data())).1 })
-        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save?u={streamUrl}")
+        var action = WebhookAction(name: "Save", urlTemplate: "https://example.test/save?u={streamUrl}")
         action.bodyTemplate = #"{"stream":"{streamUrl}","dl":"{downloadUrl}","title":"{title}"}"#
         action.allowCredentialedURLs = false   // default
         _ = await store.run(action, tokens: [
@@ -177,7 +177,7 @@ final class WebhookActionsTests: XCTestCase {
         let store = WebhookActionStore(defaults: freshDefaults(),
                                        send: { captured = $0; return 200 },
                                        sendWithBody: { (captured = $0, (200, Data())).1 })
-        var action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save")
+        var action = WebhookAction(name: "Save", urlTemplate: "https://example.test/save")
         action.bodyTemplate = #"{"stream":"{streamUrl}"}"#
         action.allowCredentialedURLs = true
         _ = await store.run(action, tokens: ["streamUrl": "https://nav/stream?t=secret"])
@@ -204,10 +204,10 @@ final class WebhookActionsTests: XCTestCase {
         var captured: URLRequest?
         let store = WebhookActionStore(defaults: freshDefaults(), send: { req in captured = req; return 204 },
                                        sendWithBody: nil)
-        let action = WebhookAction(name: "Save", urlTemplate: "https://web-01/save")
+        let action = WebhookAction(name: "Save", urlTemplate: "https://example.test/save")
         let ok = await store.run(action, tokens: [:])
         XCTAssertTrue(ok.ok)
-        XCTAssertEqual(captured?.url?.absoluteString, "https://web-01/save")
+        XCTAssertEqual(captured?.url?.absoluteString, "https://example.test/save")
 
         let failStore = WebhookActionStore(defaults: freshDefaults(), send: { _ in 500 }, sendWithBody: nil)
         let failed = await failStore.run(action, tokens: [:])
@@ -274,7 +274,7 @@ final class WebhookActionsTests: XCTestCase {
     /// the empty-value guard and block an otherwise valid action.
     func testFullyBlankHeaderRowDoesNotBlockSending() async {
         let store = WebhookActionStore(defaults: freshDefaults(), send: { _ in 204 }, sendWithBody: nil)
-        var action = WebhookAction(name: "Ping", urlTemplate: "https://web-01/ping")
+        var action = WebhookAction(name: "Ping", urlTemplate: "https://example.test/ping")
         action.headers = [.init(name: "", value: "")]
         let result = await store.run(action, tokens: [:])
         XCTAssertTrue(result.ok, "an empty spare row shouldn’t stop the request")
