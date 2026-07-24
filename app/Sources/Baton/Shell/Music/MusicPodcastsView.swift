@@ -639,6 +639,7 @@ private struct PodcastEpisodeRow: View {
     /// The episode's playback id is its `streamID` — the same key the progress store uses — so
     /// resume/played state works for server podcasts exactly as for client ones.
     private var pid: String? { episode.streamID }
+    private var isPlaying: Bool { isCurrent && model.music.isPlaying }
     private var isPlayed: Bool { pid.map { model.podcastProgress.isPlayed(id: $0) } ?? false }
     private var progressFraction: Double? {
         guard let pid, let f = model.podcastProgress.fraction(id: pid), f > 0, f < 1 else { return nil }
@@ -647,13 +648,13 @@ private struct PodcastEpisodeRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: isCurrent ? "speaker.wave.2.fill" : "mic")
-                .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+            Image(systemName: isPlaying ? "speaker.wave.2.fill" : "mic")
+                .foregroundStyle(isPlaying ? Color.accentColor : .secondary)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
                 Text(episode.title)
                     .font(.body)
-                    .foregroundStyle(isCurrent ? Color.accentColor : (isPlayed ? .secondary : (episode.isPlayable ? .primary : .secondary)))
+                    .foregroundStyle(isPlaying ? Color.accentColor : (isPlayed ? .secondary : (episode.isPlayable ? .primary : .secondary)))
                     .lineLimit(1)
                 if let meta = metaLine {
                     Text(meta).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -667,7 +668,8 @@ private struct PodcastEpisodeRow: View {
             trailing
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(isCurrent ? Color.nowPlayingRowTint() : (hover ? Color.secondary.opacity(0.08) : .clear),
+                    in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { if episode.isPlayable { onPlay() } }

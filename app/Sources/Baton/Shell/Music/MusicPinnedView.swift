@@ -184,6 +184,7 @@ private struct PinnedRow: View {
     @State private var hovering = false
 
     private var isCurrent: Bool { model.music.nowPlaying?.id == pin.refID }
+    private var isPlaying: Bool { isCurrent && model.music.isPlaying }
     private var artURL: URL? {
         if let direct = pin.artworkURL { return direct }
         return pin.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 88) }
@@ -196,10 +197,10 @@ private struct PinnedRow: View {
                     .frame(width: 40, height: 40)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay {
-                        if hovering || isCurrent {
+                        if hovering || isPlaying {
                             ZStack {
                                 Color.black.opacity(0.34)
-                                Image(systemName: isCurrent ? "speaker.wave.2.fill" : "play.fill")
+                                Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
                                     .font(.caption).foregroundStyle(.white)
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -210,8 +211,8 @@ private struct PinnedRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(pin.title)
-                    .font(.body.weight(isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                    .font(.body.weight(isPlaying ? .semibold : .regular))
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                     .lineLimit(1)
                 if let subtitle = pin.subtitle, !subtitle.isEmpty {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -242,6 +243,7 @@ private struct PinnedRow: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
+        .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
             Button("Play", action: onPlay)
             Button("Remove from Later", systemImage: "bookmark.slash", role: .destructive, action: onUnpin)
@@ -286,7 +288,8 @@ private struct PinnedCard: View {
             title: pin.title,
             subtitle: pin.subtitle.map { "\(pin.kind.label) · \($0)" } ?? pin.kind.label,
             isHovering: hover,
-            isPlayingSource: isCurrent,
+            isSelected: isCurrent,
+            isPlaying: isCurrent && model.music.isPlaying,
             onPlay: onPlay
         )
         .hoverLift(hover)

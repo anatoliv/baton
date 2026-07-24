@@ -201,12 +201,14 @@ private struct RadioStationCard: View {
                 RadioArtworkView(station: station, cornerRadius: 12)
                     .aspectRatio(1, contentMode: .fit)
                     .overlay {
+                        // Selected (tuned) station keeps its accent outline even when stopped;
+                        // the glow + equalizer (gated on isPlaying) are the additional live cue.
                         RoundedRectangle(cornerRadius: 12)
                             .strokeBorder(Color.accentColor, lineWidth: isOnAir ? 3 : 0)
                     }
                     .shadow(
-                        color: isOnAir ? Color.accentColor.opacity(0.45) : .black.opacity(hover ? 0.4 : 0.2),
-                        radius: isOnAir ? 14 : (hover ? 14 : 7), y: hover ? 6 : 3
+                        color: isPlaying ? Color.accentColor.opacity(0.45) : .black.opacity(hover ? 0.4 : 0.2),
+                        radius: isPlaying ? 14 : (hover ? 14 : 7), y: hover ? 6 : 3
                     )
                 // Hover / on-air play-stop overlay.
                 if hover || isOnAir {
@@ -238,11 +240,12 @@ private struct RadioStationCard: View {
             }
             .animation(.easeOut(duration: 0.16), value: hover)
             .animation(.easeInOut(duration: 0.2), value: isOnAir)
+            .animation(.easeInOut(duration: 0.2), value: isPlaying)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(station.name)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(isOnAir ? Color.accentColor : .primary)
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.caption).foregroundStyle(.secondary)
@@ -315,10 +318,10 @@ private struct RadioStationListRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(station.name)
                     .font(.body.weight(.medium))
-                    .foregroundStyle(isOnAir ? Color.accentColor : .primary)
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    if isOnAir {
+                    if isPlaying {
                         Label("On air", systemImage: "dot.radiowaves.left.and.right")
                             .font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
                     }
@@ -356,7 +359,8 @@ private struct RadioStationListRow: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(isOnAir ? Color.nowPlayingRowTint() : (hover ? Color.secondary.opacity(0.08) : .clear),
+                    in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)

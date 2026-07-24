@@ -358,7 +358,7 @@ private struct DownloadRow: View {
                     .frame(width: DownloadColumns.thumb, height: DownloadColumns.thumb)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay {
-                        if hover || isCurrent {
+                        if hover || isPlaying {
                             ZStack {
                                 Color.black.opacity(0.34)
                                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
@@ -374,7 +374,7 @@ private struct DownloadRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
                     .font(.body.weight(.medium))
-                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                     .lineLimit(1)
                 if let artist = item.artist, !artist.isEmpty {
                     Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -417,11 +417,14 @@ private struct DownloadRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            isSelected ? Color.selectionTint() : (hover ? Color.hoverTint : .clear)
+            isSelected ? Color.selectionTint()
+                : (isCurrent ? Color.nowPlayingRowTint()
+                : (hover ? Color.hoverTint : .clear))
         ))
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.12), value: hover)
         .animation(.easeInOut(duration: 0.18), value: isSelected)
+        .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .contextMenu {
             Button("Play", systemImage: "play.fill", action: onPlay)
             Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { model.music.playNext([item.song]) }
@@ -481,7 +484,8 @@ private struct DownloadCard: View {
             title: item.title,
             subtitle: item.artist ?? "",
             isHovering: hover,
-            isPlayingSource: isCurrent,
+            isSelected: isCurrent,
+            isPlaying: isCurrent && model.music.isPlaying,
             onPlay: onPlay
         )
         .overlay(alignment: .topLeading) {

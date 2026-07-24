@@ -196,6 +196,29 @@ struct MusicView: View {
         model.musicLibrary
     }
 
+    /// Resolve a "Playing from" deep link to its detail page: switch to the matching section and
+    /// push the album / playlist / artist. Prefers the already-loaded collection; falls back to a
+    /// fetch (playlists) or a minimal stub whose detail view refetches its contents by id.
+    @MainActor
+    private func navigateToSource(_ source: StreamingPlaybackController.QueueSource) async {
+        guard let id = source.id else { return }
+        switch source.kind {
+        case .album:
+            let album = library.albums.first { $0.id == id } ?? NavidromeAlbum(id: id, name: source.label)
+            tab = .albums; path = NavigationPath(); path.append(album)
+        case .artist:
+            let artist = library.artists.first { $0.id == id } ?? NavidromeArtist(id: id, name: source.label)
+            tab = .artists; path = NavigationPath(); path.append(artist)
+        case .playlist:
+            var playlist = library.playlists.first { $0.id == id }
+            if playlist == nil { playlist = await library.playlist(id: id) }
+            guard let playlist else { return }
+            tab = .playlists; path = NavigationPath(); path.append(playlist)
+        case .radio, .search, .liked, .song:
+            break
+        }
+    }
+
     private var nowPlayingCoverURL: URL? {
         // Prefers a direct artwork URL (podcasts) over the Subsonic cover id, matching the
         // full-screen / mini-player surfaces, so the window color wash tracks podcasts too.
@@ -283,6 +306,12 @@ struct MusicView: View {
                         await model.podcastSubscriptions.refresh()
                         model.music.postToast("Library refreshed", symbol: "arrow.clockwise")
                     }
+                }
+                // "Playing from" deep link (from the full-screen player) → open the source's detail.
+                .onChange(of: router.pendingSourceNavigation) { _, new in
+                    guard let source = new else { return }
+                    router.pendingSourceNavigation = nil
+                    Task { await navigateToSource(source) }
                 }
                 // Global Space = Play/Pause. Focusable so it receives the key when nothing else
                 // holds focus. While the full-screen hero is up it owns Space (its play button has
@@ -969,6 +998,7 @@ struct MusicAlbumCard: View {
         let source = model.music.queueSource
         return source?.kind == .album && source?.id == album.id
     }
+    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
 
     var body: some View {
         MusicMediaCard(
@@ -978,7 +1008,8 @@ struct MusicAlbumCard: View {
             trailingTop: trackCountText,
             trailingBottom: durationText,
             isHovering: isHovering,
-            isPlayingSource: isPlayingSource,
+            isSelected: isPlayingSource,
+            isPlaying: isPlayingNow,
             downloadStatus: DownloadStatusBadge.status(albumID: album.id, totalTracks: album.songCount),
             onPlay: playAlbum
         )
