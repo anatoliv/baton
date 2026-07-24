@@ -93,8 +93,8 @@ struct MusicPanelTrackRow: View {
             MusicSongThumb(song: song, size: 36, onPlay: onPlay)
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title)
-                    .font(.callout.weight(isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                    .font(.callout.weight(isPlaying ? .semibold : .regular))
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                     .lineLimit(1)
                 if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist)
@@ -124,6 +124,7 @@ struct MusicPanelTrackRow: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
+        .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
             Divider()
@@ -147,6 +148,8 @@ struct MusicPanelTrackRow: View {
     }
 
     private var background: Color {
+        // Selected (current track) keeps its background even when paused; the accent title
+        // + speaker cue (gated on isPlaying) are the additional "playing" indicators.
         if isCurrent { return Color.nowPlayingRowTint() }
         return hovering ? Color.primary.opacity(0.07) : .clear
     }

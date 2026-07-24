@@ -11,6 +11,10 @@ struct MusicTrackRow: View {
     var onPlay: () -> Void
     @State private var showRemoveConfirm = false
 
+    /// The now-playing highlight tracks *active playback*, not merely "current": a paused
+    /// track gets no accent, per the "playing only" rule.
+    private var isPlaying: Bool { isCurrent && model.music.isPlaying }
+
     var body: some View {
         HStack(spacing: 10) {
             MusicSongThumb(song: song, onPlay: onPlay)
@@ -18,7 +22,7 @@ struct MusicTrackRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title)
                     .lineLimit(1)
-                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                 if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -40,8 +44,13 @@ struct MusicTrackRow: View {
             }
             MusicRatingStars(song: song)
         }
+        .padding(.vertical, 4).padding(.horizontal, 8)
+        // The current track keeps a persistent "selected" background even when paused; the
+        // accent title + speaker thumb (gated on isPlaying) are the additional now-playing cue.
+        .background(RoundedRectangle(cornerRadius: 8).fill(isCurrent ? Color.nowPlayingRowTint() : .clear))
         .contentShape(Rectangle())
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
+        .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .onTapGesture(count: 2, perform: onPlay)
         .contextMenu {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
@@ -59,7 +68,7 @@ struct MusicTrackRow: View {
     private var trackAccessibilityLabel: String {
         var label = song.title
         if let artist = song.artist, !artist.isEmpty { label += ", by \(artist)" }
-        if isCurrent { label += ", now playing" }
+        if isPlaying { label += ", now playing" }
         return label
     }
 

@@ -270,6 +270,8 @@ private struct SongShelfCard: View {
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
+    private var isCurrent: Bool { model.music.nowPlaying?.id == song.id }
+
     var body: some View {
         MusicMediaCard(
             coverURL: song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 400) },
@@ -279,7 +281,8 @@ private struct SongShelfCard: View {
             trailingTop: song.qualityLabel,
             trailingBottom: playTime,
             isHovering: hover,
-            isPlayingSource: model.music.nowPlaying?.id == song.id,
+            isSelected: isCurrent,
+            isPlaying: isCurrent && model.music.isPlaying,
             onPlay: onPlay
         )
         .frame(width: homeShelfCardWidth)

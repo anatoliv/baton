@@ -131,6 +131,7 @@ struct MusicAlbumDetail: View {
             onActivate: { model.music.play(visibleSongs, startAt: $0, source: albumSource) },
             onAltActivate: { model.music.playNext([visibleSongs[$0]]) }
         )
+        .revealNowPlaying(proxy: proxy, ids: visibleSongs.map(\.id), currentID: model.music.nowPlaying?.id)
         }
         .navigationBarBackButtonHidden(true)
         .task(id: album.id) {
@@ -497,6 +498,7 @@ struct MusicArtistDetail: View {
             onActivate: { model.music.play(visibleSongs, startAt: $0, source: source) },
             onAltActivate: { model.music.playNext([visibleSongs[$0]]) }
         )
+        .revealNowPlaying(proxy: proxy, ids: visibleSongs.map(\.id), currentID: model.music.nowPlaying?.id)
         }
         .navigationBarBackButtonHidden(true)
         .task(id: artist.id) {
@@ -813,6 +815,7 @@ struct MusicPlaylistDetail: View {
             onActivate: { model.music.play(visibleSongs, startAt: $0, source: playlistSource) },
             onAltActivate: { model.music.playNext([visibleSongs[$0]]) }
         )
+        .revealNowPlaying(proxy: proxy, ids: visibleSongs.map(\.id), currentID: model.music.nowPlaying?.id)
         }
         .navigationBarBackButtonHidden(true)
         .task(id: playlist.id) {
