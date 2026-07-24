@@ -50,6 +50,8 @@ struct HelpWhatsNewRelease: Identifiable {
     let version: String
     let date: String
     let highlight: String
+    /// Optional asset-catalog image name for a screenshot shown under the highlight.
+    var image: String? = nil
     let changes: [HelpWhatsNewChange]
     var id: String { version }
 }
@@ -227,10 +229,23 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.8.1",
+            date: "2026",
+            highlight: "A small polish to keep these release notes clearer.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "What\u{2019}s New entries can now include a screenshot, so a new "
+                        + "feature is easy to recognize at a glance."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.8.0",
             date: "2026",
             highlight: "The item you\u{2019}re playing now stands out at a glance, and you can "
                 + "jump straight to it from the full-screen player.",
+            image: "WhatsNew080",
             changes: [
                 HelpWhatsNewChange(
                     kind: .improved,
@@ -1015,6 +1030,19 @@ struct WhatsNewDetailView: View {
                 .font(HelpTokens.Fonts.small)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let image = release.image {
+                Image(image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+                    .accessibilityLabel("Screenshot of what's new in \(release.version)")
+            }
             Divider()
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(release.changes) { change in
