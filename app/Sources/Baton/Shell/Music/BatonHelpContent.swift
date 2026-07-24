@@ -227,6 +227,30 @@ extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.8.0",
+            date: "2026",
+            highlight: "The item you\u{2019}re playing now stands out at a glance, and you can "
+                + "jump straight to it from the full-screen player.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The album, playlist, artist, or song you\u{2019}re playing shows as "
+                        + "selected (an outline on cards, a highlight in lists), with a speaker "
+                        + "badge that appears only while it\u{2019}s actually playing."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "In the full-screen player, tap \u{201C}Playing from\u{201D} to open "
+                        + "the album, playlist, or artist you\u{2019}re playing."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Open an album, playlist, or your Liked songs and the playing track "
+                        + "scrolls into view on its own, so you don\u{2019}t have to hunt for it."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.7.1",
             date: "2026",
             highlight: "Custom actions now run on any item \u{2014} songs, albums, artists, "

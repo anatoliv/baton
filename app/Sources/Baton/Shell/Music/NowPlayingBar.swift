@@ -546,8 +546,8 @@ private struct MusicQueueRow: View {
                 .frame(width: 20, alignment: .center)
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title)
-                    .font(.callout.weight(isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                    .font(.callout.weight(isPlaying ? .semibold : .regular))
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                     .lineLimit(1)
                 if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist)
@@ -589,6 +589,7 @@ private struct MusicQueueRow: View {
         .onHover { hovering = $0; onHoverChange($0) }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
+        .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
             Button("Play Now", systemImage: "play.fill") { model.music.jump(to: index) }
             if !isCurrent {
@@ -599,12 +600,14 @@ private struct MusicQueueRow: View {
         }
     }
 
-    /// The leading glyph: an animated speaker for the current track, otherwise the
-    /// 1-based position (fading to a grip on hover to hint at drag-to-reorder).
+    /// The leading glyph: an animated speaker for the *actively playing* track, otherwise
+    /// the 1-based position (fading to a grip on hover to hint at drag-to-reorder). A
+    /// paused current track shows its position number, not a speaker — the "playing only"
+    /// rule, so nothing in the queue reads as playing while paused.
     @ViewBuilder
     private var leading: some View {
-        if isCurrent {
-            Image(systemName: isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
+        if isPlaying {
+            Image(systemName: "speaker.wave.2.fill")
                 .font(.caption)
                 .foregroundStyle(Color.accentColor)
         } else if hovering {
@@ -619,6 +622,8 @@ private struct MusicQueueRow: View {
     }
 
     private var background: Color {
+        // The current queue row keeps its background even when paused (the "selected" style);
+        // the speaker glyph + accent title (gated on isPlaying) are the additional now-playing cue.
         if isCurrent { return Color.nowPlayingRowTint() }
         return hovering ? Color.primary.opacity(0.07) : .clear
     }

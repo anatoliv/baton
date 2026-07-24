@@ -117,9 +117,11 @@ struct MusicSongThumb: View {
             if hovering {
                 Color.black.opacity(0.4)
                 Image(systemName: "play.fill").font(.caption).foregroundStyle(.white)
-            } else if isCurrent {
+            } else if isPlaying {
+                // Speaker cue only while actively playing — a current-but-paused track
+                // shows just its artwork (no indicator), per the "playing only" rule.
                 Color.black.opacity(0.35)
-                Image(systemName: isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
+                Image(systemName: "speaker.wave.2.fill")
                     .font(.caption).foregroundStyle(.white)
             }
         }
@@ -382,9 +384,13 @@ struct MusicMediaCard: View {
     var trailingBottom: String?
     var isHovering: Bool
     var isWorking = false
-    /// Highlights the card (accent border + glow) when its entity is the current
-    /// queue's source — e.g. the playlist/album/artist you're playing from.
-    var isPlayingSource = false
+    /// The **selected** item — the album/playlist/artist/song that's currently the player's
+    /// source/track. Drives a persistent accent **outline**, kept even when paused, until
+    /// something else becomes current. This is the "selected style", independent of playback.
+    var isSelected = false
+    /// **Playing** right now — layers the glow + speaker-wave badge on top of the selected
+    /// outline. Removed the moment playback pauses; the outline stays.
+    var isPlaying = false
     /// Offline-download state, shown as a corner badge over the artwork (bottom-trailing).
     var downloadStatus: DownloadStatusBadge.Status = .hidden
     var onPlay: () -> Void
@@ -417,18 +423,34 @@ struct MusicMediaCard: View {
             .overlay { cover }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(alignment: .topLeading) { badge }
+            .overlay(alignment: .topTrailing) { nowPlayingOverlay }
             .overlay(alignment: .bottomTrailing) { downloadOverlay }
             .overlay { hoverPlay }
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(Color.accentColor, lineWidth: isPlayingSource ? 3 : 0)
+                    .strokeBorder(Color.accentColor, lineWidth: isSelected ? 3 : 0)
             }
             .shadow(
-                color: isPlayingSource ? Color.playingGlowTint() : .black.opacity(isHovering ? 0.4 : 0.2),
-                radius: isPlayingSource ? 14 : (isHovering ? 16 : 8),
+                color: isPlaying ? Color.playingGlowTint() : .black.opacity(isHovering ? 0.4 : 0.2),
+                radius: isPlaying ? 14 : (isHovering ? 16 : 8),
                 y: isHovering ? 8 : 4
             )
-            .animation(.easeInOut(duration: 0.18), value: isPlayingSource)
+            .animation(.easeInOut(duration: 0.18), value: isSelected)
+            .animation(.easeInOut(duration: 0.18), value: isPlaying)
+    }
+
+    /// Now-playing badge over the artwork — a white speaker wave on an accent disc, shown
+    /// only while this album/playlist/artist/song is *actively playing* (never when paused),
+    /// matching the speaker cue on the list rows and song thumbs.
+    @ViewBuilder private var nowPlayingOverlay: some View {
+        if isPlaying {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.caption.weight(.semibold)).foregroundStyle(.white)
+                .padding(5).background(Color.accentColor.opacity(0.95), in: Circle())
+                .padding(6)
+                .transition(.scale.combined(with: .opacity))
+                .help("Now playing")
+        }
     }
 
     /// Offline badge over the artwork — white glyph on a dark disc for legibility on any cover.
@@ -590,5 +612,36 @@ extension View {
             highlighted: highlighted, count: count, proxy: proxy,
             idForIndex: idForIndex, onActivate: onActivate, onAltActivate: onAltActivate
         ))
+    }
+}
+
+/// Scrolls the currently-playing track into view (centered) when a song list first shows its
+/// rows and whenever the playing track changes — so the now-playing row (already styled as
+/// "selected") is revealed without manual scrolling. A no-op when the current track isn't in
+/// this list, so browsing an unrelated album/playlist never jumps. Rows must carry `.id(<songID>)`.
+struct RevealNowPlaying: ViewModifier {
+    let proxy: ScrollViewProxy
+    /// The song ids currently shown, in order — its *count* is the "rows are laid out" signal.
+    let ids: [String]
+    let currentID: String?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: currentID) { _, _ in reveal() }
+            // Fires when the async-loaded songs populate (0 → N) or a filter changes the set.
+            .onChange(of: ids.count) { _, _ in reveal() }
+            .onAppear { reveal() }
+    }
+
+    private func reveal() {
+        guard let currentID, ids.contains(currentID) else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(currentID, anchor: .center) }
+    }
+}
+
+extension View {
+    /// See `RevealNowPlaying`. Apply to the scroll container inside a `ScrollViewReader`.
+    func revealNowPlaying(proxy: ScrollViewProxy, ids: [String], currentID: String?) -> some View {
+        modifier(RevealNowPlaying(proxy: proxy, ids: ids, currentID: currentID))
     }
 }

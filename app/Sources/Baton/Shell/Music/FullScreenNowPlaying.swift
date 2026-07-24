@@ -7,6 +7,9 @@ import SwiftUI
 /// as an overlay over `MusicView`.
 struct FullScreenNowPlaying: View {
     @Environment(MusicModel.self) private var model
+    // Optional so snapshot/preview renders that don't inject the router still work; the live
+    // window always provides it, so the deep link fires there.
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var isPresented: Bool
     /// Override palette for snapshots/previews (nil = live-extracted from artwork).
@@ -137,12 +140,15 @@ struct FullScreenNowPlaying: View {
             .padding(.leading, 52)
             Spacer()
             if let source = player.queueSource {
-                VStack(spacing: 1) {
-                    Text("Playing from").font(.caption2).foregroundStyle(.secondary).textCase(.uppercase)
-                    Label(source.label, systemImage: source.icon)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                if Self.isNavigable(source) {
+                    Button { navigateToSource(source) } label: {
+                        playingFrom(source, navigable: true)
+                    }
+                    .buttonStyle(.plain)
+                    .pointerStyle(.link)
+                    .help("Go to \(source.label)")
+                } else {
+                    playingFrom(source, navigable: false)
                 }
             } else {
                 Text("Now Playing").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
@@ -169,6 +175,43 @@ struct FullScreenNowPlaying: View {
         }
         .padding(20)
         .foregroundStyle(.white)
+    }
+
+    /// The "PLAYING FROM · <name>" block. When `navigable`, a trailing chevron hints it's a
+    /// link to the source's album/playlist/artist page.
+    private func playingFrom(_ source: StreamingPlaybackController.QueueSource, navigable: Bool) -> some View {
+        VStack(spacing: 1) {
+            Text("Playing from").font(.caption2).foregroundStyle(.secondary).textCase(.uppercase)
+            HStack(spacing: 4) {
+                Label(source.label, systemImage: source.icon)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                if navigable {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// Only album/playlist/artist sources have a detail page to open; radio/search/liked/song
+    /// (and any source without an id) stay plain text.
+    static func isNavigable(_ source: StreamingPlaybackController.QueueSource) -> Bool {
+        guard source.id != nil else { return false }
+        switch source.kind {
+        case .album, .playlist, .artist: return true
+        case .radio, .search, .liked, .song: return false
+        }
+    }
+
+    /// Raise the deep-link intent for `MusicView` to resolve, then collapse the player so the
+    /// pushed detail view is visible underneath.
+    private func navigateToSource(_ source: StreamingPlaybackController.QueueSource) {
+        router?.pendingSourceNavigation = source
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { isPresented = false }
     }
 
     private var sleepTimerMenu: some View { SleepTimerMenu(font: .title3, tint: .secondary) }

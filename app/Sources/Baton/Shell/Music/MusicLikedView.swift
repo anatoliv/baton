@@ -730,6 +730,7 @@ struct MusicCollectionView: View {
                             model.music.postToast("Playing next: \(songs[i].title)", symbol: "text.line.first.and.arrowtriangle.forward")
                         }
                     )
+                    .revealNowPlaying(proxy: proxy, ids: songs.map(\.id), currentID: model.music.nowPlaying?.id)
                 }
             }
         }
@@ -984,6 +985,7 @@ struct MusicLikedSongRow: View {
     @State private var showRemoveConfirm = false
 
     private var isCurrent: Bool { model.music.nowPlaying?.id == song.id }
+    private var isPlaying: Bool { isCurrent && model.music.isPlaying }
     private var downloads: MusicDownloadStore { .shared }
     private var isDownloaded: Bool { downloads.isDownloaded(song.id) }
     private var isDownloading: Bool { downloads.isDownloading(song.id) }
@@ -1026,8 +1028,8 @@ struct MusicLikedSongRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title)
-                    .font(.body.weight(isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+                    .font(.body.weight(isPlaying ? .semibold : .regular))
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                     .lineLimit(1)
                 if let artist = song.displayArtistName, !artist.isEmpty {
                     Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -1094,6 +1096,7 @@ struct MusicLikedSongRow: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
+        .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
             songPlaybackMenuItems(song, model, onPlay: onPlay)
             Divider()
@@ -1158,7 +1161,8 @@ struct LikedSongGridCell: View {
             trailingTop: song.qualityLabel,
             trailingBottom: song.duration.map { MusicTrackRow.formatDuration($0) },
             isHovering: hovering,
-            isPlayingSource: isCurrent,
+            isSelected: isCurrent,
+            isPlaying: isCurrent && model.music.isPlaying,
             downloadStatus: DownloadStatusBadge.status(songID: song.id),
             onPlay: onPlay
         )

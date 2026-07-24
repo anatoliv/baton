@@ -17,6 +17,10 @@ final class BatonCommandRouter {
     var showQueueToken = 0
     /// Bumped by **Refresh Library** (⌘R): refetch all collections + radio/podcast stores.
     var refreshLibraryToken = 0
+    /// A "Playing from" deep link raised by the full-screen player: navigate to the current
+    /// queue's source (album / playlist / artist). `MusicView` resolves it to the matching
+    /// section + detail view, then clears it.
+    var pendingSourceNavigation: StreamingPlaybackController.QueueSource?
 }
 
 /// The **Go** menu: jump to any left-rail section (⌘1…⌘8), Find (⌘F → Search + focus),

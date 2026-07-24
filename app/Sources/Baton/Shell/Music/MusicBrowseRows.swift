@@ -62,6 +62,21 @@ struct MusicRowThumb: View {
     }
 }
 
+/// The "this collection is *actively playing*" cue for the dense album/playlist **list**
+/// rows — a small accent speaker wave. Callers show it only while playback is active (a
+/// paused source shows nothing), so it always renders the animated wave. It's the
+/// list-layout counterpart to the accent border + glow the grid cards get from
+/// `MusicMediaCard.isPlaying`, and it matches the speaker cue on song thumbs.
+struct NowPlayingSourceGlyph: View {
+    var body: some View {
+        Image(systemName: "speaker.wave.2.fill")
+            .font(.caption)
+            .foregroundStyle(Color.accentColor)
+            .accessibilityLabel("Now playing")
+            .help("Now playing")
+    }
+}
+
 /// One inline row action — an icon button revealed on row hover.
 struct MusicRowAction {
     let title: String
@@ -404,6 +419,13 @@ struct MusicAlbumRow: View {
     private var genreText: String { album.genres.first ?? album.genre ?? "" }
     private var yearText: String { album.year.map(String.init) ?? "" }
 
+    /// This album is the source of the current queue (matches the grid card's cue).
+    private var isPlayingSource: Bool {
+        let source = model.music.queueSource
+        return source?.kind == .album && source?.id == album.id
+    }
+    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
     var body: some View {
@@ -417,10 +439,14 @@ struct MusicAlbumRow: View {
             .accessibilityLabel("Play \(title)")
 
             NavigationLink(value: album) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 6) {
+                    if isPlayingNow { NowPlayingSourceGlyph() }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(.body.weight(.medium))
+                            .foregroundStyle(isPlayingNow ? Color.accentColor : .primary).lineLimit(1)
+                        if !subtitle.isEmpty {
+                            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -481,7 +507,9 @@ struct MusicAlbumRow: View {
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
             isSelected ? Color.selectionTint()
-                : (highlighted ? Color.accentColor.opacity(0.14) : (hovering ? Color.hoverTint : .clear))
+                : (highlighted ? Color.accentColor.opacity(0.14)
+                : (isPlayingSource ? Color.nowPlayingRowTint()
+                : (hovering ? Color.hoverTint : .clear)))
         ))
         .overlay(alignment: .leading) {
             if highlighted { Capsule().fill(Color.accentColor).frame(width: 3).padding(.vertical, 4) }
@@ -489,6 +517,8 @@ struct MusicAlbumRow: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isSelected)
+        .animation(.easeInOut(duration: 0.18), value: isPlayingSource)
+        .animation(.easeInOut(duration: 0.18), value: isPlayingNow)
         .contextMenu {
             albumActionMenuItems(album, model, run: run, onRemove: { showRemoveConfirm = true })
         }
@@ -549,6 +579,7 @@ struct PlaylistGridCell: View {
         let source = model.music.queueSource
         return source?.kind == .playlist && source?.id == playlist.id
     }
+    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
 
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
@@ -564,7 +595,8 @@ struct PlaylistGridCell: View {
                 trailingBottom: playlist.duration.map { MusicAlbumCard.albumDuration($0) },
                 isHovering: hovering,
                 isWorking: working,
-                isPlayingSource: isPlayingSource,
+                isSelected: isPlayingSource,
+                isPlaying: isPlayingNow,
                 downloadStatus: DownloadStatusBadge.status(playlistID: playlist.id),
                 onPlay: { run { await PlaylistActions.play(playlist, model) } }
             )
@@ -643,6 +675,13 @@ struct MusicPlaylistRow: View {
 
     private var coverURL: URL? { playlist.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 80) } }
 
+    /// This playlist is the source of the current queue (matches the grid cell's cue).
+    private var isPlayingSource: Bool {
+        let source = model.music.queueSource
+        return source?.kind == .playlist && source?.id == playlist.id
+    }
+    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
     var body: some View {
@@ -657,7 +696,9 @@ struct MusicPlaylistRow: View {
 
             NavigationLink(value: playlist) {
                 HStack(spacing: 6) {
-                    Text(playlist.name).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                    if isPlayingNow { NowPlayingSourceGlyph() }
+                    Text(playlist.name).font(.body.weight(.medium))
+                        .foregroundStyle(isPlayingNow ? Color.accentColor : .primary).lineLimit(1)
                     if playlist.isPublic {
                         Image(systemName: "person.2.fill").font(.caption2).foregroundStyle(.secondary)
                     }
@@ -689,11 +730,15 @@ struct MusicPlaylistRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            isSelected ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear)
+            isSelected ? Color.selectionTint()
+                : (isPlayingSource ? Color.nowPlayingRowTint()
+                : (hovering ? Color.hoverTint : .clear))
         ))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isSelected)
+        .animation(.easeInOut(duration: 0.18), value: isPlayingSource)
+        .animation(.easeInOut(duration: 0.18), value: isPlayingNow)
         .contextMenu {
             playlistActionMenuItems(playlist, model, run: run, onDelete: { showDeleteConfirm = true })
         }

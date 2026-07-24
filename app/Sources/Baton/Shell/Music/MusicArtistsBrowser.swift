@@ -371,6 +371,13 @@ struct MusicArtistListRow: View {
     private var tracksText: String { stats.map { "\($0.tracks)" } ?? "—" }
     private var timeText: String { stats.map { ArtistHeuristics.formatDuration($0.seconds) } ?? "—" }
 
+    /// This artist is the source of the current queue (matches the grid card's cue).
+    private var isPlayingSource: Bool {
+        let source = model.music.queueSource
+        return source?.kind == .artist && source?.id == artist.id
+    }
+    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+
     /// Artwork for the avatar. Prefer the artist's real album cover (loaded with the
     /// stats) since the server's artist-level portrait is often a generic placeholder;
     /// then the artist coverArt / direct URL; else the monogram.
@@ -398,7 +405,9 @@ struct MusicArtistListRow: View {
 
             NavigationLink(value: artist) {
                 HStack(spacing: 8) {
-                    Text(artist.name).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                    if isPlayingNow { NowPlayingSourceGlyph() }
+                    Text(artist.name).font(.body.weight(.medium))
+                        .foregroundStyle(isPlayingNow ? Color.accentColor : .primary).lineLimit(1)
                     if ArtistHeuristics.isAutoImport(artist.name) { flag("auto-import", .orange) }
                     if isDuplicate { flag("duplicate", .yellow) }
                 }
@@ -444,11 +453,15 @@ struct MusicArtistListRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(
-            isSelected ? Color.selectionTint() : (hovering ? Color.hoverTint : .clear)
+            isSelected ? Color.selectionTint()
+                : (isPlayingSource ? Color.nowPlayingRowTint()
+                : (hovering ? Color.hoverTint : .clear))
         ))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.18), value: isSelected)
+        .animation(.easeInOut(duration: 0.18), value: isPlayingSource)
+        .animation(.easeInOut(duration: 0.18), value: isPlayingNow)
         // Right-click parity with the grid card + the other list rows (the inline hover
         // icons are the same actions, one hover away).
         .contextMenu {
@@ -583,6 +596,7 @@ struct MusicArtistGridCard: View {
         let source = model.music.queueSource
         return source?.kind == .artist && source?.id == artist.id
     }
+    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
 
     var body: some View {
         MusicMediaCard(
@@ -595,7 +609,8 @@ struct MusicArtistGridCard: View {
             trailingBottom: durationText,
             isHovering: isHovering,
             isWorking: isWorking,
-            isPlayingSource: isPlayingSource,
+            isSelected: isPlayingSource,
+            isPlaying: isPlayingNow,
             downloadStatus: DownloadStatusBadge.status(artistID: artist.id),
             onPlay: onPlay
         )

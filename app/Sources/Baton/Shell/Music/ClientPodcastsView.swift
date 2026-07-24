@@ -632,6 +632,7 @@ private struct ClientPodcastEpisodeRow: View {
     let onRemoveDownload: () -> Void
     @State private var hover = false
 
+    private var isPlaying: Bool { isCurrent && model.music.isPlaying }
     private var artURL: URL? { episode.imageURL ?? channel.imageURL }
     private var songID: String { episode.enclosureURL.absoluteString }
     private var isDownloaded: Bool { MusicDownloadStore.shared.isDownloaded(songID) }
@@ -657,7 +658,7 @@ private struct ClientPodcastEpisodeRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(episode.title)
                     .font(.body)
-                    .foregroundStyle(isCurrent ? Color.accentColor : (isPlayed ? .secondary : .primary))
+                    .foregroundStyle(isPlaying ? Color.accentColor : (isPlayed ? .secondary : .primary))
                     .lineLimit(1)
                 if let sub = subLine {
                     Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -669,7 +670,7 @@ private struct ClientPodcastEpisodeRow: View {
             // as the album track rows — so no redundant trailing play button. The equalizer
             // marks the current episode; a checkmark marks a finished one; duration is always
             // shown, tertiary, like a track row.
-            if isCurrent {
+            if isPlaying {
                 EqualizerBars(active: true, color: Color.accentColor)
             } else if isPlayed {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary).help("Played")
@@ -681,7 +682,8 @@ private struct ClientPodcastEpisodeRow: View {
             }
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(isCurrent ? Color.nowPlayingRowTint() : (hover ? Color.secondary.opacity(0.08) : .clear),
+                    in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
@@ -754,10 +756,10 @@ private struct ClientPodcastEpisodeRow: View {
     }
 
     @ViewBuilder private var thumbOverlay: some View {
-        if hover || isCurrent {
+        if hover || isPlaying {
             ZStack {
                 Color.black.opacity(0.34)
-                Image(systemName: isCurrent ? "speaker.wave.2.fill" : "play.fill")
+                Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
                     .font(.caption).foregroundStyle(.white)
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
