@@ -170,6 +170,15 @@ and Previous, plus ways to open the main window or the mini-player. It keeps Bat
 control server) running in the background even when every window is closed.
 
 **Can Baton speak things out loud?**
+**With several agents running, how do I tell which one is speaking?**
+Each agent passes a short `session` name when it speaks, normally the repo it's
+working in, and Baton says that name before the summary. It's remembered per
+connection, so the agent only sends it once, and it can change the name later if it
+moves to a different area. Baton only says the name when the speaker changed, so one
+agent posting six updates in a row doesn't repeat itself. Lines from different agents
+never talk over each other, because Baton queues them and plays them in order. The
+name is also kept in Spoken Summaries, so you can see who said what after the fact.
+
 Yes, and it's one of the two big agent features. Through the `speak_summary` tool, an agent can
 have Baton say a short result aloud in a natural voice, so you hear "deploy finished, all
 green" instead of watching a screen. It's especially handy with several agents running at

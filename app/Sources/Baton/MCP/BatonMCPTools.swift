@@ -324,7 +324,7 @@ enum BatonMCPToolCatalog {
             case "music_start_radio": text = try await musicStartRadio(arguments, music)
             case "music_sleep_timer": text = musicSleepTimer(arguments, music)
             case "music_set_eq": text = musicSetEq(arguments, music)
-            case "speak_summary": text = try await BatonMCPSpeakTools.run(arguments, music)
+            case "speak_summary": text = try await BatonMCPSpeakTools.run(arguments, music, sessionID: sessionID)
             case "audio_suspend": text = audioSuspend(arguments, music, focus, sessionID: sessionID)
             case "audio_resume": text = try audioResume(arguments, music, focus)
             default:

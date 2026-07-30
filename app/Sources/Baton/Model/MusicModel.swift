@@ -47,6 +47,8 @@ final class MusicModel {
     let speech = SpeechPlaybackEngine()
     /// Bounded, persisted history of spoken summaries, so any past one can be replayed. (Speech)
     let speechHistory = SpeechHistoryStore()
+    /// Which agent is talking, per MCP connection — see SpeechSessionLabels.
+    let speechLabels = SpeechSessionLabels()
 
     /// True while the "Spoken Summaries" window is the key (focused) window — set by
     /// `SpeechHistoryView`. When it is, that window shows the player inline in its detail pane, so

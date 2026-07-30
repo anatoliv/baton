@@ -17,7 +17,7 @@
 
 ```
 Agent finishes a task
-   └─►  MCP tool  speak_summary(text, category?, voice?, engine?, mode?)     [Baton's MCP server]
+   └─►  MCP tool  speak_summary(text, category?, voice?, engine?, mode?, session?)     [Baton's MCP server]
           │  1. resolve category → engine + voice   (SpeechConfig)
           │  2. POST /v1/audio/speech               (SpeechService → TTS host)
           │  3. deliver per mode:
@@ -110,13 +110,15 @@ curl -s -X POST localhost:8004/v1/audio/speech -H 'Content-Type: application/jso
 | `voice` | | Explicit voice, overrides `category`. `"engine:voice"` (e.g. `kokoro:af_bella`, `chatterbox:Emily.wav`) or a bare id. |
 | `engine` | | `kokoro` (default, fast presets) or `chatterbox` (premium / cloned). |
 | `mode` | | `notify` (default — macOS notification + Play), `banner` (in-app banner + Play), `auto` (speak immediately). |
+| `session` | | Short name for the calling agent (e.g. a repo name, max 40 chars). Spoken before the summary **when the speaker changed**, so several agents running at once are distinguishable. **Sticky per MCP connection**: send it on the first call and later calls inherit it; send a new value to re-label from then on. Recorded in speech history. Excluded from the `maxSummaryChars` budget. |
 
 Example:
 ```json
 {"name":"speak_summary","arguments":{
   "text":"Deploy finished — all checks green.",
   "category":"deploy",
-  "mode":"notify"
+  "mode":"notify",
+  "session":"global-services"
 }}
 ```
 
