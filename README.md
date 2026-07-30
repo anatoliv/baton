@@ -45,8 +45,14 @@ With Homebrew:
 
 ```sh
 brew tap anatoliv/baton https://github.com/anatoliv/baton
+brew trust anatoliv/baton          # Homebrew 6+ requires this for third-party taps
 brew install --cask baton
 ```
+
+The `brew trust` step is not optional on Homebrew 6 and later: without it the install stops with
+*"Refusing to load cask … from untrusted tap"*. If you already have Baton in `/Applications`
+from a DMG, add `--force` to let the cask take it over (`brew install --cask --force baton`) —
+otherwise Homebrew refuses rather than overwrite an app it didn't install.
 
 Or download the DMG from [baton.tonebox.io](https://baton.tonebox.io), or build from source.
 

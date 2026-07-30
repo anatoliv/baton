@@ -210,11 +210,29 @@ just unlikes and low-rates the track. See [Albums and artists](HELP.md#albums-an
 
 ## Updates and platform
 
+**How do I install Baton?**
+Either grab the DMG from [baton.tonebox.io](https://baton.tonebox.io), or use Homebrew:
+
+```sh
+brew tap anatoliv/baton https://github.com/anatoliv/baton
+brew trust anatoliv/baton
+brew install --cask baton
+```
+
+`brew trust` is required on Homebrew 6 and later for any third-party tap; without it the
+install refuses to load the cask. If Baton is already in `/Applications` from a DMG, add
+`--force` so the cask can take it over.
+
 **How do updates work?**
 Baton uses Sparkle (the standard macOS updater). There's a **Check for Updates** item in the
 app menu, and Baton checks its own feed and installs signed, notarized builds. Download the
 current release from [baton.tonebox.io](https://baton.tonebox.io); it updates itself from there
 on.
+
+If you installed with Homebrew, Sparkle still does the updating — the cask is marked
+`auto_updates`, so `brew upgrade` deliberately leaves Baton alone rather than fighting the
+in-app updater. `brew info --cask baton` will keep showing the version you installed until you
+re-run the cask; that's expected, not a stale install.
 
 **Where can I read more?**
 [HELP.md](HELP.md) covers how to use every part of Baton. The docs in [`docs/`](docs/) go into

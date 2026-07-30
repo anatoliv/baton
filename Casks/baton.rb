@@ -1,8 +1,12 @@
 cask "baton" do
-  version "0.8.2"
+  # "<short>,<build>": Baton's appcast carries both sparkle:shortVersionString
+  # and sparkle:version, and Homebrew's Sparkle livecheck strategy reports them
+  # as one comma value. Pinning only the short version makes `brew audit` fail
+  # with "differs from ... retrieved by livecheck" and breaks autobumping.
+  version "0.8.2,22"
   sha256 "2538312a87accf01668c53d2bd6abdf33a7f29fbeef649f0af2b5eaa45cc7d9d"
 
-  url "https://baton.tonebox.io/Baton-#{version}.dmg",
+  url "https://baton.tonebox.io/Baton-#{version.csv.first}.dmg",
       verified: "baton.tonebox.io/"
   name "Baton"
   desc "Music player for a Navidrome/Subsonic library, controllable by AI agents"
