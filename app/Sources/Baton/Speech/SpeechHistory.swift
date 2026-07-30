@@ -19,6 +19,9 @@ final class SpeechHistoryStore {
         let engine: String
         let category: String?
         let date: Date
+        /// Which agent/session spoke this, when one declared itself. Optional so
+        /// entries written before session labels existed still decode.
+        var sessionLabel: String?
     }
 
     private(set) var entries: [Entry] = []
@@ -36,8 +39,17 @@ final class SpeechHistoryStore {
     /// Record a spoken summary at the top of the history, trimming to `maxEntries`. Returns the new
     /// entry's id so callers can mark it as the now-playing summary.
     @discardableResult
-    func record(text: String, voice: String?, engine: String, category: String?) -> Entry.ID {
-        let entry = Entry(id: UUID(), text: text, voice: voice, engine: engine, category: category, date: Date())
+    func record(
+        text: String,
+        voice: String?,
+        engine: String,
+        category: String?,
+        sessionLabel: String? = nil
+    ) -> Entry.ID {
+        let entry = Entry(
+            id: UUID(), text: text, voice: voice, engine: engine,
+            category: category, date: Date(), sessionLabel: sessionLabel
+        )
         entries.insert(entry, at: 0)
         if entries.count > Self.maxEntries {
             entries.removeLast(entries.count - Self.maxEntries)

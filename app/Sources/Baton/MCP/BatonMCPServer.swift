@@ -333,6 +333,8 @@ final class BatonMCPServer {
     /// audio-focus handles via `handleStreamClosed`), and expire any focus handles it still holds.
     private func endSession(_ sessionID: String) {
         activeSessions.remove(sessionID)
+        // Session labels are per-connection state and die with it, same as focus handles.
+        music.speechLabels.forget(sessionID)
         for (key, sid) in streamSessions where sid == sessionID {
             streams[key]?.cancel()
         }
