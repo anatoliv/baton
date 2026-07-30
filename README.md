@@ -38,9 +38,20 @@ it at. Nothing else leaves your machine.
 
 ## Install
 
-Baton is a signed, notarized macOS app with Sparkle auto-update. Download the latest release
-from [baton.tonebox.io](https://baton.tonebox.io). It's free, signed, notarized, and updates
-itself from the **Check for Updates** menu item. Or build it from source.
+Baton is a signed, notarized macOS app with Sparkle auto-update. It's free, and updates itself
+from the **Check for Updates** menu item.
+
+With Homebrew:
+
+```sh
+brew tap anatoliv/baton https://github.com/anatoliv/baton
+brew install --cask baton
+```
+
+Or download the DMG from [baton.tonebox.io](https://baton.tonebox.io), or build from source.
+
+macOS 15 (Sequoia) or later, Apple Silicon. The cask is marked `auto_updates`, so Baton keeps
+itself current through Sparkle rather than through `brew upgrade`.
 
 ### Build from source
 
