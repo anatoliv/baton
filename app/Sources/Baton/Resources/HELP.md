@@ -681,7 +681,17 @@ The agent calls `speak_summary` with a few inputs:
   voice id).
 - **`engine`**: `kokoro` (fast preset voices, the default) or `chatterbox` (premium and
   cloned voices).
+- **`session`**: a short name for the agent itself, usually the repo it's working in.
+  Baton says it before the summary so you know who is talking. It's remembered for
+  the rest of that agent's connection, so the agent sends it once and later lines
+  inherit it, and it can send a new name later to re-label itself. Baton only says
+  the name when the speaker has **changed** since the last line, so a run of updates
+  from one agent isn't prefixed every time.
 - **`mode`**: how the line reaches you (see below).
+
+Two agents running at once will therefore sound like: "global-services. Env labels
+shipped." then "product-id. OCR queue drained." Lines never overlap either, because
+Baton queues them and plays them in order.
 
 ### One voice per agent (the voice map)
 

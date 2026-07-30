@@ -27,7 +27,13 @@ enum BatonMCPSpeakTools {
             summary to one or more surfaces (speak now, notification, banner); the returned \
             `delivered` list reflects what actually happened. If the self-hosted TTS server is \
             unreachable, Baton falls back to the built-in macOS voice (unless disabled in \
-            Settings). Keep summaries short.
+            Settings). Keep summaries short. \
+            When several agents run at once, pass `session` with a short name for THIS agent \
+            (e.g. the repo you're working in). Baton speaks it before the summary so the user \
+            knows who is talking, and remembers it for the rest of this MCP connection — send \
+            it on your first call and later calls inherit it. It is only spoken when the \
+            speaker changed since the last summary, so a run of updates from one agent isn't \
+            prefixed every time.
             """,
             "inputSchema": [
                 "type": "object",
@@ -37,6 +43,7 @@ enum BatonMCPSpeakTools {
                     "voice": ["type": "string", "description": "Explicit voice, overriding category. Either 'engine:voice' (e.g. 'kokoro:af_bella', 'chatterbox:Emily.wav') or a bare voice id."],
                     "engine": ["type": "string", "description": "'kokoro' (default, fast presets) or 'chatterbox' (premium / cloned voice)."],
                     "mode": ["type": "string", "description": "'notify' (default), 'banner', or 'auto'."],
+                    "session": ["type": "string", "description": "Short name for the calling agent/session (e.g. 'global-services'). Spoken before the summary when the speaker changes; sticky for this MCP connection. Max 40 chars."],
                 ],
                 "required": ["text"],
             ],
@@ -45,11 +52,21 @@ enum BatonMCPSpeakTools {
 
     // MARK: - Handler
 
-    static func run(_ args: [String: Any], _ music: MusicModel) async throws -> String {
+    static func run(
+        _ args: [String: Any],
+        _ music: MusicModel,
+        sessionID: String? = nil
+    ) async throws -> String {
         let text = try requireString(args, "text")
         guard text.count <= SpeechConfig.maxSummaryChars else {
             throw BatonMCPToolError(message: "Summary is too long (\(text.count) chars; max \(SpeechConfig.maxSummaryChars)). Keep it to a sentence or two.")
         }
+        // Declare-then-resolve: an explicit `session` updates this connection's
+        // label, otherwise we reuse whatever it declared earlier. Note the length
+        // check above ran on `text` alone — the spoken prefix is Baton's addition
+        // and must not count against the agent's summary budget.
+        music.speechLabels.declare(optionalString(args, "session"), forSession: sessionID)
+        let sessionLabel = music.speechLabels.label(forSession: sessionID)
         let category = optionalString(args, "category")
         let explicitVoice = optionalString(args, "voice")
         let engineOverride = optionalString(args, "engine")
@@ -76,14 +93,17 @@ enum BatonMCPSpeakTools {
 
         // Try the self-hosted server; if it's unreachable and fallback is on, speak the text
         // with the built-in macOS voice so a summary is never silently dropped.
+        // What actually gets synthesized: the summary, led by the session name when
+        // a different agent spoke last.
+        let spokenText = music.speechLabels.announce(text: text, label: sessionLabel)
         let utterance: SpeechPlaybackEngine.Utterance
         var engineUsed = voice.engine.rawValue
         do {
-            let audio = try await SpeechService.synthesize(text: text, voice: voice)
+            let audio = try await SpeechService.synthesize(text: spokenText, voice: voice)
             utterance = .file(try writeTemp(audio))
         } catch let error as SpeechService.SynthError {
             guard SpeechConfig.fallbackEnabled else { throw BatonMCPToolError(message: error.message) }
-            utterance = .native(text)
+            utterance = .native(spokenText)
             engineUsed = "system (fallback)"
             speechLog.notice("TTS host unreachable — using system voice fallback")
         } catch {
@@ -98,7 +118,8 @@ enum BatonMCPSpeakTools {
             text: text,
             voice: usedFallback ? nil : "\(voice.engine.rawValue):\(voice.voice)",
             engine: usedFallback ? "system" : voice.engine.rawValue,
-            category: category
+            category: category,
+            sessionLabel: sessionLabel
         )
 
         // Execute every surface the plan calls for — they compose, so a summary can be spoken
@@ -106,11 +127,11 @@ enum BatonMCPSpeakTools {
         var delivered: [String] = []
         var bannerShown = false
         if plan.speakNow {
-            music.speech.play(utterance, text: text)
+            music.speech.play(utterance, text: spokenText)
             delivered.append("speaking")
         }
         if plan.banner {
-            music.speech.presentBanner(text: text, utterance: utterance)
+            music.speech.presentBanner(text: spokenText, utterance: utterance)
             bannerShown = true
             delivered.append("banner_shown")
         }
