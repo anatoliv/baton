@@ -26,7 +26,7 @@ enum MusicMixCatalog {
             MusicMix(id: "mostPlayed", title: "Most Played", subtitle: "Your top tracks", icon: "flame.fill", color: .orange) {
                 model.musicHistory.topTracks(since: .distantPast).map(\.song)
             },
-            MusicMix(id: "recentlyAdded", title: "Fresh Additions", subtitle: "Newest in your library", icon: "sparkles", color: .green) {
+            MusicMix(id: "recentlyAdded", title: "Just Added", subtitle: "Newest in your library", icon: "sparkles", color: .green) {
                 await model.musicLibrary.mixSongs(type: "newest")
             },
             MusicMix(id: "topRated", title: "Top Rated", subtitle: "Your highest-rated", icon: "star.fill", color: .yellow) {
@@ -46,11 +46,79 @@ enum MusicMixCatalog {
         ]
     }
 
+    /// Playlists **generated on the server** rather than computed here — a nightly job, a
+    /// Navidrome smart playlist, anything that writes a real playlist on a schedule.
+    ///
+    /// These belong on the Mixes tab because they answer the same question the auto mixes
+    /// do ("give me something to put on"), and because a handful of generated lists are
+    /// invisible among hundreds of hand-sorted ones in the Playlists sidebar.
+    ///
+    /// They are kept as a separate group, not folded into `auto`, because the mechanism
+    /// genuinely differs: an auto mix is computed here on tap from local signals, while
+    /// these are *fetched* — the server used data Baton never sees (completion ratios,
+    /// skip events, its own tagging) to build them. Presenting a fetch as a computation
+    /// would misrepresent what the card does.
+    @MainActor static func server(_ model: MusicModel) -> [MusicMix] {
+        let palette: [Color] = [.indigo, .teal, .purple, .mint, .cyan, .brown]
+        return model.musicLibrary.playlists
+            .filter { isServerGenerated($0.name) }
+            .sorted { $0.name < $1.name }
+            .enumerated()
+            .map { index, playlist in
+                MusicMix(
+                    id: "server-\(playlist.id)",
+                    title: playlist.name,
+                    subtitle: "Generated on your server",
+                    icon: "sparkles.rectangle.stack",
+                    color: palette[index % palette.count]
+                ) {
+                    await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
+                }
+            }
+    }
+
+    /// Names that indicate a playlist is produced by a generator rather than curated by
+    /// hand. Deliberately a small, explicit list: guessing wrong pulls someone's carefully
+    /// built playlist out of the sidebar they expect to find it in.
+    static let serverGeneratedNames: Set<String> = [
+        "Daily Jams", "Daily Discovery", "Deep Cuts", "Fresh",
+        "Focus · Deep", "Focus · Momentum", "Focus · Lift",
+        "Favorites Radio", "Favorites Inbox",
+    ]
+
+    /// True when `name` looks generated. Matches the explicit set, plus anything under a
+    /// "Focus · " prefix so new focus contexts appear without a code change.
+    nonisolated static func isServerGenerated(_ name: String) -> Bool {
+        serverGeneratedNames.contains(name) || name.hasPrefix("Focus · ")
+    }
+
+    /// Genre names that carry no information. A YouTube-sourced library tags essentially
+    /// every file "Music" or "People & Blogs", which produced a "Daily Mix" card offering
+    /// the entire library under one meaningless heading. A genre that covers most of the
+    /// library isn't a genre, so those are dropped rather than shown as a choice.
+    static let uninformativeGenres: Set<String> = [
+        "music", "people & blogs", "entertainment", "unknown", "other", "misc",
+        "miscellaneous", "gaming", "education", "news & politics", "film & animation",
+    ]
+
+    /// Fraction of the library above which a single genre is treated as a non-distinction.
+    static let genreDominanceCeiling = 0.35
+
+    nonisolated static func isUsefulGenre(name: String, songCount: Int, librarySongCount: Int) -> Bool {
+        guard songCount > 0 else { return false }
+        if uninformativeGenres.contains(name.trimmingCharacters(in: .whitespaces).lowercased()) {
+            return false
+        }
+        guard librarySongCount > 0 else { return true }
+        return Double(songCount) / Double(librarySongCount) <= genreDominanceCeiling
+    }
+
     /// Per-genre "Daily Mix" cards — the user's top genres by song count.
     @MainActor static func genres(_ model: MusicModel) -> [MusicMix] {
         let palette: [Color] = [.purple, .teal, .indigo, .mint, .brown, .cyan, .orange, .pink]
+        let total = model.musicLibrary.genres.reduce(0) { $0 + ($1.songCount ?? 0) }
         return model.musicLibrary.genres
-            .filter { ($0.songCount ?? 0) > 0 }
+            .filter { isUsefulGenre(name: $0.name, songCount: $0.songCount ?? 0, librarySongCount: total) }
             .sorted { ($0.songCount ?? 0) > ($1.songCount ?? 0) }
             .prefix(12)
             .enumerated()

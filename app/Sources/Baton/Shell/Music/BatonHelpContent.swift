@@ -234,6 +234,30 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.9.6",
+            date: "2026",
+            highlight: "Playlists your server builds for you now have a home on the Mixes tab.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A \u{201C}From Your Server\u{201D} section on Mixes surfaces playlists that a "
+                        + "nightly job or smart-playlist rule generates for you, so they aren\u{2019}t "
+                        + "lost among hundreds of hand-made playlists in the sidebar."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Genre mixes no longer offer a card for tags that describe nothing. A "
+                        + "library where almost every file is tagged \u{201C}Music\u{201D} was showing that "
+                        + "as a genre \u{2014} which just offered you the whole library."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Renamed the built-in \u{201C}Fresh Additions\u{201D} mix to \u{201C}Just Added\u{201D}, so it "
+                        + "isn\u{2019}t confused with a server-generated playlist called \u{201C}Fresh\u{201D}."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.9.5",
             date: "2026",
             highlight: "Searching for a track with an accent or a stroked letter now finds it.",
