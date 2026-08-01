@@ -880,6 +880,7 @@ final class StreamingPlaybackController {
         }
     }
 
+
     /// Cycle repeat off → all → one → off. Persisted.
     func cycleRepeat() {
         repeatMode = switch repeatMode {
