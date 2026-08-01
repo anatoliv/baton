@@ -26,6 +26,12 @@ enum Crossfade {
     /// control. Long enough to remove the click of a hard cut, short enough to feel instant.
     static let manualSkipSeconds: Double = 0.32
 
+    /// A working estimate of how long an incoming stream takes to become audible, used to open
+    /// the pre-roll earlier than the audible blend. Deliberately a constant rather than a
+    /// measurement: it only needs to be the right order of magnitude, and a wrong estimate
+    /// degrades to a slightly early pre-roll rather than to a wrong-sounding transition.
+    static let assumedStreamLatency: Double = 1.5
+
     /// How long to wait for an incoming stream to become audible before giving up and hard-cutting.
     /// Navidrome transcodes on the fly (Baton requests `format=mp3`), so a cold start on a long
     /// Opus file can take seconds — but an unbounded wait would hang the transport.

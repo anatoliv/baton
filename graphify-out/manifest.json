@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785612298.1343381,
-    "ast_hash": "ee9207447ea591970927fef69f9e2401",
+    "mtime": 1785613836.5600493,
+    "ast_hash": "0060d918e660c51644960f6a338f4abb",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -85,9 +85,9 @@
     "semantic_hash": "2d9fd6ad0beae7196feb15514d503bbf"
   },
   "app/Sources/Baton/App/BatonMenuBarExtra.swift": {
-    "mtime": 1784706046.2024777,
-    "ast_hash": "218cef1b942573ffccee0d4539247aff",
-    "semantic_hash": "218cef1b942573ffccee0d4539247aff"
+    "mtime": 1785613674.1325405,
+    "ast_hash": "a1c3a2fa9082c9a678edbf483351b8ef",
+    "semantic_hash": ""
   },
   "app/Sources/Baton/App/LoginItem.swift": {
     "mtime": 1784534804.8418047,
@@ -165,13 +165,13 @@
     "semantic_hash": "2168db8ac8244479c3c7f1910f3933b9"
   },
   "app/Sources/Baton/Audio/StreamingPlaybackController.swift": {
-    "mtime": 1785610175.5668976,
-    "ast_hash": "9d302e3ad5eca225531ce101e2407385",
+    "mtime": 1785613674.1328146,
+    "ast_hash": "cbda8c3f1d9730e98d94bb2eda766b5d",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Audio/TransportTransitions.swift": {
-    "mtime": 1785610175.5670896,
-    "ast_hash": "4ef735718286f104fbe84a96599e8b9e",
+    "mtime": 1785613674.133296,
+    "ast_hash": "ff510bdb2ad66ebe13147dfca35b0b09",
     "semantic_hash": ""
   },
   "app/Sources/Baton/BatonApp.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785611885.7790694,
-    "ast_hash": "5d74fcd3466850ab21f704219fee0b07",
+    "mtime": 1785613674.133523,
+    "ast_hash": "90803e40fc1a9e66b7fde45e94940935",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1112,6 +1112,11 @@
   "app/Tests/BatonTests/WhatsNewFreshnessTests.swift": {
     "mtime": 1785611885.7793198,
     "ast_hash": "1157c996bc4a2c9bb157ff286a2974e3",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/SkipBlendTests.swift": {
+    "mtime": 1785613674.1338952,
+    "ast_hash": "f240e70d941d96e15c374cdde6c67a52",
     "semantic_hash": ""
   }
 }
