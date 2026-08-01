@@ -57,3 +57,44 @@ final class QueryEncodingTests: XCTestCase {
         XCTAssertFalse(s.contains("%2B"))
     }
 }
+
+/// `NavidromeClient.foldedForSearch` — the fix for the `øneheart` miss.
+///
+/// Navidrome indexes a normalised `full_text` column: the title `best of øneheart` is
+/// stored as `oneheart`. Sending the literal `øneheart` matched nothing, and the failure
+/// was silent — search simply returned zero rows. Confirmed against the live database:
+/// `full_text` reads " ambient best mix of oneheart unknown yt".
+final class SearchFoldingTests: XCTestCase {
+    func testStrokedODoesNotSurviveAsItself() {
+        // The reported bug. `ø` is a distinct letter, not `o` plus a combining stroke, so
+        // .diacriticInsensitive alone does not fold it — it needs the explicit map.
+        XCTAssertEqual(NavidromeClient.foldedForSearch("øneheart"), "oneheart")
+    }
+
+    func testComposedDiacriticsFold() {
+        XCTAssertEqual(NavidromeClient.foldedForSearch("Tiësto"), "Tiesto")
+        XCTAssertEqual(NavidromeClient.foldedForSearch("Amélie"), "Amelie")
+        XCTAssertEqual(NavidromeClient.foldedForSearch("Björk"), "Bjork")
+        XCTAssertEqual(NavidromeClient.foldedForSearch("Motörhead"), "Motorhead")
+    }
+
+    func testLigaturesAndOtherDistinctLettersExpand() {
+        XCTAssertEqual(NavidromeClient.foldedForSearch("æther"), "aether")
+        XCTAssertEqual(NavidromeClient.foldedForSearch("Straße"), "Strasse")
+        XCTAssertEqual(NavidromeClient.foldedForSearch("Þorn"), "THorn")
+    }
+
+    func testPlainASCIIIsUntouched() {
+        XCTAssertEqual(NavidromeClient.foldedForSearch("jazz"), "jazz")
+        XCTAssertEqual(NavidromeClient.foldedForSearch("Deep Focus Music"), "Deep Focus Music")
+    }
+
+    func testCaseIsPreservedSoTheServerDecidesSensitivity() {
+        XCTAssertEqual(NavidromeClient.foldedForSearch("ØNEHEART"), "ONEHEART")
+    }
+
+    func testFoldingIsIdempotent() {
+        let once = NavidromeClient.foldedForSearch("øneheart Tiësto")
+        XCTAssertEqual(NavidromeClient.foldedForSearch(once), once)
+    }
+}
