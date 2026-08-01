@@ -1084,7 +1084,7 @@ enum BatonMCPToolCatalog {
     /// A list-of-strings argument. Accepts a real JSON array, and also a single bare
     /// string so `song_ids: "abc"` isn't silently dropped. Empty/blank entries are
     /// discarded; an all-blank array reads as absent.
-    static func optionalStringArray(_ args: [String: Any], _ key: String) -> [String]? {
+    nonisolated static func optionalStringArray(_ args: [String: Any], _ key: String) -> [String]? {
         let raw: [String]
         if let array = args[key] as? [String] {
             raw = array

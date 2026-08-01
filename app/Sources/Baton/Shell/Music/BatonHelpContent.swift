@@ -234,6 +234,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.9.4",
+            date: "2026",
+            highlight: "Reliability work \u{2014} no new buttons, fewer ways for things to go wrong.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Hardened the assistant control surface against awkward libraries: "
+                        + "titles containing semicolons, plus signs or accented characters, "
+                        + "duplicate track names, and files with no duration."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.9.3",
             date: "2026",
             highlight: "Skipping a track now sounds like a transition instead of a cut.",

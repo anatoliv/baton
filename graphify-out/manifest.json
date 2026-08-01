@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785613836.5600493,
-    "ast_hash": "0060d918e660c51644960f6a338f4abb",
+    "mtime": 1785616606.0115128,
+    "ast_hash": "520039d793c3617b5cffb8945f4db1f2",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -270,8 +270,8 @@
     "semantic_hash": "773d32fd310cc1ab48c2ba52c01571e8"
   },
   "app/Sources/Baton/MCP/BatonMCPTools.swift": {
-    "mtime": 1785611885.7786095,
-    "ast_hash": "a08925555a36b71f4ae3553e7940946e",
+    "mtime": 1785616429.8822436,
+    "ast_hash": "a0204a02149e1f4c0c66d36487a94b28",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Model/InternetRadioStore.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785613674.133523,
-    "ast_hash": "90803e40fc1a9e66b7fde45e94940935",
+    "mtime": 1785616429.8824756,
+    "ast_hash": "fe9cf9965d90d29a9503b5d75aab52bb",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1117,6 +1117,11 @@
   "app/Tests/BatonTests/SkipBlendTests.swift": {
     "mtime": 1785613674.1338952,
     "ast_hash": "f240e70d941d96e15c374cdde6c67a52",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/MCPHostileLibraryTests.swift": {
+    "mtime": 1785616429.8826795,
+    "ast_hash": "af54edf5aa23a91d57388cd27890d20d",
     "semantic_hash": ""
   }
 }
