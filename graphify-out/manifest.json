@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785610347.1260161,
-    "ast_hash": "2992af1886df9805763986f0a2485f75",
+    "mtime": 1785612298.1343381,
+    "ast_hash": "ee9207447ea591970927fef69f9e2401",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -45,9 +45,9 @@
     "semantic_hash": "8a10d6e6194916033504351f56c82b50"
   },
   "Packages/BatonSubsonicModels/Sources/BatonSubsonicModels/SubsonicModels.swift": {
-    "mtime": 1784631076.0077543,
-    "ast_hash": "e27715062f2ff8faa1fc23e6c24c6e81",
-    "semantic_hash": "e27715062f2ff8faa1fc23e6c24c6e81"
+    "mtime": 1785611885.7782314,
+    "ast_hash": "caaeb93c89eb1cc4263c091e971f7955",
+    "semantic_hash": ""
   },
   "app/Assets.xcassets/AccentColor.colorset/Contents.json": {
     "mtime": 1784426949.3229084,
@@ -270,8 +270,8 @@
     "semantic_hash": "773d32fd310cc1ab48c2ba52c01571e8"
   },
   "app/Sources/Baton/MCP/BatonMCPTools.swift": {
-    "mtime": 1785610175.567309,
-    "ast_hash": "b2abb572b54d9d2597928e1e5f0009ba",
+    "mtime": 1785611885.7786095,
+    "ast_hash": "a08925555a36b71f4ae3553e7940946e",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Model/InternetRadioStore.swift": {
@@ -320,9 +320,9 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1784929920.004328,
-    "ast_hash": "5e8077ddcfd0403d4ddefe67967f00e3",
-    "semantic_hash": "5e8077ddcfd0403d4ddefe67967f00e3"
+    "mtime": 1785611885.7790694,
+    "ast_hash": "5d74fcd3466850ab21f704219fee0b07",
+    "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
     "mtime": 1784503612.4061677,
@@ -1045,9 +1045,9 @@
     "semantic_hash": "cff3c68e9ec7b05241c6c6b8c2222a45"
   },
   "scripts/check-release.sh": {
-    "mtime": 1785378143.6555858,
-    "ast_hash": "15923997e80b0c2fa53dd7d8b5732e5f",
-    "semantic_hash": "15923997e80b0c2fa53dd7d8b5732e5f"
+    "mtime": 1785611885.7796564,
+    "ast_hash": "cbff945a01fbcd109f568da8bff3006d",
+    "semantic_hash": ""
   },
   "scripts/devrun.sh": {
     "mtime": 1784406746.8567088,
@@ -1102,6 +1102,16 @@
   "app/Tests/BatonTests/CrossfadeReadinessTests.swift": {
     "mtime": 1785610175.567459,
     "ast_hash": "6e4fb2ac9a0bd05fcaab831a4432b5ee",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/MCPSchemaSnapshotTests.swift": {
+    "mtime": 1785611885.779209,
+    "ast_hash": "ee5c63de1108f9f219a136e9f1599ab8",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/WhatsNewFreshnessTests.swift": {
+    "mtime": 1785611885.7793198,
+    "ast_hash": "1157c996bc4a2c9bb157ff286a2974e3",
     "semantic_hash": ""
   }
 }

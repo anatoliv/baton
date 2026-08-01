@@ -472,7 +472,17 @@ enum BatonMCPToolCatalog {
         var songs: [NavidromeSong] = []
         var missing: [String] = []
         for id in ids {
-            if let song = try? await client.getSong(id: id) { songs.append(song) } else { missing.append(id) }
+            do {
+                songs.append(try await client.getSong(id: id))
+            } catch let error as NavidromeError where error.isNotFound {
+                // Genuinely absent — report the id.
+                missing.append(id)
+            } catch {
+                // A transport/auth failure is NOT a missing track. Swallowing it here would
+                // report every id as "no song with id …" during an outage, sending the caller
+                // to fix ids that are perfectly correct.
+                throw musicError(error)
+            }
         }
         guard missing.isEmpty else {
             throw BatonMCPToolError(message: "No song with id \(missing.joined(separator: ", ")).")

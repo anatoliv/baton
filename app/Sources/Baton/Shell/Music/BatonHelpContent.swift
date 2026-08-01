@@ -227,7 +227,92 @@ extension HelpTour {
 
 extension HelpWhatsNewRelease {
     /// Release notes shown in the What's New panel, newest first.
+    ///
+    /// This list rots silently — it sat at 0.8.1 while 0.9.1 shipped, so three releases of
+    /// user-visible change never reached the one surface built to announce them. Nothing
+    /// enforced it. `WhatsNewFreshnessTests` now fails when the newest entry falls behind
+    /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
+        HelpWhatsNewRelease(
+            version: "0.9.2",
+            date: "2026",
+            highlight: "These release notes are back up to date \u{2014} and can\u{2019}t quietly fall behind again.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "What\u{2019}s New now covers the releases it had silently skipped, and a "
+                        + "release can no longer be published without its entry."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "When the music server is unreachable, playing specific tracks now "
+                        + "reports the connection problem instead of claiming the tracks don\u{2019}t exist."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.9.1",
+            date: "2026",
+            highlight: "Tracks now join smoothly even when the next one is still loading.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Crossfade no longer fades into silence. The outgoing track now holds "
+                        + "its volume until the next one is actually audible, which matters when "
+                        + "your server transcodes on the fly and a track takes a moment to start."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "An assistant connected over MCP can set the crossfade length, so you "
+                        + "can just ask for longer or shorter transitions."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.9.0",
+            date: "2026",
+            highlight: "An assistant driving Baton can now be precise about what it plays \u{2014} "
+                + "and tell you honestly when it couldn\u{2019}t do what you asked.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Building a mix no longer quietly ignores the genre or mood you asked "
+                        + "for. If nothing in your library matches, it now says so instead of "
+                        + "returning your liked songs as though they were the mix."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "An assistant can read a playlist back, so it can check what it just "
+                        + "built instead of hoping."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Playlists and playback can be addressed by exact track, so adding "
+                        + "\u{201C}that one song\u{201D} no longer sweeps in every similar title."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Searches containing a semicolon or a plus sign no longer fail or "
+                        + "silently look for the wrong thing."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.8.2",
+            date: "2026",
+            highlight: "Baton is now installable with Homebrew.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Install and update with \u{201C}brew install --cask baton\u{201D}."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "When an assistant speaks a summary, it now says which assistant is "
+                        + "speaking."
+                ),
+            ]
+        ),
         HelpWhatsNewRelease(
             version: "0.8.1",
             date: "2026",
