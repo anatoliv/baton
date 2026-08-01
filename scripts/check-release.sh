@@ -84,9 +84,23 @@ if [ -f "$APPCAST" ]; then
     [ "$AC_BUILD" = "$BUILD" ] || fail "appcast build '${AC_BUILD:-missing}' != '$BUILD'"
 fi
 
+# --- What's New ---------------------------------------------------------------
+# The panel is a version-pinned surface like any other, and it rots the same way:
+# it sat at 0.8.1 while 0.9.1 shipped — three releases of user-visible change that
+# never reached the one screen built to announce them. WhatsNewFreshnessTests catches
+# drift in CI; this makes it impossible to *publish* a release without its entry.
+WHATSNEW="app/Sources/Baton/Shell/Music/BatonHelpContent.swift"
+if [ -f "$WHATSNEW" ]; then
+    if ! grep -q "version: \"$VERSION\"" "$WHATSNEW"; then
+        fail "What's New has no entry for $VERSION.
+       Add one to HelpWhatsNewRelease.all in $WHATSNEW —
+       users see this panel, and shipping without it means the release is silent."
+    fi
+fi
+
 if [ "$FAILED" -ne 0 ]; then
     printf '\033[31m✗ release gate failed — fix the above before publishing.\033[0m\n' >&2
     exit 1
 fi
 printf '\033[32m✓ release gate ok: %s (build %s)\033[0m\n' "$VERSION" "$BUILD"
-echo "    cask + landing page + appcast + install docs all match this release"
+echo "    cask + landing page + appcast + What's New + install docs all match this release"

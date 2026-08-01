@@ -512,6 +512,20 @@ public enum NavidromeError: Error, LocalizedError, Equatable, Sendable {
     /// The response body didn't decode as a Subsonic JSON envelope.
     case decoding(String)
 
+    /// True when the server specifically said the item does not exist — Subsonic error 70
+    /// ("the requested data was not found"), or a plain HTTP 404.
+    ///
+    /// Worth distinguishing from every other failure: a caller looking up items by id wants
+    /// to report *which ids are wrong*, and treating a transport or auth failure the same way
+    /// would blame perfectly correct ids during an outage.
+    public var isNotFound: Bool {
+        switch self {
+        case let .subsonic(code, _): code == 70
+        case let .http(status): status == 404
+        default: false
+        }
+    }
+
     public var errorDescription: String? {
         switch self {
         case .notConfigured:
