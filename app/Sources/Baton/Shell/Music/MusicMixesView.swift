@@ -8,6 +8,7 @@ struct MusicMixesView: View {
     @Environment(MusicModel.self) private var model
 
     private var mixes: [MusicMix] { MusicMixCatalog.auto(model) }
+    private var serverMixes: [MusicMix] { MusicMixCatalog.server(model) }
     private var genreMixes: [MusicMix] { MusicMixCatalog.genres(model) }
 
     var body: some View {
@@ -26,6 +27,19 @@ struct MusicMixesView: View {
                     ForEach(mixes) { MusicMixCard(mix: $0) }
                 }
                 .padding(16)
+                // Server-generated lists sit above Genres: they are the ones built from
+                // signals this app can't see, and they change on their own schedule.
+                if !serverMixes.isEmpty {
+                    HStack {
+                        Text("From Your Server").font(.headline)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 14)], spacing: 14) {
+                        ForEach(serverMixes) { MusicMixCard(mix: $0) }
+                    }
+                    .padding(16)
+                }
                 if !genreMixes.isEmpty {
                     HStack {
                         Text("Genres").font(.headline)
@@ -42,6 +56,7 @@ struct MusicMixesView: View {
         .task {
             if model.musicLibrary.starred.songs.isEmpty { await model.musicLibrary.loadStarred() }
             if model.musicLibrary.genres.isEmpty { await model.musicLibrary.loadGenres() }
+            if model.musicLibrary.playlists.isEmpty { await model.musicLibrary.loadPlaylists() }
         }
     }
 }
