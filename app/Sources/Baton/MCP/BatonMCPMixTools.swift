@@ -61,17 +61,21 @@ enum BatonMCPMixTools {
         let seed = MixBuilder.Seed(artist: seedArtist, genre: seedGenre, keywords: parsed.keywords)
 
         let client = try musicClient()
-        let candidates = try await gatherCandidates(
+        let pool = try await gatherCandidates(
             prompt: prompt, seed: seed, limit: limit, client: client
         )
-        guard !candidates.isEmpty else {
+        guard !pool.songs.isEmpty else {
             throw BatonMCPToolError(message: "Couldn't find any songs to build a mix from. Try a broader prompt or a different seed.")
         }
 
-        let chosen = MixBuilder.buildMix(candidates: candidates, targetSeconds: targetSeconds, seed: seed)
+        let chosen = MixBuilder.buildMix(candidates: pool.songs, targetSeconds: targetSeconds, seed: seed)
         guard !chosen.isEmpty else {
             throw BatonMCPToolError(message: "No songs matched the seed for this mix.")
         }
+
+        // Be honest about a request that was only partly honoured. Silently falling back to
+        // liked songs produces a confident-looking mix with no relationship to the prompt.
+        let warnings = mixWarnings(pool: pool, seed: seed, prompt: prompt)
 
         let totalSeconds = chosen.reduce(0) { $0 + ($1.duration ?? 0) }
         let totalMinutes = Int((Double(totalSeconds) / 60.0).rounded())
@@ -89,7 +93,7 @@ enum BatonMCPMixTools {
                 playlist = try await client.createPlaylist(name: name, songIDs: chosen.map(\.id))
                 await music.musicLibrary.loadPlaylists()
             } catch { throw musicError(error) }
-            return jsonText([
+            var payload: [String: Any] = [
                 "action": "playlist",
                 "playlist_name": playlist.name,
                 "playlist_id": playlist.id,
@@ -97,11 +101,14 @@ enum BatonMCPMixTools {
                 "total_minutes": totalMinutes,
                 "target_minutes": targetMinutes,
                 "tracklist": tracklist,
-            ])
+                "candidate_sources": pool.sourceCounts,
+            ]
+            if !warnings.isEmpty { payload["warnings"] = warnings }
+            return jsonText(payload)
         case "queue":
             let label = mixName(seed: seed, minutes: targetMinutes)
             music.music.play(chosen, source: .init(label: label, kind: .radio, id: nil))
-            return jsonText([
+            var payload: [String: Any] = [
                 "action": "queue",
                 "mix": label,
                 "track_count": chosen.count,
@@ -109,7 +116,10 @@ enum BatonMCPMixTools {
                 "target_minutes": targetMinutes,
                 "now_playing": BatonMCPToolCatalog.songJSON(chosen[0]),
                 "tracklist": tracklist,
-            ])
+                "candidate_sources": pool.sourceCounts,
+            ]
+            if !warnings.isEmpty { payload["warnings"] = warnings }
+            return jsonText(payload)
         default:
             throw BatonMCPToolError(message: "Unknown action \"\(action)\" — use 'queue' or 'playlist'.")
         }
@@ -120,40 +130,97 @@ enum BatonMCPMixTools {
     /// Pull a candidate pool from every signal the seed/prompt gives us: an explicit
     /// genre, similar-songs off a seed artist, the free-text prompt search, and the
     /// user's liked songs. De-duplicated by id, capped at `limit`.
+    /// Where a candidate pool actually came from. Tracked per-source because the pool is
+    /// assembled from several fallbacks: when the specific signals (genre, artist, prompt)
+    /// all miss, the pool collapses to liked songs and the mix silently stops resembling
+    /// what was asked for. Callers use these counts to say so out loud.
+    struct CandidatePool {
+        var songs: [NavidromeSong] = []
+        var genreMatches = 0
+        var artistMatches = 0
+        var promptMatches = 0
+        var likedMatches = 0
+
+        /// True when nothing but liked songs made it in — i.e. the request was, in effect, ignored.
+        var collapsedToLiked: Bool {
+            genreMatches == 0 && artistMatches == 0 && promptMatches == 0 && likedMatches > 0
+        }
+
+        /// Per-source contribution, echoed to the caller so a collapsed pool is visible
+        /// in the response rather than inferred from a suspicious tracklist.
+        var sourceCounts: [String: Int] {
+            ["genre": genreMatches, "artist": artistMatches, "prompt": promptMatches, "liked": likedMatches]
+        }
+    }
+
     private static func gatherCandidates(
         prompt: String,
         seed: MixBuilder.Seed,
         limit: Int,
         client: NavidromeClient
-    ) async throws -> [NavidromeSong] {
-        var pool: [NavidromeSong] = []
+    ) async throws -> CandidatePool {
+        var pool = CandidatePool()
         var seen = Set<String>()
-        func add(_ songs: [NavidromeSong]) {
+        @discardableResult
+        func add(_ songs: [NavidromeSong]) -> Int {
+            var added = 0
             for song in songs where song.duration != nil && seen.insert(song.id).inserted {
-                pool.append(song)
+                pool.songs.append(song)
+                added += 1
             }
+            return added
         }
 
         do {
             if let genre = seed.genre {
-                add(try await client.getSongsByGenre(genre, count: min(limit, 120)))
+                pool.genreMatches = add(try await client.getSongsByGenre(genre, count: min(limit, 120)))
             }
             if let artist = seed.artist {
                 // Seed similar songs off the artist's top search hit.
+                var artistAdded = 0
                 if let hit = try await client.search3(query: artist, songCount: 1).songs.first {
-                    add(try await client.getSimilarSongs(id: hit.id, count: 60))
+                    artistAdded += add(try await client.getSimilarSongs(id: hit.id, count: 60))
                 }
-                add(try await client.search3(query: artist, songCount: 60).songs)
+                artistAdded += add(try await client.search3(query: artist, songCount: 60).songs)
+                pool.artistMatches = artistAdded
             }
             // Always fold in a prompt search + liked songs so the pool is never too thin.
-            add(try await client.search3(query: prompt, songCount: min(limit, 60)).songs)
-            add(try await client.getStarred2().songs)
+            // Try the whole prompt first, then its distinctive individual words — a long
+            // descriptive prompt matches no metadata at all. Stop at the first probe that
+            // finds something, so weak single-word hits don't dilute a good match.
+            var promptAdded = 0
+            for probe in MixBuilder.searchProbes(for: prompt) {
+                promptAdded = add(try await client.search3(query: probe, songCount: min(limit, 60)).songs)
+                if promptAdded > 0 { break }
+            }
+            pool.promptMatches = promptAdded
+            pool.likedMatches = add(try await client.getStarred2().songs)
         } catch {
             // If we already gathered something, work with it; otherwise surface the error.
-            if pool.isEmpty { throw musicError(error) }
+            if pool.songs.isEmpty { throw musicError(error) }
         }
 
-        return Array(pool.prefix(limit))
+        pool.songs = Array(pool.songs.prefix(limit))
+        return pool
+    }
+
+    /// Human-readable notes about signals that contributed nothing. Pure, so it can be
+    /// unit-tested without a server (matches the `exactPlaylistToDelete` convention).
+    nonisolated static func mixWarnings(pool: CandidatePool, seed: MixBuilder.Seed, prompt: String) -> [String] {
+        var warnings: [String] = []
+        if let genre = seed.genre, pool.genreMatches == 0 {
+            warnings.append("No tracks are tagged with the genre \"\(genre)\" on this server, so the genre seed was ignored. Check the library's genre tags.")
+        }
+        if let artist = seed.artist, pool.artistMatches == 0 {
+            warnings.append("Nothing matched the seed artist \"\(artist)\", so it was ignored.")
+        }
+        if pool.promptMatches == 0 {
+            warnings.append("The prompt text matched no track, album or artist names. Subsonic search matches metadata, not mood — a long descriptive prompt usually matches nothing.")
+        }
+        if pool.collapsedToLiked {
+            warnings.append("Every specific signal missed, so this mix was built only from your liked songs and does NOT reflect the prompt.")
+        }
+        return warnings
     }
 
     private static func mixName(seed: MixBuilder.Seed, minutes: Int) -> String {
@@ -253,6 +320,27 @@ enum MixBuilder {
             .filter { $0.count >= 3 && !stopwords.contains($0) && Int($0) == nil }
 
         return ParsedPrompt(minutes: minutes, genre: genre, keywords: keywords)
+    }
+
+    /// Ordered search probes for a free-text prompt.
+    ///
+    /// `search3` matches *metadata* with AND-ish semantics, so a descriptive prompt
+    /// ("calm instrumental ambient for concentration") matches nothing at all — which is
+    /// how the candidate pool ends up collapsing to liked songs. Fall back to the
+    /// individual distinctive words, longest first: a long word is likelier to be a real
+    /// title token ("psychill", "progressive") than a short one. Pure + deterministic.
+    static func searchProbes(for prompt: String, limit: Int = 4) -> [String] {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        var probes = [trimmed]
+        var seen: Set<String> = [trimmed.lowercased()]
+        let ranked = parsePrompt(prompt).keywords
+            .reduce(into: [String]()) { acc, word in if !acc.contains(word) { acc.append(word) } }
+            .sorted { $0.count == $1.count ? $0 < $1 : $0.count > $1.count }
+        for word in ranked where probes.count < limit + 1 {
+            if seen.insert(word).inserted { probes.append(word) }
+        }
+        return probes
     }
 
     private static let stopwords: Set<String> = [

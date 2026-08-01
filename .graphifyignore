@@ -1,0 +1,52 @@
+# .graphifyignore — copy into a project root for AST-ONLY, privacy-safe graphs.
+# gitignore syntax. A root .graphifyignore OVERRIDES the .gitignore fallback,
+# so sensitive/data excludes are re-declared here on purpose. REVIEW per project.
+
+# --- secrets & local data (NEVER send to any extractor) ---
+.env
+.env.*
+*.env
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+**/data/
+**/secrets/
+**/*secret*
+**/*credential*
+
+# --- heavy / irrelevant trees ---
+node_modules/
+.git/
+.venv/
+venv/
+__pycache__/
+.next/
+dist/
+build/
+coverage/
+.turbo/
+graphify-out/
+graphify-out-*/
+
+# --- docs / images / media (the SEMANTIC-pass inputs) ---
+# Keep these excluded for AST-only (no LLM, no egress). Remove a line only if you
+# intend to run a paid/semantic build and want that file type in the graph.
+*.md
+*.mdx
+*.markdown
+*.rst
+*.txt
+*.qmd
+*.html
+*.yaml
+*.yml
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+*.ttf

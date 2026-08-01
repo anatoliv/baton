@@ -1,0 +1,6 @@
+{
+  "started": "2026-08-01T15:31:37Z",
+  "start_commit": "3782d4b6cf684c66f3101056602b542d7e4ebb0d",
+  "graph_nodes": 4568,
+  "note": "Queries logged after 'started' = organic use. Report: python3 /Users/anatoli/Projects/_graphify/bin/savings.py"
+}
