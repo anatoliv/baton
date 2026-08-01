@@ -162,6 +162,40 @@ struct NavidromeClient {
         return (response.openSubsonicExtensions ?? []).map(\.name)
     }
 
+    /// Fold a search term the way Navidrome folds the text it indexes.
+    ///
+    /// Navidrome writes a normalised `full_text` column and matches against that, so a
+    /// title stored as `best of øneheart` is indexed as `oneheart`. Sending the literal
+    /// `øneheart` therefore matches **nothing** — the search silently fails on exactly the
+    /// characters a user is most likely to copy from a track name.
+    ///
+    /// `.diacriticInsensitive` covers composed forms (ë→e, é→e, ö→o) but not letters that
+    /// are distinct in their own right, so those need an explicit map: `ø` does not
+    /// decompose to `o` + a combining stroke.
+    static func foldedForSearch(_ term: String) -> String {
+        let mapped = term.reduce(into: "") { out, ch in
+            switch ch {
+            case "ø": out += "o"
+            case "Ø": out += "O"
+            case "æ": out += "ae"
+            case "Æ": out += "AE"
+            case "œ": out += "oe"
+            case "Œ": out += "OE"
+            case "ð": out += "d"
+            case "Ð": out += "D"
+            case "þ": out += "th"
+            case "Þ": out += "TH"
+            case "ł": out += "l"
+            case "Ł": out += "L"
+            case "đ": out += "d"
+            case "Đ": out += "D"
+            case "ß": out += "ss"
+            default: out.append(ch)
+            }
+        }
+        return mapped.folding(options: [.diacriticInsensitive], locale: Locale(identifier: "en_US"))
+    }
+
     /// `search3` — auto-complete-style search across artists, albums, songs.
     func search3(
         query: String,
@@ -170,7 +204,7 @@ struct NavidromeClient {
         artistCount: Int = 10
     ) async throws -> NavidromeSearchResults {
         let response = try await performJSON("search3.view", query: [
-            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "query", value: Self.foldedForSearch(query)),
             URLQueryItem(name: "songCount", value: String(songCount)),
             URLQueryItem(name: "albumCount", value: String(albumCount)),
             URLQueryItem(name: "artistCount", value: String(artistCount)),
