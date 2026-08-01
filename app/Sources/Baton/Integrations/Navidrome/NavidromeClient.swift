@@ -103,6 +103,17 @@ struct NavidromeClient {
             throw NavidromeError.invalidURL
         }
         components.queryItems = baseQueryItems(json: json) + query
+        // `URLComponents` percent-encodes `&` and `=` in values but leaves `;` and `+`
+        // alone, because both are legal in a query component per RFC 3986. Servers
+        // disagree: Go's `url.ParseQuery` (Navidrome) rejects a bare `;` outright with
+        // "invalid semicolon separator in query", and `+` decodes as a space. A song
+        // title containing either — "rock; roll", "a+b" — therefore breaks the request
+        // or silently searches for the wrong string. Encode them ourselves.
+        if let encoded = components.percentEncodedQuery {
+            components.percentEncodedQuery = encoded
+                .replacingOccurrences(of: ";", with: "%3B")
+                .replacingOccurrences(of: "+", with: "%2B")
+        }
         guard let url = components.url else { throw NavidromeError.invalidURL }
         return url
     }

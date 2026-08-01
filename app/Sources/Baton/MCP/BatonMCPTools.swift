@@ -30,21 +30,23 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_play",
-                "Search the music library for `query` and immediately start playing the matching songs on this Mac, replacing the current queue. Use for requests like 'play some jazz' or 'play Kind of Blue'.",
+                "Immediately start playing songs on this Mac, replacing the current queue. Give `song_ids` to play an exact, ordered set, or `query` to play whatever matches a search ('play some jazz', 'play Kind of Blue').",
                 properties: [
-                    "query": ["type": "string", "description": "What to play — artist, album, song, or vibe keyword."],
-                    "limit": ["type": "integer", "description": "Max songs to queue (default 25, max 100)."],
+                    "query": ["type": "string", "description": "What to play — artist, album, song, or vibe keyword. Provide this or `song_ids`."],
+                    "song_ids": ["type": "array", "items": ["type": "string"], "description": "Exact song ids to play, in order. Takes precedence over `query`."],
+                    "limit": ["type": "integer", "description": "Max songs to queue when using `query` (default 25, max 100)."],
                 ],
-                required: ["query"]
+                required: []
             ),
             tool(
                 "music_queue_add",
-                "Search the music library for `query` and append the matching songs to the end of the current play queue (without interrupting what's playing).",
+                "Append songs to the end of the current play queue without interrupting what's playing. Give `song_ids` for an exact, ordered set, or `query` to append search matches.",
                 properties: [
-                    "query": ["type": "string", "description": "What to add to the queue."],
-                    "limit": ["type": "integer", "description": "Max songs to add (default 25, max 100)."],
+                    "query": ["type": "string", "description": "What to add to the queue. Provide this or `song_ids`."],
+                    "song_ids": ["type": "array", "items": ["type": "string"], "description": "Exact song ids to append, in order. Takes precedence over `query`."],
+                    "limit": ["type": "integer", "description": "Max songs to add when using `query` (default 25, max 100)."],
                 ],
-                required: ["query"]
+                required: []
             ),
             tool("music_pause", "Pause music playback.", properties: [:], required: []),
             tool("music_resume", "Resume paused music playback.", properties: [:], required: []),
@@ -69,6 +71,15 @@ enum BatonMCPToolCatalog {
                 "music_list_playlists",
                 "List the playlists on the connected Navidrome server.",
                 properties: [:],
+                required: []
+            ),
+            tool(
+                "music_get_playlist",
+                "Read one playlist's ordered tracks (by name or id), including each song's id, title, artist, duration, rating and like state. Use this to verify what a playlist actually contains — `music_list_playlists` returns only names and counts.",
+                properties: [
+                    "name": ["type": "string", "description": "Playlist name (case-insensitive). Provide this or `playlist_id`."],
+                    "playlist_id": ["type": "string", "description": "Exact playlist id. Provide this or `name`."],
+                ],
                 required: []
             ),
             tool(
@@ -100,22 +111,24 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_create_playlist",
-                "Create a new playlist, optionally seeded with songs matching a query.",
+                "Create a new playlist, optionally seeded with songs matching a query or with exact song ids.",
                 properties: [
                     "name": ["type": "string", "description": "Playlist name."],
                     "query": ["type": "string", "description": "Optional — add the songs matching this search to the new playlist."],
+                    "song_ids": ["type": "array", "items": ["type": "string"], "description": "Exact song ids to add. Precise alternative to `query`; takes precedence when both are given."],
                 ],
                 required: ["name"]
             ),
             tool(
                 "music_add_to_playlist",
-                "Add the songs matching a query to an existing playlist (by name or id).",
+                "Add songs to an existing playlist (by name or id). Prefer `song_ids` when you know exactly which tracks you want — `query` appends every search match, which can silently add tracks you did not intend.",
                 properties: [
                     "name": ["type": "string", "description": "Playlist name (case-insensitive). Provide this or `playlist_id`."],
                     "playlist_id": ["type": "string", "description": "Exact playlist id. Provide this or `name`."],
-                    "query": ["type": "string", "description": "Songs to add — the search matches are appended."],
+                    "query": ["type": "string", "description": "Songs to add — every search match is appended. Provide this or `song_ids`."],
+                    "song_ids": ["type": "array", "items": ["type": "string"], "description": "Exact song ids to add, in order. Takes precedence over `query`."],
                 ],
-                required: ["query"]
+                required: []
             ),
             tool(
                 "music_delete_playlist",
@@ -250,7 +263,8 @@ enum BatonMCPToolCatalog {
     }
 
     private static let readOnlyTools: Set<String> = [
-        "music_search", "music_now_playing", "music_list_playlists", "music_get_queue",
+        "music_search", "music_now_playing", "music_list_playlists", "music_get_playlist",
+        "music_get_queue",
     ]
 
     /// All music tools reach the Navidrome server; the audio-focus tools are local.
@@ -258,6 +272,7 @@ enum BatonMCPToolCatalog {
         "music_search", "music_play", "music_queue_add", "music_pause",
         "music_resume", "music_stop", "music_next", "music_previous",
         "music_set_volume", "music_now_playing", "music_list_playlists",
+        "music_get_playlist",
         "music_play_playlist", "music_like", "music_rate",
         "music_create_playlist", "music_add_to_playlist", "music_delete_playlist",
         "music_build_mix",
@@ -307,6 +322,7 @@ enum BatonMCPToolCatalog {
             case "music_set_volume": text = try musicSetVolume(arguments, music)
             case "music_now_playing": text = musicNowPlaying(music)
             case "music_list_playlists": text = try await musicListPlaylists()
+            case "music_get_playlist": text = try await musicGetPlaylist(arguments)
             case "music_play_playlist": text = try await musicPlayPlaylist(arguments, music)
             case "music_like": text = try await musicLike(arguments, music)
             case "music_rate": text = try await musicRate(arguments, music)
@@ -440,35 +456,67 @@ enum BatonMCPToolCatalog {
         }
     }
 
+    /// Fetches songs by exact id, preserving the caller's order. Ids that don't resolve
+    /// are reported rather than skipped — a partially-played selection the caller thinks
+    /// is complete is the same class of bug as a silently-dropped mix seed.
+    private static func songsByID(_ ids: [String], client: NavidromeClient) async throws -> [NavidromeSong] {
+        var songs: [NavidromeSong] = []
+        var missing: [String] = []
+        for id in ids {
+            if let song = try? await client.getSong(id: id) { songs.append(song) } else { missing.append(id) }
+        }
+        guard missing.isEmpty else {
+            throw BatonMCPToolError(message: "No song with id \(missing.joined(separator: ", ")).")
+        }
+        return songs
+    }
+
     private static func musicPlay(_ args: [String: Any], _ music: MusicModel) async throws -> String {
-        let query = try requireString(args, "query")
+        let explicitIDs = optionalStringArray(args, "song_ids") ?? []
+        let query = optionalString(args, "query")
+        guard !explicitIDs.isEmpty || query != nil else {
+            throw BatonMCPToolError(message: "Provide `song_ids` (preferred) or `query`.")
+        }
         let limit = min(max(optionalInt(args, "limit") ?? 25, 1), 100)
         let client = try musicClient()
         let songs: [NavidromeSong]
         do {
-            songs = try await resolvePlayQueue(query: query, client: client, songCount: limit)
+            songs = explicitIDs.isEmpty
+                ? try await resolvePlayQueue(query: query!, client: client, songCount: limit)
+                : try await songsByID(explicitIDs, client: client)
+        } catch let error as BatonMCPToolError {
+            throw error
         } catch {
             throw musicError(error)
         }
         guard !songs.isEmpty else {
-            throw BatonMCPToolError(message: "No songs matched \"\(query)\".")
+            throw BatonMCPToolError(message: "No songs matched \"\(query ?? "")\".")
         }
-        music.music.play(songs, source: .init(label: query, kind: .search, id: nil))
+        let label = query ?? "\(songs.count) selected track\(songs.count == 1 ? "" : "s")"
+        music.music.play(songs, source: .init(label: label, kind: .search, id: nil))
         return jsonText(["playing": songJSON(songs[0]), "queued": songs.count])
     }
 
     private static func musicQueueAdd(_ args: [String: Any], _ music: MusicModel) async throws -> String {
-        let query = try requireString(args, "query")
+        let explicitIDs = optionalStringArray(args, "song_ids") ?? []
+        let query = optionalString(args, "query")
+        guard !explicitIDs.isEmpty || query != nil else {
+            throw BatonMCPToolError(message: "Provide `song_ids` (preferred) or `query`.")
+        }
         let limit = min(max(optionalInt(args, "limit") ?? 25, 1), 100)
         let client = try musicClient()
         let songs: [NavidromeSong]
         do {
-            songs = try await client.search3(query: query, songCount: limit).songs
+            songs = explicitIDs.isEmpty
+                ? try await client.search3(query: query!, songCount: limit).songs
+                : try await songsByID(explicitIDs, client: client)
+        } catch let error as BatonMCPToolError {
+            throw error
         } catch {
             throw musicError(error)
         }
         guard !songs.isEmpty else {
-            throw BatonMCPToolError(message: "No songs matched \"\(query)\".")
+            throw BatonMCPToolError(message: "No songs matched \"\(query ?? "")\".")
         }
         music.music.enqueue(songs)
         return jsonText([
@@ -615,12 +663,32 @@ enum BatonMCPToolCatalog {
         return rating == 0 ? "Cleared the rating on \(song.displayLine)." : "Rated \(song.displayLine) \(rating)★."
     }
 
+    /// Reads back one playlist's ordered tracks. `music_list_playlists` only reports
+    /// names and counts, which left an agent unable to verify what it had just built —
+    /// or to inspect a playlist before adding to it.
+    private static func musicGetPlaylist(_ args: [String: Any]) async throws -> String {
+        let client = try musicClient()
+        do {
+            let id = try await resolvePlaylistID(args, client: client)
+            let playlist = try await client.getPlaylist(id: id)
+            return jsonText([
+                "playlist": playlist.name,
+                "id": playlist.id,
+                "song_count": playlist.songs.count,
+                "duration_seconds": playlist.songs.reduce(0) { $0 + ($1.duration ?? 0) },
+                "songs": playlist.songs.map(songJSON),
+            ])
+        } catch { throw musicError(error) }
+    }
+
     private static func musicCreatePlaylist(_ args: [String: Any], _ music: MusicModel) async throws -> String {
         let name = try requireString(args, "name")
         let client = try musicClient()
         do {
             var songIDs: [String] = []
-            if let query = optionalString(args, "query") {
+            if let ids = optionalStringArray(args, "song_ids"), !ids.isEmpty {
+                songIDs = ids
+            } else if let query = optionalString(args, "query") {
                 songIDs = try await client.search3(query: query, songCount: 50).songs.map(\.id)
             }
             let playlist = try await client.createPlaylist(name: name, songIDs: songIDs)
@@ -629,16 +697,37 @@ enum BatonMCPToolCatalog {
         } catch { throw musicError(error) }
     }
 
+    /// Appends songs to a playlist. `song_ids` is the precise path and wins over
+    /// `query`; a query appends *every* match, which is how an agent can silently add
+    /// tracks it never inspected. The response echoes the resolved titles for exactly
+    /// that reason — the caller should be able to see what it just did.
     private static func musicAddToPlaylist(_ args: [String: Any], _ music: MusicModel) async throws -> String {
-        let query = try requireString(args, "query")
+        let explicitIDs = optionalStringArray(args, "song_ids") ?? []
+        let query = optionalString(args, "query")
+        guard !explicitIDs.isEmpty || query != nil else {
+            throw BatonMCPToolError(message: "Provide `song_ids` (preferred) or `query`.")
+        }
         let client = try musicClient()
         do {
             let id = try await resolvePlaylistID(args, client: client)
-            let songIDs = try await client.search3(query: query, songCount: 50).songs.map(\.id)
-            guard !songIDs.isEmpty else { throw BatonMCPToolError(message: "No songs matched \"\(query)\".") }
+            let matched: [NavidromeSong]
+            if explicitIDs.isEmpty {
+                matched = try await client.search3(query: query!, songCount: 50).songs
+                guard !matched.isEmpty else {
+                    throw BatonMCPToolError(message: "No songs matched \"\(query!)\".")
+                }
+            } else {
+                matched = []
+            }
+            let songIDs = explicitIDs.isEmpty ? matched.map(\.id) : explicitIDs
             try await client.updatePlaylist(id: id, songIDsToAdd: songIDs)
             await music.musicLibrary.loadPlaylists()
-            return "Added \(songIDs.count) song\(songIDs.count == 1 ? "" : "s") to the playlist."
+            var payload: [String: Any] = [
+                "added": songIDs.count,
+                "by": explicitIDs.isEmpty ? "query" : "song_ids",
+            ]
+            if !matched.isEmpty { payload["titles"] = matched.map { $0.title } }
+            return jsonText(payload)
         } catch { throw musicError(error) }
     }
 
@@ -945,6 +1034,24 @@ enum BatonMCPToolCatalog {
         if let n = args[key] as? NSNumber { return n.intValue }
         if let s = args[key] as? String { return Int(s) }
         return nil
+    }
+
+    /// A list-of-strings argument. Accepts a real JSON array, and also a single bare
+    /// string so `song_ids: "abc"` isn't silently dropped. Empty/blank entries are
+    /// discarded; an all-blank array reads as absent.
+    static func optionalStringArray(_ args: [String: Any], _ key: String) -> [String]? {
+        let raw: [String]
+        if let array = args[key] as? [String] {
+            raw = array
+        } else if let array = args[key] as? [Any] {
+            raw = array.compactMap { $0 as? String }
+        } else if let single = args[key] as? String {
+            raw = [single]
+        } else {
+            return nil
+        }
+        let cleaned = raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return cleaned.isEmpty ? nil : cleaned
     }
 
     static func jsonText(_ object: [String: Any]) -> String {
