@@ -4,7 +4,7 @@ cask "baton" do
   # as one comma value. Pinning only the short version makes `brew audit` fail
   # with "differs from ... retrieved by livecheck" and breaks autobumping.
   version "0.9.0,23"
-  sha256 "77ff2deb6964444098845ebcbd0dced8f8336c44200e4a4021273d7886fa09c6"
+  sha256 "593459f95da641a324ab32c9c92be42275eb7914f5bc42a29a2d8139c368d57d"
 
   url "https://baton.tonebox.io/Baton-#{version.csv.first}.dmg",
       verified: "baton.tonebox.io/"
