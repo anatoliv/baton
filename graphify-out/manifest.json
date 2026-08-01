@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785618862.4024878,
-    "ast_hash": "d594f107db18ce6661dd0fb29f0aa077",
+    "mtime": 1785628476.6307778,
+    "ast_hash": "1bedd77e6845304bf75e6281cf26484d",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785618697.8504863,
-    "ast_hash": "51665e01f10ca22c142ca187c84339c2",
+    "mtime": 1785627933.2858434,
+    "ast_hash": "be0af2237e38282eee9fa147cb9de627",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -445,14 +445,14 @@
     "semantic_hash": "ce9a42bd01b21ca5cc73a16a7bd90684"
   },
   "app/Sources/Baton/Shell/Music/MusicMix.swift": {
-    "mtime": 1784706046.2101033,
-    "ast_hash": "57217a9928fd1523e63fdec2acd3585c",
-    "semantic_hash": "57217a9928fd1523e63fdec2acd3585c"
+    "mtime": 1785627933.2860415,
+    "ast_hash": "df6bf46d00dec933382954df8155905d",
+    "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/MusicMixesView.swift": {
-    "mtime": 1784405780.9399192,
-    "ast_hash": "2ee9638b1d52d46fa4c85dbb57db7a66",
-    "semantic_hash": "2ee9638b1d52d46fa4c85dbb57db7a66"
+    "mtime": 1785627933.2862146,
+    "ast_hash": "106f964265608f4dfa52096fdb077ee1",
+    "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/MusicMultiSelect.swift": {
     "mtime": 1784405780.9401312,
@@ -990,9 +990,9 @@
     "semantic_hash": "41a0dd59139eaac49f75bdd017a305da"
   },
   "app/Tests/BatonTests/StreamingPlaybackControllerTests.swift": {
-    "mtime": 1784643234.3063593,
-    "ast_hash": "60165e02db199c9b4616bc57733dd5ba",
-    "semantic_hash": "60165e02db199c9b4616bc57733dd5ba"
+    "mtime": 1785628056.0578713,
+    "ast_hash": "e5e0cde50e005861237adf84ab3890f1",
+    "semantic_hash": ""
   },
   "app/Tests/BatonTests/SymbolCatalogTests.swift": {
     "mtime": 1784754344.3374162,
@@ -1122,6 +1122,11 @@
   "app/Tests/BatonTests/MCPHostileLibraryTests.swift": {
     "mtime": 1785616429.8826795,
     "ast_hash": "af54edf5aa23a91d57388cd27890d20d",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/MixCatalogTests.swift": {
+    "mtime": 1785627933.2863278,
+    "ast_hash": "2f2bbcfc4f97a935b009a46f697fee39",
     "semantic_hash": ""
   }
 }

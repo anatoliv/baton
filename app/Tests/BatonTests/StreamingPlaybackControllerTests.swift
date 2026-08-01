@@ -429,8 +429,15 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(c.state, .idle, "track did not finish")
 
         // Press play — must actually restart (currentTime advances), not stall on an empty player.
+        //
+        // The deadline is generous on purpose. This drives a real AVPlayer against wall-clock
+        // time, so the assertion is about *whether* playback resumed, not how fast the machine
+        // scheduled it. At 3s it failed intermittently under load — during `publish.sh`, which
+        // builds Release while running the suite — and a release gate that fails at random
+        // teaches you to ignore it. Waiting longer costs nothing when the code is correct,
+        // because the loop exits as soon as the threshold is met.
         c.resume()
-        let progressed = Date().addingTimeInterval(3)
+        let progressed = Date().addingTimeInterval(12)
         while c.currentTime < 0.15, Date() < progressed { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         XCTAssertEqual(c.state, .playing)
         XCTAssertGreaterThan(c.currentTime, 0.1, "resume after end did not restart playback")
