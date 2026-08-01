@@ -73,6 +73,9 @@ enum BatonMenuBarText {
 
 struct BatonMenuBarContent: View {
     let model: MusicModel
+    /// Deep-links the Help window straight to the What's New panel (same key the Help
+    /// menu uses), so the menu bar can reach it with no window open.
+    @AppStorage("baton.help.requestedTopic") private var helpTopic = ""
     /// Lets the now-playing header open the full-screen player (raises the intent `MusicView` consumes).
     let router: BatonCommandRouter
 
@@ -166,6 +169,15 @@ struct BatonMenuBarContent: View {
             SparkleUpdater.shared.checkForUpdates()
         }
         .disabled(!UpdateChannel.isConfiguredFromBundle)
+        // Sits next to Check for Updates deliberately: after Sparkle installs a new build,
+        // "what actually changed?" is the immediate next question, and the menu bar is where
+        // you already are. Previously the panel was only reachable from the Help menu, which
+        // means only from a window — so with every window closed it was invisible.
+        Button("What's New…") {
+            helpTopic = BatonHelpView.whatsNewID
+            openWindow(id: BatonHelpView.windowID)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         Button("About Baton") {
             openWindow(id: BatonApp.aboutWindowID)
             NSApp.activate(ignoringOtherApps: true)
