@@ -870,6 +870,10 @@ final class StreamingPlaybackController {
         let wasPlaying = state == .playing
         switch Self.onManualNext(current: currentIndex, count: queue.count, repeatMode: repeatMode) {
         case let .play(idx):
+            // Blend the audio, but only when already playing — a skip while paused has
+            // nothing to fade from. The transport still advances synchronously inside
+            // `beginSkipBlend`, so observers never see a stale track.
+            if wasPlaying, beginSkipBlend(to: idx) { return }
             currentIndex = idx
             loadCurrent(autoplay: wasPlaying)
             persistQueue()
@@ -878,6 +882,53 @@ final class StreamingPlaybackController {
         case .stop:
             stop()
         }
+    }
+
+    /// Advance to `index` immediately, then blend the audio across
+    /// `Crossfade.manualSkipSeconds` instead of cutting.
+    ///
+    /// Order matters: every observable property moves *first*, so `nowPlaying`, the UI and
+    /// `music_next` are correct the moment the call returns. Only the audio lags, by a third
+    /// of a second, under the cover of the fade. The ramp holds the outgoing track at full
+    /// volume until the incoming stream is audible, so this never fades into silence.
+    ///
+    /// Returns false when no blend can be set up (no stream URL, a podcast, or a fade already
+    /// running), leaving the caller to do the ordinary hard-cut load.
+    @discardableResult
+    private func beginSkipBlend(to index: Int) -> Bool {
+        guard queue.indices.contains(index), !isCrossfading,
+              nowPlaying?.isPodcastEpisode != true,
+              let url = try? streamURLProvider(queue[index].id) else { return false }
+
+        let outgoing = player
+        let startOut = outgoing.volume
+        let item = AVPlayerItem(asset: AVURLAsset(url: url))
+        configureAudioMix?(item)
+        let targetIn = Float(volumePercent) / 100
+            * Self.normalizationGain(for: queue[index], mode: loudnessMode, preampDB: loudnessPreampDB)
+
+        isCrossfading = true
+        didHandleEnd = true // the outgoing track is being abandoned, not completed
+
+        // The synchronous advance — before the ramp starts, so nothing can observe a stale index.
+        currentIndex = index
+        currentTime = 0
+        duration = Double(queue[index].duration ?? 0)
+        scrobbledCurrent = false
+        notifyTrackStarted(queue[index])
+        pushNowPlaying()
+        persistQueue()
+
+        crossfadeRamp.begin(
+            item: item, targetIn: targetIn, isMuted: isMuted,
+            outgoing: outgoing, startOut: startOut,
+            duration: Crossfade.manualSkipSeconds, steps: 12
+        ) { [weak self] promoted in
+            self?.finishCrossfade(
+                to: index, promoted: promoted, retiring: outgoing, alreadyAdvanced: true
+            )
+        }
+        return true
     }
 
 
@@ -1540,7 +1591,15 @@ final class StreamingPlaybackController {
     private func maybeStartCrossfade() {
         // A real crossfade window, or neither (classic hard cut / true-gapless handoff).
         // Gapless no longer blends here — the AVQueuePlayer auto-advances the audio itself.
-        let window = crossfadeSeconds
+        // Open the window EARLIER than the audible blend by roughly the time an incoming
+        // stream takes to become audible. The ramp now waits for readiness before fading,
+        // and waiting inside the window would eat it — the blend would finish late, or get
+        // truncated by the outgoing track actually ending.
+        let window = Crossfade.preRollWindow(
+            window: crossfadeSeconds,
+            expectedLatency: Crossfade.assumedStreamLatency,
+            duration: duration
+        )
         guard state == .playing, !isCrossfading,
               Crossfade.inWindow(currentTime: currentTime, duration: duration, window: window) else { return }
         // Never crossfade a podcast (spoken word) — and crossfading suppresses the outgoing
@@ -1581,7 +1640,17 @@ final class StreamingPlaybackController {
 
     /// Retire the outgoing player, promote the crossfade player to `player`, and advance
     /// the queue — the "hard cut" that happens under the cover of the completed fade.
-    private func finishCrossfade(to nextIndex: Int, promoted: AVQueuePlayer, retiring: AVQueuePlayer) {
+    /// - Parameter alreadyAdvanced: true when the caller advanced the queue *before* the fade
+    ///   started (a manual skip). The transport must move the instant you press skip — deferring
+    ///   it until the ramp completes would make `music_next` and the UI report the previous track
+    ///   for the length of the blend. In that case this only swaps the players; the queue
+    ///   bookkeeping and `notifyTrackStarted` already happened and must not fire twice.
+    private func finishCrossfade(
+        to nextIndex: Int,
+        promoted: AVQueuePlayer,
+        retiring: AVQueuePlayer,
+        alreadyAdvanced: Bool = false
+    ) {
         guard isCrossfading, crossfadeRamp.player === promoted, queue.indices.contains(nextIndex) else { return }
         retiring.pause()
         detachPlayerObservers()
@@ -1593,19 +1662,23 @@ final class StreamingPlaybackController {
         gaplessPreload = nil
         crossfadeRamp.clearAfterPromotion() // release the ramp's ref without pausing the now-main player
         isCrossfading = false
-        currentIndex = nextIndex
-        currentTime = 0
-        duration = Double(queue[nextIndex].duration ?? 0)
         didHandleEnd = false
-        scrobbledCurrent = false
+        if !alreadyAdvanced {
+            currentIndex = nextIndex
+            currentTime = 0
+            duration = Double(queue[nextIndex].duration ?? 0)
+            scrobbledCurrent = false
+        }
         attachPlayerObservers()
         if let item = promoted.currentItem { attachItemObservers(item) }
         fadeMultiplier = 1
         applyVolume()
         state = .playing
-        notifyTrackStarted(queue[nextIndex])
-        pushNowPlaying()
-        persistQueue()
+        if !alreadyAdvanced {
+            notifyTrackStarted(queue[nextIndex])
+            pushNowPlaying()
+            persistQueue()
+        }
         extendQueueIfNeeded()
 
         if let item = promoted.currentItem {

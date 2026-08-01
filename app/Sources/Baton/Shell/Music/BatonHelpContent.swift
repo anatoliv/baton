@@ -234,6 +234,29 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.9.3",
+            date: "2026",
+            highlight: "Skipping a track now sounds like a transition instead of a cut.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Pressing Next or Previous blends briefly into the new track rather "
+                        + "than cutting. The track you skipped to appears immediately \u{2014} only "
+                        + "the sound crossfades."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Crossfade starts preparing the next track earlier, so the fade is the "
+                        + "length you set even when a track takes a moment to load."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "What\u{2019}s New is now in the menu bar, next to Check for Updates \u{2014} "
+                        + "so you can see what changed without opening a window."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.9.2",
             date: "2026",
             highlight: "These release notes are back up to date \u{2014} and can\u{2019}t quietly fall behind again.",
