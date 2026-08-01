@@ -220,6 +220,14 @@ enum BatonMCPToolCatalog {
                 ],
                 required: []
             ),
+            tool(
+                "music_set_crossfade",
+                "Set the crossfade between tracks, in seconds (0 turns it off, max 12). Crossfade and gapless are mutually exclusive — enabling crossfade suppresses gapless. This affects transitions at the END of a track; a manual skip always uses its own short blend.",
+                properties: [
+                    "seconds": ["type": "number", "description": "0 to disable, or roughly 1–12 seconds of overlap. Values under 0.5 count as off."],
+                ],
+                required: ["seconds"]
+            ),
             BatonMCPMixTools.definition(),
             tool(
                 "audio_suspend",
@@ -278,7 +286,7 @@ enum BatonMCPToolCatalog {
         "music_build_mix",
         "music_seek", "music_set_repeat", "music_set_shuffle", "music_get_queue",
         "music_reorder_queue", "music_remove_from_queue", "music_play_next",
-        "music_start_radio", "music_sleep_timer", "music_set_eq",
+        "music_start_radio", "music_sleep_timer", "music_set_eq", "music_set_crossfade",
         "speak_summary",
     ]
 
@@ -340,6 +348,7 @@ enum BatonMCPToolCatalog {
             case "music_start_radio": text = try await musicStartRadio(arguments, music)
             case "music_sleep_timer": text = musicSleepTimer(arguments, music)
             case "music_set_eq": text = musicSetEq(arguments, music)
+            case "music_set_crossfade": text = musicSetCrossfade(arguments, music)
             case "speak_summary": text = try await BatonMCPSpeakTools.run(arguments, music, sessionID: sessionID)
             case "audio_suspend": text = audioSuspend(arguments, music, focus, sessionID: sessionID)
             case "audio_resume": text = try audioResume(arguments, music, focus)
@@ -952,6 +961,32 @@ enum BatonMCPToolCatalog {
             out["minutes"] = minutes ?? 0
         }
         return jsonText(out)
+    }
+
+    /// Crossfade is a persisted playback preference, previously reachable only from Settings
+    /// or the Audio menu — so an agent could not adjust how tracks join. Mirrors `music_set_eq`.
+    private static func musicSetCrossfade(_ args: [String: Any], _ music: MusicModel) -> String {
+        guard let raw = optionalDouble(args, "seconds") else {
+            return jsonText(["error": "seconds must be a number"])
+        }
+        let seconds = min(max(raw, 0), 12)
+        let player = music.music
+        player.crossfadeSeconds = seconds < 0.5 ? 0 : seconds
+        return jsonText([
+            "crossfade_seconds": player.crossfadeSeconds,
+            "enabled": player.crossfadeSeconds >= 0.5,
+            "note": player.crossfadeSeconds >= 0.5
+                ? "Gapless is suppressed while crossfade is on — the two are mutually exclusive."
+                : "Crossfade off. Manual skips still use a short blend.",
+        ])
+    }
+
+    private static func optionalDouble(_ args: [String: Any], _ key: String) -> Double? {
+        if let d = args[key] as? Double { return d }
+        if let n = args[key] as? NSNumber { return n.doubleValue }
+        if let i = args[key] as? Int { return Double(i) }
+        if let s = args[key] as? String { return Double(s) }
+        return nil
     }
 
     private static func musicSetEq(_ args: [String: Any], _ music: MusicModel) -> String {

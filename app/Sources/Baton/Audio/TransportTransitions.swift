@@ -20,6 +20,57 @@ enum Crossfade {
         let t = Float(i) / Float(steps)
         return (startOut * (1 - t), targetIn * t)
     }
+
+    /// How long a manual skip takes to blend. Deliberately *not* `crossfadeSeconds`: a skip is a
+    /// request for the next track **now**, and a multi-second overlap reads as an unresponsive
+    /// control. Long enough to remove the click of a hard cut, short enough to feel instant.
+    static let manualSkipSeconds: Double = 0.32
+
+    /// How long to wait for an incoming stream to become audible before giving up and hard-cutting.
+    /// Navidrome transcodes on the fly (Baton requests `format=mp3`), so a cold start on a long
+    /// Opus file can take seconds — but an unbounded wait would hang the transport.
+    static let readinessTimeout: Double = 5.0
+
+    /// What to do at each poll while waiting for the incoming stream.
+    enum Readiness: Equatable {
+        /// Audio is confirmed flowing — begin the blend.
+        case ready
+        /// Not audible yet and there is still budget — hold the outgoing track at full volume.
+        case wait
+        /// Out of budget. Hard-cut rather than fade into silence or hang forever.
+        case timedOut
+    }
+
+    /// Decide whether the incoming stream is genuinely audible.
+    ///
+    /// `readyToPlay` alone is **not** sufficient: `AVPlayerItem` reports it once the asset is
+    /// understood, which can precede any decoded audio. The honest proof is that the incoming
+    /// player's clock has actually advanced past where it started — that only happens when
+    /// samples are being rendered.
+    ///
+    /// This is why the original ramp could fade into silence: it called `play()` and immediately
+    /// started a wall-clock gain ramp, assuming audio began the instant `play()` returned.
+    static func readiness(
+        isReadyToPlay: Bool,
+        likelyToKeepUp: Bool,
+        elapsedTime: Double,
+        waited: Double,
+        timeout: Double = readinessTimeout
+    ) -> Readiness {
+        if isReadyToPlay, likelyToKeepUp, elapsedTime > 0 { return .ready }
+        return waited >= timeout ? .timedOut : .wait
+    }
+
+    /// When to begin *pre-rolling* the incoming stream, ahead of the audible blend.
+    ///
+    /// Waiting for readiness inside the crossfade window would eat the window and truncate the
+    /// blend against the end of the track. Starting `expectedLatency` earlier means the incoming
+    /// stream is already warm by the time the blend should begin. Clamped so a slow-latency
+    /// estimate can't start the pre-roll before the track has meaningfully played.
+    static func preRollWindow(window: Double, expectedLatency: Double, duration: Double) -> Double {
+        guard window > 0 else { return 0 }
+        return min(window + max(0, expectedLatency), max(window, duration * 0.5))
+    }
 }
 
 /// The pure decisions behind the **gapless** next-track preload, factored out of the controller
