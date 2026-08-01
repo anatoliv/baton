@@ -33,6 +33,7 @@ final class CrossfadeRamp {
         startOut: Float,
         duration seconds: Double,
         steps: Int = 24,
+        readinessTimeout: Double = Crossfade.readinessTimeout,
         onComplete: @escaping @MainActor (AVQueuePlayer) -> Void
     ) {
         let next = AVQueuePlayer(playerItem: item)
@@ -41,6 +42,33 @@ final class CrossfadeRamp {
         next.play()
         player = next
         task = Task { @MainActor [weak self] in
+            // Hold the outgoing track at FULL volume until the incoming stream is genuinely
+            // audible. Ramping straight from `play()` fades into silence whenever the incoming
+            // stream is still buffering — which on a transcoding server is most of the time for
+            // a cold start. The outgoing track keeps playing; only the blend is deferred.
+            let pollSeconds = 0.05
+            var waited = 0.0
+            while true {
+                guard let self, self.player === next else { return }
+                let state = Crossfade.readiness(
+                    isReadyToPlay: item.status == .readyToPlay,
+                    likelyToKeepUp: item.isPlaybackLikelyToKeepUp,
+                    elapsedTime: next.currentTime().seconds,
+                    waited: waited,
+                    timeout: readinessTimeout
+                )
+                if state == .ready { break }
+                if state == .timedOut {
+                    // Never hang and never fade to silence: promote immediately, which is
+                    // exactly the hard cut this code did before the gate existed.
+                    outgoing.volume = 0
+                    next.volume = targetIn
+                    onComplete(next)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(pollSeconds))
+                waited += pollSeconds
+            }
             for i in 1 ... steps {
                 // Bail if this ramp was cancelled/superseded (player no longer ours).
                 guard let self, self.player === next else { return }
