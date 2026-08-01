@@ -234,6 +234,20 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.9.5",
+            date: "2026",
+            highlight: "Searching for a track with an accent or a stroked letter now finds it.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Searches containing characters like \u{00F8}, \u{00E9} or \u{00F6} returned nothing, "
+                        + "because the server indexes a plain-letter version of every title. "
+                        + "Baton now matches the way the server actually stores text, so "
+                        + "\u{201C}\u{00F8}neheart\u{201D} or \u{201C}Ti\u{00EB}sto\u{201D} find their tracks."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.9.4",
             date: "2026",
             highlight: "Reliability work \u{2014} no new buttons, fewer ways for things to go wrong.",

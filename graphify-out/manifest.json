@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785616606.0115128,
-    "ast_hash": "520039d793c3617b5cffb8945f4db1f2",
+    "mtime": 1785618862.4024878,
+    "ast_hash": "d594f107db18ce6661dd0fb29f0aa077",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -205,8 +205,8 @@
     "semantic_hash": "7f69d2c0a3b662a36d5e6c5a7c8de539"
   },
   "app/Sources/Baton/Integrations/Navidrome/NavidromeClient.swift": {
-    "mtime": 1785599884.5250216,
-    "ast_hash": "26fc98125c591c332995b09251eabfee",
+    "mtime": 1785618697.849989,
+    "ast_hash": "b5665d2ec0277b015fe51831ced645b7",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Integrations/Navidrome/NavidromeConfig.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785616429.8824756,
-    "ast_hash": "fe9cf9965d90d29a9503b5d75aab52bb",
+    "mtime": 1785618697.8504863,
+    "ast_hash": "51665e01f10ca22c142ca187c84339c2",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1090,8 +1090,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/QueryEncodingTests.swift": {
-    "mtime": 1785599884.5266216,
-    "ast_hash": "b741f3d9940bb556bb82502987b40229",
+    "mtime": 1785618697.851295,
+    "ast_hash": "316dab87e08af0d239726464ecb33656",
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/SearchProbeTests.swift": {
