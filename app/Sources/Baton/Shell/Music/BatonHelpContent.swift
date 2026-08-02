@@ -234,6 +234,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.9.7",
+            date: "2026",
+            highlight: "Mix cards now show the artwork of the music inside them.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Each mix card uses cover art from its own tracks \u{2014} a 2\u{00D7}2 mosaic "
+                        + "where there is enough, a single blurred cover where there isn\u{2019}t \u{2014} "
+                        + "so a mix looks like what it actually contains, and changes as it does."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.9.6",
             date: "2026",
             highlight: "Playlists your server builds for you now have a home on the Mixes tab.",

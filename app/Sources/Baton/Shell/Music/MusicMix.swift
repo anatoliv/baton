@@ -283,14 +283,30 @@ struct MusicMixCard: View {
     let mix: MusicMix
     @State private var loading = false
     @State private var hovering = false
+    @State private var covers: [URL] = []
 
     var body: some View {
         NavigationLink(value: mix) {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                     LinearGradient(colors: [mix.color, mix.color.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    // The artwork of the tracks actually in this mix, behind the gradient.
+                    // The right picture for a mix is the music in it: it needs no licensing,
+                    // costs nothing, and stays honest as the contents change — a generated
+                    // image would look the same on the day the mix is nothing like it was.
+                    MixArtworkMosaic(covers: covers)
+                        .allowsHitTesting(false)
+                    // Keep the gradient legible over photography, and keep contrast for the
+                    // title and play button regardless of how bright the covers are.
+                    LinearGradient(
+                        colors: [mix.color.opacity(0.72), mix.color.opacity(0.42), .black.opacity(0.35)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    .blendMode(.multiply)
+                    .allowsHitTesting(false)
                     Image(systemName: mix.icon)
                         .font(.system(size: 34, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
+                        .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
                         .padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     // The play button plays directly without opening the detail page.
                     Button(action: play) {
@@ -313,6 +329,7 @@ struct MusicMixCard: View {
                 .padding(10)
             }
             .background(.ultraThinMaterial)
+            .task(id: mix.id) { await loadCovers() }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)))
             .hoverLift(hovering, scale: 1.02)
@@ -334,5 +351,72 @@ struct MusicMixCard: View {
             }
             model.music.play(songs, source: .init(label: mix.title, kind: .radio, id: nil))
         }
+    }
+}
+
+// MARK: - Mix artwork
+
+extension MusicMixCard {
+    /// Fetch a few cover URLs for the card's backdrop.
+    ///
+    /// Runs the mix's own `songs` closure, so the artwork is genuinely of the tracks the
+    /// card will play. Failures are silent by design: the gradient underneath is a complete
+    /// card on its own, and a mix backdrop is never worth an error state.
+    func loadCovers() async {
+        guard covers.isEmpty else { return }
+        let songs = await mix.songs()
+        var seen = Set<String>()
+        var urls: [URL] = []
+        for song in songs {
+            guard let art = song.coverArtID, seen.insert(art).inserted,
+                  let url = model.musicLibrary.coverArtURL(id: art, size: 160) else { continue }
+            urls.append(url)
+            if urls.count == MixArtworkMosaic.tileCount { break }
+        }
+        covers = urls
+    }
+}
+
+/// The cover-art backdrop for a mix card.
+///
+/// One cover reads as an album rather than a mix, so a single image is shown blurred and
+/// filling the card instead of as a thumbnail. Four or more tile into a 2×2 grid, which is
+/// the familiar visual language for "a collection". Two or three fall back to the blurred
+/// treatment rather than leaving a hole in the grid.
+struct MixArtworkMosaic: View {
+    static let tileCount = 4
+    let covers: [URL]
+
+    var body: some View {
+        GeometryReader { geo in
+            if covers.count >= Self.tileCount {
+                let side = geo.size.width / 2
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        tile(covers[0], side: side, height: geo.size.height / 2)
+                        tile(covers[1], side: side, height: geo.size.height / 2)
+                    }
+                    HStack(spacing: 0) {
+                        tile(covers[2], side: side, height: geo.size.height / 2)
+                        tile(covers[3], side: side, height: geo.size.height / 2)
+                    }
+                }
+            } else if let first = covers.first {
+                tile(first, side: geo.size.width, height: geo.size.height)
+                    .blur(radius: 8)
+                    .scaleEffect(1.25)   // hide the soft edge the blur leaves
+            }
+        }
+        .clipped()
+    }
+
+    private func tile(_ url: URL, side: CGFloat, height: CGFloat) -> some View {
+        AsyncImage(url: url) { image in
+            image.resizable().scaledToFill()
+        } placeholder: {
+            Color.clear
+        }
+        .frame(width: side, height: height)
+        .clipped()
     }
 }
