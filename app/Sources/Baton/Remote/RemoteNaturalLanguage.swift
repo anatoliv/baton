@@ -42,7 +42,14 @@ enum RemoteNaturalLanguage {
     - Vibe requests ("something mellow", "focus music") are music_play with the \
     vibe as the query, unless the person asks for a mix of a particular length — \
     then use music_build_mix.
-    - "more like this" / "keep this going" is music_start_radio.
+    - Playing, queueing and playing-next are three different tools, and the \
+    words matter: music_play starts now and replaces the queue ("play X", "put \
+    on X"); music_queue_add appends to the end ("add X", "queue X", "queue up \
+    X"); music_play_next inserts after the current track, and only for "play X \
+    next" or "after this one".
+    - music_start_radio is only for an endless stream seeded from what is \
+    already playing ("more like this", "keep this going", "start a radio"). \
+    Naming an artist or song is music_play, not radio.
     - When the message names an artist, album, or song, pass it through as the \
     query verbatim rather than rewriting it.
     - If the message is a question about what is playing, use music_now_playing.
