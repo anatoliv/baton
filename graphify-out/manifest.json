@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785705542.38404,
-    "ast_hash": "07c77f6738aaa633bc4c4949a784a17c",
+    "mtime": 1785708455.140465,
+    "ast_hash": "0f729d7f148a27f7a57fa5764211e2f7",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785705298.6468625,
-    "ast_hash": "fadcd6b12331e315b22e159901412721",
+    "mtime": 1785708211.4449768,
+    "ast_hash": "0b5ff4f10af1483bc19fc49f5e7172fa",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1225,8 +1225,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/BatonRemotePane.swift": {
-    "mtime": 1785704289.619501,
-    "ast_hash": "dca1233122c66c6505fc38b2b071766f",
+    "mtime": 1785707029.0982888,
+    "ast_hash": "cf0ff2479a6b873d5eb0218240dc9563",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/DiscordBridge.swift": {
@@ -1245,8 +1245,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteControlConfig.swift": {
-    "mtime": 1785702501.083861,
-    "ast_hash": "43f0b903edb9fbbcfb7e89300af08639",
+    "mtime": 1785706916.4074447,
+    "ast_hash": "9878acf7847d0f7d9842442c42ad6cfb",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteControlService.swift": {
@@ -1255,8 +1255,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteNaturalLanguage.swift": {
-    "mtime": 1785705095.721303,
-    "ast_hash": "9b8a33cce159b880085605cb02154cbf",
+    "mtime": 1785707936.4947085,
+    "ast_hash": "dc32e8804b3698fd1a36e1a25e60b9d0",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/TelegramBridge.swift": {
@@ -1270,8 +1270,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteCommandTests.swift": {
-    "mtime": 1785705107.6839635,
-    "ast_hash": "73c007de0e7a31238ae946647f15ddca",
+    "mtime": 1785707947.2805066,
+    "ast_hash": "1fe4b02e2acd904c59a978971b12ff17",
     "semantic_hash": ""
   }
 }

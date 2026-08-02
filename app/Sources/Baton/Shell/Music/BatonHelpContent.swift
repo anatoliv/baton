@@ -234,6 +234,35 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.2",
+            date: "2026",
+            highlight: "Plain English can now run on any model \u{2014} including one on your own hardware.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Natural language now speaks two API dialects, so you can point Baton "
+                        + "at whichever model you like: Anthropic, or anything serving the "
+                        + "OpenAI chat-completions shape \u{2014} OpenAI, Groq, Together, "
+                        + "OpenRouter, and self-hosted vLLM, Ollama, LM Studio or LiteLLM."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A model running on your own machine or network is now a first-class "
+                        + "option: nothing leaves your network, and there is no per-message cost. "
+                        + "It needs to support tool calling, which the new Test button will tell "
+                        + "you in one click."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "A Test button beside the connection settings sends one real request "
+                        + "the same way a chat message would, so a pass means the next message "
+                        + "will work \u{2014} not merely that something answered. When it fails it "
+                        + "names the field to fix, rather than relaying a provider\u{2019}s "
+                        + "internal wording."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.1",
             date: "2026",
             highlight: "Setting up a chat remote now tells you what to do next.",
