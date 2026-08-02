@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785634164.2414775,
-    "ast_hash": "e305c12aa0b8e44a8bc6d61b56c41634",
+    "mtime": 1785634848.3549626,
+    "ast_hash": "ce7cc358ce7f936afe3f1dd27bb5b9f5",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785633998.0823855,
-    "ast_hash": "688d16b793b3836e3eb0c5773bc44b28",
+    "mtime": 1785634688.7925775,
+    "ast_hash": "c2cdd55fd421f75d9342b6e5df44a1a5",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -445,8 +445,8 @@
     "semantic_hash": "ce9a42bd01b21ca5cc73a16a7bd90684"
   },
   "app/Sources/Baton/Shell/Music/MusicMix.swift": {
-    "mtime": 1785633998.08321,
-    "ast_hash": "05e2ee6474d0ac819fcedf4d844071a0",
+    "mtime": 1785634688.7929885,
+    "ast_hash": "0a7904f71951334c33f913239f40d5c8",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/MusicMixesView.swift": {
@@ -1125,8 +1125,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/MixCatalogTests.swift": {
-    "mtime": 1785633998.083532,
-    "ast_hash": "36d0ab99019209615749ff93c906dc90",
+    "mtime": 1785634688.79356,
+    "ast_hash": "0d4d8e3aeac83abf85b6686387234945",
     "semantic_hash": ""
   },
   "app/Assets.xcassets/MixArtFocusDeep.imageset/Contents.json": {

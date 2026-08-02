@@ -234,6 +234,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.10.3",
+            date: "2026",
+            highlight: "Genre cards stopped all showing a guitar.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Each genre now picks an icon that suits it \u{2014} a waveform for Trance, "
+                        + "a moon for Gothic, a controller for video-game music \u{2014} instead of "
+                        + "every card showing the same pair of guitars."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.10.2",
             date: "2026",
             highlight: "The last two mix cards caught up with the rest.",

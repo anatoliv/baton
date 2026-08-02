@@ -135,6 +135,43 @@ enum MusicMixCatalog {
         return Double(songCount) / Double(librarySongCount) <= genreDominanceCeiling
     }
 
+    /// An SF Symbol that suits a genre.
+    ///
+    /// Every genre card previously showed `guitars.fill`, which put a guitar on Trance,
+    /// House, Electronic and Pop — twelve identical guitars did more to make the row look
+    /// monotonous than the backdrops did. Matching is on substrings so related genres
+    /// ("Hard Trance", "Vocal Trance", "Classic Trance") share a symbol without needing an
+    /// entry each, and anything unrecognised keeps a neutral default rather than guessing.
+    nonisolated static func symbol(forGenre name: String) -> String {
+        let g = name.lowercased()
+        let rules: [(String, String)] = [
+            ("trance", "waveform.path.ecg"), ("techno", "waveform.path.ecg"),
+            ("house", "square.stack.3d.down.right.fill"), ("electronic", "waveform"),
+            ("edm", "waveform"), ("dance", "figure.dance"), ("eurodance", "figure.dance"),
+            ("disco", "circle.circle.fill"), ("funk", "circle.circle.fill"),
+            ("ambient", "cloud.fill"), ("chill", "cloud.fill"), ("new age", "cloud.fill"),
+            ("synthwave", "sunset.fill"), ("cyberpunk", "bolt.horizontal.fill"),
+            ("darkwave", "moon.stars.fill"), ("gothic", "moon.stars.fill"),
+            ("new wave", "antenna.radiowaves.left.and.right"),
+            ("metal", "flame.fill"), ("hard rock", "flame.fill"), ("punk", "flame.fill"),
+            ("rock", "guitars.fill"), ("blues", "guitars.fill"), ("folk", "guitars.fill"),
+            ("country", "guitars.fill"),
+            ("jazz", "pianokeys"), ("classical", "pianokeys"), ("piano", "pianokeys"),
+            ("hip", "mic.fill"), ("rap", "mic.fill"), ("r&b", "mic.fill"), ("soul", "mic.fill"),
+            ("pop", "star.fill"), ("k-pop", "star.fill"),
+            ("workout", "figure.run"), ("big beat", "speaker.wave.3.fill"),
+            ("drum", "speaker.wave.3.fill"), ("dubstep", "speaker.wave.3.fill"),
+            ("reggae", "leaf.fill"), ("latin", "sun.max.fill"),
+            ("soundtrack", "film.fill"), ("video game", "gamecontroller.fill"),
+            ("castlevania", "gamecontroller.fill"), ("audiobook", "book.fill"),
+            ("podcast", "mic.circle.fill"), ("trip", "moon.haze.fill"),
+        ]
+        for (needle, icon) in rules where g.contains(needle) {
+            return icon
+        }
+        return "music.note"
+    }
+
     /// Per-genre "Daily Mix" cards — the user's top genres by song count.
     @MainActor static func genres(_ model: MusicModel) -> [MusicMix] {
         let palette: [Color] = [.purple, .teal, .indigo, .mint, .brown, .cyan, .orange, .pink]
@@ -146,7 +183,7 @@ enum MusicMixCatalog {
             .enumerated()
             .map { index, genre in
                 MusicMix(id: "genre-\(genre.name)", title: genre.name, subtitle: "\(genre.songCount ?? 0) songs",
-                         icon: "guitars.fill", color: palette[index % palette.count]) {
+                         icon: symbol(forGenre: genre.name), color: palette[index % palette.count]) {
                     MixBuilder.curate(await model.musicLibrary.songsByGenre(genre.name).shuffled(), mood: .neutral)
                 }
             }
