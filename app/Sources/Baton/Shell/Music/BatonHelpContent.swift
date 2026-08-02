@@ -234,6 +234,33 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.11.3",
+            date: "2026",
+            highlight: "Clicking the playbar in a long mix goes where you clicked.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Clicking partway into a long DJ set or podcast could skip to the next "
+                        + "track instead of seeking. A server encoding a track on the fly "
+                        + "can\u{2019}t be jumped around in until it has finished, and Baton "
+                        + "mistook that for the track ending. It now asks the server to start "
+                        + "the stream where you clicked, and no longer treats a stream running "
+                        + "out early as a track finishing."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Tracks your server can send as-is \u{2014} MP3 and AAC \u{2014} are no "
+                        + "longer converted on the way to you. They start faster, sound closer to "
+                        + "the original, and can be scrubbed freely from the first play."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Reopening Baton mid-way through a long track now resumes at the right "
+                        + "place, and toggling the equaliser no longer restarts the track."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.11.2",
             date: "2026",
             highlight: "Ask an assistant for the previous track and you get the previous track.",
