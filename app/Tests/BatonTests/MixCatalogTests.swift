@@ -64,3 +64,61 @@ final class MixCatalogTests: XCTestCase {
         XCTAssertFalse(MusicMixCatalog.isServerGenerated("Fresh Additions"))
     }
 }
+
+/// `MixMeshBackdrop` — the procedural card artwork.
+///
+/// Replaced a mosaic of the tracks' own cover art, which looked like clutter on a
+/// YouTube-sourced library (16:9 thumbnails with text, faces and channel watermarks) and
+/// cost a library query per card just to draw a backdrop.
+@MainActor
+final class MixMeshBackdropTests: XCTestCase {
+    func testTheSameMixAlwaysLooksTheSame() {
+        // The point of seeding: a card must keep its face between launches so it becomes
+        // recognisable. Swift seeds String.hashValue per process, which is exactly why the
+        // PRNG here does not use it — this test would fail if someone swapped it back.
+        XCTAssertEqual(MixMeshBackdrop.rng("focusdeep", salt: 3),
+                       MixMeshBackdrop.rng("focusdeep", salt: 3))
+        XCTAssertEqual(MixMeshBackdrop.points(seed: "server-abc"),
+                       MixMeshBackdrop.points(seed: "server-abc"))
+    }
+
+    func testDifferentMixesLookDifferent() {
+        XCTAssertNotEqual(MixMeshBackdrop.points(seed: "focusdeep"),
+                          MixMeshBackdrop.points(seed: "focuslift"))
+        XCTAssertNotEqual(MixMeshBackdrop.rng("a", salt: 1), MixMeshBackdrop.rng("b", salt: 1))
+    }
+
+    func testMeshIsTheSizeMeshGradientExpects() {
+        // A mismatch between point count and width*height is a runtime crash, not a warning.
+        XCTAssertEqual(MixMeshBackdrop.points(seed: "x").count, 9)
+        XCTAssertEqual(MixMeshBackdrop.colors(seed: "x", tint: .blue).count, 9)
+    }
+
+    func testEdgesArePinnedSoTheCardIsAlwaysFilled() {
+        // Only the centre point may drift; a floating edge would leave a pale corner exactly
+        // where the title and play button sit.
+        let pts = MixMeshBackdrop.points(seed: "anything")
+        XCTAssertEqual(pts[0], SIMD2<Float>(0, 0))
+        XCTAssertEqual(pts[2], SIMD2<Float>(1, 0))
+        XCTAssertEqual(pts[6], SIMD2<Float>(0, 1))
+        XCTAssertEqual(pts[8], SIMD2<Float>(1, 1))
+    }
+
+    func testInteriorPointStaysWellInsideTheCard() {
+        for seed in ["a", "focusdeep", "server-xyz", "", "🎧"] {
+            let centre = MixMeshBackdrop.points(seed: seed)[4]
+            XCTAssertGreaterThanOrEqual(centre.x, 0.15, "seed \(seed)")
+            XCTAssertLessThanOrEqual(centre.x, 0.85, "seed \(seed)")
+            XCTAssertGreaterThanOrEqual(centre.y, 0.15, "seed \(seed)")
+            XCTAssertLessThanOrEqual(centre.y, 0.85, "seed \(seed)")
+        }
+    }
+
+    func testRandomnessIsInRange() {
+        for salt in 0 ..< 40 {
+            let v = MixMeshBackdrop.rng("seed", salt: salt)
+            XCTAssertGreaterThanOrEqual(v, 0)
+            XCTAssertLessThan(v, 1)
+        }
+    }
+}
