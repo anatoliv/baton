@@ -59,6 +59,7 @@ enum RemoteNaturalLanguage {
         case http(status: Int, body: String)
         case refused(String)
         case noToolCall(String)
+        case truncated
         case malformed(String)
 
         var errorDescription: String? {
@@ -71,6 +72,8 @@ enum RemoteNaturalLanguage {
                 "The model declined that request. \(reason)"
             case let .noToolCall(text):
                 text.isEmpty ? "I couldn't turn that into a playback command." : text
+            case .truncated:
+                "The model ran out of room before it picked a command. Try a shorter request."
             case let .malformed(detail):
                 "Unexpected response from the model provider: \(detail)"
             }
@@ -115,7 +118,7 @@ enum RemoteNaturalLanguage {
 
         let body: [String: Any] = [
             "model": config.model,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
             "system": systemPrompt,
             // Force a tool call: the model's job here is routing, not chatting.
             "tool_choice": ["type": "any"],
@@ -177,6 +180,13 @@ enum RemoteNaturalLanguage {
         guard let use = content.first(where: { $0["type"] as? String == "tool_use" }),
               let name = use["name"] as? String
         else {
+            // Thinking counts against max_tokens, so a long deliberation can end
+            // the response before the tool call is ever emitted. That arrives
+            // here as "no tool call", which would otherwise be reported as though
+            // the sentence were unroutable — a misleading answer to a budget problem.
+            if root["stop_reason"] as? String == "max_tokens" {
+                throw Failure.truncated
+            }
             throw Failure.noToolCall(text)
         }
 
