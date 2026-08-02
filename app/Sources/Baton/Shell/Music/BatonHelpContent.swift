@@ -234,6 +234,20 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.11.5",
+            date: "2026",
+            highlight: "No more silent gaps between tracks after resuming or seeking.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "After resuming a queue part-way through a track, or seeking in a long "
+                        + "one, the next track could begin with about twenty seconds of silence "
+                        + "before it recovered. The new track was being told it had already "
+                        + "played most of the way through."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.11.4",
             date: "2026",
             highlight: "Seeking in a long mix now works however many times you do it.",

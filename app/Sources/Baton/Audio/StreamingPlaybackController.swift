@@ -1419,6 +1419,9 @@ final class StreamingPlaybackController {
     /// `StreamSeek` rewrite — the only place the offset/transcode decisions become observable.
     private(set) var lastStreamURLForTesting: URL?
     var streamStartOffsetForTesting: TimeInterval { streamStartOffset }
+    /// Test seam: stand in for "this stream was fetched with `timeOffset`", which a local file
+    /// can't produce (it is fully seekable, so a seek never needs a re-request).
+    func setStreamStartOffsetForTesting(_ seconds: TimeInterval) { streamStartOffset = seconds }
     /// Test seam: force a queue snapshot without waiting for a transport event.
     func persistQueueForTesting() { persistQueue() }
     #endif
@@ -1630,6 +1633,11 @@ final class StreamingPlaybackController {
         loadedItem = item
         gaplessPreload = nil
         currentIndex = index
+        // The incoming track was preloaded from the top, so its clock is the track's. Carrying a
+        // previous track's `timeOffset` across the boundary would make the periodic observer read
+        // `staleOffset + 0` as the new playhead — minutes into a track that just started, which
+        // reads as already-finished and skips it. Set BEFORE `currentTime`, which depends on it.
+        streamStartOffset = 0
         currentTime = 0
         duration = Double(song.duration ?? 0)
         didHandleEnd = false
@@ -1835,6 +1843,11 @@ final class StreamingPlaybackController {
         crossfadeRamp.clearAfterPromotion() // release the ramp's ref without pausing the now-main player
         isCrossfading = false
         didHandleEnd = false
+        // Same as the gapless boundary: the incoming stream starts at the track's top, so a
+        // previous track's `timeOffset` must not carry across. Unconditional — the promoted
+        // player is a new stream either way, and `alreadyAdvanced` only means the logical index
+        // was reconciled elsewhere, not that the offset still applies.
+        streamStartOffset = 0
         if !alreadyAdvanced {
             currentIndex = nextIndex
             currentTime = 0
