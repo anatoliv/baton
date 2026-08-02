@@ -144,12 +144,13 @@ final class MixArtworkOverrideTests: XCTestCase {
     func testArtDirectedPlaylistsAreMappedAndTheRestFallBack() {
         // The seven that were art-directed.
         for name in ["Focus · Deep", "Focus · Momentum", "Focus · Lift", "Fresh",
-                     "Daily Jams", "Daily Discovery", "Deep Cuts"] {
+                     "Daily Jams", "Daily Discovery", "Deep Cuts",
+                     "Favorites Radio", "Favorites Inbox"] {
             XCTAssertNotNil(MusicMixCatalog.serverArtwork[name], "\(name) should have art")
         }
         // The override is opt-in, so anything unmapped must still reach the mesh. If this
         // ever becomes empty the fallback path stops being exercised in production.
-        XCTAssertNil(MusicMixCatalog.serverArtwork["Favorites Radio"],
+        XCTAssertNil(MusicMixCatalog.serverArtwork["Some Other Playlist"],
                      "unmapped playlists keep the generated mesh")
         XCTAssertNil(MusicMixCatalog.serverArtwork["Focus · Reading"],
                      "a new focus context gets the mesh until someone art-directs it")
@@ -161,6 +162,16 @@ final class MixArtworkOverrideTests: XCTestCase {
         for (playlist, asset) in MusicMixCatalog.serverArtwork {
             XCTAssertNotNil(NSImage(named: asset),
                             "\(playlist) maps to missing asset '\(asset)'")
+        }
+    }
+
+    /// Every playlist that reaches the Mixes tab must have art, or it renders as a flat
+    /// slab beside twelve art-directed cards — which is exactly what shipped in 0.10.1 for
+    /// Favorites Radio and Favorites Inbox, and was only caught by looking at the screen.
+    func testEveryGeneratedPlaylistOnTheTabHasArtwork() {
+        for name in MusicMixCatalog.serverGeneratedNames {
+            XCTAssertNotNil(MusicMixCatalog.serverArtwork[name],
+                            "\(name) appears on the Mixes tab with no artwork")
         }
     }
 
@@ -209,6 +220,6 @@ final class MixArtworkCoverageTests: XCTestCase {
         // 6 built-in + 7 generated. If a card is added without art it drops to the mesh,
         // which is a fine fallback but reintroduces the two-languages-on-one-screen problem.
         XCTAssertEqual(Self.autoMixArtwork.count, 6)
-        XCTAssertEqual(MusicMixCatalog.serverArtwork.count, 7)
+        XCTAssertEqual(MusicMixCatalog.serverArtwork.count, 9)
     }
 }
