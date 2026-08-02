@@ -234,6 +234,20 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.11.1",
+            date: "2026",
+            highlight: "Asking an assistant for the previous track now goes to the previous track.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Previous restarts the current track when you are more than a few "
+                        + "seconds in \u{2014} right for a button, wrong for an assistant, whose "
+                        + "request always arrives later than that. It can now ask to step back "
+                        + "properly. The button behaves exactly as before."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.11.0",
             date: "2026",
             highlight: "Your server can now tell which playlist a track was played from.",

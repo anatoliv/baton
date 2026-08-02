@@ -1032,18 +1032,37 @@ final class StreamingPlaybackController {
     }
 
     /// Goes to the previous track (or restarts the current one at the start).
-    func previous() {
+    ///
+    /// - Parameter force: skip the restart-first rule and always step back a track.
+    ///
+    /// The 3-second rule is right for a human at a button, where the gap between hearing
+    /// something and pressing is well under a second. It is wrong for a caller reaching
+    /// through the control socket, where a round-trip takes seconds by construction — so
+    /// `music_previous` would restart the current track almost every time and stepping back
+    /// was effectively unreachable. Rather than tune a threshold that is correct for hands,
+    /// the remote caller says which behaviour it means.
+    func previous(force: Bool = false) {
         cancelCrossfade()
         guard !queue.isEmpty else { return }
         bumpStateGeneration()
         let wasPlaying = state == .playing
-        if currentTime > 3 || currentIndex == 0 {
+        if Self.previousRestartsCurrent(currentTime: currentTime, currentIndex: currentIndex, force: force) {
             seek(to: 0)
         } else {
             currentIndex -= 1
             loadCurrent(autoplay: wasPlaying)
             persistQueue()
         }
+    }
+
+    /// Whether `previous()` should restart the current track rather than step back.
+    /// Pure, so the rule is testable without a player. Index 0 always restarts — there is
+    /// nothing before it — and `force` cannot invent a track that doesn't exist.
+    nonisolated static func previousRestartsCurrent(
+        currentTime: TimeInterval, currentIndex: Int, force: Bool
+    ) -> Bool {
+        if currentIndex == 0 { return true }
+        return force ? false : currentTime > 3
     }
 
     func seek(to seconds: TimeInterval) {
