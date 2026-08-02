@@ -234,6 +234,22 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.6",
+            date: "2026",
+            highlight: "A blocked local network no longer claims you\u{2019}re offline.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "When macOS blocks an app from your local network, it reports it as "
+                        + "\u{201C}The Internet connection appears to be offline\u{201D} \u{2014} which is "
+                        + "plainly untrue when the chat message asking the question just arrived "
+                        + "over the internet. Reaching a model on your own network now names the "
+                        + "real cause and where to allow it, and a host that simply isn\u{2019}t "
+                        + "answering is told apart from one you aren\u{2019}t permitted to reach."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.5",
             date: "2026",
             highlight: "Queueing by voice now lands in the right place.",

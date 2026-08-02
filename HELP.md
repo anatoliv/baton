@@ -1236,6 +1236,12 @@ to **OpenAI-compatible**, put your server's address in **API base URL** (the roo
 serves. Most local servers accept any key; put something in the field anyway. Nothing leaves
 your network, and there's no per-message cost.
 
+One thing macOS does that looks like a Baton bug: the first time Baton talks to something on
+your own network, macOS asks permission, and if that prompt was missed or declined every attempt
+fails with *"The Internet connection appears to be offline"* — even though Baton is plainly
+online. Allow it under **System Settings → Privacy & Security → Local Network**, where Baton
+should be switched on.
+
 One thing to check with a local model: it must support **tool calling** (also called function
 calling). Baton asks the model to pick from its list of commands, and a model or server built
 without that support will fail the Test with an error saying so. Most current instruct models

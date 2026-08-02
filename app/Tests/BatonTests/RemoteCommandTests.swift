@@ -411,6 +411,49 @@ final class RemoteNaturalLanguageTests: XCTestCase {
         XCTAssertTrue(b.contains("Anthropic"), b)
     }
 
+    /// macOS reports a blocked *local network* as "the Internet connection
+    /// appears to be offline" — a claim the user can see through, since the chat
+    /// message that triggered it arrived over the internet seconds earlier.
+    func testALocalHostBlockedByMacOSNamesThePrivacySetting() {
+        let failure = RemoteNaturalLanguage.transportFailure(
+            URLError(.notConnectedToInternet), host: "192.168.3.8"
+        )
+        guard case let .localNetworkBlocked(host) = failure else {
+            return XCTFail("expected .localNetworkBlocked, got \(failure)")
+        }
+        XCTAssertEqual(host, "192.168.3.8")
+        XCTAssertTrue(failure.errorDescription?.contains("Local Network") == true)
+    }
+
+    /// The same error against a public host really does mean offline, and must
+    /// not be dressed up as a privacy setting.
+    func testAPublicHostKeepsTheOfflineReading() {
+        let failure = RemoteNaturalLanguage.transportFailure(
+            URLError(.notConnectedToInternet), host: "api.anthropic.com"
+        )
+        if case .localNetworkBlocked = failure {
+            XCTFail("a public host is not a local-network problem")
+        }
+    }
+
+    func testAnUnansweredHostIsReportedAsSuch() {
+        let failure = RemoteNaturalLanguage.transportFailure(
+            URLError(.cannotConnectToHost), host: "ai-01.local"
+        )
+        guard case .unreachable = failure else {
+            return XCTFail("expected .unreachable, got \(failure)")
+        }
+    }
+
+    func testPrivateHostDetection() {
+        for host in ["192.168.3.8", "10.0.0.5", "172.16.4.1", "172.31.255.1", "localhost", "ai-01.local", "127.0.0.1"] {
+            XCTAssertTrue(RemoteNaturalLanguage.isPrivate(host), host)
+        }
+        for host in ["api.openai.com", "api.anthropic.com", "172.32.0.1", "8.8.8.8"] {
+            XCTAssertFalse(RemoteNaturalLanguage.isPrivate(host), host)
+        }
+    }
+
     /// A provider's own wording can be accurate and still useless. LiteLLM
     /// answers a key it can't recognize with `400 "No connected db."`, which
     /// reads like a server outage rather than a wrong key.
