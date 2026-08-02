@@ -134,6 +134,48 @@ final class StreamSeekTests: XCTestCase {
         XCTAssertTrue(StreamSeek.needsTranscode(suffix: "flac"))
     }
 
+    // MARK: - Which duration to trust
+
+    func testAnOffsetStreamsOwnDurationIsIgnored() {
+        // The 0.11.3 regression, from the live log. A `timeOffset` stream reports the WHOLE
+        // track, not the remainder, so adding the offset back inflated the track every seek:
+        // a 4798 s set read 5502 s after one seek (4798 + 704) and 6325 s after two (4798 + 1527).
+        XCTAssertEqual(
+            StreamSeek.logicalDuration(assetSeconds: 4798, metadata: 4798, streamStartOffset: 704),
+            4798)
+        XCTAssertEqual(
+            StreamSeek.logicalDuration(assetSeconds: 4798, metadata: 4798, streamStartOffset: 1527),
+            4798)
+    }
+
+    func testRepeatedSeeksNeverGrowTheTrack() {
+        // The property that actually matters: no sequence of seeks may change the track's length.
+        // A scrubber that rescales under the listener sends the next click somewhere they didn't
+        // aim, and eventually past the real end — where it reads as a skip.
+        var duration = 4798.0
+        for offset in [704.0, 1527, 3591, 4000] {
+            duration = StreamSeek.logicalDuration(assetSeconds: duration, metadata: 4798,
+                                                  streamStartOffset: offset)
+            XCTAssertEqual(duration, 4798, "seek to \(offset) changed the track length")
+        }
+    }
+
+    func testANormalLoadStillRefinesFromTheAsset() {
+        // At offset 0 the asset is the whole track, and it is more accurate than metadata —
+        // that refinement is why the scrubber isn't stuck at the server's rounded seconds.
+        XCTAssertEqual(
+            StreamSeek.logicalDuration(assetSeconds: 4797.6, metadata: 4798, streamStartOffset: 0),
+            4797.6)
+    }
+
+    func testUnusableAssetDurationFallsBackToMetadata() {
+        // A cold chunked transcode has no determinable duration; the metadata seed is what keeps
+        // the scrubber from sitting at 0:00.
+        XCTAssertEqual(StreamSeek.logicalDuration(assetSeconds: nil, metadata: 4798, streamStartOffset: 0), 4798)
+        XCTAssertEqual(StreamSeek.logicalDuration(assetSeconds: .infinity, metadata: 4798, streamStartOffset: 0), 4798)
+        XCTAssertEqual(StreamSeek.logicalDuration(assetSeconds: 0, metadata: 4798, streamStartOffset: 0), 4798)
+    }
+
     // MARK: - Building the stream URL
 
     private let base = URL(string: "https://n.example/rest/stream.view?id=abc&format=mp3&u=x")!

@@ -1105,6 +1105,12 @@ final class StreamingPlaybackController {
         let generation = seekGeneration
         isSeeking = true
         currentTime = target
+        // Each seek is a fresh intent, not a retry of the last one, so it gets a fresh recovery
+        // budget. Measured live: three consecutive seeks into a long set each correctly refused a
+        // spurious end, which exhausted a per-track budget of 3 — and the fourth seek skipped the
+        // track. The bound exists to stop a genuinely broken stream looping forever, and that
+        // still holds: nothing but a new user seek resets it.
+        spuriousEndRecoveries = 0
         // Moving the playhead off the end re-arms end handling.
         if !TrackBoundary.isAtEnd(currentTime: target, duration: duration) { didHandleEnd = false }
         pushNowPlaying()
@@ -1305,14 +1311,17 @@ final class StreamingPlaybackController {
 
         // Refine duration from the asset when it's actually determinable (a real
         // finite value) — otherwise keep the metadata seed above.
+        //
+        // `StreamSeek.logicalDuration` owns the rule — notably that an offset stream's own
+        // duration must be ignored, because it reports the whole track rather than the remainder.
+        let metadataDuration = duration
         Task { [weak self] in
             let seconds = await (try? item.asset.load(.duration))?.seconds
-            guard let self, let seconds, seconds.isFinite, seconds > 1 else { return }
-            // An offset stream is only the REMAINDER of the track, so its asset duration is not
-            // the track's. Adding the offset back restores the logical length; without this the
-            // scrubber would rescale mid-track and every later seek would land in the wrong place.
-            let logical = seconds + offset
-            if player.currentItem === item {
+            guard let self else { return }
+            let logical = StreamSeek.logicalDuration(assetSeconds: seconds,
+                                                     metadata: metadataDuration,
+                                                     streamStartOffset: offset)
+            if player.currentItem === item, logical > 1, logical != duration {
                 duration = logical
                 pushNowPlaying()
             }
