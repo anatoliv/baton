@@ -141,11 +141,18 @@ final class MixArtworkOverrideTests: XCTestCase {
         XCTAssertEqual(mix.artwork, "MixArtFocusDeep")
     }
 
-    func testFocusDeepHasArtAndOtherGeneratedPlaylistsDoNot() {
-        XCTAssertEqual(MusicMixCatalog.serverArtwork["Focus · Deep"], "MixArtFocusDeep")
-        XCTAssertNil(MusicMixCatalog.serverArtwork["Focus · Momentum"],
+    func testArtDirectedPlaylistsAreMappedAndTheRestFallBack() {
+        // The seven that were art-directed.
+        for name in ["Focus · Deep", "Focus · Momentum", "Focus · Lift", "Fresh",
+                     "Daily Jams", "Daily Discovery", "Deep Cuts"] {
+            XCTAssertNotNil(MusicMixCatalog.serverArtwork[name], "\(name) should have art")
+        }
+        // The override is opt-in, so anything unmapped must still reach the mesh. If this
+        // ever becomes empty the fallback path stops being exercised in production.
+        XCTAssertNil(MusicMixCatalog.serverArtwork["Favorites Radio"],
                      "unmapped playlists keep the generated mesh")
-        XCTAssertNil(MusicMixCatalog.serverArtwork["Daily Jams"])
+        XCTAssertNil(MusicMixCatalog.serverArtwork["Focus · Reading"],
+                     "a new focus context gets the mesh until someone art-directs it")
     }
 
     func testEveryMappedAssetActuallyExists() {
