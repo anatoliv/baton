@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785633507.4863434,
-    "ast_hash": "d6f7a8e7eb5dbea2f4df97262f05abb9",
+    "mtime": 1785634164.2414775,
+    "ast_hash": "e305c12aa0b8e44a8bc6d61b56c41634",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785633340.9937048,
-    "ast_hash": "b13b4560fde9b78293fd7fe52211cf9b",
+    "mtime": 1785633998.0823855,
+    "ast_hash": "688d16b793b3836e3eb0c5773bc44b28",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -445,8 +445,8 @@
     "semantic_hash": "ce9a42bd01b21ca5cc73a16a7bd90684"
   },
   "app/Sources/Baton/Shell/Music/MusicMix.swift": {
-    "mtime": 1785633340.9939208,
-    "ast_hash": "0ce9bd922923b5e92d5be41838f8841e",
+    "mtime": 1785633998.08321,
+    "ast_hash": "05e2ee6474d0ac819fcedf4d844071a0",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/MusicMixesView.swift": {
@@ -1125,8 +1125,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/MixCatalogTests.swift": {
-    "mtime": 1785633340.9941235,
-    "ast_hash": "961f7d9b2575a6bf2141c0c8c9a72952",
+    "mtime": 1785633998.083532,
+    "ast_hash": "36d0ab99019209615749ff93c906dc90",
     "semantic_hash": ""
   },
   "app/Assets.xcassets/MixArtFocusDeep.imageset/Contents.json": {
@@ -1192,6 +1192,16 @@
   "app/Assets.xcassets/MixArtTopRated.imageset/Contents.json": {
     "mtime": 1785633340.9931867,
     "ast_hash": "b9031c32a92b6e201cafcde391f7ed4f",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtFavoritesInbox.imageset/Contents.json": {
+    "mtime": 1785633998.0806484,
+    "ast_hash": "3b272c3e010e2d07d83d03db52ed3cb0",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtFavoritesRadio.imageset/Contents.json": {
+    "mtime": 1785633998.0818834,
+    "ast_hash": "f65bfa6e37e4e1607e90abea32bac9e5",
     "semantic_hash": ""
   }
 }

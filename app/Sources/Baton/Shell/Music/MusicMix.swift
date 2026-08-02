@@ -95,6 +95,8 @@ enum MusicMixCatalog {
         "Daily Jams": "MixArtDailyJams",
         "Daily Discovery": "MixArtDailyDiscovery",
         "Deep Cuts": "MixArtDeepCuts",
+        "Favorites Radio": "MixArtFavoritesRadio",
+        "Favorites Inbox": "MixArtFavoritesInbox",
     ]
 
     /// Names that indicate a playlist is produced by a generator rather than curated by
@@ -485,8 +487,13 @@ struct MixBackdrop: View {
         } else {
             ZStack {
                 MixMeshBackdrop(seed: mix.id, tint: mix.color)
+                // The art-directed cards all sit around 0.05–0.28 mean luminance. An
+                // undarkened mesh at a bright tint (mint, cyan) rendered as a flat bright
+                // slab beside them — visibly "the one without artwork". This pulls the
+                // fallback into the same range so an unmapped card still belongs.
+                Color.black.opacity(0.45)
                 LinearGradient(
-                    colors: [mix.color.opacity(0.30), .clear, .black.opacity(0.30)],
+                    colors: [mix.color.opacity(0.25), .clear, .black.opacity(0.35)],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 )
             }

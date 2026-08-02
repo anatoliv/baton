@@ -234,6 +234,20 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.10.2",
+            date: "2026",
+            highlight: "The last two mix cards caught up with the rest.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Favorites Radio and Favorites Inbox were still showing a plain "
+                        + "colour block while every other card had artwork. Both now have their "
+                        + "own, and the fallback used by any future card is dimmer so it no "
+                        + "longer stands out."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.10.1",
             date: "2026",
             highlight: "Every mix card now has its own artwork, not just the generated ones.",
