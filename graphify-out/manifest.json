@@ -165,8 +165,8 @@
     "semantic_hash": "2168db8ac8244479c3c7f1910f3933b9"
   },
   "app/Sources/Baton/Audio/StreamingPlaybackController.swift": {
-    "mtime": 1785675161.2811446,
-    "ast_hash": "5965ef74efb3fb3399c39fa988554e4d",
+    "mtime": 1785682125.0438862,
+    "ast_hash": "d860a6525d09c13600f16a30ce61f17d",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Audio/TransportTransitions.swift": {
@@ -1202,6 +1202,21 @@
   "app/Assets.xcassets/MixArtFavoritesRadio.imageset/Contents.json": {
     "mtime": 1785633998.0818834,
     "ast_hash": "f65bfa6e37e4e1607e90abea32bac9e5",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Audio/StreamSeek.swift": {
+    "mtime": 1785682019.002573,
+    "ast_hash": "1dee8b43880f7df7846f0a3e306e0ca5",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/StreamSeekControllerTests.swift": {
+    "mtime": 1785681916.3428295,
+    "ast_hash": "f953ffd86b12a0fc461340fbeddeb73e",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/StreamSeekTests.swift": {
+    "mtime": 1785681776.3991022,
+    "ast_hash": "bc30f011b330cd3d2df5cfcb0d534240",
     "semantic_hash": ""
   }
 }

@@ -68,6 +68,19 @@ final class StreamingPlaybackController {
     /// Stamps each seek so only the newest one's completion clears `isSeeking`.
     @ObservationIgnored private var seekGeneration = 0
 
+    /// How many seconds into the track the current stream *begins*, when it was fetched with
+    /// Subsonic `timeOffset` to reach a position a still-encoding transcode couldn't seek to
+    /// (see `StreamSeek`). The player's clock restarts at zero for such a stream, so every
+    /// track-logical reading is `streamStartOffset + player clock`. Zero for a normal load.
+    @ObservationIgnored private var streamStartOffset: TimeInterval = 0
+
+    /// How many times an early end-of-stream has been refused and re-requested for this track.
+    /// Bounded, because the refusal is a *diagnosis* — a genuinely truncated or unreadable file
+    /// also ends early, and retrying that forever would wedge the queue on it rather than moving
+    /// on. Past the cap the end is taken at face value. Reset by any genuine new track.
+    @ObservationIgnored private var spuriousEndRecoveries = 0
+    static let maxSpuriousEndRecoveries = 3
+
     /// True while the transport intends to play but audio isn't flowing yet — a
     /// buffering/stall signal derived from `AVPlayer.timeControlStatus`. Drives the
     /// spinner in the now-playing surfaces so a cold stream doesn't look frozen.
@@ -136,8 +149,11 @@ final class StreamingPlaybackController {
         // drops (EQ off) immediately. A no-op reassign suffices only when nothing is loaded.
         // (EQ live-toggle fix)
         let wasPlaying = state == .playing
-        pendingSeek = currentTime
-        loadCurrent(autoplay: wasPlaying)
+        // Fetch from the current position rather than loading at 0 and seeking back: on a
+        // transcode the server is still encoding, a seek to the playhead is exactly the seek that
+        // can't land (see `StreamSeek`), so an EQ toggle mid-set would restart the track.
+        // A continuation, not a new play — the listener never left the track.
+        loadCurrent(autoplay: wasPlaying, startingAt: currentTime, isContinuation: true)
     }
     /// Guards against overlapping autoplay fetches.
     @ObservationIgnored private var autoplayFetching = false
@@ -456,8 +472,16 @@ final class StreamingPlaybackController {
     }
 
     /// The stream URL for `songID`, carrying the current queue's provenance.
-    private func annotatedStreamURL(_ songID: String) throws -> URL {
-        Self.annotate(try streamURLProvider(songID), with: queueSource)
+    ///
+    /// `startingAt` asks the server for the stream from that point (Subsonic `timeOffset`), which
+    /// is the only way to reach a position in a transcode the server is still encoding — see
+    /// `StreamSeek`. A natively-decodable track skips the transcode entirely, so it arrives
+    /// byte-range seekable from the first play and never needs the offset dance at all.
+    private func annotatedStreamURL(_ songID: String, startingAt offset: TimeInterval = 0) throws -> URL {
+        let base = Self.annotate(try streamURLProvider(songID), with: queueSource)
+        let suffix = queue.first { $0.id == songID }?.suffix
+        return StreamSeek.streamURL(base, offset: offset,
+                                    transcode: StreamSeek.needsTranscode(suffix: suffix))
     }
 
     static let queueKey = "tonebox.navidrome.queue"
@@ -635,7 +659,9 @@ final class StreamingPlaybackController {
                 guard let self, time.seconds.isFinite else { return }
                 // Don't let a stale clock tick override a just-issued seek target.
                 if self.isSeeking { return }
-                self.currentTime = max(0, time.seconds)
+                // An offset stream's clock restarts at zero, so the track-logical playhead is
+                // the offset plus the player's clock (`streamStartOffset` is 0 for a normal load).
+                self.currentTime = max(0, self.streamStartOffset + time.seconds)
                 // Resume: once the item is ready (duration known), jump to the saved offset
                 // exactly once. Done here (not at track start) because the item may not be
                 // seekable and its duration may be unknown until audio actually flows.
@@ -674,6 +700,7 @@ final class StreamingPlaybackController {
                 // end handler so the transport doesn't get stuck showing "playing" with a
                 // parked player. handleEnded() flips the state, so this won't re-fire.
                 if self.state == .playing,
+                   !self.isSeeking,
                    TrackBoundary.isAtEnd(currentTime: self.currentTime, duration: self.duration),
                    self.player.timeControlStatus == .paused
                 {
@@ -1078,15 +1105,55 @@ final class StreamingPlaybackController {
         let generation = seekGeneration
         isSeeking = true
         currentTime = target
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600)) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, generation == self.seekGeneration else { return }
-                self.isSeeking = false
-            }
-        }
         // Moving the playhead off the end re-arms end handling.
         if !TrackBoundary.isAtEnd(currentTime: target, duration: duration) { didHandleEnd = false }
         pushNowPlaying()
+
+        // Can this stream actually reach the target? A transcode the server is still encoding
+        // reports `Accept-Ranges: none`, so AVPlayer's seek silently runs off the end and the item
+        // reports EOF — which used to advance the queue. Ask the item what it can reach, and
+        // re-request the stream from the target when it can't. (See `StreamSeek`.)
+        switch StreamSeek.strategy(target: target,
+                                   seekableRanges: currentSeekableRanges(),
+                                   streamStartOffset: streamStartOffset) {
+        case .reload(let offset):
+            reloadStream(startingAt: offset)
+        case .direct:
+            player.seek(to: CMTime(seconds: target - streamStartOffset, preferredTimescale: 600)) { [weak self] finished in
+                Task { @MainActor in
+                    guard let self, generation == self.seekGeneration else { return }
+                    self.isSeeking = false
+                    // `finished == false` past the generation guard is a genuine failure, not a
+                    // superseding seek — the item couldn't reach the target after all. Recover by
+                    // re-requesting rather than leaving the scrubber claiming a position the
+                    // audio never went to.
+                    guard !finished else { return }
+                    streamingLog.info("direct seek did not complete; re-requesting stream at \(Int(target))s")
+                    self.reloadStream(startingAt: target)
+                }
+            }
+        }
+    }
+
+    /// What the current item can actually seek to, in stream-local seconds.
+    private func currentSeekableRanges() -> [ClosedRange<TimeInterval>] {
+        (player.currentItem?.seekableTimeRanges ?? []).compactMap {
+            let r = $0.timeRangeValue
+            let start = r.start.seconds
+            let end = (r.start + r.duration).seconds
+            guard start.isFinite, end.isFinite, end >= start else { return nil }
+            return start...end
+        }
+    }
+
+    /// Re-request the current track's stream starting at `offset`, preserving playback state.
+    /// The way to reach a position in a stream that can't be byte-range seeked.
+    private func reloadStream(startingAt offset: TimeInterval) {
+        let wasPlaying = state == .playing
+        isSeeking = false
+        state = .loading
+        isBuffering = true
+        loadCurrent(autoplay: wasPlaying, startingAt: offset, isContinuation: true)
     }
 
     /// Sets the player volume from a 0–100 percentage. A positive volume unmutes.
@@ -1151,7 +1218,17 @@ final class StreamingPlaybackController {
 
     // MARK: - Loading
 
-    private func loadCurrent(autoplay: Bool, isRetry: Bool = false) {
+    /// - Parameters:
+    ///   - startingAt: fetch the stream from this many seconds in (Subsonic `timeOffset`) rather
+    ///     than from the top. Used to reach a position AVPlayer can't seek to in a transcode the
+    ///     server is still encoding — see `StreamSeek`.
+    ///   - isContinuation: this load re-fetches the track the listener is *already* playing (a
+    ///     seek that needed a new stream, an EQ toggle) rather than starting one. It must be
+    ///     inaudible bookkeeping-wise: no second "track started", no reset of the scrobble state,
+    ///     and no re-application of the saved resume offset — which would otherwise yank the
+    ///     playhead back to the resume point immediately after the listener chose a position.
+    private func loadCurrent(autoplay: Bool, isRetry: Bool = false,
+                             startingAt: TimeInterval = 0, isContinuation: Bool = false) {
         cancelStallWatchdog() // a fresh load supersedes any pending stall watchdog
         #if DEBUG
         loadCurrentCountForTesting += 1
@@ -1159,15 +1236,24 @@ final class StreamingPlaybackController {
         if !isRetry { sameTrackRetries = 0 } // a genuine (non-retry) load starts a fresh track
         // A fresh item can end again — clear the end-handled guard.
         didHandleEnd = false
-        scrobbledCurrent = false
-        startNotifiedForCurrentItem = false // set true by notifyTrackStarted (autoplay path)
+        if !isContinuation {
+            scrobbledCurrent = false
+            startNotifiedForCurrentItem = false // set true by notifyTrackStarted (autoplay path)
+            spuriousEndRecoveries = 0 // a new track starts with a fresh recovery budget
+        } else {
+            // The listener just chose where to be; a pending resume must not override it.
+            pendingResumeOffset = nil
+        }
         guard let song = nowPlaying else {
             state = .idle
             return
         }
+        // Clamp: an offset at or past the end would fetch an empty stream that instantly "ends".
+        let offset = max(0, min(startingAt, max(0, Double(song.duration ?? 0) - 1)))
+        streamStartOffset = offset
         let url: URL
         do {
-            url = try annotatedStreamURL(song.id)
+            url = try annotatedStreamURL(song.id, startingAt: offset)
         } catch {
             streamingLog.error("stream URL failed: \(error.localizedDescription, privacy: .public)")
             state = .error((error as? NavidromeError)?.errorDescription ?? error.localizedDescription)
@@ -1182,11 +1268,14 @@ final class StreamingPlaybackController {
         statusObservation?.invalidate()
 
         streamingLog.info("streaming song id \(song.id, privacy: .public)")
+        #if DEBUG
+        lastStreamURLForTesting = url
+        #endif
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         setCurrentItem(item)
         configureAudioMix?(item)
         applyVolume()
-        currentTime = 0
+        currentTime = offset
         // Seed duration from the track's metadata immediately — Navidrome transcodes
         // on the fly, so AVPlayer often can't determine the stream's duration, which
         // left the scrubber stuck at 0:00. The async load below refines it if possible.
@@ -1201,7 +1290,7 @@ final class StreamingPlaybackController {
             resetFade()
             player.play()
             state = .playing
-            notifyTrackStarted(song)
+            if !isContinuation { notifyTrackStarted(song) }
         } else {
             state = .paused
         }
@@ -1219,8 +1308,12 @@ final class StreamingPlaybackController {
         Task { [weak self] in
             let seconds = await (try? item.asset.load(.duration))?.seconds
             guard let self, let seconds, seconds.isFinite, seconds > 1 else { return }
+            // An offset stream is only the REMAINDER of the track, so its asset duration is not
+            // the track's. Adding the offset back restores the logical length; without this the
+            // scrubber would rescale mid-track and every later seek would land in the wrong place.
+            let logical = seconds + offset
             if player.currentItem === item {
-                duration = seconds
+                duration = logical
                 pushNowPlaying()
             }
         }
@@ -1313,6 +1406,12 @@ final class StreamingPlaybackController {
     /// Test seam: drives the load-failure handler without a real stream failure.
     func simulateLoadFailureForTesting(_ message: String = "test failure") { handleLoadFailure(message) }
     var sameTrackRetriesForTesting: Int { sameTrackRetries }
+    /// Test seam: the URL actually handed to `AVPlayerItem`, after provenance annotation and the
+    /// `StreamSeek` rewrite — the only place the offset/transcode decisions become observable.
+    private(set) var lastStreamURLForTesting: URL?
+    var streamStartOffsetForTesting: TimeInterval { streamStartOffset }
+    /// Test seam: force a queue snapshot without waiting for a transport event.
+    func persistQueueForTesting() { persistQueue() }
     #endif
 
     /// A track finished. Hard-cut to the next queued track, or stop cleanly at the
@@ -1322,6 +1421,21 @@ final class StreamingPlaybackController {
         // the periodic-observer fallback can fire for the same end — only act once. Cleared
         // when a new item loads or the playhead seeks off the end.
         guard !didHandleEnd else { return }
+
+        // Is this actually the end? A transcode the server is still encoding reports EOF when a
+        // seek runs past what it has, and that is indistinguishable here from the track
+        // finishing — which is how clicking the playbar 40 minutes into a long set used to skip
+        // to the next track. The playhead settles it: a real end happens at the end. Anything
+        // else means the stream ran out early, so re-request it from where the listener actually
+        // is instead of abandoning the track. (See `StreamSeek`.)
+        if !StreamSeek.isGenuineEnd(currentTime: currentTime, duration: duration),
+           spuriousEndRecoveries < Self.maxSpuriousEndRecoveries {
+            spuriousEndRecoveries += 1
+            streamingLog.info(
+                "ignoring end-of-stream at \(Int(self.currentTime))s of \(Int(self.duration))s — re-requesting")
+            reloadStream(startingAt: currentTime)
+            return
+        }
         didHandleEnd = true
 
         // Final progress update so a finished episode is marked played (and its download can be
@@ -1657,7 +1771,12 @@ final class StreamingPlaybackController {
     /// Start the second player on `nextIndex` at silence and ramp the two volumes past
     /// each other over `crossfadeSeconds`, then promote it in `finishCrossfade`.
     private func startCrossfade(to nextIndex: Int, duration seconds: Double) {
-        guard let url = try? streamURLProvider(queue[nextIndex].id) else { return }
+        // Via `annotatedStreamURL`, not the raw provider: a crossfaded track otherwise streams
+        // without the `playedFrom` annotation, so its play lands in the server log with no
+        // provenance — and provenance is the only way to tell which playlist a play came from,
+        // which is what every judgement about whether a playlist works is made from. It also
+        // picks up the native-format passthrough (see `StreamSeek`).
+        guard let url = try? annotatedStreamURL(queue[nextIndex].id) else { return }
         isCrossfading = true
         didHandleEnd = true // suppress the outgoing track's normal end handler
         // ...but still report the outgoing track as completed, so its final progress is saved
@@ -1772,10 +1891,10 @@ final class StreamingPlaybackController {
         queue = snapshot.songs
         currentIndex = max(0, min(snapshot.index, snapshot.songs.count - 1))
         queueSource = snapshot.source
-        // Defer the seek to when the item reaches `readyToPlay` (see the status
-        // observer in `loadCurrent`) instead of racing a fixed delay.
-        if snapshot.position > 0 { pendingSeek = snapshot.position }
-        loadCurrent(autoplay: false)
+        // Ask the server for the stream *from* the saved position rather than loading at 0 and
+        // seeking: a long set resumes instantly and correctly even on a cold transcode, which
+        // can't be seeked at all (see `StreamSeek`).
+        loadCurrent(autoplay: false, startingAt: max(0, snapshot.position))
     }
 
     /// A one-line "now playing" summary for the `music_now_playing` tool.
