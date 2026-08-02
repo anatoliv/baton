@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785632706.1512494,
-    "ast_hash": "4347a5e1e7299b5cb7e46bc24108f919",
+    "mtime": 1785633507.4863434,
+    "ast_hash": "d6f7a8e7eb5dbea2f4df97262f05abb9",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785632541.8152587,
-    "ast_hash": "850d5fe5fa7fded7d84f3d144871d372",
+    "mtime": 1785633340.9937048,
+    "ast_hash": "b13b4560fde9b78293fd7fe52211cf9b",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -445,8 +445,8 @@
     "semantic_hash": "ce9a42bd01b21ca5cc73a16a7bd90684"
   },
   "app/Sources/Baton/Shell/Music/MusicMix.swift": {
-    "mtime": 1785632541.8155007,
-    "ast_hash": "13707dbfe4192894626444c420917bcb",
+    "mtime": 1785633340.9939208,
+    "ast_hash": "0ce9bd922923b5e92d5be41838f8841e",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/MusicMixesView.swift": {
@@ -1125,8 +1125,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/MixCatalogTests.swift": {
-    "mtime": 1785632541.8157847,
-    "ast_hash": "d3b79adea3a8634bf31431ec2e4e0e37",
+    "mtime": 1785633340.9941235,
+    "ast_hash": "961f7d9b2575a6bf2141c0c8c9a72952",
     "semantic_hash": ""
   },
   "app/Assets.xcassets/MixArtFocusDeep.imageset/Contents.json": {
@@ -1162,6 +1162,36 @@
   "app/Assets.xcassets/MixArtFresh.imageset/Contents.json": {
     "mtime": 1785632541.814573,
     "ast_hash": "6eeab52d2682829d6c9d5cff4868ed95",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtDiscover.imageset/Contents.json": {
+    "mtime": 1785633340.9907756,
+    "ast_hash": "0864171228f22ee25c21e4743649cf52",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtForgotten.imageset/Contents.json": {
+    "mtime": 1785633340.9912572,
+    "ast_hash": "2f5634af0fff50f9fdc85b0119b35b96",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtJustAdded.imageset/Contents.json": {
+    "mtime": 1785633340.9917662,
+    "ast_hash": "46b3ff4956c94fd0c7a769b6570dfaf1",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtMostPlayed.imageset/Contents.json": {
+    "mtime": 1785633340.9921966,
+    "ast_hash": "ae530fba3e9118f7b29611da4f702397",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtOnRepeat.imageset/Contents.json": {
+    "mtime": 1785633340.9927433,
+    "ast_hash": "c2932ae5a0b95fab2d4b835b2cf168a6",
+    "semantic_hash": ""
+  },
+  "app/Assets.xcassets/MixArtTopRated.imageset/Contents.json": {
+    "mtime": 1785633340.9931867,
+    "ast_hash": "b9031c32a92b6e201cafcde391f7ed4f",
     "semantic_hash": ""
   }
 }
