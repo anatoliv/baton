@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785684796.9560368,
-    "ast_hash": "fad833d659ddaea7982b81f96ad21225",
+    "mtime": 1785689966.575413,
+    "ast_hash": "70ad6f08ed4c6222fd2c17d5418941fc",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
