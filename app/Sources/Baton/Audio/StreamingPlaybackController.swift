@@ -74,6 +74,38 @@ final class StreamingPlaybackController {
     /// track-logical reading is `streamStartOffset + player clock`. Zero for a normal load.
     @ObservationIgnored private var streamStartOffset: TimeInterval = 0
 
+    /// Seconds of audio that have actually **played** for the current track.
+    ///
+    /// Not the playhead: seeking forward doesn't listen to what it skipped, and seeking back
+    /// re-listens. Accumulated from the clock observer, counting only small forward steps, so a
+    /// seek contributes nothing. This is the one number that says whether a track was really
+    /// listened to — everything derivable from the server's log measures bytes delivered, and a
+    /// long track buffers completely within minutes however briefly you stay.
+    @ObservationIgnored private var listenedSeconds: TimeInterval = 0
+    /// The clock reading at the previous observer tick, to difference against.
+    @ObservationIgnored private var lastClockSample: TimeInterval?
+    /// A gap larger than this between ticks is a seek or a stall, not listening. The observer
+    /// fires every 0.25 s, so this is generous while still excluding any real jump.
+    static let maxListenStep: TimeInterval = 2.0
+
+    /// The track `listenedSeconds` is being accumulated for, with its length — held separately
+    /// because the report is emitted *after* `nowPlaying` has already moved on.
+    @ObservationIgnored private var listeningTrack: (song: NavidromeSong, duration: TimeInterval)?
+
+    /// Emitted when a track is left, with how much of it actually played. The honest answer to
+    /// "did you listen to this", which nothing derived from the server's access log can give.
+    var onListenFinished: ((NavidromeSong, TimeInterval, TimeInterval) -> Void)?
+
+    /// Close out the current track's listening record and start a fresh one for `song`.
+    private func rotateListenRecord(to song: NavidromeSong?) {
+        if let previous = listeningTrack, listenedSeconds >= 1 {
+            onListenFinished?(previous.song, listenedSeconds, previous.duration)
+        }
+        listenedSeconds = 0
+        lastClockSample = nil
+        listeningTrack = song.map { ($0, Double($0.duration ?? 0)) }
+    }
+
     /// How many times an early end-of-stream has been refused and re-requested for this track.
     /// Bounded, because the refusal is a *diagnosis* — a genuinely truncated or unreadable file
     /// also ends early, and retrying that forever would wedge the queue on it rather than moving
@@ -471,6 +503,22 @@ final class StreamingPlaybackController {
         return parts.url ?? url
     }
 
+    /// Marks a stream request as a **prefetch** — audio fetched ahead of time so a track boundary
+    /// is gap-free, which nobody has heard and may never hear.
+    ///
+    /// Without this a preload is indistinguishable from a play in the server's access log: same
+    /// URL, same `playedFrom`, and it downloads the whole file, so anything counting plays from
+    /// the log counts it as a complete listen. That was measurably corrupting the listening
+    /// signal — two different tracks "completed" one second apart, which is a preload, not a
+    /// listen. Subsonic servers ignore unknown query parameters, so this rides along harmlessly
+    /// and lets the log tell the two apart.
+    nonisolated static func markPrefetch(_ url: URL) -> URL {
+        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "prefetch" }
+            + [URLQueryItem(name: "prefetch", value: "1")]
+        return parts.url ?? url
+    }
+
     /// The stream URL for `songID`, carrying the current queue's provenance.
     ///
     /// `startingAt` asks the server for the stream from that point (Subsonic `timeOffset`), which
@@ -661,7 +709,15 @@ final class StreamingPlaybackController {
                 if self.isSeeking { return }
                 // An offset stream's clock restarts at zero, so the track-logical playhead is
                 // the offset plus the player's clock (`streamStartOffset` is 0 for a normal load).
-                self.currentTime = max(0, self.streamStartOffset + time.seconds)
+                let playhead = max(0, self.streamStartOffset + time.seconds)
+                // Accumulate real listening: only small forward steps, so a seek (or a stall's
+                // catch-up) adds nothing. See `listenedSeconds`.
+                if let previous = self.lastClockSample {
+                    let step = playhead - previous
+                    if step > 0, step <= Self.maxListenStep { self.listenedSeconds += step }
+                }
+                self.lastClockSample = playhead
+                self.currentTime = playhead
                 // Resume: once the item is ready (duration known), jump to the saved offset
                 // exactly once. Done here (not at track start) because the item may not be
                 // seekable and its duration may be unknown until audio actually flows.
@@ -964,6 +1020,11 @@ final class StreamingPlaybackController {
 
         // The synchronous advance — before the ramp starts, so nothing can observe a stale index.
         currentIndex = index
+        // The listening record closes with the logical advance, not with the audio ramp: this is
+        // the moment the outgoing track was left. `finishCrossfade` also rotates, which is then a
+        // no-op — the accumulator is already zero. A manual skip takes this path, so most track
+        // changes land here rather than in `loadCurrent`.
+        rotateListenRecord(to: queue[index])
         currentTime = 0
         duration = Double(queue[index].duration ?? 0)
         scrobbledCurrent = false
@@ -1246,6 +1307,8 @@ final class StreamingPlaybackController {
             scrobbledCurrent = false
             startNotifiedForCurrentItem = false // set true by notifyTrackStarted (autoplay path)
             spuriousEndRecoveries = 0 // a new track starts with a fresh recovery budget
+            // Close out the outgoing track's listening record before the new one begins.
+            rotateListenRecord(to: nowPlaying)
         } else {
             // The listener just chose where to be; a pending resume must not override it.
             pendingResumeOffset = nil
@@ -1424,6 +1487,8 @@ final class StreamingPlaybackController {
     func setStreamStartOffsetForTesting(_ seconds: TimeInterval) { streamStartOffset = seconds }
     /// Test seam: force a queue snapshot without waiting for a transport event.
     func persistQueueForTesting() { persistQueue() }
+    /// Test seam: advance the listening accumulator without waiting out real playback.
+    func accumulateListeningForTesting(_ seconds: TimeInterval) { listenedSeconds += seconds }
     #endif
 
     /// A track finished. Hard-cut to the next queued track, or stop cleanly at the
@@ -1546,7 +1611,9 @@ final class StreamingPlaybackController {
         guard isGaplessMode, state == .playing, !isCrossfading, !sleepAfterCurrentTrack,
               gaplessPreload == nil, let planned, let current = loadedItem else { return }
         let songID = queue[planned].id
-        guard let streamURL = try? annotatedStreamURL(songID) else { return }
+        // Marked as a prefetch: this downloads a whole track that may never be heard, and an
+        // unmarked one is counted as a complete play by anything reading the server's access log.
+        guard let streamURL = (try? annotatedStreamURL(songID)).map(Self.markPrefetch) else { return }
         // Prefer an already-prefetched local file (or an offline download, which
         // streamURLProvider already resolves to a file URL) so the handoff is gap-free.
         let preloadURL = GaplessPreload.preloadURL(stream: streamURL, cached: gaplessPrefetcher.cachedURL(for: songID))
@@ -1641,6 +1708,7 @@ final class StreamingPlaybackController {
         currentTime = 0
         duration = Double(song.duration ?? 0)
         didHandleEnd = false
+        rotateListenRecord(to: song)
         scrobbledCurrent = false
         resetFade()
         attachItemObservers(item)
@@ -1848,6 +1916,11 @@ final class StreamingPlaybackController {
         // player is a new stream either way, and `alreadyAdvanced` only means the logical index
         // was reconciled elsewhere, not that the offset still applies.
         streamStartOffset = 0
+        // A crossfade is a track boundary like any other, so the outgoing track's listening
+        // record closes here too. Unconditional: `alreadyAdvanced` only means the logical index
+        // was reconciled elsewhere, not that the boundary didn't happen. (A manual skip is a
+        // short crossfade, so this is the path most track changes actually take.)
+        rotateListenRecord(to: queue[nextIndex])
         if !alreadyAdvanced {
             currentIndex = nextIndex
             currentTime = 0

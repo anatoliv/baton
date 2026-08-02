@@ -363,6 +363,28 @@ struct NavidromeClient {
         _ = try await performJSON("scrobble.view", query: query)
     }
 
+    /// Reports how much of a track actually **played**, once it is left.
+    ///
+    /// Rides on the "now playing" scrobble (`submission=false`), which by design does not touch
+    /// play counts — this only needs to reach the server's access log, where the listening
+    /// pipeline reads it. Subsonic servers ignore query parameters they don't know, so
+    /// `listened` / `trackDuration` are inert to the server and meaningful downstream.
+    ///
+    /// It exists because **no server-side signal can answer "did they listen"**. The access log
+    /// records bytes delivered, and a long track buffers completely within a few minutes however
+    /// briefly the listener stays — so every long track looks fully played. Only the client knows.
+    func reportListen(id: String, listenedSeconds: Int, trackDuration: Int?) async throws {
+        var query = [
+            URLQueryItem(name: "id", value: id),
+            URLQueryItem(name: "submission", value: "false"),
+            URLQueryItem(name: "listened", value: String(max(0, listenedSeconds))),
+        ]
+        if let trackDuration, trackDuration > 0 {
+            query.append(URLQueryItem(name: "trackDuration", value: String(trackDuration)))
+        }
+        _ = try await performJSON("scrobble.view", query: query)
+    }
+
     // MARK: - Playlist CRUD
 
     /// Creates a playlist with optional initial songs (`createPlaylist`). Returns

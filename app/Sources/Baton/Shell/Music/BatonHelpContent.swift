@@ -234,6 +234,26 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.11.6",
+            date: "2026",
+            highlight: "Your listening history now reflects what you actually listened to.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Baton now tells your server how much of a track actually played. "
+                        + "Servers can only see how much was downloaded, and a long track "
+                        + "downloads completely within minutes however briefly you stay \u{2014} so "
+                        + "anything built on listening statistics was counting a few minutes of "
+                        + "a long mix as having heard all of it."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Tracks buffered ahead for gapless playback are now marked as such, so "
+                        + "a track you never heard is no longer recorded as a complete play."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.11.5",
             date: "2026",
             highlight: "No more silent gaps between tracks after resuming or seeking.",
