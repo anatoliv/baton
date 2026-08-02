@@ -98,3 +98,57 @@ final class SearchFoldingTests: XCTestCase {
         XCTAssertEqual(NavidromeClient.foldedForSearch(once), once)
     }
 }
+
+/// Stream-URL provenance.
+///
+/// A play recorded downstream says only "this track was played". A track that appears in
+/// two playlists is then indistinguishable between them, so any judgement about whether a
+/// *playlist* works has to be inferred from membership. Annotating the stream request with
+/// its queue source makes that observable instead.
+@MainActor
+final class StreamProvenanceTests: XCTestCase {
+    private let base = URL(string: "https://example.test/rest/stream.view?id=abc&format=mp3")!
+
+    private func source(_ kind: StreamingPlaybackController.QueueSource.Kind,
+                        id: String? = nil) -> StreamingPlaybackController.QueueSource {
+        .init(label: "L", kind: kind, id: id)
+    }
+
+    func testPlaylistProvenanceCarriesKindAndID() {
+        let url = StreamingPlaybackController.annotate(base, with: source(.playlist, id: "pl42"))
+        XCTAssertTrue(url.absoluteString.contains("playedFrom=playlist:pl42")
+                      || url.absoluteString.contains("playedFrom=playlist%3Apl42"),
+                      url.absoluteString)
+    }
+
+    func testSourceWithoutAnIDStillRecordsItsKind() {
+        let url = StreamingPlaybackController.annotate(base, with: source(.search))
+        XCTAssertTrue(url.absoluteString.contains("playedFrom=search"), url.absoluteString)
+    }
+
+    func testNoSourceLeavesTheURLUntouched() {
+        XCTAssertEqual(StreamingPlaybackController.annotate(base, with: nil), base)
+    }
+
+    func testExistingParametersSurvive() {
+        // The auth and format params must reach the server intact — dropping `format=mp3`
+        // would break playback of every Opus file in a YouTube-sourced library.
+        let url = StreamingPlaybackController.annotate(base, with: source(.album, id: "a1"))
+        XCTAssertTrue(url.absoluteString.contains("id=abc"))
+        XCTAssertTrue(url.absoluteString.contains("format=mp3"))
+    }
+
+    func testAnnotationIsSafeForEveryQueueKind() {
+        for kind in [StreamingPlaybackController.QueueSource.Kind.playlist, .album, .artist,
+                     .radio, .search, .liked, .song] {
+            let url = StreamingPlaybackController.annotate(base, with: source(kind, id: "x"))
+            XCTAssertTrue(url.absoluteString.contains("playedFrom="), "\(kind)")
+        }
+    }
+
+    func testAnEmptyIDDoesNotProduceATrailingSeparator() {
+        let url = StreamingPlaybackController.annotate(base, with: source(.playlist, id: ""))
+        XCTAssertFalse(url.absoluteString.contains("playlist:"), url.absoluteString)
+        XCTAssertFalse(url.absoluteString.contains("playlist%3A"), url.absoluteString)
+    }
+}
