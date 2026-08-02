@@ -234,6 +234,27 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.3",
+            date: "2026",
+            highlight: "Follow-up messages now know what you were just talking about.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Ask a chat remote to \u{201C}show me tracks for Dido\u{201D} and then "
+                        + "\u{201C}play the second one\u{201D}, and it works. Each chat "
+                        + "remembers its last few exchanges, so a follow-up refers to what was "
+                        + "just listed instead of searching for the words you typed."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "That memory is deliberately short: it lives only while Baton runs, "
+                        + "covers a few recent exchanges, expires after a quiet half hour, and "
+                        + "is separate for every chat. Send \u{201C}forget\u{201D} to clear it "
+                        + "whenever you like."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.2",
             date: "2026",
             highlight: "Plain English can now run on any model \u{2014} including one on your own hardware.",
