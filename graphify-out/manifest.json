@@ -165,8 +165,8 @@
     "semantic_hash": "2168db8ac8244479c3c7f1910f3933b9"
   },
   "app/Sources/Baton/Audio/StreamingPlaybackController.swift": {
-    "mtime": 1785689662.5288212,
-    "ast_hash": "6dc49861b1adef1d937573ccb1c9cb11",
+    "mtime": 1785691193.9034839,
+    "ast_hash": "30a084d4e14fd7ae6e6d7b3f65337ce2",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Audio/TransportTransitions.swift": {
@@ -205,8 +205,8 @@
     "semantic_hash": "7f69d2c0a3b662a36d5e6c5a7c8de539"
   },
   "app/Sources/Baton/Integrations/Navidrome/NavidromeClient.swift": {
-    "mtime": 1785618697.849989,
-    "ast_hash": "b5665d2ec0277b015fe51831ced645b7",
+    "mtime": 1785690858.1129792,
+    "ast_hash": "bc905243a6f6888947c979ff3766c870",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Integrations/Navidrome/NavidromeConfig.swift": {
@@ -285,9 +285,9 @@
     "semantic_hash": "76311ebeb6f32175814cf6067e29d51a"
   },
   "app/Sources/Baton/Model/MusicModel.swift": {
-    "mtime": 1785373797.237767,
-    "ast_hash": "48f1d5a1f397dc0e84050a8f1edd6214",
-    "semantic_hash": "48f1d5a1f397dc0e84050a8f1edd6214"
+    "mtime": 1785690865.9472132,
+    "ast_hash": "fee7c7aba891289464344afefdaa0270",
+    "semantic_hash": ""
   },
   "app/Sources/Baton/Model/MusicPersonalization.swift": {
     "mtime": 1784420416.9926872,
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785689736.500734,
-    "ast_hash": "6bb53369dc747ffb635900df895503ab",
+    "mtime": 1785691426.8452537,
+    "ast_hash": "0bf7e3b9aa5dac45ddf144203881776e",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1060,14 +1060,14 @@
     "semantic_hash": "fb8da53fc270d3e1b527610ba766726f"
   },
   "scripts/publish-site.sh": {
-    "mtime": 1784766010.16752,
-    "ast_hash": "eeeb922c3c9d561c3f37cf4d3c3f17a0",
-    "semantic_hash": "eeeb922c3c9d561c3f37cf4d3c3f17a0"
+    "mtime": 1785690125.907457,
+    "ast_hash": "9013cc08c8da823c1abe0f447664afe7",
+    "semantic_hash": ""
   },
   "scripts/publish.sh": {
-    "mtime": 1785378211.5704837,
-    "ast_hash": "3f40e70a640d854dc4273d6c0d5bcac9",
-    "semantic_hash": "3f40e70a640d854dc4273d6c0d5bcac9"
+    "mtime": 1785690135.6816943,
+    "ast_hash": "edae08b0da1b64744a38cbf35ac39fe5",
+    "semantic_hash": ""
   },
   "scripts/test.sh": {
     "mtime": 1784534804.8935015,
@@ -1217,6 +1217,11 @@
   "app/Tests/BatonTests/StreamSeekTests.swift": {
     "mtime": 1785684412.0167582,
     "ast_hash": "46396932f1f23f2bd7e8e36c445aec56",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/ListenAccountingTests.swift": {
+    "mtime": 1785690958.2016253,
+    "ast_hash": "c24785b9c42b0b89091067c5a6b6940d",
     "semantic_hash": ""
   }
 }
