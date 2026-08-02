@@ -1199,6 +1199,7 @@ and `/pause` do the same thing.
 | `radio` | Endless "more like this" from the current track |
 | `shuffle on` · `repeat one` | Modes (`repeat` takes `off`, `all`, or `one`) |
 | `sleep 30` | Pause in 30 minutes (`sleep off` cancels) |
+| `forget` | Clear what this chat remembers |
 | `help` | The list, in the chat |
 
 Replies come with buttons for the common actions, so skipping a track is a tap rather than a
@@ -1247,6 +1248,12 @@ without it.
 
 If you use a phrase that collides with a command, put `ask` in front to force the
 plain-English reading: `ask play something quiet`.
+
+**Follow-ups work.** Each chat remembers its last few exchanges, so you can say "show me
+tracks for Dido" and then "play the second one" and it knows what you mean. That memory is
+short on purpose: it lives only while Baton is running, covers a few recent exchanges,
+expires after about half an hour of quiet, and is kept separately for each chat. Send
+`forget` to clear it whenever you like.
 
 This is the one feature in Baton that talks to a third party, and it's off until you switch it
 on. What leaves your Mac is the sentence you typed and the list of Baton's own commands —

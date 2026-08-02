@@ -46,6 +46,10 @@ enum RemoteNaturalLanguage {
     - When the message names an artist, album, or song, pass it through as the \
     query verbatim rather than rewriting it.
     - If the message is a question about what is playing, use music_now_playing.
+    - Earlier turns are there so follow-ups resolve: "select one of them", "the \
+    second one", "play that" refer to what you last listed or played. Pick the \
+    specific track from that context and pass its exact title as the query, \
+    rather than searching for the words the person just used.
     """
 
     struct Resolution: Sendable {
@@ -88,11 +92,12 @@ enum RemoteNaturalLanguage {
         _ message: String,
         config: RemoteControlSettings.NaturalLanguageConfig,
         tools: RemoteToolSchemas,
+        history: [RemoteConversationLog.Turn] = [],
         session: URLSession = .shared
     ) async throws -> Resolution {
         guard config.isConfigured else { throw Failure.notConfigured }
 
-        let request = try buildRequest(message, config: config, tools: tools)
+        let request = try buildRequest(message, config: config, tools: tools, history: history)
         let (data, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
@@ -213,8 +218,14 @@ enum RemoteNaturalLanguage {
     static func buildRequest(
         _ message: String,
         config: RemoteControlSettings.NaturalLanguageConfig,
-        tools: RemoteToolSchemas
+        tools: RemoteToolSchemas,
+        history: [RemoteConversationLog.Turn] = []
     ) throws -> URLRequest {
+        // Prior turns first, this message last. Both dialects use the same
+        // role names, so the transcript is built once.
+        let priorTurns = history.map { ["role": $0.role, "content": $0.text] }
+        let transcript = priorTurns + [["role": "user", "content": message]]
+
         var request = URLRequest(url: try endpoint(for: config))
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -237,7 +248,7 @@ enum RemoteNaturalLanguage {
                 // text instead of a structured one.)
                 "output_config": ["effort": "low"],
                 "tools": tools.json,
-                "messages": [["role": "user", "content": message]],
+                "messages": transcript,
             ]
 
         case .openAICompatible:
@@ -259,10 +270,7 @@ enum RemoteNaturalLanguage {
                         "parameters": schema["input_schema"] ?? [:],
                     ]]
                 },
-                "messages": [
-                    ["role": "system", "content": systemPrompt],
-                    ["role": "user", "content": message],
-                ],
+                "messages": [["role": "system", "content": systemPrompt]] + transcript,
             ]
         }
 

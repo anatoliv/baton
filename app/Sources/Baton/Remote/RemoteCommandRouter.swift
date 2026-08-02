@@ -34,22 +34,49 @@ final class RemoteCommandRouter {
     private let music: MusicModel
     private let focus: BatonAudioFocusRegistry
     private let settings: RemoteControlSettings
+    /// Short per-chat memory, so "select one of them" has something to select
+    /// from. In memory only, and never sent for typed commands — only the
+    /// natural-language path needs the context.
+    let conversation: RemoteConversationLog
+
     /// Injectable so tests can exercise routing without a network call.
     var resolveNaturalLanguage: (
-        String, RemoteControlSettings.NaturalLanguageConfig, RemoteToolSchemas
+        String, RemoteControlSettings.NaturalLanguageConfig, RemoteToolSchemas,
+        [RemoteConversationLog.Turn]
     ) async throws -> RemoteNaturalLanguage.Resolution = {
-        try await RemoteNaturalLanguage.resolve($0, config: $1, tools: $2)
+        try await RemoteNaturalLanguage.resolve($0, config: $1, tools: $2, history: $3)
     }
 
-    init(music: MusicModel, focus: BatonAudioFocusRegistry, settings: RemoteControlSettings) {
+    init(
+        music: MusicModel,
+        focus: BatonAudioFocusRegistry,
+        settings: RemoteControlSettings,
+        conversation: RemoteConversationLog = RemoteConversationLog()
+    ) {
         self.music = music
         self.focus = focus
         self.settings = settings
+        self.conversation = conversation
     }
 
     // MARK: Entry point
 
     func handle(_ inbound: RemoteInbound) async -> RemoteReply? {
+        let reply = await route(inbound)
+        // Remember the exchange whatever produced it: a follow-up to a *typed*
+        // command ("play dido" → "actually, the live one") needs the same
+        // context as a follow-up to a spoken one.
+        if let reply {
+            conversation.record(
+                key: RemoteConversationLog.key(for: inbound),
+                user: inbound.text,
+                assistant: reply.text
+            )
+        }
+        return reply
+    }
+
+    private func route(_ inbound: RemoteInbound) async -> RemoteReply? {
         let action = RemoteCommandParser.parse(inbound.text)
         if case .ignore = action { return nil }
 
@@ -77,6 +104,10 @@ final class RemoteCommandRouter {
         case .help:
             return .plain(Self.helpText)
 
+        case .forget:
+            conversation.forget(key: RemoteConversationLog.key(for: inbound))
+            return .plain("Forgotten — the next message starts fresh.")
+
         case .link:
             return .plain("This chat is already linked.")
 
@@ -92,7 +123,8 @@ final class RemoteCommandRouter {
             }
             do {
                 let tools = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
-                let resolution = try await resolveNaturalLanguage(text, settings.naturalLanguage, tools)
+                let history = conversation.history(for: RemoteConversationLog.key(for: inbound))
+                let resolution = try await resolveNaturalLanguage(text, settings.naturalLanguage, tools, history)
                 var reply = await run(resolution.call)
                 if let preamble = resolution.preamble, !preamble.isEmpty {
                     reply.text = preamble + "\n\n" + reply.text
@@ -152,7 +184,7 @@ final class RemoteCommandRouter {
     *Queue* — `queue <what>` · `playnext <what>` · `queue` (show it)
     *Sound* — `vol 0–100` · `seek 1:30` · `shuffle on|off` · `repeat off|all|one`
     *Library* — `search <what>` · `like` · `unlike` · `rate 0–5` · `playlists` · `playlist <name>`
-    *More* — `mix <vibe>` · `radio <seed>` · `sleep 30` · `np` (now playing)
+    *More* — `mix <vibe>` · `radio <seed>` · `sleep 30` · `np` (now playing) · `forget`
 
     Anything I don't recognize, I'll read as plain English if natural language \
     is switched on in Baton → Settings → Remote.

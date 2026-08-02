@@ -1,16 +1,16 @@
 # Graph Report - baton  (2026-08-02)
 
 ## Corpus Check
-- 255 files · ~252,226 words
+- 257 files · ~253,558 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4912 nodes · 10097 edges · 244 communities (206 shown, 38 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 227 edges (avg confidence: 0.8)
+- 4943 nodes · 10162 edges · 244 communities (205 shown, 39 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 229 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `0ed874fd`
+- Built from commit: `51ad53ef`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -137,7 +137,6 @@
 - [[_COMMUNITY_Community 119|Community 119]]
 - [[_COMMUNITY_Community 120|Community 120]]
 - [[_COMMUNITY_Community 121|Community 121]]
-- [[_COMMUNITY_Community 122|Community 122]]
 - [[_COMMUNITY_Community 123|Community 123]]
 - [[_COMMUNITY_Community 124|Community 124]]
 - [[_COMMUNITY_Community 125|Community 125]]
@@ -229,6 +228,7 @@
 - [[_COMMUNITY_Community 211|Community 211]]
 - [[_COMMUNITY_Community 212|Community 212]]
 - [[_COMMUNITY_Community 213|Community 213]]
+- [[_COMMUNITY_Community 214|Community 214]]
 - [[_COMMUNITY_Community 215|Community 215]]
 - [[_COMMUNITY_Community 217|Community 217]]
 - [[_COMMUNITY_Community 218|Community 218]]
@@ -248,7 +248,6 @@
 - [[_COMMUNITY_Community 232|Community 232]]
 - [[_COMMUNITY_Community 233|Community 233]]
 - [[_COMMUNITY_Community 239|Community 239]]
-- [[_COMMUNITY_Community 240|Community 240]]
 - [[_COMMUNITY_Community 241|Community 241]]
 - [[_COMMUNITY_Community 242|Community 242]]
 - [[_COMMUNITY_Community 243|Community 243]]
@@ -282,7 +281,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (244 total, 38 thin omitted)
+## Communities (244 total, 39 thin omitted)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.18
@@ -297,8 +296,8 @@ Cohesion: 0.07
 Nodes (27): Bool, Data, Date, Double, Int, Int64, NavidromeSong, NSKeyValueObservation (+19 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.11
-Nodes (27): Error, Any, BatonAudioFocusRegistry, Bool, Double, Int, MusicModel, NavidromeAlbum (+19 more)
+Cohesion: 0.15
+Nodes (17): Error, Any, BatonAudioFocusRegistry, Bool, Double, Int, MusicModel, NavidromeAlbum (+9 more)
 
 ### Community 5 - "Community 5"
 Cohesion: 0.07
@@ -313,16 +312,16 @@ Cohesion: 0.09
 Nodes (15): Bool, Error, Int, NavidromeAlbum, NavidromeArtist, NavidromeClient, NavidromeCredentials, NavidromeGenre (+7 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.07
-Nodes (4): GenreSymbolTests, MixArtworkCoverageTests, MixCatalogTests, MixMeshBackdropTests
+Cohesion: 0.10
+Nodes (3): GenreSymbolTests, MixArtworkCoverageTests, MixMeshBackdropTests
 
 ### Community 9 - "Community 9"
 Cohesion: 0.10
 Nodes (38): AlbumWire, Bool, Double, Int, NavidromeLyrics, SubsonicResponse, ArtistWire, Decodable (+30 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.05
-Nodes (31): Bool, String, Bool, Int, MainActor, NavidromeRadioStation, NSKeyValueObservation, Set (+23 more)
+Cohesion: 0.08
+Nodes (24): Bool, Int, MainActor, NavidromeRadioStation, NSKeyValueObservation, Set, StreamingPlaybackController, String (+16 more)
 
 ### Community 11 - "Community 11"
 Cohesion: 0.15
@@ -333,20 +332,20 @@ Cohesion: 0.09
 Nodes (22): Any, NavidromeSong, String, BatonMCPAuth, BatonMCPConstants, HTTPRequestMessage, HTTPResponse, JSONRPC (+14 more)
 
 ### Community 13 - "Community 13"
-Cohesion: 0.31
-Nodes (9): Bool, Data, Int, URL, JSONEncoder, Logger, Envelope, VersionedStore (+1 more)
+Cohesion: 0.18
+Nodes (17): Bool, Data, Int, Set, String, UserDefaults, ExportResult, ImportResult (+9 more)
 
 ### Community 14 - "Community 14"
 Cohesion: 0.07
 Nodes (27): Bool, CGFloat, Color, Hasher, Int, Theme, URL, BatonHelpView (+19 more)
 
 ### Community 15 - "Community 15"
-Cohesion: 0.07
+Cohesion: 0.08
 Nodes (19): Bool, CGFloat, MusicModel, Never, NSObjectProtocol, SpeechPlaybackEngine, Task, Void (+11 more)
 
 ### Community 16 - "Community 16"
-Cohesion: 0.21
-Nodes (10): Bool, Int, MusicBrowseLayout, PinStore, String, URL, Void, MusicPinnedView (+2 more)
+Cohesion: 0.07
+Nodes (26): Bool, Int, MusicBrowseLayout, PinStore, String, URL, Void, Bool (+18 more)
 
 ### Community 17 - "Community 17"
 Cohesion: 0.11
@@ -369,16 +368,16 @@ Cohesion: 0.10
 Nodes (19): Biquad, Double, EQCoefficients, Float, Int, UInt64, UnsafeMutablePointer, Biquad (+11 more)
 
 ### Community 22 - "Community 22"
-Cohesion: 0.10
-Nodes (16): Any, ClosedRange, Date, Int, Int64, LoudnessMode, Never, NSKeyValueObservation (+8 more)
+Cohesion: 0.09
+Nodes (20): Any, async, BatonEnvironment, Date, Float, Int64, LoudnessMode, MainActor (+12 more)
 
 ### Community 23 - "Community 23"
-Cohesion: 0.05
-Nodes (53): Self, Date, CaseIterable, Identifiable, BatonSettingsCategory, about, actions, agents (+45 more)
+Cohesion: 0.06
+Nodes (45): Self, CaseIterable, Identifiable, BatonSettingsCategory, about, actions, agents, equalizer (+37 more)
 
 ### Community 24 - "Community 24"
 Cohesion: 0.09
-Nodes (30): BatonAboutView, String, MusicMix, BatonCommandRouter, Bool, Double, Image, Int (+22 more)
+Nodes (25): BatonCommandRouter, Bool, Double, Image, Int, MusicBrowseLayout, NavidromePodcastEpisode, NavidromeSong (+17 more)
 
 ### Community 25 - "Community 25"
 Cohesion: 0.10
@@ -393,8 +392,8 @@ Cohesion: 0.12
 Nodes (19): Actions, Bool, Color, Int, MusicModel, NavidromeAlbum, NavidromeArtist, NavidromePlaylist (+11 more)
 
 ### Community 28 - "Community 28"
-Cohesion: 0.19
-Nodes (12): Bool, NavidromeAuthMode, NavidromeClient, NavidromeCredentials, String, URL, URLSession, UserDefaults (+4 more)
+Cohesion: 0.06
+Nodes (30): Bool, NavidromeAuthMode, NavidromeClient, NavidromeCredentials, String, URL, URLSession, UserDefaults (+22 more)
 
 ### Community 29 - "Community 29"
 Cohesion: 0.15
@@ -409,8 +408,8 @@ Cohesion: 0.11
 Nodes (19): Bool, Double, Image, Int, MusicBrowseLayout, NavidromeSong, PodcastChannel, PodcastEpisode (+11 more)
 
 ### Community 33 - "Community 33"
-Cohesion: 0.17
-Nodes (9): CGFloat, Color, Image, Int, NSColor, NSImage, String, View (+1 more)
+Cohesion: 0.09
+Nodes (22): Bool, Color, NavidromeArtist, String, Bool, Color, Int, NavidromeLyrics (+14 more)
 
 ### Community 34 - "Community 34"
 Cohesion: 0.20
@@ -421,8 +420,8 @@ Cohesion: 0.20
 Nodes (11): Bool, Float, Never, String, Task, Void, OutputVolumeController, Snapshot (+3 more)
 
 ### Community 36 - "Community 36"
-Cohesion: 0.15
-Nodes (9): Alert, Data, Double, Int, Never, URL, PlayerDelegate, SpeechPlaybackEngine (+1 more)
+Cohesion: 0.13
+Nodes (12): Alert, Bool, Data, Double, Int, Never, Task, URL (+4 more)
 
 ### Community 37 - "Community 37"
 Cohesion: 0.18
@@ -437,11 +436,11 @@ Cohesion: 0.10
 Nodes (22): Bool, Set, BatonEnvironment, NaturalLanguageConfig, PlatformConfig, Keys, LLMProvider, anthropic (+14 more)
 
 ### Community 40 - "Community 40"
-Cohesion: 0.08
-Nodes (27): Any, BatonAudioFocusRegistry, Bool, Int, MusicModel, RemoteControlSettings, RemotePlatform, RemoteToolCall (+19 more)
+Cohesion: 0.18
+Nodes (13): Int, Bool, Date, Int, NavidromeSong, PortableListen, String, URL (+5 more)
 
 ### Community 41 - "Community 41"
-Cohesion: 0.13
+Cohesion: 0.12
 Nodes (3): String, SpeechSessionLabelTests, SpeechSessionLabels
 
 ### Community 42 - "Community 42"
@@ -449,24 +448,24 @@ Cohesion: 0.12
 Nodes (17): BandSpec, Biquad, CodingKeys, frequency, gainDB, q, EQBand, EQCoefficients (+9 more)
 
 ### Community 43 - "Community 43"
-Cohesion: 0.05
-Nodes (49): Accessory, AnyHashable, Binding, Bool, CGFloat, Color, Content, DownloadStatusBadge (+41 more)
+Cohesion: 0.08
+Nodes (36): Accessory, AnyHashable, Binding, Bool, CGFloat, Color, Content, DownloadStatusBadge (+28 more)
 
 ### Community 44 - "Community 44"
 Cohesion: 0.13
 Nodes (7): HTTPURLResponse, Int, MusicDownloadStore, NavidromeSong, String, URL, DownloadValidationTests
 
 ### Community 45 - "Community 45"
-Cohesion: 0.13
-Nodes (19): BatonSettingsCategory, Bool, Color, HelpTour, HelpTourStep, HelpWhatsNewChangeKind, HelpSettingsButton, HelpTour (+11 more)
+Cohesion: 0.11
+Nodes (22): BatonSettingsCategory, Bool, Color, HelpTour, HelpTourStep, HelpWhatsNewChange, HelpWhatsNewChangeKind, HelpSettingsButton (+14 more)
 
 ### Community 47 - "Community 47"
 Cohesion: 0.08
 Nodes (26): CodingKeys, album, albumID, artist, artworkURL, bitDepth, bitRate, bpm (+18 more)
 
 ### Community 48 - "Community 48"
-Cohesion: 0.16
-Nodes (16): Any, Bool, Int, String, RemoteAction, help, ignore, link (+8 more)
+Cohesion: 0.15
+Nodes (17): Any, Bool, Int, String, RemoteAction, forget, help, ignore (+9 more)
 
 ### Community 49 - "Community 49"
 Cohesion: 0.14
@@ -477,32 +476,32 @@ Cohesion: 0.17
 Nodes (11): Bool, ClosedRange, Double, Set, String, TimeInterval, URL, Strategy (+3 more)
 
 ### Community 51 - "Community 51"
-Cohesion: 0.06
-Nodes (42): Any, Bool, Error, Int, Never, RemoteCommandRouter, RemoteConnectionState, RemoteReply (+34 more)
+Cohesion: 0.10
+Nodes (25): Any, Bool, Error, Int, Never, RemoteCommandRouter, RemoteConnectionState, RemoteReply (+17 more)
 
 ### Community 52 - "Community 52"
 Cohesion: 0.14
 Nodes (20): Any, Bool, Int, MixBuilder, MusicModel, NavidromeClient, NavidromeSong, Set (+12 more)
 
 ### Community 53 - "Community 53"
-Cohesion: 0.06
-Nodes (33): Binding, Bool, Int, MainActor, MusicBrowseLayout, MusicLibraryStore, NavidromeAlbum, NavidromePlaylist (+25 more)
+Cohesion: 0.05
+Nodes (39): Binding, Bool, Int, MainActor, MusicBrowseLayout, MusicLibraryStore, NavidromeAlbum, NavidromePlaylist (+31 more)
 
 ### Community 54 - "Community 54"
-Cohesion: 0.22
-Nodes (5): RemoteCommandRouter, RemoteControlSettings, String, RemoteAuthorizationTests, RemoteInbound
+Cohesion: 0.09
+Nodes (19): Any, Bool, RemoteControlSettings, RemoteConversationLog, RemoteToolCall, Set, String, RemoteControlSettings (+11 more)
 
 ### Community 55 - "Community 55"
 Cohesion: 0.07
-Nodes (7): ControlSocketIOTests, DownloadStatusBadgeTests, MCPServerVersionTests, SearchFilterTests, SymbolCatalogTests, BatonSmokeUITests, XCTestCase
+Nodes (7): ControlSocketIOTests, DownloadStatusBadgeTests, MCPServerVersionTests, NavidromeURLValidationTests, SearchFilterTests, BatonSmokeUITests, XCTestCase
 
 ### Community 57 - "Community 57"
-Cohesion: 0.10
-Nodes (8): MusicBrowseLayout, MusicLibraryStore, NavidromeArtist, NavidromeSearchResults, Segment, FormatFilter, MusicCollectionView, RatingFilter
+Cohesion: 0.08
+Nodes (12): MusicBrowseLayout, MusicLibraryStore, NavidromeAlbum, NavidromeArtist, NavidromeSearchResults, Segment, StreamingPlaybackController, String (+4 more)
 
 ### Community 58 - "Community 58"
-Cohesion: 0.14
-Nodes (6): Any, Int, MusicDownloadStore, String, URL, DownloadsTests
+Cohesion: 0.19
+Nodes (3): ClosedRange, Int, TimeInterval
 
 ### Community 59 - "Community 59"
 Cohesion: 0.17
@@ -513,8 +512,8 @@ Cohesion: 0.19
 Nodes (10): BatonEnvironment, Bool, Double, EQBand, Int, String, UserDefaults, Void (+2 more)
 
 ### Community 61 - "Community 61"
-Cohesion: 0.14
-Nodes (8): AVPlayerItem, AVQueuePlayer, Double, Float, MainActor, Task, Void, error
+Cohesion: 0.23
+Nodes (6): AVPlayerItem, AVQueuePlayer, Bool, Double, Task, error
 
 ### Community 62 - "Community 62"
 Cohesion: 0.18
@@ -545,8 +544,8 @@ Cohesion: 0.20
 Nodes (9): Bool, Data, NavidromeSong, PodcastChannel, String, URL, VersionedStore, PodcastEpisode (+1 more)
 
 ### Community 69 - "Community 69"
-Cohesion: 0.20
-Nodes (11): Bool, Date, Int, NavidromeSong, Set, String, UserDefaults, Codable (+3 more)
+Cohesion: 0.19
+Nodes (13): Bool, Date, Int, NavidromeSong, Set, String, UserDefaults, Codable (+5 more)
 
 ### Community 70 - "Community 70"
 Cohesion: 0.17
@@ -561,12 +560,12 @@ Cohesion: 0.15
 Nodes (12): async, Bool, Int, Int64, MainActor, MusicGaplessCache, Never, String (+4 more)
 
 ### Community 73 - "Community 73"
-Cohesion: 0.13
+Cohesion: 0.15
 Nodes (4): RemoteControlSettings, String, RemoteNaturalLanguageTests, Data
 
 ### Community 74 - "Community 74"
 Cohesion: 0.15
-Nodes (10): Header, Int, NavidromeSong, String, HelpWhatsNewChange, HelpWhatsNewRelease, WhatsNewDetailView, MusicTrackInspector (+2 more)
+Nodes (11): BatonAboutView, String, Header, MusicMix, Int, NavidromeSong, String, MusicMixesView (+3 more)
 
 ### Community 75 - "Community 75"
 Cohesion: 0.06
@@ -605,8 +604,8 @@ Cohesion: 0.22
 Nodes (3): NavidromeCredentials, URLSession, RadioTests
 
 ### Community 84 - "Community 84"
-Cohesion: 0.18
-Nodes (11): NavidromeArtistInfo, NavidromeLyrics, DeliveryPlan, Engine, chatterbox, kokoro, SpeechConfig, Voice (+3 more)
+Cohesion: 0.11
+Nodes (16): AgentAccessInfo, NavidromeArtistInfo, NavidromeLyrics, Int64, StreamingPlaybackController, DeliveryPlan, Engine, chatterbox (+8 more)
 
 ### Community 85 - "Community 85"
 Cohesion: 0.27
@@ -617,8 +616,8 @@ Cohesion: 0.21
 Nodes (9): Any, Data, Date, MusicModel, SpeechConfig, String, TimeInterval, URL (+1 more)
 
 ### Community 87 - "Community 87"
-Cohesion: 0.19
-Nodes (10): Bool, Data, Date, Int, String, Meta, ListenArchiveIO, LocalListenRecording (+2 more)
+Cohesion: 0.10
+Nodes (19): AnyObject, Bool, Data, Date, Int, String, Bool, Int (+11 more)
 
 ### Community 88 - "Community 88"
 Cohesion: 0.18
@@ -626,7 +625,7 @@ Nodes (12): Bool, CGFloat, Double, MusicBrowseLayout, MusicDownloadStore, Stream
 
 ### Community 89 - "Community 89"
 Cohesion: 0.05
-Nodes (54): Binding, Bool, CGFloat, Color, Int, MusicModel, NavidromeAlbum, NavidromePlaylist (+46 more)
+Nodes (59): Binding, Bool, CGFloat, SpeechConfig, String, Void, Binding, Bool (+51 more)
 
 ### Community 90 - "Community 90"
 Cohesion: 0.16
@@ -637,7 +636,7 @@ Cohesion: 0.15
 Nodes (7): Any, BatonMCPServer, Int, MusicModel, String, URL, MCPServerE2ETests
 
 ### Community 92 - "Community 92"
-Cohesion: 0.18
+Cohesion: 0.17
 Nodes (8): NavidromeSong, String, State, idle, loading, paused, playing, NowPlayingInfoTests
 
 ### Community 93 - "Community 93"
@@ -645,8 +644,8 @@ Cohesion: 0.28
 Nodes (4): Bool, String, SpeechDeliveryTests, Plan
 
 ### Community 94 - "Community 94"
-Cohesion: 0.25
-Nodes (10): Any, RemoteControlSettings, String, Int, RemoteNaturalLanguage, RemoteToolSchemas, Set, URL (+2 more)
+Cohesion: 0.19
+Nodes (12): Any, Bool, Int, RemoteControlSettings, RemoteConversationLog, Set, String, RemoteNaturalLanguage (+4 more)
 
 ### Community 95 - "Community 95"
 Cohesion: 0.15
@@ -665,8 +664,8 @@ Cohesion: 0.21
 Nodes (7): Any, Bool, Int, Scrobble, String, URLSession, MusicLastFM
 
 ### Community 99 - "Community 99"
-Cohesion: 0.14
-Nodes (15): Binding, Bool, CGFloat, SpeechConfig, String, Void, LoadState, BatonSpeechPane (+7 more)
+Cohesion: 0.27
+Nodes (9): Bool, Int, RemoteInbound, String, Date, RemoteConversationLog, Thread, Turn (+1 more)
 
 ### Community 100 - "Community 100"
 Cohesion: 0.27
@@ -721,8 +720,8 @@ Cohesion: 0.25
 Nodes (5): Int, MixBuilder, String, BatonMCPMixTools, MixHonestyTests
 
 ### Community 113 - "Community 113"
-Cohesion: 0.08
-Nodes (31): Bool, Color, DownloadStatusBadge, DropInfo, DropProposal, Font, Image, Int (+23 more)
+Cohesion: 0.15
+Nodes (10): Image, Int, MusicBrowseLayout, MusicRowAction, NavidromeAlbum, NavidromeArtistInfo, URL, MusicAlbumDetail (+2 more)
 
 ### Community 114 - "Community 114"
 Cohesion: 0.18
@@ -733,7 +732,7 @@ Cohesion: 0.13
 Nodes (15): BatonCommandRouter, Bool, Float, Int, Namespace, NSImage, StreamingPlaybackController, URL (+7 more)
 
 ### Community 116 - "Community 116"
-Cohesion: 0.25
+Cohesion: 0.28
 Nodes (10): Bool, Int, NavidromeSong, String, Void, MusicLikeHeart, MusicMetaBadge, MusicRatingStars (+2 more)
 
 ### Community 117 - "Community 117"
@@ -801,12 +800,12 @@ Cohesion: 0.05
 Nodes (33): BatonAppCommands, BatonCommandRouter, GoMenuCommands, MusicModel, StreamingPlaybackController, MusicView, StreamingPlaybackController, Bool (+25 more)
 
 ### Community 135 - "Community 135"
-Cohesion: 0.20
-Nodes (13): Bool, CGFloat, ClosedRange, Double, EQBand, Int, Void, CGPoint (+5 more)
+Cohesion: 0.07
+Nodes (35): AlertMessage, BatonSettingsCategory, Bool, CGFloat, ClosedRange, Data, Double, EQBand (+27 more)
 
 ### Community 136 - "Community 136"
-Cohesion: 0.07
-Nodes (29): Bool, Data, Double, FileWrapper, Int, MusicBrowseLayout, MusicPlayHistory, NavidromeSong (+21 more)
+Cohesion: 0.14
+Nodes (15): Bool, Int, MusicBrowseLayout, MusicPlayHistory, NavidromeSong, Segment, String, ListenExportDocument (+7 more)
 
 ### Community 137 - "Community 137"
 Cohesion: 0.48
@@ -849,8 +848,8 @@ Cohesion: 0.29
 Nodes (5): NavidromeSong, StreamingPlaybackController, String, UserDefaults, QueueRestoreTests
 
 ### Community 150 - "Community 150"
-Cohesion: 0.14
-Nodes (13): async, BatonEnvironment, MusicGaplessCache, UserDefaults, LoudnessMode, album, off, track (+5 more)
+Cohesion: 0.18
+Nodes (9): Data, FileWrapper, PortableListen, ReadConfiguration, URL, UTType, WriteConfiguration, ListenExportKind (+1 more)
 
 ### Community 151 - "Community 151"
 Cohesion: 0.29
@@ -865,24 +864,24 @@ Cohesion: 0.38
 Nodes (4): Int, String, URL, AgentAccessInfo
 
 ### Community 154 - "Community 154"
-Cohesion: 0.07
-Nodes (24): AgentAccessInfo, AlertMessage, BatonSettingsCategory, Data, FileWrapper, Int64, MusicEqualizer, ReadConfiguration (+16 more)
+Cohesion: 0.19
+Nodes (6): DropInfo, DropProposal, KeyPress, MusicModel, IndexSet, QueueDropDelegate
 
 ### Community 155 - "Community 155"
-Cohesion: 0.20
-Nodes (11): NavidromeSong, AudioFocusToken, Mode, duck, pause, QueueSnapshot, QueueSource, Toast (+3 more)
+Cohesion: 0.08
+Nodes (27): NavidromeSong, String, AudioFocusToken, Kind, album, artist, liked, playlist (+19 more)
 
 ### Community 157 - "Community 157"
-Cohesion: 0.20
-Nodes (8): MusicDownloadStore, MusicRowAction, URL, Void, LikedSongGridCell, MusicLikedSongRow, MusicLikedView, MusicSearchView
+Cohesion: 0.27
+Nodes (7): Bool, DropInfo, DropProposal, Void, DropDelegate, PlaylistDragResetDrop, PlaylistReorderDrop
 
 ### Community 158 - "Community 158"
 Cohesion: 0.38
 Nodes (4): String, InMemorySecretStore, KeychainSecretStore, SecretStore
 
 ### Community 159 - "Community 159"
-Cohesion: 0.18
-Nodes (13): Data, Int, String, URL, AttributedString, JSONDecoder, Option, SupportBatonSection (+5 more)
+Cohesion: 0.23
+Nodes (12): Data, Int, String, URL, AttributedString, Option, SupportBatonSection, Supporter (+4 more)
 
 ### Community 160 - "Community 160"
 Cohesion: 0.11
@@ -893,8 +892,8 @@ Cohesion: 0.22
 Nodes (3): String, UserDefaults, SpeechHistoryTests
 
 ### Community 162 - "Community 162"
-Cohesion: 0.31
-Nodes (7): AnyObject, String, Alert, SpeechDucking, Utterance, file, native
+Cohesion: 0.36
+Nodes (6): String, Alert, SpeechDucking, Utterance, file, native
 
 ### Community 164 - "Community 164"
 Cohesion: 0.14
@@ -905,20 +904,20 @@ Cohesion: 0.19
 Nodes (5): NavidromeSong, StreamingPlaybackController, String, UserDefaults, ListenAccountingTests
 
 ### Community 166 - "Community 166"
-Cohesion: 0.18
-Nodes (11): Bool, Int, Set, FormatFilter, any, lossless, lossy, RatingFilter (+3 more)
+Cohesion: 0.09
+Nodes (22): Bool, Int, MusicDownloadStore, MusicRowAction, Set, URL, Void, FormatFilter (+14 more)
 
 ### Community 167 - "Community 167"
 Cohesion: 0.20
 Nodes (8): App, BatonMCPServer, RemoteControlService, BatonApp, BatonControlSocket, Scene, SpeakingHUDPresenter, SpeechNotificationDelegate
 
 ### Community 168 - "Community 168"
-Cohesion: 0.10
-Nodes (26): BatonCommandRouter, Bool, CGFloat, Color, DropInfo, DropProposal, Int, InternetRadioStore (+18 more)
+Cohesion: 0.14
+Nodes (21): BatonCommandRouter, Bool, CGFloat, Color, Int, InternetRadioStore, Namespace, NavidromeRadioStation (+13 more)
 
 ### Community 169 - "Community 169"
-Cohesion: 0.17
-Nodes (11): Bool, MainActor, Task, Void, AVAudioPlayer, AVAudioPlayerDelegate, AVSpeechSynthesizer, AVSpeechSynthesizerDelegate (+3 more)
+Cohesion: 0.23
+Nodes (9): MainActor, Void, AVAudioPlayerDelegate, AVSpeechSynthesizer, AVSpeechSynthesizerDelegate, AVSpeechUtterance, NSRange, PlayerDelegate (+1 more)
 
 ### Community 170 - "Community 170"
 Cohesion: 0.14
@@ -935,6 +934,10 @@ Nodes (4): NavidromeServerEntry, UUID, EditTarget, BatonServersPane
 ### Community 173 - "Community 173"
 Cohesion: 0.31
 Nodes (7): Bool, Color, Int, NavidromeSong, Void, MusicPanelTrackRow, MusicRelatedView
+
+### Community 175 - "Community 175"
+Cohesion: 0.27
+Nodes (5): NavidromeSong, Segment, albums, artists, songs
 
 ### Community 176 - "Community 176"
 Cohesion: 0.31
@@ -957,8 +960,8 @@ Cohesion: 0.39
 Nodes (4): Bool, NavidromeAuthMode, String, NavidromeDemoServer
 
 ### Community 183 - "Community 183"
-Cohesion: 0.32
-Nodes (5): Context, NSColor, AVRoutePickerView, AirPlayRoutePicker, NSViewRepresentable
+Cohesion: 0.38
+Nodes (4): Context, NSColor, AVRoutePickerView, AirPlayRoutePicker
 
 ### Community 184 - "Community 184"
 Cohesion: 0.32
@@ -969,20 +972,20 @@ Cohesion: 0.32
 Nodes (3): StreamingPlaybackController, UserDefaults, AudiophileInvariantTests
 
 ### Community 187 - "Community 187"
-Cohesion: 0.24
-Nodes (3): String, URL, VersionedStoreTests
+Cohesion: 0.35
+Nodes (4): Bool, String, Event, CrashReporting
 
 ### Community 188 - "Community 188"
-Cohesion: 0.40
-Nodes (6): Bool, String, Group, SFSymbolCatalog, SymbolField, SymbolPickerPopover
+Cohesion: 0.27
+Nodes (6): MusicLibraryStore, NavidromePlaylist, NavidromeSong, StreamingPlaybackController, MusicPlaylistDetail, MusicSongList
 
 ### Community 191 - "Community 191"
 Cohesion: 0.18
 Nodes (8): Data, URLRequest, URLResponse, URLSession, NavidromeAuthMode, apiKey, tokenSalt, NavidromeCredentials
 
 ### Community 192 - "Community 192"
-Cohesion: 0.25
-Nodes (5): NavidromeAlbum, String, Segment, albums, artists
+Cohesion: 0.18
+Nodes (10): Date, Double, ListenExportKind, csv, json, Sparkline, StatWindow, all (+2 more)
 
 ### Community 193 - "Community 193"
 Cohesion: 0.25
@@ -1001,12 +1004,12 @@ Cohesion: 0.24
 Nodes (6): Bool, NavidromeAuthMode, NavidromeServerEntry, String, Void, BatonServerEditSheet
 
 ### Community 197 - "Community 197"
-Cohesion: 0.14
-Nodes (15): Bool, CGFloat, ClosedRange, Color, Double, Int, SpeechHistoryStore, String (+7 more)
+Cohesion: 0.11
+Nodes (19): Bool, CGFloat, ClosedRange, Color, Context, Double, Int, NSView (+11 more)
 
 ### Community 198 - "Community 198"
-Cohesion: 0.43
-Nodes (4): Context, NSView, SummariesWindowAccessor, SummariesWindowAccessorView
+Cohesion: 0.22
+Nodes (8): Content, Never, StreamingPlaybackController, Task, View, Void, MusicToastOverlay, View
 
 ### Community 199 - "Community 199"
 Cohesion: 0.43
@@ -1016,25 +1019,17 @@ Nodes (4): Bool, Set, String, MusicSelectionMath
 Cohesion: 0.43
 Nodes (4): Int, String, WebhookAction, WebhookBatchMenu
 
-### Community 202 - "Community 202"
-Cohesion: 0.31
-Nodes (6): Bool, Color, NavidromeArtist, String, ArtistMonogram, MusicArtistRow
-
 ### Community 203 - "Community 203"
-Cohesion: 0.31
-Nodes (7): Bool, Color, Int, NavidromeLyrics, NavidromeSong, MusicLyricLines, MusicLyricsView
+Cohesion: 0.36
+Nodes (8): Color, DownloadStatusBadge, Font, NavidromeArtist, String, LinearGradient, MusicAlbumBanner, MusicArtistBanner
 
 ### Community 209 - "Community 209"
 Cohesion: 0.40
 Nodes (5): Bool, BatonEnvironment, production, testing, BatonRuntime
 
-### Community 212 - "Community 212"
-Cohesion: 0.40
-Nodes (4): ResultsSource, search, starred, SongSort
-
 ### Community 215 - "Community 215"
-Cohesion: 0.53
-Nodes (4): Context, NSView, HelpWindowSizer, HelpWindowSizingView
+Cohesion: 0.36
+Nodes (5): Context, NSView, HelpWindowSizer, HelpWindowSizingView, NSViewRepresentable
 
 ### Community 218 - "Community 218"
 Cohesion: 0.60
@@ -1069,12 +1064,8 @@ Cohesion: 0.83
 Nodes (3): bold(), fail(), publish-repo.sh script
 
 ### Community 239 - "Community 239"
-Cohesion: 0.39
+Cohesion: 0.48
 Nodes (4): Context, NSView, NSWindow, MiniPlayerWindowConfigurator
-
-### Community 240 - "Community 240"
-Cohesion: 0.25
-Nodes (8): Kind, album, artist, liked, playlist, radio, search, song
 
 ### Community 241 - "Community 241"
 Cohesion: 0.25
@@ -1089,21 +1080,21 @@ Cohesion: 0.50
 Nodes (3): TestOutcome, failed, ok
 
 ## Knowledge Gaps
-- **919 isolated node(s):** `OpenWindowAction`, `HelpWhatsNewChange`, `HelpWhatsNewChangeKind`, `added`, `improved` (+914 more)
+- **922 isolated node(s):** `OpenWindowAction`, `HelpWhatsNewChange`, `HelpWhatsNewChangeKind`, `added`, `improved` (+917 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **38 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **39 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `String` connect `Community 84` to `Community 6`, `Community 7`, `Community 135`, `Community 9`, `Community 14`, `Community 23`, `Community 154`, `Community 32`, `Community 164`, `Community 38`, `Community 39`, `Community 42`, `Community 43`, `Community 172`, `Community 45`, `Community 170`, `Community 180`, `Community 62`, `Community 191`, `Community 193`, `Community 67`, `Community 74`, `Community 88`, `Community 89`, `Community 114`, `Community 115`, `Community 247`?**
-  _High betweenness centrality (0.180) - this node is a cross-community bridge._
-- **Why does `MusicMix` connect `Community 75` to `Community 34`, `Community 23`?**
-  _High betweenness centrality (0.064) - this node is a cross-community bridge._
-- **Why does `JSONDecoder` connect `Community 159` to `Community 129`, `Community 68`, `Community 69`, `Community 6`, `Community 103`, `Community 40`, `Community 70`, `Community 13`, `Community 28`, `Community 84`, `Community 87`, `Community 89`, `Community 60`, `Community 61`, `Community 95`, `Community 63`?**
-  _High betweenness centrality (0.063) - this node is a cross-community bridge._
+- **Why does `String` connect `Community 84` to `Community 6`, `Community 7`, `Community 135`, `Community 9`, `Community 14`, `Community 16`, `Community 23`, `Community 32`, `Community 164`, `Community 38`, `Community 39`, `Community 42`, `Community 43`, `Community 172`, `Community 45`, `Community 170`, `Community 180`, `Community 62`, `Community 191`, `Community 193`, `Community 67`, `Community 88`, `Community 114`, `Community 115`, `Community 247`?**
+  _High betweenness centrality (0.164) - this node is a cross-community bridge._
+- **Why does `QueryEncodingTests` connect `Community 160` to `Community 55`?**
+  _High betweenness centrality (0.062) - this node is a cross-community bridge._
+- **Why does `StreamingPlaybackController` connect `Community 22` to `Community 122`, `Community 58`, `Community 155`, `Community 92`, `Community 61`?**
+  _High betweenness centrality (0.054) - this node is a cross-community bridge._
 - **What connects `OpenWindowAction`, `HelpWhatsNewChange`, `HelpWhatsNewChangeKind` to the rest of the system?**
-  _919 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _922 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.07142857142857142 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**

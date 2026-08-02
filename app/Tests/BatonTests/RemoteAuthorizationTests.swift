@@ -155,7 +155,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.naturalLanguage.apiKey = "sk-ant-test"
 
         var seen: String?
-        router.resolveNaturalLanguage = { message, _, tools in
+        router.resolveNaturalLanguage = { message, _, tools, _ in
             seen = message
             XCTAssertFalse(tools.isEmpty, "the model must be given Baton's tools")
             // `music_now_playing` needs no server, so this exercises the whole
@@ -168,12 +168,71 @@ final class RemoteAuthorizationTests: XCTestCase {
         XCTAssertTrue(reply?.text.hasPrefix("On it.") == true, reply?.text ?? "nil")
     }
 
+    // MARK: Conversation memory
+
+    /// The gap that made "select one of them" search for those literal words:
+    /// each message arrived with no idea what came before it.
+    func testFollowUpsCarryThePreviousExchangeAsContext() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        settings.naturalLanguage.isEnabled = true
+        settings.naturalLanguage.apiKey = "sk-test"
+
+        var seenHistory: [RemoteConversationLog.Turn] = []
+        router.resolveNaturalLanguage = { _, _, _, history in
+            seenHistory = history
+            return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
+        }
+
+        _ = await router.handle(inbound("show me tracks for dido"))
+        _ = await router.handle(inbound("select one of them"))
+
+        // The first request had nothing to go on; the second must carry both
+        // sides of the first exchange, oldest first.
+        XCTAssertEqual(seenHistory.count, 2, "expected the prior user + assistant turns")
+        XCTAssertEqual(seenHistory.first?.role, "user")
+        XCTAssertEqual(seenHistory.first?.text, "show me tracks for dido")
+        XCTAssertEqual(seenHistory.last?.role, "assistant")
+    }
+
+    /// Typed commands are remembered too — a follow-up to "play dido" deserves
+    /// the same context as a follow-up to a spoken request.
+    func testTypedCommandsAlsoBecomeContext() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        _ = await router.handle(inbound("np"))
+        let history = router.conversation.history(for: "telegram:c1")
+        XCTAssertEqual(history.first?.text, "np")
+    }
+
+    func testForgetDropsTheThread() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        _ = await router.handle(inbound("np"))
+        XCTAssertFalse(router.conversation.history(for: "telegram:c1").isEmpty)
+
+        let reply = await router.handle(inbound("forget"))
+        XCTAssertTrue(reply?.text.contains("Forgotten") == true, reply?.text ?? "nil")
+        // The `forget` exchange itself is the only thing left.
+        let remaining = router.conversation.history(for: "telegram:c1")
+        XCTAssertEqual(remaining.filter { $0.text == "np" }.count, 0)
+    }
+
+    /// Context is per-chat: one conversation must not leak into another.
+    func testThreadsAreScopedToTheirChat() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        _ = await router.handle(inbound("np", channel: "kitchen"))
+        XCTAssertTrue(router.conversation.history(for: "telegram:study").isEmpty)
+        XCTAssertFalse(router.conversation.history(for: "telegram:kitchen").isEmpty)
+    }
+
     func testNaturalLanguageFailureIsReportedNotSwallowed() async {
         let (router, settings) = makeRouter()
         settings.authorize(sender: "42", on: .telegram)
         settings.naturalLanguage.isEnabled = true
         settings.naturalLanguage.apiKey = "sk-ant-test"
-        router.resolveNaturalLanguage = { _, _, _ in
+        router.resolveNaturalLanguage = { _, _, _, _ in
             throw RemoteNaturalLanguage.Failure.refused("no")
         }
 
