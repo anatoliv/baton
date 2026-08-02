@@ -71,6 +71,8 @@ enum RemoteNaturalLanguage {
         case refused(String)
         case noToolCall(String)
         case truncated
+        case localNetworkBlocked(host: String)
+        case unreachable(host: String)
         case malformed(String)
 
         var errorDescription: String? {
@@ -85,6 +87,14 @@ enum RemoteNaturalLanguage {
                 text.isEmpty ? "I couldn't turn that into a playback command." : text
             case .truncated:
                 "The model ran out of room before it picked a command. Try a shorter request."
+            case let .localNetworkBlocked(host):
+                """
+                Couldn't reach \(host). Baton is clearly online — this message got through — \
+                so macOS is most likely blocking access to your local network. Allow it in \
+                System Settings → Privacy & Security → Local Network.
+                """
+            case let .unreachable(host):
+                "Nothing answered at \(host). Check the server is running and the address is right."
             case let .malformed(detail):
                 "Unexpected response from the model provider: \(detail)"
             }
@@ -105,7 +115,17 @@ enum RemoteNaturalLanguage {
         guard config.isConfigured else { throw Failure.notConfigured }
 
         let request = try buildRequest(message, config: config, tools: tools, history: history)
-        let (data, response) = try await session.data(for: request)
+
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            // "The Internet connection appears to be offline" is what macOS says
+            // when it blocks an app from the *local* network, and it is a lie the
+            // user can see through — the chat message that triggered this arrived
+            // over the internet moments ago. Name the real gate.
+            throw transportFailure(error, host: request.url?.host ?? config.baseURL)
+        }
 
         guard let http = response as? HTTPURLResponse else {
             throw Failure.malformed("no HTTP response")
@@ -114,6 +134,32 @@ enum RemoteNaturalLanguage {
             throw Failure.http(status: http.statusCode, body: errorMessage(from: data))
         }
         return try parse(data, provider: config.provider)
+    }
+
+    /// Distinguish "macOS won't let this app touch the LAN" from "that host
+    /// isn't answering" — they look identical from here and need different fixes.
+    static func transportFailure(_ error: URLError, host: String) -> Failure {
+        switch error.code {
+        case .notConnectedToInternet where isPrivate(host):
+            return .localNetworkBlocked(host: host)
+        case .cannotConnectToHost, .cannotFindHost, .timedOut:
+            return .unreachable(host: host)
+        default:
+            return .malformed(error.localizedDescription)
+        }
+    }
+
+    /// RFC-1918, loopback, and the names macOS treats as local.
+    static func isPrivate(_ host: String) -> Bool {
+        let h = host.lowercased()
+        if h == "localhost" || h.hasSuffix(".local") || h.hasPrefix("127.") || h.hasPrefix("10.") { return true }
+        if h.hasPrefix("192.168.") { return true }
+        // 172.16.0.0 – 172.31.255.255
+        if h.hasPrefix("172.") {
+            let parts = h.split(separator: ".")
+            if parts.count > 1, let second = Int(parts[1]), (16...31).contains(second) { return true }
+        }
+        return false
     }
 
     /// Not every provider answers an unusable key with a plain 401. LiteLLM —
