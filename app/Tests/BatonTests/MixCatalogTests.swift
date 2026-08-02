@@ -122,3 +122,45 @@ final class MixMeshBackdropTests: XCTestCase {
         }
     }
 }
+
+/// The per-mix artwork override.
+///
+/// The generated mesh is the default because it always exists and needs no curating; this
+/// is the escape hatch for a mix worth art-directing. The rule that matters is that a
+/// missing or misspelled asset degrades to the mesh rather than drawing a hole.
+@MainActor
+final class MixArtworkOverrideTests: XCTestCase {
+    func testArtworkIsOptionalAndDefaultsToNone() {
+        let mix = MusicMix(id: "x", title: "T", subtitle: "S", icon: "star", color: .blue) { [] }
+        XCTAssertNil(mix.artwork, "a mix must be constructible without art — the mesh is the default")
+    }
+
+    func testAnOverrideIsCarried() {
+        let mix = MusicMix(id: "x", title: "T", subtitle: "S", icon: "star",
+                           color: .blue, artwork: "MixArtFocusDeep") { [] }
+        XCTAssertEqual(mix.artwork, "MixArtFocusDeep")
+    }
+
+    func testFocusDeepHasArtAndOtherGeneratedPlaylistsDoNot() {
+        XCTAssertEqual(MusicMixCatalog.serverArtwork["Focus · Deep"], "MixArtFocusDeep")
+        XCTAssertNil(MusicMixCatalog.serverArtwork["Focus · Momentum"],
+                     "unmapped playlists keep the generated mesh")
+        XCTAssertNil(MusicMixCatalog.serverArtwork["Daily Jams"])
+    }
+
+    func testEveryMappedAssetActuallyExists() {
+        // A typo here is invisible at runtime — the card silently falls back to the mesh —
+        // so it has to fail the build instead.
+        for (playlist, asset) in MusicMixCatalog.serverArtwork {
+            XCTAssertNotNil(NSImage(named: asset),
+                            "\(playlist) maps to missing asset '\(asset)'")
+        }
+    }
+
+    func testEveryArtDirectedPlaylistIsAlsoRecognisedAsGenerated() {
+        // Art for a playlist that never reaches the Mixes tab would never be seen.
+        for playlist in MusicMixCatalog.serverArtwork.keys {
+            XCTAssertTrue(MusicMixCatalog.isServerGenerated(playlist), "\(playlist)")
+        }
+    }
+}
