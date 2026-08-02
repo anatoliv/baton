@@ -283,27 +283,25 @@ struct MusicMixCard: View {
     let mix: MusicMix
     @State private var loading = false
     @State private var hovering = false
-    @State private var covers: [URL] = []
 
     var body: some View {
         NavigationLink(value: mix) {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                     LinearGradient(colors: [mix.color, mix.color.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    // The artwork of the tracks actually in this mix, behind the gradient.
-                    // The right picture for a mix is the music in it: it needs no licensing,
-                    // costs nothing, and stays honest as the contents change — a generated
-                    // image would look the same on the day the mix is nothing like it was.
-                    MixArtworkMosaic(covers: covers)
+                    // Procedural artwork, seeded from the mix's identity.
+                    //
+                    // The obvious alternative — a mosaic of the tracks' own cover art — was
+                    // tried and dropped. This library is YouTube-sourced, so "cover art" is a
+                    // 16:9 video thumbnail carrying text, faces and channel watermarks; tiled
+                    // into a 2×2 it reads as clutter rather than as a cover. It also cost a
+                    // library query per card just to draw a backdrop.
+                    //
+                    // A mesh gradient is deterministic per mix (same card every launch, so it
+                    // becomes recognisable), needs no network, no asset, and raises no
+                    // licensing question in a redistributed app.
+                    MixMeshBackdrop(seed: mix.id, tint: mix.color)
                         .allowsHitTesting(false)
-                    // Keep the gradient legible over photography, and keep contrast for the
-                    // title and play button regardless of how bright the covers are.
-                    LinearGradient(
-                        colors: [mix.color.opacity(0.72), mix.color.opacity(0.42), .black.opacity(0.35)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                    .blendMode(.multiply)
-                    .allowsHitTesting(false)
                     Image(systemName: mix.icon)
                         .font(.system(size: 34, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
                         .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
@@ -329,7 +327,6 @@ struct MusicMixCard: View {
                 .padding(10)
             }
             .background(.ultraThinMaterial)
-            .task(id: mix.id) { await loadCovers() }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)))
             .hoverLift(hovering, scale: 1.02)
@@ -354,69 +351,91 @@ struct MusicMixCard: View {
     }
 }
 
+
 // MARK: - Mix artwork
 
-extension MusicMixCard {
-    /// Fetch a few cover URLs for the card's backdrop.
-    ///
-    /// Runs the mix's own `songs` closure, so the artwork is genuinely of the tracks the
-    /// card will play. Failures are silent by design: the gradient underneath is a complete
-    /// card on its own, and a mix backdrop is never worth an error state.
-    func loadCovers() async {
-        guard covers.isEmpty else { return }
-        let songs = await mix.songs()
-        var seen = Set<String>()
-        var urls: [URL] = []
-        for song in songs {
-            guard let art = song.coverArtID, seen.insert(art).inserted,
-                  let url = model.musicLibrary.coverArtURL(id: art, size: 160) else { continue }
-            urls.append(url)
-            if urls.count == MixArtworkMosaic.tileCount { break }
+/// A deterministic mesh-gradient backdrop for a mix card.
+///
+/// The same `seed` always produces the same image, so a mix keeps its face between launches
+/// and becomes recognisable at a glance — which a random gradient, or a mosaic that changes
+/// with the tracklist, would not.
+///
+/// Colours stay in the card's own hue family so the set reads as one system rather than a
+/// bag of unrelated swatches; the seed varies saturation, brightness and the control-point
+/// positions, which is what makes each card distinct without making it loud.
+struct MixMeshBackdrop: View {
+    let seed: String
+    let tint: Color
+
+    private static let gridSide = 3
+
+    var body: some View {
+        MeshGradient(
+            width: Self.gridSide,
+            height: Self.gridSide,
+            points: Self.points(seed: seed),
+            colors: Self.colors(seed: seed, tint: tint)
+        )
+    }
+
+    /// A small deterministic PRNG. `hashValue` is *not* usable here — Swift seeds string
+    /// hashing per-process, so the same mix would look different on every launch.
+    static func rng(_ seed: String, salt: Int) -> Double {
+        var h: UInt64 = 1_469_598_103_934_665_603
+        for byte in seed.utf8 {
+            h = (h ^ UInt64(byte)) &* 1_099_511_628_211
         }
-        covers = urls
+        h = (h ^ UInt64(truncatingIfNeeded: salt &* 0x9E37_79B9)) &* 1_099_511_628_211
+        h ^= h >> 33
+        return Double(h % 10_000) / 10_000.0
+    }
+
+    /// Interior control points are jittered; the edges stay pinned so the mesh always fills
+    /// the card and never leaves a pale corner where the title sits.
+    static func points(seed: String) -> [SIMD2<Float>] {
+        var out: [SIMD2<Float>] = []
+        for row in 0 ..< gridSide {
+            for col in 0 ..< gridSide {
+                let x = Float(col) / Float(gridSide - 1)
+                let y = Float(row) / Float(gridSide - 1)
+                let interior = col > 0 && col < gridSide - 1 && row > 0 && row < gridSide - 1
+                guard interior else { out.append(SIMD2(x, y)); continue }
+                let jx = Float(rng(seed, salt: row * 10 + col) - 0.5) * 0.45
+                let jy = Float(rng(seed, salt: row * 10 + col + 100) - 0.5) * 0.45
+                out.append(SIMD2(min(max(x + jx, 0.15), 0.85), min(max(y + jy, 0.15), 0.85)))
+            }
+        }
+        return out
+    }
+
+    static func colors(seed: String, tint: Color) -> [Color] {
+        (0 ..< gridSide * gridSide).map { index in
+            let light = rng(seed, salt: index + 200)
+            let shift = (rng(seed, salt: index + 300) - 0.5) * 0.16   // stay in the hue family
+            return tint
+                .opacity(1)
+                .hueRotated(by: shift)
+                .brightnessAdjusted(by: light * 0.45 - 0.12)
+        }
     }
 }
 
-/// The cover-art backdrop for a mix card.
-///
-/// One cover reads as an album rather than a mix, so a single image is shown blurred and
-/// filling the card instead of as a thumbnail. Four or more tile into a 2×2 grid, which is
-/// the familiar visual language for "a collection". Two or three fall back to the blurred
-/// treatment rather than leaving a hole in the grid.
-struct MixArtworkMosaic: View {
-    static let tileCount = 4
-    let covers: [URL]
-
-    var body: some View {
-        GeometryReader { geo in
-            if covers.count >= Self.tileCount {
-                let side = geo.size.width / 2
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        tile(covers[0], side: side, height: geo.size.height / 2)
-                        tile(covers[1], side: side, height: geo.size.height / 2)
-                    }
-                    HStack(spacing: 0) {
-                        tile(covers[2], side: side, height: geo.size.height / 2)
-                        tile(covers[3], side: side, height: geo.size.height / 2)
-                    }
-                }
-            } else if let first = covers.first {
-                tile(first, side: geo.size.width, height: geo.size.height)
-                    .blur(radius: 8)
-                    .scaleEffect(1.25)   // hide the soft edge the blur leaves
-            }
-        }
-        .clipped()
+private extension Color {
+    /// Nudge hue/brightness while staying recognisably the same colour. Uses NSColor so the
+    /// maths happens in a real colour space rather than as a view modifier.
+    func hueRotated(by amount: Double) -> Color {
+        guard let c = NSColor(self).usingColorSpace(.deviceRGB) else { return self }
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return Color(NSColor(hue: (h + CGFloat(amount)).truncatingRemainder(dividingBy: 1).magnitude,
+                             saturation: s, brightness: b, alpha: a))
     }
 
-    private func tile(_ url: URL, side: CGFloat, height: CGFloat) -> some View {
-        AsyncImage(url: url) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Color.clear
-        }
-        .frame(width: side, height: height)
-        .clipped()
+    func brightnessAdjusted(by amount: Double) -> Color {
+        guard let c = NSColor(self).usingColorSpace(.deviceRGB) else { return self }
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return Color(NSColor(hue: h, saturation: s,
+                             brightness: min(max(b + CGFloat(amount), 0.15), 1.0), alpha: a))
     }
 }
