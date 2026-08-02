@@ -234,6 +234,36 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.0",
+            date: "2026",
+            highlight: "Conduct your music from Telegram or Discord.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Baton can now take commands from a chat app, so the stereo answers "
+                        + "to your phone from the couch or the far end of a train line. Connect "
+                        + "a Telegram or Discord bot in Settings \u{2192} Remote and send it "
+                        + "\u{201C}play kind of blue\u{201D}, \u{201C}vol 40\u{201D}, or "
+                        + "\u{201C}next\u{201D} \u{2014} replies carry buttons, so skipping a "
+                        + "track is a tap."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Optionally, say it in your own words. Turn on plain English and "
+                        + "\u{201C}put on something mellow\u{201D} or \u{201C}make me a "
+                        + "40-minute driving mix\u{201D} work too. It needs an API key you "
+                        + "provide, and stays off until you add one."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Nothing about this opens your Mac to the internet: Baton dials out "
+                        + "and waits, so no port is opened and nothing needs forwarding. A chat "
+                        + "controls nothing until you link it with a code Baton shows you \u{2014} "
+                        + "a bot token on its own grants nobody anything."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.11.6",
             date: "2026",
             highlight: "Your listening history now reflects what you actually listened to.",

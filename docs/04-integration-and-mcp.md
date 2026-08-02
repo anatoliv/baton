@@ -528,7 +528,80 @@ port from `mcp.json` — the server walks upward if `8787` is taken.
 
 ---
 
-## 10. Summary — the interface contract
+## 10. Chat remotes — Telegram & Discord (shipped)
+
+Code under `app/Sources/Baton/Remote/`. These are **consumers of the tool catalog,
+not a second control surface**: every inbound message ends at
+`BatonMCPToolCatalog.run(...)`, the same entry point §3 documents, so there is no
+parallel implementation of playback control to drift.
+
+### 10.1 Why this doesn't weaken §2.3
+
+Both transports are **outbound-only**, which is the whole reason chat control
+doesn't cost the loopback posture:
+
+- **Telegram** — `getUpdates` long-polling (25 s window). Baton holds an HTTPS
+  request open; Telegram answers it. No webhook, so no public URL.
+- **Discord** — the **Gateway** WebSocket (`v10`, JSON), dialed out by Baton, with
+  heartbeat + resume. This is also why slash commands are *not* used: those need a
+  publicly reachable interactions endpoint. Component (button) interactions arrive
+  over the same socket and are answered with an outbound POST, so buttons work
+  without inbound reachability.
+
+Nothing binds a port, nothing is forwarded, and the MCP listener stays
+`requiredInterfaceType = .loopback`.
+
+### 10.2 Authorization — fail closed
+
+A bot token authenticates the *bot*, not the sender: anyone who finds the bot can
+message it. So `RemoteCommandRouter.isAuthorized` checks the sender id against a
+per-platform allowlist, and **an empty allowlist authorizes nobody** — the default
+state after install. The only thing an unauthorized sender can do is present the
+6-digit link code shown in Settings (`/link 123456`), which is compared without
+early exit and regenerated on use (it's typed into a chat history, so treat it as
+single-use). Discord additionally supports narrowing to specific channel ids;
+that narrows an already-authorized sender rather than granting anything.
+
+### 10.3 Pipeline
+
+```
+inbound message
+  → RemoteCommandParser.parse        (deterministic, offline)
+      ├── .tool(RemoteToolCall)      → BatonMCPToolCatalog.run
+      ├── .link(code)                → authorize
+      ├── .help
+      └── .natural(text)             → RemoteNaturalLanguage.resolve → …run
+  → RemoteResultFormatter.format     (tool JSON → chat-readable text)
+```
+
+The parser covers the ~25 everyday verbs (`play`, `vol 40`, `seek 1:30`,
+`repeat one`, …) at zero latency and zero cost. Button payloads are ordinary
+command strings, so a tap and a typed message converge on the same parser.
+
+### 10.4 Natural-language fallback (opt-in, off by default)
+
+Unrecognized text goes to a model's tool-use with **the MCP catalog itself as the
+tool list** — `RemoteNaturalLanguage.toolSchemas` only re-spells MCP's
+`inputSchema` as the Messages API's `input_schema`. Requests are `POST
+{base}/v1/messages` with `tool_choice: {"type":"any"}` and `output_config.effort:
+"low"`; sampling parameters are deliberately absent (current models reject them),
+and thinking is left at the model's default rather than disabled (disabling it is
+what makes some models emit a tool call as prose). `stop_reason: "refusal"` is
+checked before reading `content`.
+
+Four tools are **withheld** from model routing (`RemoteNaturalLanguage.withheldTools`):
+`audio_suspend` / `audio_resume` (coordination primitives, not user actions),
+`speak_summary`, and `music_delete_playlist` — the catalog's only `destructiveHint`
+tool, which shouldn't hinge on a sentence that was merely *probably* about deletion.
+The typed command still reaches it.
+
+Baton ships no key and makes no model-provider request unless the user configures
+one. The request carries the user's sentence and the tool list — no library
+contents, credentials, or history.
+
+---
+
+## 11. Summary — the interface contract
 
 - **One universal surface:** MCP over Streamable HTTP, `127.0.0.1`, bearer token,
   discoverable via `mcp.json`, multi-client, with SSE notifications.
@@ -545,3 +618,5 @@ port from `mcp.json` — the server walks upward if `8787` is taken.
 - **Tonebox is a client:** hybrid delegation over MCP (pref `tonebox.music.preferBaton`,
   default on) with the in-process player still present as a fallback (removing it is the
   one open item).
+- **Chat remotes are clients too:** Telegram and Discord bridges drive the same tool
+  catalog over outbound-only connections, gated by a fail-closed per-sender allowlist.

@@ -43,6 +43,7 @@ in [`docs/`](docs/).
 - [Webhook actions](#webhook-actions)
 - [Speaking summaries aloud](#speaking-summaries-aloud)
 - [Letting an agent control your music](#letting-an-agent-control-your-music)
+- [Controlling Baton from Telegram or Discord](#controlling-baton-from-telegram-or-discord)
 - [Settings reference](#settings-reference)
 - [Updates](#updates)
 - [What's next](#whats-next)
@@ -1104,6 +1105,137 @@ fast-path), see [`docs/04-integration-and-mcp.md`](docs/04-integration-and-mcp.m
 
 ---
 
+## Controlling Baton from Telegram or Discord
+
+Baton can take commands from a chat app, so the stereo answers to your phone from the couch,
+the kitchen, or the other end of a train line. Set it up in **Settings, Remote**.
+
+Nothing about this opens your Mac to the internet. Baton dials *out* to Telegram and Discord
+and waits for them to hand it messages; there is no port to forward, no address to publish,
+and no change to the loopback-only control server described above.
+
+A "bot" here is just an account on Telegram or Discord that Baton logs into, so you can send
+it messages the way you'd message a person. Making one is free and takes about two minutes.
+You only need to do one service — pick whichever you already use.
+
+#### Telegram, step by step
+
+1. Open Telegram and start a chat with **@BotFather** (that's Telegram's official bot for
+   making bots — search for the name, and look for the blue checkmark).
+2. Send it `/newbot`.
+3. It asks for a name — this is the display name, anything you like, such as `My Music`.
+4. It then asks for a username, which must be unique and end in `bot`, such as
+   `anatoli_music_bot`. If the name is taken it'll just ask again.
+5. BotFather replies with a long line that looks like
+   `8123456789:AAF3k9...`. **That's the token.** Treat it like a password.
+6. In Baton, open **Settings** (Command and comma), choose **Remote**, and turn on **Enable
+   remote control** at the top.
+7. Turn on **Enable Telegram**, paste the token into **Bot token**, and click **Save**.
+   Within a second or two the **Status** line should turn green and show your bot's `@name`.
+8. Back in Telegram, open a chat with the bot you just made and send it
+   `/link 123456`, using the six-digit **link code** Baton shows in that same pane.
+9. It replies "Linked." — you're done. Try `play` or `np`.
+
+#### Discord, step by step
+
+1. Go to **discord.com/developers/applications** and sign in.
+2. Click **New Application**, give it a name, and accept the terms.
+3. In the left sidebar click **Bot**. Click **Reset Token**, confirm, and copy the token it
+   shows you. It's only shown once — if you lose it, reset it again.
+4. Still on the **Bot** page, scroll down to **Privileged Gateway Intents** and turn on
+   **Message Content Intent**. Save. **Don't skip this.** Without it Discord delivers your
+   messages to Baton with the text removed, and Baton will look like it's ignoring you for no
+   visible reason.
+5. Now invite the bot to a server you're in — a bot can't see anything until you do. In the
+   sidebar click **OAuth2**, then in **OAuth2 URL Generator** tick **bot** under Scopes, and
+   under Bot Permissions tick **Send Messages** and **Read Message History**. Copy the
+   generated URL at the bottom, paste it into your browser, pick your server, and authorize.
+   (If you don't have a server of your own, make one in Discord with the **+** button in the
+   left rail — a private server with just you in it is fine, and is the tidiest option.)
+6. In Baton, open **Settings**, choose **Remote**, turn on **Enable remote control**, then
+   **Enable Discord**, paste the token into **Bot token**, and click **Save**. The **Status**
+   line should turn green with the bot's name.
+7. In Discord, go to any channel the bot can see and type `/link 123456` using the six-digit
+   **link code** from Baton's Remote pane.
+8. It replies "Linked." — you're done. Try `play` or `np`.
+
+#### About that link code
+
+The link step isn't ceremony, and it's worth understanding why it's there. A bot token
+identifies *the bot*, not *you*. Anyone who found your bot could otherwise message it and
+take over your speakers. So until a chat is linked, Baton ignores every message it gets
+except a correct link code — and each code works only once, because you type it into a chat
+history that might get backed up or read over your shoulder.
+
+If you ever want to cut a chat off, the Remote pane lists every linked chat with a **Revoke**
+button. **New code** rolls the code if you think it's been seen.
+
+On Discord you can also fill in **Limit to channels** with one or more channel ids, which
+confines the bot to those channels. That narrows things further; it doesn't replace linking.
+
+### What you can say
+
+Type these as ordinary messages. The leading slash is optional on both services, so `pause`
+and `/pause` do the same thing.
+
+| Message | What it does |
+|---|---|
+| `play kind of blue` | Searches your library and plays the best match |
+| `play` | Resumes what was paused |
+| `pause` · `resume` · `stop` | The obvious ones |
+| `next` · `prev` | Skip forward or back (`skip` and `back` work too) |
+| `queue radiohead` | Adds matches to the end of the queue |
+| `queue` | Shows what's coming up |
+| `playnext <song>` | Slots something in right after the current track |
+| `vol 40` | Volume, 0 to 100 — Baton's own volume, not the Mac's |
+| `seek 1:30` | Jump to a position (`90` and `1m30s` also work) |
+| `np` | What's playing right now |
+| `search coltrane` | Look without playing |
+| `like` · `unlike` | Star the current track (or `like <song>`) |
+| `rate 5` | Rate the current track, 0 to 5 |
+| `playlists` | List your playlists |
+| `playlist Evening` | Play a playlist by name |
+| `mix upbeat focus` | Build a mix from a description |
+| `radio` | Endless "more like this" from the current track |
+| `shuffle on` · `repeat one` | Modes (`repeat` takes `off`, `all`, or `one`) |
+| `sleep 30` | Pause in 30 minutes (`sleep off` cancels) |
+| `help` | The list, in the chat |
+
+Replies come with buttons for the common actions, so skipping a track is a tap rather than a
+typed word.
+
+### Saying it in your own words
+
+Turn on **Understand plain English** in the same pane and anything Baton doesn't recognize as
+a command gets read as intent instead — "put on something mellow", "skip this one", "make me
+a 40-minute driving mix".
+
+This one needs an API key from a model provider, which you pay for and provide; Baton ships
+none, and the feature stays off until you do. To set it up:
+
+1. Get an API key from [console.anthropic.com](https://console.anthropic.com) — sign in, open
+   **API keys**, and create one. It looks like `sk-ant-...`.
+2. In Baton's Remote pane, turn on **Understand plain English**, paste the key into
+   **API key**, and click **Save**.
+3. That's it. **Model** and **API base URL** are already filled in and can be left alone —
+   they're there if you'd rather use a different model or route requests through your own
+   gateway.
+
+Costs are yours and are small: each message is one short request. If you'd rather not have
+any of this, leave it off — every command in the table above works without it.
+
+If you use a phrase that collides with a command, put `ask` in front to force the
+plain-English reading: `ask play something quiet`.
+
+This is the one feature in Baton that talks to a third party, and it's off until you switch it
+on. What leaves your Mac is the sentence you typed and the list of Baton's own commands —
+never your library, your server credentials, or what you've been listening to. Under the hood
+the model is choosing from the same control surface an AI agent gets, so a sentence can't ask
+Baton to do anything the buttons can't. Deleting a playlist is deliberately left out of what a
+sentence can reach; type the command for that.
+
+---
+
 ## Settings reference
 
 Open Settings by pressing Command and comma. The panes are:
@@ -1145,6 +1277,13 @@ Your webhook actions. See [Webhook actions](#webhook-actions).
 
 The text-to-speech servers and the category-to-voice map for spoken summaries. See
 [Speaking summaries aloud](#speaking-summaries-aloud).
+
+### Remote
+
+Telegram and Discord bot tokens, the link code and the list of chats you've authorized (each
+revocable), an optional restriction to particular Discord channels, and the natural-language
+settings. See [Controlling Baton from Telegram or
+Discord](#controlling-baton-from-telegram-or-discord).
 
 ### About
 
@@ -1193,14 +1332,18 @@ The full roadmap is in [`docs/05-roadmap-new-features.md`](docs/05-roadmap-new-f
 
 - **Your credentials live in the macOS Keychain**, never in a plain text file.
 - **Baton doesn't phone home by default.** It talks only to the music server you point it at,
-  plus the scrobbling services and its own update feed if you turn those on, and any
-  text-to-speech server you set up. It has no catalog server of its own to call. The one
+  plus the scrobbling services and its own update feed if you turn those on, any
+  text-to-speech server you set up, and — if you connect a chat bot — Telegram or Discord. It has no catalog server of its own to call. The one
   opt-in exception is crash reporting (Settings, About, Diagnostics, off by default): when you
   turn it on, Baton sends crash and error data to its developer via Sentry to help fix bugs,
   never your music, library, server address, or account, and no IP or identifiers.
 - **The control server is loopback-only and token-protected.** It can't be reached from your
   network, and nothing on your Mac can drive it without the secret token. See
   [how it's secured](#letting-an-agent-control-your-music).
+- **Chat remote control connects outward only, and starts closed.** Baton opens a connection
+  to Telegram or Discord rather than accepting one, so no port is exposed; and a chat can't
+  drive playback until you link it with the code Baton shows you. See
+  [Controlling Baton from Telegram or Discord](#controlling-baton-from-telegram-or-discord).
 
 There's more on all of this in the [FAQ](FAQ.md#privacy-and-security).
 
@@ -1230,6 +1373,26 @@ can add these tags when they scan your library.
 token from `~/Library/Application Support/Baton/mcp.json`. If the file's port looks wrong,
 quit and reopen Baton; it picks a free port at launch and rewrites the file. See
 [connecting an agent](#letting-an-agent-control-your-music).
+
+**My bot doesn't answer at all.** Baton has to be running, and **Enable remote control** plus
+the switch for that service both have to be on. Check the **Status** line in Settings, Remote:
+green with a name means Baton is connected and the problem is elsewhere; red shows the reason
+the service gave, which is usually a mistyped or reset token.
+
+**Discord: the bot is online but ignores everything I type.** This is almost always the
+**Message Content Intent**, which is off by default. Turn it on at
+discord.com/developers → your application → **Bot** → Privileged Gateway Intents, then click
+**Reconnect** in Baton. Without it Discord delivers your messages with the text removed, so
+Baton receives an empty message and has nothing to act on. If the bot doesn't appear in your
+server's member list at all, it was never invited — see the
+[setup steps](#controlling-baton-from-telegram-or-discord).
+
+**It says the chat isn't authorized.** That's the expected answer until you link it. Send
+`/link` followed by the six-digit code from Settings, Remote. If the code is refused, it's
+because codes are single-use — click **New code** and send the new one.
+
+**It answers "I don't know that".** The message wasn't one of the commands. Send `help` for
+the list, or turn on **Understand plain English** to have Baton read it as intent instead.
 
 **Spoken summaries are silent or use the wrong voice.** Check the server addresses in the
 [Speech](#speaking-summaries-aloud) pane with the Test button. If a server is down and the
