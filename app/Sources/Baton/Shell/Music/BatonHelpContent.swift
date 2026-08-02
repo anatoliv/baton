@@ -234,6 +234,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.10.0",
+            date: "2026",
+            highlight: "Every generated playlist now has its own artwork.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Focus, Daily and Deep Cuts cards each carry a bespoke backdrop chosen "
+                        + "to match what the playlist is for \u{2014} steady light trails for Momentum, "
+                        + "a desert ember for Lift, cold morning glass for Fresh."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.9.9",
             date: "2026",
             highlight: "A mix can now carry its own artwork.",

@@ -89,6 +89,12 @@ enum MusicMixCatalog {
     /// keeps the generated mesh — this is opt-in per playlist, not a required asset.
     static let serverArtwork: [String: String] = [
         "Focus · Deep": "MixArtFocusDeep",
+        "Focus · Momentum": "MixArtFocusMomentum",
+        "Focus · Lift": "MixArtFocusLift",
+        "Fresh": "MixArtFresh",
+        "Daily Jams": "MixArtDailyJams",
+        "Daily Discovery": "MixArtDailyDiscovery",
+        "Deep Cuts": "MixArtDeepCuts",
     ]
 
     /// Names that indicate a playlist is produced by a generator rather than curated by
