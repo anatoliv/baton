@@ -1249,6 +1249,12 @@ without it.
 If you use a phrase that collides with a command, put `ask` in front to force the
 plain-English reading: `ask play something quiet`.
 
+**Commands are tried first, but they don't trap you.** A message starting with a command word
+is handled instantly and locally — `play kind of blue` is a search, not a question for the
+model. If that literal reading finds nothing, and plain English is on, Baton asks the model
+what you meant rather than leaving you with "no songs matched". So `play the second one`
+works even though it starts with `play`.
+
 **Follow-ups work.** Each chat remembers its last few exchanges, so you can say "show me
 tracks for Dido" and then "play the second one" and it knows what you mean. That memory is
 short on purpose: it lives only while Baton is running, covers a few recent exchanges,
