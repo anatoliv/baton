@@ -52,7 +52,14 @@ enum BatonMCPToolCatalog {
             tool("music_resume", "Resume paused music playback.", properties: [:], required: []),
             tool("music_stop", "Stop music playback.", properties: [:], required: []),
             tool("music_next", "Skip to the next track in the music queue.", properties: [:], required: []),
-            tool("music_previous", "Go to the previous track (or restart the current one).", properties: [:], required: []),
+            tool(
+                "music_previous",
+                "Go to the previous track. Like a physical back button, this restarts the current track when it is more than 3 seconds in; pass force to always step back a track instead. Prefer force when you mean \"the track before this one\" — a round-trip usually takes longer than 3 seconds, so the default would restart.",
+                properties: [
+                    "force": ["type": "boolean", "description": "Always step back a track, ignoring the restart-first rule. No effect on the first track."],
+                ],
+                required: []
+            ),
             tool(
                 "music_set_volume",
                 "Set the music player volume (0–100). This only affects Baton's music player, not the macOS system volume.",
@@ -326,7 +333,7 @@ enum BatonMCPToolCatalog {
             case "music_resume": text = musicResume(music)
             case "music_stop": text = musicStop(music)
             case "music_next": text = musicNext(music)
-            case "music_previous": text = musicPrevious(music)
+            case "music_previous": text = musicPrevious(arguments, music)
             case "music_set_volume": text = try musicSetVolume(arguments, music)
             case "music_now_playing": text = musicNowPlaying(music)
             case "music_list_playlists": text = try await musicListPlaylists()
@@ -565,8 +572,8 @@ enum BatonMCPToolCatalog {
         return music.music.nowPlayingSummary
     }
 
-    private static func musicPrevious(_ music: MusicModel) -> String {
-        music.music.previous()
+    private static func musicPrevious(_ args: [String: Any], _ music: MusicModel) -> String {
+        music.music.previous(force: (args["force"] as? Bool) ?? false)
         return music.music.nowPlayingSummary
     }
 

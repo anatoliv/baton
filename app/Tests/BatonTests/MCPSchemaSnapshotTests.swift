@@ -165,3 +165,41 @@ final class NavidromeNotFoundTests: XCTestCase {
         XCTAssertFalse(NavidromeError.subsonic(code: 0, message: "generic").isNotFound)
     }
 }
+
+/// `previous(force:)` — the restart-first rule, and the escape hatch for remote callers.
+///
+/// The 3-second rule suits a human at a button, where hearing and pressing are under a
+/// second apart. Over MCP a round-trip takes seconds by construction, so `music_previous`
+/// restarted the current track essentially every time and stepping back was unreachable.
+/// Rather than tune a threshold that is correct for hands, the caller states its intent.
+final class PreviousTrackRuleTests: XCTestCase {
+    private func restarts(_ time: TimeInterval, _ index: Int, force: Bool = false) -> Bool {
+        StreamingPlaybackController.previousRestartsCurrent(
+            currentTime: time, currentIndex: index, force: force)
+    }
+
+    func testEarlyInATrackStepsBack() {
+        XCTAssertFalse(restarts(1.0, 3))
+    }
+
+    func testLaterInATrackRestartsIt() {
+        XCTAssertTrue(restarts(30.0, 3), "the familiar back-button behaviour must survive")
+    }
+
+    func testForceAlwaysStepsBackHoweverFarIn() {
+        XCTAssertFalse(restarts(30.0, 3, force: true))
+        XCTAssertFalse(restarts(9999.0, 3, force: true))
+    }
+
+    func testTheFirstTrackAlwaysRestartsEvenWithForce() {
+        // force cannot invent a track that does not exist; stepping back from index 0 would
+        // underflow the queue.
+        XCTAssertTrue(restarts(0.0, 0))
+        XCTAssertTrue(restarts(30.0, 0, force: true))
+    }
+
+    func testTheThresholdBoundaryBehavesAsDocumented() {
+        XCTAssertFalse(restarts(3.0, 2), "exactly 3s is still 'at the start'")
+        XCTAssertTrue(restarts(3.01, 2))
+    }
+}
