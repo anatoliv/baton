@@ -178,6 +178,70 @@ final class StreamSeekControllerTests: XCTestCase {
         XCTAssertTrue(c.lastStreamURLForTesting?.absoluteString.contains("format=mp3") == true)
     }
 
+    // MARK: - The offset must not survive a track boundary
+
+    /// Real-audio pass: a stream fetched with `timeOffset` must not leak its offset onto the
+    /// **next** track when the gapless boundary promotes the preloaded item.
+    ///
+    /// From the live log — a resumed queue (which now fetches from the saved position, so the
+    /// offset is non-zero from launch) reaching its first gapless boundary:
+    ///
+    ///     12:48:34.728  gapless advance → queue index 26 (no reload)
+    ///     12:48:34.789  player: waiting to play — AVPlayerWaitingWithNoItemToPlayReason
+    ///     12:48:55.995  player: buffering stalled > 20.000000s — recovering
+    ///
+    /// The promoted item's clock starts at the track's top, so a carried-over offset makes the
+    /// periodic observer read `staleOffset + 0` — minutes into a track that just began. That
+    /// reads as already-finished, and the boundary collapses into ~20 s of silence until the
+    /// stall watchdog reloads. Only a real `AVQueuePlayer` reaches this path.
+    func testGaplessBoundaryClearsAPreviousTracksOffset() throws {
+        let a = try makeToneFile(frequency: 440, seconds: 1.0, name: "offset-a")
+        let b = try makeToneFile(frequency: 660, seconds: 1.0, name: "offset-b")
+        defer { try? FileManager.default.removeItem(at: a); try? FileManager.default.removeItem(at: b) }
+        let urls = ["a": a, "b": b]
+        let c = StreamingPlaybackController(
+            streamURLProvider: { urls[$0]! }, defaults: suite, systemNowPlaying: false)
+        c.gaplessEnabled = true
+        c.crossfadeSeconds = 0
+        c.play([longSet("a"), longSet("b")])
+
+        // Stand in for "this stream came from a timeOffset request" — a resumed queue, or any
+        // seek into a track the server was still encoding.
+        c.setStreamStartOffsetForTesting(1800)
+
+        let deadline = Date().addingTimeInterval(8)
+        while c.currentIndex == 0, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTAssertEqual(c.currentIndex, 1, "did not advance to the second track")
+        XCTAssertEqual(c.gaplessAdvanceCountForTesting, 1, "boundary was not the gapless path")
+        XCTAssertEqual(c.streamStartOffsetForTesting, 0,
+                       "the previous track's timeOffset leaked across the boundary")
+        XCTAssertLessThan(c.currentTime, 60,
+                          "the new track's playhead started 30 minutes in")
+        c.stop()
+    }
+
+    /// Same invariant, without audio: any promotion path must land the playhead near the top of
+    /// the incoming track rather than wherever the previous stream happened to be offset to.
+    private func makeToneFile(frequency: Double, seconds: Double, name: String) throws -> URL {
+        let sampleRate = 44_100.0
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(name)-\(UUID().uuidString).wav")
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let frames = AVAudioFrameCount(sampleRate * seconds)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buffer.frameLength = frames
+        let samples = buffer.floatChannelData![0]
+        for i in 0 ..< Int(frames) {
+            samples[i] = Float(sin(2.0 * .pi * frequency * Double(i) / sampleRate)) * 0.2
+        }
+        try file.write(from: buffer)
+        return url
+    }
+
     // MARK: - Resume
 
     func testRestoreResumesByRequestingTheStreamFromTheSavedPosition() {

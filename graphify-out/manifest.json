@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785683929.5942557,
-    "ast_hash": "e6fb8a216a8dd6552566250a46def3db",
+    "mtime": 1785684796.9560368,
+    "ast_hash": "fad833d659ddaea7982b81f96ad21225",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -165,8 +165,8 @@
     "semantic_hash": "2168db8ac8244479c3c7f1910f3933b9"
   },
   "app/Sources/Baton/Audio/StreamingPlaybackController.swift": {
-    "mtime": 1785684523.2703056,
-    "ast_hash": "b5f59010f6f21d609177270cf4f29da1",
+    "mtime": 1785689662.5288212,
+    "ast_hash": "6dc49861b1adef1d937573ccb1c9cb11",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Audio/TransportTransitions.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785684568.2160866,
-    "ast_hash": "94720b2cdf11dcc143892237748ee7d3",
+    "mtime": 1785689736.500734,
+    "ast_hash": "6bb53369dc747ffb635900df895503ab",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1210,8 +1210,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/StreamSeekControllerTests.swift": {
-    "mtime": 1785684424.2374337,
-    "ast_hash": "51f36d76196cecd983395c0a9362ef1b",
+    "mtime": 1785689592.8241367,
+    "ast_hash": "54bce9e5c9bf33b1bf419bb1ee14945c",
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/StreamSeekTests.swift": {
