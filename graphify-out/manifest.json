@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785634848.3549626,
-    "ast_hash": "ce7cc358ce7f936afe3f1dd27bb5b9f5",
+    "mtime": 1785635568.9063747,
+    "ast_hash": "0fbe0ec46d971d088aebd86f91925021",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785634688.7925775,
-    "ast_hash": "c2cdd55fd421f75d9342b6e5df44a1a5",
+    "mtime": 1785635407.5345354,
+    "ast_hash": "0805931971e2a5e8030e1084adef619f",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -990,8 +990,8 @@
     "semantic_hash": "41a0dd59139eaac49f75bdd017a305da"
   },
   "app/Tests/BatonTests/StreamingPlaybackControllerTests.swift": {
-    "mtime": 1785628056.0578713,
-    "ast_hash": "e5e0cde50e005861237adf84ab3890f1",
+    "mtime": 1785635407.5347908,
+    "ast_hash": "29b24ca0d0b394281e39a4c5e846bcc0",
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/SymbolCatalogTests.swift": {

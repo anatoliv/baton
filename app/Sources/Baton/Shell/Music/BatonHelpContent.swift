@@ -234,6 +234,18 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.10.4",
+            date: "2026",
+            highlight: "Internal reliability work \u{2014} nothing to see, which is the point.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Fixed a test that could fail at random on a busy machine and block a "
+                        + "release for no real reason."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.10.3",
             date: "2026",
             highlight: "Genre cards stopped all showing a guitar.",
