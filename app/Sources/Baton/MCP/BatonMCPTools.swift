@@ -54,9 +54,9 @@ enum BatonMCPToolCatalog {
             tool("music_next", "Skip to the next track in the music queue.", properties: [:], required: []),
             tool(
                 "music_previous",
-                "Go to the previous track. Like a physical back button, this restarts the current track when it is more than 3 seconds in; pass force to always step back a track instead. Prefer force when you mean \"the track before this one\" — a round-trip usually takes longer than 3 seconds, so the default would restart.",
+                "Go to the previous track. Always steps back a track, whatever the playhead position — unlike the app's back button, which restarts the current track when it is more than 3 seconds in. Pass force:false for that button-like behaviour instead.",
                 properties: [
-                    "force": ["type": "boolean", "description": "Always step back a track, ignoring the restart-first rule. No effect on the first track."],
+                    "force": ["type": "boolean", "description": "Default true — step back a track regardless of playtime. Set false to restart the current track when more than 3 seconds in, matching the app's back button. No effect on the first track."],
                 ],
                 required: []
             ),
@@ -573,7 +573,12 @@ enum BatonMCPToolCatalog {
     }
 
     private static func musicPrevious(_ args: [String: Any], _ music: MusicModel) -> String {
-        music.music.previous(force: (args["force"] as? Bool) ?? false)
+        // Default TRUE, unlike the button. A caller reaching through the control socket
+        // waits seconds for a round-trip, so "more than 3 seconds in" is always true by the
+        // time the request lands — the restart rule made stepping back unreachable, and
+        // defaulting it off means a client that never learned about the flag still gets the
+        // behaviour it asked for.
+        music.music.previous(force: (args["force"] as? Bool) ?? true)
         return music.music.nowPlayingSummary
     }
 
