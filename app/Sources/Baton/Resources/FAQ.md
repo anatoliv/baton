@@ -118,6 +118,13 @@ chat has to be linked with a six-digit code shown in Settings — until then Bat
 everything it's sent, and each code works only once. You can revoke a linked chat at any time
 from the same pane.
 
+**Can I use my own local model instead of a paid API?**
+Yes. Set the provider to **OpenAI-compatible** and point the base URL at your own server —
+vLLM, Ollama, LM Studio, llama.cpp and LiteLLM all speak that dialect. Nothing leaves your
+network and there's no per-message cost. The model does need to support tool calling, since
+Baton asks it to pick from a list of commands; the **Test** button tells you in one click
+whether yours does.
+
 **Does the plain-English option send my library anywhere?**
 No. It's off unless you turn it on and add your own API key, and when it is on, what leaves
 your Mac is the sentence you typed plus the list of Baton's own commands. Not your library,

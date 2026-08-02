@@ -289,6 +289,161 @@ final class RemoteNaturalLanguageTests: XCTestCase {
         XCTAssertEqual((body["tool_choice"] as? [String: Any])?["type"] as? String, "any")
     }
 
+    // MARK: OpenAI-compatible dialect
+
+    private func openAIConfig(base: String = "https://api.openai.com/v1") -> RemoteControlSettings.NaturalLanguageConfig {
+        var config = RemoteControlSettings.NaturalLanguageConfig()
+        config.isEnabled = true
+        config.provider = .openAICompatible
+        config.apiKey = "sk-test"
+        config.model = "gpt-4o-mini"
+        config.baseURL = base
+        return config
+    }
+
+    /// Every part of the wire format differs from Anthropic's: the path, the auth
+    /// header, where the system prompt goes, how tools are wrapped, and how a
+    /// tool call is forced.
+    func testOpenAIRequestUsesTheChatCompletionsWireFormat() throws {
+        let tools = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
+        let request = try RemoteNaturalLanguage.buildRequest("skip this", config: openAIConfig(), tools: tools)
+
+        XCTAssertEqual(request.url?.absoluteString, "https://api.openai.com/v1/chat/completions")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-api-key"), "that's the Anthropic header")
+        XCTAssertNil(request.value(forHTTPHeaderField: "anthropic-version"))
+
+        let body = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any]
+        )
+        XCTAssertEqual(body["tool_choice"] as? String, "required")
+        // Anthropic-only knobs must not leak into a dialect that 400s on them.
+        XCTAssertNil(body["system"])
+        XCTAssertNil(body["output_config"])
+        XCTAssertNil(body["max_tokens"], "this dialect renamed it on newer models; omitting avoids the 400")
+
+        // The system prompt rides as a message here, not a top-level field.
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.first?["role"] as? String, "system")
+        XCTAssertEqual(messages.last?["role"] as? String, "user")
+        XCTAssertEqual(messages.last?["content"] as? String, "skip this")
+
+        // Tools nest under `function`, and the schema key is `parameters`.
+        let tool = try XCTUnwrap((body["tools"] as? [[String: Any]])?.first)
+        XCTAssertEqual(tool["type"] as? String, "function")
+        let function = try XCTUnwrap(tool["function"] as? [String: Any])
+        XCTAssertNotNil(function["name"])
+        XCTAssertNotNil(function["parameters"])
+        XCTAssertNil(function["input_schema"], "that's the Anthropic spelling")
+    }
+
+    /// `arguments` arrives as a JSON *string*, not an object — decoding it as an
+    /// object would silently drop every argument.
+    func testOpenAIToolCallArgumentsAreDecodedFromTheirJSONString() throws {
+        let body = """
+        {"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
+          "tool_calls":[{"id":"c1","type":"function","function":{
+            "name":"music_play","arguments":"{\\"query\\":\\"kind of blue\\",\\"limit\\":5}"}}]}}]}
+        """
+        let resolution = try RemoteNaturalLanguage.parse(Data(body.utf8), provider: .openAICompatible)
+        XCTAssertEqual(resolution.call.name, "music_play")
+        XCTAssertEqual(resolution.call.arguments["query"], .string("kind of blue"))
+        XCTAssertEqual(resolution.call.arguments["limit"], .int(5))
+    }
+
+    func testOpenAITruncationAndMissingCallAreDistinguished() {
+        let truncated = #"{"choices":[{"finish_reason":"length","message":{"content":""}}]}"#
+        XCTAssertThrowsError(try RemoteNaturalLanguage.parse(Data(truncated.utf8), provider: .openAICompatible)) {
+            guard case RemoteNaturalLanguage.Failure.truncated = $0 else {
+                return XCTFail("expected .truncated, got \($0)")
+            }
+        }
+        let chatty = #"{"choices":[{"finish_reason":"stop","message":{"content":"I'm not sure."}}]}"#
+        XCTAssertThrowsError(try RemoteNaturalLanguage.parse(Data(chatty.utf8), provider: .openAICompatible)) {
+            guard case RemoteNaturalLanguage.Failure.noToolCall = $0 else {
+                return XCTFail("expected .noToolCall, got \($0)")
+            }
+        }
+    }
+
+    /// People paste whichever URL their provider's docs showed them. Both forms
+    /// have to land on the same endpoint, or the failure is a bare 404.
+    func testEndpointNormalizationAcceptsRootOrFullURL() throws {
+        for base in ["https://api.openai.com/v1", "https://api.openai.com/v1/chat/completions", "https://api.openai.com"] {
+            XCTAssertEqual(
+                try RemoteNaturalLanguage.endpoint(for: openAIConfig(base: base)).absoluteString,
+                "https://api.openai.com/v1/chat/completions",
+                "base \(base)"
+            )
+        }
+        for base in ["https://api.anthropic.com", "https://api.anthropic.com/", "https://api.anthropic.com/v1/messages"] {
+            var config = RemoteControlSettings.NaturalLanguageConfig()
+            config.baseURL = base
+            XCTAssertEqual(
+                try RemoteNaturalLanguage.endpoint(for: config).absoluteString,
+                "https://api.anthropic.com/v1/messages",
+                "base \(base)"
+            )
+        }
+    }
+
+    /// A self-hosted OpenAI-compatible server (vLLM, Ollama, LM Studio) is the
+    /// point of this dialect — it must survive a plain-http LAN address.
+    func testSelfHostedEndpointsAreSupported() throws {
+        let config = openAIConfig(base: "http://gpu-host.local:8000/v1")
+        XCTAssertNil(RemoteNaturalLanguage.complaint(about: config))
+        XCTAssertEqual(
+            try RemoteNaturalLanguage.endpoint(for: config).absoluteString,
+            "http://gpu-host.local:8000/v1/chat/completions"
+        )
+    }
+
+    func testProviderMismatchIsNamedWithTheFix() throws {
+        var anthropicWithOpenAIURL = RemoteControlSettings.NaturalLanguageConfig()
+        anthropicWithOpenAIURL.apiKey = "k"
+        anthropicWithOpenAIURL.baseURL = "https://api.openai.com/v1/chat/completions"
+        let a = try XCTUnwrap(RemoteNaturalLanguage.complaint(about: anthropicWithOpenAIURL))
+        XCTAssertTrue(a.contains("OpenAI-compatible"), a)
+
+        var openAIWithAnthropicURL = openAIConfig(base: "https://api.anthropic.com")
+        openAIWithAnthropicURL.provider = .openAICompatible
+        let b = try XCTUnwrap(RemoteNaturalLanguage.complaint(about: openAIWithAnthropicURL))
+        XCTAssertTrue(b.contains("Anthropic"), b)
+    }
+
+    /// A provider's own wording can be accurate and still useless. LiteLLM
+    /// answers a key it can't recognize with `400 "No connected db."`, which
+    /// reads like a server outage rather than a wrong key.
+    func testOpaqueProviderErrorsGetAnActionableHint() {
+        let liteLLM = RemoteNaturalLanguage.hint(status: 400, body: #"{"error":{"message":"No connected db.","type":"no_db_connection"}}"#)
+        XCTAssertTrue(liteLLM.contains("key"), liteLLM)
+
+        XCTAssertTrue(RemoteNaturalLanguage.hint(status: 401, body: "invalid x-api-key").contains("API key"))
+        XCTAssertTrue(RemoteNaturalLanguage.hint(status: 404, body: "not found").contains("base URL"))
+        XCTAssertEqual(RemoteNaturalLanguage.hint(status: 500, body: "overloaded"), "", "no guess when there's nothing to guess")
+    }
+
+    // MARK: Settings validation
+
+    private func config(base: String, key: String = "sk-ant-test") -> RemoteControlSettings.NaturalLanguageConfig {
+        var config = RemoteControlSettings.NaturalLanguageConfig()
+        config.isEnabled = true
+        config.apiKey = key
+        config.baseURL = base
+        return config
+    }
+
+    func testMissingPiecesAreNamedIndividually() {
+        XCTAssertNotNil(RemoteNaturalLanguage.complaint(about: config(base: "")))
+        XCTAssertNotNil(RemoteNaturalLanguage.complaint(about: config(base: "api.anthropic.com")))
+        XCTAssertNotNil(RemoteNaturalLanguage.complaint(about: config(base: "https://api.anthropic.com", key: "")))
+    }
+
+    func testAValidConfigurationDrawsNoComplaint() {
+        XCTAssertNil(RemoteNaturalLanguage.complaint(about: config(base: "https://api.anthropic.com")))
+        XCTAssertNil(RemoteNaturalLanguage.complaint(about: config(base: "https://api.anthropic.com/")))
+    }
+
     func testTrailingSlashInBaseURLDoesNotDoubleUp() throws {
         var config = RemoteControlSettings.NaturalLanguageConfig()
         config.isEnabled = true

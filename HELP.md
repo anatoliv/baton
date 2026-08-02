@@ -1210,19 +1210,40 @@ Turn on **Understand plain English** in the same pane and anything Baton doesn't
 a command gets read as intent instead — "put on something mellow", "skip this one", "make me
 a 40-minute driving mix".
 
-This one needs an API key from a model provider, which you pay for and provide; Baton ships
-none, and the feature stays off until you do. To set it up:
+This one needs a model to talk to, which you provide; Baton ships no key, and the feature
+stays off until you set it up. There's a **Test** button that sends one real request and
+tells you whether it worked, so you're never guessing.
 
-1. Get an API key from [console.anthropic.com](https://console.anthropic.com) — sign in, open
-   **API keys**, and create one. It looks like `sk-ant-...`.
-2. In Baton's Remote pane, turn on **Understand plain English**, paste the key into
-   **API key**, and click **Save**.
-3. That's it. **Model** and **API base URL** are already filled in and can be left alone —
-   they're there if you'd rather use a different model or route requests through your own
-   gateway.
+Baton speaks two API dialects, which between them cover nearly everything:
 
-Costs are yours and are small: each message is one short request. If you'd rather not have
-any of this, leave it off — every command in the table above works without it.
+- **Anthropic** — Claude's Messages API.
+- **OpenAI-compatible** — the `chat/completions` shape that OpenAI, Groq, Together, Mistral,
+  DeepSeek and OpenRouter all serve, *and* that self-hosted servers speak: vLLM, Ollama,
+  LM Studio, llama.cpp, LiteLLM. This is the one to pick for a model running on your own
+  hardware.
+
+**Using a hosted model.** Pick the provider, get a key from them
+([console.anthropic.com](https://console.anthropic.com) or
+[platform.openai.com](https://platform.openai.com)), paste it into **API key**, click
+**Save**, then **Test**. Model and base URL are pre-filled sensibly for each provider and can
+be left alone. Costs are yours and are small — each message is one short request.
+
+**Using your own model.** If you run a model on your own machine or network, set the provider
+to **OpenAI-compatible**, put your server's address in **API base URL** (the root that
+`/chat/completions` hangs off — for example `http://your-server:8000/v1`, or
+`http://localhost:11434/v1` for Ollama), and set **Model** to whatever name your server
+serves. Most local servers accept any key; put something in the field anyway. Nothing leaves
+your network, and there's no per-message cost.
+
+One thing to check with a local model: it must support **tool calling** (also called function
+calling). Baton asks the model to pick from its list of commands, and a model or server built
+without that support will fail the Test with an error saying so. Most current instruct models
+handle it; very small or older ones often don't. Smaller models are also less precise at
+picking details out of a sentence — asking for "kind of blue" might search for just "blue" —
+so if results feel vague, a larger model is the fix.
+
+If you'd rather not have any of this, leave it off — every command in the table above works
+without it.
 
 If you use a phrase that collides with a command, put `ask` in front to force the
 plain-English reading: `ask play something quiet`.
