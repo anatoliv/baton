@@ -223,3 +223,54 @@ final class MixArtworkCoverageTests: XCTestCase {
         XCTAssertEqual(MusicMixCatalog.serverArtwork.count, 9)
     }
 }
+
+/// Genre card symbols.
+///
+/// Every genre card used to show `guitars.fill` — a guitar on Trance, House, Electronic and
+/// Pop. Twelve identical guitars made the row look monotonous more than the backdrops did.
+/// Genres are an unbounded, library-driven set, so they get symbols rather than bespoke art:
+/// art would need an image per genre forever, and any unmapped one would fall back and
+/// reintroduce the inconsistency the Mixes cards just had.
+@MainActor
+final class GenreSymbolTests: XCTestCase {
+    func testElectronicGenresDoNotGetAGuitar() {
+        for genre in ["Trance", "Hard Trance", "Vocal Trance", "House", "Techno",
+                      "Electronic", "Eurodance", "Big Beat", "Dubstep"] {
+            XCTAssertNotEqual(MusicMixCatalog.symbol(forGenre: genre), "guitars.fill",
+                              "\(genre) should not show a guitar")
+        }
+    }
+
+    func testGuitarGenresKeepTheGuitar() {
+        for genre in ["Rock", "Hard Rock", "Classic Rock", "Folk", "Blues"] {
+            XCTAssertTrue(["guitars.fill", "flame.fill"].contains(MusicMixCatalog.symbol(forGenre: genre)),
+                          "\(genre) got \(MusicMixCatalog.symbol(forGenre: genre))")
+        }
+    }
+
+    func testRelatedGenresShareASymbolWithoutNeedingAnEntryEach() {
+        let trance = MusicMixCatalog.symbol(forGenre: "Trance")
+        XCTAssertEqual(MusicMixCatalog.symbol(forGenre: "Hard Trance"), trance)
+        XCTAssertEqual(MusicMixCatalog.symbol(forGenre: "02 - Classic Trance"), trance)
+    }
+
+    func testMatchingIsCaseInsensitive() {
+        XCTAssertEqual(MusicMixCatalog.symbol(forGenre: "TRANCE"),
+                       MusicMixCatalog.symbol(forGenre: "trance"))
+    }
+
+    func testUnknownGenreGetsANeutralDefaultRatherThanAGuess() {
+        XCTAssertEqual(MusicMixCatalog.symbol(forGenre: "Zzyzx"), "music.note")
+        XCTAssertEqual(MusicMixCatalog.symbol(forGenre: ""), "music.note")
+    }
+
+    func testTheLibrarysActualGenresAreMostlyDistinct() {
+        // The twelve genres currently on this library. If nearly all collapse to one symbol
+        // the mapping has stopped doing its job.
+        let real = ["Electronic", "Trance", "Gothic", "New Wave", "Eurodance", "House",
+                    "Big Beat", "Workout", "Rock", "Hard Trance", "Pop", "Castlevania Covers"]
+        let symbols = Set(real.map(MusicMixCatalog.symbol(forGenre:)))
+        XCTAssertGreaterThanOrEqual(symbols.count, 8,
+                                    "only \(symbols.count) distinct symbols across 12 genres")
+    }
+}
