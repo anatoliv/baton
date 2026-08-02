@@ -247,6 +247,19 @@ final class RemoteNaturalLanguageTests: XCTestCase {
         }
     }
 
+    /// Thinking counts against `max_tokens`, so a long deliberation can end the
+    /// response before the tool call is emitted. That must not be reported as
+    /// "I couldn't turn that into a command" — the sentence was fine, the budget
+    /// wasn't, and those need different answers.
+    func testTruncatedResponseIsDistinguishedFromAnUnroutableSentence() {
+        let body = #"{"content":[],"stop_reason":"max_tokens"}"#
+        XCTAssertThrowsError(try RemoteNaturalLanguage.parse(Data(body.utf8))) { error in
+            guard case RemoteNaturalLanguage.Failure.truncated = error else {
+                return XCTFail("expected .truncated, got \(error)")
+            }
+        }
+    }
+
     func testResponseWithNoToolCallThrows() {
         let body = #"{"content":[{"type":"text","text":"I'm not sure what to play."}],"stop_reason":"end_turn"}"#
         XCTAssertThrowsError(try RemoteNaturalLanguage.parse(Data(body.utf8))) { error in
