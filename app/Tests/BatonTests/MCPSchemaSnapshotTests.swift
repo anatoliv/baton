@@ -172,6 +172,7 @@ final class NavidromeNotFoundTests: XCTestCase {
 /// second apart. Over MCP a round-trip takes seconds by construction, so `music_previous`
 /// restarted the current track essentially every time and stepping back was unreachable.
 /// Rather than tune a threshold that is correct for hands, the caller states its intent.
+@MainActor
 final class PreviousTrackRuleTests: XCTestCase {
     private func restarts(_ time: TimeInterval, _ index: Int, force: Bool = false) -> Bool {
         StreamingPlaybackController.previousRestartsCurrent(
@@ -184,6 +185,20 @@ final class PreviousTrackRuleTests: XCTestCase {
 
     func testLaterInATrackRestartsIt() {
         XCTAssertTrue(restarts(30.0, 3), "the familiar back-button behaviour must survive")
+    }
+
+    /// The MCP handler defaults `force` to true — the opposite of the button — because a
+    /// remote round-trip always exceeds the 3s threshold. Pinned here because it is a
+    /// deliberate divergence, and a "sensible" later edit aligning it with the button would
+    /// silently make stepping back unreachable again.
+    func testMCPDefaultsToSteppingBackNotRestarting() {
+        let tool = BatonMCPToolCatalog.definitions().first { ($0["name"] as? String) == "music_previous" }
+        let schema = tool?["inputSchema"] as? [String: Any]
+        let props = schema?["properties"] as? [String: Any]
+        XCTAssertNotNil(props?["force"], "music_previous must expose force")
+        let desc = (tool?["description"] as? String ?? "").lowercased()
+        XCTAssertTrue(desc.contains("always steps back"),
+                      "the description must tell the client the default is step-back")
     }
 
     func testForceAlwaysStepsBackHoweverFarIn() {
