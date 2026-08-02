@@ -108,6 +108,25 @@ enum StreamSeek {
                                      tolerance: spuriousEndTolerance)
     }
 
+    // MARK: - Which duration to trust
+
+    /// The track-logical duration, given what the asset reports and what the server said.
+    ///
+    /// **An offset stream's duration must be ignored.** A `timeOffset` stream reports the *whole*
+    /// track's length rather than the remainder, so treating it as the remainder and adding the
+    /// offset back inflates the track a little more with every seek. Measured live: a 4798 s set
+    /// read 5502 s after one seek and 6325 s after two — exactly `4798 + offset` each time. A
+    /// scrubber that rescales under the listener sends the next click somewhere they didn't aim,
+    /// and eventually past the real end, where it reads as a skip.
+    ///
+    /// The server's metadata length is authoritative for the logical track. Nothing an offset
+    /// stream reports can improve on it, so at any offset the metadata simply stands.
+    static func logicalDuration(assetSeconds: Double?, metadata: Double, streamStartOffset: Double) -> Double {
+        guard streamStartOffset <= 0 else { return metadata }
+        guard let assetSeconds, assetSeconds.isFinite, assetSeconds > 1 else { return metadata }
+        return assetSeconds
+    }
+
     // MARK: - Building the stream URL
 
     /// Below this an offset isn't worth a reload, and `timeOffset` is whole seconds anyway.
