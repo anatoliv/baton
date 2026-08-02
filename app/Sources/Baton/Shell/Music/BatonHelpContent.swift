@@ -234,6 +234,26 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.1",
+            date: "2026",
+            highlight: "Setting up a chat remote now tells you what to do next.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "After connecting a Telegram or Discord bot, the Remote pane said "
+                        + "\u{201C}No chats authorized yet\u{201D} without showing the link code "
+                        + "you need to send \u{2014} it was further down the pane, below the other "
+                        + "service. The code now sits with the message, where you read it."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "When plain English is on and the model runs out of room before it "
+                        + "picks a command, Baton now says so, instead of reporting that it "
+                        + "couldn\u{2019}t understand a request that was perfectly clear."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.0",
             date: "2026",
             highlight: "Conduct your music from Telegram or Discord.",
