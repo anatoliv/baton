@@ -234,6 +234,21 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.4",
+            date: "2026",
+            highlight: "\u{201C}Play the second one\u{201D} now does what you meant.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "A message starting with a command word was always taken literally, so "
+                        + "\u{201C}play the second one\u{201D} searched for a song by that name and found "
+                        + "nothing. When a literal reading comes up empty and plain English is "
+                        + "switched on, Baton now asks what you meant \u{2014} with the conversation in "
+                        + "hand, so a reference to what was just listed resolves."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.3",
             date: "2026",
             highlight: "Follow-up messages now know what you were just talking about.",
