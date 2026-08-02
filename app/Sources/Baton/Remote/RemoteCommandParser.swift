@@ -40,6 +40,8 @@ enum RemoteAction: Equatable, Sendable {
     case link(code: String)
     /// Not a recognized command; hand to the LLM tool-picker if one is configured.
     case natural(String)
+    /// Drop the remembered conversation for this chat.
+    case forget
     /// Message was empty or contained only a bot mention.
     case ignore
 }
@@ -160,6 +162,9 @@ enum RemoteCommandParser {
             return .tool(.init(name: "music_sleep_timer", arguments: ["minutes": .int(minutes)]))
 
         // — meta ---------------------------------------------------------------
+        case "forget", "reset", "clear", "nevermind":
+            return .forget
+
         case "help", "commands", "start", "h", "?":
             return .help
 
