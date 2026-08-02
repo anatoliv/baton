@@ -31,6 +31,11 @@ struct BatonApp: App {
     /// Bridges menu-bar commands (Go / Find / Now Playing) into the main window's state.
     @State private var commandRouter = BatonCommandRouter()
 
+    /// Chat remote control (Telegram / Discord). Shares the MCP server's audio-focus
+    /// registry and drives the same `BatonMCPToolCatalog`, so a chat message and an
+    /// agent call take one code path. Dormant until configured in Settings → Remote.
+    @State private var remote: RemoteControlService?
+
     /// Window id for the custom About panel (opened from the app menu).
     static let aboutWindowID = "baton-about"
 
@@ -65,6 +70,11 @@ struct BatonApp: App {
                         // Start the fast-path listener sharing the server's focus registry.
                         let sock = BatonControlSocket(focus: s.focus, music: music); sock.start()
                         controlSocket = sock
+                        // Chat bridges, sharing the server's focus registry. `apply()`
+                        // is a no-op unless the user has configured a platform.
+                        let chat = RemoteControlService(music: music, focus: s.focus)
+                        chat.apply()
+                        remote = chat
                         // Route spoken-summary notifications ("Play" action) to the engine.
                         let notifier = SpeechNotificationDelegate(speech: music.speech)
                         UNUserNotificationCenter.current().delegate = notifier
@@ -80,7 +90,7 @@ struct BatonApp: App {
                         ) { _ in
                             MainActor.assumeIsolated {
                                 music.music.persistNow() // save queue + playhead on quit
-                                sock.stop(); s.stop()
+                                chat.stopAll(); sock.stop(); s.stop()
                             }
                         }
                     }
@@ -128,6 +138,7 @@ struct BatonApp: App {
         Window("Settings", id: BatonSettingsView.windowID) {
             BatonSettingsView()
                 .environment(music)
+                .environment(remote)
                 .tint(.batonOrange)
         }
         .windowResizability(.contentMinSize)

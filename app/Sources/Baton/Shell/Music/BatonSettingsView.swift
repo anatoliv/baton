@@ -74,6 +74,8 @@ struct BatonSettingsView: View {
             BatonSpeechPane()
         case .agents:
             BatonAgentsPane()
+        case .remote:
+            BatonRemotePane()
         case .about:
             BatonAboutPane()
         }
@@ -88,6 +90,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case actions
     case speech
     case agents
+    case remote
     case about
 
     var id: Self { self }
@@ -100,6 +103,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .actions: "Actions"
         case .speech: "Speech"
         case .agents: "Agents"
+        case .remote: "Remote"
         case .about: "About"
         }
     }
@@ -112,6 +116,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .actions: "bolt.horizontal.circle"
         case .speech: "waveform"
         case .agents: "sparkles"
+        case .remote: "antenna.radiowaves.left.and.right"
         case .about: "info.circle"
         }
     }
