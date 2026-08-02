@@ -30,22 +30,22 @@ enum MusicMixCatalog {
     /// The six server + local-signal auto-mixes.
     @MainActor static func auto(_ model: MusicModel) -> [MusicMix] {
         [
-            MusicMix(id: "mostPlayed", title: "Most Played", subtitle: "Your top tracks", icon: "flame.fill", color: .orange) {
+            MusicMix(id: "mostPlayed", title: "Most Played", subtitle: "Your top tracks", icon: "flame.fill", color: .orange, artwork: "MixArtMostPlayed") {
                 model.musicHistory.topTracks(since: .distantPast).map(\.song)
             },
-            MusicMix(id: "recentlyAdded", title: "Just Added", subtitle: "Newest in your library", icon: "sparkles", color: .green) {
+            MusicMix(id: "recentlyAdded", title: "Just Added", subtitle: "Newest in your library", icon: "sparkles", color: .green, artwork: "MixArtJustAdded") {
                 await model.musicLibrary.mixSongs(type: "newest")
             },
-            MusicMix(id: "topRated", title: "Top Rated", subtitle: "Your highest-rated", icon: "star.fill", color: .yellow) {
+            MusicMix(id: "topRated", title: "Top Rated", subtitle: "Your highest-rated", icon: "star.fill", color: .yellow, artwork: "MixArtTopRated") {
                 await model.musicLibrary.mixSongs(type: "highest")
             },
-            MusicMix(id: "onRepeat", title: "On Repeat", subtitle: "Frequently played", icon: "repeat", color: .pink) {
+            MusicMix(id: "onRepeat", title: "On Repeat", subtitle: "Frequently played", icon: "repeat", color: .pink, artwork: "MixArtOnRepeat") {
                 await model.musicLibrary.mixSongs(type: "frequent")
             },
-            MusicMix(id: "forgotten", title: "Forgotten Favorites", subtitle: "Liked, not heard lately", icon: "heart.circle.fill", color: .red) {
+            MusicMix(id: "forgotten", title: "Forgotten Favorites", subtitle: "Liked, not heard lately", icon: "heart.circle.fill", color: .red, artwork: "MixArtForgotten") {
                 forgottenFavorites(model)
             },
-            MusicMix(id: "discover", title: "Discover", subtitle: "A random shuffle", icon: "shuffle", color: .blue) {
+            MusicMix(id: "discover", title: "Discover", subtitle: "A random shuffle", icon: "shuffle", color: .blue, artwork: "MixArtDiscover") {
                 // Stay a shuffle (fresh each open), but spread artists so it never stacks the
                 // same artist back-to-back (F2 — sonic-aware discovery, docs/09 finding #6).
                 MixBuilder.curate(await model.musicLibrary.mixSongs(type: "random").shuffled(), mood: .neutral)

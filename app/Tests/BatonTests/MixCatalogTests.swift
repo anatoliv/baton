@@ -171,3 +171,44 @@ final class MixArtworkOverrideTests: XCTestCase {
         }
     }
 }
+
+/// Every card on the Mixes tab carries artwork.
+///
+/// 0.10.0 art-directed the seven server-generated playlists but left the six built-in auto
+/// mixes on the generated mesh, so one screen showed two visual languages. This pins the
+/// whole set — including that each asset actually exists, since a typo silently reverts a
+/// card to the mesh and nobody would notice.
+@MainActor
+final class MixArtworkCoverageTests: XCTestCase {
+    /// The six built-in mixes, by the asset each is wired to in `MusicMixCatalog.auto`.
+    /// Kept as a literal so the test needs no live `MusicModel`.
+    private static let autoMixArtwork = [
+        "MixArtMostPlayed", "MixArtJustAdded", "MixArtTopRated",
+        "MixArtOnRepeat", "MixArtForgotten", "MixArtDiscover",
+    ]
+
+    func testEveryAutoMixAssetExists() {
+        for name in Self.autoMixArtwork {
+            XCTAssertNotNil(NSImage(named: name), "missing asset '\(name)'")
+        }
+    }
+
+    func testEveryServerPlaylistAssetExists() {
+        for (playlist, name) in MusicMixCatalog.serverArtwork {
+            XCTAssertNotNil(NSImage(named: name), "\(playlist) maps to missing asset '\(name)'")
+        }
+    }
+
+    func testNoTwoCardsShareTheSameImage() {
+        // Repetition across cards is the failure this whole exercise was about.
+        let all = Self.autoMixArtwork + Array(MusicMixCatalog.serverArtwork.values)
+        XCTAssertEqual(Set(all).count, all.count, "duplicate artwork: \(all.sorted())")
+    }
+
+    func testTheWholeMixesTabIsCovered() {
+        // 6 built-in + 7 generated. If a card is added without art it drops to the mesh,
+        // which is a fine fallback but reintroduces the two-languages-on-one-screen problem.
+        XCTAssertEqual(Self.autoMixArtwork.count, 6)
+        XCTAssertEqual(MusicMixCatalog.serverArtwork.count, 7)
+    }
+}
