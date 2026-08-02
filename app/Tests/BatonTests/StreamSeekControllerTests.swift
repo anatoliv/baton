@@ -107,6 +107,45 @@ final class StreamSeekControllerTests: XCTestCase {
                        "recovery must be bounded — a truly broken stream has to move on")
     }
 
+    func testEverySeekGetsAFreshRecoveryBudget() {
+        // The 0.11.3 regression, straight from the live log: four seeks into one long set within
+        // eight seconds. Each of the first three correctly refused a spurious end — which used up
+        // a per-track budget of 3 — so the fourth seek skipped the track. A seek is a fresh
+        // intent, not a retry of the previous one.
+        let c = makeController()
+        c.play([longSet("a"), longSet("b")])
+        for target in [704.0, 1527, 3591, 4000] {
+            c.seek(to: target)
+            c.simulateTrackEndedForTesting()
+            XCTAssertEqual(c.nowPlaying?.id, "a",
+                           "seek to \(target)s skipped the track")
+        }
+    }
+
+    func testAStuckStreamIsStillBounded() {
+        // The bound must survive the reset above: repeated early ends with NO new seek between
+        // them still have to give up, or a genuinely truncated file wedges the queue.
+        let c = makeController()
+        c.play([longSet("a"), longSet("b")])
+        c.seek(to: 2400)
+        for _ in 0...StreamingPlaybackController.maxSpuriousEndRecoveries {
+            c.simulateTrackEndedForTesting()
+        }
+        XCTAssertEqual(c.nowPlaying?.id, "b")
+    }
+
+    func testSeekingDoesNotChangeTheTrackLength() {
+        // A scrubber that rescales under the listener sends the next click somewhere they didn't
+        // aim at. Observed live: 4831s → 5502s → 6325s across three seeks.
+        let c = makeController()
+        c.play([longSet("a")])
+        for target in [704.0, 1527, 3591] {
+            c.seek(to: target)
+            XCTAssertEqual(c.duration, 4524, accuracy: 1,
+                           "seeking to \(target)s changed the reported track length")
+        }
+    }
+
     func testANewTrackGetsAFreshRecoveryBudget() {
         let c = makeController()
         c.play([longSet("a"), longSet("b")])

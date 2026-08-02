@@ -234,6 +234,24 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.11.4",
+            date: "2026",
+            highlight: "Seeking in a long mix now works however many times you do it.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "0.11.3 fixed clicking the playbar in a long track, but only for the "
+                        + "first few clicks \u{2014} after that it could still skip to the next "
+                        + "track. Seeking again now always gets a fresh attempt."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "A long track no longer appears to get longer each time you seek in it, "
+                        + "which made later clicks land somewhere other than where you aimed."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.11.3",
             date: "2026",
             highlight: "Clicking the playbar in a long mix goes where you clicked.",
