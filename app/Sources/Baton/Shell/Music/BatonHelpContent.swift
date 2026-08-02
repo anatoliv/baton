@@ -234,6 +234,22 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.5",
+            date: "2026",
+            highlight: "Queueing by voice now lands in the right place.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "\u{201C}Add the Beatles to the queue\u{201D}, \u{201C}queue up Led "
+                        + "Zeppelin\u{201D} and \u{201C}play Bowie next\u{201D} mean three "
+                        + "different things, and plain English now tells them apart instead of "
+                        + "sometimes replacing what you were listening to. Measured across "
+                        + "forty-odd real phrasings against a local model, the routing went from "
+                        + "35 in 39 to 42 in 43."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.4",
             date: "2026",
             highlight: "\u{201C}Play the second one\u{201D} now does what you meant.",
