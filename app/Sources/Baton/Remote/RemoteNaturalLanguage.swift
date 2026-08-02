@@ -67,7 +67,7 @@ enum RemoteNaturalLanguage {
             case .notConfigured:
                 "Natural language isn't set up. Turn it on in Baton → Settings → Remote."
             case let .http(status, body):
-                "The model provider returned \(status). \(body)"
+                "The model provider returned \(status). \(body)" + RemoteNaturalLanguage.hint(status: status, body: body)
             case let .refused(reason):
                 "The model declined that request. \(reason)"
             case let .noToolCall(text):
@@ -101,42 +101,171 @@ enum RemoteNaturalLanguage {
         guard (200..<300).contains(http.statusCode) else {
             throw Failure.http(status: http.statusCode, body: errorMessage(from: data))
         }
-        return try parse(data)
+        return try parse(data, provider: config.provider)
+    }
+
+    /// Not every provider answers an unusable key with a plain 401. LiteLLM —
+    /// the most common way to front local models — returns `400 "No connected
+    /// db."`, because it falls through to looking the key up in a database it
+    /// hasn't got. Relaying that verbatim is accurate and useless; name the
+    /// likely cause instead of making the reader learn the provider's internals.
+    static func hint(status: Int, body: String) -> String {
+        let text = body.lowercased()
+        if text.contains("no connected db") || text.contains("no_db_connection") {
+            return " That's how LiteLLM reports a key it can't recognize — check you're using the key that server expects."
+        }
+        if status == 401 || status == 403 || text.contains("authentication") {
+            return " Check the API key."
+        }
+        if status == 404 || (status == 400 && text.contains("model")) {
+            return " Check the model name and the base URL."
+        }
+        return ""
+    }
+
+    // MARK: - Self-test
+
+    /// The result of a connection test, phrased for someone reading Settings.
+    enum TestOutcome: Sendable {
+        case ok(String)
+        case failed(String)
+    }
+
+    /// Catch the settings mistakes that are visible without spending a request.
+    /// Worth doing separately: an HTTP error from a wrong URL is far less
+    /// legible than being told which field is wrong.
+    static func complaint(about config: RemoteControlSettings.NaturalLanguageConfig) -> String? {
+        let base = config.baseURL.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !base.isEmpty else { return "The API base URL is empty." }
+        guard base.hasPrefix("http://") || base.hasPrefix("https://") else {
+            return "The API base URL should start with https:// (or http:// on your own network)."
+        }
+        // A URL from one dialect with the other one selected is the single most
+        // likely misconfiguration, and the resulting 404 explains nothing. The
+        // fix is a picker away, so say which way to move it.
+        switch config.provider {
+        case .anthropic:
+            if base.contains("openai.com") || base.contains("/chat/completions") {
+                return "That's an OpenAI-style endpoint — set Provider to “OpenAI-compatible”."
+            }
+        case .openAICompatible:
+            if base.contains("api.anthropic.com") {
+                return "That's Anthropic's endpoint — set Provider to “Anthropic”."
+            }
+        }
+        if config.apiKey.isEmpty { return "No API key yet." }
+        if config.model.trimmingCharacters(in: .whitespaces).isEmpty { return "No model set." }
+        return nil
+    }
+
+    /// Run one real request end to end and describe what happened. Deliberately
+    /// the *production* path — same headers, same body, same parsing — so a pass
+    /// means the next chat message will work, not merely that a server answered.
+    static func test(
+        config: RemoteControlSettings.NaturalLanguageConfig,
+        tools: RemoteToolSchemas,
+        session: URLSession = .shared
+    ) async -> TestOutcome {
+        if let complaint = complaint(about: config) { return .failed(complaint) }
+        do {
+            // A probe that must resolve to one obvious tool, so a pass proves the
+            // model understood the catalog rather than merely returning 200.
+            let resolution = try await resolve("pause the music", config: config, tools: tools, session: session)
+            guard resolution.call.name == "music_pause" else {
+                return .ok("Connected to \(config.model), though it chose \(resolution.call.name) for “pause the music”.")
+            }
+            return .ok("Connected. \(config.model) understood the test request.")
+        } catch {
+            return .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
     }
 
     // MARK: - Request
+
+    /// The endpoint to POST to. Tolerant of the two ways people naturally paste a
+    /// base URL — the bare root, or the full endpoint copied out of a provider's
+    /// docs — because silently appending a second path is a 404 with nothing to
+    /// explain it.
+    static func endpoint(for config: RemoteControlSettings.NaturalLanguageConfig) throws -> URL {
+        var base = config.baseURL.trimmingCharacters(in: .whitespaces)
+        while base.hasSuffix("/") { base.removeLast() }
+
+        let path: String
+        switch config.provider {
+        case .anthropic:
+            for suffix in ["/v1/messages", "/v1"] where base.hasSuffix(suffix) {
+                base.removeLast(suffix.count)
+                break
+            }
+            path = "/v1/messages"
+        case .openAICompatible:
+            if base.hasSuffix("/chat/completions") { base.removeLast("/chat/completions".count) }
+            if base.hasSuffix("/v1") { base.removeLast("/v1".count) }
+            path = "/v1/chat/completions"
+        }
+
+        guard let url = URL(string: base + path) else {
+            throw Failure.malformed("bad base URL \(config.baseURL)")
+        }
+        return url
+    }
 
     static func buildRequest(
         _ message: String,
         config: RemoteControlSettings.NaturalLanguageConfig,
         tools: RemoteToolSchemas
     ) throws -> URLRequest {
-        let base = config.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        guard let url = URL(string: base + "/v1/messages") else {
-            throw Failure.malformed("bad base URL \(config.baseURL)")
-        }
-
-        let body: [String: Any] = [
-            "model": config.model,
-            "max_tokens": 8192,
-            "system": systemPrompt,
-            // Force a tool call: the model's job here is routing, not chatting.
-            "tool_choice": ["type": "any"],
-            // Routing is a shallow task; low effort keeps a chat reply snappy.
-            // (Thinking is left at the model's default rather than disabled —
-            // disabling it is what makes some models emit a tool call as plain
-            // text instead of a structured one.)
-            "output_config": ["effort": "low"],
-            "tools": tools.json,
-            "messages": [["role": "user", "content": message]],
-        ]
-
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: try endpoint(for: config))
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
+
+        let body: [String: Any]
+        switch config.provider {
+        case .anthropic:
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            request.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
+            body = [
+                "model": config.model,
+                "max_tokens": 8192,
+                "system": systemPrompt,
+                // Force a tool call: the model's job here is routing, not chatting.
+                "tool_choice": ["type": "any"],
+                // Routing is a shallow task; low effort keeps a chat reply snappy.
+                // (Thinking is left at the model's default rather than disabled —
+                // disabling it is what makes some models emit a tool call as plain
+                // text instead of a structured one.)
+                "output_config": ["effort": "low"],
+                "tools": tools.json,
+                "messages": [["role": "user", "content": message]],
+            ]
+
+        case .openAICompatible:
+            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+            // No token cap: this dialect split `max_tokens` into
+            // `max_completion_tokens` on newer models, and sending the wrong one
+            // is a 400. The reply is a single tool call either way, so the cap
+            // buys nothing worth that incompatibility.
+            body = [
+                "model": config.model,
+                "tool_choice": "required",
+                // Same schemas, third spelling: MCP says `inputSchema`, Anthropic
+                // says `input_schema`, this dialect nests them under `function`
+                // and says `parameters`.
+                "tools": tools.json.map { schema -> [String: Any] in
+                    ["type": "function", "function": [
+                        "name": schema["name"] ?? "",
+                        "description": schema["description"] ?? "",
+                        "parameters": schema["input_schema"] ?? [:],
+                    ]]
+                },
+                "messages": [
+                    ["role": "system", "content": systemPrompt],
+                    ["role": "user", "content": message],
+                ],
+            ]
+        }
+
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -156,7 +285,52 @@ enum RemoteNaturalLanguage {
 
     // MARK: - Response
 
-    static func parse(_ data: Data) throws -> Resolution {
+    static func parse(
+        _ data: Data,
+        provider: RemoteControlSettings.LLMProvider = .anthropic
+    ) throws -> Resolution {
+        switch provider {
+        case .anthropic: try parseAnthropic(data)
+        case .openAICompatible: try parseOpenAI(data)
+        }
+    }
+
+    /// `choices[0].message.tool_calls[0].function` — and `arguments` is a JSON
+    /// *string*, not an object, so it needs a second decode.
+    private static func parseOpenAI(_ data: Data) throws -> Resolution {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Failure.malformed("response was not a JSON object")
+        }
+        guard let choice = (root["choices"] as? [[String: Any]])?.first,
+              let message = choice["message"] as? [String: Any]
+        else {
+            throw Failure.malformed("response had no choices")
+        }
+
+        let text = (message["content"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard let call = (message["tool_calls"] as? [[String: Any]])?.first,
+              let function = call["function"] as? [String: Any],
+              let name = function["name"] as? String
+        else {
+            if choice["finish_reason"] as? String == "length" { throw Failure.truncated }
+            throw Failure.noToolCall(text)
+        }
+
+        var arguments: [String: Any] = [:]
+        if let raw = function["arguments"] as? String, !raw.isEmpty,
+           let decoded = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] {
+            arguments = decoded
+        }
+
+        return Resolution(
+            call: RemoteToolCall(name: name, arguments: coerce(arguments)),
+            preamble: text.isEmpty ? nil : text
+        )
+    }
+
+    private static func parseAnthropic(_ data: Data) throws -> Resolution {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw Failure.malformed("response was not a JSON object")
         }

@@ -31,6 +31,8 @@ private struct RemoteSettingsForm: View {
     @State private var discordToken = ""
     @State private var apiKey = ""
     @State private var discordChannels = ""
+    @State private var isTesting = false
+    @State private var testResult: RemoteNaturalLanguage.TestOutcome?
 
     var body: some View {
         @Bindable var settings = service.settings
@@ -211,9 +213,21 @@ private struct RemoteSettingsForm: View {
             .font(.callout).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
+            Picker("Provider", selection: Binding(
+                get: { settings.naturalLanguage.provider },
+                set: { switchProvider(to: $0) }
+            )) {
+                ForEach(RemoteControlSettings.LLMProvider.allCases) { provider in
+                    Text(provider.label).tag(provider)
+                }
+            }
+            Text(settings.naturalLanguage.provider.hint)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             LabeledContent("API key") {
                 HStack {
-                    SecureField("", text: $apiKey, prompt: Text("sk-ant-…"))
+                    SecureField("", text: $apiKey, prompt: Text(settings.naturalLanguage.provider.keyPlaceholder))
                         .textFieldStyle(.roundedBorder)
                     Button("Save") { settings.naturalLanguage.apiKey = apiKey }
                         .disabled(apiKey == settings.naturalLanguage.apiKey)
@@ -221,9 +235,68 @@ private struct RemoteSettingsForm: View {
             }
             TextField("Model", text: $settings.naturalLanguage.model)
             TextField("API base URL", text: $settings.naturalLanguage.baseURL)
-            Text("Defaults to Anthropic's Messages API. Point the base URL at a compatible gateway if you route model traffic yourself.")
+
+            LabeledContent("Connection") {
+                HStack(spacing: 10) {
+                    Button(isTesting ? "Testing…" : "Test") { runTest() }
+                        .disabled(isTesting || !settings.naturalLanguage.isConfigured)
+                    testResultLabel
+                }
+            }
+            Text("Sends one short request (\u{201C}pause the music\u{201D}) the same way a chat message would, so a pass means the next message will work \u{2014} not just that something answered.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var testResultLabel: some View {
+        switch testResult {
+        case .none:
+            EmptyView()
+        case let .ok(message):
+            Label(message, systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .fixedSize(horizontal: false, vertical: true)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Switching dialect carries the URL and model with it — but only when they
+    /// were still the *other* dialect's defaults. Someone who typed their own
+    /// endpoint or model chose it deliberately, and having a picker silently
+    /// overwrite that would be worse than leaving a value that needs editing.
+    private func switchProvider(to provider: RemoteControlSettings.LLMProvider) {
+        var config = service.settings.naturalLanguage
+        let previous = config.provider
+        guard previous != provider else { return }
+
+        if config.baseURL.trimmingCharacters(in: .whitespaces).isEmpty
+            || config.baseURL == previous.defaultBaseURL {
+            config.baseURL = provider.defaultBaseURL
+        }
+        if config.model.trimmingCharacters(in: .whitespaces).isEmpty
+            || config.model == previous.defaultModel {
+            config.model = provider.defaultModel
+        }
+        config.provider = provider
+        service.settings.naturalLanguage = config
+        testResult = nil // a result from the old dialect says nothing about this one
+    }
+
+    private func runTest() {
+        let config = service.settings.naturalLanguage
+        isTesting = true
+        testResult = nil
+        Task {
+            let tools = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
+            let outcome = await RemoteNaturalLanguage.test(config: config, tools: tools)
+            testResult = outcome
+            isTesting = false
         }
     }
 

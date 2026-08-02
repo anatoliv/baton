@@ -112,14 +112,67 @@ final class RemoteControlSettings {
         var isConfigured: Bool { isEnabled && !token.isEmpty }
     }
 
+    /// Which wire protocol the configured endpoint speaks. Two dialects cover
+    /// effectively every provider worth pointing at: Anthropic's Messages API,
+    /// and the OpenAI chat-completions shape that OpenAI, Groq, Together, and
+    /// self-hosted vLLM/Ollama all implement.
+    enum LLMProvider: String, CaseIterable, Codable, Sendable, Identifiable {
+        case anthropic
+        case openAICompatible
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .anthropic: "Anthropic"
+            case .openAICompatible: "OpenAI-compatible"
+            }
+        }
+
+        var defaultBaseURL: String {
+            switch self {
+            case .anthropic: "https://api.anthropic.com"
+            case .openAICompatible: "https://api.openai.com/v1"
+            }
+        }
+
+        var defaultModel: String {
+            switch self {
+            case .anthropic: "claude-opus-5"
+            case .openAICompatible: "gpt-4o-mini"
+            }
+        }
+
+        var keyPlaceholder: String {
+            switch self {
+            case .anthropic: "sk-ant-…"
+            case .openAICompatible: "sk-…"
+            }
+        }
+
+        var hint: String {
+            switch self {
+            case .anthropic:
+                "Anthropic's Messages API. Base URL is the API root — Baton adds /v1/messages itself."
+            case .openAICompatible:
+                """
+                The chat-completions shape, which OpenAI, Groq, Together, and self-hosted \
+                vLLM or Ollama all speak. Base URL is the root that /chat/completions hangs \
+                off — for OpenAI that's https://api.openai.com/v1.
+                """
+            }
+        }
+    }
+
     struct NaturalLanguageConfig: Equatable, Sendable {
         var isEnabled: Bool = false
-        /// Anthropic API key (`sk-ant-…`). Keychain-stored.
+        /// Which dialect the endpoint speaks.
+        var provider: LLMProvider = .anthropic
+        /// API key. Keychain-stored.
         var apiKey: String = ""
-        /// Model id. Defaults to Anthropic's current Opus; override for a cheaper
-        /// or faster tier if you'd rather trade capability for latency.
+        /// Model id.
         var model: String = "claude-opus-5"
-        /// API base. Overridable for a proxy or a compatible gateway.
+        /// API base — the root, not a full endpoint path (Baton appends that).
         var baseURL: String = "https://api.anthropic.com"
 
         var isConfigured: Bool { isEnabled && !apiKey.isEmpty }
@@ -161,6 +214,9 @@ final class RemoteControlSettings {
         var nl = NaturalLanguageConfig()
         nl.isEnabled = store.bool(forKey: Keys.nlEnabled)
         nl.apiKey = secretStore.secret(for: Keys.nlAPIKey) ?? ""
+        if let raw = store.string(forKey: Keys.nlProvider), let provider = LLMProvider(rawValue: raw) {
+            nl.provider = provider
+        }
         if let model = store.string(forKey: Keys.nlModel), !model.isEmpty { nl.model = model }
         if let base = store.string(forKey: Keys.nlBaseURL), !base.isEmpty { nl.baseURL = base }
         naturalLanguage = nl
@@ -220,6 +276,7 @@ final class RemoteControlSettings {
 
     private func persistNaturalLanguage() {
         defaults.set(naturalLanguage.isEnabled, forKey: Keys.nlEnabled)
+        defaults.set(naturalLanguage.provider.rawValue, forKey: Keys.nlProvider)
         defaults.set(naturalLanguage.model, forKey: Keys.nlModel)
         defaults.set(naturalLanguage.baseURL, forKey: Keys.nlBaseURL)
         secrets.setSecret(naturalLanguage.apiKey.isEmpty ? nil : naturalLanguage.apiKey, for: Keys.nlAPIKey)
@@ -232,6 +289,7 @@ final class RemoteControlSettings {
     private enum Keys {
         static let enabled = "baton.remote.enabled"
         static let nlEnabled = "baton.remote.nl.enabled"
+        static let nlProvider = "baton.remote.nl.provider"
         static let nlModel = "baton.remote.nl.model"
         static let nlBaseURL = "baton.remote.nl.baseURL"
         static let nlAPIKey = "baton.remote.nl.apiKey"
