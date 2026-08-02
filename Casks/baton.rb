@@ -3,8 +3,8 @@ cask "baton" do
   # and sparkle:version, and Homebrew's Sparkle livecheck strategy reports them
   # as one comma value. Pinning only the short version makes `brew audit` fail
   # with "differs from ... retrieved by livecheck" and breaks autobumping.
-  version "0.11.5,43"
-  sha256 "a7061a9fe4225ab4f24aa7c4f8617b9b730c030ccb685ca2e4764f180a4a1f8e"
+  version "0.11.6,44"
+  sha256 "b170d2a3a17edec8b722ca3b8470ba67430c425540912e4f8cad09a470718b30"
 
   url "https://baton.tonebox.io/Baton-#{version.csv.first}.dmg",
       verified: "baton.tonebox.io/"

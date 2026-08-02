@@ -225,6 +225,20 @@ final class MusicModel {
         music.onScrobbleEligible = { [scrobbler] song, startedAt in
             scrobbler.completed(song, startedAt: startedAt)
         }
+        // Report how much of the track actually played, once it's left. The scrobble above fires
+        // at a fixed threshold part-way in, so it says a track was *started*, never how far it
+        // got — and nothing server-side can tell, because a long track buffers completely within
+        // minutes however briefly you stay. Best-effort: a failure never affects playback.
+        music.onListenFinished = { song, listened, duration in
+            guard !BatonEnvironment.current.isTesting, NavidromeConfig.isConfigured else { return }
+            Task {
+                try? await NavidromeConfig.makeClient().reportListen(
+                    id: song.id,
+                    listenedSeconds: Int(listened.rounded()),
+                    trackDuration: duration > 0 ? Int(duration.rounded()) : song.duration
+                )
+            }
+        }
         // Attach/detach the EQ audio-mix tap on each loaded item; re-apply when toggled.
         music.configureAudioMix = { [musicEqualizer, eqProcessor] item in
             guard musicEqualizer.isEnabled else { item.audioMix = nil; return }
