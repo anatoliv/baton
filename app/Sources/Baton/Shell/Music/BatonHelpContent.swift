@@ -234,6 +234,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.9.9",
+            date: "2026",
+            highlight: "A mix can now carry its own artwork.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Individual mixes can use a bespoke image instead of the generated "
+                        + "backdrop. Focus \u{00B7} Deep uses one; every other card keeps its "
+                        + "generated mesh."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.9.8",
             date: "2026",
             highlight: "Mix cards have their own artwork.",

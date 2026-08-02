@@ -9,6 +9,13 @@ struct MusicMix: Identifiable, Hashable {
     let subtitle: String
     let icon: String
     let color: Color
+    /// Optional asset-catalog image used instead of the generated mesh backdrop.
+    ///
+    /// The mesh is the default precisely because it always exists and never needs curating.
+    /// This is the escape hatch for a mix worth art-directing: supply an image and it wins,
+    /// omit it and nothing about the card changes. A missing asset falls back to the mesh
+    /// rather than drawing a hole, so a typo degrades quietly.
+    var artwork: String? = nil
     let songs: @MainActor () async -> [NavidromeSong]
 
     // Identity is the stable `id` (the `songs` closure isn't Hashable) — enough for a
@@ -70,12 +77,19 @@ enum MusicMixCatalog {
                     title: playlist.name,
                     subtitle: "Generated on your server",
                     icon: "sparkles.rectangle.stack",
-                    color: palette[index % palette.count]
+                    color: palette[index % palette.count],
+                    artwork: serverArtwork[playlist.name]
                 ) {
                     await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
                 }
             }
     }
+
+    /// Art-directed backdrops for specific generated playlists, by name. Anything absent
+    /// keeps the generated mesh — this is opt-in per playlist, not a required asset.
+    static let serverArtwork: [String: String] = [
+        "Focus · Deep": "MixArtFocusDeep",
+    ]
 
     /// Names that indicate a playlist is produced by a generator rather than curated by
     /// hand. Deliberately a small, explicit list: guessing wrong pulls someone's carefully
@@ -300,7 +314,7 @@ struct MusicMixCard: View {
                     // A mesh gradient is deterministic per mix (same card every launch, so it
                     // becomes recognisable), needs no network, no asset, and raises no
                     // licensing question in a redistributed app.
-                    MixMeshBackdrop(seed: mix.id, tint: mix.color)
+                    MixBackdrop(mix: mix)
                         .allowsHitTesting(false)
                     Image(systemName: mix.icon)
                         .font(.system(size: 34, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
@@ -437,5 +451,39 @@ private extension Color {
         c.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         return Color(NSColor(hue: h, saturation: s,
                              brightness: min(max(b + CGFloat(amount), 0.15), 1.0), alpha: a))
+    }
+}
+
+
+/// The card backdrop: an art-directed image when the mix supplies one, the generated mesh
+/// otherwise.
+///
+/// A supplied image is dimmed less than the mesh is tinted — a considered image is already
+/// composed for legibility, and multiplying a heavy colour wash over it just muddies the
+/// work. Only the bottom-right is darkened, because the play button sits there and has to
+/// stay readable whatever the artwork does.
+struct MixBackdrop: View {
+    let mix: MusicMix
+
+    var body: some View {
+        if let name = mix.artwork, let image = NSImage(named: name) {
+            ZStack {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.35)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+            }
+        } else {
+            ZStack {
+                MixMeshBackdrop(seed: mix.id, tint: mix.color)
+                LinearGradient(
+                    colors: [mix.color.opacity(0.30), .clear, .black.opacity(0.30)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+            }
+        }
     }
 }
