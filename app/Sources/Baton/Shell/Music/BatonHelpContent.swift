@@ -234,6 +234,20 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.11.0",
+            date: "2026",
+            highlight: "Your server can now tell which playlist a track was played from.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Baton tags each stream request with the playlist, album or search "
+                        + "it came from. Servers that don\u{2019}t care ignore it; ones that keep "
+                        + "listening statistics can finally tell whether a playlist is working, "
+                        + "rather than guessing from which tracks it happens to contain."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.10.4",
             date: "2026",
             highlight: "Internal reliability work \u{2014} nothing to see, which is the point.",
