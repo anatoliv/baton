@@ -435,6 +435,31 @@ final class StreamingPlaybackController {
     /// defaults to the configured Navidrome client.
     private let streamURLProvider: @MainActor (String) throws -> URL
 
+    /// Annotate a stream request with where the track was played *from*.
+    ///
+    /// Subsonic servers ignore query parameters they don't know, so this rides along
+    /// harmlessly — but it lands in the server's access log, which is the only place the
+    /// provenance of a play can be recorded. Without it, "this track was played" is all
+    /// anyone downstream can know: a track appearing in two playlists is indistinguishable
+    /// between them, so any judgement about whether a *playlist* works has to be inferred
+    /// from membership rather than observed.
+    ///
+    /// Deliberately coarse — kind and id, never a title. It is a log line, not telemetry:
+    /// nothing here says anything a listening history doesn't already.
+    nonisolated static func annotate(_ url: URL, with source: QueueSource?) -> URL {
+        guard let source,
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var value = source.kind.rawValue
+        if let id = source.id, !id.isEmpty { value += ":" + id }
+        parts.queryItems = (parts.queryItems ?? []) + [URLQueryItem(name: "playedFrom", value: value)]
+        return parts.url ?? url
+    }
+
+    /// The stream URL for `songID`, carrying the current queue's provenance.
+    private func annotatedStreamURL(_ songID: String) throws -> URL {
+        Self.annotate(try streamURLProvider(songID), with: queueSource)
+    }
+
     static let queueKey = "tonebox.navidrome.queue"
     static let volumeKey = "tonebox.navidrome.volume"
     static let repeatKey = "tonebox.navidrome.repeat"
@@ -898,7 +923,7 @@ final class StreamingPlaybackController {
     private func beginSkipBlend(to index: Int) -> Bool {
         guard queue.indices.contains(index), !isCrossfading,
               nowPlaying?.isPodcastEpisode != true,
-              let url = try? streamURLProvider(queue[index].id) else { return false }
+              let url = try? annotatedStreamURL(queue[index].id) else { return false }
 
         let outgoing = player
         let startOut = outgoing.volume
@@ -1123,7 +1148,7 @@ final class StreamingPlaybackController {
         }
         let url: URL
         do {
-            url = try streamURLProvider(song.id)
+            url = try annotatedStreamURL(song.id)
         } catch {
             streamingLog.error("stream URL failed: \(error.localizedDescription, privacy: .public)")
             state = .error((error as? NavidromeError)?.errorDescription ?? error.localizedDescription)
@@ -1376,7 +1401,7 @@ final class StreamingPlaybackController {
         guard isGaplessMode, state == .playing, !isCrossfading, !sleepAfterCurrentTrack,
               gaplessPreload == nil, let planned, let current = loadedItem else { return }
         let songID = queue[planned].id
-        guard let streamURL = try? streamURLProvider(songID) else { return }
+        guard let streamURL = try? annotatedStreamURL(songID) else { return }
         // Prefer an already-prefetched local file (or an offline download, which
         // streamURLProvider already resolves to a file URL) so the handoff is gap-free.
         let preloadURL = GaplessPreload.preloadURL(stream: streamURL, cached: gaplessPrefetcher.cachedURL(for: songID))
