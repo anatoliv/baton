@@ -32,9 +32,12 @@ A 10-band parametric EQ for when you want to shape the sound, a floating mini-pl
 keys, AirPlay, and scrobbling to both ListenBrainz and Last.fm.
 
 And because everything the interface can do is also exposed over a token-secured MCP server on
-loopback, any agent you trust can drive playback exactly the way you do. Your server
-credentials live in the macOS Keychain, and Baton only ever talks to the one server you point
-it at. Nothing else leaves your machine.
+loopback, any agent you trust can drive playback exactly the way you do. The same surface is
+what lets Baton answer to a **Telegram or Discord message** — `play kind of blue`, `vol 40`,
+or just tapping ⏭ — so the stereo takes orders from your phone. That connection is dialed
+outward, never inward: no port is opened, and a chat controls nothing until you link it with
+a code Baton shows you. Your server credentials live in the macOS Keychain, and Baton only
+ever talks to the one server you point it at. Nothing else leaves your machine.
 
 ## Install
 

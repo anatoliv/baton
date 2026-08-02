@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785689966.575413,
-    "ast_hash": "70ad6f08ed4c6222fd2c17d5418941fc",
+    "mtime": 1785703575.0042024,
+    "ast_hash": "b434874566fd417db62a76da7cc8a997",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -175,9 +175,9 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/BatonApp.swift": {
-    "mtime": 1784706046.2034037,
-    "ast_hash": "3df8884879c266aa80e3e94850e8e974",
-    "semantic_hash": "3df8884879c266aa80e3e94850e8e974"
+    "mtime": 1785702501.081523,
+    "ast_hash": "3d646b1a971160578b7f0d39d1b7bb72",
+    "semantic_hash": ""
   },
   "app/Sources/Baton/BatonRuntime.swift": {
     "mtime": 1784543414.386852,
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785691426.8452537,
-    "ast_hash": "0bf7e3b9aa5dac45ddf144203881776e",
+    "mtime": 1785702757.2230039,
+    "ast_hash": "a5a3b6318cc9767fd760b9fc62f7cdf6",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -335,9 +335,9 @@
     "semantic_hash": "a03fa62db61eea5683026dc2403321fa"
   },
   "app/Sources/Baton/Shell/Music/BatonSettingsView.swift": {
-    "mtime": 1784765887.5863302,
-    "ast_hash": "69cb447040d726023ab7b457d3f803ef",
-    "semantic_hash": "69cb447040d726023ab7b457d3f803ef"
+    "mtime": 1785702501.0860724,
+    "ast_hash": "7b0823cad5d9b0ec85a0ebdd33e45001",
+    "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonSpeechPane.swift": {
     "mtime": 1784763469.0244086,
@@ -1222,6 +1222,56 @@
   "app/Tests/BatonTests/ListenAccountingTests.swift": {
     "mtime": 1785690958.2016253,
     "ast_hash": "c24785b9c42b0b89091067c5a6b6940d",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/BatonRemotePane.swift": {
+    "mtime": 1785702501.0822155,
+    "ast_hash": "f16a2920026eb0793ec503664aea41c9",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/DiscordBridge.swift": {
+    "mtime": 1785702501.0825303,
+    "ast_hash": "fe126a135bf93e730d87d1bb4b6f75c7",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteCommandParser.swift": {
+    "mtime": 1785702501.0830805,
+    "ast_hash": "586f3fd443075ccf5987c0b9c9d9a98f",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteCommandRouter.swift": {
+    "mtime": 1785702501.0834117,
+    "ast_hash": "948009563f6dcd22090c81623d1fd139",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteControlConfig.swift": {
+    "mtime": 1785702501.083861,
+    "ast_hash": "43f0b903edb9fbbcfb7e89300af08639",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteControlService.swift": {
+    "mtime": 1785702501.0841446,
+    "ast_hash": "e533bc688e4fcd7e6656c17f7233e95d",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteNaturalLanguage.swift": {
+    "mtime": 1785702501.0845554,
+    "ast_hash": "a81c71ebf1e8c0abc9e1e82326678a1a",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/TelegramBridge.swift": {
+    "mtime": 1785702501.0849648,
+    "ast_hash": "9e19e58dd5f6ec29afa3f3b7078e4b20",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/RemoteAuthorizationTests.swift": {
+    "mtime": 1785702501.0864656,
+    "ast_hash": "131d739d8da4d24442a73e21f5071cde",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/RemoteCommandTests.swift": {
+    "mtime": 1785702501.0868042,
+    "ast_hash": "066879ed3a3239a99aa9075cc8476bfe",
     "semantic_hash": ""
   }
 }

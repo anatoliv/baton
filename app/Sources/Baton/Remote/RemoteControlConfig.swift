@@ -1,0 +1,243 @@
+import Foundation
+import Observation
+import OSLog
+
+let remoteLog = Logger(subsystem: "io.tonebox.baton", category: "RemoteControl")
+
+// MARK: - Chat platform
+
+/// The chat services Baton can be driven from. Both connect **outbound only**
+/// (Telegram long-polls `getUpdates`; Discord opens a Gateway WebSocket), so
+/// nothing about the MCP server's loopback-only posture changes: Baton dials
+/// out, and no port is ever exposed.
+enum RemotePlatform: String, CaseIterable, Codable, Sendable, Identifiable {
+    case telegram
+    case discord
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .telegram: "Telegram"
+        case .discord: "Discord"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .telegram: "paperplane"
+        case .discord: "bubble.left.and.bubble.right"
+        }
+    }
+
+    /// Where the user gets a bot token, shown under the token field.
+    var tokenHint: String {
+        switch self {
+        case .telegram: "Message @BotFather → /newbot → paste the token it gives you."
+        case .discord: "discord.com/developers → your app → Bot → Reset Token. Turn on the Message Content intent."
+        }
+    }
+
+    /// Keychain account for this platform's bot token.
+    var secretKey: String { "baton.remote.\(rawValue).token" }
+}
+
+// MARK: - Connection status
+
+/// What a bridge is doing right now, surfaced in Settings so a wrong token or a
+/// missing intent is visible instead of silent.
+enum RemoteConnectionState: Equatable, Sendable {
+    case off
+    case connecting
+    case connected(account: String)
+    case failed(String)
+
+    var isRunning: Bool {
+        switch self {
+        case .off, .failed: false
+        case .connecting, .connected: true
+        }
+    }
+}
+
+// MARK: - Settings
+
+/// Remote-control configuration. Non-secret preferences live in `UserDefaults`;
+/// bot tokens and the LLM API key go to the Keychain through `SecretStore`, the
+/// same seam the Navidrome credentials and webhook secrets use.
+///
+/// **Fail-closed authorization.** A bot token alone is not authorization: anyone
+/// who finds the bot could otherwise drive your speakers. Every inbound message
+/// is checked against a per-platform allowlist of sender ids, and an empty
+/// allowlist authorizes *nobody*. The link code (below) is how ids get onto it
+/// without hand-copying numeric ids out of a chat client.
+@MainActor
+@Observable
+final class RemoteControlSettings {
+    // MARK: Stored state
+
+    var isEnabled: Bool { didSet { defaults.set(isEnabled, forKey: Keys.enabled) } }
+
+    var telegram: PlatformConfig { didSet { persist(telegram, platform: .telegram) } }
+    var discord: PlatformConfig { didSet { persist(discord, platform: .discord) } }
+
+    /// Natural-language fallback: anything that isn't a recognized command is
+    /// handed to an LLM that picks one of Baton's own MCP tools. Off unless the
+    /// user configures it — Baton ships no key and makes no network call to any
+    /// model provider otherwise.
+    var naturalLanguage: NaturalLanguageConfig {
+        didSet { persistNaturalLanguage() }
+    }
+
+    /// Live per-platform status, for the Settings pane. Not persisted.
+    var state: [RemotePlatform: RemoteConnectionState] = [:]
+
+    /// The rolling code an unknown chat sends as `/link <code>` to authorize
+    /// itself. Regenerated on every launch and after each successful link, so a
+    /// code that leaks into a chat log is already spent.
+    private(set) var linkCode: String = RemoteControlSettings.makeLinkCode()
+
+    // MARK: Per-platform config
+
+    struct PlatformConfig: Equatable, Sendable {
+        var isEnabled: Bool = false
+        /// Bot token. Empty when unset; stored in the Keychain, never `UserDefaults`.
+        var token: String = ""
+        /// Sender ids allowed to drive playback. Empty ⇒ nobody (fail closed).
+        var allowedSenders: Set<String> = []
+        /// Discord only: restrict to these channel ids. Empty ⇒ any channel the
+        /// bot can see (senders are still checked).
+        var allowedChannels: Set<String> = []
+
+        var isConfigured: Bool { isEnabled && !token.isEmpty }
+    }
+
+    struct NaturalLanguageConfig: Equatable, Sendable {
+        var isEnabled: Bool = false
+        /// Anthropic API key (`sk-ant-…`). Keychain-stored.
+        var apiKey: String = ""
+        /// Model id. Defaults to Anthropic's current Opus; override for a cheaper
+        /// or faster tier if you'd rather trade capability for latency.
+        var model: String = "claude-opus-5"
+        /// API base. Overridable for a proxy or a compatible gateway.
+        var baseURL: String = "https://api.anthropic.com"
+
+        var isConfigured: Bool { isEnabled && !apiKey.isEmpty }
+    }
+
+    // MARK: Init
+
+    private let defaults: UserDefaults
+    private let secrets: any SecretStore
+
+    init(
+        environment: BatonEnvironment = .current,
+        defaults: UserDefaults? = nil,
+        secrets: (any SecretStore)? = nil
+    ) {
+        let store = defaults
+            ?? (environment.isTesting ? UserDefaults(suiteName: "baton.remote.tests") : nil)
+            ?? .standard
+        let secretStore: any SecretStore = secrets
+            ?? (environment.isTesting ? InMemorySecretStore() : KeychainSecretStore())
+        self.defaults = store
+        self.secrets = secretStore
+
+        isEnabled = store.bool(forKey: Keys.enabled)
+
+        // Read through the *local* bindings: `self` isn't fully initialized yet.
+        // (Assignments in `init` don't fire `didSet`, so this doesn't write back.)
+        func load(_ platform: RemotePlatform) -> PlatformConfig {
+            PlatformConfig(
+                isEnabled: store.bool(forKey: Keys.platformEnabled(platform)),
+                token: secretStore.secret(for: platform.secretKey) ?? "",
+                allowedSenders: Set(store.stringArray(forKey: Keys.allowedSenders(platform)) ?? []),
+                allowedChannels: Set(store.stringArray(forKey: Keys.allowedChannels(platform)) ?? [])
+            )
+        }
+        telegram = load(.telegram)
+        discord = load(.discord)
+
+        var nl = NaturalLanguageConfig()
+        nl.isEnabled = store.bool(forKey: Keys.nlEnabled)
+        nl.apiKey = secretStore.secret(for: Keys.nlAPIKey) ?? ""
+        if let model = store.string(forKey: Keys.nlModel), !model.isEmpty { nl.model = model }
+        if let base = store.string(forKey: Keys.nlBaseURL), !base.isEmpty { nl.baseURL = base }
+        naturalLanguage = nl
+    }
+
+    // MARK: Accessors
+
+    func config(for platform: RemotePlatform) -> PlatformConfig {
+        switch platform {
+        case .telegram: telegram
+        case .discord: discord
+        }
+    }
+
+    func setConfig(_ config: PlatformConfig, for platform: RemotePlatform) {
+        switch platform {
+        case .telegram: telegram = config
+        case .discord: discord = config
+        }
+    }
+
+    /// Authorize a sender id on `platform` and burn the current link code.
+    func authorize(sender: String, on platform: RemotePlatform) {
+        var config = self.config(for: platform)
+        config.allowedSenders.insert(sender)
+        setConfig(config, for: platform)
+        linkCode = Self.makeLinkCode()
+        remoteLog.notice("Authorized a new \(platform.rawValue, privacy: .public) sender")
+    }
+
+    func revoke(sender: String, on platform: RemotePlatform) {
+        var config = self.config(for: platform)
+        config.allowedSenders.remove(sender)
+        setConfig(config, for: platform)
+    }
+
+    /// Constant-time-ish comparison of a submitted link code. Codes are short and
+    /// single-use, but there's no reason to leak length/prefix through timing.
+    func matchesLinkCode(_ candidate: String) -> Bool {
+        let a = Array(linkCode.utf8), b = Array(candidate.trimmingCharacters(in: .whitespaces).utf8)
+        guard a.count == b.count else { return false }
+        var diff: UInt8 = 0
+        for i in a.indices { diff |= a[i] ^ b[i] }
+        return diff == 0
+    }
+
+    func regenerateLinkCode() { linkCode = Self.makeLinkCode() }
+
+    // MARK: Persistence
+
+    private func persist(_ config: PlatformConfig, platform: RemotePlatform) {
+        defaults.set(config.isEnabled, forKey: Keys.platformEnabled(platform))
+        defaults.set(Array(config.allowedSenders).sorted(), forKey: Keys.allowedSenders(platform))
+        defaults.set(Array(config.allowedChannels).sorted(), forKey: Keys.allowedChannels(platform))
+        secrets.setSecret(config.token.isEmpty ? nil : config.token, for: platform.secretKey)
+    }
+
+    private func persistNaturalLanguage() {
+        defaults.set(naturalLanguage.isEnabled, forKey: Keys.nlEnabled)
+        defaults.set(naturalLanguage.model, forKey: Keys.nlModel)
+        defaults.set(naturalLanguage.baseURL, forKey: Keys.nlBaseURL)
+        secrets.setSecret(naturalLanguage.apiKey.isEmpty ? nil : naturalLanguage.apiKey, for: Keys.nlAPIKey)
+    }
+
+    private static func makeLinkCode() -> String {
+        String(format: "%06d", Int.random(in: 0..<1_000_000))
+    }
+
+    private enum Keys {
+        static let enabled = "baton.remote.enabled"
+        static let nlEnabled = "baton.remote.nl.enabled"
+        static let nlModel = "baton.remote.nl.model"
+        static let nlBaseURL = "baton.remote.nl.baseURL"
+        static let nlAPIKey = "baton.remote.nl.apiKey"
+
+        static func platformEnabled(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).enabled" }
+        static func allowedSenders(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).allowedSenders" }
+        static func allowedChannels(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).allowedChannels" }
+    }
+}

@@ -10,7 +10,8 @@ A free macOS music player for your own self-hosted music library. It plays from 
 [Navidrome](https://www.navidrome.org/) or Subsonic-compatible server, with real playback
 depth (true gapless, crossfade, ReplayGain loudness matching, and a 10-band equalizer). It
 also runs a small control server so an AI agent can search, queue, and steer your music for
-you. The tagline is *"Conduct your music."*
+you — and, through the same surface, so can a Telegram or Discord message from your phone.
+The tagline is *"Conduct your music."*
 
 **Is Baton free?**
 Yes. Baton is a give-away from [Tonebox](https://tonebox.io). There's no subscription and no
@@ -97,6 +98,30 @@ yourself.
 **Do I need an agent to use Baton?**
 No. Baton is a complete, click-to-play music player on its own. Agent control is an extra
 surface, not a requirement.
+
+**Can I control Baton from my phone?**
+Yes, by messaging it. Connect a Telegram or Discord bot in Settings, Remote, and you can send
+Baton `play kind of blue`, `vol 40`, or `next` from anywhere, and tap buttons on its replies.
+There's a step-by-step setup in
+[Controlling Baton from Telegram or Discord](HELP.md#controlling-baton-from-telegram-or-discord).
+It runs on the same control surface agents use, so a chat message can't do anything Baton's
+own buttons can't.
+
+**Does chat control open my Mac to the internet?**
+No. Baton dials *out* to Telegram or Discord and waits for them to hand it messages, exactly
+as a chat app on your Mac does. Nothing listens for incoming connections, no port is opened,
+and nothing needs forwarding on your router.
+
+**Can anyone who finds my bot control my music?**
+No. A bot token identifies the bot, not you, so Baton doesn't treat it as permission. Every
+chat has to be linked with a six-digit code shown in Settings — until then Baton ignores
+everything it's sent, and each code works only once. You can revoke a linked chat at any time
+from the same pane.
+
+**Does the plain-English option send my library anywhere?**
+No. It's off unless you turn it on and add your own API key, and when it is on, what leaves
+your Mac is the sentence you typed plus the list of Baton's own commands. Not your library,
+not your server address or credentials, not your listening history.
 
 **Is agent control available today?**
 Yes. The control server runs while Baton is open. It exposes 28 music operations (including a
