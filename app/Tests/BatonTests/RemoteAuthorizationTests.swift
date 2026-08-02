@@ -205,6 +205,55 @@ final class RemoteAuthorizationTests: XCTestCase {
         XCTAssertEqual(history.first?.text, "np")
     }
 
+    // MARK: Second reading
+
+    /// "play the second one" is a reference, not a song title — but `play` is a
+    /// command verb, so the parser claims it and searches literally. When that
+    /// search finds nothing, the model gets a turn with the conversation in hand.
+    func testAFailedLiteralSearchGetsASecondReadingFromTheModel() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        settings.naturalLanguage.isEnabled = true
+        settings.naturalLanguage.apiKey = "sk-test"
+
+        var asked: String?
+        router.resolveNaturalLanguage = { text, _, _, _ in
+            asked = text
+            return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
+        }
+
+        // No server in tests, so the search fails — which is the trigger.
+        let reply = await router.handle(inbound("play the second one"))
+        XCTAssertEqual(asked, "play the second one", "the model should get the original words")
+        XCTAssertFalse(reply?.text.contains("No songs matched") == true, reply?.text ?? "nil")
+    }
+
+    /// The retry costs a request, so it's only for tools where the *words* can
+    /// fail while the intent is sound — not for, say, a bad volume number.
+    func testNonQueryFailuresAreNotRetried() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        settings.naturalLanguage.isEnabled = true
+        settings.naturalLanguage.apiKey = "sk-test"
+
+        var asked = false
+        router.resolveNaturalLanguage = { _, _, _, _ in
+            asked = true
+            return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
+        }
+        _ = await router.handle(inbound("seek 1:30")) // no track loaded → fails
+        XCTAssertFalse(asked, "a seek failure is not a misread sentence")
+    }
+
+    /// With no model configured the literal answer has to stand — silently
+    /// swallowing it would leave the user with nothing at all.
+    func testWithoutAModelTheLiteralFailureIsStillReported() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        let reply = await router.handle(inbound("play the second one"))
+        XCTAssertTrue(reply?.isFailure == true, reply?.text ?? "nil")
+    }
+
     func testForgetDropsTheThread() async {
         let (router, settings) = makeRouter()
         settings.authorize(sender: "42", on: .telegram)

@@ -16,6 +16,9 @@ struct RemoteInbound: Sendable {
 /// What to send back.
 struct RemoteReply: Sendable {
     var text: String
+    /// The tool reported failure. Used to decide whether a literal reading is
+    /// worth a second opinion from the model.
+    var isFailure: Bool = false
     /// Whether to attach transport buttons (⏮ ⏯ ⏭ 🔉 🔊). Set for anything that
     /// leaves the user looking at playback state.
     var showsTransport: Bool = false
@@ -112,7 +115,19 @@ final class RemoteCommandRouter {
             return .plain("This chat is already linked.")
 
         case let .tool(call):
-            return await run(call)
+            let reply = await run(call)
+            // A command matched, but its literal reading found nothing. When the
+            // words could have meant something else — "play the second one" is a
+            // reference, not a song title — the model has the conversation and
+            // can say which. Only for tools that resolve a free-text query, and
+            // only once: the retry's own result stands.
+            if reply.isFailure,
+               Self.queryTools.contains(call.name),
+               settings.naturalLanguage.isConfigured,
+               case let .success(second) = await askTheModel(inbound.text, inbound) {
+                return second
+            }
+            return reply
 
         case let .natural(text):
             guard settings.naturalLanguage.isConfigured else {
@@ -121,19 +136,36 @@ final class RemoteCommandRouter {
                         + "or turn on natural language in Baton → Settings → Remote to say it in your own words."
                 )
             }
-            do {
-                let tools = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
-                let history = conversation.history(for: RemoteConversationLog.key(for: inbound))
-                let resolution = try await resolveNaturalLanguage(text, settings.naturalLanguage, tools, history)
-                var reply = await run(resolution.call)
-                if let preamble = resolution.preamble, !preamble.isEmpty {
-                    reply.text = preamble + "\n\n" + reply.text
-                }
-                return reply
-            } catch {
-                remoteLog.error("Natural-language routing failed: \(error.localizedDescription, privacy: .public)")
-                return .plain(error.localizedDescription)
+            // Here the model is the only interpreter, so its failure is the
+            // answer — say exactly what went wrong rather than a generic shrug.
+            switch await askTheModel(text, inbound) {
+            case let .success(reply): return reply
+            case let .failure(error): return .plain(error.localizedDescription)
             }
+        }
+    }
+
+    /// Hand a message to the model and run whatever it picks. The failure is
+    /// returned rather than flattened, because the two callers want different
+    /// things from it: a natural-language message has no other interpreter, so
+    /// the error *is* the answer; a command falling back here already has a
+    /// literal answer worth keeping.
+    private func askTheModel(
+        _ text: String,
+        _ inbound: RemoteInbound
+    ) async -> Result<RemoteReply, any Error> {
+        do {
+            let tools = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
+            let history = conversation.history(for: RemoteConversationLog.key(for: inbound))
+            let resolution = try await resolveNaturalLanguage(text, settings.naturalLanguage, tools, history)
+            var reply = await run(resolution.call)
+            if let preamble = resolution.preamble, !preamble.isEmpty {
+                reply.text = preamble + "\n\n" + reply.text
+            }
+            return .success(reply)
+        } catch {
+            remoteLog.error("Natural-language routing failed: \(error.localizedDescription, privacy: .public)")
+            return .failure(error)
         }
     }
 
@@ -146,7 +178,7 @@ final class RemoteCommandRouter {
             music: music,
             focus: focus
         )
-        guard !isError else { return .plain("⚠️ " + text) }
+        guard !isError else { return RemoteReply(text: "⚠️ " + text, isFailure: true) }
         return RemoteReply(
             text: RemoteResultFormatter.format(tool: call.name, result: text),
             showsTransport: Self.playerTools.contains(call.name)
@@ -168,6 +200,13 @@ final class RemoteCommandRouter {
     private func firstWord(of text: String) -> String {
         String(text.split(separator: " ").first ?? "that")
     }
+
+    /// Tools that resolve a free-text query, and so can fail on the words
+    /// rather than on the intent — the ones worth a second reading.
+    private static let queryTools: Set<String> = [
+        "music_play", "music_queue_add", "music_play_next", "music_search",
+        "music_play_playlist", "music_start_radio", "music_add_to_playlist", "music_like",
+    ]
 
     /// Tools whose result leaves the user looking at playback state, and which
     /// therefore deserve transport buttons under the reply.
