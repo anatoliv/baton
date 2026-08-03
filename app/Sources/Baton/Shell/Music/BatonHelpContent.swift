@@ -234,6 +234,34 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.7",
+            date: "2026",
+            highlight: "The chat remote now knows what\u{2019}s playing.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "\u{201C}Add this artist to the queue\u{201D}, \u{201C}who is this\u{201D}, "
+                        + "\u{201C}what album is this from\u{201D} \u{2014} references to the current "
+                        + "track now resolve, because the player\u{2019}s state travels with every "
+                        + "plain-English request. The full 106-query evaluation now routes "
+                        + "correctly in every run."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The bot shows \u{201C}typing\u{2026}\u{201D} while a plain-English request "
+                        + "is being worked out, so a local model taking a few seconds no longer "
+                        + "looks like a dropped message."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Very long replies were refused outright by Telegram and Discord, so "
+                        + "the message never arrived at all. Replies are now trimmed to fit, "
+                        + "cut on a whole line with a visible mark. Playing a playlist or a "
+                        + "built mix also answers in plain words now, instead of a field dump."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.6",
             date: "2026",
             highlight: "A blocked local network no longer claims you\u{2019}re offline.",

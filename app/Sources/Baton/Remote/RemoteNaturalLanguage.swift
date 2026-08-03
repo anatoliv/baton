@@ -53,6 +53,12 @@ enum RemoteNaturalLanguage {
     - When the message names an artist, album, or song, pass it through as the \
     query verbatim rather than rewriting it.
     - If the message is a question about what is playing, use music_now_playing.
+    - "this song", "this artist", "more of this" refer to the player state given \
+    at the end of this prompt — use the name from there, not the words "this \
+    artist", as the query.
+    - Use music_search only when the person wants to SEE results ("show me", \
+    "find", "do I have"). When they want to HEAR something, pick a playing tool. \
+    Never fall back to music_search because you are unsure.
     - Earlier turns are there so follow-ups resolve: "select one of them", "the \
     second one", "play that" refer to what you last listed or played. Pick the \
     specific track from that context and pass its exact title as the query, \
@@ -110,11 +116,13 @@ enum RemoteNaturalLanguage {
         config: RemoteControlSettings.NaturalLanguageConfig,
         tools: RemoteToolSchemas,
         history: [RemoteConversationLog.Turn] = [],
+        playerContext: String? = nil,
         session: URLSession = .shared
     ) async throws -> Resolution {
         guard config.isConfigured else { throw Failure.notConfigured }
 
-        let request = try buildRequest(message, config: config, tools: tools, history: history)
+        let request = try buildRequest(
+            message, config: config, tools: tools, history: history, playerContext: playerContext)
 
         let data: Data, response: URLResponse
         do {
@@ -272,8 +280,13 @@ enum RemoteNaturalLanguage {
         _ message: String,
         config: RemoteControlSettings.NaturalLanguageConfig,
         tools: RemoteToolSchemas,
-        history: [RemoteConversationLog.Turn] = []
+        history: [RemoteConversationLog.Turn] = [],
+        playerContext: String? = nil
     ) throws -> URLRequest {
+        // The player's live state rides at the END of the system prompt: it is
+        // the one part that changes per request, and both dialects treat the
+        // system prompt's tail as the cheapest place for volatile context.
+        let system = playerContext.map { systemPrompt + "\n\n" + $0 } ?? systemPrompt
         // Prior turns first, this message last. Both dialects use the same
         // role names, so the transcript is built once.
         let priorTurns = history.map { ["role": $0.role, "content": $0.text] }
@@ -292,7 +305,7 @@ enum RemoteNaturalLanguage {
             body = [
                 "model": config.model,
                 "max_tokens": 8192,
-                "system": systemPrompt,
+                "system": system,
                 // Force a tool call: the model's job here is routing, not chatting.
                 "tool_choice": ["type": "any"],
                 // Routing is a shallow task; low effort keeps a chat reply snappy.
@@ -323,7 +336,7 @@ enum RemoteNaturalLanguage {
                         "parameters": schema["input_schema"] ?? [:],
                     ]]
                 },
-                "messages": [["role": "system", "content": systemPrompt]] + transcript,
+                "messages": [["role": "system", "content": system]] + transcript,
             ]
         }
 
@@ -338,8 +351,18 @@ enum RemoteNaturalLanguage {
             guard let name = def["name"] as? String,
                   !withheldTools.contains(name),
                   let description = def["description"] as? String,
-                  let schema = def["inputSchema"] as? [String: Any]
+                  var schema = def["inputSchema"] as? [String: Any]
             else { return nil }
+            // Chat replies never show ids, so any id the model passes here is
+            // invented by construction — the evaluation caught it fabricating
+            // song_ids. Remove the temptation and it uses `query`/`name`, which
+            // the tools resolve properly. (Agents keep the full schemas; this
+            // narrowing is only for the chat surface.)
+            if var props = schema["properties"] as? [String: Any] {
+                props.removeValue(forKey: "song_ids")
+                props.removeValue(forKey: "playlist_id")
+                schema["properties"] = props
+            }
             return ["name": name, "description": description, "input_schema": schema]
         })
     }
