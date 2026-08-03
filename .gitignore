@@ -9,3 +9,7 @@ app/Info.plist
 # real DSN lives here and must never be committed or mirrored).
 app/Config/Sentry.local.xcconfig
 website/appcast.xml
+
+# Playwright CLI session artifacts — page snapshots capture whatever is on screen,
+# including secrets from a portal. Never commit them.
+.playwright-cli/

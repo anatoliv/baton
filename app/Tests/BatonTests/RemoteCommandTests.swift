@@ -155,6 +155,31 @@ final class RemoteResultFormatterTests: XCTestCase {
         XCTAssertEqual(RemoteResultFormatter.format(tool: "music_set_volume", result: sentence), sentence)
     }
 
+    /// A short list is worth printing in full.
+    func testAShortPlaylistListIsPrintedInFull() {
+        let json = #"{"playlists":[{"name":"Evening","song_count":24},{"name":"Focus","song_count":80}]}"#
+        let out = RemoteResultFormatter.format(tool: "music_list_playlists", result: json)
+        XCTAssertTrue(out.contains("• Evening (24)"), out)
+        XCTAssertTrue(out.contains("• Focus (80)"), out)
+        XCTAssertFalse(out.contains("too many"), out)
+    }
+
+    /// A long one is not: 25 rows of near-identical names plus "…and 296 more"
+    /// is a wall of text you cannot act on. The count and how to open one are
+    /// the useful facts.
+    func testALongPlaylistListAnswersWithTheCountAndHowToOpenOne() {
+        let items = (1...321).map { #"{"name":"02 - Classic Trance (Pt \#($0))","song_count":60}"# }
+        let json = #"{"playlists":["# + items.joined(separator: ",") + "]}"
+        let out = RemoteResultFormatter.format(tool: "music_list_playlists", result: json)
+
+        XCTAssertTrue(out.contains("321 playlists"), out)
+        XCTAssertTrue(out.contains("playlist <name>"), "must say how to open one")
+        XCTAssertTrue(out.contains("trance"), "partial-name matching is the actionable part")
+        // A handful of examples, not a wall.
+        XCTAssertLessThan(out.count, 600, "long lists must not dump rows")
+        XCTAssertTrue(out.contains("…and 316 more"), out)
+    }
+
     func testSearchGroupsByKind() {
         let json = """
         {"songs":[{"title":"So What","artist":"Miles Davis","duration_seconds":544}],
