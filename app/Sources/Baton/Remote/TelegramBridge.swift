@@ -126,6 +126,10 @@ final class TelegramBridge {
             channelID: chatID,
             text: text
         )
+        // A natural-language message can take seconds on a local model, and a
+        // bot that says nothing meanwhile reads as broken — people re-send.
+        // "typing…" costs one call and expires on its own.
+        _ = try? await call("sendChatAction", body: ["chat_id": chatID, "action": "typing"])
         guard let reply = await router.handle(inbound) else { return }
         await send(reply, to: chatID)
     }
@@ -166,7 +170,9 @@ final class TelegramBridge {
     private func send(_ reply: RemoteReply, to chatID: String) async {
         var body: [String: Any] = [
             "chat_id": chatID,
-            "text": reply.text,
+            // Telegram rejects messages over 4096 chars outright — the whole
+            // reply would vanish. A truncated answer beats none.
+            "text": RemoteReply.clamped(reply.text, to: 4000),
             "parse_mode": "Markdown",
             "disable_web_page_preview": true,
         ]
