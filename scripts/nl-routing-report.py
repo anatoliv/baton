@@ -44,6 +44,11 @@ def case_note(r, text, kind):
 
 
 NOTES = {
+    "i want to hear radiohead":
+        "Known-hard, carried as an expected failure: a vague verb plus a band whose name begins "
+        "with \u201cradio\u201d. Passes with a minimal two-tool probe and fails with the full "
+        "catalog \u2014 which is why minimal probes are not trusted here. Every direct phrasing "
+        "(\u201cplay radiohead\u201d, \u201cput on radiohead\u201d) routes correctly.",
     "add this artist to the queue":
         "“This artist” means the one currently playing, which the model cannot know from the "
         "message alone. Answering it properly needs two calls — read what is playing, then queue "
@@ -170,6 +175,7 @@ def build(data, runs_label):
   .dots i.y {{ background:var(--pass); }} .dots i.n {{ background:var(--fail); opacity:.55; }}
   tr[data-status="fail"] td {{ background:var(--fail-bg); }}
   tr[data-status="flaky"] td {{ background:var(--flaky-bg); }}
+  tr[data-status="xfail"] td {{ background:var(--flaky-bg); opacity:.75; }}
   .method {{ margin-top:2.6rem; padding-top:1.5rem; border-top:1px solid var(--line); }}
   .method dl {{ display:grid; grid-template-columns:auto 1fr; gap:.4rem 1.2rem; margin:.6rem 0 0; font-size:.9rem; }}
   .method dt {{ color:var(--ink-faint); font-size:.72rem; text-transform:uppercase; letter-spacing:.09em; padding-top:.22rem; }}

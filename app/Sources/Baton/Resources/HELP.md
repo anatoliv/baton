@@ -1120,44 +1120,70 @@ You only need to do one service — pick whichever you already use.
 
 #### Telegram, step by step
 
-1. Open Telegram and start a chat with **@BotFather** (that's Telegram's official bot for
-   making bots — search for the name, and look for the blue checkmark).
+1. Open Telegram and start a chat with **@BotFather** — Telegram's official bot for making
+   bots. Search the name and look for the blue verified checkmark.
 2. Send it `/newbot`.
-3. It asks for a name — this is the display name, anything you like, such as `My Music`.
-4. It then asks for a username, which must be unique and end in `bot`, such as
-   `anatoli_music_bot`. If the name is taken it'll just ask again.
-5. BotFather replies with a long line that looks like
-   `8123456789:AAF3k9...`. **That's the token.** Treat it like a password.
-6. In Baton, open **Settings** (Command and comma), choose **Remote**, and turn on **Enable
-   remote control** at the top.
-7. Turn on **Enable Telegram**, paste the token into **Bot token**, and click **Save**.
-   Within a second or two the **Status** line should turn green and show your bot's `@name`.
-8. Back in Telegram, open a chat with the bot you just made and send it
-   `/link 123456`, using the six-digit **link code** Baton shows in that same pane.
-9. It replies "Linked." — you're done. Try `play` or `np`.
+3. It asks for a display name — anything you like, such as `My Music`.
+4. It asks for a username, which must be unique and end in `bot`, such as
+   `my_music_2026_bot`. If it's taken, it just asks again.
+5. BotFather replies with a token that looks like `8123456789:AAF3k9...`. **Treat it like a
+   password** — anyone holding it can act as your bot.
+6. In Baton: **Settings → Remote**, turn on **Enable remote control**, then **Enable
+   Telegram**, paste the token into **Bot token**, click **Save**. Within a second or two the
+   **Status** line turns green and shows your bot's `@name`. Red shows Telegram's reason —
+   almost always a mistyped token.
+7. Open a chat with your new bot and send `/link 123456`, using the six-digit **link code**
+   from the **Linking** section of the same pane. It replies "Linked." — try `np` or `play`.
+
+**Using it in a group chat?** Two things to know. Telegram bots in groups default to
+*privacy mode*, which hides ordinary messages from them — so `np` goes unseen while `/np`
+gets through. Either stick to `/`-prefixed commands in groups, or message BotFather
+`/setprivacy` and turn privacy off for your bot. And when several bots share a group,
+`/pause@your_bot_name` disambiguates — Baton understands the suffix.
 
 #### Discord, step by step
 
+The order below matters: the **Message Content intent** comes before the token, because a
+bot that connects without it sees every message with the text stripped out — it looks like
+Baton ignoring you, with no error anywhere.
+
 1. Go to **discord.com/developers/applications** and sign in.
-2. Click **New Application**, give it a name, and accept the terms.
-3. In the left sidebar click **Bot**. Click **Reset Token**, confirm, and copy the token it
-   shows you. It's only shown once — if you lose it, reset it again.
-4. Still on the **Bot** page, scroll down to **Privileged Gateway Intents** and turn on
-   **Message Content Intent**. Save. **Don't skip this.** Without it Discord delivers your
-   messages to Baton with the text removed, and Baton will look like it's ignoring you for no
-   visible reason.
-5. Now invite the bot to a server you're in — a bot can't see anything until you do. In the
-   sidebar click **OAuth2**, then in **OAuth2 URL Generator** tick **bot** under Scopes, and
-   under Bot Permissions tick **Send Messages** and **Read Message History**. Copy the
-   generated URL at the bottom, paste it into your browser, pick your server, and authorize.
-   (If you don't have a server of your own, make one in Discord with the **+** button in the
-   left rail — a private server with just you in it is fine, and is the tidiest option.)
-6. In Baton, open **Settings**, choose **Remote**, turn on **Enable remote control**, then
-   **Enable Discord**, paste the token into **Bot token**, and click **Save**. The **Status**
-   line should turn green with the bot's name.
-7. In Discord, go to any channel the bot can see and type `/link 123456` using the six-digit
-   **link code** from Baton's Remote pane.
-8. It replies "Linked." — you're done. Try `play` or `np`.
+2. Click **New Application**, name it (say, `Baton`), and create it.
+3. In the left sidebar open **Bot**, then set three things on that page:
+   - **Public Bot: off** — so only you can invite it anywhere.
+   - Under **Privileged Gateway Intents**, turn **Message Content Intent on**, and click
+     **Save Changes**.
+   - Click **Reset Token**, confirm, and copy the token. It is shown exactly once; if you
+     lose it, reset again (the old one stops working).
+4. In Baton: **Settings → Remote**, turn on **Enable remote control** and **Enable
+   Discord**, paste the token, click **Save**. The **Status** line turns green with the
+   bot's name once the connection is up.
+5. Invite the bot to a server — it can see nothing until you do. Grab the **Application
+   ID** from the app's **General Information** page, and open this URL with yours
+   substituted:
+
+   ```
+   https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=68608&scope=bot
+   ```
+
+   Pick your server in the dialog and authorize. `68608` grants exactly **View Channels,
+   Send Messages, and Read Message History** — all a music remote needs. Don't grant
+   Administrator or Manage-anything; a remote control has no business with them. (The same
+   thing can be clicked together under **OAuth2 → URL Generator**: scope `bot`, then those
+   three permissions.)
+
+   No server of your own? Create one with the **+** button in Discord's left rail — a
+   private server with just you in it is the tidiest option.
+6. Pick or create a channel for it. A dedicated `#music` or `#baton` channel keeps things
+   readable, but any channel works — Baton ignores messages written by bots, so it can
+   share a channel with webhook feeds without tripping over them.
+7. In that channel, send `/link 123456` with the six-digit code from Baton's **Linking**
+   section. "Linked." — you're done.
+
+To confine the bot to specific channels, fill **Limit to channels** with channel ids
+(comma-separated). Getting an id: Discord **Settings → Advanced → Developer Mode on**, then
+right-click the channel → **Copy Channel ID**. This narrows an already-authorized person;
+leaving it empty is fine, because the link-code allowlist is what actually guards access.
 
 #### About that link code
 
