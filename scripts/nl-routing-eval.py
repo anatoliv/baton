@@ -44,6 +44,11 @@ Guidance:
 # Withheld from model routing in RemoteNaturalLanguage.withheldTools.
 WITHHELD = {"audio_suspend", "audio_resume", "speak_summary", "music_delete_playlist"}
 
+# Known-hard cases: measured and reported every run, but excluded from the
+# exit code, so the gate stays green-on-no-NEW-regressions instead of being
+# permanently red. Promote a case out of here the day it passes consistently.
+XFAIL = {"i want to hear radiohead"}
+
 # The app appends the live player state to the system prompt on every request
 # (RemoteCommandRouter.playerContext). The harness sends a representative state
 # so state-referring queries ("add this artist to the queue") are answerable,
@@ -78,6 +83,12 @@ CASES = [
     ("something mellow please", ["music_play"], "Play & search"),
     ("play some 90s house", ["music_play"], "Play & search"),
     ("put on radiohead", ["music_play"], "Play & search"),
+    # The 0.12.5-era known-miss: a vague verb plus a band whose name starts
+    # with "radio". Passes with a minimal 2-tool probe, fails with the full
+    # catalog — minimal probes overstate, so it is pinned here at full strength
+    # and carried as an expected failure (XFAIL) rather than papered over with
+    # a "Radiohead is a band" prompt line.
+    ("i want to hear radiohead", ["music_play"], "Play & search"),
     ("i fancy some blues", ["music_play"], "Play & search"),
     ("play the album abbey road", ["music_play"], "Play & search"),
     ("can you put on portishead", ["music_play"], "Play & search"),
@@ -260,14 +271,17 @@ def main():
             argstr = a
         hits = sum(1 for g in got if g in expect)
         status = "pass" if hits == args.runs else ("flaky" if hits else "fail")
+        if status != "pass" and text in XFAIL:
+            status = "xfail"
         results.append({"text": text, "cat": cat, "expect": expect[0],
                         "tools": got, "args": argstr, "passes": hits, "status": status})
-        mark = {"pass": "ok  ", "flaky": "FLAKY", "fail": "FAIL"}[status]
+        mark = {"pass": "ok  ", "flaky": "FLAKY", "fail": "FAIL", "xfail": "XFAIL"}[status]
         print(f"{mark} {text[:44]:44} -> {Counter(got).most_common(1)[0][0]}")
 
     counts = Counter(r["status"] for r in results)
     print(f"\n{counts['pass']}/{len(results)} correct in every run · "
-          f"{counts['flaky']} flaky · {counts['fail']} consistently wrong "
+          f"{counts['flaky']} flaky · {counts['fail']} consistently wrong · "
+          f"{counts['xfail']} known-hard (excluded from exit code) "
           f"({round(time.time() - started)}s)")
     for r in results:
         if r["status"] != "pass":

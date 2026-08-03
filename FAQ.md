@@ -125,6 +125,22 @@ network and there's no per-message cost. The model does need to support tool cal
 Baton asks it to pick from a list of commands; the **Test** button tells you in one click
 whether yours does.
 
+**What permissions does the Discord bot need?**
+Three: View Channels, Send Messages, and Read Message History — permissions value `68608` in
+the invite URL. It deliberately gets no Administrator and no Manage-anything: a music remote
+that can only read and write messages stays a music remote even if the token leaks. You also
+need the **Message Content intent** switched on for the bot (Developer Portal → Bot), or
+Discord delivers your messages with the text removed.
+
+**Can the bot share a channel with webhooks or other bots?**
+Yes. Baton ignores everything written by a bot account, so alert feeds and download
+notifications in the same channel don't trigger it — only messages from linked people do.
+
+**Why does my bot ignore messages in a Telegram group?**
+Telegram's *privacy mode*, on by default for group bots, hides ordinary messages from them:
+`np` goes unseen, `/np` gets through. Either use `/`-prefixed commands in groups, or message
+@BotFather `/setprivacy` and turn it off for your bot. Direct chats are unaffected.
+
 **Does the plain-English option send my library anywhere?**
 No. It's off unless you turn it on and add your own API key, and when it is on, what leaves
 your Mac is the sentence you typed plus the list of Baton's own commands. Not your library,

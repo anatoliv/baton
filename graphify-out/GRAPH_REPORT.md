@@ -1,7 +1,7 @@
-# Graph Report - baton  (2026-08-02)
+# Graph Report - baton  (2026-08-03)
 
 ## Corpus Check
-- 260 files · ~262,263 words
+- 260 files · ~262,458 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `81796c3e`
+- Built from commit: `d9621143`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1171,12 +1171,12 @@ Nodes (3): load_catalog(), main(), The tools Baton actually offers, from the run
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `MusicMix` connect `Community 75` to `Community 34`, `Community 23`?**
-  _High betweenness centrality (0.084) - this node is a cross-community bridge._
+  _High betweenness centrality (0.085) - this node is a cross-community bridge._
 - **Why does `MixArtworkOverrideTests` connect `Community 75` to `Community 8`, `Community 55`?**
-  _High betweenness centrality (0.075) - this node is a cross-community bridge._
+  _High betweenness centrality (0.076) - this node is a cross-community bridge._
 - **Why does `text` connect `Community 89` to `Community 135`, `Community 136`, `Community 10`, `Community 14`, `Community 16`, `Community 17`, `Community 20`, `Community 150`, `Community 23`, `Community 24`, `Community 25`, `Community 154`, `Community 43`, `Community 45`, `Community 175`, `Community 48`, `Community 53`, `Community 79`, `Community 222`, `Community 240`, `Community 113`, `Community 115`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
-- **What connects `Never`, `Error`, `malformed` to the rest of the system?**
+  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+- **What connects `The tools Baton actually offers, from the running app's MCP server.`, `Never`, `Error` to the rest of the system?**
   _923 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.07142857142857142 - nodes in this community are weakly interconnected._
