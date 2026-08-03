@@ -272,6 +272,10 @@ final class RemoteCommandRouter {
 /// return JSON aimed at agents, which is unreadable on a phone. Unknown shapes
 /// pass through untouched rather than being mangled.
 enum RemoteResultFormatter {
+    /// Above this many playlists, listing them stops being useful and the count
+    /// plus "name one" is the better answer.
+    static let playlistListLimit = 15
+
     static func format(tool: String, result: String) -> String {
         guard let data = result.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -316,13 +320,28 @@ enum RemoteResultFormatter {
         case "music_list_playlists":
             let playlists = json["playlists"] as? [[String: Any]] ?? []
             guard !playlists.isEmpty else { return "No playlists on the server." }
-            let lines = playlists.prefix(25).map { item -> String in
+            func line(_ item: [String: Any]) -> String {
                 let name = item["name"] as? String ?? "—"
                 let count = item["song_count"] as? Int
                 return count.map { "• \(name) (\($0))" } ?? "• \(name)"
             }
-            let more = playlists.count > 25 ? "\n…and \(playlists.count - 25) more" : ""
-            return lines.joined(separator: "\n") + more
+            // A short list is worth printing. A long one is not: twenty-five rows
+            // of "02 - Classic Trance (Pt 17)" and "…and 296 more" is a wall of
+            // text you cannot act on. Past that, the count and *how to open one*
+            // are the useful facts — and partial names match, so saying so is
+            // more use than any subset of the names could be.
+            guard playlists.count > Self.playlistListLimit else {
+                return playlists.map(line).joined(separator: "\n")
+            }
+            let sample = playlists.prefix(5).map(line).joined(separator: "\n")
+            return """
+            *\(playlists.count) playlists* — too many to list.
+
+            Play one by name: `playlist <name>`. Part of the name is enough, so             `playlist trance` finds the first playlist with "trance" in it.
+
+            \(sample)
+            …and \(playlists.count - 5) more
+            """
 
         default:
             return compact(json)

@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785760461.7022493,
-    "ast_hash": "91c9b1347a1afc5a1b942a03ebbb1f89",
+    "mtime": 1785766992.0198772,
+    "ast_hash": "e9a11ee30ede0b1bb06e0789520d30a1",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785760216.827513,
-    "ast_hash": "55521b15fa9c7ee6125f4025a6cf9934",
+    "mtime": 1785766748.6498382,
+    "ast_hash": "b40f04b9fc63ce816f29ce2ad9baff33",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1240,8 +1240,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteCommandRouter.swift": {
-    "mtime": 1785717593.7091026,
-    "ast_hash": "f4912f25e56910f7e00041517eabcac1",
+    "mtime": 1785766655.9562128,
+    "ast_hash": "5589b3ec128e0833f6ccd5f6bfa49a83",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteControlConfig.swift": {
@@ -1270,8 +1270,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteCommandTests.swift": {
-    "mtime": 1785717318.4320984,
-    "ast_hash": "522b5655185fd2c131dc182a050a145e",
+    "mtime": 1785766678.5599842,
+    "ast_hash": "4af55c55a3553cfada6104d7d0ae3200",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteConversationLog.swift": {

@@ -234,6 +234,22 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.9",
+            date: "2026",
+            highlight: "Asking a chat remote for your playlists is useful again.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "With a big library, \u{201C}list my playlists\u{201D} answered with "
+                        + "twenty-five near-identical rows and \u{201C}and 296 more\u{201D} \u{2014} a "
+                        + "wall of text you could not act on. It now gives the count and how "
+                        + "to open one, including that part of a name is enough: "
+                        + "\u{201C}playlist trance\u{201D} finds the first match. Short lists are "
+                        + "still printed in full."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.8",
             date: "2026",
             highlight: "The help now walks you through Telegram and Discord setup properly.",
