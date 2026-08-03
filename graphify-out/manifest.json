@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785755009.6674635,
-    "ast_hash": "60906ced8d27bb3f269a3ea4cabdb543",
+    "mtime": 1785760461.7022493,
+    "ast_hash": "91c9b1347a1afc5a1b942a03ebbb1f89",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785717871.0056548,
-    "ast_hash": "d63349ae57a00ed32d423676c20c5cda",
+    "mtime": 1785760216.827513,
+    "ast_hash": "55521b15fa9c7ee6125f4025a6cf9934",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {

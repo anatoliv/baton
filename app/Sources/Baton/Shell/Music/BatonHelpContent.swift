@@ -234,6 +234,21 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.12.8",
+            date: "2026",
+            highlight: "The help now walks you through Telegram and Discord setup properly.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Step-by-step walkthroughs for connecting both chat services, "
+                        + "written from real setups: the Discord intent that silently breaks "
+                        + "everything when missed, the exact invite permissions and why so few, "
+                        + "and why a Telegram group bot ignores unprefixed messages. In this "
+                        + "Help window and at baton.tonebox.io."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.7",
             date: "2026",
             highlight: "The chat remote now knows what\u{2019}s playing.",
