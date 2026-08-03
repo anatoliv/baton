@@ -1220,7 +1220,7 @@ and `/pause` do the same thing.
 | `like` · `unlike` | Star the current track (or `like <song>`) |
 | `rate 5` | Rate the current track, 0 to 5 |
 | `playlists` | List your playlists |
-| `playlist Evening` | Play a playlist by name |
+| `playlist Evening` | Play a playlist by name — part of the name is enough |
 | `mix upbeat focus` | Build a mix from a description |
 | `radio` | Endless "more like this" from the current track |
 | `shuffle on` · `repeat one` | Modes (`repeat` takes `off`, `all`, or `one`) |
