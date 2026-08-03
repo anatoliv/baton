@@ -25,6 +25,21 @@ struct RemoteReply: Sendable {
 
     static func plain(_ text: String) -> RemoteReply { RemoteReply(text: text) }
     static func player(_ text: String) -> RemoteReply { RemoteReply(text: text, showsTransport: true) }
+
+    /// Chat platforms hard-cap message length (Telegram 4096, Discord 2000) and
+    /// refuse anything over it — so an unclamped long reply is a LOST reply.
+    /// Cuts on a line boundary where one is near, so a truncated list ends with
+    /// a whole row rather than half a title.
+    static func clamped(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        let marker = "\n…"
+        var cut = String(text.prefix(limit - marker.count))
+        if let lastLine = cut.lastIndex(of: "\n"),
+           cut.distance(from: lastLine, to: cut.endIndex) < 120 {
+            cut = String(cut[cut.startIndex..<lastLine])
+        }
+        return cut + marker
+    }
 }
 
 // MARK: - Router
@@ -45,9 +60,10 @@ final class RemoteCommandRouter {
     /// Injectable so tests can exercise routing without a network call.
     var resolveNaturalLanguage: (
         String, RemoteControlSettings.NaturalLanguageConfig, RemoteToolSchemas,
-        [RemoteConversationLog.Turn]
+        [RemoteConversationLog.Turn], String?
     ) async throws -> RemoteNaturalLanguage.Resolution = {
-        try await RemoteNaturalLanguage.resolve($0, config: $1, tools: $2, history: $3)
+        try await RemoteNaturalLanguage.resolve(
+            $0, config: $1, tools: $2, history: $3, playerContext: $4)
     }
 
     init(
@@ -157,7 +173,8 @@ final class RemoteCommandRouter {
         do {
             let tools = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
             let history = conversation.history(for: RemoteConversationLog.key(for: inbound))
-            let resolution = try await resolveNaturalLanguage(text, settings.naturalLanguage, tools, history)
+            let resolution = try await resolveNaturalLanguage(
+                text, settings.naturalLanguage, tools, history, playerContext())
             var reply = await run(resolution.call)
             if let preamble = resolution.preamble, !preamble.isEmpty {
                 reply.text = preamble + "\n\n" + reply.text
@@ -167,6 +184,24 @@ final class RemoteCommandRouter {
             remoteLog.error("Natural-language routing failed: \(error.localizedDescription, privacy: .public)")
             return .failure(error)
         }
+    }
+
+    /// The player's live state, phrased for the model. This is what makes
+    /// "this artist", "queue more of this", "who is this" answerable in one
+    /// call: the router is sitting next to the player, so the state travels
+    /// with the request instead of costing a second round trip.
+    func playerContext() -> String {
+        let player = music.music
+        guard let song = player.nowPlaying else {
+            return "Player state: nothing is playing right now."
+        }
+        let position = player.queue.isEmpty
+            ? "" : " — track \(player.currentIndex + 1) of \(player.queue.count) in the queue"
+        // The album is included because its absence was measured to matter:
+        // "what album is this from" sent the model searching for the answer
+        // instead of to music_now_playing, which displays it.
+        let album = (song.album?.isEmpty == false) ? ", from the album \"\(song.album!)\"" : ""
+        return "Player state: \"\(song.title)\" by \(song.artist)\(album)\(position)."
     }
 
     // MARK: Dispatch
@@ -257,6 +292,26 @@ enum RemoteResultFormatter {
 
         case "music_get_queue":
             return queue(json)
+
+        case "music_play_playlist":
+            guard let name = json["playing_playlist"] as? String else { return compact(json) }
+            var out = "▶︎ Playlist “\(name)”"
+            if let tracks = json["tracks"] as? Int { out += " — \(tracks) track\(tracks == 1 ? "" : "s")" }
+            if let track = json["now_playing"] as? [String: Any] {
+                out += "\nStarting with " + describe(track)
+            }
+            return out
+
+        case "music_build_mix":
+            guard let mix = json["mix"] as? String ?? json["name"] as? String else { return compact(json) }
+            var out = json["action"] as? String == "playlist"
+                ? "Saved mix “\(mix)”" : "▶︎ Mix “\(mix)”"
+            if let count = json["track_count"] as? Int { out += " — \(count) tracks" }
+            if let minutes = json["total_minutes"] as? Int { out += ", \(minutes) min" }
+            if let track = json["now_playing"] as? [String: Any] {
+                out += "\nStarting with " + describe(track)
+            }
+            return out
 
         case "music_list_playlists":
             let playlists = json["playlists"] as? [[String: Any]] ?? []

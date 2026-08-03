@@ -155,7 +155,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.naturalLanguage.apiKey = "sk-ant-test"
 
         var seen: String?
-        router.resolveNaturalLanguage = { message, _, tools, _ in
+        router.resolveNaturalLanguage = { message, _, tools, _, _ in
             seen = message
             XCTAssertFalse(tools.isEmpty, "the model must be given Baton's tools")
             // `music_now_playing` needs no server, so this exercises the whole
@@ -166,6 +166,32 @@ final class RemoteAuthorizationTests: XCTestCase {
         let reply = await router.handle(inbound("what's playing right now"))
         XCTAssertEqual(seen, "what's playing right now")
         XCTAssertTrue(reply?.text.hasPrefix("On it.") == true, reply?.text ?? "nil")
+    }
+
+    /// "add this artist to the queue" was unanswerable because the model could
+    /// not see the player. The router sits next to the player, so the state
+    /// must travel with every natural-language request.
+    func testPlayerStateTravelsWithTheRequest() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        settings.naturalLanguage.isEnabled = true
+        settings.naturalLanguage.apiKey = "sk-test"
+
+        var seenContext: String?
+        router.resolveNaturalLanguage = { _, _, _, _, context in
+            seenContext = context
+            return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
+        }
+        _ = await router.handle(inbound("add this artist to the queue please"))
+        let context = seenContext ?? ""
+        XCTAssertTrue(context.hasPrefix("Player state:"), context)
+    }
+
+    /// With nothing playing the context must say so — an absent line would
+    /// leave the model guessing, and a stale line would be worse.
+    func testIdlePlayerStateIsStatedNotOmitted() {
+        let (router, _) = makeRouter()
+        XCTAssertEqual(router.playerContext(), "Player state: nothing is playing right now.")
     }
 
     // MARK: Conversation memory
@@ -179,7 +205,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.naturalLanguage.apiKey = "sk-test"
 
         var seenHistory: [RemoteConversationLog.Turn] = []
-        router.resolveNaturalLanguage = { _, _, _, history in
+        router.resolveNaturalLanguage = { _, _, _, history, _ in
             seenHistory = history
             return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
         }
@@ -217,7 +243,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.naturalLanguage.apiKey = "sk-test"
 
         var asked: String?
-        router.resolveNaturalLanguage = { text, _, _, _ in
+        router.resolveNaturalLanguage = { text, _, _, _, _ in
             asked = text
             return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
         }
@@ -237,7 +263,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.naturalLanguage.apiKey = "sk-test"
 
         var asked = false
-        router.resolveNaturalLanguage = { _, _, _, _ in
+        router.resolveNaturalLanguage = { _, _, _, _, _ in
             asked = true
             return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
         }
@@ -281,7 +307,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.authorize(sender: "42", on: .telegram)
         settings.naturalLanguage.isEnabled = true
         settings.naturalLanguage.apiKey = "sk-ant-test"
-        router.resolveNaturalLanguage = { _, _, _, _ in
+        router.resolveNaturalLanguage = { _, _, _, _, _ in
             throw RemoteNaturalLanguage.Failure.refused("no")
         }
 

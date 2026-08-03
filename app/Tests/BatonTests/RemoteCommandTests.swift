@@ -173,6 +173,24 @@ final class RemoteResultFormatterTests: XCTestCase {
     }
 }
 
+/// Chat platforms refuse oversized messages outright, so an unclamped long
+/// reply is a lost reply — the failure mode is silence, the worst one.
+final class RemoteReplyClampTests: XCTestCase {
+    func testShortTextPassesThrough() {
+        XCTAssertEqual(RemoteReply.clamped("hello", to: 100), "hello")
+    }
+
+    func testLongTextIsCutOnALineBoundary() {
+        let text = (1...300).map { "Track number \($0) — Some Artist" }.joined(separator: "\n")
+        let out = RemoteReply.clamped(text, to: 2000)
+        XCTAssertLessThanOrEqual(out.count, 2000)
+        XCTAssertTrue(out.hasSuffix("…"), "truncation must be visible, not silent")
+        // The last visible line is a whole row, not half a title.
+        let lastLine = out.dropLast(2).split(separator: "\n").last ?? ""
+        XCTAssertTrue(lastLine.hasSuffix("Some Artist"), String(lastLine))
+    }
+}
+
 // MARK: - Natural language
 
 @MainActor
@@ -195,6 +213,40 @@ final class RemoteNaturalLanguageTests: XCTestCase {
         XCTAssertFalse(names.contains("speak_summary"))
         XCTAssertTrue(names.contains("music_play"))
         XCTAssertTrue(names.contains("music_build_mix"))
+    }
+
+    /// The evaluation caught the model fabricating song_ids. Chat replies never
+    /// show ids, so an id parameter on this surface is an invitation to invent —
+    /// the schemas offered to the chat model must not carry them.
+    func testIdParametersAreStrippedFromChatSchemas() {
+        let schemas = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
+        for schema in schemas.json {
+            let props = (schema["input_schema"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
+            let name = schema["name"] as? String ?? "?"
+            XCTAssertNil(props["song_ids"], "\(name) still offers song_ids")
+            XCTAssertNil(props["playlist_id"], "\(name) still offers playlist_id")
+        }
+    }
+
+    /// The player state rides at the end of the system prompt in both dialects.
+    func testPlayerContextLandsInTheSystemPromptOfBothDialects() throws {
+        let context = "Player state: \u{201C}So What\u{201D} by Miles Davis — track 3 of 12 in the queue."
+
+        var anthropic = RemoteControlSettings.NaturalLanguageConfig()
+        anthropic.isEnabled = true; anthropic.apiKey = "k"
+        let a = try RemoteNaturalLanguage.buildRequest(
+            "x", config: anthropic, tools: RemoteToolSchemas(json: []), playerContext: context)
+        let aBody = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(a.httpBody)) as? [String: Any])
+        XCTAssertTrue((aBody["system"] as? String)?.hasSuffix(context) == true)
+
+        var openAI = RemoteControlSettings.NaturalLanguageConfig()
+        openAI.isEnabled = true; openAI.apiKey = "k"; openAI.provider = .openAICompatible
+        openAI.baseURL = "https://api.openai.com/v1"
+        let o = try RemoteNaturalLanguage.buildRequest(
+            "x", config: openAI, tools: RemoteToolSchemas(json: []), playerContext: context)
+        let oBody = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(o.httpBody)) as? [String: Any])
+        let system = (oBody["messages"] as? [[String: Any]])?.first?["content"] as? String
+        XCTAssertTrue(system?.hasSuffix(context) == true)
     }
 
     func testParsesAToolCall() throws {

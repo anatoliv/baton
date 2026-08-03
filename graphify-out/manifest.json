@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785713939.736292,
-    "ast_hash": "98dce5068a6f3a7f4725195daf9aeec8",
+    "mtime": 1785755009.6674635,
+    "ast_hash": "60906ced8d27bb3f269a3ea4cabdb543",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785713699.5623403,
-    "ast_hash": "810a5bdce6de1d13d6114c8de888a4c2",
+    "mtime": 1785717871.0056548,
+    "ast_hash": "d63349ae57a00ed32d423676c20c5cda",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1230,8 +1230,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/DiscordBridge.swift": {
-    "mtime": 1785702501.0825303,
-    "ast_hash": "fe126a135bf93e730d87d1bb4b6f75c7",
+    "mtime": 1785717265.3442976,
+    "ast_hash": "5c00ceb3458377ec890767885bccbcc0",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteCommandParser.swift": {
@@ -1240,8 +1240,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteCommandRouter.swift": {
-    "mtime": 1785710269.032195,
-    "ast_hash": "8c3ce4026ddede5a8307c14a384051aa",
+    "mtime": 1785717593.7091026,
+    "ast_hash": "f4912f25e56910f7e00041517eabcac1",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteControlConfig.swift": {
@@ -1255,23 +1255,23 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteNaturalLanguage.swift": {
-    "mtime": 1785713590.945074,
-    "ast_hash": "7c24f7108f877c741662b26d6ee978e8",
+    "mtime": 1785717234.61489,
+    "ast_hash": "8c8fa39cf639b333a9b008e351c50c7e",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/TelegramBridge.swift": {
-    "mtime": 1785702501.0849648,
-    "ast_hash": "9e19e58dd5f6ec29afa3f3b7078e4b20",
+    "mtime": 1785717265.3439565,
+    "ast_hash": "9bd7bee41df3749541ee1381e8947fe4",
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteAuthorizationTests.swift": {
-    "mtime": 1785710193.4861474,
-    "ast_hash": "aa8e407e1681a89441db292134dc1f9b",
+    "mtime": 1785717318.4311824,
+    "ast_hash": "62fded22424a411859cbbd6e764ef68c",
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteCommandTests.swift": {
-    "mtime": 1785713616.454167,
-    "ast_hash": "693a531c14df38a7944ab3c293250614",
+    "mtime": 1785717318.4320984,
+    "ast_hash": "522b5655185fd2c131dc182a050a145e",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteConversationLog.swift": {
@@ -1282,6 +1282,21 @@
   "app/Tests/BatonTests/RemoteConversationLogTests.swift": {
     "mtime": 1785709336.9739504,
     "ast_hash": "9d1bce083a731300e6c2ff40eb7739bb",
+    "semantic_hash": ""
+  },
+  "docs/nl-routing-results.json": {
+    "mtime": 1785717763.0010133,
+    "ast_hash": "3a3bbc87f071fda9c03471f980a1c19d",
+    "semantic_hash": ""
+  },
+  "scripts/nl-routing-eval.py": {
+    "mtime": 1785717580.7891786,
+    "ast_hash": "10549646eb7fafcd07560c7df06d554c",
+    "semantic_hash": ""
+  },
+  "scripts/nl-routing-report.py": {
+    "mtime": 1785716473.076055,
+    "ast_hash": "c1b332753f85820bda26c0908c216c6e",
     "semantic_hash": ""
   }
 }

@@ -254,6 +254,9 @@ final class DiscordBridge {
             channelID: channelID,
             text: text
         )
+        // Same reasoning as the Telegram bridge: a local model takes seconds,
+        // and silence reads as breakage. Discord's typing indicator runs ~10s.
+        _ = try? await rest("POST", "/channels/\(channelID)/typing", body: [:])
         guard let reply = await router.handle(inbound) else { return }
         await postMessage(reply, channelID: channelID)
     }
@@ -292,7 +295,9 @@ final class DiscordBridge {
     // MARK: - Outbound (REST)
 
     private func postMessage(_ reply: RemoteReply, channelID: String) async {
-        var body: [String: Any] = ["content": Self.emphasize(reply.text)]
+        // Discord's cap is half of Telegram's, 2000 chars, and an oversized
+        // message is refused with a 400 — the user would get nothing at all.
+        var body: [String: Any] = ["content": RemoteReply.clamped(Self.emphasize(reply.text), to: 1990)]
         if reply.showsTransport { body["components"] = Self.transportComponents }
         do {
             try await rest("POST", "/channels/\(channelID)/messages", body: body)
