@@ -34,6 +34,12 @@ final class RemoteControlService {
         }
     }
 
+    /// Erase every durable note about the owner. Wired to the Settings button,
+    /// so leaving is as easy as arriving.
+    func forgetEverythingRemembered() {
+        router.memory.forgetEverything()
+    }
+
     /// Bring running bridges in line with the current settings.
     func apply() {
         guard settings.isEnabled else { stopAll(); return }

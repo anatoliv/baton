@@ -218,14 +218,14 @@ final class RemoteAgentLoopTests: XCTestCase {
         )
 
         XCTAssertTrue(outcome.toolsRun.contains("music_play"), "the promise must be kept: \(outcome.toolsRun)")
-        XCTAssertGreaterThan(offered[1], offered[2], "the follow-up turn must lose the looking tools")
-        XCTAssertFalse(
-            RemoteAgent.actionOnly(RemoteAgent.toolSchemas()).json.contains { ($0["name"] as? String) == "music_search" },
-            "searching is looking"
-        )
+        // The follow-up turn keeps the FULL toolset. Restricting it to acting
+        // tools was measured, across 109 real messages, to turn "what's
+        // playing?" and "do I have any Coltrane" into playback — 72 of them
+        // ended in music. The judgement belongs in the notice, not the tool list.
+        XCTAssertEqual(offered[1], offered[2], "the follow-up must not be acting-only")
         XCTAssertTrue(
-            RemoteAgent.actionOnly(RemoteAgent.toolSchemas()).json.contains { ($0["name"] as? String) == "music_play" },
-            "playing is acting"
+            RemoteAgent.followThroughNotice.lowercased().contains("answered a question"),
+            "the notice must permit answering, or a question becomes playback"
         )
     }
 
@@ -271,6 +271,27 @@ final class RemoteAgentLoopTests: XCTestCase {
         )
         XCTAssertEqual(outcome.text, "Mostly Trance — 107 tracks.")
         XCTAssertFalse(outcome.toolsRun.contains("music_play"), "must not play at someone")
+    }
+
+    /// A weak model under load writes a tool call as text instead of emitting
+    /// one. The call is lost either way; showing the person the wreckage is the
+    /// part Baton controls.
+    func testLeakedMachineryIsCutFromWhatTheUserSees() {
+        let leaked = """
+        I see you're already listening to DIDO. Let me play something quieter.
+        <tool_call>
+        {"name": "music_play", "arguments": {"query": "ambient"}}
+        """
+        let cleaned = RemoteAgent.sanitize(leaked)
+        XCTAssertEqual(cleaned, "I see you're already listening to DIDO. Let me play something quieter.")
+        XCTAssertFalse(cleaned.contains("{"))
+
+        // Cutting from the first marker keeps the sentence; it never trims the
+        // middle of a legitimate reply.
+        XCTAssertEqual(
+            RemoteAgent.sanitize("Playing your chill tracks."), "Playing your chill tracks.")
+        // And a reply that is nothing but machinery still has to say something.
+        XCTAssertEqual(RemoteAgent.sanitize("<tool_call>{\"name\":\"x\"}"), "Done.")
     }
 
     /// A huge tool result would otherwise be echoed on every subsequent turn.

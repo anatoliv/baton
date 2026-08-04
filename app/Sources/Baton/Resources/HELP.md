@@ -987,7 +987,7 @@ background even with every window closed.
 
 ### What an agent can do
 
-The control server exposes **28 music operations**. They're the same actions Baton's own
+The control server exposes **36 music operations**. They're the same actions Baton's own
 interface uses, so anything an agent does is something you could have done by hand. Here's the
 full catalog.
 
@@ -1003,6 +1003,21 @@ full catalog.
 | `music_start_radio` | Start an endless "more like this" from the current track or a search | `query` (optional) |
 | `music_build_mix` | Build a mix to a target length, then queue it or save it as a playlist | `prompt`, `target_minutes`, `seed_artist`, `seed_genre`, `action`, `name` |
 
+**Explore the library:**
+
+Searching answers "is this in here". These answer "what *is* in here", which is what a
+recommendation has to start from — an agent that can read your genres and what you actually
+play can suggest something from your collection instead of guessing at song titles.
+
+| Tool | What it does | Main inputs |
+|---|---|---|
+| `music_list_genres` | List the genres in your library with song counts — the vocabulary it really uses, which is rarely the words people say | `limit` |
+| `music_browse_albums` | Browse albums by kind rather than by search: random, newest, most-played, recently played, liked, by genre, by year | `type`, `genre`, `from_year`, `to_year`, `limit` |
+| `music_similar_songs` | Songs your server considers similar to a track or artist — real neighbour data, not a keyword match | `song_id` or `query`, `limit` |
+| `music_liked` | Your liked songs, albums, and artists | `limit` |
+| `music_random` | Random songs, optionally within a genre or year range | `genre`, `from_year`, `to_year`, `limit` |
+| `music_artist_info` | An artist's biography and every album of theirs you have | `artist_id` or `query` |
+
 **Control playback:**
 
 | Tool | What it does | Main inputs |
@@ -1014,6 +1029,7 @@ full catalog.
 | `music_set_repeat` | Set repeat to off, all, or one | `mode` |
 | `music_set_shuffle` | Turn shuffle on or off | `enabled` |
 | `music_sleep_timer` | Pause after some minutes (0 or empty cancels) | `minutes` |
+| `music_set_crossfade` | Set the crossfade length between tracks, in seconds (0 turns it off) | `seconds` |
 
 **Work the queue:**
 
@@ -1033,6 +1049,7 @@ full catalog.
 | `music_add_to_playlist` | Add search matches to an existing playlist | `query`, `name` or `playlist_id` |
 | `music_delete_playlist` | Delete a playlist | `name` or `playlist_id` |
 | `music_list_playlists` | List your playlists | none |
+| `music_get_playlist` | Read one playlist's tracks | `name` or `playlist_id` |
 
 **Report and shape sound:**
 
@@ -1226,6 +1243,8 @@ and `/pause` do the same thing.
 | `shuffle on` · `repeat one` | Modes (`repeat` takes `off`, `all`, or `one`) |
 | `sleep 30` | Pause in 30 minutes (`sleep off` cancels) |
 | `forget` | Clear what this chat remembers |
+| `memories` | Everything Baton keeps about you, with your own words |
+| `forget 2` · `forget everything` | Remove one memory, or all of them |
 | `help` | The list, in the chat |
 
 Replies come with buttons for the common actions, so skipping a track is a tap rather than a
@@ -1331,6 +1350,40 @@ distinction stops mattering: nothing leaves your network either way.
 
 It costs a little more than one request per message, since looking takes turns. Against a
 local model that's typically a second or two.
+
+**It knows what you listen to.** Before it answers, Baton hands it a dozen lines read from
+your own server: your biggest genres with counts, what you've played most and how often, how
+many songs you've liked, what you added recently. Nothing is stored and nothing is guessed —
+they're the server's own numbers, read fresh each day. It's what makes "what kind of music do
+I listen to?" answerable, "surprise me" grounded in your collection rather than a coin flip,
+and a remark like "that's its 34th play" possible at all.
+
+**It occasionally has a view.** When a number is worth mentioning it says so in passing —
+and then does what you asked anyway. It never refuses and never lectures, and it mentions any
+one thing at most once a day, because a friend says it once and software that says it three
+times running is nagging.
+
+### What it remembers
+
+Some things your server can't know: that you don't want vocals while you work, that the
+gothic playlists are your partner's, that "my trance" means the Classic Trance ones. Tell
+Baton and it keeps them, in a plain file you can open at
+`~/Library/Application Support/Baton/remote-memory.json`.
+
+Three rules make that safe rather than creepy:
+
+- **It stores your words, not its impressions.** Every memory carries the sentence you
+  actually said. There is nowhere to put "seems to like sad music on Sundays" — the file has
+  no field for a guess about you, which is a better guarantee than a promise not to make one.
+- **It tells you every time it writes one.** "Noted — no vocals while you work." If it
+  misunderstood, you see it in the same window a second later, and one message fixes it.
+- **It's one command away.** `memories` lists everything with the quote attached, `forget 2`
+  removes one, `forget everything` clears the lot. Settings, Remote has a switch to turn it
+  off and a button to delete everything.
+
+It keeps a couple of dozen things at most, forgetting whatever has gone longest unused. It
+also notes what it recently started playing, so "surprise me" stops surprising you with the
+same three tracks.
 
 ---
 

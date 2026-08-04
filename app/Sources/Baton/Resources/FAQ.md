@@ -121,6 +121,15 @@ your question, because there's no other way for it to answer. With the switch of
 library ever leaves. If you point Baton at a model running on your own machine or network,
 nothing leaves it in either case.
 
+**Does it remember things between conversations?**
+Only what you tell it, and only when "let it look around" is on. Standing preferences — "no
+vocals while I'm working", "those playlists are my partner's" — are kept in a plain file you
+can open, always alongside the words you actually used. It never stores a guess about you;
+there is no field in the file for one. It says so in the chat every time it writes something,
+`memories` lists everything it keeps, and `forget 2` or `forget everything` removes it.
+Everything else it appears to know — your genres, play counts, what you've liked — isn't
+memory at all: it reads that from your own server each day.
+
 **Does chat control open my Mac to the internet?**
 No. Baton dials *out* to Telegram or Discord and waits for them to hand it messages, exactly
 as a chat app on your Mac does. Nothing listens for incoming connections, no port is opened,
