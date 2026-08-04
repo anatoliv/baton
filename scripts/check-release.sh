@@ -98,6 +98,30 @@ if [ -f "$WHATSNEW" ]; then
     fi
 fi
 
+# --- Conversation eval --------------------------------------------------------
+# Agent mode's quality lives in a place no unit test can reach: whether ordinary
+# sentences produce the right action and a reply worth reading. The 109-message
+# eval is the only thing that measures it, and it caught a regression the whole
+# suite passed over — 72 of 109 messages answering a question by playing music.
+#
+# It cannot be a hard gate: it needs a live model, costs real requests, and is
+# nondeterministic. So this warns loudly instead, and records which version was
+# last measured. A release that changes the prompt, the tools, or the loop
+# without a fresh number is a release shipping on hope.
+EVAL_STAMP="$HOME/.baton-eval-last.json"
+if grep -rq "isAgentEnabled" app/Sources/Baton/Remote/ 2>/dev/null; then
+    STAMPED="$( [ -f "$EVAL_STAMP" ] && perl -0ne 'if (/"version"\s*:\s*"([^"]+)"/) { print $1 }' "$EVAL_STAMP" )"
+    if [ "$STAMPED" != "$VERSION" ]; then
+        printf '\033[33m! conversation eval not run for %s (last: %s)\033[0m\n' \
+            "$VERSION" "${STAMPED:-never}" >&2
+        echo "    ./scripts/test.sh -only-testing:BatonTests/RemoteAgentConversationEval" >&2
+        echo "    (needs ~/.baton-live-agent.json — see RemoteAgentLiveTests)" >&2
+    else
+        SCORE="$(perl -0ne 'if (/"correct"\s*:\s*(\d+)/) { print $1 }' "$EVAL_STAMP")"
+        echo "    conversation eval: ${SCORE:-?}/109 on this version"
+    fi
+fi
+
 if [ "$FAILED" -ne 0 ]; then
     printf '\033[31m✗ release gate failed — fix the above before publishing.\033[0m\n' >&2
     exit 1

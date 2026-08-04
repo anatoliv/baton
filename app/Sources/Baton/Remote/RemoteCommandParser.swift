@@ -42,6 +42,10 @@ enum RemoteAction: Equatable, Sendable {
     case natural(String)
     /// Drop the remembered conversation for this chat.
     case forget
+    /// Show the durable memories Baton keeps.
+    case memories
+    /// Delete one durable memory, or all of them.
+    case forgetMemory(id: Int?)
     /// Message was empty or contained only a bot mention.
     case ignore
 }
@@ -169,7 +173,19 @@ enum RemoteCommandParser {
             return .tool(.init(name: "music_sleep_timer", arguments: ["minutes": .int(minutes)]))
 
         // — meta ---------------------------------------------------------------
+        case "memories", "memory":
+            return .memories
+
         case "forget", "reset", "clear", "nevermind":
+            // Bare `forget` has always meant "drop this conversation". With an
+            // argument it means the durable store instead — distinct things,
+            // and the word people reach for is the same for both.
+            let argument = rest.trimmingCharacters(in: .whitespaces).lowercased()
+            if argument.isEmpty { return .forget }
+            if argument == "everything" || argument == "all" || argument == "memories" {
+                return .forgetMemory(id: nil)
+            }
+            if let id = Int(argument) { return .forgetMemory(id: id) }
             return .forget
 
         case "help", "commands", "start", "h", "?":

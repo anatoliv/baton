@@ -322,7 +322,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.naturalLanguage.isEnabled = false
 
         do {
-            _ = try await router.resolveAgent("play something lazy", [], nil)
+            _ = try await router.resolveAgent("play something lazy", [], nil, "telegram:c1")
             XCTFail("expected .notConfigured from an unconfigured model")
         } catch {
             XCTAssertTrue(
@@ -345,7 +345,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.naturalLanguage.isEnabled = true
         settings.naturalLanguage.apiKey = "sk-test"
         settings.naturalLanguage.isAgentEnabled = true
-        router.resolveAgent = { _, _, _ in
+        router.resolveAgent = { _, _, _, _ in
             RemoteAgent.Outcome(
                 text: "Two different Didos in here.",
                 choice: RemoteChoicePrompt(
@@ -466,7 +466,7 @@ final class RemoteAuthorizationTests: XCTestCase {
 
         var usedAgent = false
         var usedSingleShot = false
-        router.resolveAgent = { _, _, _ in
+        router.resolveAgent = { _, _, _, _ in
             usedAgent = true
             return RemoteAgent.Outcome(text: "agent")
         }

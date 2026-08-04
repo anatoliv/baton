@@ -60,6 +60,10 @@ final class RemoteCommandRouter {
     let conversation: RemoteConversationLog
     /// Questions waiting on an answer, and their auto-pick timers.
     let pending = RemotePendingChoices()
+    /// What the owner listens to, read from the server and refreshed daily.
+    let taste = RemoteTasteDigest()
+    /// The few things the server can't answer, and what was recently played.
+    let memory = RemoteMemoryStore()
     /// How long silence is allowed to last before the recommended option runs.
     /// Injectable so tests don't wait out the real one.
     var autoPickDelay: TimeInterval = RemotePendingChoices.autoPickAfter
@@ -93,8 +97,8 @@ final class RemoteCommandRouter {
     /// infers the isolation of the closure *literal* from its context here and
     /// then loses it at the call site, so nothing warns.
     lazy var resolveAgent: @MainActor (
-        String, [RemoteConversationLog.Turn], String?
-    ) async throws -> RemoteAgent.Outcome = { [weak self] message, history, context in
+        String, [RemoteConversationLog.Turn], String?, String
+    ) async throws -> RemoteAgent.Outcome = { [weak self] message, history, context, chatKey in
         guard let self else { throw RemoteNaturalLanguage.Failure.notConfigured }
         return try await RemoteAgent.run(
             message: message,
@@ -104,12 +108,20 @@ final class RemoteCommandRouter {
             tools: RemoteAgent.toolSchemas(),
             runTool: { [weak self] call in
                 guard let self else { return ("Baton went away.", true) }
-                return await BatonMCPToolCatalog.run(
+                if call.name == "remember" { return self.remember(call) }
+                let (text, isError) = await BatonMCPToolCatalog.run(
                     name: call.name,
                     arguments: call.jsonArguments,
                     music: self.music,
                     focus: self.focus
                 )
+                guard !isError else { return (text, true) }
+                // Strip the telemetry, fit the budget, then attach the facts
+                // Baton holds and the model can't see. See RemoteAgentResults.
+                let shaped = RemoteAgentResults.shape(text)
+                return (RemoteAgentResults.annotate(
+                    shaped, tool: call.name, memory: self.memory,
+                    recentPicks: self.memory.recentPicks(key: chatKey)), false)
             }
         )
     }
@@ -187,6 +199,19 @@ final class RemoteCommandRouter {
             conversation.forget(key: RemoteConversationLog.key(for: inbound))
             return .plain("Forgotten — the next message starts fresh.")
 
+        case .memories:
+            return .plain(memory.listing())
+
+        case let .forgetMemory(id):
+            guard let id else {
+                memory.forgetEverything()
+                return .plain("Cleared. I'm not keeping anything about you now.")
+            }
+            guard let removed = memory.forget(id: id) else {
+                return .plain("No memory numbered \(id). `memories` shows what I keep.")
+            }
+            return .plain("Forgotten: \(removed.text)")
+
         case .link:
             return .plain("This chat is already linked.")
 
@@ -219,6 +244,29 @@ final class RemoteCommandRouter {
             case let .failure(error): return .plain(error.localizedDescription)
             }
         }
+    }
+
+    /// Write a memory, and make the model tell its owner it did.
+    ///
+    /// The echo is the guardrail. A wrong memory is visible in the same window,
+    /// a second after it is born, and correctable in one message — which is a
+    /// far better defence than trusting a small model's judgement about what is
+    /// worth keeping.
+    private func remember(_ call: RemoteToolCall) -> (text: String, isError: Bool) {
+        guard settings.naturalLanguage.remembersOwner else {
+            return ("The owner has turned memory off. Don't offer to remember things.", true)
+        }
+        var text = "", quote = "", kind = "preference"
+        if case let .string(value) = call.arguments["text"] { text = value }
+        if case let .string(value) = call.arguments["quote"] { quote = value }
+        if case let .string(value) = call.arguments["kind"] { kind = value }
+
+        guard let entry = memory.remember(kind: kind, text: text, quote: quote) else {
+            return ("A memory needs both what to remember and the owner's own words. Nothing was stored.", true)
+        }
+        return ("""
+        Stored as memory \(entry.id). Now tell the owner, in your reply and in these words:         "Noted — \(entry.text). (`memories` lists what I keep, `forget \(entry.id)` deletes this one.)"
+        """, false)
     }
 
     /// Run the option someone picked — by tapping a button, typing "2", or by
@@ -269,11 +317,17 @@ final class RemoteCommandRouter {
             return await askTheModelOnce(text, inbound)
         }
         do {
+            let key = RemoteConversationLog.key(for: inbound)
             let outcome = try await resolveAgent(
-                text,
-                conversation.history(for: RemoteConversationLog.key(for: inbound)),
-                playerContext()
-            )
+                text, conversation.history(for: key), await agentContext(for: inbound), key)
+
+            // Remember what it started, so "surprise me" stops surprising you
+            // with the same three tracks. The reply's own first line is the
+            // best description of what happened that anything here has.
+            if outcome.toolsRun.contains(where: { Self.startsPlayback.contains($0) }),
+               let summary = outcome.text.split(separator: "\n").first {
+                memory.recordPick(String(summary), key: key)
+            }
             return .success(reply(for: outcome, inbound: inbound, armAutoPick: armAutoPick))
         } catch {
             remoteLog.error("Agent turn failed: \(error.localizedDescription, privacy: .public)")
@@ -356,6 +410,31 @@ final class RemoteCommandRouter {
         return "Player state: \"\(song.title)\" by \(song.artist)\(album)\(position)."
     }
 
+    /// Everything the agent is told about its owner before it answers: what is
+    /// playing, what they listen to, what they have said, and what it has
+    /// already played them lately.
+    ///
+    /// Deliberately not shared with the single-shot path — that mode's promise
+    /// is that no library content leaves the machine, and taste is library
+    /// content. See `RemoteNaturalLanguage`'s doc comment.
+    func agentContext(for inbound: RemoteInbound) async -> String {
+        var blocks = [playerContext()]
+        if let digest = await taste.current() { blocks.append(digest) }
+        if settings.naturalLanguage.remembersOwner, let remembered = memory.rendered() {
+            blocks.append(remembered)
+        }
+
+        // Without this the agent surprises you with the same three tracks every
+        // time, and can never notice that this is the third time today.
+        let picks = memory.recentPicks(key: RemoteConversationLog.key(for: inbound))
+        if !picks.isEmpty {
+            blocks.append(
+                "Recently started in this chat (don't repeat these unless asked):\n"
+                    + picks.prefix(5).map { "- \($0.what)" }.joined(separator: "\n"))
+        }
+        return blocks.joined(separator: "\n\n")
+    }
+
     // MARK: Dispatch
 
     private func run(_ call: RemoteToolCall) async -> RemoteReply {
@@ -409,6 +488,11 @@ final class RemoteCommandRouter {
         "music_play_playlist", "music_start_radio", "music_add_to_playlist", "music_like",
     ]
 
+    /// Tools that put something new on: what gets logged as a recent pick.
+    static let startsPlayback: Set<String> = [
+        "music_play", "music_build_mix", "music_play_playlist", "music_start_radio",
+    ]
+
     /// Tools whose result leaves the user looking at playback state, and which
     /// therefore deserve transport buttons under the reply.
     private static let playerTools: Set<String> = [
@@ -425,6 +509,7 @@ final class RemoteCommandRouter {
     *Sound* — `vol 0–100` · `seek 1:30` · `shuffle on|off` · `repeat off|all|one`
     *Library* — `search <what>` · `like` · `unlike` · `rate 0–5` · `playlists` · `playlist <name>`
     *More* — `mix <vibe>` · `radio <seed>` · `sleep 30` · `np` (now playing) · `forget`
+    *Memory* — `memories` (what I keep about you) · `forget 2` · `forget everything`
 
     Anything I don't recognize, I'll read as plain English if natural language \
     is switched on in Baton → Settings → Remote.
