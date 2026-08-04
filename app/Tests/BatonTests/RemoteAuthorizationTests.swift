@@ -303,6 +303,35 @@ final class RemoteAuthorizationTests: XCTestCase {
         XCTAssertTrue(reply?.isFailure == true, reply?.text ?? "nil")
     }
 
+    /// 0.13.0 shipped a crash that killed the app on the *first* agent-mode
+    /// message, and every test passed: each one replaced `resolveAgent` with a
+    /// stub, so the real closure — the only thing that runs in production — was
+    /// never once executed. Invoking it hopped off the main actor and then
+    /// called main-actor-isolated code, tripping `swift_task_checkIsolated`
+    /// inside `BatonMCPToolCatalog.definitions()` before any network call.
+    ///
+    /// So this test runs the shipped closure. It needs no model and no server:
+    /// the crash happened while building the tool list, which is evaluated
+    /// before the config is even looked at. Reaching a thrown error at all is
+    /// the assertion; without the isolation annotation this traps and takes the
+    /// whole test process with it.
+    func testTheRealAgentClosureRunsOnTheMainActor() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        // Deliberately NOT configured, so nothing leaves the machine.
+        settings.naturalLanguage.isEnabled = false
+
+        do {
+            _ = try await router.resolveAgent("play something lazy", [], nil)
+            XCTFail("expected .notConfigured from an unconfigured model")
+        } catch {
+            XCTAssertTrue(
+                error is RemoteNaturalLanguage.Failure,
+                "reached the loop and failed properly rather than trapping: \(error)"
+            )
+        }
+    }
+
     // MARK: Asking, answering, and not answering
 
     /// A router configured for agent mode, whose agent always asks the same
