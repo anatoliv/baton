@@ -20,6 +20,18 @@ final class RemoteControlService {
         let settings = settings ?? RemoteControlSettings()
         self.settings = settings
         router = RemoteCommandRouter(music: music, focus: focus, settings: settings)
+        // The router can speak without being spoken to (an auto-picked choice
+        // lands well after its reply), but only this owns the bridges.
+        router.deliver = { [weak self] reply, platform, channelID in
+            await self?.push(reply, to: channelID, on: platform)
+        }
+    }
+
+    private func push(_ reply: RemoteReply, to channelID: String, on platform: RemotePlatform) async {
+        switch platform {
+        case .telegram: await telegram?.push(reply, to: channelID)
+        case .discord: await discord?.push(reply, to: channelID)
+        }
     }
 
     /// Bring running bridges in line with the current settings.

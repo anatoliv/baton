@@ -277,12 +277,26 @@ struct NavidromeClient {
 
     /// Album lists by kind (`getAlbumList2`): `newest`, `frequent`, `recent`,
     /// `starred`, `highest`, `random`, `alphabeticalByName`, …
-    func getAlbumList2(type: String, size: Int = 50, offset: Int = 0) async throws -> [NavidromeAlbum] {
-        let response = try await performJSON("getAlbumList2.view", query: [
+    /// `genre` / `fromYear` / `toYear` are the parameters the `byGenre` and
+    /// `byYear` types require — without them those two kinds return an error or
+    /// the whole library, so they're part of the same call rather than a variant.
+    func getAlbumList2(
+        type: String,
+        size: Int = 50,
+        offset: Int = 0,
+        genre: String? = nil,
+        fromYear: Int? = nil,
+        toYear: Int? = nil
+    ) async throws -> [NavidromeAlbum] {
+        var query = [
             URLQueryItem(name: "type", value: type),
             URLQueryItem(name: "size", value: String(size)),
             URLQueryItem(name: "offset", value: String(offset)),
-        ])
+        ]
+        if let genre { query.append(URLQueryItem(name: "genre", value: genre)) }
+        if let fromYear { query.append(URLQueryItem(name: "fromYear", value: String(fromYear))) }
+        if let toYear { query.append(URLQueryItem(name: "toYear", value: String(toYear))) }
+        let response = try await performJSON("getAlbumList2.view", query: query)
         return (response.albumList2?.album ?? []).map { $0.toDomain() }
     }
 
@@ -331,10 +345,17 @@ struct NavidromeClient {
     /// Random songs from the library (`getRandomSongs`) — the autoplay fallback when the server has
     /// no similarity data (Navidrome's getSimilarSongs2 needs a Last.fm agent, so it's often empty),
     /// so "continuous radio" keeps playing instead of stopping dead at the queue's end.
-    func getRandomSongs(count: Int = 50) async throws -> [NavidromeSong] {
-        let response = try await performJSON("getRandomSongs.view", query: [
-            URLQueryItem(name: "size", value: String(count)),
-        ])
+    func getRandomSongs(
+        count: Int = 50,
+        genre: String? = nil,
+        fromYear: Int? = nil,
+        toYear: Int? = nil
+    ) async throws -> [NavidromeSong] {
+        var query = [URLQueryItem(name: "size", value: String(count))]
+        if let genre { query.append(URLQueryItem(name: "genre", value: genre)) }
+        if let fromYear { query.append(URLQueryItem(name: "fromYear", value: String(fromYear))) }
+        if let toYear { query.append(URLQueryItem(name: "toYear", value: String(toYear))) }
+        let response = try await performJSON("getRandomSongs.view", query: query)
         return (response.randomSongs?.song ?? []).map { $0.toDomain() }
     }
 

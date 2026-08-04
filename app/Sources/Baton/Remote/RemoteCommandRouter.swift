@@ -16,12 +16,14 @@ struct RemoteInbound: Sendable {
 /// What to send back.
 struct RemoteReply: Sendable {
     var text: String
-    /// The tool reported failure. Used to decide whether a literal reading is
-    /// worth a second opinion from the model.
+    /// The tool errored, or answered with nothing. Used to decide whether a
+    /// literal reading is worth a second opinion from the model.
     var isFailure: Bool = false
     /// Whether to attach transport buttons (⏮ ⏯ ⏭ 🔉 🔊). Set for anything that
     /// leaves the user looking at playback state.
     var showsTransport: Bool = false
+    /// Options to show as buttons. Set when the agent asked a question.
+    var choices: [RemoteChoice] = []
 
     static func plain(_ text: String) -> RemoteReply { RemoteReply(text: text) }
     static func player(_ text: String) -> RemoteReply { RemoteReply(text: text, showsTransport: true) }
@@ -56,6 +58,16 @@ final class RemoteCommandRouter {
     /// from. In memory only, and never sent for typed commands — only the
     /// natural-language path needs the context.
     let conversation: RemoteConversationLog
+    /// Questions waiting on an answer, and their auto-pick timers.
+    let pending = RemotePendingChoices()
+    /// How long silence is allowed to last before the recommended option runs.
+    /// Injectable so tests don't wait out the real one.
+    var autoPickDelay: TimeInterval = RemotePendingChoices.autoPickAfter
+
+    /// How an unprompted message reaches the chat — set by `RemoteControlService`,
+    /// which owns the bridges. Needed because an auto-picked choice speaks long
+    /// after the request that caused it has been answered.
+    var deliver: (@MainActor (RemoteReply, RemotePlatform, String) async -> Void)?
 
     /// Injectable so tests can exercise routing without a network call.
     var resolveNaturalLanguage: (
@@ -64,6 +76,30 @@ final class RemoteCommandRouter {
     ) async throws -> RemoteNaturalLanguage.Resolution = {
         try await RemoteNaturalLanguage.resolve(
             $0, config: $1, tools: $2, history: $3, playerContext: $4)
+    }
+
+    /// The agent loop, injectable for the same reason: tests need the routing
+    /// and the auto-pick without a model or a music server.
+    lazy var resolveAgent: (
+        String, [RemoteConversationLog.Turn], String?
+    ) async throws -> RemoteAgent.Outcome = { [weak self] message, history, context in
+        guard let self else { throw RemoteNaturalLanguage.Failure.notConfigured }
+        return try await RemoteAgent.run(
+            message: message,
+            history: history,
+            playerContext: context,
+            config: self.settings.naturalLanguage,
+            tools: RemoteAgent.toolSchemas(),
+            runTool: { [weak self] call in
+                guard let self else { return ("Baton went away.", true) }
+                return await BatonMCPToolCatalog.run(
+                    name: call.name,
+                    arguments: call.jsonArguments,
+                    music: self.music,
+                    focus: self.focus
+                )
+            }
+        )
     }
 
     init(
@@ -98,6 +134,18 @@ final class RemoteCommandRouter {
     private func route(_ inbound: RemoteInbound) async -> RemoteReply? {
         let action = RemoteCommandParser.parse(inbound.text)
         if case .ignore = action { return nil }
+
+        // Any message from an authorized sender retires the pending question —
+        // an answer resolves it, and anything else means they've moved on and
+        // must not have music start under them a minute later.
+        //
+        // Authorization is checked *first*, unlike everything below: in a group
+        // chat a stranger can send messages Baton ignores, and silently
+        // cancelling someone else's pending question is still an effect.
+        if isAuthorized(inbound), let asked = pending.clear(key: RemoteConversationLog.key(for: inbound)),
+           let choice = RemotePendingChoices.resolve(inbound.text, in: asked) {
+            return await runChosen(choice, for: inbound)
+        }
 
         // Authorization first — an unknown sender may do exactly one thing.
         guard isAuthorized(inbound) else {
@@ -161,12 +209,104 @@ final class RemoteCommandRouter {
         }
     }
 
+    /// Run the option someone picked — by tapping a button, typing "2", or by
+    /// saying nothing until the timer ran out. Options carry ordinary chat
+    /// commands, so this is the same path a typed command takes.
+    private func runChosen(_ choice: RemoteChoice, for inbound: RemoteInbound) async -> RemoteReply {
+        switch RemoteCommandParser.parse(choice.command) {
+        case let .tool(call):
+            return await run(call)
+        case let .natural(text):
+            // The model wrote something that isn't a command. Let it finish the
+            // job in its own words rather than answering "I don't know that".
+            guard case let .success(reply) = await askTheModel(text, inbound, armAutoPick: false)
+            else { return .plain("I couldn't run “\(choice.command)”.") }
+            return reply
+        default:
+            return .plain("I couldn't run “\(choice.command)”.")
+        }
+    }
+
+    /// Nobody answered. Take the option the model marked as best and say so —
+    /// stopping dead on silence is what makes an assistant feel broken, and
+    /// every action on offer here is one button away from being undone.
+    private func autoPick(_ prompt: RemoteChoicePrompt, for inbound: RemoteInbound) async {
+        let key = RemoteConversationLog.key(for: inbound)
+        // Answered (or superseded) between the timer firing and this running.
+        guard pending.prompt(for: key) != nil else { return }
+        pending.clear(key: key)
+
+        let choice = prompt.recommendedChoice
+        var reply = await runChosen(choice, for: inbound)
+        reply.text = "No answer, so I went with \(choice.label).\n\n" + reply.text
+        conversation.record(key: key, user: "(no answer)", assistant: reply.text)
+        await deliver?(reply, inbound.platform, inbound.channelID)
+    }
+
     /// Hand a message to the model and run whatever it picks. The failure is
     /// returned rather than flattened, because the two callers want different
     /// things from it: a natural-language message has no other interpreter, so
     /// the error *is* the answer; a command falling back here already has a
     /// literal answer worth keeping.
     private func askTheModel(
+        _ text: String,
+        _ inbound: RemoteInbound,
+        armAutoPick: Bool = true
+    ) async -> Result<RemoteReply, any Error> {
+        guard settings.naturalLanguage.isAgentEnabled else {
+            return await askTheModelOnce(text, inbound)
+        }
+        do {
+            let outcome = try await resolveAgent(
+                text,
+                conversation.history(for: RemoteConversationLog.key(for: inbound)),
+                playerContext()
+            )
+            return .success(reply(for: outcome, inbound: inbound, armAutoPick: armAutoPick))
+        } catch {
+            remoteLog.error("Agent turn failed: \(error.localizedDescription, privacy: .public)")
+            return .failure(error)
+        }
+    }
+
+    /// Turn an agent result into a reply, arming the auto-pick when it ended by
+    /// asking something.
+    private func reply(
+        for outcome: RemoteAgent.Outcome,
+        inbound: RemoteInbound,
+        armAutoPick: Bool
+    ) -> RemoteReply {
+        let touchedPlayer = outcome.toolsRun.contains { Self.playerTools.contains($0) }
+        guard let prompt = outcome.choice else {
+            return RemoteReply(text: outcome.text, showsTransport: touchedPlayer)
+        }
+
+        // The model's own words usually carry the finding that led to the
+        // question ("nothing called lazy — your chillout is tagged chill"), so
+        // keep them above the options unless they're just the question again.
+        let preamble = outcome.text == prompt.question ? "" : outcome.text + "\n\n"
+        let key = RemoteConversationLog.key(for: inbound)
+
+        // Not armed when this reply is *itself* the result of an auto-pick:
+        // one unattended action is what was asked for, a chain of them is not.
+        var timer: Task<Void, Never>?
+        if armAutoPick {
+            let delay = autoPickDelay
+            timer = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await self?.autoPick(prompt, for: inbound)
+            }
+        }
+        pending.store(prompt, key: key, timer: timer)
+
+        return RemoteReply(text: preamble + prompt.rendered(), choices: prompt.options)
+    }
+
+    /// The original single-shot router: one sentence in, one tool call out.
+    /// Kept as the non-agent mode — it never sends a note of library content to
+    /// the model, which is a promise some people will want to keep.
+    private func askTheModelOnce(
         _ text: String,
         _ inbound: RemoteInbound
     ) async -> Result<RemoteReply, any Error> {
@@ -213,9 +353,23 @@ final class RemoteCommandRouter {
             music: music,
             focus: focus
         )
-        guard !isError else { return RemoteReply(text: "⚠️ " + text, isFailure: true) }
+        return Self.reply(for: call, result: text, isError: isError)
+    }
+
+    /// Turns a finished tool call into a reply. Pure, and deliberately apart
+    /// from dispatch: dispatch needs a music server, so this is the only place
+    /// the *reading* of a result can be tested.
+    static func reply(for call: RemoteToolCall, result: String, isError: Bool) -> RemoteReply {
+        guard !isError else { return RemoteReply(text: "⚠️ " + result, isFailure: true) }
+        var query: String?
+        if case let .string(value) = call.arguments["query"] { query = value }
         return RemoteReply(
-            text: RemoteResultFormatter.format(tool: call.name, result: text),
+            text: RemoteResultFormatter.format(tool: call.name, result: result, query: query),
+            // A search that matched nothing succeeded as a call and failed as an
+            // answer. `music_play` throws in the same situation, so without this
+            // the *searching* half of "find x" was the one path where a misread
+            // sentence never got a second reading.
+            isFailure: RemoteResultFormatter.foundNothing(tool: call.name, result: result),
             showsTransport: Self.playerTools.contains(call.name)
         )
     }
@@ -276,7 +430,22 @@ enum RemoteResultFormatter {
     /// plus "name one" is the better answer.
     static let playlistListLimit = 15
 
-    static func format(tool: String, result: String) -> String {
+    /// True when a tool succeeded but came back with nothing at all. Zero
+    /// results is not a tool *error* — the call reached the server and was
+    /// answered — but for a free-text query it is the same event: the literal
+    /// reading of the words found nothing, which is exactly when a second
+    /// reading is worth asking for.
+    static func foundNothing(tool: String, result: String) -> Bool {
+        guard tool == "music_search",
+              let data = result.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return ["songs", "albums", "artists"].allSatisfy { key in
+            (json[key] as? [Any] ?? []).isEmpty
+        }
+    }
+
+    static func format(tool: String, result: String, query: String? = nil) -> String {
         guard let data = result.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return result } // already a plain sentence
@@ -292,7 +461,7 @@ enum RemoteResultFormatter {
             return queued.map { "\(head)\n\($0) track\($0 == 1 ? "" : "s") queued" } ?? head
 
         case "music_search":
-            return search(json)
+            return search(json, query: query)
 
         case "music_get_queue":
             return queue(json)
@@ -361,7 +530,7 @@ enum RemoteResultFormatter {
         return out
     }
 
-    private static func search(_ json: [String: Any]) -> String {
+    private static func search(_ json: [String: Any], query: String? = nil) -> String {
         var sections: [String] = []
         if let songs = json["songs"] as? [[String: Any]], !songs.isEmpty {
             sections.append("*Songs*\n" + songs.prefix(10).map { "• " + describe($0) }.joined(separator: "\n"))
@@ -378,7 +547,18 @@ enum RemoteResultFormatter {
             let names = artists.prefix(5).compactMap { $0["name"] as? String }
             sections.append("*Artists*\n" + names.map { "• \($0)" }.joined(separator: "\n"))
         }
-        return sections.isEmpty ? "Nothing matched." : sections.joined(separator: "\n\n")
+        guard sections.isEmpty else { return sections.joined(separator: "\n\n") }
+        // Quoting what was actually searched is the difference between a shrug
+        // and a diagnosis: it's how the user sees that a stray word rode along
+        // with the query, or that the phrase was a vibe and not a title.
+        guard let query, !query.isEmpty else { return "Nothing matched." }
+        // A search matches metadata, so a *vibe* ("lazy music") can be absent
+        // from a library that would happily assemble one. `mix` is the tool that
+        // reads it that way — worth naming, since nothing else here does.
+        return """
+        Nothing matched “\(query)”.
+        Try fewer words, or `mix \(query)` to build something from the library.
+        """
     }
 
     private static func queue(_ json: [String: Any]) -> String {

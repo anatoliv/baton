@@ -234,6 +234,43 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.13.0",
+            date: "2026",
+            highlight: "Your chat remote can look through your library before it answers.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Switch on \u{201C}Let it look around first\u{201D} in Settings \u{2192} "
+                        + "Remote and plain-English requests stop being one blind guess. Ask for "
+                        + "\u{201C}lazy music\u{201D} and instead of \u{201C}nothing matched\u{201D} it "
+                        + "checks what your library actually calls things, finds the chillout "
+                        + "you tagged \u{201C}chill\u{201D}, and plays it \u{2014} telling you that\u{2019}s "
+                        + "what it did."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "When two answers are both reasonable \u{2014} two artists sharing a "
+                        + "name, a six-hour mix beside a forty-minute set \u{2014} it offers them as "
+                        + "buttons instead of guessing. Tap one, or type \u{201C}2\u{201D}. Say "
+                        + "nothing and it starts the one it recommended rather than leaving you "
+                        + "in silence."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Six new things it (and any connected AI assistant) can read: your "
+                        + "genres, your liked songs, similar tracks, artist details, and albums "
+                        + "browsed by newest, most-played or random. That\u{2019}s what makes "
+                        + "\u{201C}what should I put on?\u{201D} answerable."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "\u{201C}search for dido\u{201D} searched for the word \u{201C}for\u{201D} "
+                        + "too, quietly hiding every Dido album and artist. It now drops the "
+                        + "word the verb implies."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.12.9",
             date: "2026",
             highlight: "Asking a chat remote for your playlists is useful again.",
