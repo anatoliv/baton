@@ -70,7 +70,10 @@ final class RemoteCommandRouter {
     var deliver: (@MainActor (RemoteReply, RemotePlatform, String) async -> Void)?
 
     /// Injectable so tests can exercise routing without a network call.
-    var resolveNaturalLanguage: (
+    /// `@MainActor` for the reason spelled out on `resolveAgent` below — this
+    /// one's default happens to touch nothing isolated, which is exactly how it
+    /// stays safe by accident until someone edits it.
+    var resolveNaturalLanguage: @MainActor (
         String, RemoteControlSettings.NaturalLanguageConfig, RemoteToolSchemas,
         [RemoteConversationLog.Turn], String?
     ) async throws -> RemoteNaturalLanguage.Resolution = {
@@ -80,7 +83,16 @@ final class RemoteCommandRouter {
 
     /// The agent loop, injectable for the same reason: tests need the routing
     /// and the auto-pick without a model or a music server.
-    lazy var resolveAgent: (
+    ///
+    /// `@MainActor` on the *type* is load-bearing, not decoration. Without it
+    /// the stored closure is non-isolated, so invoking it hops off the main
+    /// actor — and everything it reaches (`BatonMCPToolCatalog`, `MusicModel`)
+    /// is main-actor-isolated. That shipped in 0.13.0 and killed the app on the
+    /// first agent-mode message: `swift_task_checkIsolated` → SIGTRAP, inside
+    /// `definitions()`, before a single byte went to the model. The compiler
+    /// infers the isolation of the closure *literal* from its context here and
+    /// then loses it at the call site, so nothing warns.
+    lazy var resolveAgent: @MainActor (
         String, [RemoteConversationLog.Turn], String?
     ) async throws -> RemoteAgent.Outcome = { [weak self] message, history, context in
         guard let self else { throw RemoteNaturalLanguage.Failure.notConfigured }

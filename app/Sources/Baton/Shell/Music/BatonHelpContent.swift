@@ -234,6 +234,21 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.13.1",
+            date: "2026",
+            highlight: "Fixes a crash when the chat remote looks around your library.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "With \u{201C}Let it look around first\u{201D} switched on, the first "
+                        + "message you sent quit Baton instead of answering it. Nothing was "
+                        + "lost and nothing had left your Mac \u{2014} it stopped while gathering "
+                        + "the list of things it can do. If you turned the setting on in "
+                        + "0.13.0 and gave up on it, it works now."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.13.0",
             date: "2026",
             highlight: "Your chat remote can look through your library before it answers.",
