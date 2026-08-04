@@ -184,6 +184,15 @@ final class RemoteControlSettings {
         /// `baseURL` at a model on your own machine and this distinction stops
         /// mattering; point it at a hosted API and it matters a great deal.
         var isAgentEnabled: Bool = false
+        /// Whether Baton keeps durable notes about its owner between sessions.
+        ///
+        /// Separate from `isAgentEnabled` because it is a different promise.
+        /// Agent mode sends library content for the length of a request; memory
+        /// keeps sentences about the person on disk until they delete them. On
+        /// by default *within* agent mode — the store only ever holds the
+        /// owner's own words, every write is echoed in the chat, and `memories`
+        /// / `forget` are one message away — but it switches off on its own.
+        var remembersOwner: Bool = true
 
         var isConfigured: Bool { isEnabled && !apiKey.isEmpty }
         /// Agent mode needs everything single-shot needs, and to be switched on.
@@ -232,6 +241,7 @@ final class RemoteControlSettings {
         if let model = store.string(forKey: Keys.nlModel), !model.isEmpty { nl.model = model }
         if let base = store.string(forKey: Keys.nlBaseURL), !base.isEmpty { nl.baseURL = base }
         nl.isAgentEnabled = store.bool(forKey: Keys.nlAgentEnabled)
+        nl.remembersOwner = store.object(forKey: Keys.nlRemembers) as? Bool ?? true
         naturalLanguage = nl
     }
 
@@ -293,6 +303,7 @@ final class RemoteControlSettings {
         defaults.set(naturalLanguage.model, forKey: Keys.nlModel)
         defaults.set(naturalLanguage.baseURL, forKey: Keys.nlBaseURL)
         defaults.set(naturalLanguage.isAgentEnabled, forKey: Keys.nlAgentEnabled)
+        defaults.set(naturalLanguage.remembersOwner, forKey: Keys.nlRemembers)
         secrets.setSecret(naturalLanguage.apiKey.isEmpty ? nil : naturalLanguage.apiKey, for: Keys.nlAPIKey)
     }
 
@@ -307,6 +318,7 @@ final class RemoteControlSettings {
         static let nlModel = "baton.remote.nl.model"
         static let nlBaseURL = "baton.remote.nl.baseURL"
         static let nlAgentEnabled = "baton.remote.nl.agentEnabled"
+        static let nlRemembers = "baton.remote.nl.remembersOwner"
         static let nlAPIKey = "baton.remote.nl.apiKey"
 
         static func platformEnabled(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).enabled" }

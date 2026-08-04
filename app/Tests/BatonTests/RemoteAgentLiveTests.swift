@@ -29,6 +29,28 @@ final class RemoteAgentLiveTests: XCTestCase {
         var config: RemoteControlSettings.NaturalLanguageConfig
     }
 
+    /// Shared with `RemoteAgentConversationEval`, which needs the same opt-in.
+    static func liveConfig() throws -> RemoteControlSettings.NaturalLanguageConfig {
+        let path = NSHomeDirectory() + "/.baton-live-agent.json"
+        try XCTSkipIf(
+            !FileManager.default.fileExists(atPath: path),
+            "live model not configured — see RemoteAgentLiveTests' doc comment"
+        )
+        guard let data = FileManager.default.contents(atPath: path),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: String],
+              let base = json["base"], let key = json["key"]
+        else { throw XCTSkip("live config at \(path) is unreadable or missing base/key") }
+
+        var config = RemoteControlSettings.NaturalLanguageConfig()
+        config.isEnabled = true
+        config.isAgentEnabled = true
+        config.baseURL = base
+        config.apiKey = key
+        config.model = json["model"] ?? "chat"
+        config.provider = (json["provider"] == "anthropic") ? .anthropic : .openAICompatible
+        return config
+    }
+
     private func live() throws -> Live {
         let path = NSHomeDirectory() + "/.baton-live-agent.json"
         try XCTSkipIf(
@@ -162,9 +184,13 @@ final class RemoteAgentLiveTests: XCTestCase {
             turn: { messages, tools in
                 turns += 1
                 // Real round trip, with whatever transcript the loop has built.
+                // Mirror production: the first turn forces a tool call. Without
+                // that this can answer text-only, which sends the loop down the
+                // follow-through path and never builds the transcript under test.
                 let step = try await RemoteAgent.requestTurn(
                     messages, tools: tools, config: live.config,
-                    playerContext: "Player state: nothing is playing right now."
+                    playerContext: "Player state: nothing is playing right now.",
+                    forceTool: messages.last?.role == "user"
                 )
                 if turns > 1 {
                     // Getting here at all proves the provider accepted a

@@ -265,6 +265,23 @@ private struct RemoteSettingsForm: View {
             .font(.callout).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
+            Toggle("Remember what you tell it", isOn: $settings.naturalLanguage.remembersOwner)
+                .disabled(!settings.naturalLanguage.isAgentEnabled)
+            Text("""
+            Standing preferences you state in the chat — "no vocals while I'm working", \
+            "the gothic playlists are my partner's" — kept in a plain file you can open, \
+            and used to answer better next time. It stores your own words, never a guess \
+            about you, and it tells you in the chat every time it writes one. Send \
+            `memories` to see everything it keeps and `forget 2` to remove one.
+            """)
+            .font(.callout).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            LabeledContent("Stored memories") {
+                Button("Delete all…") { service.forgetEverythingRemembered() }
+                    .disabled(!settings.naturalLanguage.isAgentEnabled)
+            }
+
             Label("""
             This is the setting that changes what leaves your Mac. Looking around means \
             what it finds \u{2014} song titles, artists, genres \u{2014} goes to the model \

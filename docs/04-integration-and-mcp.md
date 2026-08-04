@@ -99,17 +99,23 @@ Baton writes, at startup (after it binds a port):
 
 ## 3. The MCP tool catalog
 
-**30 tools** ship in 0.1.0 (`BatonMCPToolCatalog.definitions()`, dispatch in
-`BatonMCPToolCatalog.run(...)`): 17 `music_*` control tools, the agent-native
-`music_build_mix`, the 10 gap-filler tools (§3.4), and the two `audio_*` focus tools
-(§4).
+**39 tools** ship as of 0.13.1 (`BatonMCPToolCatalog.definitions()`, dispatch in
+`BatonMCPToolCatalog.run(...)`): 36 `music_*` — the control tools, the agent-native
+`music_build_mix`, the 10 gap-fillers (§3.4) and the 6 library-discovery tools (§3.5) —
+plus the two `audio_*` focus tools (§4) and `speak_summary`.
+
+`MCPSchemaSnapshotTests` pins the exact published name set, and
+`AgentDocumentationTests` fails when a shipped tool is missing from `HELP.md` or the
+public help page, so this list cannot silently drift again (it had: `music_get_playlist`
+and `music_set_crossfade` were undocumented for several releases).
 
 Conventions (from the code):
 - Tool result is `{ content: [{type:"text", text: <JSON string>}], isError }`
   (`BatonMCPServer.dispatch`). Outputs below are the JSON inside `text`.
 - All music tools are `openWorldHint: true` (they reach the Navidrome server);
-  `music_search` / `music_now_playing` / `music_list_playlists` / `music_get_queue`
-  are also `readOnlyHint` + `idempotentHint`.
+  `music_search` / `music_now_playing` / `music_list_playlists` / `music_get_playlist` /
+  `music_get_queue` and the six discovery tools (§3.5) are also `readOnlyHint` +
+  `idempotentHint`.
 - `query`-based tools resolve a search and act on the results; playback tools act on
   this Mac's player (`MusicModel.music`).
 
@@ -596,8 +602,31 @@ tool, which shouldn't hinge on a sentence that was merely *probably* about delet
 The typed command still reaches it.
 
 Baton ships no key and makes no model-provider request unless the user configures
-one. The request carries the user's sentence and the tool list — no library
-contents, credentials, or history.
+one. In the default single-shot mode the request carries the user's sentence and the
+tool list — no library contents, credentials, or history.
+
+**Agent mode** (`NaturalLanguageConfig.isAgentEnabled`, off by default, `RemoteAgent`)
+replaces that one-shot translation with a bounded multi-turn loop: the model calls
+tools, Baton executes them and feeds the results back, up to 8 turns or 45 seconds. It
+exists because a router decided blind cannot notice that its own search came back empty
+— "lazy music" matched nothing while the library held it tagged `chill`.
+
+Three structural rules, each from an observed failure against a real model rather than
+from theory:
+
+- The **first turn forces a tool call**, so it cannot answer about a library it has not
+  looked at. It replied "I searched… I'll play your chill tracks" having called nothing.
+- The **last turn loses the read-only tools**, so a spent budget cannot be spent looking.
+  Told to stop looking, it searched once more.
+- A **turn that only talks, before anything has been done, buys exactly one more** with
+  acting tools only. This is why an informational question costs one extra round trip.
+
+`ask_choice` (§3.6) is remote-only — an MCP client has its own user to talk to — and is
+listed **first** in the schemas, because buried at position 36 no model ever reached for
+it. Agent mode necessarily sends library content to the provider: search results return
+into the model's context by construction. That is the one privacy difference between the
+two modes, and it is why the switch is separate, off by default, and labelled as such in
+Settings.
 
 ---
 
@@ -605,8 +634,8 @@ contents, credentials, or history.
 
 - **One universal surface:** MCP over Streamable HTTP, `127.0.0.1`, bearer token,
   discoverable via `mcp.json`, multi-client, with SSE notifications.
-- **Complete tool catalog:** 30 tools — 17 `music_*` + `music_build_mix` + 10
-  gap-fillers + `audio_suspend` / `audio_resume`.
+- **Complete tool catalog:** 39 tools — 36 `music_*` (control + `music_build_mix` + 10
+  gap-fillers + 6 discovery) + `audio_suspend` / `audio_resume` + `speak_summary`.
 - **Live state:** 5 resources (`baton://now-playing`, `baton://queue`,
   `baton://library/playlists`, `baton://library/liked`, `baton://history/recent`) with
   `resources/updated` notifications.

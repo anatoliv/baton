@@ -1,7 +1,7 @@
 {
   "Casks/baton.rb": {
-    "mtime": 1785868516.9849293,
-    "ast_hash": "c6fe028c7b5cd43dd406e7c1f11ea31a",
+    "mtime": 1785879962.352159,
+    "ast_hash": "c10671f3d39ec4ed33e8a11a5fd92c7a",
     "semantic_hash": ""
   },
   "Packages/BatonDSP/Package.swift": {
@@ -320,8 +320,8 @@
     "semantic_hash": "81bdbfbe9bdace233af775606a349f57"
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1785868283.8740318,
-    "ast_hash": "af89fa5ce2434cd1873f76ffd8888eb7",
+    "mtime": 1785879697.2981153,
+    "ast_hash": "b1379b99f6213a20f74896965aef32da",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1045,8 +1045,8 @@
     "semantic_hash": "cff3c68e9ec7b05241c6c6b8c2222a45"
   },
   "scripts/check-release.sh": {
-    "mtime": 1785611885.7796564,
-    "ast_hash": "cbff945a01fbcd109f568da8bff3006d",
+    "mtime": 1785878681.37108,
+    "ast_hash": "e29170952b2a34c5000ebc2fcc6d5e5c",
     "semantic_hash": ""
   },
   "scripts/devrun.sh": {
@@ -1225,8 +1225,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/BatonRemotePane.swift": {
-    "mtime": 1785866628.5709875,
-    "ast_hash": "11f61a660713eb78cf266f8401efdaf7",
+    "mtime": 1785875669.5299058,
+    "ast_hash": "b4322f2b9c470004628795282e320af6",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/DiscordBridge.swift": {
@@ -1235,23 +1235,23 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteCommandParser.swift": {
-    "mtime": 1785866628.5724254,
-    "ast_hash": "faf403c7d2f9b496ebe0dc5448dbd49b",
+    "mtime": 1785875446.3283353,
+    "ast_hash": "2da300076af93a74d7635eeeab78f32a",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteCommandRouter.swift": {
-    "mtime": 1785868077.1892045,
-    "ast_hash": "f6bb98791134c513f12ef745894bb387",
+    "mtime": 1785875669.5294812,
+    "ast_hash": "a8a1f527adc67db4cf3aef94ef794a5a",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteControlConfig.swift": {
-    "mtime": 1785866628.5733435,
-    "ast_hash": "82315bb0626cc6359a47bcfe62ca5be7",
+    "mtime": 1785875669.52875,
+    "ast_hash": "deefb6daf567b16b2a35b7a421471f2d",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteControlService.swift": {
-    "mtime": 1785866628.573791,
-    "ast_hash": "ce3c6eda9fdd752d7b1ecd5381eafc24",
+    "mtime": 1785875669.5302737,
+    "ast_hash": "c0d1c1b550e4c437c8b25ad85fd1e37c",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteNaturalLanguage.swift": {
@@ -1265,8 +1265,8 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteAuthorizationTests.swift": {
-    "mtime": 1785868077.1893806,
-    "ast_hash": "104197cf106d179bcd75a57ae2f1df27",
+    "mtime": 1785875486.3253672,
+    "ast_hash": "d1f844c00c5310bf7ff4069ce045af03",
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteCommandTests.swift": {
@@ -1300,8 +1300,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteAgent.swift": {
-    "mtime": 1785866628.5717716,
-    "ast_hash": "f5a48a314917b2d61bc8a25b4b8289de",
+    "mtime": 1785876840.9643326,
+    "ast_hash": "b2e2c56d8ef27fa77732f216393a5fe8",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Remote/RemoteChoice.swift": {
@@ -1310,13 +1310,53 @@
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteAgentLiveTests.swift": {
-    "mtime": 1785866628.5769167,
-    "ast_hash": "469cb767dc2aaa0541e99c311989c13c",
+    "mtime": 1785872645.8334634,
+    "ast_hash": "db3183d7ae5a6981551431cb2051919b",
     "semantic_hash": ""
   },
   "app/Tests/BatonTests/RemoteAgentTests.swift": {
-    "mtime": 1785866628.577282,
-    "ast_hash": "e7dcd11fa4d86961dc38baee8d88b95c",
+    "mtime": 1785876201.6399643,
+    "ast_hash": "eb0a6677e7f51d1cc0b9f77d909da536",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/AgentDocumentationTests.swift": {
+    "mtime": 1785869963.9576893,
+    "ast_hash": "bb4e6aa749b9bf16f149e84b5afacd75",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/RemoteAgentConversationEval.swift": {
+    "mtime": 1785878681.394456,
+    "ast_hash": "a2b9e3904d6c112287da0cb65e3aafbc",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteAgentResults.swift": {
+    "mtime": 1785875334.7033186,
+    "ast_hash": "e04ef6b12cacfa3a8cb2c60b374dd944",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteMemoryStore.swift": {
+    "mtime": 1785875219.5662487,
+    "ast_hash": "fa8a0821b97f3a54d016363019bbb711",
+    "semantic_hash": ""
+  },
+  "app/Sources/Baton/Remote/RemoteTasteDigest.swift": {
+    "mtime": 1785875248.6677475,
+    "ast_hash": "35ef4e702abacf480de14a24a2e952a2",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/RemoteAgentResultsTests.swift": {
+    "mtime": 1785875054.1747477,
+    "ast_hash": "95db07e9b80903f702b185986c6a7741",
+    "semantic_hash": ""
+  },
+  "app/Tests/BatonTests/RemoteMemoryTests.swift": {
+    "mtime": 1785875537.733509,
+    "ast_hash": "297c149f75f3e4032618381f0ead4779",
+    "semantic_hash": ""
+  },
+  "scripts/agent-judge.py": {
+    "mtime": 1785879987.710373,
+    "ast_hash": "12f9264ac647436b6987ffc9a8ed69f2",
     "semantic_hash": ""
   }
 }

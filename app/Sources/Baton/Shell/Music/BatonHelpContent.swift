@@ -234,6 +234,43 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.14.0",
+            date: "2026",
+            highlight: "Your chat remote knows what you listen to, and remembers what you tell it.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Ask it \u{201C}what kind of music do I listen to?\u{201D} and it answers "
+                        + "properly \u{2014} your biggest genres, what you\u{2019}ve played most and how "
+                        + "often, what you\u{2019}ve liked. It reads that from your own server each "
+                        + "day and keeps none of it, so \u{201C}surprise me\u{201D} now comes from your "
+                        + "collection instead of a coin flip."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Tell it something that matters \u{2014} \u{201C}no vocals while I\u{2019}m "
+                        + "working\u{201D}, \u{201C}the gothic playlists are my partner\u{2019}s\u{201D} \u{2014} "
+                        + "and it keeps it. Always with the words you actually used, never a "
+                        + "guess about you, and it tells you in the chat every time it writes "
+                        + "one. Send `memories` to see everything it keeps, `forget 2` to remove "
+                        + "one. There\u{2019}s a switch and a delete-all button in Settings, Remote."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "It has the occasional view. When something\u{2019}s worth mentioning \u{2014} "
+                        + "that\u{2019}s the 34th play of this one \u{2014} it says so in passing and then "
+                        + "plays what you asked for anyway. Never refuses, never lectures, and "
+                        + "mentions any one thing at most once a day."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "It sees far more of your library than it used to. Two thirds of what "
+                        + "it asked for about your liked songs was being thrown away before it "
+                        + "arrived; now it isn\u{2019}t, so recommendations have something to stand on."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.13.1",
             date: "2026",
             highlight: "Fixes a crash when the chat remote looks around your library.",
