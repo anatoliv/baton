@@ -103,8 +103,15 @@ enum RemoteCommandParser {
             return .tool(.init(name: "music_now_playing"))
 
         case "search", "find", "s":
-            guard !rest.isEmpty else { return .help }
-            return .tool(.init(name: "music_search", arguments: ["query": .string(rest)]))
+            // "search for dido" is not a search for the word "for". Navidrome
+            // ANDs the terms, so a preposition carried into the query silently
+            // narrows the result set: it drops every Dido album and artist and
+            // keeps only tracks that also have a word starting "for"
+            // ("Forgotten Love"). Dropping a term can only widen an AND query,
+            // so the thing actually wanted stays in the results.
+            let query = withoutLeadingConnector(rest)
+            guard !query.isEmpty else { return .help }
+            return .tool(.init(name: "music_search", arguments: ["query": .string(query)]))
 
         // — library ---------------------------------------------------------
         case "like", "fav", "favorite", "star":
@@ -192,6 +199,18 @@ enum RemoteCommandParser {
         let verb = String(text[text.startIndex..<space])
         let rest = String(text[text.index(after: space)...]).trimmingCharacters(in: .whitespacesAndNewlines)
         return (verb, rest)
+    }
+
+    /// Words the search verb itself implies — "search **for** x", "find **me** x".
+    /// Deliberately tiny: anything less obviously grammatical belongs to the
+    /// query, because a wrongly-dropped term is a wrongly-answered search.
+    private static let leadingConnectors: Set<String> = ["for", "me", "us"]
+
+    private static func withoutLeadingConnector(_ rest: String) -> String {
+        var words = rest.split(separator: " ")
+        guard words.count > 1, leadingConnectors.contains(words[0].lowercased()) else { return rest }
+        words.removeFirst()
+        return words.joined(separator: " ")
     }
 
     private static func parseSwitch(_ text: String) -> Bool? {

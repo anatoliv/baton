@@ -46,6 +46,10 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         "music_get_queue", "music_reorder_queue", "music_remove_from_queue", "music_play_next",
         "music_start_radio", "music_sleep_timer", "music_set_eq", "music_set_crossfade",
         "audio_suspend", "audio_resume", "speak_summary",
+        // Library discovery. Search answers "is this in here"; these answer
+        // "what IS in here", which is what a recommendation has to start from.
+        "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
+        "music_random", "music_artist_info",
     ]
 
     func testPublishedToolNamesExactlyMatchTheSnapshot() {
@@ -97,6 +101,20 @@ final class MCPSchemaSnapshotTests: XCTestCase {
                 (ids?["items"] as? [String: Any])?["type"] as? String, "string",
                 "\(name).song_ids must be an array of strings"
             )
+        }
+    }
+
+    /// Discovery tools exist to be *tried*, often speculatively and in a loop.
+    /// A required argument on any of them turns "have a look around" into a
+    /// guess about what to look for, which is the problem they were added to fix.
+    func testDiscoveryToolsAskForNothingUpFront() {
+        for name in ["music_list_genres", "music_browse_albums", "music_liked",
+                     "music_random", "music_similar_songs", "music_artist_info"] {
+            let tool = try! XCTUnwrap(catalog()[name], "\(name) is missing")
+            XCTAssertTrue(required(tool).isEmpty, "\(name) must be callable with no arguments")
+            let ann = tool["annotations"] as? [String: Any]
+            XCTAssertEqual(ann?["readOnlyHint"] as? Bool, true, "\(name) only reads")
+            XCTAssertEqual(ann?["destructiveHint"] as? Bool, false, "\(name) destroys nothing")
         }
     }
 

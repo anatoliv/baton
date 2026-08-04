@@ -254,6 +254,29 @@ final class RemoteAuthorizationTests: XCTestCase {
         XCTAssertFalse(reply?.text.contains("No songs matched") == true, reply?.text ?? "nil")
     }
 
+    /// The hole that swallowed "find lazy music and play": a search that matches
+    /// nothing is not a tool *error*, so the reply came back clean and the second
+    /// reading — the one that would have noticed "and play" — never happened.
+    func testASearchThatMatchedNothingCountsAsAFailureSoItGetsASecondReading() {
+        let call = RemoteToolCall(
+            name: "music_search", arguments: ["query": .string("lazy music and play")])
+        let reply = RemoteCommandRouter.reply(
+            for: call, result: #"{"songs":[],"albums":[],"artists":[]}"#, isError: false)
+
+        XCTAssertTrue(reply.isFailure, "an empty search must be eligible for a second reading")
+        XCTAssertTrue(reply.text.contains("lazy music and play"), reply.text)
+    }
+
+    func testASearchWithHitsIsNotRetried() {
+        let call = RemoteToolCall(name: "music_search", arguments: ["query": .string("dido")])
+        let reply = RemoteCommandRouter.reply(
+            for: call,
+            result: #"{"songs":[],"albums":[],"artists":[{"id":"1","name":"Dido"}]}"#,
+            isError: false
+        )
+        XCTAssertFalse(reply.isFailure, "an artist match is an answer, not a miss")
+    }
+
     /// The retry costs a request, so it's only for tools where the *words* can
     /// fail while the intent is sound — not for, say, a bad volume number.
     func testNonQueryFailuresAreNotRetried() async {
@@ -278,6 +301,154 @@ final class RemoteAuthorizationTests: XCTestCase {
         settings.authorize(sender: "42", on: .telegram)
         let reply = await router.handle(inbound("play the second one"))
         XCTAssertTrue(reply?.isFailure == true, reply?.text ?? "nil")
+    }
+
+    // MARK: Asking, answering, and not answering
+
+    /// A router configured for agent mode, whose agent always asks the same
+    /// question. The options run `np`/`pause` — real commands that need no
+    /// server, so the whole path is exercised offline.
+    private func makeAskingRouter(
+        recommended: Int = 0
+    ) -> (RemoteCommandRouter, RemoteControlSettings) {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        settings.naturalLanguage.isEnabled = true
+        settings.naturalLanguage.apiKey = "sk-test"
+        settings.naturalLanguage.isAgentEnabled = true
+        router.resolveAgent = { _, _, _ in
+            RemoteAgent.Outcome(
+                text: "Two different Didos in here.",
+                choice: RemoteChoicePrompt(
+                    question: "Which one?",
+                    options: [
+                        RemoteChoice(label: "Trance DIDO", command: "np", detail: "34 plays"),
+                        RemoteChoice(label: "Singer Dido", command: "pause"),
+                    ],
+                    recommended: recommended
+                )
+            )
+        }
+        return (router, settings)
+    }
+
+    func testAQuestionComesBackWithItsOptionsAsButtons() async {
+        let (router, _) = makeAskingRouter()
+        let reply = await router.handle(inbound("play dido"))
+
+        XCTAssertEqual(reply?.choices.map(\.label), ["Trance DIDO", "Singer Dido"])
+        // The numbers are printed too — buttons don't survive every client.
+        XCTAssertTrue(reply?.text.contains("*1.* Trance DIDO") == true, reply?.text ?? "nil")
+        XCTAssertTrue(reply?.text.contains("34 plays") == true, "the deciding fact must show")
+        XCTAssertTrue(reply?.text.contains("Two different Didos") == true, "keep the finding")
+    }
+
+    /// A bare "2" is not a command, and would have been read as plain English
+    /// before. With a question outstanding it's an answer.
+    func testATypedNumberAnswersTheQuestion() async {
+        let (router, _) = makeAskingRouter()
+        _ = await router.handle(inbound("play dido"))
+
+        let answer = await router.handle(inbound("2"))
+        // Option 2 is `pause`, which reports the player state.
+        XCTAssertFalse(answer?.text.contains("Which one?") == true, "must not re-ask")
+        XCTAssertNil(router.pending.prompt(for: "telegram:c1"), "the question is spent")
+    }
+
+    /// The user's requirement: silence is an answer. Nobody replies, so the
+    /// recommended option runs by itself and says that it did.
+    func testSilenceRunsTheRecommendedOptionAndSaysSo() async {
+        let (router, _) = makeAskingRouter(recommended: 1)
+        router.autoPickDelay = 0.05
+
+        var delivered: [RemoteReply] = []
+        router.deliver = { reply, _, _ in delivered.append(reply) }
+
+        _ = await router.handle(inbound("play dido"))
+        try? await Task.sleep(for: .milliseconds(400))
+
+        XCTAssertEqual(delivered.count, 1, "exactly one unprompted message")
+        let text = delivered.first?.text ?? ""
+        XCTAssertTrue(text.contains("Singer Dido"), "must name what it picked: \(text)")
+        XCTAssertTrue(text.hasPrefix("No answer"), text)
+        XCTAssertNil(router.pending.prompt(for: "telegram:c1"))
+    }
+
+    /// Moving on to something else must disarm the timer. Music starting by
+    /// itself a minute after you asked for something different is the failure
+    /// mode that would make people switch the whole feature off.
+    func testAnUnrelatedMessageCancelsThePendingAutoPick() async {
+        let (router, _) = makeAskingRouter()
+        router.autoPickDelay = 0.05
+
+        var delivered: [RemoteReply] = []
+        router.deliver = { reply, _, _ in delivered.append(reply) }
+
+        _ = await router.handle(inbound("play dido"))
+        _ = await router.handle(inbound("pause")) // a new request, not an answer
+        try? await Task.sleep(for: .milliseconds(400))
+
+        XCTAssertTrue(delivered.isEmpty, "the abandoned question must not fire")
+        XCTAssertNil(router.pending.prompt(for: "telegram:c1"))
+    }
+
+    /// In a group chat, anyone can send messages Baton ignores. Ignoring them
+    /// has to include not quietly cancelling the owner's pending question.
+    func testAStrangerCannotCancelSomeoneElsesPendingChoice() async {
+        let (router, _) = makeAskingRouter(recommended: 1)
+        router.autoPickDelay = 0.2
+
+        var delivered: [RemoteReply] = []
+        router.deliver = { reply, _, _ in delivered.append(reply) }
+
+        _ = await router.handle(inbound("play dido"))
+        _ = await router.handle(inbound("hello", sender: "stranger"))
+        XCTAssertNotNil(router.pending.prompt(for: "telegram:c1"), "still waiting on the owner")
+
+        try? await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(delivered.count, 1, "the owner's auto-pick must still fire")
+    }
+
+    /// The auto-pick acts on someone's behalf, so it must obey the same
+    /// allowlist as everything else — an unauthorized chat can't arm one.
+    func testAnUnauthorizedChatNeverArmsAnAutoPick() async {
+        let (router, settings) = makeAskingRouter()
+        settings.revoke(sender: "42", on: .telegram)
+        router.autoPickDelay = 0.05
+
+        var delivered: [RemoteReply] = []
+        router.deliver = { reply, _, _ in delivered.append(reply) }
+
+        _ = await router.handle(inbound("play dido"))
+        try? await Task.sleep(for: .milliseconds(400))
+
+        XCTAssertTrue(delivered.isEmpty)
+        XCTAssertNil(router.pending.prompt(for: "telegram:c1"))
+    }
+
+    /// Agent mode is opt-in. With it off, the single-shot router still runs —
+    /// and never sends library contents anywhere.
+    func testAgentModeIsOffUnlessSwitchedOn() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        settings.naturalLanguage.isEnabled = true
+        settings.naturalLanguage.apiKey = "sk-test"
+        XCTAssertFalse(settings.naturalLanguage.isAgentEnabled, "must default off")
+
+        var usedAgent = false
+        var usedSingleShot = false
+        router.resolveAgent = { _, _, _ in
+            usedAgent = true
+            return RemoteAgent.Outcome(text: "agent")
+        }
+        router.resolveNaturalLanguage = { _, _, _, _, _ in
+            usedSingleShot = true
+            return .init(call: RemoteToolCall(name: "music_now_playing"), preamble: nil)
+        }
+
+        _ = await router.handle(inbound("put on something mellow"))
+        XCTAssertFalse(usedAgent)
+        XCTAssertTrue(usedSingleShot)
     }
 
     func testForgetDropsTheThread() async {

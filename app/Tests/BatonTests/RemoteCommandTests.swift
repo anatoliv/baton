@@ -105,6 +105,24 @@ final class RemoteCommandParserTests: XCTestCase {
         XCTAssertEqual(call("like so what")?.arguments["query"], .string("so what"))
     }
 
+    // MARK: Search
+
+    /// The server ANDs the terms, so "for" riding along with the query is not a
+    /// harmless extra word — it drops every Dido album and artist and keeps only
+    /// tracks that also contain a word starting "for".
+    func testSearchDropsTheConnectorTheVerbImplies() {
+        XCTAssertEqual(call("search for dido")?.arguments["query"], .string("dido"))
+        XCTAssertEqual(call("find me some trance")?.arguments["query"], .string("some trance"))
+        XCTAssertEqual(call("search dido")?.arguments["query"], .string("dido"))
+    }
+
+    /// Only the leading word, and only when something is left behind it —
+    /// "for" inside a title is part of what the user is looking for.
+    func testSearchKeepsConnectorsThatAreNotTheVerbsOwn() {
+        XCTAssertEqual(call("search waiting for a star")?.arguments["query"], .string("waiting for a star"))
+        XCTAssertEqual(call("search for")?.arguments["query"], .string("for"))
+    }
+
     // MARK: Meta
 
     func testUnknownTextFallsThroughToNaturalLanguage() {
@@ -195,6 +213,34 @@ final class RemoteResultFormatterTests: XCTestCase {
     func testEmptySearchIsStatedPlainly() {
         let out = RemoteResultFormatter.format(tool: "music_search", result: #"{"songs":[],"albums":[],"artists":[]}"#)
         XCTAssertEqual(out, "Nothing matched.")
+    }
+
+    /// A bare "Nothing matched." hides the reason and offers no way forward.
+    /// Quoting the query shows the user that a stray word rode along — and a
+    /// vibe that no title contains is exactly what `mix` is for.
+    func testEmptySearchQuotesTheQueryAndOffersAWayForward() {
+        let out = RemoteResultFormatter.format(
+            tool: "music_search",
+            result: #"{"songs":[],"albums":[],"artists":[]}"#,
+            query: "lazy music"
+        )
+        XCTAssertTrue(out.contains("“lazy music”"), out)
+        XCTAssertTrue(out.contains("mix lazy music"), out)
+    }
+
+    /// Zero results is not a tool error — nothing threw — but it is the same
+    /// event for a free-text query, and the router needs to tell them apart.
+    func testEmptySearchIsRecognizedAsFindingNothing() {
+        XCTAssertTrue(RemoteResultFormatter.foundNothing(
+            tool: "music_search", result: #"{"songs":[],"albums":[],"artists":[]}"#))
+        // An artist-only hit is still a hit.
+        XCTAssertFalse(RemoteResultFormatter.foundNothing(
+            tool: "music_search", result: #"{"songs":[],"albums":[],"artists":[{"name":"Dido"}]}"#))
+        // Other tools legitimately answer with empty collections.
+        XCTAssertFalse(RemoteResultFormatter.foundNothing(
+            tool: "music_get_queue", result: #"{"tracks":[]}"#))
+        XCTAssertFalse(RemoteResultFormatter.foundNothing(
+            tool: "music_set_volume", result: "Music volume set to 70."))
     }
 }
 

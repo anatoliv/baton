@@ -294,11 +294,20 @@ final class DiscordBridge {
 
     // MARK: - Outbound (REST)
 
+    /// Send without an interaction to respond to — see the Telegram note.
+    func push(_ reply: RemoteReply, to channelID: String) async {
+        await postMessage(reply, channelID: channelID)
+    }
+
     private func postMessage(_ reply: RemoteReply, channelID: String) async {
         // Discord's cap is half of Telegram's, 2000 chars, and an oversized
         // message is refused with a 400 — the user would get nothing at all.
         var body: [String: Any] = ["content": RemoteReply.clamped(Self.emphasize(reply.text), to: 1990)]
-        if reply.showsTransport { body["components"] = Self.transportComponents }
+        if !reply.choices.isEmpty {
+            body["components"] = Self.choiceComponents(reply.choices)
+        } else if reply.showsTransport {
+            body["components"] = Self.transportComponents
+        }
         do {
             try await rest("POST", "/channels/\(channelID)/messages", body: body)
         } catch {
@@ -311,7 +320,11 @@ final class DiscordBridge {
     /// deferred-then-edited one — every transport action resolves well inside it.
     private func respondToInteraction(id: String, token: String, reply: RemoteReply) async {
         var data: [String: Any] = ["content": Self.emphasize(reply.text)]
-        if reply.showsTransport { data["components"] = Self.transportComponents }
+        if !reply.choices.isEmpty {
+            data["components"] = Self.choiceComponents(reply.choices)
+        } else if reply.showsTransport {
+            data["components"] = Self.transportComponents
+        }
         do {
             try await rest("POST", "/interactions/\(id)/\(token)/callback", body: [
                 "type": 4, // CHANNEL_MESSAGE_WITH_SOURCE
@@ -320,6 +333,22 @@ final class DiscordBridge {
         } catch {
             remoteLog.error("Discord interaction reply failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// The agent's options, one row of buttons. `custom_id` carries `pick N`
+    /// (see the Telegram note): short, and identical to what typing "2" sends.
+    private static func choiceComponents(_ choices: [RemoteChoice]) -> [[String: Any]] {
+        [[
+            "type": 1, // action row
+            "components": choices.enumerated().map { index, choice in
+                [
+                    "type": 2,
+                    "style": index == 0 ? 1 : 2,
+                    "label": String(choice.label.prefix(80)),
+                    "custom_id": RemoteChoicePrompt.payload(for: index),
+                ]
+            },
+        ]]
     }
 
     /// Button `custom_id`s are ordinary command strings, so a tap and a typed

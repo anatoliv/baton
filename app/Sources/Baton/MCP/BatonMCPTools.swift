@@ -236,6 +236,72 @@ enum BatonMCPToolCatalog {
                 required: ["seconds"]
             ),
             BatonMCPMixTools.definition(),
+
+            // — Library discovery ------------------------------------------------
+            // Search answers "is this in here"; on its own it can't answer "what
+            // IS in here", which is what every recommendation needs. These read
+            // the shape of the library — its genres, its neighbourhoods, what the
+            // owner actually likes — so a caller can ground a suggestion in the
+            // collection instead of guessing at song titles.
+            tool(
+                "music_list_genres",
+                "List the genres present in the library, with song counts. Use this before guessing genre keywords: it is the vocabulary the library actually uses, which is rarely the words a person says.",
+                properties: [
+                    "limit": ["type": "integer", "description": "Max genres to return, largest first (default 60, max 500)."],
+                ],
+                required: []
+            ),
+            tool(
+                "music_browse_albums",
+                "Browse albums by list type rather than by search — the way to answer 'something new', 'what I've been playing', or 'my usual'. Types: 'random', 'newest' (recently added), 'frequent' (most played), 'recent' (recently played), 'starred' (liked), 'alphabeticalByName', 'byGenre' (needs `genre`), 'byYear' (needs `from_year`/`to_year`).",
+                properties: [
+                    "type": ["type": "string", "description": "One of random, newest, frequent, recent, starred, alphabeticalByName, byGenre, byYear. Default 'random'."],
+                    "genre": ["type": "string", "description": "Genre name, required when type='byGenre'."],
+                    "from_year": ["type": "integer", "description": "Start year, for type='byYear'."],
+                    "to_year": ["type": "integer", "description": "End year, for type='byYear'."],
+                    "limit": ["type": "integer", "description": "Max albums (default 25, max 100)."],
+                ],
+                required: []
+            ),
+            tool(
+                "music_similar_songs",
+                "Songs the server considers similar to a given song or artist — real neighbour data, not a keyword match. Give `song_id` or `query` (an artist or song name, whose top hit is used as the seed). This is what 'more like this' should use.",
+                properties: [
+                    "song_id": ["type": "string", "description": "Seed song id. Provide this or `query`."],
+                    "query": ["type": "string", "description": "Artist or song name to seed from; its top search hit is used."],
+                    "limit": ["type": "integer", "description": "Max songs (default 25, max 100)."],
+                ],
+                required: []
+            ),
+            tool(
+                "music_liked",
+                "The owner's liked/starred songs, albums, and artists. The single best signal of taste — read it before recommending anything.",
+                properties: [
+                    "limit": ["type": "integer", "description": "Max songs to return (default 40, max 200)."],
+                ],
+                required: []
+            ),
+            tool(
+                "music_random",
+                "Random songs from the library, optionally within a genre or year range. Use for genuine variety, or to sample a library you know nothing about.",
+                properties: [
+                    "genre": ["type": "string", "description": "Restrict to this genre (see music_list_genres)."],
+                    "from_year": ["type": "integer", "description": "Earliest year."],
+                    "to_year": ["type": "integer", "description": "Latest year."],
+                    "limit": ["type": "integer", "description": "Max songs (default 25, max 100)."],
+                ],
+                required: []
+            ),
+            tool(
+                "music_artist_info",
+                "Biography for an artist plus every album of theirs in this library. Give `artist_id` or `query` (the name; its closest match is used).",
+                properties: [
+                    "artist_id": ["type": "string", "description": "Artist id. Provide this or `query`."],
+                    "query": ["type": "string", "description": "Artist name; the closest match in the library is used."],
+                ],
+                required: []
+            ),
+
             tool(
                 "audio_suspend",
                 "Cooperative audio focus: pause (or duck) Baton's playback for an owner so it can be auto-resumed later only if the user didn't intervene. Coordination primitive for dictation/recording ducking — a client should NOT surface it as a user-facing action. Returns a `handle` to pass to audio_resume.",
@@ -280,6 +346,8 @@ enum BatonMCPToolCatalog {
     private static let readOnlyTools: Set<String> = [
         "music_search", "music_now_playing", "music_list_playlists", "music_get_playlist",
         "music_get_queue",
+        "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
+        "music_random", "music_artist_info",
     ]
 
     /// All music tools reach the Navidrome server; the audio-focus tools are local.
@@ -294,6 +362,8 @@ enum BatonMCPToolCatalog {
         "music_seek", "music_set_repeat", "music_set_shuffle", "music_get_queue",
         "music_reorder_queue", "music_remove_from_queue", "music_play_next",
         "music_start_radio", "music_sleep_timer", "music_set_eq", "music_set_crossfade",
+        "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
+        "music_random", "music_artist_info",
         "speak_summary",
     ]
 
@@ -356,6 +426,12 @@ enum BatonMCPToolCatalog {
             case "music_sleep_timer": text = musicSleepTimer(arguments, music)
             case "music_set_eq": text = musicSetEq(arguments, music)
             case "music_set_crossfade": text = musicSetCrossfade(arguments, music)
+            case "music_list_genres": text = try await musicListGenres(arguments)
+            case "music_browse_albums": text = try await musicBrowseAlbums(arguments)
+            case "music_similar_songs": text = try await musicSimilarSongs(arguments)
+            case "music_liked": text = try await musicLiked(arguments)
+            case "music_random": text = try await musicRandom(arguments)
+            case "music_artist_info": text = try await musicArtistInfo(arguments)
             case "speak_summary": text = try await BatonMCPSpeakTools.run(arguments, music, sessionID: sessionID)
             case "audio_suspend": text = audioSuspend(arguments, music, focus, sessionID: sessionID)
             case "audio_resume": text = try audioResume(arguments, music, focus)
@@ -470,6 +546,175 @@ enum BatonMCPToolCatalog {
         } catch {
             throw musicError(error)
         }
+    }
+
+    // MARK: - Library discovery
+
+    private static func musicListGenres(_ args: [String: Any]) async throws -> String {
+        let limit = min(max(optionalInt(args, "limit") ?? 60, 1), 500)
+        let client = try musicClient()
+        do {
+            // Biggest first: a library's long tail of one-song genres says far
+            // less about it than the handful that hold most of the music.
+            let genres = try await client.getGenres()
+                .sorted { ($0.songCount ?? 0) > ($1.songCount ?? 0) }
+                .prefix(limit)
+            return jsonText(["genres": genres.map { genre -> [String: Any] in
+                var out: [String: Any] = ["name": genre.name]
+                if let songs = genre.songCount { out["song_count"] = songs }
+                if let albums = genre.albumCount { out["album_count"] = albums }
+                return out
+            }])
+        } catch {
+            throw musicError(error)
+        }
+    }
+
+    private static let albumListTypes: Set<String> = [
+        "random", "newest", "frequent", "recent", "starred", "highest",
+        "alphabeticalByName", "alphabeticalByArtist", "byGenre", "byYear",
+    ]
+
+    private static func musicBrowseAlbums(_ args: [String: Any]) async throws -> String {
+        let type = optionalString(args, "type") ?? "random"
+        guard albumListTypes.contains(type) else {
+            throw BatonMCPToolError(
+                message: "Unknown album list type \"\(type)\". Use one of: \(albumListTypes.sorted().joined(separator: ", ")).")
+        }
+        let genre = optionalString(args, "genre")
+        // Subsonic answers byGenre-without-genre with the whole library, which
+        // looks like a working call and isn't the question that was asked.
+        if type == "byGenre", genre == nil {
+            throw BatonMCPToolError(message: "type='byGenre' needs a `genre` — see music_list_genres.")
+        }
+        let fromYear = optionalInt(args, "from_year")
+        let toYear = optionalInt(args, "to_year")
+        if type == "byYear", fromYear == nil, toYear == nil {
+            throw BatonMCPToolError(message: "type='byYear' needs `from_year` and/or `to_year`.")
+        }
+        let limit = min(max(optionalInt(args, "limit") ?? 25, 1), 100)
+        let client = try musicClient()
+        do {
+            let albums = try await client.getAlbumList2(
+                type: type, size: limit, genre: genre, fromYear: fromYear, toYear: toYear)
+            return jsonText(["type": type, "albums": albums.map(albumJSON)])
+        } catch {
+            throw musicError(error)
+        }
+    }
+
+    private static func musicSimilarSongs(_ args: [String: Any]) async throws -> String {
+        let limit = min(max(optionalInt(args, "limit") ?? 25, 1), 100)
+        let client = try musicClient()
+        do {
+            let seedID: String
+            if let id = optionalString(args, "song_id") {
+                seedID = id
+            } else if let query = optionalString(args, "query") {
+                let hits = try await client.search3(query: query, songCount: 1)
+                // An artist id is a valid seed too, and for "more like <artist>"
+                // it's the better one — fall back to it rather than failing.
+                guard let id = hits.songs.first?.id ?? hits.artists.first?.id else {
+                    throw BatonMCPToolError(message: "Nothing matched \"\(query)\" to seed from.")
+                }
+                seedID = id
+            } else {
+                throw BatonMCPToolError(message: "Provide `song_id` or `query`.")
+            }
+            let songs = try await client.getSimilarSongs(id: seedID, count: limit)
+            // Navidrome's similarity needs a Last.fm agent configured, so an empty
+            // answer here is routine and means "no data", not "no such music".
+            return jsonText([
+                "seed_id": seedID,
+                "songs": songs.map(songJSON),
+                "note": songs.isEmpty
+                    ? "The server returned no similarity data (Navidrome needs a Last.fm agent for this). Try music_browse_albums or the artist's own tracks instead."
+                    : "",
+            ])
+        } catch let error as BatonMCPToolError {
+            throw error
+        } catch {
+            throw musicError(error)
+        }
+    }
+
+    private static func musicLiked(_ args: [String: Any]) async throws -> String {
+        let limit = min(max(optionalInt(args, "limit") ?? 40, 1), 200)
+        let client = try musicClient()
+        do {
+            let starred = try await client.getStarred2()
+            return jsonText([
+                "songs": starred.songs.prefix(limit).map(songJSON),
+                "albums": starred.albums.prefix(25).map(albumJSON),
+                "artists": starred.artists.prefix(25).map { ["id": $0.id, "name": $0.name] },
+                "total_liked_songs": starred.songs.count,
+            ])
+        } catch {
+            throw musicError(error)
+        }
+    }
+
+    private static func musicRandom(_ args: [String: Any]) async throws -> String {
+        let limit = min(max(optionalInt(args, "limit") ?? 25, 1), 100)
+        let client = try musicClient()
+        do {
+            let songs = try await client.getRandomSongs(
+                count: limit,
+                genre: optionalString(args, "genre"),
+                fromYear: optionalInt(args, "from_year"),
+                toYear: optionalInt(args, "to_year")
+            )
+            return jsonText(["songs": songs.map(songJSON)])
+        } catch {
+            throw musicError(error)
+        }
+    }
+
+    private static func musicArtistInfo(_ args: [String: Any]) async throws -> String {
+        let client = try musicClient()
+        do {
+            let artist: (id: String, name: String)
+            if let id = optionalString(args, "artist_id") {
+                artist = (id, "")
+            } else if let query = optionalString(args, "query") {
+                let hits = try await client.search3(query: query, songCount: 0).artists
+                // Prefer the artist actually named, not merely the first match:
+                // asking about "Armin van Buuren" was answering with "Armin van
+                // Buuren & Garibay", whose one album is not the question.
+                let wanted = query.trimmingCharacters(in: .whitespaces).lowercased()
+                guard let hit = hits.first(where: { $0.name.lowercased() == wanted }) ?? hits.first else {
+                    throw BatonMCPToolError(message: "No artist matched \"\(query)\".")
+                }
+                artist = (hit.id, hit.name)
+            } else {
+                throw BatonMCPToolError(message: "Provide `artist_id` or `query`.")
+            }
+
+            let info = try await client.getArtistInfo(id: artist.id)
+            // The albums are the actionable half — a biography with nothing to
+            // play from it is trivia.
+            let albums = (try? await client.getArtistAlbums(id: artist.id)) ?? []
+            var out: [String: Any] = ["id": artist.id, "albums": albums.map(albumJSON)]
+            if !artist.name.isEmpty { out["name"] = artist.name }
+            if let biography = info.biography, !biography.isEmpty { out["biography"] = biography }
+            return jsonText(out)
+        } catch let error as BatonMCPToolError {
+            throw error
+        } catch {
+            throw musicError(error)
+        }
+    }
+
+    static func albumJSON(_ album: NavidromeAlbum) -> [String: Any] {
+        var out: [String: Any] = ["id": album.id, "name": album.name]
+        if let artist = album.artist { out["artist"] = artist }
+        if let year = album.year { out["year"] = year }
+        if let songs = album.songCount { out["song_count"] = songs }
+        if let duration = album.duration { out["duration_seconds"] = duration }
+        if let genre = album.genre, !genre.isEmpty { out["genre"] = genre }
+        if let plays = album.playCount { out["play_count"] = plays }
+        if album.isLiked { out["liked"] = true }
+        return out
     }
 
     /// Fetches songs by exact id, preserving the caller's order. Ids that don't resolve

@@ -43,10 +43,10 @@ final class GapToolsTests: XCTestCase {
         for tool in expected {
             XCTAssertTrue(names.contains(tool), "missing tool \(tool)")
         }
-        // 21 existing (18 music_* incl. music_build_mix + audio_suspend/audio_resume
-        // + speak_summary) + 10 new + music_get_playlist + music_set_crossfade = 33. NOTE: a bare count is
-        // brittle; / replace this with a schema snapshot of the full catalog.
-        XCTAssertEqual(names.count, 33, "unexpected total tool count: \(names.count)")
+        // The bare count that used to live here is gone: this test is about the
+        // ten tools that release added, and `MCPSchemaSnapshotTests` asserts the
+        // exact full name set — strictly stronger, and the place to update when
+        // the surface changes deliberately.
         XCTAssertTrue(names.contains("music_get_playlist"))
         XCTAssertTrue(names.contains("music_set_crossfade"))
     }

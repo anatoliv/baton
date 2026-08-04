@@ -97,6 +97,10 @@ CASES = [
     ("find songs by portishead", ["music_search"], "Play & search"),
     ("search for daft punk", ["music_search"], "Play & search"),
     ("have i got anything by bjork", ["music_search"], "Play & search"),
+    # A search verb carrying a play intent. The parser claims "find" and searches
+    # literally, so this only reaches the model as the retry after that search
+    # came back empty — and the whole point of the retry is to hear the "and play".
+    ("find lazy music and play", ["music_play"], "Play & search"),
     ("look up massive attack", ["music_search"], "Play & search"),
     ("what do i have from the 80s", ["music_search"], "Play & search"),
 
