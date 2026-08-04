@@ -1295,10 +1295,42 @@ expires after about half an hour of quiet, and is kept separately for each chat.
 
 This is the one feature in Baton that talks to a third party, and it's off until you switch it
 on. What leaves your Mac is the sentence you typed and the list of Baton's own commands —
-never your library, your server credentials, or what you've been listening to. Under the hood
-the model is choosing from the same control surface an AI agent gets, so a sentence can't ask
-Baton to do anything the buttons can't. Deleting a playlist is deliberately left out of what a
-sentence can reach; type the command for that.
+never your server credentials or what you've been listening to. Under the hood the model is
+choosing from the same control surface an AI agent gets, so a sentence can't ask Baton to do
+anything the buttons can't. Deleting a playlist is deliberately left out of what a sentence
+can reach; type the command for that.
+
+### Letting it look around first
+
+Underneath is a second switch, **Let it look around first**, and it's the difference between a
+translator and something you can have a conversation with.
+
+Off, your sentence becomes one command, chosen blind. The model has never seen your library,
+so it has to be right first time about music it knows nothing about. Ask for "lazy music" and
+you get "nothing matched" — even though the chillout is right there, tagged `chill`, `lounge`
+and `ambient`, because a mood is rarely a song title.
+
+On, Baton lets it look before it answers. It can read which genres your library actually uses,
+what you've liked and played most, what's similar to a track, and what albums are newest or
+most-played — then search again with words it has seen work, and play the result. The reply
+tells you what it did and why it isn't literally what you asked: *"nothing called 'lazy' —
+your chillout is tagged chill, playing that"*.
+
+**It asks when asking is the honest thing.** If what it found splits two ways and the answer
+changes what you'd hear — two artists sharing a name, a six-hour mix beside a forty-minute set
+— it offers them as buttons, each with the fact that decides it. Tap one, or type `2`, or say
+"the ambient one". Ignore it and after a minute or so it starts the one it recommended and
+says that's what it did, rather than leaving you in silence. Send anything else and the
+question is dropped — it won't start playing under you a minute after you've moved on.
+
+**This is the setting that changes what leaves your Mac,** which is why it's separate and off
+by default. Looking around means what it finds — song titles, artists, genres — travels to the
+model along with your question, because that's the only way it can answer. With it off, none of
+your library ever does. Point the base URL at a model running on your own machine and the
+distinction stops mattering: nothing leaves your network either way.
+
+It costs a little more than one request per message, since looking takes turns. Against a
+local model that's typically a second or two.
 
 ---
 

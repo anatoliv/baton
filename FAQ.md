@@ -107,6 +107,20 @@ There's a step-by-step setup in
 It runs on the same control surface agents use, so a chat message can't do anything Baton's
 own buttons can't.
 
+**Why does it say "nothing matched" for music I know I have?**
+Because a plain search only matches text in titles, artists and albums — and a mood is rarely a
+title. Ask for "lazy music" and nothing is called that, even though the chillout is sitting
+there tagged `chill` or `ambient`. Turn on **Let it look around first** (Settings, Remote) and
+it will check what your library actually calls things, then find and play it. See
+[Letting it look around first](HELP.md#letting-it-look-around-first).
+
+**Does turning that on send my library somewhere?**
+Parts of it, yes — that's the trade, and it's why the switch is separate and off by default.
+Looking around means what it finds (song titles, artists, genres) goes to the model along with
+your question, because there's no other way for it to answer. With the switch off, none of your
+library ever leaves. If you point Baton at a model running on your own machine or network,
+nothing leaves it in either case.
+
 **Does chat control open my Mac to the internet?**
 No. Baton dials *out* to Telegram or Discord and waits for them to hand it messages, exactly
 as a chat app on your Mac does. Nothing listens for incoming connections, no port is opened,

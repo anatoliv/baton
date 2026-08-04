@@ -167,6 +167,12 @@ final class TelegramBridge {
 
     // MARK: Sending
 
+    /// Send without an inbound message to answer — the auto-picked choice
+    /// speaks long after the request that armed it was replied to.
+    func push(_ reply: RemoteReply, to chatID: String) async {
+        await send(reply, to: chatID)
+    }
+
     private func send(_ reply: RemoteReply, to chatID: String) async {
         var body: [String: Any] = [
             "chat_id": chatID,
@@ -176,7 +182,14 @@ final class TelegramBridge {
             "parse_mode": "Markdown",
             "disable_web_page_preview": true,
         ]
-        if reply.showsTransport { body["reply_markup"] = Self.transportKeyboard }
+        // A question's options replace the transport row: the message is asking
+        // for an answer, and burying it under six playback icons is how you get
+        // no answer at all.
+        if !reply.choices.isEmpty {
+            body["reply_markup"] = Self.choiceKeyboard(reply.choices)
+        } else if reply.showsTransport {
+            body["reply_markup"] = Self.transportKeyboard
+        }
 
         do {
             _ = try await call("sendMessage", body: body)
@@ -189,6 +202,19 @@ final class TelegramBridge {
                 remoteLog.error("Telegram sendMessage failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    /// One button per option, each on its own row so a three-word label isn't
+    /// squeezed into a sixth of the screen. The payload is `pick N` rather than
+    /// the command itself: `callback_data` is capped at 64 bytes, which a real
+    /// track title blows straight through — and it makes a tap and a typed "2"
+    /// the same inbound message.
+    private static func choiceKeyboard(_ choices: [RemoteChoice]) -> [String: Any] {
+        [
+            "inline_keyboard": choices.enumerated().map { index, choice in
+                [["text": choice.label, "callback_data": RemoteChoicePrompt.payload(for: index)]]
+            },
+        ]
     }
 
     /// Button payloads are ordinary command strings, so a tap and a typed

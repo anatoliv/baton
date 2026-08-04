@@ -174,8 +174,20 @@ final class RemoteControlSettings {
         var model: String = "claude-opus-5"
         /// API base — the root, not a full endpoint path (Baton appends that).
         var baseURL: String = "https://api.anthropic.com"
+        /// Let the model look around the library across several turns before it
+        /// answers, instead of translating one sentence into one tool call.
+        ///
+        /// Off by default, and the reason is privacy rather than cost: an agent
+        /// that browses **sends what it finds** — song titles, artists, genres —
+        /// to whichever endpoint is configured, because the results come back
+        /// into its context by construction. Single-shot mode never does. Point
+        /// `baseURL` at a model on your own machine and this distinction stops
+        /// mattering; point it at a hosted API and it matters a great deal.
+        var isAgentEnabled: Bool = false
 
         var isConfigured: Bool { isEnabled && !apiKey.isEmpty }
+        /// Agent mode needs everything single-shot needs, and to be switched on.
+        var isAgentConfigured: Bool { isConfigured && isAgentEnabled }
     }
 
     // MARK: Init
@@ -219,6 +231,7 @@ final class RemoteControlSettings {
         }
         if let model = store.string(forKey: Keys.nlModel), !model.isEmpty { nl.model = model }
         if let base = store.string(forKey: Keys.nlBaseURL), !base.isEmpty { nl.baseURL = base }
+        nl.isAgentEnabled = store.bool(forKey: Keys.nlAgentEnabled)
         naturalLanguage = nl
     }
 
@@ -279,6 +292,7 @@ final class RemoteControlSettings {
         defaults.set(naturalLanguage.provider.rawValue, forKey: Keys.nlProvider)
         defaults.set(naturalLanguage.model, forKey: Keys.nlModel)
         defaults.set(naturalLanguage.baseURL, forKey: Keys.nlBaseURL)
+        defaults.set(naturalLanguage.isAgentEnabled, forKey: Keys.nlAgentEnabled)
         secrets.setSecret(naturalLanguage.apiKey.isEmpty ? nil : naturalLanguage.apiKey, for: Keys.nlAPIKey)
     }
 
@@ -292,6 +306,7 @@ final class RemoteControlSettings {
         static let nlProvider = "baton.remote.nl.provider"
         static let nlModel = "baton.remote.nl.model"
         static let nlBaseURL = "baton.remote.nl.baseURL"
+        static let nlAgentEnabled = "baton.remote.nl.agentEnabled"
         static let nlAPIKey = "baton.remote.nl.apiKey"
 
         static func platformEnabled(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).enabled" }

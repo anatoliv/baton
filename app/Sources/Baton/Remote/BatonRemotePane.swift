@@ -65,9 +65,13 @@ private struct RemoteSettingsForm: View {
                 Text("""
                 Baton connects out to Telegram and Discord; it never opens a port and nothing \
                 on your network is exposed. Bot tokens and any API key live in your login \
-                Keychain. Natural language is the only feature that contacts a third party — \
-                it sends the sentence you typed and the list of Baton's own commands, never \
-                your library, credentials, or listening history.
+                Keychain. Natural language is the only feature that contacts a third party.
+
+                It sends the sentence you typed and the list of Baton's own commands — never \
+                your credentials, and never your listening history. Whether it sends anything \
+                *from* your library is decided by one setting: with "let it look around" off, \
+                it never does; with it on, what it looks up travels with the question, because \
+                that is how it can answer at all.
                 """)
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -246,6 +250,29 @@ private struct RemoteSettingsForm: View {
             Text("Sends one short request (\u{201C}pause the music\u{201D}) the same way a chat message would, so a pass means the next message will work \u{2014} not just that something answered.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Toggle("Let it look around first", isOn: $settings.naturalLanguage.isAgentEnabled)
+                .disabled(!settings.naturalLanguage.isEnabled)
+            Text("""
+            Without this, one message becomes one command, decided blind — ask for "lazy \
+            music" and you get "nothing matched", even when the same music is sitting there \
+            tagged "chill". With it on, Baton can search, read your genres and liked songs, \
+            try again with better words, and offer you a choice when two answers are both \
+            reasonable.
+            """)
+            .font(.callout).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Label("""
+            This is the setting that changes what leaves your Mac. Looking around means \
+            what it finds \u{2014} song titles, artists, genres \u{2014} goes to the model \
+            provider along with your message. Point the base URL at a model running on your \
+            own machine and nothing leaves it at all.
+            """, systemImage: "hand.raised")
+            .font(.callout).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 

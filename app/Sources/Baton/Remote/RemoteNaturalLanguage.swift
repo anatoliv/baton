@@ -23,6 +23,11 @@ struct RemoteToolSchemas: @unchecked Sendable {
 /// This is the **only** part of remote control that talks to a third party, it
 /// is off by default, and it sends just the user's sentence plus the tool list —
 /// never library contents, credentials, or listening history.
+///
+/// That last guarantee is what distinguishes this from `RemoteAgent`, which
+/// answers far better precisely because it looks things up — and so cannot make
+/// the same promise. Both ship; the choice is the user's, and it is off by
+/// default. Keep this path free of library content, or the choice is a fiction.
 enum RemoteNaturalLanguage {
     /// Tools withheld from model routing. `audio_*` are cross-process focus
     /// primitives that aren't user-facing actions, `speak_summary` is for agents
@@ -458,6 +463,10 @@ enum RemoteNaturalLanguage {
     /// Narrow the model's JSON to the argument types Baton's tools accept.
     /// Anything else (nested objects, arrays) is dropped rather than passed
     /// through half-formed — the tools validate their own inputs regardless.
+    static func coerceArguments(_ input: [String: Any]) -> [String: RemoteArgument] {
+        coerce(input)
+    }
+
     private static func coerce(_ input: [String: Any]) -> [String: RemoteArgument] {
         var out: [String: RemoteArgument] = [:]
         for (key, value) in input {
@@ -477,6 +486,8 @@ enum RemoteNaturalLanguage {
         }
         return out
     }
+
+    static func errorBody(from data: Data) -> String { errorMessage(from: data) }
 
     private static func errorMessage(from data: Data) -> String {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
