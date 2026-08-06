@@ -45,6 +45,18 @@ packages:
   # Local module: the MCP transport protocol (JSON-RPC, HTTP parse/frame, auth), fourth leaf.
   BatonMCPProtocol:
     path: ../Packages/BatonMCPProtocol
+  # Local module: the complete Subsonic/Navidrome client + multi-server config + keychain +
+  # runtime environment switch — the first shared-core package for the iOS app (docs/plan-ios-app.md).
+  BatonSubsonicKit:
+    path: ../Packages/BatonSubsonicKit
+  # Local module: the playback engine (gapless/crossfade/EQ/seek), scrobbling pipeline,
+  # podcasts, downloads, pins, play history — the shared-core heart (docs/plan-ios-app.md).
+  BatonPlaybackKit:
+    path: ../Packages/BatonPlaybackKit
+  # Local module: the agent stack (loop, router, parser, memory, taste digest, chat
+  # bridges) — extracted per the Phase 1 handoff, one brain for Mac/iPhone/gateway.
+  BatonAgentKit:
+    path: ../Packages/BatonAgentKit
 
 settings:
   base:
@@ -54,7 +66,7 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.14.0"
+    MARKETING_VERSION: "0.15.0"
     CURRENT_PROJECT_VERSION: "57"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
@@ -77,6 +89,9 @@ targets:
       - package: BatonSubsonicModels
       - package: BatonSpeech
       - package: BatonMCPProtocol
+      - package: BatonSubsonicKit
+      - package: BatonPlaybackKit
+      - package: BatonAgentKit
     # Feeds the SENTRY_DSN build setting (and thus the SentryDSN Info.plist
     # key). The committed Config/Sentry.xcconfig defaults SENTRY_DSN to empty
     # and optionally #include?s Config/Sentry.local.xcconfig (gitignored),

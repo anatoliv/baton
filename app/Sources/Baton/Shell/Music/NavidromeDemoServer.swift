@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 
 /// The public Navidrome demo, offered as a zero-setup way to try Baton.
 ///

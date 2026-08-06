@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonSubsonicKit
 
 /// Baton's connect flow. In Tonebox the music player borrows the app's Settings →
 /// Music pane; standalone Baton has no Settings window (yet), so the "not connected"

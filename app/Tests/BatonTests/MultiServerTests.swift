@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Multi-server support for `NavidromeConfig`: add/remove/switch, legacy migration,

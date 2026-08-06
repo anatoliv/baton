@@ -1,0 +1,65 @@
+name: BatonWatch
+
+options:
+  bundleIdPrefix: io.tonebox
+  deploymentTarget:
+    watchOS: "11.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+  defaultConfig: Release
+
+packages:
+  BatonDSP:
+    path: ../Packages/BatonDSP
+  BatonSubsonicModels:
+    path: ../Packages/BatonSubsonicModels
+  BatonSubsonicKit:
+    path: ../Packages/BatonSubsonicKit
+  BatonPlaybackKit:
+    path: ../Packages/BatonPlaybackKit
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    GENERATE_INFOPLIST_FILE: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "Q8822GNL2H"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  BatonWatch:
+    type: application
+    platform: watchOS
+    dependencies:
+      - package: BatonDSP
+      - package: BatonSubsonicModels
+      - package: BatonSubsonicKit
+      - package: BatonPlaybackKit
+    sources:
+      - path: Sources/BatonWatch
+      - path: Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton.watch
+        PRODUCT_NAME: Baton
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_WKApplication: YES
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Baton
+        WKApplication: true
+        # Watch-only distribution (no bundled iOS companion in this project);
+        # without it the installer assumes a WatchKit-2 companion pairing.
+        WKWatchOnly: true
+        UIBackgroundModes: [audio]
+
+schemes:
+  BatonWatch:
+    build:
+      targets:
+        BatonWatch: all
+    run:
+      config: Debug

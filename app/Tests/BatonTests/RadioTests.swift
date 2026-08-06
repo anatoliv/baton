@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Coverage for internet-radio: station-list decoding, the CRUD request shapes,

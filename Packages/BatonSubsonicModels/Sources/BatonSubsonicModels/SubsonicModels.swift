@@ -21,12 +21,22 @@ import Foundation
 public enum MediaKind: Hashable, Sendable {
     case libraryTrack
     case podcastEpisode
+    /// Content that is already a file on this device — currently the bundled demo
+    /// library. Its id is a `file://` URL, so it needs no server to resolve.
+    case localFile
 
     /// Classify a raw playable id. A client-side podcast episode carries its remote enclosure URL
-    /// as its id (an absolute http(s) string); anything else is an opaque Subsonic library id.
-    /// Used where only the id string is in hand (e.g. stream/cover resolution).
+    /// as its id (an absolute http(s) string); a local file carries its own file URL; anything
+    /// else is an opaque Subsonic library id. Used where only the id string is in hand (e.g.
+    /// stream/cover resolution).
     public init(id: String) {
-        self = (id.hasPrefix("http://") || id.hasPrefix("https://")) ? .podcastEpisode : .libraryTrack
+        if id.hasPrefix("http://") || id.hasPrefix("https://") {
+            self = .podcastEpisode
+        } else if id.hasPrefix("file://") {
+            self = .localFile
+        } else {
+            self = .libraryTrack
+        }
     }
 }
 

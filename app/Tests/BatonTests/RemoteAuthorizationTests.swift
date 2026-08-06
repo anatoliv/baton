@@ -1,5 +1,6 @@
 import XCTest
 @testable import Baton
+@testable import BatonAgentKit
 
 /// The security boundary for chat control. A bot token is *not* a credential:
 /// anyone who finds the bot can message it, so every inbound message is checked
@@ -14,9 +15,12 @@ final class RemoteAuthorizationTests: XCTestCase {
             defaults: UserDefaults(suiteName: "baton.remote.tests.\(UUID().uuidString)")!,
             secrets: InMemorySecretStore()
         )
+        let music = MusicModel(environment: .testing)
+        let focus = BatonAudioFocusRegistry()
         let router = RemoteCommandRouter(
-            music: MusicModel(environment: .testing),
-            focus: BatonAudioFocusRegistry(),
+            player: music.music,
+            tools: MCPToolSurface(music: music, focus: focus),
+            focus: focus,
             settings: settings
         )
         return (router, settings)
@@ -330,6 +334,41 @@ final class RemoteAuthorizationTests: XCTestCase {
                 "reached the loop and failed properly rather than trapping: \(error)"
             )
         }
+    }
+
+    // MARK: A verb that matched, an argument that didn't
+
+    /// The shipped bug, at the router: "rate 4 this track and list similar by
+    /// the same artist" printed the command list. The parser claimed `rate`,
+    /// couldn't read the rest as an integer, and answered `.help` — terminal,
+    /// so the model never saw a sentence that plainly meant two things.
+    func testACompoundCommandReachesTheModelInsteadOfTheManual() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+        settings.naturalLanguage.isEnabled = true
+        settings.naturalLanguage.apiKey = "sk-test"
+        settings.naturalLanguage.isAgentEnabled = true
+
+        var asked: String?
+        router.resolveAgent = { message, _, _, _ in
+            asked = message
+            return RemoteAgent.Outcome(text: "Rated 4. Here's more by DIDO.", toolsRun: ["music_rate"])
+        }
+
+        let reply = await router.handle(inbound("rate 4 this track and list similar by the same artist"))
+        XCTAssertEqual(asked, "rate 4 this track and list similar by the same artist",
+                       "the model needs the whole sentence, both halves of it")
+        XCTAssertFalse(reply?.text.contains("Playback —") == true, "must not be the command list")
+    }
+
+    /// With no model to ask, say what the verb wanted — not the whole manual.
+    func testWithoutAModelTheAnswerIsTheOneThingTheVerbNeeded() async {
+        let (router, settings) = makeRouter()
+        settings.authorize(sender: "42", on: .telegram)
+
+        let reply = await router.handle(inbound("rate 4 this track and list similar"))
+        XCTAssertTrue(reply?.text.contains("0 to 5") == true, reply?.text ?? "nil")
+        XCTAssertFalse(reply?.text.contains("Playback —") == true, "not the whole command list")
     }
 
     // MARK: Asking, answering, and not answering

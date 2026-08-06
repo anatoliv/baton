@@ -234,6 +234,51 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.15.0",
+            date: "2026",
+            highlight: "Baton is on your iPhone now \u{2014} and setting it up takes one scan.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Settings \u{2192} Remote \u{2192} Devices shows a pairing code. Point the "
+                        + "iPhone app at it and the phone is set up: server, sign-in and your "
+                        + "scrobble accounts, without typing any of it on a phone keyboard. The "
+                        + "code lasts ninety seconds, works once, and this Mac asks you to "
+                        + "approve the device by name before it sends anything."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Shared settings. Your equalizer, crossfade, loudness, radio bans and "
+                        + "music-friend setup can follow you between this Mac and your iPhone "
+                        + "through your Baton gateway. Optional \u{2014} leave it blank and nothing "
+                        + "changes. Your likes, ratings, playlists and play counts already "
+                        + "travelled: those live on your Navidrome server."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Baton on Apple Watch. Download to the wrist and leave the phone behind."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The playback engine, the Subsonic client and the music-friend agent now "
+                        + "live in shared frameworks that the Mac, the iPhone and the gateway all "
+                        + "run. One implementation means a fix here is a fix everywhere, and the "
+                        + "two apps can no longer drift apart in how they behave."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Downloads verify what they received before trusting it \u{2014} a truncated "
+                        + "transcode or a server error dressed up as audio is caught and retried "
+                        + "instead of poisoning your library."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "A stalled stream now recovers on its own instead of sitting silent, and "
+                        + "Baton reaches servers behind a reverse proxy that needs custom headers."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.14.0",
             date: "2026",
             highlight: "Your chat remote knows what you listen to, and remembers what you tell it.",

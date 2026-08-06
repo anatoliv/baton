@@ -1,5 +1,6 @@
 import XCTest
 @testable import Baton
+@testable import BatonAgentKit
 
 /// A hundred things a person actually says to a music player, run through the
 /// real agent loop against a real model. **Skipped unless configured** — see
@@ -218,6 +219,16 @@ final class RemoteAgentConversationEval: XCTestCase {
                 .init(role: "assistant", text: "Your Classic Trance playlists haven't been touched in months — want those?"),
             ]
         ),
+
+        // — More than one thing in one message. The corpus had none of these,
+        // which is how "rate 4 this track and list similar by the same artist"
+        // reached a shipped release answering with the command list.
+        Case(message: "rate 4 this track and list similar by the same artist",
+             expect: .runs("music_rate"), context: playing),
+        Case(message: "like this and queue up more by them", expect: .runs("music_like"), context: playing),
+        Case(message: "pause and tell me what that was", expect: .runs("music_pause"), context: playing),
+        Case(message: "turn it down and skip this", expect: .runs("music_set_volume"), context: playing),
+        Case(message: "what's playing, and is there more like it?", expect: .answers, context: playing),
 
         // — Awkward, terse, or typo'd. People type badly on phones.
         Case(message: "plya something", expect: .plays),
@@ -496,7 +507,7 @@ final class RemoteAgentConversationEval: XCTestCase {
                     history: testCase.history,
                     playerContext: testCase.context,
                     config: live,
-                    tools: RemoteAgent.toolSchemas(),
+                    tools: RemoteAgent.toolSchemas(definitions: BatonMCPToolCatalog.definitions()),
                     runTool: library(memory: memory)
                 )
             } catch {

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import BatonSubsonicKit
 
 /// Baton's unified Settings window. A chromeless sidebar + detail layout matching
 /// Tonebox's Settings design: a top spacer row reserves space for the traffic

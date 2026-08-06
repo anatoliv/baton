@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// : account-controlling secrets live in the Keychain, migrated transparently from any
