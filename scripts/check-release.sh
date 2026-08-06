@@ -31,6 +31,30 @@ BUILD="$(perl -ne 'print $1 if /CURRENT_PROJECT_VERSION:\s*"([^"]+)"/' app/proje
 
 DMG="dist/Baton-${VERSION}.dmg"
 
+# --- The build number must actually increase ----------------------------------
+# Sparkle compares sparkle:version — the build number — and ignores
+# shortVersionString entirely when deciding whether an update exists. 0.14.0 and
+# 0.15.0 both shipped as build 57, so to every installed 0.14.0 copy the new
+# release simply wasn't newer: no update was ever offered, no error was ever
+# shown, and the appcast looked perfectly correct. Nothing here caught it, because
+# every other check compares this release against *itself*. This one compares it
+# against the last one that shipped.
+PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -v "^v${VERSION}\$" | head -1)"
+if [ -n "$PREV_TAG" ]; then
+    PREV_BUILD="$(git show "$PREV_TAG:app/project.yml" 2>/dev/null \
+        | perl -ne 'print $1 if /CURRENT_PROJECT_VERSION:\s*"([^"]+)"/' | head -1)"
+    case "${PREV_BUILD:-x}" in
+        (*[!0-9]*|'') : ;;   # unreadable or pre-dates the field — nothing to compare
+        (*)
+            if [ "$BUILD" -le "$PREV_BUILD" ]; then
+                fail "build $BUILD is not greater than $PREV_BUILD (shipped in $PREV_TAG)
+       Sparkle compares sparkle:version, so this release would never be offered
+       to anyone running $PREV_TAG. Bump CURRENT_PROJECT_VERSION in app/project.yml."
+            fi
+            ;;
+    esac
+fi
+
 # --- Homebrew cask ------------------------------------------------------------
 CASK="Casks/baton.rb"
 if [ -f "$CASK" ]; then

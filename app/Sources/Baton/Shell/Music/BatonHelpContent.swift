@@ -234,6 +234,29 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.15.1",
+            date: "2026",
+            highlight: "Fixes for 0.15.0 \u{2014} the pairing code now appears, and the app ships with its entitlements intact.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "\u{201C}Show pairing code\u{201D} did nothing. The code was being generated "
+                        + "correctly \u{2014} the screen simply never redrew to show it."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "0.15.0 was signed without its entitlements, so the shipped app ran "
+                        + "outside the sandbox it was built for. Releases are now signed with "
+                        + "them and refuse to publish if they are missing."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "0.14.0 and 0.15.0 carried the same build number, so anyone on 0.14.0 "
+                        + "was never offered the update. Fixed, and the release now checks."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.15.0",
             date: "2026",
             highlight: "Baton is on your iPhone now \u{2014} and setting it up takes one scan.",

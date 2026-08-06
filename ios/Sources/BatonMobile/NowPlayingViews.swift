@@ -4,8 +4,36 @@ import SwiftUI
 /// The floating mini-bar above the tab bar: artwork, title, a live progress
 /// hairline, play/pause, next, close. Tapping it opens the full player.
 struct NowPlayingBar: View {
+    /// Who draws the container.
+    ///
+    /// iOS 26's `tabViewBottomAccessory` supplies its own capsule, with its own stroke and
+    /// material. Drawing a second background inside it put a 16pt-radius rectangle on top of
+    /// a fully-rounded capsule: the stroke showed through along the top and bottom, and the
+    /// capsule's round ends stayed unpainted. On iOS 18-25 there is no system container, so
+    /// the bar has to draw its own.
+    enum Chrome {
+        /// Hosted in the system accessory — contribute content only.
+        case systemAccessory
+        /// Floating above the tab bar on its own — draw the capsule.
+        case standalone
+    }
+
     let model: MobileModel
+    var chrome: Chrome = .standalone
     var onOpen: () -> Void
+
+    /// Artwork size.
+    ///
+    /// Measured against the accessory rather than guessed: the system capsule renders about
+    /// 46pt tall, so its end caps are arcs of radius ~23. A near-full-height square placed
+    /// at the leading inset has its corners *outside* that arc — which is what made the
+    /// tile look like it was sitting on top of the stroke, with the rounded end missing.
+    /// A shorter tile sits inside the curve.
+    private var artworkSide: CGFloat { chrome == .systemAccessory ? 30 : 42 }
+
+    /// Horizontal inset. A capsule curves away at the ends, so content needs to start
+    /// further in than a rectangle would require — roughly the cap radius.
+    private var sideInset: CGFloat { chrome == .systemAccessory ? 22 : 14 }
 
     var body: some View {
         if let song = model.music.nowPlaying {
@@ -13,19 +41,24 @@ struct NowPlayingBar: View {
                 // The hairline is the bar's one always-moving element — brand orange,
                 // because it's chrome (the *player's* fills are the dynamic accent,
                 // per the design doc's Brand ⇄ Dynamic rule).
-                GeometryReader { geo in
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .frame(width: max(4, geo.size.width * progress), height: 3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                //
+                // Standalone only: the system accessory is a single short row, and a
+                // second row is what pushed the content out of its capsule.
+                if chrome == .standalone {
+                    GeometryReader { geo in
+                        Capsule()
+                            .fill(Color.accentColor)
+                            .frame(width: max(4, geo.size.width * progress), height: 3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 3)
+                    .padding(.horizontal, sideInset)
                 }
-                .frame(height: 3)
-                .padding(.horizontal, 14)
 
                 HStack(spacing: 12) {
                     ArtworkView(url: artworkURL(for: song))
-                        .frame(width: 42, height: 42)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .frame(width: artworkSide, height: artworkSide)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
                         .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
                     VStack(alignment: .leading) {
                         Text(song.title).font(.subheadline.weight(.medium)).lineLimit(1)
@@ -64,14 +97,16 @@ struct NowPlayingBar: View {
                     }
                     .accessibilityLabel("Stop and close the player")
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 7)
-                .padding(.bottom, 10)
+                .padding(.horizontal, sideInset)
+                // The accessory sizes itself to its content, so vertical padding here is
+                // what decides its height. Keep it tight: anything taller than the system
+                // capsule expects spills past the stroke.
+                .padding(.vertical, chrome == .systemAccessory ? 4 : 0)
+                .padding(.top, chrome == .standalone ? 7 : 0)
+                .padding(.bottom, chrome == .standalone ? 10 : 0)
             }
-            .background(.bar, in: RoundedRectangle(cornerRadius: 16))
-            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-            .padding(.horizontal, 10)
-            .padding(.bottom, 4)
+            // The system accessory already provides material, stroke and shape.
+            .modifier(NowPlayingBarChrome(chrome: chrome))
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpen)
             // Stable handle for the UI audit, and the element VoiceOver
@@ -88,6 +123,28 @@ struct NowPlayingBar: View {
 
     private func artworkURL(for song: NavidromeSong) -> URL? {
         model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 120)
+    }
+}
+
+/// Draws the bar's own container, or nothing when the system already did.
+private struct NowPlayingBarChrome: ViewModifier {
+    let chrome: NowPlayingBar.Chrome
+
+    func body(content: Content) -> some View {
+        switch chrome {
+        case .systemAccessory:
+            // Nothing: a background here lands *inside* the system capsule and covers
+            // its stroke, while leaving the rounded ends bare.
+            content
+        case .standalone:
+            // Capsule, not a rounded rectangle — it sits free above the tab bar and the
+            // ends should be fully round, which is what the system accessory looks like.
+            content
+                .background(.bar, in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 4)
+        }
     }
 }
 
