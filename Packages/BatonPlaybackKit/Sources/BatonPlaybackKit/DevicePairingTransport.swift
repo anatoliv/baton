@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Observation
 import OSLog
 
 private let pairingLog = Logger(subsystem: "io.tonebox.baton", category: "DevicePairing")
@@ -11,6 +12,7 @@ private let pairingLog = Logger(subsystem: "io.tonebox.baton", category: "Device
 /// the lifetime the security boundary: one connection, one payload, then closed — and the
 /// invitation expires on its own even if nobody scans it.
 @MainActor
+@Observable
 public final class PairingHost {
     public enum State: Equatable {
         case idle

@@ -30,6 +30,10 @@
 #     API (there is no /v1/appGroups resource); it has to be added once in the
 #     developer portal, after which the profiles must be regenerated.
 #
+# SKIP_ATTACH=1 uploads but does not wait for processing or add the build to the
+# internal beta group. The default waits (up to 30 min) and attaches, because an
+# uploaded build nobody can install is the failure this script exists to avoid.
+#
 # SKIP_UPLOAD=1 builds and exports the .ipa but stops before altool — useful
 # before the App Store Connect app record exists (records cannot be created via
 # the API either; `apps` allows only GET and UPDATE).
@@ -96,7 +100,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "===== [1/6] temp keychain + import distribution identity (build $BUILD) ====="
+echo "===== [1/7] temp keychain + import distribution identity (build $BUILD) ====="
 security delete-keychain "$KC" 2>/dev/null || true
 security create-keychain -p "$KCPASS" "$KC"
 security set-keychain-settings -lut 21600 "$KC"
@@ -108,7 +112,7 @@ security list-keychains -d user -s "$KC" "$HOME/Library/Keychains/login.keychain
 security find-identity -v -p codesigning "$KC" | grep -q "$IDENTITY" \
   || die "distribution identity '$IDENTITY' not found after import (wrong P12_PASSWORD?)"
 
-echo "===== [2/6] transient project.yml manual-signing edit (entitlements: $([ "$WITH_ENTITLEMENTS" = 1 ] && echo KEPT || echo dropped)) ====="
+echo "===== [2/7] transient project.yml manual-signing edit (entitlements: $([ "$WITH_ENTITLEMENTS" = 1 ] && echo KEPT || echo dropped)) ====="
 python3 - "$IOS/project.yml" "$APP_PROFILE" "$WIDGET_PROFILE" "$IDENTITY" "$WITH_ENTITLEMENTS" <<'PY'
 import re
 import sys
@@ -140,10 +144,10 @@ open(path, "w").write(s)
 print("project.yml patched (manual signing, profiles set)")
 PY
 
-echo "===== [3/6] xcodegen generate ====="
+echo "===== [3/7] xcodegen generate ====="
 xcodegen generate
 
-echo "===== [4/6] archive ====="
+echo "===== [4/7] archive ====="
 rm -rf build/Baton.xcarchive build/export
 xcodebuild archive -project BatonMobile.xcodeproj -scheme BatonMobile -configuration Release \
   -destination 'generic/platform=iOS' -archivePath build/Baton.xcarchive \
@@ -159,7 +163,7 @@ if [ -n "${SENTRY_AUTH_TOKEN:-}" ] && command -v sentry-cli >/dev/null; then
     build/Baton.xcarchive/dSYMs || echo "sentry-cli upload failed (non-fatal)"
 fi
 
-echo "===== [5/6] export .ipa ====="
+echo "===== [5/7] export .ipa ====="
 cat > /tmp/baton-export.plist <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -185,8 +189,27 @@ if [ "$SKIP_UPLOAD" = 1 ]; then
   exit 0
 fi
 
-echo "===== [6/6] upload to TestFlight (build $BUILD) ====="
+echo "===== [6/7] upload to TestFlight (build $BUILD) ====="
 xcrun altool --upload-app -f build/export/Baton.ipa -t ios \
   --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+# Uploading and *distributing* are different things, and the gap between them is silent:
+# altool reports success, App Store Connect shows the build VALID, and testers see nothing,
+# because nothing linked the build to a group that has a tester on it. Two builds sat
+# invisible that way before anyone noticed, so this is no longer a manual step.
+#
+# Non-fatal on purpose: the upload has already succeeded by this point, and failing the
+# whole release over the attach would misreport what happened. The message says how to
+# finish by hand. SKIP_ATTACH=1 opts out.
+if [ "${SKIP_ATTACH:-0}" != "1" ]; then
+  echo "===== [7/7] wait for processing, then add to the internal beta group ====="
+  if ! ASC_ISSUER_ID="$ASC_ISSUER_ID" ASC_KEY_ID="$ASC_KEY_ID" ASC_KEY_PATH="$ASC_KEY_PATH" \
+       APP_BUNDLE="$APP_BUNDLE" python3 "$DIR/attach-build.py" --build "$BUILD"; then
+    echo "  NOTE: build $BUILD uploaded but is NOT attached to a beta group — testers cannot see it."
+    echo "        Finish with: python3 ios/scripts/attach-build.py --build $BUILD"
+  fi
+else
+  echo "===== [7/7] SKIP_ATTACH=1 — not adding to a beta group ====="
+fi
 
 echo "===== DONE: uploaded Baton build $BUILD to TestFlight ====="
