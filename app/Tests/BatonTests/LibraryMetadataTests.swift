@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Coverage for the extended Subsonic/OpenSubsonic metadata added to the domain models:

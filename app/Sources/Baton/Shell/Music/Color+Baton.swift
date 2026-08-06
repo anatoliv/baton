@@ -1,4 +1,8 @@
+#if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
 import SwiftUI
 
 /// Baton's brand color + the semantic tokens and WCAG contrast math that back the
@@ -47,11 +51,18 @@ extension Color {
 /// `ArtworkColorExtractor` to guarantee the dynamic accent stays legible against the
 /// player backdrop. Pure and synchronous, so it is unit-testable.
 enum Contrast {
-    /// sRGB components of a `Color` in [0,1], resolved through AppKit. Falls back to
-    /// mid-gray if the color can't be expressed in sRGB (e.g. a pattern/catalog color).
+    /// sRGB components of a `Color` in [0,1], resolved through the native color type.
+    /// Falls back to mid-gray if the color can't be expressed in sRGB (e.g. a
+    /// pattern/catalog color).
     static func components(_ color: Color) -> (r: Double, g: Double, b: Double) {
+        #if canImport(AppKit)
         guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return (0.5, 0.5, 0.5) }
         return (Double(srgb.redComponent), Double(srgb.greenComponent), Double(srgb.blueComponent))
+        #else
+        var r: CGFloat = 0.5, g: CGFloat = 0.5, b: CGFloat = 0.5, a: CGFloat = 1
+        guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return (0.5, 0.5, 0.5) }
+        return (Double(r), Double(g), Double(b))
+        #endif
     }
 
     /// Linearize one gamma-encoded sRGB channel (WCAG definition).

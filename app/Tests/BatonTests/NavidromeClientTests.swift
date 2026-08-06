@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Unit coverage for the hand-rolled Navidrome/Subsonic client: auth-token

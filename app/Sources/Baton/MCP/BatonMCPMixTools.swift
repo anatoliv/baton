@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 
 /// Agent-native "build me a mix" tool — the differentiator no plain music player has.
 /// An agent says "build me a 40-minute focus mix" and Baton assembles a track set of the

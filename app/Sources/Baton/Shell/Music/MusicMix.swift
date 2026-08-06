@@ -102,37 +102,22 @@ enum MusicMixCatalog {
     /// Names that indicate a playlist is produced by a generator rather than curated by
     /// hand. Deliberately a small, explicit list: guessing wrong pulls someone's carefully
     /// built playlist out of the sidebar they expect to find it in.
-    static let serverGeneratedNames: Set<String> = [
-        "Daily Jams", "Daily Discovery", "Deep Cuts", "Fresh",
-        "Focus · Deep", "Focus · Momentum", "Focus · Lift",
-        "Favorites Radio", "Favorites Inbox",
-    ]
+    static var serverGeneratedNames: Set<String> { MixCatalogRules.serverGeneratedNames }
 
     /// True when `name` looks generated. Matches the explicit set, plus anything under a
     /// "Focus · " prefix so new focus contexts appear without a code change.
     nonisolated static func isServerGenerated(_ name: String) -> Bool {
-        serverGeneratedNames.contains(name) || name.hasPrefix("Focus · ")
+        MixCatalogRules.isServerGenerated(name)
     }
 
-    /// Genre names that carry no information. A YouTube-sourced library tags essentially
-    /// every file "Music" or "People & Blogs", which produced a "Daily Mix" card offering
-    /// the entire library under one meaningless heading. A genre that covers most of the
-    /// library isn't a genre, so those are dropped rather than shown as a choice.
-    static let uninformativeGenres: Set<String> = [
-        "music", "people & blogs", "entertainment", "unknown", "other", "misc",
-        "miscellaneous", "gaming", "education", "news & politics", "film & animation",
-    ]
-
-    /// Fraction of the library above which a single genre is treated as a non-distinction.
-    static let genreDominanceCeiling = 0.35
+    // The genre/name/ordering rules live in `MixCatalogRules` (BatonPlaybackKit) so the
+    // Mac and the phone can't drift — the same library must produce the same mixes on
+    // whichever device you pick up. These stay as the Mac's names, forwarding.
+    static var uninformativeGenres: Set<String> { MixCatalogRules.uninformativeGenres }
+    static var genreDominanceCeiling: Double { MixCatalogRules.genreDominanceCeiling }
 
     nonisolated static func isUsefulGenre(name: String, songCount: Int, librarySongCount: Int) -> Bool {
-        guard songCount > 0 else { return false }
-        if uninformativeGenres.contains(name.trimmingCharacters(in: .whitespaces).lowercased()) {
-            return false
-        }
-        guard librarySongCount > 0 else { return true }
-        return Double(songCount) / Double(librarySongCount) <= genreDominanceCeiling
+        MixCatalogRules.isUsefulGenre(name: name, songCount: songCount, librarySongCount: librarySongCount)
     }
 
     /// An SF Symbol that suits a genre.
@@ -143,33 +128,7 @@ enum MusicMixCatalog {
     /// ("Hard Trance", "Vocal Trance", "Classic Trance") share a symbol without needing an
     /// entry each, and anything unrecognised keeps a neutral default rather than guessing.
     nonisolated static func symbol(forGenre name: String) -> String {
-        let g = name.lowercased()
-        let rules: [(String, String)] = [
-            ("trance", "waveform.path.ecg"), ("techno", "waveform.path.ecg"),
-            ("house", "square.stack.3d.down.right.fill"), ("electronic", "waveform"),
-            ("edm", "waveform"), ("dance", "figure.dance"), ("eurodance", "figure.dance"),
-            ("disco", "circle.circle.fill"), ("funk", "circle.circle.fill"),
-            ("ambient", "cloud.fill"), ("chill", "cloud.fill"), ("new age", "cloud.fill"),
-            ("synthwave", "sunset.fill"), ("cyberpunk", "bolt.horizontal.fill"),
-            ("darkwave", "moon.stars.fill"), ("gothic", "moon.stars.fill"),
-            ("new wave", "antenna.radiowaves.left.and.right"),
-            ("metal", "flame.fill"), ("hard rock", "flame.fill"), ("punk", "flame.fill"),
-            ("rock", "guitars.fill"), ("blues", "guitars.fill"), ("folk", "guitars.fill"),
-            ("country", "guitars.fill"),
-            ("jazz", "pianokeys"), ("classical", "pianokeys"), ("piano", "pianokeys"),
-            ("hip", "mic.fill"), ("rap", "mic.fill"), ("r&b", "mic.fill"), ("soul", "mic.fill"),
-            ("pop", "star.fill"), ("k-pop", "star.fill"),
-            ("workout", "figure.run"), ("big beat", "speaker.wave.3.fill"),
-            ("drum", "speaker.wave.3.fill"), ("dubstep", "speaker.wave.3.fill"),
-            ("reggae", "leaf.fill"), ("latin", "sun.max.fill"),
-            ("soundtrack", "film.fill"), ("video game", "gamecontroller.fill"),
-            ("castlevania", "gamecontroller.fill"), ("audiobook", "book.fill"),
-            ("podcast", "mic.circle.fill"), ("trip", "moon.haze.fill"),
-        ]
-        for (needle, icon) in rules where g.contains(needle) {
-            return icon
-        }
-        return "music.note"
+        MixCatalogRules.symbol(forGenre: name)
     }
 
     /// Per-genre "Daily Mix" cards — the user's top genres by song count.

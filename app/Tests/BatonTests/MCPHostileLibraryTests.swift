@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Behavioural tests for the MCP surface against a **deliberately hostile library**.

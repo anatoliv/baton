@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// `URLComponents` percent-encodes `&` and `=` inside query values but leaves `;` and

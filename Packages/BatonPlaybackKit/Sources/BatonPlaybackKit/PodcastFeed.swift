@@ -1,0 +1,304 @@
+import Foundation
+import BatonSubsonicKit
+import BatonSubsonicModels
+
+// MARK: - Neutral podcast domain (client-side)
+
+//
+// Baton's *client-side* podcasts subscribe to RSS feeds directly, independent of the music
+// server — this is how Navidrome users get podcasts at all, since Navidrome doesn't implement
+// the Subsonic podcast API. These types deliberately carry *direct* enclosure/image URLs (not
+// Subsonic ids), so an episode plays straight from its feed and cover art loads from the web —
+// the opposite of the server-side `NavidromePodcast*` types, which resolve everything through
+// the Subsonic client.
+
+/// A subscribed podcast show, parsed from its RSS feed. Identity is the feed URL, so
+/// re-subscribing to the same feed updates in place rather than duplicating.
+public struct PodcastChannel: Identifiable, Hashable, Codable, Sendable {
+    /// Stable identity = the feed URL string.
+    public var id: String { feedURL.absoluteString }
+    public let feedURL: URL
+    public var title: String
+    public var description: String?
+    public var imageURL: URL?
+    public var episodes: [PodcastEpisode]
+    /// When the feed was last successfully fetched (for "Updated …" and refresh ordering).
+    public var lastRefreshed: Date?
+
+    public init(feedURL: URL, title: String, description: String? = nil, imageURL: URL? = nil,
+                episodes: [PodcastEpisode] = [], lastRefreshed: Date? = nil) {
+        self.feedURL = feedURL
+        self.title = title
+        self.description = description
+        self.imageURL = imageURL
+        self.episodes = episodes
+        self.lastRefreshed = lastRefreshed
+    }
+}
+
+/// One episode from a feed. Unlike the server-side type, every episode here is immediately
+/// playable — it carries its own `enclosureURL` (the audio file) with no download step.
+public struct PodcastEpisode: Identifiable, Hashable, Codable, Sendable {
+    /// The feed's `<guid>`, falling back to the enclosure URL when a feed omits it.
+    public let id: String
+    public var title: String
+    public var description: String?
+    public var publishDate: Date?
+    /// Episode length in whole seconds, when the feed reports `<itunes:duration>`.
+    public var duration: Int?
+    /// The audio file to stream/download — played directly by `AVPlayer`.
+    public var enclosureURL: URL
+    /// Episode-specific art (`<itunes:image>`); the UI falls back to the channel's when absent.
+    public var imageURL: URL?
+
+    public init(id: String, title: String, description: String? = nil, publishDate: Date? = nil,
+                duration: Int? = nil, enclosureURL: URL, imageURL: URL? = nil) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.publishDate = publishDate
+        self.duration = duration
+        self.enclosureURL = enclosureURL
+        self.imageURL = imageURL
+    }
+}
+
+// MARK: - Feed parsing
+
+/// The channel-level metadata + episodes parsed out of an RSS document, before a `feedURL`
+/// (identity) is attached by the subscription store.
+public struct ParsedPodcastFeed: Equatable {
+    public var title: String
+    public var description: String?
+    public var imageURL: URL?
+    public var episodes: [PodcastEpisode]
+}
+
+public enum PodcastFeedError: Error, LocalizedError, Equatable {
+    /// The document didn't parse as XML, or carried no `<channel>`/`<item>`s we could use.
+    case invalidFeed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .invalidFeed(detail): "That doesn't look like a podcast feed: \(detail)"
+        }
+    }
+}
+
+/// Parses an RSS 2.0 + iTunes-namespace podcast document into a `ParsedPodcastFeed`.
+///
+/// A streaming `XMLParser` (SAX) rather than a DOM: podcast feeds run to hundreds of episodes
+/// and we only keep a handful of fields per item. Namespace processing is left *off* so
+/// iTunes elements arrive as their qualified names (`itunes:duration`, `itunes:image`), which
+/// is how feeds actually write them.
+public enum PodcastFeedParser {
+    public static func parse(_ data: Data) throws -> ParsedPodcastFeed {
+        let parser = XMLParser(data: data)
+        // Explicitly refuse external entities / DTDs — self-documents the XXE-safety that was
+        // relying on the platform default.
+        parser.shouldResolveExternalEntities = false
+        parser.externalEntityResolvingPolicy = .never
+        let delegate = Delegate()
+        parser.delegate = delegate
+        guard parser.parse() else {
+            throw PodcastFeedError.invalidFeed(parser.parserError?.localizedDescription ?? "unparseable XML")
+        }
+        guard delegate.sawChannel else {
+            throw PodcastFeedError.invalidFeed("no <channel> element")
+        }
+        return ParsedPodcastFeed(
+            title: delegate.channelTitle.trimmedNonEmpty ?? "(untitled podcast)",
+            description: delegate.channelDescription.trimmedNonEmpty,
+            imageURL: delegate.channelImageURL,
+            // Episodes without a playable enclosure can't be streamed — drop them. Newest first.
+            episodes: delegate.episodes
+                .compactMap { $0.build() }
+                .sorted { ($0.publishDate ?? .distantPast) > ($1.publishDate ?? .distantPast) }
+        )
+    }
+
+    // MARK: - SAX delegate
+
+    /// A mutable episode under construction as the parser walks one `<item>`.
+    private struct EpisodeDraft {
+        var title = ""
+        var description = ""
+        var summary = ""
+        var guid = ""
+        var pubDate = ""
+        var durationRaw = ""
+        var enclosure: URL?
+        var imageURL: URL?
+
+        /// Materializes a `PodcastEpisode`, or nil when the item has no audio enclosure.
+        func build() -> PodcastEpisode? {
+            guard let enclosure else { return nil }
+            let text = description.trimmedNonEmpty ?? summary.trimmedNonEmpty
+            return PodcastEpisode(
+                id: guid.trimmedNonEmpty ?? enclosure.absoluteString,
+                title: title.trimmedNonEmpty ?? "(untitled episode)",
+                description: text.map(stripHTML),
+                publishDate: parseRFC822(pubDate),
+                duration: parseDuration(durationRaw),
+                enclosureURL: enclosure,
+                imageURL: imageURL
+            )
+        }
+    }
+
+    private final class Delegate: NSObject, XMLParserDelegate {
+        var sawChannel = false
+        var channelTitle = ""
+        var channelDescription = ""
+        var channelImageURL: URL?
+
+        var episodes: [EpisodeDraft] = []
+
+        /// Text accumulator for the element currently being read (reset on each start tag;
+        /// XML may deliver character data in several callbacks).
+        private var buffer = ""
+        /// True between `<item>` and `</item>` — routes text/attrs to the current draft.
+        private var inItem = false
+        private var draft = EpisodeDraft()
+        /// True inside the channel's `<image>` wrapper, so its `<url>` isn't mistaken for
+        /// anything else.
+        private var inChannelImage = false
+
+        func parser(
+            _ parser: XMLParser, didStartElement element: String,
+            namespaceURI: String?, qualifiedName: String?, attributes attrs: [String: String]
+        ) {
+            buffer = ""
+            switch element {
+            case "channel":
+                sawChannel = true
+            case "item":
+                inItem = true
+                draft = EpisodeDraft()
+            case "image" where !inItem:
+                inChannelImage = true
+            case "enclosure":
+                if inItem, let url = attrs["url"].flatMap(cleanURL) { draft.enclosure = url }
+            case "itunes:image":
+                if let url = attrs["href"].flatMap(cleanURL) {
+                    if inItem { draft.imageURL = url } else if channelImageURL == nil { channelImageURL = url }
+                }
+            default:
+                break
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            buffer += string
+        }
+
+        func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+            if let string = String(data: CDATABlock, encoding: .utf8) { buffer += string }
+        }
+
+        func parser(
+            _ parser: XMLParser, didEndElement element: String,
+            namespaceURI: String?, qualifiedName: String?
+        ) {
+            let text = buffer
+            if inItem {
+                switch element {
+                case "title": draft.title = text
+                case "description", "content:encoded": draft.description = text
+                case "itunes:summary": draft.summary = text
+                case "guid": draft.guid = text
+                case "pubDate": draft.pubDate = text
+                case "itunes:duration": draft.durationRaw = text
+                case "item":
+                    episodes.append(draft)
+                    inItem = false
+                default: break
+                }
+            } else {
+                switch element {
+                case "title": if channelTitle.isEmpty { channelTitle = text }
+                case "description": if channelDescription.isEmpty { channelDescription = text }
+                case "url" where inChannelImage: if channelImageURL == nil { channelImageURL = cleanURL(text) }
+                case "image": inChannelImage = false
+                default: break
+                }
+            }
+            buffer = ""
+        }
+    }
+}
+
+// MARK: - Field helpers
+
+extension PodcastFeedParser {
+    /// Parses `<itunes:duration>` — either whole seconds ("1830") or a clock string
+    /// ("30:30" / "1:02:03"). Returns nil when neither shape fits.
+    public static func parseDuration(_ raw: String) -> Int? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.contains(":") {
+            let parts = trimmed.split(separator: ":").map { Int($0) ?? -1 }
+            guard !parts.contains(-1) else { return nil }
+            return parts.reduce(0) { $0 * 60 + $1 }
+        }
+        return Int(trimmed)
+    }
+
+    /// Parses an RFC-822 `<pubDate>` (the podcast standard, e.g. "Mon, 13 Jul 2026 09:00:00 GMT").
+    public static func parseRFC822(_ raw: String) -> Date? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        // Numeric-offset AND named-zone (EST/PDT — RFC 822 allows them) variants, with/without
+        // seconds; real feeds use all of these.
+        let formats = [
+            "EEE, dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy HH:mm Z", "dd MMM yyyy HH:mm:ss Z",
+            "EEE, dd MMM yyyy HH:mm:ss zzz", "EEE, dd MMM yyyy HH:mm zzz", "dd MMM yyyy HH:mm:ss zzz",
+        ]
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) { return date }
+        }
+        // Some feeds put an ISO-8601 timestamp in <pubDate>.
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: trimmed) { return date }
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return iso.date(from: trimmed)
+    }
+
+    /// Trims and validates an http(s) URL string; nil for anything else (mailto:, blank, …).
+    public static func cleanURL(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else { return nil }
+        return url
+    }
+
+    /// Lightweight tag strip so show-notes render as plain text (feeds embed HTML in
+    /// descriptions). Collapses runs of whitespace left behind.
+    public static func stripHTML(_ raw: String) -> String {
+        let noTags = raw.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        let decoded = noTags
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+        return decoded.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension String {
+    /// The trimmed string, or nil when it's empty after trimming.
+    public var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension Optional where Wrapped == String {
+    public var trimmedNonEmpty: String? { self?.trimmedNonEmpty }
+}

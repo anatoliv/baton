@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonSubsonicKit
 
 /// Add/edit a single server. Lifts the connection fields from `BatonConnectSheet`;
 /// verifies before saving. On save it makes the server active and refreshes the

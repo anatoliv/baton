@@ -1,5 +1,6 @@
 import XCTest
 @testable import Baton
+@testable import BatonAgentKit
 
 /// The chat control surface's pure core: what a message means, what comes back,
 /// and — most importantly — who is allowed to say it. Everything here is
@@ -43,19 +44,27 @@ final class RemoteCommandParserTests: XCTestCase {
 
     // MARK: Numeric arguments
 
+    /// A verb whose argument didn't parse. It used to be `.help`; it is now
+    /// `.malformed`, which reaches the model. See
+    /// `testAVerbWithAnUnparseableArgumentReachesTheModel`.
+    private func isMalformed(_ text: String) -> Bool {
+        if case .malformed = RemoteCommandParser.parse(text) { return true }
+        return false
+    }
+
     func testVolumeAcceptsRangeAndRejectsNonsense() {
         XCTAssertEqual(call("vol 40")?.arguments["percent"], .int(40))
         XCTAssertEqual(call("volume 0")?.arguments["percent"], .int(0))
         XCTAssertEqual(call("vol 100")?.arguments["percent"], .int(100))
-        XCTAssertEqual(RemoteCommandParser.parse("vol 101"), .help)
-        XCTAssertEqual(RemoteCommandParser.parse("vol -5"), .help)
-        XCTAssertEqual(RemoteCommandParser.parse("vol loud"), .help)
+        XCTAssertTrue(isMalformed("vol 101"))
+        XCTAssertTrue(isMalformed("vol -5"))
+        XCTAssertTrue(isMalformed("vol loud"))
     }
 
     func testRatingBounds() {
         XCTAssertEqual(call("rate 5")?.arguments["rating"], .int(5))
         XCTAssertEqual(call("rate 0")?.arguments["rating"], .int(0))
-        XCTAssertEqual(RemoteCommandParser.parse("rate 6"), .help)
+        XCTAssertTrue(isMalformed("rate 6"))
     }
 
     func testDurationFormats() {
@@ -80,7 +89,7 @@ final class RemoteCommandParserTests: XCTestCase {
     func testShuffleAndRepeatNormalizeSynonyms() {
         XCTAssertEqual(call("shuffle on")?.arguments["enabled"], .bool(true))
         XCTAssertEqual(call("shuffle off")?.arguments["enabled"], .bool(false))
-        XCTAssertEqual(RemoteCommandParser.parse("shuffle maybe"), .help)
+        XCTAssertTrue(isMalformed("shuffle maybe"))
 
         XCTAssertEqual(call("repeat one")?.arguments["mode"], .string("one"))
         XCTAssertEqual(call("repeat song")?.arguments["mode"], .string("one"))
@@ -93,7 +102,7 @@ final class RemoteCommandParserTests: XCTestCase {
         XCTAssertEqual(call("sleep 30")?.arguments["minutes"], .int(30))
         XCTAssertEqual(call("sleep off")?.arguments["minutes"], .int(0))
         XCTAssertEqual(call("sleep cancel")?.arguments["minutes"], .int(0))
-        XCTAssertEqual(RemoteCommandParser.parse("sleep soon"), .help)
+        XCTAssertTrue(isMalformed("sleep soon"))
     }
 
     // MARK: Likes
@@ -121,6 +130,66 @@ final class RemoteCommandParserTests: XCTestCase {
     func testSearchKeepsConnectorsThatAreNotTheVerbsOwn() {
         XCTAssertEqual(call("search waiting for a star")?.arguments["query"], .string("waiting for a star"))
         XCTAssertEqual(call("search for")?.arguments["query"], .string("for"))
+    }
+
+    // MARK: A verb that matched, an argument that didn't
+
+    /// The reported bug: "rate 4 this track and list similar by the same
+    /// artist" answered with the command list. `rate` claimed the verb, failed
+    /// to read the rest as a bare integer, and returned `.help` — which is
+    /// terminal, so the model never saw a message that plainly meant something.
+    func testAVerbWithAnUnparseableArgumentReachesTheModel() {
+        guard case let .malformed(verb, text, _) =
+            RemoteCommandParser.parse("rate 4 this track and list similar by the same artist")
+        else { return XCTFail("must not dead-end in the command list") }
+
+        XCTAssertEqual(verb, "rate")
+        XCTAssertEqual(text, "rate 4 this track and list similar by the same artist",
+                       "the model needs the whole sentence, not the leftover")
+    }
+
+    /// Every verb with a narrow argument grammar had the same dead end.
+    func testNoVerbDeadEndsInTheCommandList() {
+        let compounds = [
+            "rate 4 this track and list similar by the same artist",
+            "vol up a bit and skip this one",
+            "seek to the chorus",
+            "shuffle these and put on something else",
+            "repeat this until I say stop",
+            "sleep after this album",
+            "mix", "radio", "playnext", "search",
+        ]
+        for message in compounds {
+            if case .help = RemoteCommandParser.parse(message) {
+                XCTFail("“\(message)” answered with the manual instead of asking the model")
+            }
+        }
+    }
+
+    /// The hint is what someone sees when there is no model to ask — it must
+    /// name the one thing the verb wanted, not reprint everything.
+    func testTheFallbackHintIsSpecific() {
+        guard case let .malformed(_, _, hint) = RemoteCommandParser.parse("rate this really highly")
+        else { return XCTFail("expected .malformed") }
+        XCTAssertTrue(hint.contains("0 to 5"), hint)
+        XCTAssertFalse(hint.contains("Playback"), "not the whole command list")
+    }
+
+    /// Bare `help` still means help, and `/link` still can't reach the model —
+    /// it runs before the sender is authorized.
+    func testHelpAndLinkAreUnchanged() {
+        XCTAssertEqual(RemoteCommandParser.parse("help"), .help)
+        XCTAssertEqual(RemoteCommandParser.parse("/link"), .help)
+        XCTAssertEqual(RemoteCommandParser.parse("/link 123456"), .link(code: "123456"))
+    }
+
+    /// And a well-formed command must not have become a model round trip.
+    func testWellFormedCommandsStillRunLocally() {
+        XCTAssertEqual(call("rate 4")?.arguments["rating"], .int(4))
+        XCTAssertEqual(call("vol 40")?.arguments["percent"], .int(40))
+        XCTAssertEqual(call("seek 1:30")?.arguments["seconds"], .int(90))
+        XCTAssertEqual(call("shuffle on")?.arguments["enabled"], .bool(true))
+        XCTAssertEqual(call("sleep 30")?.arguments["minutes"], .int(30))
     }
 
     // MARK: Meta

@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Observation
+import BatonSubsonicKit
 
 /// The self-contained root for the music player — owns the playback engine, the library,
 /// history, scrobblers, radio bans, and the equalizer, and wires them together. Grouped out
@@ -31,6 +32,9 @@ final class MusicModel {
     let musicEqualizer: MusicEqualizer
     /// Internet-radio stations + raw-stream player + lazily-resolved logos/genre.
     let internetRadio = InternetRadioStore()
+    /// Cross-device handoff saver — pushes the queue to the server's play-queue slot
+    /// on pause so another Baton (the iPhone) can continue mid-track.
+    let queueHandoff: QueueHandoff
     /// Whether the active server implements the Subsonic podcast API (Navidrome does not).
     /// Selects which backend the Podcasts tab uses (server-side vs. client-side RSS).
     let podcastCapability = PodcastCapabilityStore()
@@ -101,6 +105,7 @@ final class MusicModel {
         musicEqualizer = MusicEqualizer(environment: environment)
         eqProcessor = AudioEQProcessor(coefficients: musicEqualizer.coefficients)
         scrobbler = ScrobbleService(listenBrainz: musicScrobbler, lastfm: musicLastFM, localArchive: musicHistory)
+        queueHandoff = QueueHandoff(controller: music)
         // Server-side podcast episodes carry opaque Subsonic ids, so the id-only default can't
         // spot them; teach the scrobbler to consult the registry too or episodes scrobble as music.
         scrobbler.isPodcast = { [podcastProgress] song in
@@ -220,6 +225,12 @@ final class MusicModel {
         }
         // A fixed-time sleep timer stops internet radio too (it plays on a separate engine).
         music.onSleepFire = { [internetRadio] in internetRadio.stop() }
+        // Cross-device handoff: save the queue server-side whenever playback pauses, so
+        // the iPhone can offer "continue where you left off" mid-track (and vice versa).
+        music.onPause = { [queueHandoff] in
+            guard !BatonEnvironment.current.isTesting else { return }
+            queueHandoff.saveNow()
+        }
         // Record a completed listen once a track passes the scrobble threshold. `startedAt`
         // is when the track began — the canonical scrobble timestamp.
         music.onScrobbleEligible = { [scrobbler] song, startedAt in

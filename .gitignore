@@ -8,8 +8,20 @@ app/Info.plist
 # Local Sentry DSN override (the base xcconfig + .example are committed; the
 # real DSN lives here and must never be committed or mirrored).
 app/Config/Sentry.local.xcconfig
+ios/Config/Sentry.local.xcconfig
 website/appcast.xml
 
 # Playwright CLI session artifacts — page snapshots capture whatever is on screen,
 # including secrets from a portal. Never commit them.
 .playwright-cli/
+# SwiftPM build products, wherever they appear — Packages/, gateway/, and the
+# Linux .build/ a container leaves behind after a cross-platform check.
+.build/
+
+# TestFlight secrets (see ios/scripts/.testflight.env.example)
+ios/scripts/.testflight.env
+ios/build/
+
+# Bundled copies of the canonical guides, synced on every build.
+ios/Resources/HELP.md
+ios/Resources/FAQ.md
