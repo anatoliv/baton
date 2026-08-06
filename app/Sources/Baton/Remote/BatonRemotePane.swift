@@ -59,6 +59,8 @@ private struct RemoteSettingsForm: View {
             platformSection(.discord, token: $discordToken)
 
             linkingSection
+            deviceLinkSection
+            SharedSettingsPane()
             naturalLanguageSection
 
             Section("Privacy") {
@@ -202,6 +204,14 @@ private struct RemoteSettingsForm: View {
     }
 
     // MARK: Natural language
+
+    /// QR pairing for a phone. Sits beside the other linking concerns rather than in the
+    /// server pane, because what it links is a *device*, not another account.
+    private var deviceLinkSection: some View {
+        Section("Devices") {
+            DeviceLinkPane()
+        }
+    }
 
     @ViewBuilder
     private var naturalLanguageSection: some View {

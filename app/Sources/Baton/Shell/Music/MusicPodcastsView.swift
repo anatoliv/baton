@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonSubsonicKit
 
 /// The **Podcasts** tab. Baton has two podcast backends and this router picks between them:
 ///

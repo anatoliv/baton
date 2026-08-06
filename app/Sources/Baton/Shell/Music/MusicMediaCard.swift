@@ -288,12 +288,6 @@ struct MusicBrowseHeader<Accessory: View, Leading: View, SortMenu: View>: View {
     }
 }
 
-/// A sort field for the shared `MusicSortControls` — each browse screen's sort enum
-/// conforms so the one control can render every screen's fields.
-protocol MusicSortField: Identifiable, Hashable, CaseIterable {
-    var label: String { get }
-}
-
 /// The split Sort control used on every browse screen: a left **direction** toggle
 /// (ascending/descending) and a right **field dropdown** whose label is the current
 /// field. The dropdown opens straight to a flat, checkmarked list of fields (no

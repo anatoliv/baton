@@ -2,6 +2,7 @@ import Foundation
 import Network
 import Observation
 import OSLog
+import BatonSubsonicKit
 // The MCP transport protocol (JSON-RPC, HTTP parsing/framing, token compare) is the fourth
 // leaf of the  module split. Re-exported so every call site stays unqualified; the server
 // itself (which ties into MusicModel) stays in the app.

@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// : the server-URL validator accepts only http/https with a host — a `file://` would

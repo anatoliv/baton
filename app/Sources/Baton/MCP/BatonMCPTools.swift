@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import BatonSubsonicKit
 
 private let batonMCPLog = Logger(subsystem: "io.tonebox.baton", category: "MCPTools")
 

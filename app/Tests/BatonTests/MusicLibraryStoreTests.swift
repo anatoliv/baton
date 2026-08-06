@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Coverage for `MusicLibraryStore` optimistic rating writes (+ revert on failure)

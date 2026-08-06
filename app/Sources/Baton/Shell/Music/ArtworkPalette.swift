@@ -1,4 +1,8 @@
+#if canImport(AppKit)
 import AppKit
+#else
+import UIKit
+#endif
 import Observation
 import SwiftUI
 
@@ -80,12 +84,19 @@ enum ArtworkColorExtractor {
     }
 
     /// Extract a palette from an already-loaded image. Deterministic, no I/O.
+    #if canImport(AppKit)
     static func palette(from image: NSImage) -> ArtworkPalette {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return .neutral
         }
         return palette(from: cgImage)
     }
+    #else
+    static func palette(from image: UIImage) -> ArtworkPalette {
+        guard let cgImage = image.cgImage else { return .neutral }
+        return palette(from: cgImage)
+    }
+    #endif
 
     static func palette(from cgImage: CGImage) -> ArtworkPalette {
         let side = 24
@@ -137,9 +148,12 @@ enum ArtworkColorExtractor {
 
     /// Loads a cover-art URL and extracts its palette (off the main thread).
     static func palette(from url: URL) async -> ArtworkPalette? {
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let image = NSImage(data: data)
-        else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        #if canImport(AppKit)
+        guard let image = NSImage(data: data) else { return nil }
+        #else
+        guard let image = UIImage(data: data) else { return nil }
+        #endif
         return palette(from: image)
     }
 }

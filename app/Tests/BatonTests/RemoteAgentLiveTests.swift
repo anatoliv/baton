@@ -1,5 +1,6 @@
 import XCTest
 @testable import Baton
+@testable import BatonAgentKit
 
 /// Live agent checks against a real model endpoint. **Skipped unless configured**,
 /// so the normal suite stays offline, deterministic, and free.
@@ -118,6 +119,29 @@ final class RemoteAgentLiveTests: XCTestCase {
     /// reporting failure.
     func testItRecoversFromAnEmptySearchAgainstARealModel() async throws {
         let live = try live()
+        // A live model is sampled, not deterministic: it occasionally searches
+        // several ways and then narrates instead of playing. One sample is not
+        // evidence of a regression — three consecutive failures are. Attempts
+        // stop at the first success, so a healthy run costs exactly one call.
+        var lastFailure: String?
+        for attempt in 1 ... 3 {
+            if let failure = try await attemptEmptySearchRecovery(live) {
+                lastFailure = failure
+                print("LIVE RETRY \(attempt)/3 — \(failure)")
+                continue
+            }
+            return
+        }
+        XCTFail("three consecutive live attempts failed — \(lastFailure ?? "unknown")")
+    }
+
+    /// One sample of the recovery scenario. Returns nil on success, or the
+    /// reason it fell short. Only genuinely nondeterministic expectations are
+    /// returned as retryable; the mechanical ones still assert immediately,
+    /// because a broken transcript is broken every time.
+    private func attemptEmptySearchRecovery(
+        _ live: Live
+    ) async throws -> String? {
         var calls: [RemoteToolCall] = []
 
         let outcome = try await RemoteAgent.run(
@@ -125,7 +149,7 @@ final class RemoteAgentLiveTests: XCTestCase {
             history: [],
             playerContext: "Player state: nothing is playing right now.",
             config: live.config,
-            tools: RemoteAgent.toolSchemas(),
+            tools: RemoteAgent.toolSchemas(definitions: BatonMCPToolCatalog.definitions()),
             runTool: libraryToolRunner { calls.append($0) }
         )
 
@@ -144,6 +168,7 @@ final class RemoteAgentLiveTests: XCTestCase {
         // The mechanics, which are what this test can assert deterministically:
         // a real provider accepted a multi-turn transcript carrying tool calls
         // and their results, and the loop came back with something to say.
+        // These are not retryable — a malformed request fails identically.
         XCTAssertFalse(outcome.text.isEmpty, "must always answer")
         XCTAssertFalse(calls.isEmpty, "an agent that calls nothing has not looked")
 
@@ -152,7 +177,7 @@ final class RemoteAgentLiveTests: XCTestCase {
         // or it asked; both beat "Nothing matched."
         let searched = calls.filter { $0.name == "music_search" }
         if searched.count == 1, calls.count == 1 {
-            XCTFail("gave up after one empty search — the whole point was not to")
+            return "gave up after one empty search — the whole point was not to"
         }
 
         // "find lazy music **and play**" is a request to hear something. An
@@ -161,7 +186,10 @@ final class RemoteAgentLiveTests: XCTestCase {
         // speakers.
         let acted = calls.contains { ["music_play", "music_build_mix", "music_start_radio",
                                       "music_queue_add", "music_play_playlist"].contains($0.name) }
-        XCTAssertTrue(acted || outcome.choice != nil, "promised playback without playing: \(trace)")
+        guard acted || outcome.choice != nil else {
+            return "promised playback without playing: \(trace)"
+        }
+        return nil
     }
 
     /// Multi-turn is the part a single-shot request never exercises: turn two
@@ -179,7 +207,7 @@ final class RemoteAgentLiveTests: XCTestCase {
             ],
             playerContext: "Player state: nothing is playing right now.",
             config: live.config,
-            tools: RemoteAgent.toolSchemas(),
+            tools: RemoteAgent.toolSchemas(definitions: BatonMCPToolCatalog.definitions()),
             runTool: libraryToolRunner { _ in },
             turn: { messages, tools in
                 turns += 1

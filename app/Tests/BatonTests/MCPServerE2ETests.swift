@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 ///  (Foundation F5): boot the REAL MCP server on a loopback port with a temp discovery

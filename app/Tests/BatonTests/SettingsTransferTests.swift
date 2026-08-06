@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Round-trip coverage for `SettingsTransfer` — the settings export/import used to move a setup

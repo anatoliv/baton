@@ -1,4 +1,5 @@
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// Coverage for `PodcastCapabilityStore` — the gate that hides the Podcasts tab on servers
