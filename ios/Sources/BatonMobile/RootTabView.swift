@@ -145,11 +145,11 @@ private struct NowPlayingAccessory: ViewModifier {
             content
         } else if #available(iOS 26.0, *) {
             content.tabViewBottomAccessory {
-                NowPlayingBar(model: model, onOpen: onTap)
+                NowPlayingBar(model: model, chrome: .systemAccessory, onOpen: onTap)
             }
         } else {
             content.safeAreaInset(edge: .bottom) {
-                NowPlayingBar(model: model, onOpen: onTap)
+                NowPlayingBar(model: model, chrome: .standalone, onOpen: onTap)
             }
         }
     }
