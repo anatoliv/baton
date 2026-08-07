@@ -20,6 +20,12 @@ final class SessionPurgeUITests: XCTestCase {
         // A configured server, without typing: text entry is the one thing synthetic input
         // reliably cannot do, and every screen behind "connect" is otherwise unreachable.
         app.launchArguments += [
+            // Start from a clean session, like every other UI test here. Without it this
+            // one inherits whatever the previous test left behind — and a disconnect test
+            // that begins in an unknown state is testing an unknown thing. The reset runs
+            // at launch before anything is constructed, so the -uitest server below is
+            // still applied afterwards.
+            "-baton.resetSession",
             "-uitestServer", "https://demo.navidrome.org",
             "-uitestUser", "demo",
             "-uitestSecret", "demo",

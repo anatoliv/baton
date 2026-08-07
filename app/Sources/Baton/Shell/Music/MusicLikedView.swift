@@ -670,12 +670,51 @@ struct MusicCollectionView: View {
         .fixedSize()
     }
 
+    // MARK: - Recently opened
+
+    /// Albums and artists opened from Search, on any device. Distinct from the field's own
+    /// history menu, which remembers the strings typed rather than what they found.
+    private var searchRecentsView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Recently Opened").font(.headline)
+                    Spacer()
+                    Button("Clear") { model.searchRecents.clear() }
+                        .buttonStyle(.plain).font(.callout).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                    ForEach(model.searchRecents.entries) { entry in
+                        if let album = model.searchRecents.album(for: entry) {
+                            AlbumGridCell(album: album, selectable: false,
+                                          isSelected: false, onToggleSelect: {})
+                        } else if let artist = model.searchRecents.artist(for: entry) {
+                            ArtistGridCell(artist: artist, isSelected: false, onToggleSelect: {})
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+        }
+    }
+
     // MARK: - Segments
 
     private var songsView: some View {
         Group {
             if results.songs.isEmpty {
-                emptyState(songsEmpty.icon, songsEmpty.title, songsEmpty.subtitle)
+                // Before anything is searched, offer what you opened last time — here and
+                // on the phone, since the list is shared. Falls back to the plain empty
+                // state when there's no history yet.
+                if searchMode, !model.searchRecents.entries.isEmpty {
+                    searchRecentsView
+                } else {
+                    emptyState(songsEmpty.icon, songsEmpty.title, songsEmpty.subtitle)
+                }
             } else if songs.isEmpty {
                 emptyState("magnifyingglass", "No matches", "Nothing matches “\(filterText)”.")
             } else if layout == .grid {

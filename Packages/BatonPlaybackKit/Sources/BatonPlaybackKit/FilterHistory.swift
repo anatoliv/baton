@@ -21,7 +21,8 @@ public enum FilterHistory {
         return min(100, max(1, stored ?? defaultSize))
     }
 
-    private static func storageKey(_ key: String) -> String { "tonebox.filterHistory.\(key)" }
+    /// Public so `PreferenceSync` can name these keys without duplicating the format.
+    public static func storageKey(_ key: String) -> String { "tonebox.filterHistory.\(key)" }
 
     /// The saved terms for a screen, most-recent first.
     public static func items(_ key: String) -> [String] {
@@ -57,4 +58,28 @@ public enum FilterHistory {
 
     /// Wipe every screen's history (Settings → "Clear filter history").
     public static func clearAll() { allKeys.forEach(clear) }
+
+    /// Union two devices' lists instead of letting one replace the other.
+    ///
+    /// Last-write-wins is right for a scalar and wrong for a list that accumulates — it
+    /// would drop everything typed on the quieter device the moment the other one wrote.
+    /// There are no per-term timestamps to order by, so position stands in for recency:
+    /// both lists are most-recent-first, so a term's best (lowest) index across the two is
+    /// the strongest claim either device makes about how recently it was used. Ties break
+    /// on the term itself, so the result is stable rather than dependent on dictionary
+    /// ordering — an unstable merge would rewrite the list on every sync and push forever.
+    public static func merge(_ a: [String], _ b: [String], cap: Int) -> [String] {
+        var best: [String: (rank: Int, term: String)] = [:]
+        for list in [a, b] {
+            for (index, term) in list.enumerated() {
+                let folded = term.lowercased()
+                if let existing = best[folded], existing.rank <= index { continue }
+                best[folded] = (index, term)
+            }
+        }
+        return best.values
+            .sorted { $0.rank == $1.rank ? $0.term < $1.term : $0.rank < $1.rank }
+            .prefix(max(0, cap))
+            .map(\.term)
+    }
 }

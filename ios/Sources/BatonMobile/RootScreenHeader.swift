@@ -150,6 +150,10 @@ struct HeaderSearchField: View {
     /// hosts the field needs to be able to give focus back — otherwise the screen has no
     /// exit while the keyboard is up.
     var externalFocus: FocusState<Bool>.Binding?
+    /// Fired when the keyboard's Search key is pressed. Recording history on every
+    /// keystroke would fill it with "d", "di", "did" on the way to "dido"; a submit is the
+    /// only signal that the query was finished rather than in progress.
+    var onSubmit: (() -> Void)?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -162,6 +166,7 @@ struct HeaderSearchField: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .focused(externalFocus ?? $focused)
+                .onSubmit { onSubmit?() }
             if !text.isEmpty {
                 Button {
                     text = ""

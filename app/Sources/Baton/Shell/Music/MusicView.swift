@@ -242,8 +242,20 @@ struct MusicView: View {
                             Divider()
                             NavigationStack(path: $path) {
                                 content
-                                    .navigationDestination(for: NavidromeAlbum.self) { MusicAlbumDetail(album: $0) }
-                                    .navigationDestination(for: NavidromeArtist.self) { MusicArtistDetail(artist: $0) }
+                                    // Recorded here rather than at the cell, because the
+                                    // cells are plain `NavigationLink(value:)` shared by
+                                    // every browser — a link navigates without telling
+                                    // anyone, which is why Search had no memory of what it
+                                    // found. Gated on the Search tab so opening an album
+                                    // from Albums doesn't fill the list with everything.
+                                    .navigationDestination(for: NavidromeAlbum.self) { album in
+                                        MusicAlbumDetail(album: album)
+                                            .task { if tab == .search { model.searchRecents.record(album: album) } }
+                                    }
+                                    .navigationDestination(for: NavidromeArtist.self) { artist in
+                                        MusicArtistDetail(artist: artist)
+                                            .task { if tab == .search { model.searchRecents.record(artist: artist) } }
+                                    }
                                     .navigationDestination(for: NavidromePlaylist.self) {
                                         MusicPlaylistDetail(playlist: $0)
                                     }

@@ -246,6 +246,16 @@ final class MobileModel {
         } else {
             await preferenceSync.syncIfDue(gatewayURL: url, token: agentConfig.gatewayToken)
         }
+        // A sync merges the other device's search history straight into UserDefaults, which
+        // the in-memory list can't see. Without this the Mac's searches only surface after
+        // the next launch, which reads as "it doesn't sync".
+        searchRecents.reload()
+    }
+
+    /// Point search history at the server now signed in. Entries hold Navidrome ids, so a
+    /// different library's rows would open onto errors.
+    func refreshSearchScope() {
+        searchRecents.setServer(SearchRecents.currentServerFingerprint())
     }
 
     /// Decides what the app opens into: a configured server, a resumed demo, or setup.
@@ -273,6 +283,7 @@ final class MobileModel {
 
         if NavidromeConfig.isConfigured {
             phase = .ready
+            refreshSearchScope()
             await warmLibrary()
             await verifyCredentials()
             await syncPreferences(force: true)
@@ -316,6 +327,9 @@ final class MobileModel {
     /// libraries never overlap.
     func endDemo() {
         UserDefaults.standard.set(false, forKey: Self.demoModeKey)
+        // Every sign-in path lands here, so it's the one place search history has to be
+        // re-pointed at whichever server was just connected.
+        refreshSearchScope()
         defer {
             // Recompute rather than trust the caller's ordering: `showsSetup = false`
             // followed by `endDemo()` used to leave `phase == .demo` on a device that was
