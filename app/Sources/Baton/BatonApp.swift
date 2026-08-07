@@ -35,6 +35,10 @@ struct BatonApp: App {
     /// registry and drives the same `BatonMCPToolCatalog`, so a chat message and an
     /// agent call take one code path. Dormant until configured in Settings → Remote.
     @State private var remote: RemoteControlService?
+    /// Pulls shared settings in on its own. Before this the Mac only ever synced when
+    /// someone pressed a button in Settings, so the phone's searches, podcasts and EQ
+    /// simply never arrived.
+    @State private var syncScheduler: PreferenceSyncScheduler?
 
     /// Window id for the custom About panel (opened from the app menu).
     static let aboutWindowID = "baton-about"
@@ -65,6 +69,11 @@ struct BatonApp: App {
                 .tint(.batonOrange)
                 .task {
                     BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips
+                    if syncScheduler == nil {
+                        let scheduler = PreferenceSyncScheduler(model: music)
+                        scheduler.start()
+                        syncScheduler = scheduler
+                    }
                     if mcp == nil {
                         let s = BatonMCPServer(music: music); s.start(); mcp = s
                         // Start the fast-path listener sharing the server's focus registry.

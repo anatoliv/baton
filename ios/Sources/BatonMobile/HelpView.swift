@@ -233,6 +233,17 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.16",
+            date: "August 2026",
+            highlight: "Search remembers what you typed — on both devices.",
+            changes: [
+                .init(.added, "Search now keeps the queries you typed, not just the albums and artists you opened. Tap one to run it again."),
+                .init(.added, "Both lists are shared with your Mac. A search made there is one tap away here, and the other way round."),
+                .init(.improved, "The shared lists are merged rather than overwritten, so a search made on one device is never dropped because the other synced more recently."),
+                .init(.improved, "Albums and artists you opened are remembered per server, so signing in to a second library doesn't show you rows that lead nowhere."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.15",
             date: "August 2026",
             highlight: "How long everything is, and a listening history that counts every device.",

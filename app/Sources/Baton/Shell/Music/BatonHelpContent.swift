@@ -234,6 +234,41 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.2",
+            date: "August 2026",
+            highlight: "Search history that follows you to the phone.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "The Search field's history is now shared with your iPhone, and the "
+                        + "phone keeps one too. A query typed on either device is one click "
+                        + "away on the other."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Search now also remembers the albums and artists you opened, shown "
+                        + "under \u{201C}Recently Opened\u{201D} before you type \u{2014} usually "
+                        + "the faster way back, since what you wanted was the record rather "
+                        + "than the words you used to find it. Shared with the phone as well."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The shared lists merge rather than overwrite. Last-write-wins is "
+                        + "right for a setting and wrong for a list \u{2014} it would drop "
+                        + "everything searched on the quieter device the moment the other one "
+                        + "synced."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Shared settings now sync on their own \u{2014} at launch, when you "
+                        + "switch to Baton, and periodically. Before, the Mac only ever synced "
+                        + "when you pressed \u{201C}Sync now\u{201D} in Settings, so anything "
+                        + "changed on your iPhone sat there until you happened to go and press "
+                        + "a button you had no reason to press."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.1",
             date: "August 2026",
             highlight: "Stops you can hear.",

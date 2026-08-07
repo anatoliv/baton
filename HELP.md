@@ -260,6 +260,23 @@ Each browse screen also has its own filter box for narrowing the list you're alr
 at. Baton remembers your recent filter terms per screen; you can control how many it keeps
 in Settings, under Playback, in the Advanced section.
 
+### Search remembers two things, and both follow you
+
+Baton keeps **what you typed** and **what you opened**, because they answer different
+questions. The queries are the list under the clock icon in the search field on the Mac,
+and under "Recent Searches" on the phone. The albums and artists you opened from a search
+appear under "Recently Opened" — often the faster route back, since what you actually
+wanted was the record, not the words you used to find it.
+
+Both are shared between your Mac and your phone once shared settings are set up (Settings →
+Remote). They're **merged, not overwritten**: a search made on one device is added to what
+the other already had, rather than replacing it, so nothing you looked for disappears
+because the other device synced more recently.
+
+The opened albums and artists are remembered **per server**. They're stored as your
+server's own ids, which mean nothing on a different library — so if you sign in to another
+server you'll see that server's list, and switching back brings the first one with it.
+
 ---
 
 ## Mixes
