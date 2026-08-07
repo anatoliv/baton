@@ -63,6 +63,7 @@ struct RadioView: View {
         .listStyle(.plain)
         .searchable(text: $query, prompt: "Stations")
         .navigationTitle("Radio")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

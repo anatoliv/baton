@@ -124,7 +124,7 @@ public final class MusicEqualizer {
     public func setGain(_ dB: Double, band: Int) {
         guard bands.indices.contains(band) else { return }
         bands[band].gainDB = min(Self.maxGain, max(Self.minGain, dB))
-        preset = "Custom"
+        preset = Self.presetName(for: bands)
         persistAndPublish()
     }
 
@@ -145,7 +145,7 @@ public final class MusicEqualizer {
     public func setFrequency(_ hz: Double, band: Int) {
         guard bands.indices.contains(band) else { return }
         bands[band].frequency = min(Self.maxFrequency, max(Self.minFrequency, hz))
-        preset = "Custom"
+        preset = Self.presetName(for: bands)
         persistAndPublish()
     }
 
@@ -153,7 +153,7 @@ public final class MusicEqualizer {
     public func setQ(_ q: Double, band: Int) {
         guard bands.indices.contains(band) else { return }
         bands[band].q = min(Self.maxQ, max(Self.minQ, q))
-        preset = "Custom"
+        preset = Self.presetName(for: bands)
         persistAndPublish()
     }
 
@@ -161,8 +161,34 @@ public final class MusicEqualizer {
     public func setBand(_ band: EQBand, at index: Int) {
         guard bands.indices.contains(index) else { return }
         bands[index] = band.clamped()
-        preset = "Custom"
+        preset = Self.presetName(for: bands)
         persistAndPublish()
+    }
+
+    /// The name for a curve: a preset's name when the bands match one, "Custom" otherwise.
+    ///
+    /// Derived rather than remembered. Every hand-edit used to stamp "Custom"
+    /// unconditionally, so dragging all ten sliders back to 0 left the picker describing an
+    /// exactly-flat curve as "Custom" — and since "Custom" is not in `presets`, the phone's
+    /// picker had no tag to match it and rendered *blank*, which is what the bug looked
+    /// like from the outside.
+    public static func presetName(for bands: [EQBand]) -> String {
+        presets.first { matches(bands, $0.bands) }?.name ?? "Custom"
+    }
+
+    /// Whether two curves are the same sound.
+    ///
+    /// Not `==`: `EQBand` synthesises `Equatable` over all its stored properties, `id`
+    /// included, and that is a fresh `UUID` per instance — so a band would never equal the
+    /// preset band it was built from. And these values arrive from a slider and a JSON
+    /// round-trip, so they are compared by audible tolerance rather than by bit pattern.
+    static func matches(_ a: [EQBand], _ b: [EQBand]) -> Bool {
+        guard a.count == b.count else { return false }
+        return zip(a, b).allSatisfy {
+            abs($0.frequency - $1.frequency) < 0.5
+                && abs($0.q - $1.q) < 0.01
+                && abs($0.gainDB - $1.gainDB) < 0.05
+        }
     }
 
     /// Reset every band to flat gain (keeping the default layout), i.e. "Flat".

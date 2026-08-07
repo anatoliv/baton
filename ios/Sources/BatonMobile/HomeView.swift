@@ -13,13 +13,12 @@ struct HomeView: View {
     @State private var recentlyAdded: [NavidromeAlbum] = []
     @State private var rediscover: [NavidromeAlbum] = []
     @State private var loaded = false
+    @State private var showsSettings = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 26) {
-                    header
-
                     if !model.history.recentlyPlayed.isEmpty {
                         SongShelf(title: "Recently Played",
                                   songs: Array(model.history.recentlyPlayed.prefix(18)),
@@ -58,7 +57,18 @@ struct HomeView: View {
                 .padding(.bottom, 12)
             }
             .nowPlayingWash(wash)
-            .navigationTitle("Baton")
+            // The greeting is the title — see RootScreenHeader for why no root tab has a
+            // navigation bar. Home's title happens to be a greeting rather than the
+            // screen's name, which is the only way it differs from the other four.
+            .rootScreenHeader(greeting, subtitle: subtitle) {
+                Button { showsSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
+            }
+            .sheet(isPresented: $showsSettings) {
+                MobileSettingsView(model: model)
+            }
             .refreshable { await load(force: true) }
             .task { await load(force: false) }
             .navigationDestination(for: NavidromeAlbum.self) { album in
@@ -68,15 +78,6 @@ struct HomeView: View {
                 MixDetailView(mix: mix, model: model)
             }
         }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(greeting).font(.title2.weight(.bold))
-            Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-        }
-        .padding(.horizontal)
-        .padding(.top, 4)
     }
 
     private var greeting: String {

@@ -389,6 +389,17 @@ struct FullScreenNowPlaying: View {
                 switch sidePanel {
                 case .queue:
                     VStack(spacing: 0) {
+                        // What's feeding the queue. The engine has recorded this on every
+                        // play() since sources shipped; the panel just never said it — so
+                        // "why is this song next" had no answer on screen.
+                        if let source = player.queueSource {
+                            Text("Playing from \(source.label)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 8)
+                        }
                         MusicQueueList()
                         Divider()
                         MusicQueueActions().padding(10)

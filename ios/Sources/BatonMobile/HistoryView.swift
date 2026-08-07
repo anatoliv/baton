@@ -73,6 +73,7 @@ struct HistoryView: View {
         }
         .listStyle(.plain)
         .navigationTitle("History")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {

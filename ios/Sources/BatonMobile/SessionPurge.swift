@@ -52,6 +52,18 @@ enum SessionPurge {
         "baton.demoMode",
     ]
 
+    /// Clears the account's stores without needing a live `MobileModel`.
+    ///
+    /// Used at launch by the test-only reset argument, before anything has been
+    /// constructed. `purge(_:keepDownloads:)` is the user-facing path and stops the player
+    /// first; this one runs when there is no player yet.
+    static func wipeStores() {
+        let defaults = UserDefaults.standard
+        for key in defaultsKeys { defaults.removeObject(forKey: key) }
+        for account in secretAccounts { NavidromeKeychain.setSecret("", account: account) }
+        NavidromeConfig.clear()
+    }
+
     /// What a purge is about to remove, so the confirmation can say it out loud.
     struct Preview {
         var downloadCount: Int

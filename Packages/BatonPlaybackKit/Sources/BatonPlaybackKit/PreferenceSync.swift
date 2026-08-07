@@ -45,6 +45,9 @@ public final class PreferenceSync {
         "baton.agent.model",
         "baton.agent.baseURL",
         "baton.agent.speakReplies",
+        // Which podcasts you subscribe to. The episode cache stays local — it is derived
+        // data each device refetches, and syncing it would ship staleness around.
+        "tonebox.podcasts.feeds",
     ]
 
     /// One setting, with enough provenance to resolve a race.

@@ -332,6 +332,29 @@ public struct NavidromeClient: Sendable {
         return (response.albumList2?.album ?? []).map { $0.toDomain() }
     }
 
+    /// The folder tree's roots (`getIndexes`), flattened from the server's A–Z buckets —
+    /// the client rebuilds any lettering it needs from the names themselves.
+    public func getIndexes() async throws -> [NavidromeFolder] {
+        let response = try await performJSON("getIndexes.view", query: [])
+        return (response.indexes?.index ?? [])
+            .flatMap { $0.artist ?? [] }
+            .map { NavidromeFolder(id: $0.id, name: $0.name) }
+    }
+
+    /// One folder's contents (`getMusicDirectory`): subfolders and playable songs.
+    public func getMusicDirectory(id: String) async throws -> NavidromeDirectory {
+        let response = try await performJSON("getMusicDirectory.view",
+                                             query: [URLQueryItem(name: "id", value: id)])
+        let wire = response.directory
+        let children = wire?.child ?? []
+        return NavidromeDirectory(
+            id: wire?.id ?? id,
+            name: wire?.name ?? "Folder",
+            folders: children.compactMap { $0.folder.map { NavidromeFolder(id: $0.id, name: $0.name) } },
+            songs: children.compactMap { $0.song?.toDomain() }
+        )
+    }
+
     /// All artists (`getArtists`), flattened from the alphabetical index buckets.
     public func getArtists() async throws -> [NavidromeArtist] {
         let response = try await performJSON("getArtists.view")

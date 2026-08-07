@@ -56,7 +56,12 @@ struct ClientPodcastsView: View {
             .navigationDestination(item: $selected) { channel in
                 ClientPodcastChannelDetail(channel: store.channels.first(where: { $0.id == channel.id }) ?? channel)
             }
-            .task { await store.loadIfNeeded() }
+            .task {
+                await store.loadIfNeeded()
+                // Subscriptions made on the phone arrive as feed URLs through the same
+                // sync the Mac already runs; this turns them into real subscriptions.
+                _ = await store.adoptSyncedFeeds()
+            }
             .onChange(of: store.channels) { _, channels in
                 // A removed show shouldn't strand the detail view on nothing.
                 if let selected, !channels.contains(where: { $0.id == selected.id }) { self.selected = nil }

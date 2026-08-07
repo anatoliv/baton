@@ -1,4 +1,5 @@
 import AppKit
+import BatonPlaybackKit
 import MarkdownUI
 import SwiftUI
 
@@ -60,6 +61,7 @@ struct BatonHelpView: View {
         var resource: String { self == .help ? "HELP" : "FAQ" }
         var sidebarTitle: String { self == .help ? "Help guide" : "FAQ" }
         var badge: String { self == .help ? "HELP GUIDE" : "FAQ" }
+        var shared: HelpGuide.Kind { self == .help ? .help : .faq }
     }
 
     /// A GitHub-style alert kind parsed from `> [!NOTE]` blockquotes.
@@ -101,6 +103,18 @@ struct BatonHelpView: View {
         let slug: String
         /// Section Markdown with its heading line removed.
         let body: String
+
+        init(_ shared: HelpGuide.Topic) {
+            self.guide = shared.guide == .help ? .help : .faq
+            self.title = shared.title
+            self.slug = shared.slug
+            self.body = shared.body
+        }
+
+        /// Back to the shared shape, for the shared search.
+        var shared: HelpGuide.Topic {
+            HelpGuide.Topic(guide: guide.shared, title: title, slug: slug, body: body)
+        }
 
         var id: String { "\(guide.rawValue)#\(slug)" }
         var symbol: String { BatonHelpView.symbol(for: title) }
@@ -393,23 +407,7 @@ struct BatonHelpView: View {
     /// Extracts a bare anchor slug (`#getting-connected`) from a URL, or
     /// `nil` if the URL points somewhere external. Also resolves links that
     /// point at the sibling guide file (`FAQ.md#...`, `HELP.md#...`).
-    private func anchorSlug(from url: URL) -> String? {
-        if url.scheme == nil, let fragment = url.fragment {
-            return fragment
-        }
-        let raw = url.absoluteString
-        if raw.hasPrefix("#") {
-            return String(raw.dropFirst())
-        }
-        // Cross-guide links like "FAQ.md#privacy-and-security" — jump to
-        // the fragment's topic if we have it.
-        if let hashIndex = raw.firstIndex(of: "#"),
-           raw.hasSuffix(".md") == false,
-           raw.contains(".md#") {
-            return String(raw[raw.index(after: hashIndex)...])
-        }
-        return nil
-    }
+    private func anchorSlug(from url: URL) -> String? { HelpGuide.anchorSlug(from: url) }
 
     // MARK: Search
 
@@ -422,39 +420,7 @@ struct BatonHelpView: View {
     }
 
     private func keywordScores(for query: String) -> [String: Int] {
-        let stopwords: Set = [
-            "the", "a", "an", "and", "or", "to", "of", "in", "on", "for",
-            "is", "are", "do", "does", "how", "what", "where", "when",
-            "why", "can", "my", "me", "it", "this", "that", "with",
-            "use", "using", "app", "baton",
-        ]
-        let allTokens = query
-            .lowercased()
-            .split { !$0.isLetter && !$0.isNumber }
-            .map(String.init)
-            .filter { $0.count >= 2 }
-        guard !allTokens.isEmpty else { return [:] }
-
-        let meaningful = allTokens.filter { !stopwords.contains($0) }
-        let tokens = meaningful.isEmpty ? allTokens : meaningful
-
-        var scores: [String: Int] = [:]
-        for topic in topics {
-            let title = topic.title.lowercased()
-            let firstWord = title.split(separator: " ").first.map(String.init) ?? ""
-            let haystack = topic.searchText
-            var score = 0
-            for token in tokens {
-                if title.contains(token) {
-                    score += 10
-                    if firstWord.contains(token) { score += 5 }
-                } else if haystack.contains(token) {
-                    score += 1
-                }
-            }
-            if score > 0 { scores[topic.id] = score }
-        }
-        return scores
+        HelpGuide.scores(topics.map(\.shared), query: query)
     }
 
     // MARK: Markdown theme
@@ -613,67 +579,17 @@ struct BatonHelpView: View {
         return topics
     }
 
+    /// Splits a guide into topics. The parsing lives in `HelpGuide` so the phone reads
+    /// the guides exactly the way this window does — it used to render them as one
+    /// undivided blob, with its Contents links pointing at anchors nothing resolved.
     private static func parse(
         guide: Guide,
         buildWelcome: Bool
     ) -> (welcome: Topic?, sections: [Topic]) {
-        let text = loadMarkdown(guide.resource)
-        var preamble: [String] = []
-        var sections: [Topic] = []
-        var heading: String?
-        var lastH2: String?
-        var bodyLines: [String] = []
-        var seenHeading = false
-
-        func flush() {
-            guard let heading else { return }
-            if heading.caseInsensitiveCompare("Contents") != .orderedSame {
-                let body = bodyLines.joined(separator: "\n")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                sections.append(
-                    Topic(guide: guide, title: heading, slug: slug(heading), body: body)
-                )
-            }
-            bodyLines.removeAll()
-        }
-
-        for line in text.components(separatedBy: "\n") {
-            if line.hasPrefix("## ") {
-                flush()
-                let title = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                heading = title
-                lastH2 = title
-                seenHeading = true
-            } else if line.hasPrefix("### ") {
-                flush()
-                let raw = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
-                let title = if let h2 = lastH2, !h2.isEmpty { "\(h2): \(raw)" } else { raw }
-                heading = title
-                seenHeading = true
-            } else if seenHeading {
-                bodyLines.append(line)
-            } else {
-                preamble.append(line)
-            }
-        }
-        flush()
-
-        var welcome: Topic?
-        if buildWelcome {
-            let intro = preamble
-                .filter { !$0.hasPrefix("#") && $0.trimmingCharacters(in: .whitespaces) != "---" }
-                .joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !intro.isEmpty {
-                welcome = Topic(
-                    guide: guide,
-                    title: "Welcome to Baton",
-                    slug: "welcome",
-                    body: intro
-                )
-            }
-        }
-        return (welcome, sections)
+        let parsed = HelpGuide.parse(
+            guide: guide.shared, text: loadMarkdown(guide.resource), buildWelcome: buildWelcome
+        )
+        return (parsed.welcome.map(Topic.init(_:)), parsed.sections.map(Topic.init(_:)))
     }
 
     /// Loads a bundled Markdown guide; falls back to a short message if the
@@ -690,17 +606,7 @@ struct BatonHelpView: View {
 
     /// GitHub-compatible heading anchor slug, matching the `#anchor` links
     /// authored in the guides.
-    private static func slug(_ heading: String) -> String {
-        var out = ""
-        for character in heading.lowercased() {
-            if character.isLetter || character.isNumber {
-                out.append(character)
-            } else if character == " " || character == "-" {
-                out.append("-")
-            }
-        }
-        return out
-    }
+    private static func slug(_ heading: String) -> String { HelpGuide.slug(heading) }
 
     /// Picks an SF Symbol for a topic from keywords in its title.
     /// `nonisolated` so `Topic` (a plain struct) can call it.

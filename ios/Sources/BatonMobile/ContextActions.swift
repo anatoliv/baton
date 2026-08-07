@@ -41,19 +41,52 @@ struct SongContextMenu: ViewModifier {
                         Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.slash" : "heart")
                     }
 
+                    // A menu can't show five tappable stars, so the current rating is
+                    // marked with a checkmark — the idiom this app already uses for sort
+                    // order. Every row previously carried the same outline star, so the
+                    // menu could tell you what the ratings *are* but never which one you
+                    // had chosen, and the parent row said "Rate" whatever the song scored.
+                    let rating = model.musicLibrary.rating(song)
                     Menu {
                         ForEach((1 ... 5).reversed(), id: \.self) { stars in
                             Button {
                                 Task { await model.musicLibrary.setRating(song, rating: stars) }
                             } label: {
-                                Label(String(repeating: "★", count: stars), systemImage: "star")
+                                if stars == rating {
+                                    Label(String(repeating: "★", count: stars), systemImage: "checkmark")
+                                } else {
+                                    Text(String(repeating: "★", count: stars))
+                                }
                             }
                         }
-                        Button {
-                            Task { await model.musicLibrary.setRating(song, rating: 0) }
-                        } label: { Label("Clear rating", systemImage: "star.slash") }
+                        if rating > 0 {
+                            Divider()
+                            Button {
+                                Task { await model.musicLibrary.setRating(song, rating: 0) }
+                            } label: { Label("Clear rating", systemImage: "star.slash") }
+                        }
                     } label: {
-                        Label("Rate", systemImage: "star")
+                        // Says the current score rather than a bare "Rate", so the rating
+                        // is legible without opening anything.
+                        Label(rating > 0 ? "Rated \(rating)★" : "Rate",
+                              systemImage: rating > 0 ? "star.fill" : "star")
+                    }
+
+                    // Where this song lives. The player and the queue were dead ends —
+                    // no path from a playing track to its album or artist anywhere on
+                    // the phone, while the Mac has auto-revealed the playing track for
+                    // versions. Reveal is model-level because this menu can be two
+                    // sheets deep (queue, inside the player).
+                    Divider()
+                    if song.albumID != nil {
+                        Button {
+                            model.revealAlbum(of: song)
+                        } label: { Label("Go to Album", systemImage: "square.stack") }
+                    }
+                    if let artist = model.artistNamed(song.artist) {
+                        Button {
+                            model.revealedArtist = artist
+                        } label: { Label("Go to Artist", systemImage: "music.mic") }
                     }
 
                     Button {

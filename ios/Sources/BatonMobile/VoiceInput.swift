@@ -41,8 +41,19 @@ final class VoiceInput {
         guard state != .listening else { return }
         transcript = ""
 
+        // `@Sendable`, and it is load-bearing.
+        //
+        // This class is `@MainActor`, so a closure written here inherits main-actor
+        // isolation — but `requestAuthorization` calls back on TCC's XPC queue. Swift's
+        // runtime then checks the executor, finds the wrong one, and traps:
+        // `BUG IN CLIENT OF LIBDISPATCH: Block was expected to execute on queue
+        // [com.apple.main-thread]`. That is a hard crash, not a warning, and it is what
+        // happened every time anyone tapped the microphone. `@Sendable` opts the closure
+        // out of inheriting the isolation, which is the truth of where it runs.
         let speechAuthorized = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+            SFSpeechRecognizer.requestAuthorization { @Sendable status in
+                continuation.resume(returning: status == .authorized)
+            }
         }
         guard speechAuthorized else {
             state = .denied("Speech recognition isn't allowed — enable it in Settings → Privacy.")
@@ -75,7 +86,8 @@ final class VoiceInput {
             }
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            // Same reason: the tap runs on the audio thread, never the main one.
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in
                 request.append(buffer)
             }
             engine.prepare()
@@ -85,7 +97,10 @@ final class VoiceInput {
             self.request = request
             state = .listening
 
-            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            // And again: the recogniser reports on its own queue. The hop to the main
+            // actor below is deliberate and sufficient — inheriting isolation here would
+            // trap before ever reaching it.
+            task = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
                 let text = result?.bestTranscription.formattedString
                 let isFinal = result?.isFinal ?? false
                 let failed = error != nil

@@ -84,8 +84,17 @@ cd "$IOS"
 # Skippable for an emergency upload with SKIP_TESTS=1.
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
   echo "→ preflight: shared-core test gate"
-  (cd "$REPO" && ./scripts/test.sh >/dev/null 2>&1) \
-    || die "test gate is red — fix it, or SKIP_TESTS=1 to ship anyway"
+  # Kept, not discarded. This used to redirect to /dev/null, so a red gate said only
+  # "red" — and diagnosing it meant re-running the whole 6-minute suite by hand to find
+  # out that nothing was wrong, just leftover build state from an interrupted run.
+  GATE_LOG="$(mktemp -t baton-testflight-gate)"
+  if ! (cd "$REPO" && ./scripts/test.sh >"$GATE_LOG" 2>&1); then
+    echo "--- last 30 lines of the gate ($GATE_LOG) ---" >&2
+    tail -30 "$GATE_LOG" >&2
+    echo "-------------------------------------------" >&2
+    die "test gate is red — fix it, or SKIP_TESTS=1 to ship anyway"
+  fi
+  rm -f "$GATE_LOG"
   echo "  gate green"
 fi
 
@@ -154,9 +163,21 @@ xcodebuild archive -project BatonMobile.xcodeproj -scheme BatonMobile -configura
   CURRENT_PROJECT_VERSION="$BUILD" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" \
   OTHER_CODE_SIGN_FLAGS="--keychain $KC"
 
-# Upload dSYMs so production crashes symbolicate. Guarded: only runs when a token is
-# provided (the org token lives in the login Keychain — see the global notes); non-fatal.
-if [ -n "${SENTRY_AUTH_TOKEN:-}" ] && command -v sentry-cli >/dev/null; then
+# Upload dSYMs so production crashes symbolicate.
+#
+# This used to require SENTRY_AUTH_TOKEN in the environment and skip in silence when it
+# wasn't there — which was every single build. The cost showed up the first time a crash
+# mattered: a microphone crash arrived from a device with every frame `<redacted>`, and
+# diagnosing it meant reproducing it locally instead of reading the stack that had already
+# been collected. The Mac's publish.sh has always read the Keychain itself; this now does
+# the same, and says so out loud when it can't.
+SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN:-$(security find-generic-password -s sentry-release-token -w 2>/dev/null || true)}"
+export SENTRY_AUTH_TOKEN
+if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+  echo "!! no Sentry token (Keychain item 'sentry-release-token') — crashes from this build will NOT symbolicate" >&2
+elif ! command -v sentry-cli >/dev/null; then
+  echo "!! sentry-cli not installed — crashes from this build will NOT symbolicate" >&2
+else
   echo "===== dSYM upload to Sentry ====="
   sentry-cli debug-files upload \
     --org "${SENTRY_ORG:-get-virtual-view}" --project "${SENTRY_PROJECT:-baton-ios}" \
