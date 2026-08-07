@@ -9,6 +9,29 @@ struct ArtistsView: View {
     @State private var query = ""
 
     var body: some View {
+        ScrollViewReader { proxy in
+            artistList
+                // Same A–Z rail as Albums: the artists list is alphabetical by nature and
+                // long by nature, which is exactly the combination the rail exists for.
+                .overlay(alignment: .trailing) {
+                    let entries = indexEntries
+                    if !entries.isEmpty {
+                        AlphabetIndexRail(entries: entries) { entry in
+                            proxy.scrollTo(entry.firstID, anchor: .top)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+        }
+    }
+
+    /// Only while browsing, not while filtering — a rail over five search hits is noise.
+    private var indexEntries: [AlphabetIndex.Entry] {
+        guard query.isEmpty, filtered.count > 30 else { return [] }
+        return AlphabetIndex.entries(from: filtered.map { ($0.id, $0.name) })
+    }
+
+    private var artistList: some View {
         List(filtered) { artist in
             NavigationLink {
                 ArtistDetailView(artist: artist, model: model)
@@ -26,10 +49,12 @@ struct ArtistsView: View {
                     }
                 }
             }
+            .id(artist.id)
         }
         .listStyle(.plain)
         .searchable(text: $query, prompt: "Artists")
         .navigationTitle("Artists")
+        .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if model.musicLibrary.artists.isEmpty {
                 ContentUnavailableView("No artists", systemImage: "music.mic")
@@ -235,6 +260,7 @@ struct GenresView: View {
             .padding()
         }
         .navigationTitle("Genres")
+        .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if useful.isEmpty {
                 ContentUnavailableView("No genres", systemImage: "guitars",

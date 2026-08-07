@@ -26,6 +26,8 @@ final class MobileModel {
     /// radio" list — both shared with the Mac.
     let radio = InternetRadioStore()
     let radioBans = MusicRadioBans()
+    /// Albums and artists opened from search, so search has a memory.
+    let searchRecents = SearchRecents()
     /// Carries the settings that are yours rather than this device's between your devices,
     /// through the gateway. Does nothing when no gateway is configured.
     let preferenceSync = PreferenceSync(deviceName: UIDevice.current.name)
@@ -81,11 +83,56 @@ final class MobileModel {
     /// Read by `OnboardingView` so a re-authentication doesn't look like a first run.
     var credentialsRejected = false
 
+    // MARK: - Reveal (Go to Album / Go to Artist)
+
+    /// Set by any context menu that wants to open an album or artist from wherever it is
+    /// — a search result, the queue, the full player. `RootTabView` presents the target
+    /// as a sheet, because the asker may be nowhere near a NavigationStack it owns: the
+    /// player is itself a sheet, and a context menu inside the Up Next sheet is two
+    /// presentations deep. One presenter, at the root, works from everywhere.
+    var revealedAlbum: NavidromeAlbum?
+    var revealedArtist: NavidromeArtist?
+
+    /// A song's album, built from what the song already carries. `albumID` is on every
+    /// Subsonic song; the rest is cosmetic and the detail screen fetches the real thing.
+    func revealAlbum(of song: NavidromeSong) {
+        guard let albumID = song.albumID else { return }
+        revealedAlbum = NavidromeAlbum(
+            id: albumID, name: song.album ?? "Album",
+            artist: song.artist, coverArtID: song.coverArtID
+        )
+    }
+
+    /// The artist, when the library knows one by this song's artist name. Songs carry
+    /// only the artist's *name*, so this is a lookup rather than a construction — and the
+    /// menu entry simply doesn't appear when the lookup fails, which beats a button that
+    /// opens an empty screen.
+    func artistNamed(_ name: String?) -> NavidromeArtist? {
+        guard let name, !name.isEmpty else { return nil }
+        return musicLibrary.artists.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
     /// A demo session has to outlive a relaunch: nothing is persisted server-side,
     /// so without this the demo user is dropped back at the connect wall.
     private static let demoModeKey = "baton.demoMode"
 
+    /// Wipes the session before anything reads it.
+    ///
+    /// UI tests share one simulator, and one of them signs in to a real server to prove the
+    /// connection badge works. Without this, every test after it inherited that connection:
+    /// the demo library was gone, so "Home never opened" and four other screens failed for
+    /// a reason that had nothing to do with them. State that leaks between tests turns one
+    /// deliberate action into five mystery failures.
+    ///
+    /// DEBUG-only, and driven by a launch argument no shipping build passes.
+    static let resetArgument = "-baton.resetSession"
+
     init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(Self.resetArgument) {
+            SessionPurge.wipeStores()
+        }
+        #endif
         let controller = StreamingPlaybackController()
         music = controller
         musicLibrary = MusicLibraryStore()

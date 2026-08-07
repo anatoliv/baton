@@ -72,6 +72,52 @@ public final class PodcastSubscriptionStore {
 
     private func persist() {
         store.save(channels) // logs on failure; a corrupt file is preserved, never wiped
+        mirrorFeedsForSync()
+    }
+
+    /// Which shows you subscribe to, in a place cross-device sync can actually see.
+    ///
+    /// Subscriptions live as JSON in Application Support, and both transports —
+    /// `PreferenceSync` and `SettingsTransfer` — carry `UserDefaults` and the Keychain.
+    /// So podcasts could not travel between a Mac and a phone at all: you subscribed on
+    /// one and the other never heard about it. Mirroring the feed URLs into a synced
+    /// default fixes that without shipping the episode cache, which is derived data every
+    /// device should fetch for itself rather than inherit stale.
+    private func mirrorFeedsForSync() {
+        let feeds = channels.map(\.feedURL.absoluteString)
+        let defaults = UserDefaults.standard
+        guard defaults.stringArray(forKey: Self.syncedFeedsKey) != feeds else { return }
+        defaults.set(feeds, forKey: Self.syncedFeedsKey)
+    }
+
+    /// The synced list of feed URLs. Under `tonebox.` so `SettingsTransfer` exports it by
+    /// the same prefix rule as everything else.
+    public static let syncedFeedsKey = "tonebox.podcasts.feeds"
+
+    /// Subscribes to anything the other device knows about and this one doesn't.
+    ///
+    /// Additive on purpose. An unsubscribe that propagated as a deletion would let a phone
+    /// with a stale list silently remove shows from the Mac — and losing a subscription you
+    /// didn't ask to lose is far worse than keeping one you meant to drop.
+    @discardableResult
+    public func adoptSyncedFeeds(defaults: UserDefaults = .standard) async -> Int {
+        let known = Set(channels.map(\.feedURL.absoluteString))
+        let incoming = (defaults.stringArray(forKey: Self.syncedFeedsKey) ?? [])
+            .filter { !known.contains($0) }
+            .compactMap(URL.init(string:))
+        guard !incoming.isEmpty else { return 0 }
+
+        var adopted = 0
+        for feed in incoming {
+            do {
+                _ = try await subscribe(to: feed)
+                adopted += 1
+            } catch {
+                // One dead feed must not stop the rest arriving.
+                podcastStoreLog.error("couldn't adopt synced feed \(feed.absoluteString, privacy: .public)")
+            }
+        }
+        return adopted
     }
 
     // MARK: - Mutations

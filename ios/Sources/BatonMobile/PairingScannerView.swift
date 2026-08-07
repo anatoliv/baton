@@ -1,4 +1,5 @@
 import AVFoundation
+import BatonPlaybackKit
 import SwiftUI
 import UIKit
 
@@ -52,7 +53,7 @@ struct PairingScannerView: View {
             Group {
                 switch status {
                 case .scanning:
-                    label("On your Mac, open Baton → Settings → Remote → Devices and choose \u{201C}Show pairing code\u{201D}.",
+                    label("On your Mac, open Baton → \(MacSetupPath.pairing).",
                           systemImage: "qrcode.viewfinder")
                 case .connecting:
                     label("Talking to your Mac\u{2026}", systemImage: "arrow.triangle.2.circlepath")

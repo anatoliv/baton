@@ -308,3 +308,21 @@ re-run the cask; that's expected, not a stale install.
 **Where can I read more?**
 [HELP.md](HELP.md) covers how to use every part of Baton. The docs in [`docs/`](docs/) go into
 the vision, architecture, and integration details.
+
+## Can I try Baton without a server?
+
+Yes. Choose **Try the demo** on the first-run screen and Baton opens a small library built
+into the app — real tracks, played through the real engine, with nothing going over the
+network. Connect your own Navidrome server whenever you like; on iPhone that's **Settings →
+Connect to Navidrome**, on the Mac it's **Settings → Servers**.
+
+## How do I get my Mac's settings onto my iPhone?
+
+**Settings → Set up from a Mac** on the phone. Scanning the code your Mac shows is the
+quickest — nothing to type, not even a passphrase — but it needs both devices on the same
+network. If they aren't, export a settings file from the Mac and import it on the phone
+instead. Either way your server address, sign-in, equalizer and the rest come across.
+
+Your likes, ratings, playlists and play counts never needed this: they live on your
+Navidrome server and both apps read and write them as the same user, so they are already
+the same everywhere.

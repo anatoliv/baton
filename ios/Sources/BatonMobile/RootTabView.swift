@@ -61,9 +61,15 @@ struct RootTabView: View {
             Tab("Search", systemImage: "magnifyingglass") {
                 SearchView(model: model)
             }
-            Tab("Settings", systemImage: "gearshape") {
-                MobileSettingsView(model: model)
-            }
+            // Settings is deliberately not a tab.
+            //
+            // Six tabs don't fit: iOS keeps four and folds the rest into "More", so with
+            // the Friend tab enabled both Search *and* Settings ended up behind it. Search
+            // is something people do constantly and Settings is something they do rarely,
+            // so paying for Settings with a tab slot cost the wrong one. It lives in
+            // Home's header instead — one tap, the corner Apple Music and KeepFloat both
+            // put the account button in — and every content destination stays reachable
+            // without a menu.
         }
         // iPad: the tab bar becomes an adaptable sidebar — the cheap-but-real first
         // step of the two-column iPad layout.
@@ -76,6 +82,49 @@ struct RootTabView: View {
         .modifier(NowPlayingAccessory(model: model) { showsFullPlayer = true })
         .sheet(isPresented: $showsFullPlayer) {
             FullPlayerView(model: model)
+        }
+        // "Go to Album" / "Go to Artist", from anywhere. The asker may be inside the
+        // player sheet or the queue sheet, so the target is presented here at the root —
+        // and any open player is dismissed first, because iOS will not stack a second
+        // sheet on top of one it is already showing.
+        .onChange(of: model.revealedAlbum) { _, album in
+            if album != nil, showsFullPlayer { showsFullPlayer = false }
+        }
+        .onChange(of: model.revealedArtist) { _, artist in
+            if artist != nil, showsFullPlayer { showsFullPlayer = false }
+        }
+        .sheet(isPresented: Binding(
+            get: { model.revealedAlbum != nil && !showsFullPlayer },
+            set: { if !$0 { model.revealedAlbum = nil } }
+        )) {
+            if let album = model.revealedAlbum {
+                NavigationStack {
+                    AlbumDetailView(album: album, model: model)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { model.revealedAlbum = nil }
+                            }
+                        }
+                }
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { model.revealedArtist != nil && !showsFullPlayer },
+            set: { if !$0 { model.revealedArtist = nil } }
+        )) {
+            if let artist = model.revealedArtist {
+                NavigationStack {
+                    ArtistDetailView(artist: artist, model: model)
+                        .navigationDestination(for: NavidromeAlbum.self) { album in
+                            AlbumDetailView(album: album, model: model)
+                        }
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { model.revealedArtist = nil }
+                            }
+                        }
+                }
+            }
         }
         .task {
             await model.handoff.checkForHandoff()

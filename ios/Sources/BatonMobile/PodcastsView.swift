@@ -41,7 +41,12 @@ struct PodcastsListBody: View {
                 }
             }
             .refreshable { await model.podcastSubscriptions.refresh() }
-            .task { await model.podcastSubscriptions.loadIfNeeded() }
+            .task {
+                await model.podcastSubscriptions.loadIfNeeded()
+                // Subscriptions made on the Mac arrive as a list of feed URLs; this is
+                // where they become real subscriptions. Additive — see `adoptSyncedFeeds`.
+                _ = await model.podcastSubscriptions.adoptSyncedFeeds()
+            }
             .overlay {
                 if model.podcastSubscriptions.channels.isEmpty {
                     ContentUnavailableView(

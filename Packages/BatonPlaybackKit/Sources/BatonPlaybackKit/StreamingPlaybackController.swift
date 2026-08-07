@@ -364,8 +364,18 @@ public final class StreamingPlaybackController {
     private var gaplessPreload: (index: Int, item: AVPlayerItem)?
     /// Owns the second player + volume ramp during a crossfade overlap; its player is promoted to
     /// `player` in `finishCrossfade` when the fade completes.
+    /// Shapes the player's own volume around pause/stop/resume so transport actions don't
+    /// click. Distinct from `crossfadeRamp`, which overlaps two players at a track boundary.
+    private let transportFade = TransportFade()
     private let crossfadeRamp = CrossfadeRamp()
     private var isCrossfading = false
+
+    // Test seams for the crossfade leak. The bug lived precisely in these two disagreeing,
+    // so a test has to be able to put them out of step deliberately — that state is
+    // otherwise only reachable through a timing race nobody can stage on demand.
+    var crossfadeRampForTesting: CrossfadeRamp { crossfadeRamp }
+    var isCrossfadingForTesting: Bool { isCrossfading }
+    func setCrossfadingForTesting(_ value: Bool) { isCrossfading = value }
 
     /// True when true-gapless is active: gapless toggle on and no crossfade set (a nonzero
     /// crossfade takes over the transition instead).
@@ -985,7 +995,9 @@ public final class StreamingPlaybackController {
     /// pause read back as user intervention. `pause()` is the user-facing wrapper.
     public func pauseInternal() {
         cancelCrossfade()
-        player.pause()
+        // Ramped rather than cut. State and Now Playing update immediately below, so the
+        // UI still responds instantly; only the audio is shaped.
+        transportFade.out(player) { [weak self] in self?.player.pause() }
         if state == .playing { state = .paused }
         pushNowPlaying()
         persistQueue() // capture the playhead where the user paused
@@ -998,10 +1010,16 @@ public final class StreamingPlaybackController {
     public func stop() {
         bumpStateGeneration()
         cancelCrossfade()
-        player.pause()
-        // Seek the player to the start too, so a later play() resumes from 0:00 — matching the
-        // scrubber we reset below — instead of continuing from where Stop was pressed.
-        player.seek(to: .zero)
+        // Fade, then pause and rewind — seeking a still-audible player is the other way to
+        // produce a click.
+        transportFade.out(player) { [weak self] in
+            guard let self else { return }
+            self.player.pause()
+            // Seek the player to the start too, so a later play() resumes from 0:00 — matching
+            // the scrubber we reset below — instead of continuing from where Stop was
+            // pressed.
+            self.player.seek(to: .zero)
+        }
         cancelGaplessPrefetch() // don't keep downloading a "next" track after Stop
         cancelStallWatchdog()
         state = .idle
@@ -1970,7 +1988,19 @@ public final class StreamingPlaybackController {
         retiring: AVQueuePlayer,
         alreadyAdvanced: Bool = false
     ) {
-        guard isCrossfading, crossfadeRamp.player === promoted, queue.indices.contains(nextIndex) else { return }
+        // Bailing out must not leave the incoming player running. This returns when the
+        // queue changed under the fade (an index that no longer exists), when a transport
+        // action already cleared the flag, or when a newer ramp replaced this one — and in
+        // the first two cases `promoted` is still playing. Stopping it here is the
+        // difference between a dropped transition and a track nobody can turn off.
+        guard isCrossfading, crossfadeRamp.player === promoted, queue.indices.contains(nextIndex) else {
+            if crossfadeRamp.player === promoted {
+                isCrossfading = false
+                crossfadeRamp.cancel()
+                applyVolume()
+            }
+            return
+        }
         retiring.pause()
         detachPlayerObservers()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
@@ -2022,8 +2052,15 @@ public final class StreamingPlaybackController {
 
     /// Abort an in-flight crossfade (a transport action interrupted it): stop the second
     /// player, restore the current player's volume, and let the action proceed normally.
+    ///
+    /// Guarded on the ramp's *actual* state as well as the flag. `isCrossfading` and
+    /// `crossfadeRamp` can disagree — `finishCrossfade` used to bail out of its guard
+    /// leaving a live second player behind — and once they did, this returned early and no
+    /// transport action could ever stop that player again. The symptom is a track that
+    /// keeps playing under everything you choose afterwards, two at once, with no way to
+    /// silence it short of killing the app. The flag is a belief; the ramp is the truth.
     public func cancelCrossfade() {
-        guard isCrossfading else { return }
+        guard isCrossfading || crossfadeRamp.isActive else { return }
         isCrossfading = false
         crossfadeRamp.cancel()
         didHandleEnd = false

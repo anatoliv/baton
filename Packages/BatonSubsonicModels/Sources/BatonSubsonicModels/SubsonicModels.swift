@@ -453,6 +453,35 @@ public struct NavidromeSearchResults: Sendable {
 
 /// A playlist. `songs` is empty in the list view (`getPlaylists`) and populated
 /// by `getPlaylist(id:)`.
+/// A folder on the server, as `getIndexes`/`getMusicDirectory` see it. Distinct from the
+/// tag-based views: this is the file system's opinion of the library, which for a
+/// folder-organized collection is often the *owner's* opinion of it too.
+public struct NavidromeFolder: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+/// One folder's contents: subfolders first, then songs — the order a Finder window
+/// would show them, which is the mental model folder browsing exists to honour.
+public struct NavidromeDirectory: Sendable {
+    public let id: String
+    public let name: String
+    public var folders: [NavidromeFolder]
+    public var songs: [NavidromeSong]
+
+    public init(id: String, name: String, folders: [NavidromeFolder], songs: [NavidromeSong]) {
+        self.id = id
+        self.name = name
+        self.folders = folders
+        self.songs = songs
+    }
+}
+
 public struct NavidromePlaylist: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String

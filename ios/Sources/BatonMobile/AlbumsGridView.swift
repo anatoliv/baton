@@ -9,29 +9,58 @@ struct AlbumsGridView: View {
     @Environment(\.nowPlayingPalette) private var wash
 
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 14)]
+    /// Grid shows covers; list shows more of a 2,604-album library per screen. Persisted,
+    /// because a view style is a preference, not a mood.
+    @AppStorage("baton.albums.style") private var styleRaw = "grid"
+    private var isGrid: Bool { styleRaw == "grid" }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 18) {
-                    ForEach(model.musicLibrary.albums) { album in
-                        NavigationLink(value: album) {
-                            AlbumCell(album: album, model: model)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if isGrid {
+                        LazyVGrid(columns: columns, spacing: 18) {
+                            ForEach(model.musicLibrary.albums) { album in
+                                NavigationLink(value: album) {
+                                    AlbumCell(album: album, model: model)
+                                }
+                                .buttonStyle(.plain)
+                                .id(album.id)
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal)
+                        // Room for the rail, so the last column's titles don't slide under it.
+                        .padding(.trailing, indexEntries.isEmpty ? 0 : 18)
+                    } else {
+                        LazyVStack(spacing: 0) {
+                            ForEach(model.musicLibrary.albums) { album in
+                                NavigationLink(value: album) {
+                                    AlbumListRow(album: album, model: model)
+                                }
+                                .buttonStyle(.plain)
+                                .id(album.id)
+                                Divider().padding(.leading, 74)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.trailing, indexEntries.isEmpty ? 0 : 18)
                     }
                 }
-                .padding(.horizontal)
+                // The A–Z rail, for alphabetical sorts on a big library. 2,604 albums
+                // without one is a flick marathon.
+                .overlay(alignment: .trailing) {
+                    if !indexEntries.isEmpty {
+                        AlphabetIndexRail(entries: indexEntries) { entry in
+                            proxy.scrollTo(entry.firstID, anchor: .top)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
             }
             .nowPlayingWash(wash)
-            .navigationTitle("Albums")
+            .rootScreenHeader("Albums", subtitle: countLine) { sortMenu }
             .navigationDestination(for: NavidromeAlbum.self) { album in
                 AlbumDetailView(album: album, model: model)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    sortMenu
-                }
             }
             .refreshable { await model.musicLibrary.loadAlbums() }
             .overlay {
@@ -42,8 +71,40 @@ struct AlbumsGridView: View {
         }
     }
 
+    /// What the shelf actually holds. Empty while the first load is in flight rather
+    /// than "0 albums", which reads as an empty library instead of a pending one.
+    private var countLine: String? {
+        let albums = model.musicLibrary.albums.count
+        let artists = model.musicLibrary.artists.count
+        return Counted.line([
+            albums > 0 ? Counted.phrase(albums, "album") : nil,
+            artists > 0 ? Counted.phrase(artists, "artist") : nil,
+        ])
+    }
+
+    /// Rail entries for the current sort — empty (rail hidden) unless the order is
+    /// alphabetical, because jumping to "S" in a most-played ordering means nothing.
+    /// Thirty-plus items is where flicking starts to lose to jumping.
+    private var indexEntries: [AlphabetIndex.Entry] {
+        let albums = model.musicLibrary.albums
+        guard albums.count > 30 else { return [] }
+        switch model.musicLibrary.albumSort {
+        case .name:
+            return AlphabetIndex.entries(from: albums.map { ($0.id, $0.name) })
+        case .artist:
+            return AlphabetIndex.entries(from: albums.map { ($0.id, $0.artist ?? "") })
+        default:
+            return []
+        }
+    }
+
     private var sortMenu: some View {
         Menu {
+            Picker("Style", selection: $styleRaw) {
+                Label("Grid", systemImage: "square.grid.2x2").tag("grid")
+                Label("List", systemImage: "list.bullet").tag("list")
+            }
+            Divider()
             ForEach(AlbumSort.allCases) { sort in
                 Button {
                     model.musicLibrary.albumSort = sort
@@ -62,6 +123,30 @@ struct AlbumsGridView: View {
     }
 }
 
+/// One album as a dense row — the list style for people who scan by name, not cover.
+private struct AlbumListRow: View {
+    let album: NavidromeAlbum
+    let model: MobileModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 120))
+                .frame(width: 54, height: 54)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.name).lineLimit(1)
+                Text(Counted.line([album.artist, album.year.map(String.init)]) ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct AlbumCell: View {
     let album: NavidromeAlbum
     let model: MobileModel
@@ -75,11 +160,16 @@ private struct AlbumCell: View {
             Text(album.name)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
+                .truncationMode(.tail)
             Text(album.artist ?? "")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
+        // Every cell the same width as its column, so two columns line up and a long
+        // title truncates instead of widening its cell.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -88,19 +178,32 @@ struct ArtworkView: View {
     let url: URL?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().scaledToFill()
-            default:
-                ZStack {
-                    Rectangle().fill(.quaternary)
-                    Image(systemName: "music.note")
-                        .font(.title2)
-                        .foregroundStyle(.tertiary)
+        // `Color.clear` first, image in an overlay.
+        //
+        // The old version put `AsyncImage` at the root, so once a cover loaded the *image*
+        // reported the layout size — and covers are not all square. A 16:9 thumbnail in a
+        // grid cell made that cell wider than its column: rows went ragged, titles ran off
+        // the edge, and the whole grid looked broken the moment it met a real library
+        // instead of four bundled tracks. `Color.clear` has no opinion about its size, so
+        // the container decides, and `scaledToFill` + `clipped` fills that box with
+        // whatever shape the artwork happens to be.
+        Color.clear
+            .overlay {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    default:
+                        ZStack {
+                            Rectangle().fill(.quaternary)
+                            Image(systemName: "music.note")
+                                .font(.title2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
             }
-        }
+            .clipped()
     }
 }
 

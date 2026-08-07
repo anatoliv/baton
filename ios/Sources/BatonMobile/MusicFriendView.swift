@@ -21,6 +21,10 @@ struct MusicFriendView: View {
     @AppStorage("baton.agent.speakReplies") private var speakReplies = true
     @State private var lastMessageWasVoice = false
     @State private var synthesizer = AVSpeechSynthesizer()
+    /// Whether the composer has the keyboard. Needed because there was no way to give it
+    /// back: the keyboard covers the tab bar, so with no dismissal this screen had no exit
+    /// at all — you could not put the keyboard away *or* leave.
+    @FocusState private var inputFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -41,25 +45,43 @@ struct MusicFriendView: View {
                         }
                         .padding(.vertical, 12)
                     }
+                    // Drag the transcript down to put the keyboard away — the gesture
+                    // every messaging app on the phone already teaches.
+                    .scrollDismissesKeyboard(.interactively)
+                    // And a plain tap anywhere in the conversation, for anyone who doesn't
+                    // know the drag.
+                    .onTapGesture { inputFocused = false }
                     .onChange(of: messages) { _, new in
                         if let last = new.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                     }
                 }
                 inputBar
             }
-            .navigationTitle("Music Friend")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        messages = []
-                        model.agent.resetConversation()
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                    }
-                    .disabled(messages.isEmpty)
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { inputFocused = false }
                 }
             }
+            .rootScreenHeader("Music Friend", subtitle: modelLine) {
+                Button {
+                    messages = []
+                    model.agent.resetConversation()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .disabled(messages.isEmpty)
+                .accessibilityLabel("New conversation")
+            }
         }
+    }
+
+    /// Which model is answering. The tab only exists once a connection test has passed,
+    /// so there is always one — and knowing whether you are talking to a local model or a
+    /// hosted one changes what you'd ask it.
+    private var modelLine: String? {
+        let name = model.agentConfig.model
+        return name.isEmpty ? nil : name
     }
 
     private var emptyState: some View {
@@ -94,6 +116,8 @@ struct MusicFriendView: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1 ... 4)
+                .focused($inputFocused)
+                .submitLabel(.send)
                 .onSubmit(sendDraft)
                 .disabled(model.voice.isListening)
 

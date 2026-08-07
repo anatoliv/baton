@@ -34,6 +34,8 @@ final class SessionPurgeUITests: XCTestCase {
 
     /// The confirmation must name what it deletes. A destructive action that says only
     /// "are you sure?" is asking someone to agree to something they haven't been told.
+
+
     func testDisconnectConfirmationNamesWhatItRemoves() {
         app.launch()
 
@@ -90,9 +92,18 @@ final class SessionPurgeUITests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// Settings is reached from Home's header, not a tab.
+    ///
+    /// It was a tab until six of them stopped fitting — iOS folded the overflow into
+    /// "More" and took Search with it. This helper still tapped the tab that no longer
+    /// exists, and failed with "app should reach its tab bar" as though the app had not
+    /// launched.
     private func openSettings() {
-        let settings = app.tabBars.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 30), "app should reach its tab bar")
-        settings.tap()
+        let home = app.tabBars.buttons["Home"]
+        XCTAssertTrue(home.waitForExistence(timeout: 30), "app should reach its tab bar")
+        home.tap()
+        let gear = app.buttons["Settings"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 20), "Home's header must offer Settings")
+        gear.tap()
     }
 }
