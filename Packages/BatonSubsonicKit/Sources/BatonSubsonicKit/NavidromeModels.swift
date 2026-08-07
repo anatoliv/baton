@@ -42,9 +42,62 @@ public struct SubsonicResponse: Decodable {
     public let openSubsonicExtensions: [OpenSubsonicExtensionWire]?
     public let playQueue: PlayQueueWire?
     public let bookmarks: BookmarksWire?
+    public let indexes: IndexesWire?
+    public let directory: DirectoryWire?
 
     public var isOK: Bool {
         status == "ok"
+    }
+}
+
+/// `getIndexes` — the folder tree's roots, bucketed A–Z by the server. The buckets are
+/// flattened by the client; the A–Z rail rebuilds its own letters from the data, so the
+/// server's grouping carries nothing the names don't.
+public struct IndexesWire: Decodable {
+    public struct BucketWire: Decodable {
+        public let name: String?
+        public let artist: [DirectoryEntryWire]?
+    }
+    public let index: [BucketWire]?
+}
+
+/// `getMusicDirectory` — one folder: its name and its children, where a child is either a
+/// subfolder or a song. Subsonic expresses both as `child` rows split by `isDir`.
+public struct DirectoryWire: Decodable {
+    public let id: String?
+    public let name: String?
+    public let child: [DirectoryChildWire]?
+}
+
+/// A folder reference (from the index roots or a directory listing).
+public struct DirectoryEntryWire: Decodable {
+    public let id: String
+    public let name: String
+}
+
+/// One `child` row, decoded as whichever thing it is.
+///
+/// Subsonic's `child` *is* its song shape plus `isDir`, so the song branch hands the same
+/// decoder straight to `SongWire` — one set of song field mappings in the codebase, not a
+/// second copy that drifts the first time someone adds a field.
+public struct DirectoryChildWire: Decodable {
+    public let folder: DirectoryEntryWire?
+    public let song: SongWire?
+
+    private enum ProbeKeys: String, CodingKey { case id, isDir, title, name }
+
+    public init(from decoder: Decoder) throws {
+        let probe = try decoder.container(keyedBy: ProbeKeys.self)
+        if try probe.decodeIfPresent(Bool.self, forKey: .isDir) ?? false {
+            let id = try probe.decode(String.self, forKey: .id)
+            let title = try probe.decodeIfPresent(String.self, forKey: .title)
+                ?? probe.decodeIfPresent(String.self, forKey: .name)
+            folder = DirectoryEntryWire(id: id, name: title ?? id)
+            song = nil
+        } else {
+            folder = nil
+            song = try SongWire(from: decoder)
+        }
     }
 }
 

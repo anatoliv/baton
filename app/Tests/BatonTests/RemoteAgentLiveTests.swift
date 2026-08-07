@@ -49,10 +49,42 @@ final class RemoteAgentLiveTests: XCTestCase {
         config.apiKey = key
         config.model = json["model"] ?? "chat"
         config.provider = (json["provider"] == "anthropic") ? .anthropic : .openAICompatible
+
+        // Opting in is not the same as the provider being up. The config file often points
+        // at a model on the LAN, and when that box is asleep every message fails: the eval
+        // scored 114 wrong out of 109 and the release gate refused to publish, reporting
+        // "more than 20% of ordinary messages did the wrong thing" about an agent nobody
+        // had touched. An unreachable provider means *not measurable*, not broken — so it
+        // skips, the way a missing config already did.
+        try skipUnlessReachable(base)
         return config
     }
 
+    /// Skips the test unless something answers at `base`.
+    ///
+    /// Deliberately cheap and permissive: any HTTP response at all counts, including 401
+    /// or 404, because this is asking "is there a server there", not "are the credentials
+    /// good". A wrong key should fail the test loudly; a sleeping host should not.
+    private static func skipUnlessReachable(_ base: String) throws {
+        guard let url = URL(string: base) else { throw XCTSkip("live base URL is not a URL: \(base)") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var reachable = false
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            reachable = response != nil
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 8)
+
+        try XCTSkipIf(!reachable, "live provider at \(url.host ?? base) isn't answering — skipping rather than reporting a broken agent")
+    }
+
     private func live() throws -> Live {
+        // Same opt-in and the same reachability skip as the shared helper.
+        _ = try Self.liveConfig()
         let path = NSHomeDirectory() + "/.baton-live-agent.json"
         try XCTSkipIf(
             !FileManager.default.fileExists(atPath: path),

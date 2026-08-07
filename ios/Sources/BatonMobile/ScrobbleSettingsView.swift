@@ -3,9 +3,9 @@ import SwiftUI
 /// Setting up ListenBrainz and Last.fm on the phone.
 ///
 /// Both engines already ran here — every play was being scrobbled to whatever the shared
-/// stores held. But the only way to *fill* those stores was "Import settings from Mac",
-/// which meant a phone-first user silently scrobbled nowhere and had no way to find out
-/// why. This screen is that missing half.
+/// stores held. But the only way to *fill* those stores was to bring a Mac's settings
+/// across (now `MacTransferView`), which meant a phone-first user silently scrobbled
+/// nowhere and had no way to find out why. This screen is that missing half.
 ///
 /// Navidrome's own scrobble isn't listed: it needs no setup, it's implied by having a
 /// server, and offering a switch for it would suggest it were optional here.

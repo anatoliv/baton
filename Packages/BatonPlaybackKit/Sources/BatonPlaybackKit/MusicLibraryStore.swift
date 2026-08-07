@@ -9,7 +9,7 @@ private let musicStoreLog = Logger(subsystem: "io.tonebox.baton", category: "Mus
 /// server sort; `tracks` and `duration` have no API equivalent, so they fetch a
 /// name-sorted base list and re-order it client-side (see `clientComparator`).
 public enum AlbumSort: String, CaseIterable, Identifiable, MusicSortField, Sendable {
-    case newest, recent, frequent, name, artist, tracks, duration, starred, highest, random
+    case newest, recent, frequent, name, artist, tracks, duration, starred, highest, random, year
 
     public var id: String {
         rawValue
@@ -25,8 +25,10 @@ public enum AlbumSort: String, CaseIterable, Identifiable, MusicSortField, Senda
         case .highest: "highest"
         case .random: "random"
         case .artist: "alphabeticalByArtist"
-        // Name plus the client-sorted ones fetch an A→Z base list.
-        case .name, .tracks, .duration: "alphabeticalByName"
+        // Name plus the client-sorted ones fetch an A→Z base list. Year is client-side
+        // too: the API's `byYear` needs a from/to range, which is a filter pretending to
+        // be a sort — re-ordering the fetched list matches what people actually mean.
+        case .name, .tracks, .duration, .year: "alphabeticalByName"
         }
     }
 
@@ -36,6 +38,8 @@ public enum AlbumSort: String, CaseIterable, Identifiable, MusicSortField, Senda
         case .name: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .tracks: { ($0.songCount ?? 0) > ($1.songCount ?? 0) }
         case .duration: { ($0.duration ?? 0) > ($1.duration ?? 0) }
+        // Newest year first; unknown years sink to the bottom rather than posing as 0 AD.
+        case .year: { ($0.year ?? Int.min) > ($1.year ?? Int.min) }
         default: nil
         }
     }
@@ -52,6 +56,7 @@ public enum AlbumSort: String, CaseIterable, Identifiable, MusicSortField, Senda
         case .starred: "Liked"
         case .highest: "Top rated"
         case .random: "Random"
+        case .year: "Year"
         }
     }
 }
@@ -439,6 +444,20 @@ public final class MusicLibraryStore {
     /// Structured/synced lyrics for a song (nil when the server has none).
     public func lyrics(for songID: String) async -> NavidromeLyrics? {
         await (try? clientProvider().getLyrics(songID: songID)) ?? nil
+    }
+
+    /// The folder tree's roots — the file system's opinion of the library, for people
+    /// whose collections are organized that way on disk. Empty in demo mode and on
+    /// failure alike; the Folders screen states its own empty case.
+    public func folderRoots() async -> [NavidromeFolder] {
+        guard !isDemo, let client = try? clientProvider() else { return [] }
+        return (try? await client.getIndexes()) ?? []
+    }
+
+    /// One folder's contents, or nil when the server can't answer.
+    public func directory(id: String) async -> NavidromeDirectory? {
+        guard !isDemo, let client = try? clientProvider() else { return nil }
+        return try? await client.getMusicDirectory(id: id)
     }
 
     /// Songs similar to a seed (song or artist id) — powers radio/discovery.

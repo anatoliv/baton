@@ -18,8 +18,10 @@ in [`docs/`](docs/).
 
 - [What Baton is, and what it isn't](#what-baton-is-and-what-it-isnt)
 - [Getting connected](#getting-connected)
+- [Baton on iPhone](#baton-on-iphone)
 - [Using more than one server](#using-more-than-one-server)
 - [Finding your way around](#finding-your-way-around)
+- [Browsing by folder](#browsing-by-folder)
 - [Home (For You)](#home-for-you)
 - [Search](#search)
 - [Mixes](#mixes)
@@ -103,6 +105,73 @@ passwords. They are never written to a plain text file. There's more on this in 
 
 ---
 
+## Baton on iPhone
+
+Baton on iPhone plays the same library from the same server, and most of this guide applies
+to it unchanged. Where the two differ, it's noted in the section itself. The main
+differences: Settings is the last tab rather than a window you open with Command-comma,
+there's no menu-bar controller, and there's no window to keep in a corner of a screen.
+
+### Getting your Mac's setup onto your phone
+
+Typing a server address, a username and a long password into a phone keyboard is the worst
+part of setting up any music app, so there are three ways round it. All of them live under
+**Settings → Set up from a Mac**, and the first two also appear on the first-run screen.
+
+- **Scan a code.** On the Mac, open **Settings → Remote → Link a device → Show pairing code**. On
+  the phone, choose **Scan a code from your Mac** and point the camera at it. Your server
+  address, your sign-in and your settings come across encrypted, and there is nothing to
+  type — not even a passphrase. Both devices have to be on the same network, because the
+  code contains a local address the phone connects back to.
+- **Import a file.** On the Mac, use **Settings → About → Back up & restore → Export…**, then get the file to
+  your phone however you like — AirDrop, iCloud Drive, email. On the phone, choose **Choose
+  an exported file**. If you exported it with your accounts included it's encrypted, and
+  you'll need the passphrase you chose. This is the one that works when the two devices
+  aren't on the same network.
+- **Type it in.** **Connect to Navidrome** takes a server address, a username and a
+  password, exactly as the Mac's first run does.
+
+Your likes, ratings, playlists and play counts don't need any of this — they live on your
+Navidrome server, and both apps read and write them as the same user, so they are already
+the same on every device. What travels here is the things Navidrome has nowhere to keep:
+your equalizer curve, crossfade, radio bans, and your music friend's setup.
+
+### Making the phone yours
+
+A few things on the iPhone bend to how you actually listen:
+
+- **Edit the Library list.** Tap **Edit** on the Library tab to hide sections you never
+  open and drag the rest into your order. New sections appear automatically even if you've
+  customized the list.
+- **Jump by letter.** Long alphabetical lists — Albums, Artists, Folders — have an A–Z
+  rail along the right edge. Tap or drag it.
+- **Search remembers.** The albums and artists you open from search wait under the empty
+  search field next time.
+- **Albums as a grid or a list.** The sort menu on Albums also switches the view style.
+- **Keep the screen awake.** Settings → Display, for a phone propped on a dock. Off by
+  default because it costs battery.
+
+### The demo library
+
+Baton needs a server, which makes an app with no server a locked door. There are two ways
+through it, and they answer different questions.
+
+**Try the demo** on the first-run screen opens a small library built into the app — real
+tracks, played through the real engine — so you can see what Baton does before setting
+anything up. Nothing about it touches the network.
+
+**Use Navidrome's public demo server** fills in the sign-in for
+`https://demo.navidrome.org` (username `demo`, password `demo`), the instance the Navidrome
+project publishes for exactly this. That one is a real library over a real connection: a
+few thousand Creative Commons tracks, artwork arriving over the wire, search against a
+proper index. It is not our server, so it can be slow or offline — but it shows you what
+Baton is actually for in a way four bundled tracks cannot.
+
+Connect your own server whenever you like from **Settings → Connect to Navidrome**, and
+either demo gives way to it.
+
+---
+
 ## Using more than one server
 
 If you run more than one server, or want to keep a home server and a friend's server side by
@@ -145,6 +214,19 @@ section that covers it in full:
 
 Across list views you can select several rows at once and act on them together. See
 [Rating, liking, and multi-select](#rating-liking-and-multi-select).
+
+---
+
+## Browsing by folder
+
+The tag views — albums, artists, genres — are Navidrome's reading of your library. The
+**Folders** view is the file system's: the directory tree exactly as it sits on disk, which
+for a collection organized by hand often carries meaning the tags don't. Open a folder to
+see its subfolders and its tracks in file order, and **Play Folder** plays it top to bottom
+like an album.
+
+On the Mac, Folders is a sidebar section. On iPhone it's a row in the Library tab. Both
+browse the same tree, live from the server — nothing is duplicated locally.
 
 ---
 
@@ -508,6 +590,14 @@ and re-run the suggestion from there if your habits change.
 ---
 
 ## The equalizer
+
+The preset name always describes the curve you actually have, rather than the last button
+you pressed. Move a band and it becomes **Custom**; move every band back to zero and it says
+**Flat** again, because that is what Flat is. Choosing a preset replaces the whole curve, so
+anything you had hand-tuned is gone — there's a **Flat / Reset** button when you want to
+start over.
+
+On iPhone this lives under **Settings → Equalizer**, with the bands behind the **Bands** row.
 
 Baton has a **10-band parametric equalizer**. Open it from the Audio menu (press Option,
 Command, and E), or from the **Equalizer** pane in Settings.
@@ -1389,7 +1479,8 @@ same three tracks.
 
 ## Settings reference
 
-Open Settings by pressing Command and comma. The panes are:
+On the Mac, open Settings by pressing Command and comma. On iPhone, Settings is the
+last tab. The panes are:
 
 ### Servers
 

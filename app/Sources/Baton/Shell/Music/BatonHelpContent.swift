@@ -234,6 +234,47 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.0",
+            date: "2026",
+            highlight: "Browse by folder, hear what the queue is playing from, and a track that could never be silenced can be again.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Folders \u{2014} browse the library the way it sits on disk, not the "
+                        + "way the tags describe it. Open a folder for its subfolders and "
+                        + "tracks in file order, and play any folder top to bottom."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Up Next says what is feeding it \u{2014} \u{201C}Playing from "
+                        + "Albums\u{201D}. Baton has always known; the panel never said."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Podcast subscriptions travel between this Mac and your iPhone. "
+                        + "Subscribe on one and the other picks it up; each device still "
+                        + "fetches its own episodes rather than inheriting a stale list."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Albums can sort by year."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "A crossfade could leave a second track playing that nothing could "
+                        + "stop \u{2014} every song chosen afterwards played on top of it. Two "
+                        + "pieces of state could disagree about whether a fade was running; "
+                        + "now the player itself is the authority."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Pausing and stopping fade over about a tenth of a second instead of "
+                        + "cutting mid-waveform, which is what made them click \u{2014} most "
+                        + "audible on bass and on good headphones."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.15.1",
             date: "2026",
             highlight: "Fixes for 0.15.0 \u{2014} the pairing code now appears, and the app ships with its entitlements intact.",

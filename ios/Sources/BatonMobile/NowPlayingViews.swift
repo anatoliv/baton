@@ -160,6 +160,9 @@ struct FullPlayerView: View {
     /// the 4 Hz clock updates mid-drag.
     @State private var scrubTime: TimeInterval?
     @State private var showsLyrics = false
+    @State private var showsRelated = false
+    @State private var showsQueue = false
+    @AppStorage("baton.player.showsRemaining") private var showsRemainingTime = false
     @State private var isEditingQueue = false
     /// Real peaks for the scrubber, when the track is downloaded. A live stream can't be
     /// analysed, so streams keep the capsule — the same rule the Mac follows.
@@ -191,11 +194,25 @@ struct FullPlayerView: View {
                                 .foregroundStyle(.white.opacity(0.65))
                         }
                         .padding(.horizontal)
+                        // Long-press the title for everything a song row offers —
+                        // including Go to Album / Go to Artist, which dismiss this sheet
+                        // and open the target (RootTabView handles the handover).
+                        .songContextMenu(song, model: model)
 
                         scrubber
                         transport
                         secondaryControls(for: song)
-                        queueList
+                        // The stars are five targets wide, so they get their own line
+                        // rather than squeezing the icon row.
+                        if !model.isDemoMode {
+                            MobileStarRating(
+                                rating: model.musicLibrary.rating(song),
+                                tint: accent
+                            ) { stars in
+                                Task { await model.musicLibrary.setRating(song, rating: stars) }
+                            }
+                        }
+                        Spacer(minLength: 0)
                     } else {
                         ContentUnavailableView("Nothing playing", systemImage: "music.note")
                     }
@@ -206,6 +223,14 @@ struct FullPlayerView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                         .foregroundStyle(.white)
+                }
+            }
+            .sheet(isPresented: $showsQueue) {
+                QueueSheet(model: model, accent: accent)
+            }
+            .sheet(isPresented: $showsRelated) {
+                if let song = model.music.nowPlaying {
+                    RelatedSheet(song: song, model: model)
                 }
             }
             .sheet(isPresented: $showsLyrics) {
@@ -310,12 +335,37 @@ struct FullPlayerView: View {
             HStack {
                 Text(timeString(scrubTime ?? model.music.currentTime))
                 Spacer()
-                Text(timeString(model.music.duration))
+                // What the stream actually is — "FLAC · 1017 kbps". The Mac has carried
+                // this in its Track Inspector all along; on the phone the person on good
+                // headphones had no way to know whether they were hearing the real file.
+                if let quality = qualityLine {
+                    Text(quality)
+                }
+                Spacer()
+                // Total by default; tap for time remaining. Both answers to "how long",
+                // and different people want different ones.
+                Button {
+                    showsRemainingTime.toggle()
+                } label: {
+                    Text(showsRemainingTime
+                         ? "-" + timeString(max(model.music.duration - (scrubTime ?? model.music.currentTime), 0))
+                         : timeString(model.music.duration))
+                }
+                .buttonStyle(.plain)
             }
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.white.opacity(0.55))
         }
         .padding(.horizontal, 28)
+    }
+
+    /// "FLAC · 1017 kbps", from what the server already told us about the file. Nil when
+    /// it told us nothing — an empty badge would just be lint.
+    private var qualityLine: String? {
+        guard let song = model.music.nowPlaying else { return nil }
+        let format = song.suffix?.uppercased()
+        let rate = song.bitRate.map { "\($0) kbps" }
+        return Counted.line([format, rate])
     }
 
     private var transport: some View {
@@ -381,30 +431,31 @@ struct FullPlayerView: View {
                 .accessibilityLabel("Like")
             }
 
-            if !model.isDemoMode {
-                Menu {
-                    ForEach((1 ... 5).reversed(), id: \.self) { stars in
-                        Button {
-                            Task { await model.musicLibrary.setRating(song, rating: stars) }
-                        } label: { Label(String(repeating: "★", count: stars), systemImage: "star") }
-                    }
-                    Button {
-                        Task { await model.musicLibrary.setRating(song, rating: 0) }
-                    } label: { Label("Clear rating", systemImage: "star.slash") }
-                } label: {
-                    let rating = model.musicLibrary.rating(song)
-                    Image(systemName: rating > 0 ? "star.fill" : "star")
-                        .foregroundStyle(rating > 0 ? accent : .white.opacity(0.6))
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel("Rate")
+            // Up Next opens a screen of its own. It used to be a List sharing this
+            // view's VStack with the artwork, the scrubber and two rows of controls, so
+            // it got whatever was left — about one and a half rows on an iPhone. A queue
+            // you can't see is a queue you can't reorder.
+            Button { showsQueue = true } label: {
+                Image(systemName: "list.bullet").foregroundStyle(.white.opacity(0.6))
             }
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("Up Next")
 
             Button { showsLyrics = true } label: {
                 Image(systemName: "quote.bubble").foregroundStyle(.white.opacity(0.6))
             }
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Lyrics")
+
+            // The Mac's player has three panels — Up Next, Lyrics, Related. The phone had
+            // the first two. The similarity data was already being fetched here, but only
+            // to feed autoplay: the queue would quietly fill with related tracks that you
+            // could never ask to see.
+            Button { showsRelated = true } label: {
+                Image(systemName: "sparkles").foregroundStyle(.white.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("Related")
 
             AirPlayButton()
                 .frame(width: 44, height: 24)
@@ -433,53 +484,6 @@ struct FullPlayerView: View {
         .accessibilityLabel("Sleep timer")
     }
 
-    private var queueList: some View {
-        List {
-            Section {
-                let queue = model.music.queue
-                ForEach(Array(queue.enumerated()), id: \.element.id) { index, song in
-                    HStack {
-                        Text(song.title).lineLimit(1)
-                            .foregroundStyle(index == model.music.currentIndex ? accent : .white)
-                        Spacer()
-                        Text(song.artist ?? "")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
-                            .lineLimit(1)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.music.jump(to: index) }
-                    .listRowBackground(
-                        index == model.music.currentIndex
-                            ? Color.nowPlayingRowTint(accent)
-                            : Color.clear
-                    )
-                    .songContextMenu(song, model: model)
-                }
-                // Reordering and removal are the two things a queue is for. The engine
-                // has had both since the Mac shipped; the phone just never offered them.
-                .onMove { source, destination in
-                    model.music.moveQueueItem(from: source, to: destination)
-                }
-                .onDelete { offsets in
-                    model.music.removeFromQueue(at: offsets)
-                }
-            } header: {
-                HStack {
-                    Text("Up Next").foregroundStyle(.white.opacity(0.6))
-                    Spacer()
-                    Button(isEditingQueue ? "Done" : "Edit") { isEditingQueue.toggle() }
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(accent)
-                        .textCase(nil)
-                }
-            }
-        }
-        .listStyle(.plain)
-        .environment(\.editMode, .constant(isEditingQueue ? .active : .inactive))
-        // The backdrop paints the surface; the list must not repaint it opaque.
-        .scrollContentBackground(.hidden)
-    }
 
     private func timeString(_ t: TimeInterval) -> String {
         guard t.isFinite, t > 0 else { return "0:00" }
@@ -500,6 +504,193 @@ private struct AirPlayButton: UIViewRepresentable {
     }
 
     func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+
+/// The queue, full height.
+///
+/// This was a `List` sharing the player's `VStack` with the artwork, the scrubber and two
+/// rows of controls, so it rendered about one and a half rows on an iPhone — enough to
+/// prove a queue existed and not enough to use one. Reordering a queue you can only see
+/// one row of is not a feature. It gets a screen.
+struct QueueSheet: View {
+    let model: MobileModel
+    var accent: Color = .accentColor
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isEditing = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if model.music.queue.isEmpty {
+                    ContentUnavailableView(
+                        "Nothing queued",
+                        systemImage: "list.bullet",
+                        description: Text("Play an album or a mix and what's coming up shows here.")
+                    )
+                } else {
+                    List {
+                        // The engine records a source on every play(); the queue is where
+                        // "why is this song next" gets asked, so it is answered here.
+                        if let source = model.music.queueSource {
+                            Section {
+                            } header: {
+                                Text("Playing from \(source.label)")
+                                    .textCase(nil)
+                            }
+                            .listSectionSpacing(0)
+                        }
+                        ForEach(Array(model.music.queue.enumerated()), id: \.element.id) { index, song in
+                            HStack(spacing: 10) {
+                                if index == model.music.currentIndex {
+                                    Image(systemName: "speaker.wave.2.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(accent)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(song.title)
+                                        .lineLimit(1)
+                                        .foregroundStyle(index == model.music.currentIndex ? accent : .primary)
+                                    Text(song.artist ?? "")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                model.music.jump(to: index)
+                                dismiss()
+                            }
+                            .songContextMenu(song, model: model)
+                        }
+                        // Reordering and removal are the two things a queue is for. The
+                        // engine has had both since the Mac shipped.
+                        .onMove { source, destination in
+                            model.music.moveQueueItem(from: source, to: destination)
+                        }
+                        .onDelete { offsets in
+                            model.music.removeFromQueue(at: offsets)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Up Next")
+            .navigationBarTitleDisplayMode(.inline)
+            .environment(\.editMode, .constant(isEditing ? .active : .inactive))
+            .toolbar {
+                if !model.music.queue.isEmpty {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(isEditing ? "Done" : "Edit") { isEditing.toggle() }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .accessibilityIdentifier("QueueSheet")
+        }
+    }
+}
+
+/// The five-star control, matching the Mac's.
+///
+/// Tapping the star you are already on clears the rating, which is the Mac's behaviour and
+/// the only way to get back to unrated without a separate "Clear" affordance taking up
+/// room on a phone.
+struct MobileStarRating: View {
+    let rating: Int
+    var tint: Color = .yellow
+    var onRate: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(1 ... 5, id: \.self) { star in
+                Button {
+                    onRate(rating == star ? 0 : star)
+                } label: {
+                    Image(systemName: star <= rating ? "star.fill" : "star")
+                        .font(.footnote)
+                        .foregroundStyle(star <= rating ? tint : .white.opacity(0.45))
+                        // Thumb-sized without making the row taller: the icon stays small
+                        // while the tappable area does not.
+                        .frame(width: 26, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Rate \(star) star\(star == 1 ? "" : "s")")
+                .accessibilityAddTraits(star <= rating ? .isSelected : [])
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(rating == 0 ? "Not rated" : "\(rating) of 5 stars")
+        .accessibilityIdentifier("StarRating")
+    }
+}
+
+/// Songs the server thinks belong with this one.
+///
+/// The counterpart to the Mac's Related panel. Radio bans are honoured here for the same
+/// reason autoplay honours them: a track you told Baton to stop suggesting shouldn't
+/// reappear in a list headed "because you're playing this".
+struct RelatedSheet: View {
+    let song: NavidromeSong
+    let model: MobileModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var related: [NavidromeSong] = []
+    @State private var loading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if related.isEmpty {
+                    ContentUnavailableView(
+                        "No related tracks",
+                        systemImage: "sparkles",
+                        description: Text("Your server had no similar songs for this one.")
+                    )
+                } else {
+                    List {
+                        ForEach(related) { track in
+                            Button {
+                                model.music.play(related,
+                                                 startAt: related.firstIndex(of: track) ?? 0,
+                                                 source: .init(label: "Related to \(song.title)", kind: .radio))
+                                dismiss()
+                            } label: {
+                                SongRow(song: track, model: model)
+                            }
+                            .buttonStyle(.plain)
+                            .songContextMenu(track, model: model)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Related")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                if !related.isEmpty {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Play All") {
+                            model.music.play(related,
+                                             source: .init(label: "Related to \(song.title)", kind: .radio))
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+        .task {
+            let found = await model.musicLibrary.similarSongs(seedID: song.id)
+            related = model.radioBans.filtered(found)
+            loading = false
+        }
+    }
 }
 
 /// Lyrics for the current track — synced lines highlight and auto-scroll with the

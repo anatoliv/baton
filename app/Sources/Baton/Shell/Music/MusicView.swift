@@ -152,7 +152,7 @@ struct MusicView: View {
     }
 
     enum MusicTab: String, CaseIterable, Identifiable {
-        case home, search, mixes, albums, artists, playlists, starred, later, history, podcasts, radio, downloads
+        case home, search, mixes, albums, artists, playlists, starred, later, history, podcasts, radio, downloads, folders
         var id: String {
             rawValue
         }
@@ -171,6 +171,7 @@ struct MusicView: View {
             case .podcasts: "Podcasts"
             case .radio: "Radio"
             case .downloads: "Downloads"
+            case .folders: "Folders"
             }
         }
 
@@ -188,6 +189,7 @@ struct MusicView: View {
             case .podcasts: "mic.fill"
             case .radio: "dot.radiowaves.left.and.right"
             case .downloads: "arrow.down.circle"
+            case .folders: "folder"
             }
         }
     }
@@ -551,6 +553,9 @@ struct MusicView: View {
                 ? nil : model.podcastSubscriptions.channels.count
         case .later:
             model.pins.pins.isEmpty ? nil : model.pins.pins.count
+        // Folders are lazy-loaded on first visit; a count here would force the fetch
+        // just to draw a number nobody asked for.
+        case .folders: nil
         }
     }
 
@@ -587,6 +592,7 @@ struct MusicView: View {
         case .podcasts: MusicPodcastsView()
         case .radio: MusicRadioView()
         case .downloads: MusicDownloadsView()
+        case .folders: MusicFoldersView()
         }
     }
 

@@ -48,6 +48,12 @@ struct BatonMobileApp: App {
                     })
                 }
                 .task { await model.restoreSession() }
+                // The keep-awake preference only means anything if it survives a relaunch
+                // — a toggle that resets whenever the app restarts is a suggestion.
+                .onAppear {
+                    UIApplication.shared.isIdleTimerDisabled =
+                        UserDefaults.standard.bool(forKey: "baton.display.keepAwake")
+                }
                 .onOpenURL { url in
                     Task { await route(url) }
                 }

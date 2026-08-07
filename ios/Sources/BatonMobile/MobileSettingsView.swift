@@ -5,19 +5,20 @@ import SwiftUI
 struct MobileSettingsView: View {
     let model: MobileModel
     @Environment(\.nowPlayingPalette) private var wash
+    @Environment(\.dismiss) private var dismiss
     @State private var showsDisconnectConfirm = false
     @State private var showsConnect = false
     /// Captured when the dialog opens so the copy can name what's about to go.
     @State private var purgePreview = SessionPurge.Preview(downloadCount: 0, downloadBytes: 0, historyCount: 0)
     /// Server credentials are revealed only behind a biometric challenge.
     @State private var credentialsUnlocked = false
-    @State private var showsImporter = false
-    @State private var importData: Data?
-    @State private var importNeedsPassphrase = false
-    @State private var importPassphrase = ""
-    @State private var importStatus: String?
     @AppStorage(CrashReporting.enabledKey) private var sendsCrashReports = false
+    @AppStorage("baton.display.keepAwake") private var keepAwake = false
     @State private var showsWhatsNew = false
+    /// A footer's "Learn more" opens Help at the topic it just requested.
+    @State private var showsHelp = false
+    /// Whether the server is answering. Checked on appear, and on tap.
+    @State private var serverStatus = ServerStatus()
 
     /// Spells out everything the purge removes. Deleting someone's offline music quietly
     /// would be worse than not deleting it at all.
@@ -58,13 +59,28 @@ struct MobileSettingsView: View {
                         LabeledContent("Library", value: "Demo")
                         Button("Connect to Navidrome…") { showsConnect = true }
                     } else {
+                        // First row in the section, because "is it working" is the question
+                        // people open Settings with. The address and username below say
+                        // what Baton was configured with; only this says whether any of it
+                        // currently works.
+                        ServerStatusRow(status: serverStatus) {
+                            Task { await serverStatus.check() }
+                        }
                         LabeledContent("Address", value: NavidromeConfig.serverURLString)
                         LabeledContent("User", value: NavidromeConfig.username)
-                        Button("Import settings from Mac…") { showsImporter = true }
                         Button("Disconnect…", role: .destructive) {
                             purgePreview = SessionPurge.preview(model)
                             showsDisconnectConfirm = true
                         }
+                    }
+                    // Reachable whether or not this phone is connected. It used to sit
+                    // only in the connected branch, as a button that opened the Files
+                    // picker — while the better route, scanning the Mac's code, was
+                    // reachable only from first-run onboarding.
+                    NavigationLink {
+                        MacTransferView(model: model)
+                    } label: {
+                        Label("Set up from a Mac…", systemImage: "laptopcomputer.and.iphone")
                     }
                 } header: {
                     Text("Server")
@@ -97,28 +113,52 @@ struct MobileSettingsView: View {
                          : "Connect a model provider or your home server, then test it — the Friend tab appears once the test passes.")
                 }
 
-                Section("Equalizer") {
+                Section {
                     Toggle("Equalizer", isOn: Binding(
                         get: { model.equalizer.isEnabled },
                         set: { model.equalizer.isEnabled = $0 }
                     ))
                     if model.equalizer.isEnabled {
+                        // Assigning `preset` only renamed the curve — the bands were left
+                        // exactly as they were, so choosing "Rock" on the phone changed a
+                        // label and nothing else. `apply` is what moves the sound, and it
+                        // is what the Mac has always called.
                         Picker("Preset", selection: Binding(
                             get: { model.equalizer.preset },
-                            set: {
-                                model.equalizer.preset = $0
+                            set: { name in
+                                // "Custom" is the label for a hand-tuned curve, not a
+                                // preset you can apply. Selecting it means nothing.
+                                guard name != "Custom" else { return }
+                                model.equalizer.apply(preset: name)
                                 model.preferenceSync.noteLocalChange("tonebox.music.eq.preset")
+                                model.preferenceSync.noteLocalChange("tonebox.music.eq.gains")
                             }
                         )) {
+                            // Without this the picker had no tag matching "Custom" and drew
+                            // an empty row — which is how a hand-tuned EQ ended up looking
+                            // like a broken screen.
+                            if model.equalizer.preset == "Custom" {
+                                Text("Custom").tag("Custom")
+                            }
                             ForEach(MusicEqualizer.presets, id: \.name) { preset in
                                 Text(preset.name).tag(preset.name)
                             }
                         }
+
+                        // The Mac has had this since the EQ shipped; the phone could only
+                        // get back to flat by dragging ten sliders and hoping.
+                        Button("Flat / Reset", role: .destructive) {
+                            model.equalizer.reset()
+                            model.preferenceSync.noteLocalChange("tonebox.music.eq.preset")
+                            model.preferenceSync.noteLocalChange("tonebox.music.eq.gains")
+                        }
                     }
 
                     // The presets cover most listening; these are for the person who
-                    // wants their own curve. Editing one moves the preset to "Custom",
-                    // because silently keeping the old name would misdescribe the sound.
+                    // wants their own curve. Editing one renames the preset to whatever
+                    // the resulting curve actually is — "Custom" for a shape no preset
+                    // has, but "Flat" the moment every band is back at zero — because
+                    // keeping the old name would misdescribe the sound.
                     if model.equalizer.isEnabled {
                         DisclosureGroup("Bands") {
                             ForEach(Array(MusicEqualizer.frequencies.enumerated()), id: \.offset) { index, hz in
@@ -133,6 +173,9 @@ struct MobileSettingsView: View {
                                                 set: {
                                                 model.equalizer.setGain($0, band: index)
                                                 model.preferenceSync.noteLocalChange("tonebox.music.eq.gains")
+                                                // Editing a band can rename the curve —
+                                                // back to flat is "Flat", not "Custom".
+                                                model.preferenceSync.noteLocalChange("tonebox.music.eq.preset")
                                             }
                                             ),
                                             in: -12 ... 12,
@@ -145,16 +188,24 @@ struct MobileSettingsView: View {
                                     }
                                 }
                             }
-                            Button("Reset to flat") {
-                                for index in MusicEqualizer.frequencies.indices {
-                                    model.equalizer.setGain(0, band: index)
-                                }
-                            }
                         }
                     }
+                } header: {
+                    Text("Equalizer")
+                } footer: {
+                    SettingsFooter(
+                        text: """
+                        Turns some frequencies up and others down — more bass, less \
+                        harshness, whatever your headphones need. Start from a preset, or \
+                        open Bands and move the sliders yourself. The preset name always \
+                        describes the curve you actually have.
+                        """,
+                        topic: SettingsHelpTopic.equalizer,
+                        onOpenHelp: { showsHelp = true }
+                    )
                 }
 
-                Section("Playback") {
+                Section {
                     Toggle("Gapless playback", isOn: Binding(
                         get: { model.music.gaplessEnabled },
                         set: { model.music.gaplessEnabled = $0 }
@@ -178,10 +229,40 @@ struct MobileSettingsView: View {
                             Text(mode.label).tag(mode)
                         }
                     }
+                } header: {
+                    Text("Sound")
+                } footer: {
+                    SettingsFooter(
+                        text: """
+                        Gapless plays an album with no silence between tracks, the way a \
+                        live record was meant to run. Crossfade instead overlaps the end \
+                        of one song with the start of the next — the two want opposite \
+                        things, so crossfade is hidden while gapless is on. Loudness \
+                        evens out volume between quiet and loud tracks so you stop \
+                        reaching for the volume.
+                        """,
+                        topic: SettingsHelpTopic.soundQuality,
+                        onOpenHelp: { showsHelp = true }
+                    )
+                }
+
+                Section {
                     Toggle("Autoplay similar songs", isOn: Binding(
                         get: { model.music.autoplayEnabled },
                         set: { model.music.autoplayEnabled = $0 }
                     ))
+                } header: {
+                    Text("Queue")
+                } footer: {
+                    SettingsFooter(
+                        text: """
+                        When the queue runs out, Baton keeps playing with songs like the \
+                        ones you just heard instead of falling silent. Turn it off if you \
+                        want the music to stop where you told it to.
+                        """,
+                        topic: SettingsHelpTopic.queue,
+                        onOpenHelp: { showsHelp = true }
+                    )
                 }
 
                 Section {
@@ -199,7 +280,7 @@ struct MobileSettingsView: View {
                 }
 
                 Section {
-                    NavigationLink { HelpView() } label: {
+                    Button { showsHelp = true } label: {
                         Label("Help & FAQ", systemImage: "questionmark.circle")
                     }
                     Button {
@@ -224,44 +305,48 @@ struct MobileSettingsView: View {
                 }
 
                 Section {
+                    Toggle("Keep the screen awake", isOn: Binding(
+                        get: { keepAwake },
+                        set: { keepAwake = $0; UIApplication.shared.isIdleTimerDisabled = $0 }
+                    ))
+                } header: {
+                    Text("Display")
+                } footer: {
+                    Text("""
+                    Stops the screen locking while Baton is open — for a phone propped on \
+                    a dock or a kitchen counter. Uses more battery, which is why it's off \
+                    by default.
+                    """)
+                }
+
+                Section {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
                 } footer: {
                     Text("Baton is open source and MIT-licensed — the source is free forever; the App Store build funds development.")
                 }
             }
             .nowPlayingWash(wash)
-            .navigationTitle("Settings")
+            // Settings is presented as a sheet from Home now, and it uses the pinned
+            // header rather than a navigation bar — so without this there is nothing to
+            // dismiss it with. Exactly the trap the keyboard fix just closed on two other
+            // screens; adding a screen with no way out while fixing screens with no way
+            // out would be its own kind of joke.
+            .rootScreenHeader("Settings", subtitle: connectionLine) {
+                Button("Done") { dismiss() }
+                    .font(.body.weight(.semibold))
+            }
+            // Keyed, not bare. A plain `.task` runs once when the view first appears, so
+            // connecting to a server from this very screen left the badge reading "Not
+            // checked" — Settings was already on screen, so nothing re-ran. Keying on the
+            // identity of the connection re-checks whenever it changes: a new server, a
+            // different user, or leaving demo mode.
+            .task(id: "\(model.isDemoMode)|\(NavidromeConfig.serverURLString)|\(NavidromeConfig.username)") {
+                // Only when there is something to check — in demo mode there is no server,
+                // and a red "can't reach" badge over the bundled library would be a lie.
+                if !model.isDemoMode { await serverStatus.check() }
+            }
             .sheet(isPresented: $showsWhatsNew) { WhatsNewView() }
-            .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.json, .data]) { result in
-                guard case .success(let url) = result else { return }
-                let secured = url.startAccessingSecurityScopedResource()
-                defer { if secured { url.stopAccessingSecurityScopedResource() } }
-                guard let data = try? Data(contentsOf: url) else {
-                    importStatus = "Couldn't read that file."
-                    return
-                }
-                importData = data
-                if let inspection = try? SettingsTransfer.inspect(data), inspection.encrypted {
-                    importNeedsPassphrase = true
-                } else {
-                    applyImport(passphrase: nil)
-                }
-            }
-            .alert("Passphrase", isPresented: $importNeedsPassphrase) {
-                SecureField("Export passphrase", text: $importPassphrase)
-                Button("Import") { applyImport(passphrase: importPassphrase) }
-                Button("Cancel", role: .cancel) { importData = nil; importPassphrase = "" }
-            } message: {
-                Text("This export is encrypted — enter the passphrase you set on the Mac.")
-            }
-            .alert("Settings import", isPresented: Binding(
-                get: { importStatus != nil },
-                set: { if !$0 { importStatus = nil } }
-            )) {
-                Button("OK") { importStatus = nil }
-            } message: {
-                if let importStatus { Text(importStatus) }
-            }
+            .sheet(isPresented: $showsHelp) { HelpView() }
             .confirmationDialog(
                 "Disconnect from this server?",
                 isPresented: $showsDisconnectConfirm,
@@ -285,30 +370,28 @@ struct MobileSettingsView: View {
                 Text(disconnectMessage)
             }
             .sheet(isPresented: $showsConnect) {
-                OnboardingView {
+                OnboardingView(onConnected: {
                     showsConnect = false
                     model.endDemo()
                     Task { await model.warmLibrary() }
-                }
+                }, onCancel: {
+                    showsConnect = false
+                })
             }
         }
     }
-}
 
-extension MobileSettingsView {
-    /// Applies a Mac settings export: server config + secrets land in the same
-    /// UserDefaults/Keychain slots the shared core reads, then the library reloads.
-    private func applyImport(passphrase: String?) {
-        guard let data = importData else { return }
-        do {
-            let result = try SettingsTransfer.applyImport(data, passphrase: passphrase)
-            importStatus = "Imported \(result.preferenceCount) settings and \(result.secretCount) secrets."
-            importData = nil
-            importPassphrase = ""
-            model.musicLibrary.refreshConnection()
-            Task { await model.warmLibrary() }
-        } catch {
-            importStatus = "Import failed: \(error.localizedDescription)"
-        }
+    /// Which library you are actually looking at. The single most common question this
+    /// screen answers, and it was three rows down inside a section.
+    ///
+    /// Host only, never the full URL: this line is on screen whenever Settings is, and a
+    /// header is a poor place to park credentials or a private address.
+    private var connectionLine: String? {
+        if model.isDemoMode { return "Demo library" }
+        let host = URL(string: NavidromeConfig.serverURLString)?.host
+            ?? NavidromeConfig.serverURLString
+        guard !host.isEmpty else { return nil }
+        let user = NavidromeConfig.username
+        return user.isEmpty ? host : "\(user) · \(host)"
     }
 }
