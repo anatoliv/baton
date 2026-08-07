@@ -370,6 +370,23 @@ affects your local list and stats; it doesn't touch your server's play counts.
 
 ---
 
+### Whose plays you're looking at
+
+Your Navidrome server records every play, from every device, against your user — so it has
+always been the real record. Baton also keeps a small log on each device, which is what
+makes History open instantly and work with no connection.
+
+On iPhone, **Recent** reads from the server by default, so it includes what you played on
+the Mac; switch to **This iPhone** for the on-device log. **All-time Top Tracks** has always
+come from the server. The windowed rankings ("This Week", "This Month") can only come from
+the device, because Subsonic keeps a running count rather than a dated event log — so those
+are per-device by nature, not by choice.
+
+Clearing history on a device clears only that device's log. Your server's play counts are
+untouched.
+
+---
+
 ## Podcasts
 
 The **Podcasts** tab plays podcast episodes through the normal player. There are two ways a

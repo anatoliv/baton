@@ -135,7 +135,9 @@ private struct AlbumListRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.name).lineLimit(1)
-                Text(Counted.line([album.artist, album.year.map(String.init)]) ?? "")
+                Text(Counted.line([album.artist,
+                                   album.year.map(String.init),
+                                   PlayTime.total(album.duration)]) ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -297,6 +299,14 @@ struct AlbumDetailView: View {
                         if song.id == model.music.nowPlaying?.id {
                             Image(systemName: "waveform")
                                 .foregroundStyle(.tint)
+                        }
+                        // Every music app puts a duration column in a track listing, and
+                        // this is the screen where "how long is this record" is asked.
+                        if let time = PlayTime.track(song.duration) {
+                            Text(time)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                                .frame(minWidth: 38, alignment: .trailing)
                         }
                     }
                     .contentShape(Rectangle())

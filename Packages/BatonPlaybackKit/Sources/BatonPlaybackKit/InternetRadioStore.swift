@@ -293,6 +293,9 @@ public final class RadioPlaybackEngine {
     public private(set) var nowPlayingTitle: String?
 
     @ObservationIgnored private let player = AVPlayer()
+    @ObservationIgnored private let transportFade = TransportFade()
+    /// The user's level, kept so `applyVolume()` can recombine it with the fade envelope.
+    @ObservationIgnored private var volumePercent: Int = 100
     @ObservationIgnored private var rateObservation: NSKeyValueObservation?
     @ObservationIgnored private var statusObservation: NSKeyValueObservation?
     @ObservationIgnored private var metadataOutput: AVPlayerItemMetadataOutput?
@@ -311,6 +314,11 @@ public final class RadioPlaybackEngine {
 
     /// Start playing `station` from its raw stream `url`, replacing any current one.
     public func play(station: NavidromeRadioStation, url: URL) {
+        // Settle any fade still running from the station we're replacing. Its completion
+        // tears the item down (`replaceCurrentItem(with: nil)`), and arriving late that
+        // would silence the station we're about to start — stop A, tap B inside the ramp,
+        // and B dies with no error and nothing on screen to explain it.
+        transportFade.cancel(apply: { [weak self] in self?.applyVolume() })
         currentStation = station
         nowPlayingTitle = nil
 
@@ -344,21 +352,46 @@ public final class RadioPlaybackEngine {
     }
 
     /// Pause the live stream (keeps the station on air so the bar's play button resumes it).
-    public func pause() { player.pause() }
+    ///
+    /// Ramped like library playback. A stream cut mid-waveform clicks exactly the same way
+    /// a file does, and the remote/CarPlay pause button lands here whenever radio is on air.
+    public func pause() {
+        transportFade.out(apply: { [weak self] in self?.applyVolume() },
+                          then: { [weak self] in self?.player.pause() })
+    }
 
     /// Resume after a pause — reconnects to the live edge.
-    public func resume() { player.play() }
+    public func resume() {
+        player.play()
+        transportFade.in(apply: { [weak self] in self?.applyVolume() })
+    }
 
     /// Set output volume (0–100) and mute — mirrored from the shared player volume so the
     /// one bottom-bar volume slider controls radio too.
-    public func setVolume(percent: Int) { player.volume = Float(max(0, min(percent, 100))) / 100 }
+    public func setVolume(percent: Int) {
+        volumePercent = max(0, min(percent, 100))
+        applyVolume()
+    }
+
+    /// The user's level times the transport ramp, so adjusting the volume mid-fade composes
+    /// with it instead of erasing it.
+    private func applyVolume() {
+        player.volume = Float(volumePercent) / 100 * transportFade.multiplier
+    }
+
     public func setMuted(_ muted: Bool) { player.isMuted = muted }
 
     /// Stop playback and clear the on-air station.
+    ///
+    /// The station clears from the UI immediately; only the audio is ramped, so the button
+    /// still feels instant. Tearing the item down inside the fade's completion matters —
+    /// `replaceCurrentItem(with: nil)` on an audible player is its own hard cut.
     public func stop() {
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        statusObservation?.invalidate()
+        transportFade.out(apply: { [weak self] in self?.applyVolume() }) { [weak self] in
+            guard let self else { return }
+            self.player.pause()
+            self.player.replaceCurrentItem(with: nil)
+        }
         statusObservation = nil
         currentStation = nil
         isPlaying = false

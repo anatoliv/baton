@@ -301,7 +301,8 @@ struct LikedView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         VStack(alignment: .leading) {
                             Text(album.name).lineLimit(1)
-                            Text(album.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(Counted.line([album.artist, PlayTime.total(album.duration)]) ?? "")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                 }
