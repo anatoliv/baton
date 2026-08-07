@@ -1,94 +1,137 @@
 import AVFoundation
 import Foundation
 
-/// Short volume ramps around transport actions, so pausing and stopping don't click.
+/// Short volume ramps around transport actions, so pausing, stopping and resuming are
+/// shaped rather than switched.
 ///
 /// `AVPlayer.pause()` cuts the signal at whatever sample it happens to be on. Mid-waveform
-/// that is a step discontinuity — an audible click or thud, worst on bass-heavy material
-/// and on good headphones, which is exactly the audience that notices. A ramp of ten or
-/// twenty milliseconds is inaudible as a fade and removes the click entirely; this uses a
-/// little more so the stop also *feels* deliberate rather than yanked.
+/// that is a step discontinuity — an audible click or thud, worst on bass-heavy material.
+/// Removing the click needs only ten or twenty milliseconds. Sounding like a *fade* needs
+/// considerably more, and needs the right curve:
+///
+/// **Perceived loudness is roughly logarithmic, so a linear amplitude ramp is heard as a
+/// cut.** Halfway through a linear fade you are still at −6 dB — plainly audible — and the
+/// entire remaining 20-odd dB collapses into the last few milliseconds. The ear registers
+/// "loud, then gone". Squaring the ramp spends the time where the ear actually is, and the
+/// same fade becomes something you can hear happening. Road noise in a car masks the quiet
+/// tail outright, which is where a short linear ramp stops being a fade at all.
+///
+/// This drives a 0…1 **envelope** rather than writing `AVPlayer.volume`. The controller
+/// folds `multiplier` into `applyVolume()` alongside the user's level, loudness
+/// normalization and the sleep-timer fade, so the four compose instead of overwriting one
+/// another — before, adjusting the volume mid-fade snapped it straight back to full.
 ///
 /// Deliberately not a crossfade. `CrossfadeRamp` overlaps two players across a track
-/// boundary; this only shapes one player's own volume around starting and stopping, and
-/// the two never run on the same player at once — `cancelCrossfade()` precedes every
-/// transport action that uses this.
+/// boundary; this shapes one player's own level around starting and stopping, and the two
+/// never run on the same player at once — `cancelCrossfade()` precedes every transport
+/// action that uses this.
 ///
-/// **The invariant that matters: volume always ends where the model says it should.** A
-/// fade that is interrupted, superseded, or abandoned must never leave the player sitting
+/// **The invariant that matters: the envelope always ends where the model says it should.**
+/// A fade that is interrupted, superseded or abandoned must never leave the player sitting
 /// at silence — a silent player is a far worse bug than a click, and an untraceable one.
-/// Every path here ends by handing the level back to the caller's `applyVolume()`.
 @MainActor
 public final class TransportFade {
-    /// Long enough to remove the discontinuity, short enough that the button still feels
-    /// instant. Transport UI updates immediately; only the audio is shaped.
-    public static let outDuration: Double = 0.12
-    public static let inDuration: Double = 0.09
-    private static let steps = 8
+    /// Long enough to be heard as a fade over road noise, short enough that the button
+    /// still feels responsive. Transport UI updates immediately; only audio is shaped.
+    public static let outDuration: Double = 0.28
+    public static let inDuration: Double = 0.18
+
+    /// ~8 ms between updates: fine enough to be heard as a slope rather than a staircase,
+    /// coarse enough not to flood the main actor. The old ramp used 8 steps total, which
+    /// at these durations would be audible stepping.
+    static let tick: Double = 0.008
+
+    /// The envelope the controller multiplies into its volume math. 1 = untouched.
+    public private(set) var multiplier: Float = 1
 
     private var task: Task<Void, Never>?
+    /// The pause a fade-out has promised but not yet delivered. Held so that whatever
+    /// interrupts the ramp can decide the promise's fate — see `settlePendingStop()`.
+    private var pendingStop: (@MainActor () -> Void)?
 
     public init() {}
 
     public var isFading: Bool { task != nil }
 
-    /// Ramps `player` to silence, then runs `then` — normally `pause()`.
+    /// Perceptually even ramps. See the type comment for why these aren't linear.
+    static func outCurve(_ p: Float) -> Float { (1 - p) * (1 - p) }
+    static func inCurve(_ p: Float) -> Float { p * p }
+
+    /// Ramps the envelope to silence, then runs `then` — normally `pause()`.
     ///
-    /// `then` runs even if the ramp is cut short, because the caller's intent was to stop:
-    /// swallowing it on cancellation would leave music playing after someone pressed pause,
-    /// which is the one outcome worse than a click.
-    public func out(_ player: AVPlayer, then: @escaping @MainActor () -> Void) {
+    /// `apply` is called on every step; the controller wires it to `applyVolume()`.
+    public func out(over duration: Double = TransportFade.outDuration,
+                    apply: @escaping @MainActor () -> Void,
+                    then: @escaping @MainActor () -> Void) {
+        // A previous fade-out still owes a pause. Settle it before taking over, so the
+        // obligation can't be lost by being overwritten.
+        settlePendingStop()
         task?.cancel()
-        let start = player.volume
-        guard start > 0 else {
-            task = nil
-            then()
-            return
-        }
+        pendingStop = then
+        let start = multiplier
         task = Task { @MainActor [weak self] in
-            let stepDelay = UInt64((Self.outDuration / Double(Self.steps)) * 1_000_000_000)
-            for step in 1 ... Self.steps {
-                if Task.isCancelled { break }
-                player.volume = start * (1 - Float(step) / Float(Self.steps))
-                try? await Task.sleep(nanoseconds: stepDelay)
+            let steps = max(1, Int((duration / Self.tick).rounded()))
+            for step in 1 ... steps {
+                // A newer ramp owns the envelope now; it is responsible for both the level
+                // and the pending stop. Touching either here would fight it.
+                if Task.isCancelled { return }
+                self?.multiplier = start * Self.outCurve(Float(step) / Float(steps))
+                apply()
+                try? await Task.sleep(for: .seconds(Self.tick))
             }
-            then()
-            // Hand the level back. The player is paused now, so restoring the volume is
-            // silent — and it means the next play() starts at the right level instead of
-            // at whatever the fade left behind.
-            player.volume = start
-            self?.task = nil
+            guard let self else { return }
+            self.settlePendingStop()
+            // Hand the level back. The player is paused now, so restoring is silent — and
+            // it means the next play() starts at the right level rather than at whatever
+            // the fade left behind.
+            self.multiplier = 1
+            apply()
+            self.task = nil
         }
     }
 
-    /// Ramps `player` up to `target` from silence. Call after `play()`.
-    public func `in`(_ player: AVPlayer, to target: Float) {
+    /// Ramps the envelope up to full. Call after `play()`.
+    ///
+    /// Starts from wherever an interrupted fade-out left the level, so pausing and
+    /// immediately resuming glides back up instead of dipping to silence first.
+    public func `in`(over duration: Double = TransportFade.inDuration,
+                     apply: @escaping @MainActor () -> Void) {
+        // Resuming cancels any owed pause — that is precisely what resuming means. Without
+        // this, a resume inside the fade-out window would be paused by the ramp it
+        // interrupted, a race that widens with every millisecond of fade.
+        pendingStop = nil
+        let start = task != nil ? multiplier : 0
         task?.cancel()
-        guard target > 0 else {
-            task = nil
-            player.volume = target
-            return
-        }
-        player.volume = 0
         task = Task { @MainActor [weak self] in
-            let stepDelay = UInt64((Self.inDuration / Double(Self.steps)) * 1_000_000_000)
-            for step in 1 ... Self.steps {
-                if Task.isCancelled { break }
-                player.volume = target * (Float(step) / Float(Self.steps))
-                try? await Task.sleep(nanoseconds: stepDelay)
+            let steps = max(1, Int((duration / Self.tick).rounded()))
+            for step in 1 ... steps {
+                if Task.isCancelled { return }
+                let p = Self.inCurve(Float(step) / Float(steps))
+                self?.multiplier = start + (1 - start) * p
+                apply()
+                try? await Task.sleep(for: .seconds(Self.tick))
             }
-            // Unconditional, including on cancellation: whatever interrupted this ramp
-            // wants its own level, and leaving a partial one behind is how a player ends
-            // up quietly at 30% with nothing to explain it.
-            player.volume = target
-            self?.task = nil
+            guard let self else { return }
+            self.multiplier = 1
+            apply()
+            self.task = nil
         }
     }
 
-    /// Abandons any ramp in flight and restores `target` immediately.
-    public func cancel(restoring player: AVPlayer?, to target: Float) {
+    /// Abandons any ramp in flight and restores full level immediately. Any pause the
+    /// abandoned ramp had promised is still honoured — dropping it would leave music
+    /// playing after someone pressed pause, the one outcome worse than a click.
+    public func cancel(apply: @MainActor () -> Void) {
         task?.cancel()
         task = nil
-        player?.volume = target
+        settlePendingStop()
+        multiplier = 1
+        apply()
+    }
+
+    private func settlePendingStop() {
+        guard let stop = pendingStop else { return }
+        pendingStop = nil
+        stop()
     }
 }

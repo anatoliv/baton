@@ -510,6 +510,47 @@ public final class MusicLibraryStore {
         )
     }
 
+    /// Recently played tracks, from the server — so the answer counts every device.
+    ///
+    /// The local log records what *this* device played, which is why History showed a
+    /// phone-shaped view of a listening life spread across a Mac and a phone. The server
+    /// already knows better: Navidrome stamps every song with `played` and `playCount`
+    /// per user, and both apps write to it on every scrobble. So the fix is not to sync
+    /// two logs and merge them — it is to read the one that was always authoritative.
+    ///
+    /// Subsonic has no "recently played songs" endpoint, only recently played *albums*,
+    /// so the tracks are gathered from those albums and re-sorted by their own `played`
+    /// stamp. Bounded to a handful of albums for the same reason `serverTopSongs` is: an
+    /// unbounded walk of the library to draw one screen is not a feature.
+    public func serverRecentSongs(albumLimit: Int = 12, limit: Int = 50) async -> [NavidromeSong] {
+        if isDemo {
+            return demoSongs.filter { $0.played != nil }
+                .sorted { ($0.played ?? .distantPast) > ($1.played ?? .distantPast) }
+        }
+        guard let client = try? clientProvider() else { return [] }
+        let albums = (try? await client.getAlbumList2(type: "recent", size: albumLimit)) ?? []
+        var songs: [NavidromeSong] = []
+        var seen = Set<String>()
+        for album in albums {
+            for song in await albumSongs(id: album.id) where seen.insert(song.id).inserted {
+                songs.append(song)
+            }
+        }
+        return Array(
+            songs.filter { $0.played != nil }
+                .sorted { ($0.played ?? .distantPast) > ($1.played ?? .distantPast) }
+                .prefix(limit)
+        )
+    }
+
+    /// Recently played albums — one request, and the cheapest honest answer to "what have
+    /// I been listening to" across devices.
+    public func serverRecentAlbums(limit: Int = 30) async -> [NavidromeAlbum] {
+        if isDemo { return albums }
+        guard let client = try? clientProvider() else { return [] }
+        return (try? await client.getAlbumList2(type: "recent", size: limit)) ?? []
+    }
+
     /// Songs gathered from the first albums of a `getAlbumList2` list (newest / highest /
     /// frequent / random) — the basis for the auto "Made for You" mixes. Deduped; capped
     /// so a mix is a few dozen tracks, not the whole library.

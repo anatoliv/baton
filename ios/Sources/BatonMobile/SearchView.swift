@@ -208,6 +208,16 @@ struct SongRow: View {
             if song.id == model.music.nowPlaying?.id {
                 Image(systemName: "waveform").foregroundStyle(.tint)
             }
+            // Last, and quiet. This row can already carry three signals (downloaded,
+            // liked, playing); the length is reference material, not a state, so it
+            // sits at the end in the dimmest weight and takes a fixed width so the
+            // icons above it don't shuffle sideways from row to row.
+            if let time = PlayTime.track(song.duration) {
+                Text(time)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .frame(minWidth: 38, alignment: .trailing)
+            }
         }
     }
 }

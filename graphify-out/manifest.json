@@ -180,8 +180,8 @@
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpContent.swift": {
-    "mtime": 1786088338.1723754,
-    "ast_hash": "2e2da6aa7892be79aa2a187641e2df36",
+    "mtime": 1786094966.1202185,
+    "ast_hash": "32a0f0865bcda5c7e304f00dae27f4ac",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/BatonHelpView.swift": {
@@ -1130,7 +1130,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/BatonDSP.build/output-file-map.json": {
-    "mtime": 1786072473.9318829,
+    "mtime": 1786095063.1671383,
     "ast_hash": "046370e073d3b371d90c6bcf8670d7b5",
     "semantic_hash": ""
   },
@@ -1140,7 +1140,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/BatonMCPProtocol.build/output-file-map.json": {
-    "mtime": 1786072473.9315903,
+    "mtime": 1786095063.1668282,
     "ast_hash": "b003670fc201b3215335ab0bb99f4828",
     "semantic_hash": ""
   },
@@ -1150,7 +1150,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/BatonPlaybackKit.build/output-file-map.json": {
-    "mtime": 1786072473.9301317,
+    "mtime": 1786095063.1652658,
     "ast_hash": "e25e283f15568feee92d7bf550daef14",
     "semantic_hash": ""
   },
@@ -1160,7 +1160,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/BatonSubsonicKit.build/output-file-map.json": {
-    "mtime": 1786072473.9327576,
+    "mtime": 1786095063.1678004,
     "ast_hash": "7bb1cc0932c2b1abb81bb456caac19bd",
     "semantic_hash": ""
   },
@@ -1170,7 +1170,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/BatonSubsonicModels.build/output-file-map.json": {
-    "mtime": 1786072473.9331734,
+    "mtime": 1786095063.1681106,
     "ast_hash": "3bc5d12622db355b7373028a1ec01fb3",
     "semantic_hash": ""
   },
@@ -1185,7 +1185,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/Modules/BatonPlaybackKit.abi.json": {
-    "mtime": 1786072155.7999551,
+    "mtime": 1786095433.0491388,
     "ast_hash": "0a4af882c2c2f56d36e8540ae8c40bbf",
     "semantic_hash": ""
   },
@@ -1200,12 +1200,12 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/description.json": {
-    "mtime": 1786072473.9385114,
+    "mtime": 1786095063.173099,
     "ast_hash": "c96ef90aa8123ed38dedc0cd162966a4",
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/plugin-tools-description.json": {
-    "mtime": 1786072473.9262447,
+    "mtime": 1786095063.1616602,
     "ast_hash": "c96ef90aa8123ed38dedc0cd162966a4",
     "semantic_hash": ""
   },
@@ -1375,13 +1375,13 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/StreamingPlaybackController.swift": {
-    "mtime": 1786068694.5222442,
-    "ast_hash": "a2b6979b984677e1e8e9f964e39261af",
+    "mtime": 1786095400.0273106,
+    "ast_hash": "7aae6db0c61dfb11ab464e5d55d73aa0",
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/TransportTransitions.swift": {
-    "mtime": 1785881946.0942295,
-    "ast_hash": "66dcb0c024282325325f72eca8e5081a",
+    "mtime": 1786094564.2931123,
+    "ast_hash": "aa04885dd3fc6c4bdc9e69a114f5e78c",
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/VersionedStore.swift": {
@@ -1420,8 +1420,8 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/MusicLibraryStore.swift": {
-    "mtime": 1786072152.8899992,
-    "ast_hash": "cfd6963b689c0758d2f62e51bd111d0d",
+    "mtime": 1786092081.846276,
+    "ast_hash": "b93e68eb6bf480f54a60ef520a68f0d4",
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/MusicSortField.swift": {
@@ -1430,8 +1430,8 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/AlbumsGridView.swift": {
-    "mtime": 1786072000.4180758,
-    "ast_hash": "94b757cfbeaaae1757d12c65b799eb34",
+    "mtime": 1786089739.031578,
+    "ast_hash": "be11fe02698df59d77591698b4bd8cb2",
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/BatonMobileApp.swift": {
@@ -1450,8 +1450,8 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/MobileSettingsView.swift": {
-    "mtime": 1786071975.0512266,
-    "ast_hash": "0e4f5bf535ffec684bced7f3c1c79a03",
+    "mtime": 1786091069.3517673,
+    "ast_hash": "8168b16b9fa7c35795382ab334e54e82",
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/ModuleExports.swift": {
@@ -1460,8 +1460,8 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/NowPlayingViews.swift": {
-    "mtime": 1786071882.1594846,
-    "ast_hash": "704f4eaee062c58215b92315ed9eb833",
+    "mtime": 1786089739.073993,
+    "ast_hash": "82f02ae90c368a3caaa6f2248cc905c5",
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/OnboardingView.swift": {
@@ -1475,13 +1475,13 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/SearchView.swift": {
-    "mtime": 1786071548.857088,
-    "ast_hash": "6b5b403712030072e5cd2bbe5d3e5e68",
+    "mtime": 1786089708.3843384,
+    "ast_hash": "c39c8e5b506ee50bb5755e0f74800708",
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/LibraryView.swift": {
-    "mtime": 1786072196.9739625,
-    "ast_hash": "2db72c37b48fdc5d8796548f177ddf94",
+    "mtime": 1786089739.053318,
+    "ast_hash": "03017290224c374f84b3ac79088268f3",
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/PodcastsView.swift": {
@@ -1835,7 +1835,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/BatonPlaybackKitPackageTests.build/output-file-map.json": {
-    "mtime": 1786072473.933548,
+    "mtime": 1786095063.1684077,
     "ast_hash": "89bf590620e3157d1332c2fc88a336ca",
     "semantic_hash": ""
   },
@@ -1845,7 +1845,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/BatonPlaybackKitTests.build/output-file-map.json": {
-    "mtime": 1786072473.9312243,
+    "mtime": 1786095063.1664808,
     "ast_hash": "e42c49337c31714d753689ff5b6f8375",
     "semantic_hash": ""
   },
@@ -1855,7 +1855,7 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/.build/arm64-apple-macosx/debug/Modules/BatonPlaybackKitTests.abi.json": {
-    "mtime": 1786072474.3332722,
+    "mtime": 1786094623.1432385,
     "ast_hash": "0a4af882c2c2f56d36e8540ae8c40bbf",
     "semantic_hash": ""
   },
@@ -2090,8 +2090,8 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/HelpView.swift": {
-    "mtime": 1786072455.5436678,
-    "ast_hash": "9b886e4361461f7f2191a65ab6cfbe5c",
+    "mtime": 1786094966.119914,
+    "ast_hash": "d07a502c8f03908c439518e53a8d2083",
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Tests/BatonPlaybackKitTests/DemoLibraryTests.swift": {
@@ -2200,8 +2200,8 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/HistoryView.swift": {
-    "mtime": 1786018772.5357633,
-    "ast_hash": "32fdbfbddfe3eab6e470e159c8c542df",
+    "mtime": 1786093680.0711188,
+    "ast_hash": "6a51583cdd080bcea4ed424831bf649a",
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/HomeView.swift": {
@@ -2220,8 +2220,8 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/InternetRadioStore.swift": {
-    "mtime": 1785956299.6130633,
-    "ast_hash": "5b9584fda78813af2fb5317209f7ef3f",
+    "mtime": 1786095058.1459706,
+    "ast_hash": "9f8b897ec9310af5a5f0349dcd9bab14",
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/RadioView.swift": {
@@ -2245,8 +2245,8 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/SessionPurge.swift": {
-    "mtime": 1786044795.018042,
-    "ast_hash": "443cde6b71c7ed4016f8ac447c839d81",
+    "mtime": 1786094706.87211,
+    "ast_hash": "256b575c740014027e64c0a8780ab65d",
     "semantic_hash": ""
   },
   "ios/Tests/BatonMobileTests/SessionPurgeTests.swift": {
@@ -2315,8 +2315,8 @@
     "semantic_hash": ""
   },
   "ios/Sources/BatonMobile/RootScreenHeader.swift": {
-    "mtime": 1786052428.617696,
-    "ast_hash": "96ab0c485962487b9a76b1d897de1344",
+    "mtime": 1786089708.3637688,
+    "ast_hash": "1d729113635620cb986c5b63d75fba4b",
     "semantic_hash": ""
   },
   "ios/Tests/BatonMobileTests/CountedTests.swift": {
@@ -2400,8 +2400,8 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/TransportFade.swift": {
-    "mtime": 1786068673.863944,
-    "ast_hash": "a65e0496b04dd0a5ca453a0dfacbc92c",
+    "mtime": 1786094552.0794978,
+    "ast_hash": "f79f95c1e80e4123b23bed37a7803974",
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Tests/BatonPlaybackKitTests/CrossfadeLeakTests.swift": {
@@ -2415,8 +2415,8 @@
     "semantic_hash": ""
   },
   "Packages/BatonPlaybackKit/Tests/BatonPlaybackKitTests/TransportFadeTests.swift": {
-    "mtime": 1786068741.3498957,
-    "ast_hash": "8da3ad3aea595a3e7f13a7b970986103",
+    "mtime": 1786094620.267648,
+    "ast_hash": "d21b10ac1d54405442bf9f6c331b9bb5",
     "semantic_hash": ""
   },
   "app/Sources/Baton/Shell/Music/MusicFoldersView.swift": {
@@ -2450,8 +2450,13 @@
     "semantic_hash": ""
   },
   "ios/Tests/BatonMobileTests/AmperfyAdoptionTests.swift": {
-    "mtime": 1786072375.7409513,
-    "ast_hash": "ddabe4cda6b7def032fd95f7370dfb81",
+    "mtime": 1786090123.118752,
+    "ast_hash": "517189143d4f006e08dd6643110f08d8",
+    "semantic_hash": ""
+  },
+  "ios/Tests/BatonMobileUITests/DurationVisualUITests.swift": {
+    "mtime": 1786093986.4402976,
+    "ast_hash": "34a98699d7f256e2b64bee5550d1bd3d",
     "semantic_hash": ""
   }
 }
