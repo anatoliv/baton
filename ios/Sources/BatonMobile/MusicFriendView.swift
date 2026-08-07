@@ -114,7 +114,20 @@ struct MusicFriendView: View {
                     text: model.voice.isListening ? .constant(model.voice.transcript) : $draft,
                     axis: .vertical
                 )
-                .textFieldStyle(.roundedBorder)
+                // Rounded to match everything around it — the tab bar, the mic, the send
+                // button and the search fields are all capsules, and a squarer box was the
+                // only shape on screen that wasn't. An earlier version kept it square to
+                // say "this commits, unlike a search field", but that job is already done
+                // by the send button sitting next to it; the shape doesn't need to carry it.
+                //
+                // A fixed radius rather than `Capsule()`, because this field grows to four
+                // lines: a capsule is half its own height, so a grown composer would become
+                // a stadium with enormous ends. At one line 20pt *is* the capsule; at four
+                // it stays a nicely rounded box.
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 20))
                 .lineLimit(1 ... 4)
                 .focused($inputFocused)
                 .submitLabel(.send)

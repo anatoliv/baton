@@ -295,7 +295,7 @@ struct FullPlayerView: View {
     private func artwork(for song: NavidromeSong) -> some View {
         // Fixed size, not maxWidth/maxHeight: the queue List below is greedy, and a
         // flexible frame lets it squeeze the artwork into a clipped sliver.
-        ArtworkView(url: model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 800))
+        ArtworkView(url: model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 800), wholeCover: true)
             .frame(width: 272, height: 272)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .shadow(color: Color.playingGlowTint(accent), radius: 24, y: 8)
@@ -553,9 +553,13 @@ struct QueueSheet: View {
                         ForEach(Array(model.music.queue.enumerated()), id: \.element.id) { index, song in
                             HStack(spacing: 10) {
                                 if index == model.music.currentIndex {
-                                    Image(systemName: "speaker.wave.2.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(accent)
+                                    // The same bars every other list uses. This row drew
+                                    // `speaker.wave.2.fill` — a different symbol for the
+                                    // same job, which is how it survived a sweep that
+                                    // searched for "waveform": the queue and the search
+                                    // results showed the same track two different ways at
+                                    // the same moment.
+                                    NowPlayingBars(isPlaying: model.music.state == .playing)
                                 }
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(song.title)

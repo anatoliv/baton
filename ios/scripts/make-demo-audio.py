@@ -63,17 +63,67 @@ def pad(freq: float, duration: float, brightness: float, gain: float) -> np.ndar
     return voice * env * gain
 
 
+def pluck(freq: float, duration: float, gain: float) -> np.ndarray:
+    """A struck tone: immediate attack, exponential decay, partials dying fastest.
+
+    The arpeggio used to be built from `pad()`, so it shared the pad's slow swell and
+    the two blurred into one texture. A separate voice is what makes a line audible
+    *over* a chord rather than inside it — and real struck instruments lose their upper
+    partials first, which is most of what makes them sound struck.
+    """
+    t = np.linspace(0, duration, int(RATE * duration), endpoint=False)
+    voice = np.zeros_like(t)
+    for partial, weight, decay in ((1, 1.0, 2.2), (2, 0.5, 4.0), (3, 0.25, 6.5), (5, 0.08, 9.0)):
+        voice += weight * np.exp(-decay * t) * np.sin(2 * np.pi * freq * partial * t)
+    # A short attack ramp only — a few ms, enough to avoid a click at the onset.
+    a = max(1, int(RATE * 0.004))
+    voice[:a] *= np.linspace(0, 1, a)
+    return voice * gain
+
+
+def bass(freq: float, duration: float, gain: float) -> np.ndarray:
+    """The root, an octave down. Nearly a sine, because anything busier muddies it."""
+    t = np.linspace(0, duration, int(RATE * duration), endpoint=False)
+    voice = np.sin(2 * np.pi * freq * t) + 0.18 * np.sin(2 * np.pi * freq * 2 * t)
+    env = np.minimum(1.0, np.exp(-1.1 * t) + 0.25)
+    a = max(1, int(RATE * 0.02))
+    env[:a] *= np.linspace(0, 1, a)
+    r = max(1, int(RATE * 0.10))
+    env[-r:] *= np.linspace(1, 0, r)
+    return voice * env * gain
+
+
+def reverb(mono: np.ndarray, seconds: float = 1.9, mix: float = 0.28) -> np.ndarray:
+    """Convolution with exponentially decaying noise.
+
+    The single biggest difference between these tracks and something that sounds
+    recorded. Dry additive sines read as a signal generator however well voiced; a
+    decay tail puts them in a room. Cheap here because the impulse is just shaped
+    noise — no impulse response to license, which is the same reason the music is
+    synthesized at all.
+    """
+    n = int(RATE * seconds)
+    rng = np.random.default_rng(7)
+    impulse = rng.standard_normal(n) * np.exp(-np.linspace(0, 6.5, n))
+    impulse[: int(RATE * 0.01)] = 0                 # a little pre-delay
+    impulse /= np.abs(impulse).sum()
+    wet = np.convolve(mono, impulse, mode="full")[: len(mono)]
+    return (1 - mix) * mono + mix * wet * 3.0
+
+
 def arpeggio(chord, base_time: float, step: float, brightness: float) -> np.ndarray:
-    """A sparse bell line over the pad."""
+    """A sparse plucked line over the pad."""
     total = int(RATE * base_time)
     out = np.zeros(total)
     order = [3, 1, 2, 0, 3, 2]
     for i, idx in enumerate(order):
         start = int(i * step * RATE)
-        dur = min(step * 1.9, base_time - i * step)
+        dur = min(step * 2.6, base_time - i * step)
         if dur <= 0 or start >= total:
             break
-        v = pad(note(chord[idx] + 24), dur, brightness * 0.75, 0.10)
+        # Alternate octaves so a repeating six-note figure doesn't sit still.
+        octave = 24 if i % 3 else 12
+        v = pluck(note(chord[idx] + octave), dur, 0.13 * (0.85 + 0.3 * brightness))
         end = min(start + len(v), total)
         out[start:end] += v[: end - start]
     return out
@@ -82,14 +132,21 @@ def arpeggio(chord, base_time: float, step: float, brightness: float) -> np.ndar
 def render(chords, tempo, brightness) -> np.ndarray:
     bar = 1.0 / tempo * 4
     piece = np.zeros(0)
-    for _ in range(2):                            # two passes through the progression
-        for chord in chords:
+    for pass_index in range(2):                   # two passes through the progression
+        for bar_index, chord in enumerate(chords):
             block = np.zeros(int(RATE * bar))
             for semis in chord:
-                v = pad(note(semis), bar, brightness, 0.16)
+                v = pad(note(semis), bar, brightness, 0.15)
                 block[: len(v)] += v[: len(block)]
-            block[: len(block)] += arpeggio(chord, bar, bar / 6, brightness)[: len(block)]
+            # The root an octave down, so the harmony has a floor to stand on.
+            b = bass(note(chord[0] - 12), bar, 0.30)
+            block[: len(b)] += b[: len(block)]
+            # The plucked line enters on the second pass, so the piece opens with the
+            # pad alone and arrives somewhere rather than repeating from bar one.
+            if pass_index > 0 or bar_index >= 2:
+                block[: len(block)] += arpeggio(chord, bar, bar / 6, brightness)[: len(block)]
             piece = np.concatenate([piece, block])
+    piece = reverb(piece)
     # Soft-clip, then normalise with headroom.
     piece = np.tanh(piece * 1.2)
     piece /= max(abs(piece).max(), 1e-9)
@@ -97,10 +154,23 @@ def render(chords, tempo, brightness) -> np.ndarray:
 
 
 def write_wav(path: str, mono: np.ndarray) -> None:
-    # Slight stereo width: delay one side a few ms.
-    delay = int(RATE * 0.011)
-    left = np.concatenate([mono, np.zeros(delay)])
-    right = np.concatenate([np.zeros(delay), mono])
+    """Stereo by decorrelation, not by delay.
+
+    The previous version widened the image by delaying one channel 11ms. That is the
+    Haas trick, and it comb-filters: summed to mono it measured **-3.3 dB**, so on a
+    phone speaker — which is what most of these tracks will ever be heard on — a third
+    of the energy cancelled and the result sounded hollow.
+    
+    Two independent reverb tails over a shared dry centre gives width that survives the
+    sum: the tails decorrelate, the music itself stays in phase.
+    """
+    dry = mono
+    wet_l = reverb(mono, seconds=1.7, mix=1.0)
+    wet_r = reverb(mono[::-1], seconds=1.7, mix=1.0)[::-1]
+    left = dry + 0.16 * wet_l
+    right = dry + 0.16 * wet_r
+    peak = max(np.abs(left).max(), np.abs(right).max(), 1e-9)
+    left, right = left / peak * 0.82, right / peak * 0.82
     inter = np.empty(len(left) * 2)
     inter[0::2] = left
     inter[1::2] = right

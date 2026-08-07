@@ -649,9 +649,15 @@ private struct PodcastEpisodeRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: isPlaying ? "speaker.wave.2.fill" : "mic")
-                .foregroundStyle(isPlaying ? Color.accentColor : .secondary)
-                .frame(width: 22)
+            // Bars while playing; the mic is the episode's resting icon, not a state.
+            Group {
+                if isPlaying {
+                    NowPlayingBars(isPlaying: true)
+                } else {
+                    Image(systemName: "mic").foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
                 Text(episode.title)
                     .font(.body)

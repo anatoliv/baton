@@ -245,7 +245,16 @@ struct MusicMixDetail: View {
                         MusicRowActions(actions: [
                             MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(songs) },
                             MusicRowAction(title: "Download", systemImage: "arrow.down.circle") { Task { await MusicDownloadStore.shared.download(songs) } },
-                            MusicRowAction(title: "Shuffle", systemImage: "shuffle") { model.music.play(songs.shuffled(), source: source) },
+                            // Shows whether shuffle is on, because pressing it turns it
+                            // on — an action that changes a mode and then looks exactly
+                            // as it did is indistinguishable from one that did nothing.
+                            MusicRowAction(
+                                title: "Shuffle",
+                                systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle",
+                                tint: model.music.isShuffled ? .accentColor : .secondary
+                            ) {
+                                model.music.playShuffleToggling(songs, source: source)
+                            },
                         ])
                     },
                     sortMenu: { MusicSortControls(ascending: $sortAscending, selection: $sortField) }
@@ -318,8 +327,7 @@ struct MusicMixCard: View {
                     // A mesh gradient is deterministic per mix (same card every launch, so it
                     // becomes recognisable), needs no network, no asset, and raises no
                     // licensing question in a redistributed app.
-                    MixBackdrop(mix: mix)
-                        .allowsHitTesting(false)
+                    MixBackdrop(artwork: mix.artwork, seed: mix.id, tint: mix.color)
                     Image(systemName: mix.icon)
                         .font(.system(size: 34, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
                         .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
@@ -347,8 +355,14 @@ struct MusicMixCard: View {
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)))
-            .hoverLift(hovering, scale: 1.02)
-            .animation(.easeOut(duration: 0.14), value: hovering)
+            // The app's standard lift, not a bespoke one. This card carried scale 1.02
+            // over 0.14s where everything else uses 1.06 over 0.16s — close enough to look
+            // like a mistake rather than a choice, and it sat next to shelves using the
+            // standard. zIndex so a lifted card draws over its neighbours instead of being
+            // clipped by the next one.
+            .hoverLift(hovering)
+            .zIndex(hovering ? 1 : 0)
+            .animation(.easeOut(duration: 0.16), value: hovering)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -371,128 +385,3 @@ struct MusicMixCard: View {
 
 
 // MARK: - Mix artwork
-
-/// A deterministic mesh-gradient backdrop for a mix card.
-///
-/// The same `seed` always produces the same image, so a mix keeps its face between launches
-/// and becomes recognisable at a glance — which a random gradient, or a mosaic that changes
-/// with the tracklist, would not.
-///
-/// Colours stay in the card's own hue family so the set reads as one system rather than a
-/// bag of unrelated swatches; the seed varies saturation, brightness and the control-point
-/// positions, which is what makes each card distinct without making it loud.
-struct MixMeshBackdrop: View {
-    let seed: String
-    let tint: Color
-
-    private static let gridSide = 3
-
-    var body: some View {
-        MeshGradient(
-            width: Self.gridSide,
-            height: Self.gridSide,
-            points: Self.points(seed: seed),
-            colors: Self.colors(seed: seed, tint: tint)
-        )
-    }
-
-    /// A small deterministic PRNG. `hashValue` is *not* usable here — Swift seeds string
-    /// hashing per-process, so the same mix would look different on every launch.
-    static func rng(_ seed: String, salt: Int) -> Double {
-        var h: UInt64 = 1_469_598_103_934_665_603
-        for byte in seed.utf8 {
-            h = (h ^ UInt64(byte)) &* 1_099_511_628_211
-        }
-        h = (h ^ UInt64(truncatingIfNeeded: salt &* 0x9E37_79B9)) &* 1_099_511_628_211
-        h ^= h >> 33
-        return Double(h % 10_000) / 10_000.0
-    }
-
-    /// Interior control points are jittered; the edges stay pinned so the mesh always fills
-    /// the card and never leaves a pale corner where the title sits.
-    static func points(seed: String) -> [SIMD2<Float>] {
-        var out: [SIMD2<Float>] = []
-        for row in 0 ..< gridSide {
-            for col in 0 ..< gridSide {
-                let x = Float(col) / Float(gridSide - 1)
-                let y = Float(row) / Float(gridSide - 1)
-                let interior = col > 0 && col < gridSide - 1 && row > 0 && row < gridSide - 1
-                guard interior else { out.append(SIMD2(x, y)); continue }
-                let jx = Float(rng(seed, salt: row * 10 + col) - 0.5) * 0.45
-                let jy = Float(rng(seed, salt: row * 10 + col + 100) - 0.5) * 0.45
-                out.append(SIMD2(min(max(x + jx, 0.15), 0.85), min(max(y + jy, 0.15), 0.85)))
-            }
-        }
-        return out
-    }
-
-    static func colors(seed: String, tint: Color) -> [Color] {
-        (0 ..< gridSide * gridSide).map { index in
-            let light = rng(seed, salt: index + 200)
-            let shift = (rng(seed, salt: index + 300) - 0.5) * 0.16   // stay in the hue family
-            return tint
-                .opacity(1)
-                .hueRotated(by: shift)
-                .brightnessAdjusted(by: light * 0.45 - 0.12)
-        }
-    }
-}
-
-private extension Color {
-    /// Nudge hue/brightness while staying recognisably the same colour. Uses NSColor so the
-    /// maths happens in a real colour space rather than as a view modifier.
-    func hueRotated(by amount: Double) -> Color {
-        guard let c = NSColor(self).usingColorSpace(.deviceRGB) else { return self }
-        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        c.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-        return Color(NSColor(hue: (h + CGFloat(amount)).truncatingRemainder(dividingBy: 1).magnitude,
-                             saturation: s, brightness: b, alpha: a))
-    }
-
-    func brightnessAdjusted(by amount: Double) -> Color {
-        guard let c = NSColor(self).usingColorSpace(.deviceRGB) else { return self }
-        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        c.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-        return Color(NSColor(hue: h, saturation: s,
-                             brightness: min(max(b + CGFloat(amount), 0.15), 1.0), alpha: a))
-    }
-}
-
-
-/// The card backdrop: an art-directed image when the mix supplies one, the generated mesh
-/// otherwise.
-///
-/// A supplied image is dimmed less than the mesh is tinted — a considered image is already
-/// composed for legibility, and multiplying a heavy colour wash over it just muddies the
-/// work. Only the bottom-right is darkened, because the play button sits there and has to
-/// stay readable whatever the artwork does.
-struct MixBackdrop: View {
-    let mix: MusicMix
-
-    var body: some View {
-        if let name = mix.artwork, let image = NSImage(named: name) {
-            ZStack {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.35)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-            }
-        } else {
-            ZStack {
-                MixMeshBackdrop(seed: mix.id, tint: mix.color)
-                // The art-directed cards all sit around 0.05–0.28 mean luminance. An
-                // undarkened mesh at a bright tint (mint, cyan) rendered as a flat bright
-                // slab beside them — visibly "the one without artwork". This pulls the
-                // fallback into the same range so an unmapped card still belongs.
-                Color.black.opacity(0.45)
-                LinearGradient(
-                    colors: [mix.color.opacity(0.25), .clear, .black.opacity(0.35)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-            }
-        }
-    }
-}

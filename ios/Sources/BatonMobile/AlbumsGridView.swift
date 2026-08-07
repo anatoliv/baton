@@ -11,7 +11,11 @@ struct AlbumsGridView: View {
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 14)]
     /// Grid shows covers; list shows more of a 2,604-album library per screen. Persisted,
     /// because a view style is a preference, not a mood.
-    @AppStorage("baton.albums.style") private var styleRaw = "grid"
+    // Was `baton.albums.style`, the one layout toggle the phone had, named unlike the
+    // Mac's and unlike the five that just joined it. Moved onto the shared key so all six
+    // read the same way. The cost is that an existing choice resets to grid once — which
+    // is the default it almost certainly already was.
+    @AppStorage(BrowseLayout.key("album")) private var styleRaw = BrowseLayout.grid.rawValue
     private var isGrid: Bool { styleRaw == "grid" }
 
     var body: some View {
@@ -155,7 +159,7 @@ private struct AlbumCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400))
+            ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400), wholeCover: true)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
@@ -178,6 +182,9 @@ private struct AlbumCell: View {
 /// Shared artwork loader with the placeholder every cell uses.
 struct ArtworkView: View {
     let url: URL?
+    /// Draw the cover *whole* over a blurred enlargement of itself, instead of cropping it
+    /// to the cell. Off for small row thumbnails, where the blur is invisible.
+    var wholeCover = false
 
     var body: some View {
         // `Color.clear` first, image in an overlay.
@@ -187,14 +194,37 @@ struct ArtworkView: View {
         // grid cell made that cell wider than its column: rows went ragged, titles ran off
         // the edge, and the whole grid looked broken the moment it met a real library
         // instead of four bundled tracks. `Color.clear` has no opinion about its size, so
-        // the container decides, and `scaledToFill` + `clipped` fills that box with
-        // whatever shape the artwork happens to be.
+        // the container decides.
+        //
+        // `wholeCover` then decides what fills that box. Cropping is fine for square art,
+        // but a 16:9 thumbnail loses its outer thirds — and a library ripped from YouTube
+        // is almost entirely 16:9. So the cover is drawn `scaledToFit` (nothing cropped)
+        // over a blurred enlargement of *the same decoded image*, which is what the
+        // letterboxing is for and how the Mac's cards have always drawn.
+        //
+        // **One request, drawn twice.** The first attempt fetched a second, smaller copy
+        // for the blur, reasoning that a blur can't show detail so the bytes would be
+        // cheap. The bytes were — the *connections* were not. URLSession allows around six
+        // per host, so two requests per cell put the fill layer in direct competition with
+        // the covers for that pool, and across a grid the visible artwork simply never
+        // arrived: forty seconds in, every cell was still a placeholder. Reusing the
+        // decoded image costs one extra draw and no network at all.
         Color.clear
             .overlay {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
-                        image.resizable().scaledToFill()
+                        if wholeCover {
+                            ZStack {
+                                image.resizable()
+                                    .scaledToFill()
+                                    .blur(radius: 18)
+                                    .overlay(Color.black.opacity(0.15))
+                                image.resizable().scaledToFit()
+                            }
+                        } else {
+                            image.resizable().scaledToFill()
+                        }
                     default:
                         ZStack {
                             Rectangle().fill(.quaternary)
@@ -215,6 +245,11 @@ struct AlbumDetailView: View {
     let album: NavidromeAlbum
     let model: MobileModel
     @State private var songs: [NavidromeSong] = []
+    /// Opening the artist through `navigationDestination(item:)` rather than a
+    /// `NavigationLink`: a link inside a List row makes the *row* disclosable, which
+    /// stranded a chevron at the far right of the header, a hand's width from the name
+    /// it belonged to.
+    @State private var openArtist: NavidromeArtist?
 
     var body: some View {
         List {
@@ -222,12 +257,40 @@ struct AlbumDetailView: View {
                 HStack {
                     Spacer()
                     VStack(spacing: 10) {
-                        ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 600))
+                        ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 600), wholeCover: true)
                             .frame(width: 230, height: 230)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                             .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
                         Text(album.name).font(.title3.weight(.semibold)).multilineTextAlignment(.center)
-                        Text(album.artist ?? "").font(.subheadline).foregroundStyle(.secondary)
+                        // The artist is a destination, not a caption. Every other surface
+                        // in the app lets you go from a record to who made it.
+                        if let artist = album.artist, !artist.isEmpty {
+                            if let id = album.artistID, !model.isDemoMode {
+                                Button {
+                                    openArtist = NavidromeArtist(id: id, name: artist)
+                                } label: {
+                                    HStack(spacing: 3) {
+                                        Text(artist).font(.subheadline)
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption2.weight(.semibold))
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.tint)
+                            } else {
+                                Text(artist).font(.subheadline).foregroundStyle(.secondary)
+                            }
+                        }
+                        // Tracks, running time, year, genre — all of it already on the
+                        // album and none of it shown. The Mac has always printed this line;
+                        // without it a listing is a bare list of titles with no sense of
+                        // how long the record is or when it came from.
+                        if let summary = albumSummary {
+                            Text(summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                         HStack(spacing: 10) {
                             Button {
                                 play(from: 0)
@@ -239,39 +302,15 @@ struct AlbumDetailView: View {
                             .disabled(songs.isEmpty)
 
                             Button {
-                                model.music.play(songs.shuffled(),
-                                                 source: .init(label: album.name, kind: .album, id: album.id))
+                                model.music.playShuffleToggling(songs, source: .init(label: album.name, kind: .album, id: album.id))
                             } label: {
-                                Label("Shuffle", systemImage: "shuffle")
+                                Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered)
+                            .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
+                            .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
                             .disabled(songs.isEmpty)
-                        }
-                        HStack(spacing: 10) {
-                            Button {
-                                Task { _ = await MusicDownloadStore.shared.download(songs) }
-                            } label: {
-                                Label(downloadLabel, systemImage: downloadSymbol)
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(songs.isEmpty || isFullyDownloaded)
-
-                            if !model.isDemoMode {
-                                Button {
-                                    Task {
-                                        await model.musicLibrary.toggleLike(
-                                            id: album.id, currentLiked: album.isLiked, userRating: album.userRating
-                                        )
-                                    }
-                                } label: {
-                                    let liked = model.musicLibrary.isLiked(id: album.id, isLiked: album.isLiked)
-                                    Label(liked ? "Liked" : "Like", systemImage: liked ? "heart.fill" : "heart")
-                                        .frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.bordered)
-                            }
                         }
                     }
                     Spacer()
@@ -297,8 +336,7 @@ struct AlbumDetailView: View {
                             Image(systemName: "heart.fill").font(.caption).foregroundStyle(.tint)
                         }
                         if song.id == model.music.nowPlaying?.id {
-                            Image(systemName: "waveform")
-                                .foregroundStyle(.tint)
+                            NowPlayingBars(isPlaying: model.music.state == .playing)
                         }
                         // Every music app puts a duration column in a track listing, and
                         // this is the screen where "how long is this record" is asked.
@@ -321,16 +359,78 @@ struct AlbumDetailView: View {
         .background {
             // Full-bleed blurred cover behind the whole page (Tidal / Apple Music).
             // The material overlay keeps every row legible over any artwork.
-            ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400))
+            ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400), wholeCover: true)
                 .scaledToFill()
                 .blur(radius: 60)
                 .opacity(0.55)
                 .overlay(.ultraThinMaterial)
                 .ignoresSafeArea()
         }
-        .navigationTitle(album.name)
+        // No title in the bar: the header already sets the album name in full, and it
+        // wraps. The bar could only ever show a truncated copy of the line directly
+        // beneath it — "netBloc Vol. 42: Live, The Univ…" above "netBloc Vol. 42: Live,
+        // The Universe & Everything".
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $openArtist) { artist in
+            ArtistDetailView(artist: artist, model: model)
+        }
+        // Download and Like moved here from the hero. They were full-width buttons under
+        // Play — a secondary action drawn larger than the primary one — and they pushed
+        // the track listing below the fold on a phone.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        Task { _ = await MusicDownloadStore.shared.download(songs) }
+                    } label: { Label(downloadLabel, systemImage: downloadSymbol) }
+                        .disabled(songs.isEmpty || isFullyDownloaded)
+
+                    if !model.isDemoMode {
+                        let liked = model.musicLibrary.isLiked(id: album.id, isLiked: album.isLiked)
+                        Button {
+                            Task {
+                                await model.musicLibrary.toggleLike(
+                                    id: album.id, currentLiked: album.isLiked, userRating: album.userRating
+                                )
+                            }
+                        } label: {
+                            Label(liked ? "Liked" : "Like", systemImage: liked ? "heart.fill" : "heart")
+                        }
+                    }
+
+                    Divider()
+
+                    Button {
+                        model.music.playNext(songs)
+                    } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
+                        .disabled(songs.isEmpty)
+                    Button {
+                        model.music.enqueue(songs)
+                    } label: { Label("Add to Queue", systemImage: "text.append") }
+                        .disabled(songs.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("More actions")
+            }
+        }
         .task { songs = await model.musicLibrary.albumSongs(id: album.id) }
+    }
+
+    /// "4 tracks · 4 min · 2026 · Electronic" — whichever of those the server knows.
+    ///
+    /// Prefers the *loaded* track count and running time over the album's own fields:
+    /// those come from the browse listing and are occasionally stale or absent, and by the
+    /// time this line is drawn the real songs are usually in hand.
+    private var albumSummary: String? {
+        let count = songs.isEmpty ? album.songCount : songs.count
+        let seconds = songs.isEmpty ? album.duration : songs.reduce(0) { $0 + ($1.duration ?? 0) }
+        return Counted.line([
+            count.map { Counted.phrase($0, "track") },
+            PlayTime.total(seconds),
+            album.year.map(String.init),
+            album.genre,
+        ])
     }
 
     private func play(from index: Int) {

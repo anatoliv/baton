@@ -25,3 +25,7 @@ ios/build/
 # Bundled copies of the canonical guides, synced on every build.
 ios/Resources/HELP.md
 ios/Resources/FAQ.md
+
+# Demo audio source material. Not shipped and not needed to build: the bundled
+# m4a files are the deliverable, and CREDITS.md records where these came from.
+ios/DemoSource/

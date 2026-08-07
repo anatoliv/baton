@@ -905,6 +905,50 @@ public final class StreamingPlaybackController {
 
     /// Replaces the queue with `songs` and starts playing from `index`. `source`
     /// records where the queue came from (playlist/album/radio) for the UI.
+    /// Start these songs shuffled, and leave the player *in* shuffle.
+    ///
+    /// Every "Shuffle" button in both apps used to call `play(songs.shuffled())` and stop
+    /// there. That plays a shuffled queue, but shuffle mode stays off — so the transport's
+    /// own shuffle control sits reading "Shuffle off" over music that is plainly not in
+    /// order, and the fixed shuffled list, not shuffle, decides what comes next. Reported
+    /// as "the shuffle button does not change the visual state when you click it".
+    ///
+    /// It lives here rather than as two lines at each call site because there were nine of
+    /// them across the two apps, and the tenth would have been written the old way.
+    public func playShuffled(_ songs: [NavidromeSong], source: QueueSource? = nil) {
+        play(songs.shuffled(), source: source)
+        // Never a bare toggle: for someone who already had shuffle on, pressing Shuffle
+        // would turn it off.
+        if !isShuffled { toggleShuffle() }
+    }
+
+    /// What the **Shuffle button next to Play** does: press to shuffle, press again to
+    /// stop shuffling.
+    ///
+    /// Distinct from `playShuffled`, which only ever turns shuffle on and is right for a
+    /// context-menu "Shuffle" — a menu item that silently un-shuffles would be a surprise.
+    /// This one is for a button that *shows* whether shuffle is on: once it lights up, the
+    /// only thing pressing it can reasonably mean is "stop".
+    /// - off → on: shuffle mode on, and this collection starts shuffled.
+    /// - on, and *this* collection is what's playing: shuffle off **in place**. The queue
+    ///   un-shuffles around the current track and the music keeps going.
+    /// - on, but something else is playing: shuffle off, and this collection starts in
+    ///   order — there is nothing in place to preserve.
+    ///
+    /// The middle case is the whole point of the asymmetry. Restarting on the way *off*
+    /// means that three tracks into a shuffled album, pressing Shuffle to stop shuffling
+    /// throws you back to track one — which is not what anyone means by that press.
+    /// `toggleShuffle` already restores the original order while keeping the current
+    /// track, so un-shuffling in place is behaviour that exists and is tested; this only
+    /// has to decline to restart.
+    public func playShuffleToggling(_ songs: [NavidromeSong], source: QueueSource? = nil) {
+        guard isShuffled else { return playShuffled(songs, source: source) }
+        let alreadyPlayingThis = nowPlaying != nil && source != nil && queueSource == source
+        toggleShuffle()                                  // off, restoring the prior order
+        guard !alreadyPlayingThis else { return }        // ...and don't disturb the music
+        play(songs, source: source)
+    }
+
     public func play(_ songs: [NavidromeSong], startAt index: Int = 0, source: QueueSource? = nil) {
         cancelCrossfade()
         guard !songs.isEmpty else { return }

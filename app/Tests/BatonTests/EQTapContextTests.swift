@@ -81,4 +81,71 @@ final class EQTapContextTests: XCTestCase {
         let zeroQ = Biquad.peaking(frequency: 1000, sampleRate: 44100, q: 0, gainDB: 6)
         XCTAssertTrue([zeroQ.b0, zeroQ.b1, zeroQ.b2, zeroQ.a1, zeroQ.a2].allSatisfy { $0.isFinite })
     }
+
+    // MARK: - Does it actually shape audio?
+
+    /// RMS of a sine at `frequency` after passing through a tap with `specs`.
+    private func rms(_ frequency: Double, specs: [EQCoefficients.BandSpec],
+                     sampleRate: Double = 44100, samples: Int = 8192) -> Double {
+        let ctx = EQTapContext(coefficients: coeffs(specs))
+        ctx.prepare(channels: 1)
+        let input = (0 ..< samples).map {
+            Float(sin(2 * Double.pi * frequency * Double($0) / sampleRate))
+        }
+        // Drop the first block: a biquad's state starts at zero, so the opening samples are
+        // the filter settling rather than its steady-state response.
+        let out = Array(runProcess(ctx, input).dropFirst(1024)).map(Double.init)
+        return (out.reduce(0) { $0 + $1 * $1 } / Double(out.count)).squareRoot()
+    }
+
+    private func dB(_ ratio: Double) -> Double { 20 * log10(ratio) }
+
+    /// The claim the whole feature rests on, and the one nothing tested: a signal put
+    /// through the tap comes out *shaped*.
+    ///
+    /// Everything else here checks the coefficients — that the maths describing the filter
+    /// is right. None of it runs audio through `process`, so a render loop that computed
+    /// perfect biquads and then forgot to apply them would pass the entire suite. Both apps
+    /// share this path, so this is the equalizer working, or not, on the Mac and the phone
+    /// at once.
+    ///
+    /// Measured as a *ratio between frequencies*, not an absolute level, because a boost is
+    /// deliberately paired with an equal pre-gain attenuation for headroom — see
+    /// `testClippingPreGainAttenuatesForABoost`. A +12 dB band therefore leaves its centre
+    /// near unity and pushes everything else down; what you hear is the difference.
+    func testABoostedBandIsAudiblyLouderThanAnUntouchedOne() {
+        let boostAt1k = [spec(1000, 1, 12)]
+
+        let centre = rms(1000, specs: boostAt1k)
+        let away = rms(8000, specs: boostAt1k)
+
+        XCTAssertGreaterThan(dB(centre / away), 9,
+                             "a +12 dB band must leave its centre ~12 dB above an untouched "
+                             + "frequency — if this fails the filter isn't being applied at all")
+    }
+
+    /// The other direction, so the test can't pass on a filter that merely attenuates
+    /// everything except the band it was given.
+    func testACutBandIsQuieterThanAnUntouchedOne() {
+        let cutAt1k = [spec(1000, 1, -12)]
+
+        let centre = rms(1000, specs: cutAt1k)
+        let away = rms(8000, specs: cutAt1k)
+
+        XCTAssertLessThan(dB(centre / away), -9, "a -12 dB band must sink its centre")
+    }
+
+    /// A flat curve must leave the signal alone. Guards the opposite failure: a tap that
+    /// colours the sound even with every band at zero.
+    func testAFlatCurveLeavesTheSignalUnchanged() {
+        let flat = MusicEqualizer.frequencies.map { spec($0, 1, 0) }
+
+        let level = rms(1000, specs: flat)
+        let reference = (0 ..< 8192).map { sin(2 * Double.pi * 1000 * Double($0) / 44100) }
+        let expected = (reference.dropFirst(1024).reduce(0) { $0 + $1 * $1 }
+                        / Double(reference.count - 1024)).squareRoot()
+
+        XCTAssertEqual(level, expected, accuracy: 0.01,
+                       "a flat equalizer must be inaudible, not merely quiet")
+    }
 }

@@ -19,8 +19,13 @@ import Foundation
 @MainActor
 enum DemoLibrary {
     static let albumID = "demo-album-baton"
-    static let albumName = "Baton Demo"
-    static let artist = "Tonebox"
+    // Real music, not synthesized tones. Kimiko Ishizaka's recording of the Goldberg
+    // Variations was released into the public domain under CC0 by the Open Goldberg
+    // Variations project — which makes it the rare thing this app can legitimately carry:
+    // a paid App Store binary *and* a public MIT repo, with no attribution obligation to
+    // pass on to anyone who forks it. Provenance in ios/Resources/Demo/CREDITS.md.
+    static let albumName = "Goldberg Variations"
+    static let artist = "Kimiko Ishizaka"
 
     private struct Track {
         let resource: String
@@ -29,10 +34,10 @@ enum DemoLibrary {
     }
 
     private static let tracks: [Track] = [
-        .init(resource: "demo-1", title: "First Light", seconds: 58),
-        .init(resource: "demo-2", title: "Long Way Home", seconds: 67),
-        .init(resource: "demo-3", title: "Paper Lanterns", seconds: 52),
-        .init(resource: "demo-4", title: "Static Bloom", seconds: 76),
+        .init(resource: "demo-1", title: "Variatio 4", seconds: 69),
+        .init(resource: "demo-2", title: "Variatio 5", seconds: 75),
+        .init(resource: "demo-3", title: "Variatio 6, Canone alla Seconda", seconds: 75),
+        .init(resource: "demo-4", title: "Variatio 10, Fughetta", seconds: 75),
     ]
 
     /// True when the bundle actually carries the audio. A build that dropped the

@@ -480,7 +480,11 @@ private struct ClientPodcastChannelDetail: View {
             if sel.isEmpty {
                 MusicMiniTransport(onPlayWhenIdle: { model.music.play(allSongs, source: queueSource) }, pageSource: queueSource)
                 MusicRowActions(actions: [
-                    MusicRowAction(title: "Shuffle", systemImage: "shuffle") { shuffle() },
+                    MusicRowAction(
+                        title: "Shuffle",
+                        systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle",
+                        tint: model.music.isShuffled ? .accentColor : .secondary
+                    ) { shuffle() },
                     MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(allSongs) },
                 ])
                 downloadMenu
@@ -610,7 +614,7 @@ private struct ClientPodcastChannelDetail: View {
 
     private func shuffle() {
         guard !allSongs.isEmpty else { return }
-        model.music.play(allSongs.shuffled(), source: queueSource)
+        model.music.playShuffleToggling(allSongs, source: queueSource)
     }
 
     private func loadHero() async {
@@ -764,8 +768,12 @@ private struct ClientPodcastEpisodeRow: View {
         if hover || isPlaying {
             ZStack {
                 Color.black.opacity(0.34)
-                Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                    .font(.caption).foregroundStyle(.white)
+                if isPlaying {
+                    NowPlayingBars(isPlaying: true, tint: .white)
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.caption).foregroundStyle(.white)
+                }
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }

@@ -200,8 +200,12 @@ private struct PinnedRow: View {
                         if hovering || isPlaying {
                             ZStack {
                                 Color.black.opacity(0.34)
-                                Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                                    .font(.caption).foregroundStyle(.white)
+                                if isPlaying {
+                                    NowPlayingBars(isPlaying: true, tint: .white)
+                                } else {
+                                    Image(systemName: "play.fill")
+                                        .font(.caption).foregroundStyle(.white)
+                                }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }

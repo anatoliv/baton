@@ -39,7 +39,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.3.16"
+    MARKETING_VERSION: "0.3.21"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
   configs:
@@ -69,6 +69,11 @@ targets:
     sources:
       - path: Sources/BatonMobile
       - path: Assets.xcassets
+      # Mix card art direction, shared with the other app so the two
+      # can't drift apart release by release.
+      - path: ../Shared/MixArt.xcassets
+      - path: ../Shared/MixBackdrop.swift
+      - path: ../Shared/NowPlayingBars.swift
       - path: Sources/Shared
       # Shared verbatim with the Mac app — same opt-in gate, same DSN redaction.
       # Forking it would let the scrubbing rules drift apart silently.
