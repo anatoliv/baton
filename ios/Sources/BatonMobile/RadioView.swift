@@ -8,6 +8,13 @@ import SwiftUI
 /// enqueuing anything. Both the store and the engine are shared with the Mac.
 struct RadioView: View {
     let model: MobileModel
+    // Grid by default: a station's logo is its identity — the names are often
+    // interchangeable strings of call letters and genres.
+    @AppStorage(BrowseLayout.key("radio")) private var layoutRaw = BrowseLayout.grid.rawValue
+    private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .grid }
+    private var layoutBinding: Binding<BrowseLayout> {
+        Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
+    }
     @State private var query = ""
     @State private var showsAdd = false
     @State private var newName = ""
@@ -15,6 +22,51 @@ struct RadioView: View {
     @State private var editing: NavidromeRadioStation?
 
     var body: some View {
+        Group {
+            if layout == .grid { stationGrid } else { stationList }
+        }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
+    }
+
+    /// Tiles. The on-air station keeps its own row above the grid — it's a state, not a
+    /// choice, and burying it among identical tiles would lose it.
+    private var stationGrid: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if let station = model.radio.onAirStation {
+                    List { onAir(station) }
+                        .listStyle(.plain)
+                        .frame(height: 86)
+                        .scrollDisabled(true)
+                }
+                LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
+                    ForEach(filtered) { station in
+                        Button { model.radio.toggle(station) } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                // Through the screen's own helper, so a station with no
+                                // logo still gets its monogram rather than a grey square.
+                                stationArtwork(station, side: 160)
+                                    .frame(maxWidth: .infinity)
+                                Text(station.name)
+                                    .font(.subheadline.weight(.semibold)).lineLimit(1)
+                                if let subtitle = model.radio.meta[station.id]?.subtitle {
+                                    Text(subtitle).font(.caption)
+                                        .foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(BrowseGrid.padding)
+            }
+        }
+        .searchable(text: $query, prompt: "Stations")
+        .navigationTitle("Radio")
+    }
+
+    private var stationList: some View {
         List {
             if let station = model.radio.onAirStation { onAir(station) }
 
@@ -33,7 +85,9 @@ struct RadioView: View {
                             }
                             Spacer(minLength: 6)
                             if model.radio.isPlaying(station) {
-                                Image(systemName: "waveform").foregroundStyle(.tint)
+                                // Radio has no paused state worth distinguishing — on air
+                                // is on air.
+                                NowPlayingBars(isPlaying: true)
                             }
                         }
                     }
@@ -146,18 +200,18 @@ struct RadioView: View {
     }
 
     @ViewBuilder
-    private func stationArtwork(_ station: NavidromeRadioStation) -> some View {
+    private func stationArtwork(_ station: NavidromeRadioStation, side: CGFloat = 44) -> some View {
         switch model.radio.artwork[station.id] {
         case .logo(let url):
-            ArtworkView(url: url)
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            ArtworkView(url: url, wholeCover: side > 60)
+                .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: side > 60 ? 12 : 8))
         default:
             // A monogram beats a grey box when a station simply has no logo to find.
             ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.18))
+                RoundedRectangle(cornerRadius: side > 60 ? 12 : 8).fill(Color.accentColor.opacity(0.18))
                 Text(String(station.name.prefix(1)).uppercased())
-                    .font(.headline)
+                    .font(side > 60 ? .largeTitle : .headline)
                     .foregroundStyle(Color.accentColor)
             }
             .frame(width: 44, height: 44)

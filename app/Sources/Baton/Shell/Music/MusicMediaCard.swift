@@ -121,8 +121,9 @@ struct MusicSongThumb: View {
                 // Speaker cue only while actively playing — a current-but-paused track
                 // shows just its artwork (no indicator), per the "playing only" rule.
                 Color.black.opacity(0.35)
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.caption).foregroundStyle(.white)
+                // White over the scrim rather than the accent — same indicator, read
+                // against artwork instead of against a row background.
+                NowPlayingBars(isPlaying: true, tint: .white)
             }
         }
         .frame(width: size, height: size)
@@ -367,6 +368,7 @@ struct MusicLayoutPicker: View {
 /// `.onHover` + scale/zIndex), not tracked here — nesting a second `.onHover` makes
 /// the outer one miss events.
 struct MusicMediaCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let coverURL: URL?
     var aspect: CGFloat = 16.0 / 9.0
     var placeholder: String = "opticaldisc"
@@ -438,8 +440,8 @@ struct MusicMediaCard: View {
     /// matching the speaker cue on the list rows and song thumbs.
     @ViewBuilder private var nowPlayingOverlay: some View {
         if isPlaying {
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.caption.weight(.semibold)).foregroundStyle(.white)
+            // Animated, so a glance tells you it's *running* rather than merely current.
+            NowPlayingBars(isPlaying: true, tint: .white)
                 .padding(5).background(Color.accentColor.opacity(0.95), in: Circle())
                 .padding(6)
                 .transition(.scale.combined(with: .opacity))

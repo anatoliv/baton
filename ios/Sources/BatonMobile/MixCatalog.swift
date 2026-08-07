@@ -14,6 +14,9 @@ struct MobileMix: Identifiable, Hashable {
     let subtitle: String
     let icon: String
     let tint: Color
+    /// Art-directed backdrop from `Shared/MixArt.xcassets`, or `nil` for the generated
+    /// mesh. Names match the Mac's exactly — the assets and the art direction are shared.
+    var artwork: String?
     let songs: @MainActor () async -> [NavidromeSong]
 
     // Identity is the stable id — the closure isn't Hashable, and navigation only needs
@@ -25,27 +28,42 @@ struct MobileMix: Identifiable, Hashable {
 /// Builds the phone's mix catalog from the shared store and play history.
 @MainActor
 enum MobileMixCatalog {
+    /// Art-directed backdrops for specific server-generated playlists, by name — the same
+    /// table the Mac uses. Anything absent keeps the generated mesh; this is opt-in per
+    /// playlist, not a required asset.
+    static let serverArtwork: [String: String] = [
+        "Focus · Deep": "MixArtFocusDeep",
+        "Focus · Momentum": "MixArtFocusMomentum",
+        "Focus · Lift": "MixArtFocusLift",
+        "Fresh": "MixArtFresh",
+        "Daily Jams": "MixArtDailyJams",
+        "Daily Discovery": "MixArtDailyDiscovery",
+        "Deep Cuts": "MixArtDeepCuts",
+        "Favorites Radio": "MixArtFavoritesRadio",
+        "Favorites Inbox": "MixArtFavoritesInbox",
+    ]
+
     /// The six auto-mixes, matching the Mac's set so the two apps offer the same things.
     static func auto(_ model: MobileModel) -> [MobileMix] {
         [
             MobileMix(id: "mostPlayed", title: "Most Played", subtitle: "Your top tracks",
-                      icon: "flame.fill", tint: .orange) {
+                      icon: "flame.fill", tint: .orange, artwork: "MixArtMostPlayed") {
                 model.history.topTracks(since: .distantPast).map(\.song)
             },
             MobileMix(id: "recentlyAdded", title: "Just Added", subtitle: "Newest in your library",
-                      icon: "sparkles", tint: .green) {
+                      icon: "sparkles", tint: .green, artwork: "MixArtJustAdded") {
                 await model.musicLibrary.mixSongs(type: "newest")
             },
             MobileMix(id: "topRated", title: "Top Rated", subtitle: "Your highest-rated",
-                      icon: "star.fill", tint: .yellow) {
+                      icon: "star.fill", tint: .yellow, artwork: "MixArtTopRated") {
                 await model.musicLibrary.mixSongs(type: "highest")
             },
             MobileMix(id: "onRepeat", title: "On Repeat", subtitle: "Frequently played",
-                      icon: "repeat", tint: .pink) {
+                      icon: "repeat", tint: .pink, artwork: "MixArtOnRepeat") {
                 await model.musicLibrary.mixSongs(type: "frequent")
             },
             MobileMix(id: "forgotten", title: "Forgotten Favorites", subtitle: "Liked, not heard lately",
-                      icon: "heart.circle.fill", tint: .red) {
+                      icon: "heart.circle.fill", tint: .red, artwork: "MixArtForgotten") {
                 let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
                 let recent = Set(model.history.entries.filter { $0.playedAt >= cutoff }.map(\.song.id))
                 return MixCatalogRules.forgottenFavorites(
@@ -54,7 +72,7 @@ enum MobileMixCatalog {
                 )
             },
             MobileMix(id: "discover", title: "Discover", subtitle: "A random shuffle",
-                      icon: "shuffle", tint: .blue) {
+                      icon: "shuffle", tint: .blue, artwork: "MixArtDiscover") {
                 // A fresh shuffle each open, spread so it never stacks one artist.
                 MixCatalogRules.spreadArtists(await model.musicLibrary.mixSongs(type: "random").shuffled())
             },
@@ -96,7 +114,8 @@ enum MobileMixCatalog {
                 MobileMix(id: "server-\(playlist.id)", title: playlist.name,
                           subtitle: "Generated on your server",
                           icon: "sparkles.rectangle.stack",
-                          tint: palette[index % palette.count]) {
+                          tint: palette[index % palette.count],
+                          artwork: serverArtwork[playlist.name]) {
                     await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
                 }
             }

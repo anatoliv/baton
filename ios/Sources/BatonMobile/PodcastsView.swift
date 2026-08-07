@@ -6,11 +6,48 @@ import SwiftUI
 /// the user's chosen speed.
 struct PodcastsListBody: View {
     let model: MobileModel
+    // Grid by default: a show is its cover art. You recognise "Latent Space" by the
+    // picture long before you finish reading the words.
+    @AppStorage(BrowseLayout.key("podcast")) private var layoutRaw = BrowseLayout.grid.rawValue
+    private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .grid }
+    private var layoutBinding: Binding<BrowseLayout> {
+        Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
+    }
     @State private var showsAddFeed = false
     @State private var feedURLText = ""
     @State private var addError: String?
 
     var body: some View {
+        Group {
+            if layout == .grid { channelGrid } else { channelList }
+        }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
+    }
+
+    private var channelGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
+                ForEach(model.podcastSubscriptions.channels) { channel in
+                    NavigationLink {
+                        PodcastChannelView(channel: channel, model: model)
+                    } label: {
+                        BrowseTile(artwork: channel.imageURL,
+                                   title: channel.title,
+                                   subtitle: "\(channel.episodes.count) episodes")
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Unsubscribe", role: .destructive) {
+                            model.podcastSubscriptions.unsubscribe(channel)
+                        }
+                    }
+                }
+            }
+            .padding(BrowseGrid.padding)
+        }
+    }
+
+    private var channelList: some View {
             List {
                 ForEach(model.podcastSubscriptions.channels) { channel in
                     NavigationLink {
@@ -146,7 +183,7 @@ struct PodcastChannelView: View {
                     ProgressView(value: fraction).frame(width: 60)
                 }
                 if id == model.music.nowPlaying?.id {
-                    Image(systemName: "waveform").foregroundStyle(.tint)
+                    NowPlayingBars(isPlaying: model.music.state == .playing)
                 }
             }
             .font(.caption)

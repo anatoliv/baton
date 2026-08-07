@@ -57,6 +57,7 @@ struct LibraryView: View {
             .navigationDestination(for: NavidromeAlbum.self) { album in
                 AlbumDetailView(album: album, model: model)
             }
+            .readableWidth()
         }
     }
 
@@ -134,6 +135,15 @@ struct LibraryView: View {
 struct LikedView: View {
     let model: MobileModel
 
+    // Only the Albums and Artists segments offer a grid. Liked *songs* stay a list: a song
+    // is a title, an artist and a duration, and a wall of identical album covers is a
+    // worse way to find one.
+    @AppStorage(BrowseLayout.key("liked")) private var layoutRaw = BrowseLayout.list.rawValue
+    private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .list }
+    private var layoutBinding: Binding<BrowseLayout> {
+        Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
+    }
+
     enum Segment: String, CaseIterable, Identifiable {
         case songs, albums, artists
         var id: String { rawValue }
@@ -179,13 +189,20 @@ struct LikedView: View {
 
             switch segment {
             case .songs: songsSection
-            case .albums: albumsSection
-            case .artists: artistsSection
+            case .albums: layout == .grid ? AnyView(albumsGrid) : AnyView(albumsSection)
+            case .artists: layout == .grid ? AnyView(artistsGrid) : AnyView(artistsSection)
             }
         }
         .listStyle(.plain)
         .searchable(text: $filter, prompt: "Filter liked")
         .navigationTitle("Liked")
+        .toolbar {
+            // Only where a grid is on offer — a picker over the Songs segment would be a
+            // control that does nothing.
+            if segment != .songs {
+                ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) }
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             if isSelecting, !selection.isEmpty { selectionBar }
@@ -285,6 +302,50 @@ struct LikedView: View {
     private func endSelecting() {
         selection = []
         isSelecting = false
+    }
+
+    /// Liked albums as tiles.
+    private var albumsGrid: some View {
+        let albums = model.musicLibrary.starred.albums.filter { matches($0.name, $0.artist) }
+        return LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
+            ForEach(albums) { album in
+                NavigationLink {
+                    AlbumDetailView(album: album, model: model)
+                } label: {
+                    BrowseTile(
+                        artwork: model.musicLibrary.coverArtURL(
+                            id: album.coverArtID ?? album.id, size: 400),
+                        title: album.name,
+                        subtitle: Counted.line([album.artist, PlayTime.total(album.duration)])
+                    )
+                }
+                .buttonStyle(.plain)
+                .albumContextMenu(album, model: model)
+            }
+        }
+        .padding(.vertical, 8)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+    }
+
+    /// Liked artists as portraits.
+    private var artistsGrid: some View {
+        let artists = model.musicLibrary.starred.artists.filter { matches($0.name, nil) }
+        return LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
+            ForEach(artists) { artist in
+                NavigationLink {
+                    ArtistDetailView(artist: artist, model: model)
+                } label: {
+                    BrowseTile(artwork: model.musicLibrary.coverArtURL(
+                                   id: artist.coverArtID ?? artist.id, size: 400),
+                               title: artist.name, circular: true)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 8)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
     }
 
     @ViewBuilder
@@ -400,7 +461,44 @@ struct PlaylistsView: View {
 
     private var sort: PlaylistSort { PlaylistSort(rawValue: sortRaw) ?? .name }
 
+    // List by default: playlists are chosen by name and length, and this library has 324
+    // of them — the grid is for the ones you made covers for.
+    @AppStorage(BrowseLayout.key("playlist")) private var layoutRaw = BrowseLayout.list.rawValue
+    private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .list }
+    private var layoutBinding: Binding<BrowseLayout> {
+        Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
+    }
+
     var body: some View {
+        Group {
+            if layout == .grid { playlistGrid } else { playlistList }
+        }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
+    }
+
+    private var playlistGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
+                ForEach(sort.sorted(model.musicLibrary.playlists)) { playlist in
+                    NavigationLink {
+                        PlaylistDetailView(playlist: playlist, model: model)
+                    } label: {
+                        BrowseTile(
+                            artwork: model.musicLibrary.coverArtURL(
+                                id: playlist.coverArtID ?? playlist.id, size: 400),
+                            title: playlist.name,
+                            subtitle: playlistSubtitle(playlist)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(BrowseGrid.padding)
+        }
+        .navigationTitle("Playlists")
+    }
+
+    private var playlistList: some View {
         List(sort.sorted(model.musicLibrary.playlists)) { playlist in
             NavigationLink {
                 PlaylistDetailView(playlist: playlist, model: model)

@@ -286,6 +286,12 @@ private struct SongShelfCard: View {
             onPlay: onPlay
         )
         .frame(width: homeShelfCardWidth)
+        // The same lift every other card in the app uses. This shelf was the one that
+        // didn't: "Jump back in" and "Continue listening" sat flat while the album shelves
+        // directly below them rose, which reads as two different apps on one screen.
+        .hoverLift(hover)
+        .zIndex(hover ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: hover)
         .onHover { hover = $0 }
     }
 }

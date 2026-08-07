@@ -131,7 +131,7 @@ struct AlbumShelf: View {
                     ForEach(albums) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 6) {
-                                ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400))
+                                ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400), wholeCover: true)
                                     .frame(width: 142, height: 142)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
@@ -167,7 +167,7 @@ struct SongShelf: View {
                             model.music.play(songs, startAt: index, source: source)
                         } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                ArtworkView(url: model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 400))
+                                ArtworkView(url: model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 400), wholeCover: true)
                                     .frame(width: 142, height: 142)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
@@ -214,25 +214,36 @@ struct MixShelf: View {
 /// its own and a grey placeholder would read as "broken" rather than "generated".
 struct MixCard: View {
     let mix: MobileMix
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var side: CGFloat { CardMetrics.shelfCard(sizeClass) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ZStack {
-                LinearGradient(
-                    colors: [mix.tint.opacity(0.95), mix.tint.opacity(0.45)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
+            ZStack(alignment: .topLeading) {
+                // The Mac's art direction, verbatim: an art-directed backdrop where one
+                // exists, the deterministic mesh where it doesn't. The flat tint gradient
+                // this replaces was the phone's own invention and made the same mixes look
+                // like a different product on each device.
+                MixBackdrop(artwork: mix.artwork, seed: mix.id, tint: mix.tint)
                 Image(systemName: mix.icon)
-                    .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+                    .padding(12)
             }
-            .frame(width: 142, height: 142)
+            .frame(width: side, height: side)
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            // Say what's tappable rather than letting SwiftUI infer it from whatever
+            // happens to be opaque. The backdrop is deliberately not hit-testable, which
+            // left the symbol as the card's only hittable content — a card you could open
+            // only by hitting its small top-left corner, and not at all by tapping the
+            // middle of it.
+            .contentShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: mix.tint.opacity(0.3), radius: 8, y: 3)
             Text(mix.title).font(.subheadline.weight(.medium)).lineLimit(1)
             Text(mix.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
-        .frame(width: 142)
+        .frame(width: side)
     }
 }
 
@@ -240,6 +251,7 @@ struct MixCard: View {
 struct MixDetailView: View {
     let mix: MobileMix
     let model: MobileModel
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var songs: [NavidromeSong] = []
     @State private var loading = true
 
@@ -247,14 +259,17 @@ struct MixDetailView: View {
         List {
             Section {
                 VStack(spacing: 12) {
+                    // Same backdrop as the card it was opened from, so the detail page
+                    // reads as the same mix rather than a differently-coloured tile.
                     ZStack {
-                        LinearGradient(colors: [mix.tint.opacity(0.95), mix.tint.opacity(0.45)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        MixBackdrop(artwork: mix.artwork, seed: mix.id, tint: mix.tint)
                         Image(systemName: mix.icon)
                             .font(.system(size: 56, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.92))
+                            .shadow(color: .black.opacity(0.35), radius: 5, y: 1)
                     }
-                    .frame(width: 190, height: 190)
+                    .frame(width: CardMetrics.detailArt(sizeClass),
+                           height: CardMetrics.detailArt(sizeClass))
                     .clipShape(RoundedRectangle(cornerRadius: 18))
                     .shadow(color: mix.tint.opacity(0.35), radius: 16, y: 6)
 
@@ -270,11 +285,22 @@ struct MixDetailView: View {
                         .disabled(songs.isEmpty)
 
                         Button {
-                            model.music.play(songs.shuffled(), source: .init(label: mix.title, kind: .radio, id: mix.id))
+                            model.music.playShuffleToggling(songs, source: .init(label: mix.title, kind: .radio, id: mix.id))
                         } label: {
-                            Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity)
+                            Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
+                                .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
+                        // Shuffle is a *mode*, and this button now sets it — so it has to
+                        // say whether it's on. Without this the only feedback for pressing
+                        // it lives in the transport, which is exactly the complaint: "no
+                        // indication if it is selected or not".
+                        //
+                        // A tint rather than `.borderedProminent`: that's Play's weight,
+                        // and two prominent buttons side by side stop meaning "the primary
+                        // action is Play".
+                        .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
+                        .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
                         .disabled(songs.isEmpty)
                     }
                 }

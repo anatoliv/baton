@@ -7,10 +7,16 @@ import SwiftUI
 struct ArtistsView: View {
     let model: MobileModel
     @State private var query = ""
+    // List by default: this library has thousands of artists and you find them by name,
+    // not by face. The grid is there for when you're browsing rather than looking.
+    @AppStorage(BrowseLayout.key("artist")) private var layoutRaw = BrowseLayout.list.rawValue
+    private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .list }
 
     var body: some View {
         ScrollViewReader { proxy in
-            artistList
+            Group {
+                if layout == .grid { artistGrid } else { artistList }
+            }
                 // Same A–Z rail as Albums: the artists list is alphabetical by nature and
                 // long by nature, which is exactly the combination the rail exists for.
                 .overlay(alignment: .trailing) {
@@ -29,6 +35,44 @@ struct ArtistsView: View {
     private var indexEntries: [AlphabetIndex.Entry] {
         guard query.isEmpty, filtered.count > 30 else { return [] }
         return AlphabetIndex.entries(from: filtered.map { ($0.id, $0.name) })
+    }
+
+    /// Tiles, for recognising someone by their picture.
+    private var artistGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
+                ForEach(filtered) { artist in
+                    NavigationLink {
+                        ArtistDetailView(artist: artist, model: model)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ArtworkView(url: portraitURL(for: artist),
+                                        wholeCover: true)
+                                .aspectRatio(1, contentMode: .fit)
+                                .clipShape(Circle())
+                            Text(artist.name)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                            if let count = artist.albumCount {
+                                Text("\(count) \(count == 1 ? "album" : "albums")")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .id(artist.id)
+                }
+            }
+            .padding(BrowseGrid.padding)
+        }
+        .searchable(text: $query, prompt: "Artists")
+        .navigationTitle("Artists")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
+    }
+
+    private var layoutBinding: Binding<BrowseLayout> {
+        Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
     }
 
     private var artistList: some View {
@@ -55,6 +99,7 @@ struct ArtistsView: View {
         .searchable(text: $query, prompt: "Artists")
         .navigationTitle("Artists")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
         .overlay {
             if model.musicLibrary.artists.isEmpty {
                 ContentUnavailableView("No artists", systemImage: "music.mic")
@@ -137,9 +182,14 @@ struct ArtistDetailView: View {
             .buttonStyle(.borderedProminent)
 
             Button {
-                Task { model.music.play(await songs().shuffled(), source: source) }
-            } label: { Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity) }
+                Task { model.music.playShuffleToggling(await songs(), source: source) }
+            } label: {
+                Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
+                    .frame(maxWidth: .infinity)
+            }
             .buttonStyle(.bordered)
+            .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
+            .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
 
             // Follow is a local marker (the Mac's too) — it doesn't exist server-side.
             Button {
@@ -193,7 +243,7 @@ struct ArtistDetailView: View {
                 ForEach(albums) { album in
                     NavigationLink(value: album) {
                         VStack(alignment: .leading, spacing: 6) {
-                            ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400))
+                            ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400), wholeCover: true)
                                 .aspectRatio(1, contentMode: .fit)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
@@ -297,9 +347,14 @@ struct GenreSongsView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(songs.isEmpty)
                     Button {
-                        model.music.play(songs.shuffled(), source: source)
-                    } label: { Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity) }
+                        model.music.playShuffleToggling(songs, source: source)
+                    } label: {
+                        Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
+                            .frame(maxWidth: .infinity)
+                    }
                     .buttonStyle(.bordered)
+                    .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
+                    .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
                     .disabled(songs.isEmpty)
                 }
                 .listRowSeparator(.hidden)

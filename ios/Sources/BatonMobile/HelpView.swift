@@ -233,6 +233,56 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.21",
+            date: "August 2026",
+            highlight: "One mark for the playing track, everywhere.",
+            changes: [
+                .init(.fixed, "Up Next showed a speaker beside the playing track while the same track in search results showed moving bars. Every list in the app now uses the same mark, and it moves only while music is actually playing."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.20",
+            date: "August 2026",
+            highlight: "Real music in the demo, and a shuffle button that tells you where it stands.",
+            changes: [
+                .init(.improved, "The demo library is now a real recording — four movements of Bach's Goldberg Variations, played by Kimiko Ishizaka and released into the public domain. It replaces the synthesized tones that were there to avoid a licensing problem."),
+                .init(.improved, "The Shuffle button shows whether shuffle is on, and pressing it again stops shuffling. Stopping part-way through an album keeps playing from where you are rather than starting the record again."),
+                .init(.improved, "The mark beside the playing track is now moving bars rather than a still symbol, so a glance tells you whether music is running or paused."),
+                .init(.improved, "An album page now says how many tracks, how long, what year and what genre; its artist opens the artist; and Download, Like, Play Next and Add to Queue moved into a menu so the track listing starts higher up the screen."),
+                .init(.improved, "The music friend's message box is rounded like everything around it."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.19",
+            date: "August 2026",
+            highlight: "Shuffle that stays on, grids where you want them, and a player that fits the iPad.",
+            changes: [
+                .init(.added, "Artists, Playlists, Liked, Podcasts and Radio can each be shown as a grid or a list, the way Albums already could and the way the Mac has always offered. Each screen remembers your choice."),
+                .init(.improved, "On iPad the player is a properly proportioned capsule instead of a band spanning the whole screen, cards are drawn at a size that suits the canvas, and text no longer runs the full width of a 13-inch display."),
+                .init(.improved, "The search field matches the filter fields elsewhere in the app, and the music friend's message box is Baton's own rather than the stock iOS one."),
+                .init(.fixed, "Pressing Shuffle on an album, artist, playlist or mix now turns shuffle on, instead of quietly playing a shuffled queue while the player's own shuffle button still read \"off\"."),
+                .init(.improved, "The now-playing mark in track lists animates while music is actually playing and holds still when it isn't. Before, playing and paused looked identical."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.18",
+            date: "August 2026",
+            highlight: "Mix cards that look like the Mac's.",
+            changes: [
+                .init(.improved, "Mix cards now carry the same artwork as the Mac — the painted backdrops for Most Played, Just Added, Top Rated and the rest, and the same generated one for genre and server mixes. The phone was drawing a flat colour tile of its own invention."),
+                .init(.improved, "The art and the code that draws it are now shared between the two apps, so a card can't look like one product on the Mac and another on the phone."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.17",
+            date: "August 2026",
+            highlight: "Album art you can see all of.",
+            changes: [
+                .init(.improved, "Artwork that isn't square is shown whole instead of cropped to the tile — over a softly blurred copy of itself, the way the Mac has always drawn its cards. A 16:9 thumbnail was losing its outer thirds on the phone."),
+                .init(.improved, "Album grids, artist and album headers, and the full-screen player all draw this way. Small row thumbnails are unchanged."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.16",
             date: "August 2026",
             highlight: "Search remembers what you typed — on both devices.",

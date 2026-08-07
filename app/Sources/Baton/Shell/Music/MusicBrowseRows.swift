@@ -69,9 +69,10 @@ struct MusicRowThumb: View {
 /// `MusicMediaCard.isPlaying`, and it matches the speaker cue on song thumbs.
 struct NowPlayingSourceGlyph: View {
     var body: some View {
-        Image(systemName: "speaker.wave.2.fill")
-            .font(.caption)
-            .foregroundStyle(Color.accentColor)
+        // Bars, like every other "this is playing" mark in both apps. This drew a static
+        // speaker while the cards beside it drew a moving waveform — the same state, two
+        // symbols, on one screen.
+        NowPlayingBars(isPlaying: true)
             .accessibilityLabel("Now playing")
             .help("Now playing")
     }
