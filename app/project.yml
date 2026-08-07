@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.16.2"
-    CURRENT_PROJECT_VERSION: "61"
+    MARKETING_VERSION: "0.16.3"
+    CURRENT_PROJECT_VERSION: "62"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -112,6 +112,11 @@ targets:
     sources:
       - path: Sources/Baton
       - path: Assets.xcassets
+      # Mix card art direction, shared with the other app so the two
+      # can't drift apart release by release.
+      - path: ../Shared/MixArt.xcassets
+      - path: ../Shared/MixBackdrop.swift
+      - path: ../Shared/NowPlayingBars.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton

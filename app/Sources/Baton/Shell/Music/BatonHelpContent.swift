@@ -234,6 +234,38 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.3",
+            date: "August 2026",
+            highlight: "Shuffle you can see, and cards that all behave alike.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The Shuffle action shows whether shuffle is on, and choosing it "
+                        + "again stops shuffling. Stopping part-way through a record keeps "
+                        + "playing from where you are instead of starting it again."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The now-playing badge on a card moves while music is running and "
+                        + "holds still when it isn\u{2019}t \u{2014} previously it looked the "
+                        + "same either way."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "One mark for the playing track everywhere. Rows showed a speaker "
+                        + "while cards showed a moving waveform \u{2014} the same state drawn "
+                        + "two ways, sometimes on the same screen."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Every card on Home now lifts the same way under the pointer. "
+                        + "\u{201C}Jump back in\u{201D} and \u{201C}Continue listening\u{201D} "
+                        + "didn\u{2019}t lift at all, and the mix cards lifted about a third as "
+                        + "far as everything else."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.2",
             date: "August 2026",
             highlight: "Search history that follows you to the phone.",

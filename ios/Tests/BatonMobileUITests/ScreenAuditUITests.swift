@@ -381,9 +381,9 @@ final class ScreenAuditUITests: XCTestCase {
             : app.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the Search tab must offer a search field")
         field.tap()
-        field.typeText("First")
+        field.typeText(DemoFixtures.searchTerm)
 
-        XCTAssertTrue(app.staticTexts["First Light"].waitForExistence(timeout: 15),
+        XCTAssertTrue(app.staticTexts[DemoFixtures.firstTrack].waitForExistence(timeout: 15),
                       "typing in the header field must actually run a search")
     }
 
@@ -394,7 +394,7 @@ final class ScreenAuditUITests: XCTestCase {
     func testPushingFromHomeStillGivesAWayBack() {
         app.tabBars.buttons["Home"].tap()
         let album = app.scrollViews.buttons.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "Baton Demo")).firstMatch
+            NSPredicate(format: "label CONTAINS[c] %@", DemoFixtures.album)).firstMatch
         XCTAssertTrue(album.waitForExistence(timeout: 20), "Home must offer the demo album to push into")
         album.tap()
 

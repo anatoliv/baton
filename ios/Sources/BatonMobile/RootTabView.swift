@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The iPhone shell: tabs over the shared library store, with the Now Playing bar
 /// floating above the tab bar (the phone-shaped answer to the Mac's bottom bar).
@@ -184,6 +185,8 @@ private struct NowPlayingAccessory: ViewModifier {
     let model: MobileModel
     let onTap: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     func body(content: Content) -> some View {
         // The condition lives *outside* the accessory, not inside it: an
         // accessory whose content is empty still reserves and draws the
@@ -192,8 +195,28 @@ private struct NowPlayingAccessory: ViewModifier {
         // all.
         if model.music.nowPlaying == nil {
             content
+        } else if UIDevice.current.userInterfaceIdiom == .pad {
+            // Keyed to the *device*, not the size class: an iPhone Pro Max in landscape
+            // also reports regular width, and the system accessory is right there — this
+            // is about the iPad's canvas, not about how much width happens to be going.
+            //
+            // iPad draws its own capsule rather than the system accessory. The accessory
+            // spans whatever width it is given and its shape is not ours to narrow, so on
+            // a 13-inch canvas it became a full-width band with the title at one edge and
+            // the controls at the other. The standalone chrome is already a self-contained
+            // capsule — capped and centred, it reads as a player rather than a shelf.
+            content.safeAreaInset(edge: .bottom) {
+                NowPlayingBar(model: model, chrome: .standalone, onOpen: onTap)
+                    .readableWidth(620)
+                    .padding(.bottom, 6)
+            }
         } else if #available(iOS 26.0, *) {
             content.tabViewBottomAccessory {
+                // Capped on iPad. The accessory spans whatever width it's given, which on
+                // a 13-inch canvas puts the track title at one edge and the controls at
+                // the other with two feet of nothing between them — technically a bar,
+                // visually a mistake. The phone is untouched: `readableWidth` is a no-op
+                // in compact.
                 NowPlayingBar(model: model, chrome: .systemAccessory, onOpen: onTap)
             }
         } else {

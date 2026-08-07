@@ -181,7 +181,11 @@ struct HeaderSearchField: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 8)
-        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 11))
+        // A capsule, to match `.searchable` — which is what the other six search and
+        // filter fields in the app are. This one is custom only because `.searchable`
+        // renders into the navigation bar and this screen hides its bar; that is an
+        // implementation constraint, and it shouldn't be visible as a different shape.
+        .background(.quaternary.opacity(0.6), in: Capsule())
         // The audit walks by identifier; a search field the test can't find is a
         // search field nobody can prove works.
         .accessibilityIdentifier("SearchField")

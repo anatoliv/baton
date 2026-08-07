@@ -57,6 +57,7 @@ final class RemoteAgentLiveTests: XCTestCase {
         // had touched. An unreachable provider means *not measurable*, not broken — so it
         // skips, the way a missing config already did.
         try skipUnlessReachable(base)
+        try skipUnlessServing(base: base, key: key, model: config.model)
         return config
     }
 
@@ -80,6 +81,49 @@ final class RemoteAgentLiveTests: XCTestCase {
         _ = semaphore.wait(timeout: .now() + 8)
 
         try XCTSkipIf(!reachable, "live provider at \(url.host ?? base) isn't answering — skipping rather than reporting a broken agent")
+    }
+
+    /// Skips unless the model can actually answer.
+    ///
+    /// Reachable is not the same as ready, and the difference cost a release. The LAN box
+    /// woke partway through the gate, so its port answered — 401 counts, by design above —
+    /// while vLLM was still loading weights and could serve nothing. The eval ran anyway
+    /// and scored 53 wrong out of 114 against a threshold of 22, and `publish.sh` refused
+    /// to package 0.16.3, reporting "more than 20% of ordinary messages did the wrong
+    /// thing" about an agent whose code hadn't changed since the previous release.
+    ///
+    /// So this asks the only question that matters: answer one trivial prompt. A host
+    /// that can't is *not measurable*, which is a skip, not a failure.
+    private static func skipUnlessServing(base: String, key: String, model: String) throws {
+        guard let url = URL(string: base.hasSuffix("/") ? base + "chat/completions"
+                                                        : base + "/chat/completions")
+        else { throw XCTSkip("live base URL is not a URL: \(base)") }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30          // a model still loading is slow, not absent
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "messages": [["role": "user", "content": "hi"]],
+            "max_tokens": 1,
+        ])
+
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var serving = false
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let http = response as? HTTPURLResponse, http.statusCode == 200,
+               let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                serving = json["choices"] != nil
+            }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 35)
+
+        try XCTSkipIf(!serving,
+                      "live provider is up but not serving \(model) yet (still loading?) — "
+                      + "skipping rather than reporting a broken agent")
     }
 
     private func live() throws -> Live {

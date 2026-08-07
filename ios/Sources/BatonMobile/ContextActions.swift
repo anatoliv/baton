@@ -151,7 +151,7 @@ struct AlbumContextMenu: ViewModifier {
                 } label: { Label("Play", systemImage: "play.fill") }
 
                 Button {
-                    Task { model.music.play(await songs().shuffled(), source: source) }
+                    Task { model.music.playShuffled(await songs(), source: source) }
                 } label: { Label("Shuffle", systemImage: "shuffle") }
 
                 Button {

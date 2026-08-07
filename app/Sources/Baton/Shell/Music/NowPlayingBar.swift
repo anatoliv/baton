@@ -607,9 +607,7 @@ private struct MusicQueueRow: View {
     @ViewBuilder
     private var leading: some View {
         if isPlaying {
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.caption)
-                .foregroundStyle(Color.accentColor)
+            NowPlayingBars(isPlaying: true)
         } else if hovering {
             Image(systemName: "line.3.horizontal")
                 .font(.caption)

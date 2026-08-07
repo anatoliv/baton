@@ -217,6 +217,7 @@ struct OnboardingView: View {
                 }
             }
         }
+        .readableWidth()
         // Only the first run is a dead end on purpose.
         .interactiveDismissDisabled(onCancel == nil)
     }

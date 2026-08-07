@@ -263,7 +263,11 @@ struct SongRow: View {
                     .foregroundStyle(.tint)
             }
             if song.id == model.music.nowPlaying?.id {
-                Image(systemName: "waveform").foregroundStyle(.tint)
+                // Animated while it's actually running, still while it isn't. The static
+                // symbol said only "this is the current track" — playing and paused looked
+                // identical, so the one thing you'd glance down to check was the one thing
+                // it couldn't tell you.
+                NowPlayingBars(isPlaying: model.music.state == .playing)
             }
             // Last, and quiet. This row can already carry three signals (downloaded,
             // liked, playing); the length is reference material, not a state, so it

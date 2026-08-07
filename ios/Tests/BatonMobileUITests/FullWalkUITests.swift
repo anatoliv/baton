@@ -212,8 +212,8 @@ final class FullWalkUITests: XCTestCase {
             ? app.textFields["SearchField"] : app.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap()
-        field.typeText("First")
-        let found = app.staticTexts["First Light"].waitForExistence(timeout: 15)
+        field.typeText(DemoFixtures.searchTerm)
+        let found = app.staticTexts[DemoFixtures.firstTrack].waitForExistence(timeout: 15)
         note("Search", found ? "typing returns results" : "GAP: search returns nothing")
         XCTAssertTrue(found)
 
