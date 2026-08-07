@@ -355,15 +355,25 @@ struct MobileSettingsView: View {
                 // Two buttons, because these are different intentions and only one of them
                 // can't be undone. Naming the downloads in the button — not just the
                 // message — means the irreversible choice can't be made by muscle memory.
+                // Close Settings on the way out. Disconnecting sets `showsSetup`, but the
+                // setup screen is a full-screen cover presented from the root — and it
+                // cannot appear while this sheet is still up. Settings became a sheet when
+                // it left the tab bar, and this went with it: you would disconnect and be
+                // left looking at the settings of a server you no longer had.
                 if let summary = purgePreview.downloadSummary {
                     Button("Disconnect and Delete \(summary)", role: .destructive) {
                         model.disconnect(keepDownloads: false)
+                        dismiss()
                     }
                     Button("Disconnect, Keep Downloads") {
                         model.disconnect(keepDownloads: true)
+                        dismiss()
                     }
                 } else {
-                    Button("Disconnect", role: .destructive) { model.disconnect(keepDownloads: false) }
+                    Button("Disconnect", role: .destructive) {
+                        model.disconnect(keepDownloads: false)
+                        dismiss()
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {

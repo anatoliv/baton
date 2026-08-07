@@ -233,6 +233,21 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.15",
+            date: "August 2026",
+            highlight: "How long everything is, and a listening history that counts every device.",
+            changes: [
+                .init(.added, "Track lists show each song's length — search results, playlists, folders, liked songs, downloads, history and an album's track listing."),
+                .init(.added, "Up Next shows how long each track runs and totals what's still to play: \"11 tracks left · 49m\"."),
+                .init(.added, "Albums in list view and liked albums show their total play time alongside the artist and year."),
+                .init(.added, "History now reads from your server by default, so Recent includes what you played on the Mac. Switch to \"This iPhone\" for the on-device log, which still works with no connection."),
+                .init(.fixed, "Disconnecting from Settings left you looking at the settings of a server you had just disconnected from, instead of the setup screen."),
+                .init(.improved, "Pausing, stopping and resuming now actually sound like fades. The previous ramp was short and linear, which the ear reads as a cut — in a car it was inaudible. It is longer now, shaped to how loudness is actually perceived, and resuming eases back in instead of snapping on."),
+                .init(.fixed, "Changing the volume while a track was fading out snapped it back to full volume for the rest of the fade."),
+                .init(.fixed, "Signing in to a different server inherited the previous account's History scope."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.14",
             date: "August 2026",
             highlight: "Browsing that scales to a real library — jump by letter, browse by folder, and make the Library list yours.",

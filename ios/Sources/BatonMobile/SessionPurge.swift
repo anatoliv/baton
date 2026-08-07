@@ -50,6 +50,10 @@ enum SessionPurge {
         "baton.personalization.rationale",
         "baton.speech.history",
         "baton.demoMode",
+        // Which History scope is showing is a fact about the *account* — "All devices"
+        // means that server's record. Carrying it into the next sign-in shows the new
+        // account a scope chosen for the old one, and silently defeats the default.
+        "baton.history.scope",
     ]
 
     /// Clears the account's stores without needing a live `MobileModel`.

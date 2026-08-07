@@ -519,6 +519,16 @@ struct QueueSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isEditing = false
 
+    /// What is still to play from the current track onward. Nil when nothing in the queue
+    /// reports a length — a "0m left" would be a worse answer than no answer.
+    private var remainingTime: String? {
+        let queue = model.music.queue
+        guard model.music.currentIndex < queue.count else { return nil }
+        let seconds = queue[model.music.currentIndex...].reduce(0) { $0 + ($1.duration ?? 0) }
+        guard let total = PlayTime.total(seconds) else { return nil }
+        return "\(Counted.phrase(queue.count - model.music.currentIndex, "track")) left · \(total)"
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -557,6 +567,11 @@ struct QueueSheet: View {
                                         .lineLimit(1)
                                 }
                                 Spacer(minLength: 0)
+                                if let time = PlayTime.track(song.duration) {
+                                    Text(time)
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.tertiary)
+                                }
                             }
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -578,6 +593,19 @@ struct QueueSheet: View {
             }
             .navigationTitle("Up Next")
             .navigationBarTitleDisplayMode(.inline)
+            // "How long until my track" is the queue's own question, so the answer goes
+            // where the question is asked — everything still to play, current track
+            // included, since that is what "left" means while it is playing.
+            .safeAreaInset(edge: .bottom) {
+                if let remaining = remainingTime {
+                    Text(remaining)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(.bar)
+                }
+            }
             .environment(\.editMode, .constant(isEditing ? .active : .inactive))
             .toolbar {
                 if !model.music.queue.isEmpty {

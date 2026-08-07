@@ -165,3 +165,41 @@ final class PlaylistSortTests: XCTestCase {
         XCTAssertEqual(playlistSubtitle(NavidromePlaylist(id: "5", name: "N", songCount: 7)), "7 songs")
     }
 }
+
+
+/// Play time, in the two shapes lists need.
+///
+/// A track and a collection want different answers to "how long" — `4:21` reads as a
+/// position on a clock, `6h 57m` reads as an evening. One format for both would make
+/// track lists look like spreadsheets and album totals look like timestamps.
+final class PlayTimeTests: XCTestCase {
+    func testATrackReadsAsAClock() {
+        XCTAssertEqual(PlayTime.track(261), "4:21")
+        XCTAssertEqual(PlayTime.track(9), "0:09", "seconds stay two-digit")
+    }
+
+    /// Live sets and DJ mixes pass an hour, and "94:30" is not a time anyone reads.
+    func testALongTrackGrowsAnHoursField() {
+        XCTAssertEqual(PlayTime.track(3870), "1:04:30")
+    }
+
+    func testACollectionReadsAsAnEvening() {
+        XCTAssertEqual(PlayTime.total(25_020), "6h 57m")
+        XCTAssertEqual(PlayTime.total(2_940), "49m", "under an hour drops the hours field")
+    }
+
+    /// Missing and zero are the same thing to a reader — nothing to say. Returning nil
+    /// rather than "0:00" is what keeps an empty column empty instead of noisy.
+    func testNothingToShowReturnsNothing() {
+        XCTAssertNil(PlayTime.track(nil))
+        XCTAssertNil(PlayTime.track(0))
+        XCTAssertNil(PlayTime.total(nil))
+        XCTAssertNil(PlayTime.total(0))
+    }
+
+    /// Negative durations are nonsense a server can still send.
+    func testNegativeDurationsAreRefused() {
+        XCTAssertNil(PlayTime.track(-5))
+        XCTAssertNil(PlayTime.total(-5))
+    }
+}

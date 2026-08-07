@@ -959,6 +959,9 @@ public final class StreamingPlaybackController {
             return
         }
         player.play()
+        // Ramped up rather than switched on: resuming mid-waveform is the same
+        // discontinuity as pausing mid-waveform, just in the other direction.
+        transportFade.in(apply: { [weak self] in self?.applyVolume() })
         state = .playing
         // First play of a restored (loaded-paused) item: fire the track-start side effects
         // (history / "now playing") and stamp the scrobble timestamp now, so a restored
@@ -997,7 +1000,8 @@ public final class StreamingPlaybackController {
         cancelCrossfade()
         // Ramped rather than cut. State and Now Playing update immediately below, so the
         // UI still responds instantly; only the audio is shaped.
-        transportFade.out(player) { [weak self] in self?.player.pause() }
+        transportFade.out(apply: { [weak self] in self?.applyVolume() },
+                          then: { [weak self] in self?.player.pause() })
         if state == .playing { state = .paused }
         pushNowPlaying()
         persistQueue() // capture the playhead where the user paused
@@ -1012,7 +1016,7 @@ public final class StreamingPlaybackController {
         cancelCrossfade()
         // Fade, then pause and rewind — seeking a still-audible player is the other way to
         // produce a click.
-        transportFade.out(player) { [weak self] in
+        transportFade.out(apply: { [weak self] in self?.applyVolume() }) { [weak self] in
             guard let self else { return }
             self.player.pause()
             // Seek the player to the start too, so a later play() resumes from 0:00 — matching
@@ -1334,7 +1338,9 @@ public final class StreamingPlaybackController {
     /// loudness-normalization multiplier. (Mute is separate — `player.isMuted`.)
     public func applyVolume() {
         let mult = Self.loudnessMultiplier(for: nowPlaying, mode: loudnessMode, preampDB: loudnessPreampDB)
-        player.volume = PlaybackVolume.effective(percent: volumePercent, loudness: mult, fade: fadeMultiplier)
+        player.volume = PlaybackVolume.effective(percent: volumePercent, loudness: mult,
+                                                 fade: fadeMultiplier,
+                                                 transport: transportFade.multiplier)
     }
 
     // Loudness-normalization math (loudnessHeadroom + loudnessMultiplier + normalizationGain) lives
@@ -1386,6 +1392,12 @@ public final class StreamingPlaybackController {
     private func loadCurrent(autoplay: Bool, isRetry: Bool = false,
                              startingAt: TimeInterval = 0, isContinuation: Bool = false) {
         cancelStallWatchdog() // a fresh load supersedes any pending stall watchdog
+        // Settle any transport ramp still in flight, *before* the item is replaced. A
+        // pending stop finishes with pause() + seek(.zero); arriving after the new item is
+        // in place, it would pause and rewind the track that just started — press Stop,
+        // pick another song inside the fade, and the app looks frozen with no error. This
+        // has to precede replaceCurrentItem so the teardown lands on the outgoing item.
+        transportFade.cancel(apply: { [weak self] in self?.applyVolume() })
         #if DEBUG
         loadCurrentCountForTesting += 1
         #endif

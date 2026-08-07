@@ -234,6 +234,27 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.1",
+            date: "August 2026",
+            highlight: "Stops you can hear.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Pausing, stopping and resuming now actually sound like fades. The "
+                        + "previous ramp was short and linear \u{2014} which the ear reads as a "
+                        + "cut, because perceived loudness is logarithmic and a linear ramp "
+                        + "drops most of its level in the last few milliseconds. It is longer "
+                        + "now, shaped to how loudness is really heard, and resuming eases back "
+                        + "in rather than snapping on."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Changing the volume while a track was fading out snapped it back to "
+                        + "full volume for the rest of the fade."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.0",
             date: "2026",
             highlight: "Browse by folder, hear what the queue is playing from, and a track that could never be silenced can be again.",

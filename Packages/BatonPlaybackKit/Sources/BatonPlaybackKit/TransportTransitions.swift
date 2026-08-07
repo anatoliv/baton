@@ -118,8 +118,12 @@ public enum Fade {
 public enum PlaybackVolume {
     /// The 0…N volume to push to AVPlayer. `percent` is the user's 0–100 level; `loudness` is the
     /// ReplayGain-derived multiplier (can exceed 1 within the clamp); `fade` is the 0…1 envelope.
-    public static func effective(percent: Int, loudness: Float, fade: Float) -> Float {
-        Float(percent) / 100 * loudness * fade
+    /// `fade` is the sleep-timer envelope, `transport` the pause/stop/resume ramp. They
+    /// are separate factors so neither stomps the other — a pause during a sleep fade has
+    /// to compose with it, not replace it.
+    public static func effective(percent: Int, loudness: Float, fade: Float,
+                                 transport: Float = 1) -> Float {
+        Float(percent) / 100 * loudness * fade * transport
     }
 }
 
