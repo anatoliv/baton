@@ -18,6 +18,9 @@ final class MusicModel {
     let musicLibrary = MusicLibraryStore()
     /// Local listening history — Recently Played + top tracks/artists stats.
     let musicHistory = MusicPlayHistory()
+    /// Albums and artists opened from Search, shared with the iPhone. Distinct from
+    /// `FilterHistory`, which remembers the strings typed rather than what they found.
+    let searchRecents = SearchRecents()
     /// Tracks excluded from radio/autoplay suggestions ("don't play in radio").
     let musicRadioBans = MusicRadioBans()
     /// External scrobbling to ListenBrainz (opt-in via a user token).

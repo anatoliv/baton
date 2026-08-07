@@ -10,13 +10,50 @@ struct SearchView: View {
     /// Path-based so a tap can *record* the entity it opens before pushing it — a plain
     /// NavigationLink navigates without telling anyone, which is why search had no memory.
     @State private var path = NavigationPath()
+    /// The queries typed on any device. Held in state rather than read inline so a term
+    /// added here, or merged in by a sync, redraws the list.
+    @State private var recentQueries: [String] = []
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                // Search with a memory: the albums and artists you opened before, shown
-                // while the field is empty. Entities rather than query strings — what you
-                // wanted, not what you typed to find it.
+                // Two kinds of memory, deliberately different, both shown while the field is
+                // empty and both shared with the Mac. This one is what you *typed* — the
+                // Mac has kept it per screen for a while, so a query typed there is one tap
+                // away here.
+                if query.trimmingCharacters(in: .whitespaces).isEmpty, !recentQueries.isEmpty {
+                    Section {
+                        ForEach(recentQueries, id: \.self) { term in
+                            Button { runRecent(term) } label: {
+                                Label(term, systemImage: "clock")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    FilterHistory.remove(term, from: Self.historyKey)
+                                    reloadQueries()
+                                } label: { Label("Remove", systemImage: "trash") }
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Text("Recent Searches")
+                            Spacer()
+                            Button("Clear") {
+                                FilterHistory.clear(Self.historyKey)
+                                reloadQueries()
+                            }
+                            .font(.caption)
+                            .textCase(nil)
+                        }
+                    }
+                }
+
+                // And this one is what you *opened* — usually the faster route back, since
+                // "Dido → 3 albums" is what you wanted and the string you typed to get there
+                // is trivia. Scoped per server, because these are Navidrome ids.
                 if query.trimmingCharacters(in: .whitespaces).isEmpty,
                    !model.searchRecents.entries.isEmpty {
                     Section {
@@ -26,7 +63,7 @@ struct SearchView: View {
                         }
                     } header: {
                         HStack {
-                            Text("Recently Searched")
+                            Text("Recently Opened")
                             Spacer()
                             Button("Clear") { model.searchRecents.clear() }
                                 .font(.caption)
@@ -108,7 +145,7 @@ struct SearchView: View {
             // way to search. It moves into the header instead.
             .rootScreenHeader("Search", subtitle: scopeLine) {} accessory: {
                 HeaderSearchField(prompt: "Songs, albums, artists", text: $query,
-                                  externalFocus: $searchFocused)
+                                  externalFocus: $searchFocused, onSubmit: commitQuery)
             }
             .navigationDestination(for: NavidromeAlbum.self) { album in
                 AlbumDetailView(album: album, model: model)
@@ -116,6 +153,7 @@ struct SearchView: View {
             .navigationDestination(for: NavidromeArtist.self) { artist in
                 ArtistDetailView(artist: artist, model: model)
             }
+            .task { reloadQueries() }
             .task(id: query) {
                 // Small debounce so we search a settled query, not every keystroke.
                 guard !query.isEmpty else { return }
@@ -124,6 +162,25 @@ struct SearchView: View {
                 await model.musicLibrary.search(query)
             }
         }
+    }
+
+    /// The Mac keeps filter history per screen under stable keys; Search's is "search", and
+    /// using the same one is what makes the two lists the same list.
+    private static let historyKey = "search"
+
+    private func reloadQueries() { recentQueries = FilterHistory.items(Self.historyKey) }
+
+    private func commitQuery() {
+        FilterHistory.add(query, to: Self.historyKey)
+        reloadQueries()
+    }
+
+    /// Re-running a saved query also promotes it, so the list stays ordered by use rather
+    /// than by when a term was first typed.
+    private func runRecent(_ term: String) {
+        query = term
+        FilterHistory.add(term, to: Self.historyKey)
+        reloadQueries()
     }
 
     /// What is being searched, not what was found — a result count here would resize the

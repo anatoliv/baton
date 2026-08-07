@@ -28,7 +28,7 @@ public final class PreferenceSync {
     /// mode and demo mode fail it — they describe *this* device. Secrets are absent for a
     /// different reason: they're Keychain-resident and pairing already moves them, so
     /// putting them in a synced JSON blob would be a downgrade in handling.
-    public static let syncedKeys: Set<String> = [
+    public static let syncedKeys: Set<String> = Set<String>([
         "tonebox.music.eq.enabled",
         "tonebox.music.eq.preset",
         "tonebox.music.eq.gains",
@@ -48,7 +48,37 @@ public final class PreferenceSync {
         // Which podcasts you subscribe to. The episode cache stays local — it is derived
         // data each device refetches, and syncing it would ship staleness around.
         "tonebox.podcasts.feeds",
-    ]
+        // How long the filter-history lists are allowed to get. An ordinary scalar; the
+        // lists themselves are in `mergedKeys` below because they need a different rule.
+        FilterHistory.sizeKey,
+    ]).union(mergedKeys)
+
+    /// Keys holding an accumulating **list**, where last-write-wins is the wrong rule.
+    ///
+    /// For a scalar — "crossfade = 6s" — the newest write is simply the answer. For a list
+    /// it isn't: the newest write replaces the whole array, so everything searched on the
+    /// quieter device disappears the moment the other one syncs. These are unioned instead,
+    /// the same reasoning that made podcast feeds additive-only.
+    public static let mergedKeys: Set<String> =
+        Set(FilterHistory.allKeys.map(FilterHistory.storageKey))
+            .union([SearchRecents.storageKey])
+
+    /// Combine this device's list with the shared one. `nil` when there is nothing to say.
+    static func mergedValue(key: String, local: Any?, remote: Any?) -> Any? {
+        if key == SearchRecents.storageKey {
+            let decode = { (value: Any?) -> [SearchRecents.Entry] in
+                guard let data = value as? Data else { return [] }
+                return (try? JSONDecoder().decode([SearchRecents.Entry].self, from: data)) ?? []
+            }
+            let merged = SearchRecents.merge(decode(local), decode(remote))
+            guard !merged.isEmpty else { return nil }
+            return try? JSONEncoder().encode(merged)
+        }
+        let here = local as? [String] ?? []
+        let there = remote as? [String] ?? []
+        guard !here.isEmpty || !there.isEmpty else { return nil }
+        return FilterHistory.merge(here, there, cap: FilterHistory.maxSize)
+    }
 
     /// One setting, with enough provenance to resolve a race.
     struct Entry: Codable {
@@ -159,7 +189,10 @@ public final class PreferenceSync {
             let stamps = localTimestamps
 
             // Remote → local, for anything newer than our own last write.
-            for (key, entry) in remote where Self.syncedKeys.contains(key) {
+            var changed = false
+
+            for (key, entry) in remote
+            where Self.syncedKeys.contains(key) && !Self.mergedKeys.contains(key) {
                 let localAt = stamps[key] ?? .distantPast
                 guard entry.updatedAt > localAt else { continue }
                 if let value = try? PropertyListSerialization.propertyList(
@@ -176,8 +209,7 @@ public final class PreferenceSync {
             // setting on it — so a Mac configured months ago would sit there holding an EQ
             // curve the phone could never see. Seeded with `.distantPast`, so any real edit
             // on any device wins over it.
-            var changed = false
-            for key in Self.syncedKeys {
+            for key in Self.syncedKeys where !Self.mergedKeys.contains(key) {
                 let localAt = stamps[key] ?? .distantPast
                 if stamps[key] == nil, remote[key] != nil { continue }   // never seed over a shared value
                 if let existing = remote[key], existing.updatedAt >= localAt { continue }
@@ -189,6 +221,28 @@ public final class PreferenceSync {
                 remote[key] = Entry(value: encoded, updatedAt: localAt, device: deviceName)
                 changed = true
             }
+            // The list keys, unioned in both directions at once. Timestamps don't decide
+            // anything here — the merged list is simply the truth, and both sides adopt it.
+            for key in Self.mergedKeys {
+                let localValue = defaults.object(forKey: key)
+                let remoteValue = remote[key].flatMap {
+                    try? PropertyListSerialization.propertyList(from: $0.value, options: [], format: nil)
+                }
+                guard let merged = Self.mergedValue(key: key, local: localValue, remote: remoteValue)
+                else { continue }
+                if !equalValues(merged, localValue) { defaults.set(merged, forKey: key) }
+                // Only push when the shared copy would actually change. Without this an
+                // idempotent merge still rewrites the document on every sync, and two
+                // devices ping-pong pushes forever over a list neither of them edited.
+                if !equalValues(merged, remoteValue),
+                   let encoded = try? PropertyListSerialization.data(
+                       fromPropertyList: merged, format: .binary, options: 0
+                   ) {
+                    remote[key] = Entry(value: encoded, updatedAt: Date(), device: deviceName)
+                    changed = true
+                }
+            }
+
             if changed { try await push(remote, gatewayURL: gatewayURL, token: token) }
             return true
         } catch {
