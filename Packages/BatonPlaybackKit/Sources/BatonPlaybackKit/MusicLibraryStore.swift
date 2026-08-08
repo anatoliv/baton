@@ -232,6 +232,8 @@ public final class MusicLibraryStore {
         starred = .empty
         playlists = []
         genres = []
+        directoryCache.removeAll()
+        artistStatsCache.removeAll()   // same per-server data as the rest; it was the one cache this forgot
         ratingOverrides.removeAll()
         lastError = nil
         refreshConnection()
@@ -383,6 +385,9 @@ public final class MusicLibraryStore {
 
     @ObservationIgnored private var artistStatsCache: [String: ArtistStats] = [:]
 
+    /// Session cache of folder listings — see `directory(id:)`.
+    @ObservationIgnored private var directoryCache: [String: NavidromeDirectory] = [:]
+
     public func artistStats(id: String) async -> ArtistStats {
         if isDemo {
             let mine = demoSongsForArtist(id)
@@ -455,9 +460,24 @@ public final class MusicLibraryStore {
     }
 
     /// One folder's contents, or nil when the server can't answer.
+    ///
+    /// Cached for the session: the Folders browser asks per row for its counts and the
+    /// recursive collector re-walks ancestors, so without a cache every hover and every
+    /// "Play Folder" is a fresh network walk of the same tree. Folder trees change when
+    /// the disk changes, which is rarely; `resetForServerChange` drops the cache with
+    /// everything else.
     public func directory(id: String) async -> NavidromeDirectory? {
+        if let cached = directoryCache[id] { return cached }
         guard !isDemo, let client = try? clientProvider() else { return nil }
-        return try? await client.getMusicDirectory(id: id)
+        guard let directory = try? await client.getMusicDirectory(id: id) else { return nil }
+        directoryCache[id] = directory
+        return directory
+    }
+
+    /// Every song under a folder, subfolders included — what "play this folder" means.
+    /// `truncated` is true when the walk hit a safety ceiling; the caller says so.
+    public func songsUnderFolder(id: String) async -> FolderTraversal.Result {
+        await FolderTraversal.collect(rootID: id) { await self.directory(id: $0) }
     }
 
     /// Songs similar to a seed (song or artist id) — powers radio/discovery.

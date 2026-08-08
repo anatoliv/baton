@@ -623,6 +623,6 @@ private struct MusicQueueRow: View {
         // The current queue row keeps its background even when paused (the "selected" style);
         // the speaker glyph + accent title (gated on isPlaying) are the additional now-playing cue.
         if isCurrent { return Color.nowPlayingRowTint() }
-        return hovering ? Color.primary.opacity(0.07) : .clear
+        return hovering ? Color.hoverTint : .clear
     }
 }

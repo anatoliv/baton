@@ -151,6 +151,6 @@ struct MusicPanelTrackRow: View {
         // Selected (current track) keeps its background even when paused; the accent title
         // + speaker cue (gated on isPlaying) are the additional "playing" indicators.
         if isCurrent { return Color.nowPlayingRowTint() }
-        return hovering ? Color.primary.opacity(0.07) : .clear
+        return hovering ? Color.hoverTint : .clear
     }
 }

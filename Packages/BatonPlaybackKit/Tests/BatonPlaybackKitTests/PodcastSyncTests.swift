@@ -21,10 +21,20 @@ final class PodcastSyncTests: XCTestCase {
 
     /// Episodes are refetched by whoever needs them. Syncing the cache would move staleness
     /// between devices and bloat every payload for no gain.
+    ///
+    /// The podcast screens' *filter history* is allowed through: it's the same per-screen
+    /// recent-filters list every other screen syncs (and Settings clears), not episode
+    /// state. The scan is case-insensitive so `clientPodcastEpisodes` is an explicit
+    /// decision here rather than a key the old lowercase substring silently never saw.
     func testOnlyTheSubscriptionsTravelNotTheEpisodeCache() {
-        for key in PreferenceSync.syncedKeys where key.contains("podcast") {
-            XCTAssertEqual(key, PodcastSubscriptionStore.syncedFeedsKey,
-                           "\(key) shouldn't be syncing — only the feed list should")
+        let allowed: Set<String> = [
+            PodcastSubscriptionStore.syncedFeedsKey,
+            FilterHistory.storageKey("podcasts"),
+            FilterHistory.storageKey("clientPodcastEpisodes"),
+        ]
+        for key in PreferenceSync.syncedKeys where key.lowercased().contains("podcast") {
+            XCTAssertTrue(allowed.contains(key),
+                          "\(key) shouldn't be syncing — only the feed list and filter history should")
         }
     }
 
