@@ -54,7 +54,16 @@ xcrun notarytool history --keychain-profile tonebox-notarize | head -20
 ```
 
 If the DMG is **not** listed in that history, the upload never landed and waiting will not
-help. Kill it and re-run:
+help. **Before blaming the network, verify the image** — `hdiutil verify dist/Baton-<v>.dmg`.
+A corrupt DMG makes `notarytool` hang exactly like a dead connection: nothing reaches Apple,
+no error is printed, and every network check comes back clean. 0.16.5 hung twice for eleven
+minutes each and was chased through connectivity, path MTU, and a VPN that wasn't even in
+the route, when one second of `hdiutil verify` said the image was bad. The usual cause is a
+running copy of the app holding files open while `hdiutil create` reads the staging tree —
+`publish.sh` now refuses to package while any Baton is running, and verifies the image
+before submitting.
+
+Then kill it and re-run:
 
 ```sh
 pkill -f "notarytool submit"; pkill -f "scripts/publish.sh"

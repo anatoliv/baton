@@ -234,6 +234,42 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.5",
+            date: "August 2026",
+            highlight: "The bars move with the music, and the heart is everywhere it should be.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The bars on the playing track now follow the music itself rather "
+                        + "than looping — a bassline pushes the left bar, a hi-hat flicks the "
+                        + "right one."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Albums and artists can be liked, not just songs. The heart appears "
+                        + "on any cover you point at, and on the Liked screen you can now "
+                        + "un-like from the cover instead of hunting through a menu."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Hearts stay out of the way until you point at something, so a "
+                        + "shelf of liked music is artwork again rather than a row of badges."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "The button that appears when you point at a cover now shows what "
+                        + "pressing it will do \u{2014} pause while that track is playing, "
+                        + "play otherwise. It used to offer to play the track you were "
+                        + "already listening to."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Radio cards no longer jump as the pointer crosses them; they ease "
+                        + "like every other screen."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.4",
             date: "August 2026",
             highlight: "Folders, rebuilt as a proper part of the app.",

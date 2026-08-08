@@ -95,6 +95,8 @@ final class MusicModel {
 
     /// Retained so the audio-mix closure keeps a strong reference to the tap processor.
     @ObservationIgnored private let eqProcessor: AudioEQProcessor
+    /// Band levels from the playback tap, driving the now-playing bars.
+    var audioLevels: AudioLevelMonitor { .shared }
     /// Ducks the music transport while a spoken summary plays (owned here; the engine holds it
     /// weakly).
     @ObservationIgnored private let speechDucker: ControllerSpeechDucker
@@ -106,7 +108,7 @@ final class MusicModel {
     init(environment: BatonEnvironment = .current) {
         music = StreamingPlaybackController(environment: environment)
         musicEqualizer = MusicEqualizer(environment: environment)
-        eqProcessor = AudioEQProcessor(coefficients: musicEqualizer.coefficients)
+        eqProcessor = AudioEQProcessor(coefficients: musicEqualizer.coefficients, levels: AudioLevelMonitor.shared.snapshot)
         scrobbler = ScrobbleService(listenBrainz: musicScrobbler, lastfm: musicLastFM, localArchive: musicHistory)
         queueHandoff = QueueHandoff(controller: music)
         // Server-side podcast episodes carry opaque Subsonic ids, so the id-only default can't
@@ -200,9 +202,25 @@ final class MusicModel {
         // Starting a library track also stops any on-air internet-radio station so the two
         // transports stay mutually exclusive — and the bottom bar reverts from the radio
         // view back to the normal library player.
-        music.onTrackStarted = { [scrobbler, internetRadio] song in
+        music.onTrackStarted = { [scrobbler, internetRadio, music] song in
             internetRadio.stop()
             scrobbler.nowPlaying(song)
+            // Feed the now-playing bars. The live tap only works for file-based items —
+            // HTTP-streamed items never invoke it (platform behaviour) — so streamed
+            // tracks are analyzed offline from a bounded side-fetch of the same bytes,
+            // and the bars read the envelope at the playhead. Downloaded files are
+            // analyzed in place; podcasts are skipped (episode URLs are third-party
+            // bandwidth, and the tap covers their downloaded copies).
+            if AudioLevelMonitor.shared.isEnabled, !Self.isPodcastEpisode(song) {
+                if let local = MusicDownloadStore.shared.localURL(for: song.id) {
+                    Task { await TrackLevelTimeline.analyzeLocal(id: song.id, url: local) }
+                } else if let stream = try? NavidromeConfig.makeClient().streamURL(songID: song.id) {
+                    Task { await TrackLevelTimeline.analyzeStream(id: song.id, url: stream) }
+                }
+            }
+        }
+        AudioLevelMonitor.shared.playheadProvider = { [music] in
+            (music.nowPlaying?.id, music.currentTime, music.state == .playing)
         }
         // Local listening history is recorded at the *threshold* (via ScrobbleService.completed),
         // not at track start, so it counts only tracks you actually listened to — matching the
@@ -253,9 +271,13 @@ final class MusicModel {
                 )
             }
         }
-        // Attach/detach the EQ audio-mix tap on each loaded item; re-apply when toggled.
+        // Attach/detach the audio-mix tap on each loaded item; re-apply when toggled.
+        //
+        // The tap serves two readers: the equalizer filters through it, and the now-playing
+        // bars read band levels off it. It attaches if *either* wants it — gating on the EQ
+        // alone left the meter dead for everyone who never opened the equalizer.
         music.configureAudioMix = { [musicEqualizer, eqProcessor] item in
-            guard musicEqualizer.isEnabled else { item.audioMix = nil; return }
+            guard musicEqualizer.isEnabled || AudioLevelMonitor.shared.isEnabled else { item.audioMix = nil; return }
             Task { @MainActor in
                 if let track = try? await item.asset.loadTracks(withMediaType: .audio).first {
                     item.audioMix = eqProcessor.makeAudioMix(for: track)

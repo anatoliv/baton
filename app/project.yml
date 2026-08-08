@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.16.4"
-    CURRENT_PROJECT_VERSION: "63"
+    MARKETING_VERSION: "0.16.5"
+    CURRENT_PROJECT_VERSION: "64"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -232,6 +232,7 @@ schemes:
         # The shared-package suites (playback, agent) ran only when someone remembered
         # `swift test` — the gate never saw them, so a red package test couldn't stop a
         # release. Folding them into the scheme makes the gate's number the whole truth.
+        - package: BatonDSP/BatonDSPTests
         - package: BatonPlaybackKit/BatonPlaybackKitTests
         - package: BatonAgentKit/BatonAgentKitTests
     profile:

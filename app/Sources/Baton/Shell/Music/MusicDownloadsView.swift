@@ -486,6 +486,9 @@ private struct DownloadCard: View {
             isHovering: hover,
             isSelected: isCurrent,
             isPlaying: isCurrent && model.music.isPlaying,
+            // The row and this card's own context menu both offer Like; the card face did
+            // not, so the affordance vanished when you switched Downloads to grid.
+            likeBadge: AnyView(SongHeartBadge(song: item.song, visible: hover, size: 14).padding(6)),
             onPlay: onPlay
         )
         .overlay(alignment: .topLeading) {

@@ -35,10 +35,14 @@ enum BrowseColumns {
 /// A small rounded-square cover thumbnail that doubles as a Play button (hover reveals
 /// a play overlay; a spinner shows while `isWorking`). Used by the album/playlist rows.
 struct MusicRowThumb: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let url: URL?
     var placeholder: String = "opticaldisc"
     var isHovering: Bool
     var isWorking: Bool
+    /// True when this row's collection is the one currently playing — the hover glyph then
+    /// offers pause instead of promising to start what is already running.
+    var isPlaying: Bool = false
 
     var body: some View {
         ZStack {
@@ -53,7 +57,10 @@ struct MusicRowThumb: View {
             if isHovering || isWorking {
                 Color.black.opacity(0.4)
                 if isWorking { ProgressView().controlSize(.small).tint(.white) } else {
-                    Image(systemName: "play.fill").font(.caption).foregroundStyle(.white)
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.caption).foregroundStyle(.white)
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: isPlaying)
                 }
             }
         }
@@ -436,7 +443,7 @@ struct MusicAlbumRow: View {
             MusicSelectCheckbox(isSelected: isSelected, visible: hovering, onToggle: onToggleSelect)
 
             Button { run { await play() } } label: {
-                MusicRowThumb(url: coverURL, isHovering: hovering, isWorking: working)
+                MusicRowThumb(url: coverURL, isHovering: hovering, isWorking: working, isPlaying: isPlayingNow)
             }
             .buttonStyle(.plain).help("Play \(title)")
             .accessibilityLabel("Play \(title)")
@@ -692,7 +699,7 @@ struct MusicPlaylistRow: View {
             MusicSelectCheckbox(isSelected: isSelected, visible: hovering, onToggle: onToggleSelect)
 
             Button { run { await PlaylistActions.play(playlist, model) } } label: {
-                MusicRowThumb(url: coverURL, placeholder: "music.note.list", isHovering: hovering, isWorking: working)
+                MusicRowThumb(url: coverURL, placeholder: "music.note.list", isHovering: hovering, isWorking: working, isPlaying: isPlayingNow)
             }
             .buttonStyle(.plain).help("Play \(playlist.name)")
             .accessibilityLabel("Play \(playlist.name)")

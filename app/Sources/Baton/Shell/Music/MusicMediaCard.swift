@@ -60,14 +60,57 @@ struct MusicMiniTransport: View {
     }
 }
 
+/// A like-heart for anything the server can star — a song, an album, an artist.
+///
+/// Subsonic's `star`/`unstar` take a bare id and work for all three, and the store's
+/// id-based `toggleLike` already drives them; only the *affordance* was song-only. That
+/// left Home looking half-finished: hover a track shelf and a heart appears, hover the
+/// album shelf directly below it and nothing does — which reads as a bug rather than as
+/// "albums aren't likeable", because from the outside there is no reason they wouldn't be.
+///
+/// Mixes are the one card that legitimately has none: they're generated locally from your
+/// listening, not entities the server knows, so there is nothing to star.
+struct EntityHeartBadge: View {
+    @Environment(MusicModel.self) private var model
+    let id: String
+    /// The server's own liked flag, used as the baseline until an optimistic override exists.
+    let serverLiked: Bool
+    /// Shown only while the caller says so — in practice, while the card is hovered.
+    var visible: Bool = true
+    var size: CGFloat = 12
+
+    var body: some View {
+        let liked = model.musicLibrary.isLiked(id: id, fallback: serverLiked)
+        Button {
+            Task { await model.musicLibrary.toggleLike(id: id, currentLiked: liked, userRating: nil) }
+        } label: {
+            Image(systemName: liked ? "heart.fill" : "heart")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(liked ? Color.pink : .white)
+                .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
+                .padding(3)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Hover-only, liked or not. Keeping a filled heart pinned to every liked item
+        // turned the grids into a field of pink dots that competed with the artwork and
+        // with the now-playing badge — and the Liked screen, where everything is liked,
+        // became a wall of them. Whether something is liked is what the Liked screen is
+        // *for*; on a cover the heart is a control, and a control can wait for the pointer.
+        // Callers that pass `visible: true` (the player artwork) still show it always.
+        .opacity(visible ? 1 : 0)
+        .help(liked ? "Unlike" : "Like")
+    }
+}
+
 /// A like-heart **badge** for a song's artwork — filled pink when liked, white
 /// outline otherwise; tapping toggles the like. `visible` lets a caller reveal it on
 /// hover (it's always shown once liked). Sized to sit in a cover corner.
 struct SongHeartBadge: View {
     @Environment(MusicModel.self) private var model
     let song: NavidromeSong
-    /// Show the badge even when the song isn't liked (e.g. on row hover, or always on
-    /// the now-playing artwork). Liked songs always show it regardless.
+    /// Whether the badge is shown at all — callers pass their hover state. The player
+    /// artwork passes `true` because there the heart is a permanent control.
     var visible: Bool = true
     var size: CGFloat = 12
 
@@ -82,7 +125,13 @@ struct SongHeartBadge: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(liked || visible ? 1 : 0)
+        // Hover-only, liked or not. Keeping a filled heart pinned to every liked item
+        // turned the grids into a field of pink dots that competed with the artwork and
+        // with the now-playing badge — and the Liked screen, where everything is liked,
+        // became a wall of them. Whether something is liked is what the Liked screen is
+        // *for*; on a cover the heart is a control, and a control can wait for the pointer.
+        // Callers that pass `visible: true` (the player artwork) still show it always.
+        .opacity(visible ? 1 : 0)
         .help(liked ? "Unlike" : "Like")
     }
 }
@@ -92,6 +141,7 @@ struct SongHeartBadge: View {
 /// track shows a speaker indicator. Shared leading element for every song row.
 struct MusicSongThumb: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let song: NavidromeSong
     var size: CGFloat = 40
     /// Show the like-heart badge. Off on the Liked screen, where every song is already
@@ -115,8 +165,14 @@ struct MusicSongThumb: View {
                 Image(systemName: "music.note").foregroundStyle(.secondary)
             }
             if hovering {
+                // Pause when this row is the one playing — hovering the track you are
+                // listening to used to offer to play it again. Same morph as the card's
+                // hover control, so the gesture reads identically at both sizes.
                 Color.black.opacity(0.4)
-                Image(systemName: "play.fill").font(.caption).foregroundStyle(.white)
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.caption).foregroundStyle(.white)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: isPlaying)
             } else if isPlaying {
                 // Speaker cue only while actively playing — a current-but-paused track
                 // shows just its artwork (no indicator), per the "playing only" rule.
@@ -129,7 +185,7 @@ struct MusicSongThumb: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contentShape(Rectangle())
-        .onTapGesture(perform: onPlay)
+        .onTapGesture { if isPlaying { model.music.pause() } else { onPlay() } }
         .overlay(alignment: .bottomTrailing) {
             if showLikeBadge {
                 SongHeartBadge(song: song, visible: hovering).offset(x: 3, y: 3)
@@ -369,6 +425,9 @@ struct MusicLayoutPicker: View {
 /// the outer one miss events.
 struct MusicMediaCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Optional so the card still renders where no model is injected (previews, snapshot
+    /// tests). Only the hover control needs it, and only to pause.
+    @Environment(MusicModel.self) private var model: MusicModel?
     let coverURL: URL?
     var aspect: CGFloat = 16.0 / 9.0
     var placeholder: String = "opticaldisc"
@@ -387,8 +446,16 @@ struct MusicMediaCard: View {
     /// **Playing** right now — layers the glow + speaker-wave badge on top of the selected
     /// outline. Removed the moment playback pauses; the outline stays.
     var isPlaying = false
-    /// Offline-download state, shown as a corner badge over the artwork (bottom-trailing).
+    /// Offline-download state, shown as a corner badge over the artwork (bottom-leading).
     var downloadStatus: DownloadStatusBadge.Status = .hidden
+    /// An optional like control, drawn over the artwork's **bottom-trailing** corner —
+    /// the same corner the player hangs its heart off, so the gesture is in the same place
+    /// wherever you meet a track.
+    ///
+    /// It belongs to the card rather than the caller because the card owns the artwork:
+    /// an overlay applied by the caller lands on the whole card, and the card is
+    /// `VStack { artwork; metadata }` — which put the heart on top of the title.
+    var likeBadge: AnyView?
     var onPlay: () -> Void
 
     var body: some View {
@@ -418,31 +485,51 @@ struct MusicMediaCard: View {
             .overlay { fill }
             .overlay { cover }
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            // One badge per corner of the artwork, so nothing can cover anything else:
+            // top-leading a tag, top-trailing the now-playing bars, bottom-leading the
+            // offline badge, bottom-trailing the like control. The download badge moved
+            // here from bottom-trailing to make room for the heart, which is interactive
+            // and therefore wants the corner the pointer already goes to.
             .overlay(alignment: .topLeading) { badge }
             .overlay(alignment: .topTrailing) { nowPlayingOverlay }
-            .overlay(alignment: .bottomTrailing) { downloadOverlay }
+            .overlay(alignment: .bottomLeading) { downloadOverlay }
             .overlay { hoverPlay }
+            // **After** `hoverPlay`, and that ordering is the whole feature. The hover
+            // treatment lays a full-artwork scrim across the cover, and a scrim is
+            // hit-testable — so a like button placed before it is covered by it at exactly
+            // the moment the button becomes visible, and every click lands on "play"
+            // instead. Last in the chain means topmost.
+            .overlay(alignment: .bottomTrailing) { likeBadge }
+            // A 3pt saturated ring drew a box around the artwork instead of framing it.
+            // Two points, slightly softened, still reads instantly as "this is the one"
+            // without competing with the cover it surrounds.
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(Color.accentColor, lineWidth: isSelected ? 3 : 0)
+                    .strokeBorder(Color.accentColor.opacity(0.8), lineWidth: isSelected ? 2 : 0)
             }
             .shadow(
                 color: isPlaying ? Color.playingGlowTint() : .black.opacity(isHovering ? 0.4 : 0.2),
-                radius: isPlaying ? 14 : (isHovering ? 16 : 8),
+                radius: isPlaying ? 10 : (isHovering ? 16 : 8),
                 y: isHovering ? 8 : 4
             )
             .animation(.easeInOut(duration: 0.18), value: isSelected)
             .animation(.easeInOut(duration: 0.18), value: isPlaying)
     }
 
-    /// Now-playing badge over the artwork — a white speaker wave on an accent disc, shown
-    /// only while this album/playlist/artist/song is *actively playing* (never when paused),
-    /// matching the speaker cue on the list rows and song thumbs.
+    /// Now-playing badge over the artwork — white bars on a dark disc, shown only while
+    /// this album/playlist/artist/song is *actively playing* (never when paused), matching
+    /// the cue on the list rows and song thumbs.
+    ///
+    /// It used to be white-on-accent at 0.95: a saturated disc that fought the cover for
+    /// attention, and on a playing card it was the third accent signal at once alongside
+    /// the accent border and the accent glow. The card already says "playing" three ways —
+    /// the badge only has to say *which* card, and motion does that better than colour.
+    /// So it wears the same dark-disc treatment as the download badge beside it.
     @ViewBuilder private var nowPlayingOverlay: some View {
         if isPlaying {
             // Animated, so a glance tells you it's *running* rather than merely current.
             NowPlayingBars(isPlaying: true, tint: .white)
-                .padding(5).background(Color.accentColor.opacity(0.95), in: Circle())
+                .padding(5).background(.black.opacity(0.45), in: Circle())
                 .padding(6)
                 .transition(.scale.combined(with: .opacity))
                 .help("Now playing")
@@ -498,23 +585,46 @@ struct MusicMediaCard: View {
         }
     }
 
+    /// The hover control over the artwork — a real transport button, not a picture of one.
+    ///
+    /// It used to draw `play.fill` unconditionally and always call `onPlay`, so hovering
+    /// the track you were already listening to offered to play it again: the glyph said one
+    /// thing and the state said another. Now it shows what pressing it will *do* — pause
+    /// while this item is playing, play otherwise — and does that.
+    ///
+    /// The glyph morphs rather than swaps. `.contentTransition(.symbolEffect(.replace))`
+    /// interpolates between the two SF Symbols, so the triangle folds into the bars instead
+    /// of one disappearing and another appearing; at this size a hard cut reads as a flicker
+    /// and makes the button feel like a re-render rather than a state change. Skipped under
+    /// Reduce Motion, where an instant swap is the correct behaviour.
     @ViewBuilder private var hoverPlay: some View {
         if isHovering {
-            // Centered play button over a dark scrim — kept away from every edge so a
-            // neighboring grid cell can never paint over it.
+            // Centered over a dark scrim — kept away from every edge so a neighboring grid
+            // cell can never paint over it.
             ZStack {
                 Color.black.opacity(0.3)
-                Button(action: onPlay) {
+                Button {
+                    // `isPlaying` already means *this* card's item is the one playing, so
+                    // pausing the shared transport is unambiguous.
+                    if isPlaying { model?.music.pause() } else { onPlay() }
+                } label: {
                     ZStack {
                         Circle().fill(.white).frame(width: 46, height: 46).shadow(radius: 8, y: 3)
                         if isWorking {
                             ProgressView().controlSize(.small)
                         } else {
-                            Image(systemName: "play.fill").font(.title3).foregroundStyle(.black)
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.title3)
+                                .foregroundStyle(.black)
+                                .contentTransition(
+                                    reduceMotion ? .identity : .symbolEffect(.replace.downUp)
+                                )
                         }
                     }
                 }
                 .buttonStyle(.plain)
+                .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: isPlaying)
+                .help(isPlaying ? "Pause" : "Play")
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .transition(.opacity)

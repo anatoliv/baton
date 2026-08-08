@@ -15,12 +15,19 @@ import BatonSubsonicModels
 /// only the coefficient source; the render path allocates nothing and never blocks.
 public final class AudioEQProcessor: @unchecked Sendable {
     private let coefficients: EQCoefficients
+    /// Where the tap publishes band levels for the now-playing bars. Shared across taps on
+    /// purpose: two exist only momentarily around a gapless/crossfade boundary, and the
+    /// indicator wants whatever is currently audible, not one particular item's history.
+    private let levels: LevelSnapshot?
 
-    public init(coefficients: EQCoefficients) { self.coefficients = coefficients }
+    public init(coefficients: EQCoefficients, levels: LevelSnapshot? = nil) {
+        self.coefficients = coefficients
+        self.levels = levels
+    }
 
     /// Build an `AVAudioMix` that pipes `track` through this EQ, with per-tap state.
     public func makeAudioMix(for track: AVAssetTrack) -> AVAudioMix? {
-        let context = EQTapContext(coefficients: coefficients)
+        let context = EQTapContext(coefficients: coefficients, levels: levels)
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
             clientInfo: UnsafeMutableRawPointer(Unmanaged.passRetained(context).toOpaque()),
@@ -65,15 +72,31 @@ public final class EQTapContext: @unchecked Sendable {
     /// Auto pre-gain that keeps a combined boost from clipping.
     private var preGain: Float = 1
 
-    public init(coefficients: EQCoefficients) {
+    /// Band-level metering for the now-playing bars. Nil when nothing is displaying them,
+    /// in which case `process` does not even look at the samples for metering.
+    private let levels: LevelSnapshot?
+    private let analyzer = LevelAnalyzer()
+    /// Caps the channels the meter looks at, and sizes the preallocated pointer scratch.
+    /// Beyond stereo the extra channels add nothing a 15-point indicator can show.
+    static let maxMeteredChannels = 8
+    /// Preallocated so `meter` never allocates on the render thread.
+    private let channelPointers: UnsafeMutablePointer<UnsafeMutablePointer<Float>?>
+
+    public init(coefficients: EQCoefficients, levels: LevelSnapshot? = nil) {
         self.coefficients = coefficients
+        self.levels = levels
         coeffs = .allocate(capacity: maxBands)
         coeffs.initialize(repeating: .identity, count: maxBands)
+        channelPointers = .allocate(capacity: Self.maxMeteredChannels)
+        channelPointers.initialize(repeating: nil, count: Self.maxMeteredChannels)
     }
 
     deinit {
         coeffs.deinitialize(count: maxBands)
         coeffs.deallocate()
+        channelPointers.deinitialize(count: Self.maxMeteredChannels)
+        channelPointers.deallocate()
+        levels?.clear()   // don't leave the bars frozen on this tap's last frame
         freeState()
     }
 
@@ -96,6 +119,7 @@ public final class EQTapContext: @unchecked Sendable {
         let s = UnsafeMutablePointer<BiquadState>.allocate(capacity: ch * maxBands)
         s.initialize(repeating: BiquadState(), count: ch * maxBands)
         state = s
+        analyzer.prepare(sampleRate: self.sampleRate)
     }
 
     /// Filter the buffer list in place (Direct Form II Transposed, cascaded bands). No heap
@@ -108,6 +132,10 @@ public final class EQTapContext: @unchecked Sendable {
             bandCount = r.count
             preGain = r.preGain
         }
+        // Meter *before* the EQ guard: with no bands enabled the filter loop is skipped
+        // entirely, but the indicator still has to follow the music. Metering only reads
+        // the samples — it never writes them — so it cannot affect what you hear.
+        meter(bufferList)
         guard bandCount > 0, let state else { return }
         let abl = UnsafeMutableAudioBufferListPointer(bufferList)
         let activeChannels = min(abl.count, channels)
@@ -129,6 +157,38 @@ public final class EQTapContext: @unchecked Sendable {
                 samples[i] = x
             }
         }
+    }
+
+    /// Read band levels off the buffer and publish them for the now-playing bars.
+    ///
+    /// Read-only and allocation-free. Handles the two buffer shapes AVFoundation hands a tap:
+    /// several single-channel buffers (deinterleaved, the usual case) and one interleaved
+    /// buffer. In the interleaved case we hand the analyzer the whole buffer as one "channel"
+    /// — its mono sum is then a sum over interleaved frames, which for a level meter is the
+    /// same picture.
+    private func meter(_ bufferList: UnsafeMutablePointer<AudioBufferList>) {
+        guard let levels else { return }
+        let abl = UnsafeMutableAudioBufferListPointer(bufferList)
+        guard abl.count > 0 else { return }
+
+        // `channelPointers` is allocated once in init — a Swift Array here would heap-allocate
+        // on every render callback, which is the one thing this path must never do.
+        var used = 0
+        var frames = Int.max
+
+        for index in 0 ..< min(abl.count, Self.maxMeteredChannels) {
+            let buffer = abl[index]
+            guard let raw = buffer.mData else { continue }
+            let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+            guard count > 0 else { continue }
+            let perChannel = count / max(1, Int(buffer.mNumberChannels))
+            channelPointers[used] = raw.bindMemory(to: Float.self, capacity: count)
+            used += 1
+            frames = min(frames, perChannel)
+        }
+        guard used > 0, frames > 0, frames != .max else { return }
+
+        levels.store(analyzer.analyze(channelPointers: channelPointers, channelCount: used, frames: frames))
     }
 }
 
