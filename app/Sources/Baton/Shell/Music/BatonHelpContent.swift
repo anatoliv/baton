@@ -234,6 +234,48 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.4",
+            date: "August 2026",
+            highlight: "Folders, rebuilt as a proper part of the app.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Folders now works like Albums and Artists: filter and sort, a list "
+                        + "or a grid, hover to play, right-click for the full set of actions, "
+                        + "and select several at once to queue, download or save them as a "
+                        + "playlist."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Playing a folder now plays everything inside it, subfolders "
+                        + "included. Before, a folder whose music sat in album subfolders "
+                        + "played nothing at all."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Opening Folders no longer strands the window there \u{2014} the "
+                        + "sidebar highlight moved but the page never changed, and it stayed "
+                        + "that way after a restart."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "\u{201C}Playing from\u{201D} in the player opens the folder you "
+                        + "started, the way it already opened albums and artists."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "Podcasts, Radio and Downloads highlight under the pointer the same "
+                        + "way every other screen does."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Clearing filter history in Settings now clears every screen's, and "
+                        + "those filters travel between your Mac and iPhone. Ten screens were "
+                        + "quietly missing from both."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.3",
             date: "August 2026",
             highlight: "Shuffle you can see, and cards that all behave alike.",

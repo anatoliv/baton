@@ -126,6 +126,7 @@ struct DownloadStatusBadge: View {
     init(albumID: String, totalTracks: Int?) { status = Self.status(albumID: albumID, totalTracks: totalTracks) }
     init(artistID: String) { status = Self.status(artistID: artistID) }
     init(playlistID: String) { status = Self.status(playlistID: playlistID) }
+    init(folderID: String) { status = Self.status(folderID: folderID) }
 
     /// A single track: downloading → spinner, downloaded → filled, else hidden.
     static func status(songID: String) -> Status {
@@ -152,6 +153,7 @@ struct DownloadStatusBadge: View {
     /// when it was never downloaded as a collection.
     static func status(artistID: String) -> Status { collectionStatus(kind: "artist", id: artistID) }
     static func status(playlistID: String) -> Status { collectionStatus(kind: "playlist", id: playlistID) }
+    static func status(folderID: String) -> Status { collectionStatus(kind: "folder", id: folderID) }
 
     private static func collectionStatus(kind: String, id: String) -> Status {
         guard let members = MusicDownloadStore.shared.collectionMemberCount(kind: kind, id: id) else { return .hidden }

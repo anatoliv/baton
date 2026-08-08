@@ -495,6 +495,9 @@ private struct DownloadCard: View {
                     .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
             }
         }
+        .hoverLift(hover)
+        .zIndex(hover ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: hover)
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
         .contextMenu {
