@@ -216,6 +216,8 @@ struct MusicView: View {
             if playlist == nil { playlist = await library.playlist(id: id) }
             guard let playlist else { return }
             tab = .playlists; path = NavigationPath(); path.append(playlist)
+        case .folder:
+            tab = .folders; path = NavigationPath(); path.append(NavidromeFolder(id: id, name: source.label))
         case .radio, .search, .liked, .song:
             break
         }
@@ -260,6 +262,11 @@ struct MusicView: View {
                                         MusicPlaylistDetail(playlist: $0)
                                     }
                                     .navigationDestination(for: MusicMix.self) { MusicMixDetail(mix: $0) }
+                                    // Folders recurse: one destination serves the roots and
+                                    // every subfolder below them.
+                                    .navigationDestination(for: NavidromeFolder.self) {
+                                        MusicFolderDetailView(folder: $0)
+                                    }
                             }
                             .scrollContentBackground(.hidden)
                         }

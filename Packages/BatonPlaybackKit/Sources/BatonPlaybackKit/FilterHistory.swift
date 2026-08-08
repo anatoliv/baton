@@ -53,8 +53,21 @@ public enum FilterHistory {
         defaults.removeObject(forKey: storageKey(key))
     }
 
-    /// The screens that keep filter history — used by Settings to clear them all at once.
-    public static let allKeys = ["albums", "artists", "playlists", "artistSongs", "liked", "search"]
+    /// Every screen that keeps filter history.
+    ///
+    /// This list is load-bearing twice over, which is why an omission is so quiet: Settings →
+    /// "Clear filter history" clears exactly these, and `PreferenceSync.mergedKeys` syncs
+    /// exactly these. A screen missing here still *records* your filters — it just never
+    /// clears them and never carries them to your other device, and nothing anywhere says so.
+    ///
+    /// It had drifted to six entries while sixteen screens were writing history. `FilterHistoryCoverageTests`
+    /// now scans the source for every `historyKey:` in use and fails if one is missing, because
+    /// keeping a hand-written list in step with the call sites is precisely the thing people forget.
+    public static let allKeys = [
+        "albums", "albumSongs", "artists", "artistSongs", "clientPodcastEpisodes",
+        "downloads", "folders", "history", "later", "liked", "mixSongs",
+        "playlists", "playlistSongs", "podcasts", "radio", "search",
+    ]
 
     /// Wipe every screen's history (Settings → "Clear filter history").
     public static func clearAll() { allKeys.forEach(clear) }

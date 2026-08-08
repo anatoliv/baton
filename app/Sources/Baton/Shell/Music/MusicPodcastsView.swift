@@ -320,6 +320,10 @@ private struct PodcastChannelCell: View {
             isHovering: hover,
             onPlay: onOpen
         )
+        // Matches every other card grid in the window (see MusicBrowseRows).
+        .hoverLift(hover)
+        .zIndex(hover ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: hover)
         .onHover { hover = $0 }
         .onTapGesture(perform: onOpen)
     }
@@ -365,7 +369,7 @@ private struct PodcastChannelListRow: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(hover ? Color.hoverTint : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture(perform: onOpen)
@@ -452,6 +456,9 @@ private struct LatestEpisodeCard: View {
             onPlay: onPlay
         )
         .frame(width: 156)
+        .hoverLift(hover)
+        .zIndex(hover ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: hover)
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
     }
@@ -675,7 +682,7 @@ private struct PodcastEpisodeRow: View {
             trailing
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(isCurrent ? Color.nowPlayingRowTint() : (hover ? Color.secondary.opacity(0.08) : .clear),
+        .background(isCurrent ? Color.nowPlayingRowTint() : (hover ? Color.hoverTint : .clear),
                     in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onHover { hover = $0 }

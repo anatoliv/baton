@@ -306,6 +306,12 @@ private struct ClientPodcastCell: View {
                     .padding(8).background(.black.opacity(0.35), in: Circle()).padding(6)
             }
         }
+        // The shared card hover: lift, raise above neighbours so the scaled edges aren't
+        // clipped by the next tile, and ease. Albums/Artists/Playlists/Mixes have always
+        // done this; the podcast grids were the ones that didn't.
+        .hoverLift(hover)
+        .zIndex(hover ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: hover)
         .onHover { hover = $0 }
         .onTapGesture(perform: onOpen)
         .contextMenu {
@@ -361,7 +367,7 @@ private struct ClientPodcastListRow: View {
             .accessibilityLabel("More actions for \(channel.title)")
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(hover ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(hover ? Color.hoverTint : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture(perform: onOpen)
@@ -691,7 +697,7 @@ private struct ClientPodcastEpisodeRow: View {
             }
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(isCurrent ? Color.nowPlayingRowTint() : (hover ? Color.secondary.opacity(0.08) : .clear),
+        .background(isCurrent ? Color.nowPlayingRowTint() : (hover ? Color.hoverTint : .clear),
                     in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onHover { hover = $0 }

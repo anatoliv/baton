@@ -197,12 +197,12 @@ struct FullScreenNowPlaying: View {
         .contentShape(Rectangle())
     }
 
-    /// Only album/playlist/artist sources have a detail page to open; radio/search/liked/song
-    /// (and any source without an id) stay plain text.
+    /// Only album/playlist/artist/folder sources have a detail page to open; radio/search/
+    /// liked/song (and any source without an id) stay plain text.
     static func isNavigable(_ source: StreamingPlaybackController.QueueSource) -> Bool {
         guard source.id != nil else { return false }
         switch source.kind {
-        case .album, .playlist, .artist: return true
+        case .album, .playlist, .artist, .folder: return true
         case .radio, .search, .liked, .song: return false
         }
     }

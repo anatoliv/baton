@@ -295,7 +295,7 @@ public final class StreamingPlaybackController {
             self.id = id
         }
 
-        public enum Kind: String, Codable, Sendable { case playlist, album, artist, radio, search, liked, song }
+        public enum Kind: String, Codable, Sendable { case playlist, album, artist, radio, search, liked, song, folder }
 
         public var icon: String {
             switch kind {
@@ -306,6 +306,7 @@ public final class StreamingPlaybackController {
             case .search: "magnifyingglass"
             case .liked: "heart.fill"
             case .song: "music.note"
+            case .folder: "folder"
             }
         }
     }

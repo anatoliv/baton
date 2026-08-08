@@ -253,6 +253,10 @@ private struct RadioStationCard: View {
             }
         }
         .contentShape(Rectangle())
+        // Station tiles are hand-built rather than `MusicMediaCard`, so the shared lift has
+        // to be asked for explicitly — it was the one card grid that stayed flat on hover.
+        .hoverLift(hover)
+        .zIndex(hover ? 1 : 0)
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
         .contextMenu {
@@ -359,7 +363,7 @@ private struct RadioStationListRow: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(isOnAir ? Color.nowPlayingRowTint() : (hover ? Color.secondary.opacity(0.08) : .clear),
+        .background(isOnAir ? Color.nowPlayingRowTint() : (hover ? Color.hoverTint : .clear),
                     in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onHover { hover = $0 }

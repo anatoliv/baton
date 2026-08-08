@@ -67,11 +67,24 @@ set -e
 # `tail -2` took the last two matching lines regardless of what they were, and xcodebuild
 # prints a per-suite "Executed N tests" line for every suite. When the final suite happened
 # to be a small one, the summary reported *its* count as the whole run: a green 790-test
-# suite was announced as "Executed 4 tests". A summary that under-reports by two orders of
-# magnitude is worse than none — it is how a collapsed suite passes for a healthy one. Take
-# the largest XCTest count instead, which is always the run total.
-xctest_summary="$(grep -hoE 'Executed [0-9]+ tests?, with ([0-9]+ tests? skipped and )?[0-9]+ failures?' "$LOG" \
-    | sort -t' ' -k2 -n | tail -1)"
+# suite was announced as "Executed 4 tests". Then "take the largest count" broke the other
+# way once the scheme gained the package test bundles: it reported the biggest bundle and
+# silently dropped the other two hundred tests. The truth is per *bundle*: each ".xctest"
+# prints one rollup — sum those, keyed by bundle name so a repeated print can't double it.
+xctest_summary="$(awk '
+    /Test Suite .*\.xctest. (passed|failed) at/ { name = $3; want = 1; next }
+    want && /Executed [0-9]+ tests?,/ {
+        if (!(name in seen)) {
+            seen[name] = 1
+            for (i = 1; i <= NF; i++) {
+                if ($i == "Executed") tests += $(i + 1)
+                if ($(i + 1) ~ /^failures?[,.]?$/) failures += $i
+            }
+        }
+        want = 0
+    }
+    END { if (length(seen)) printf "Executed %d tests across %d bundles, with %d failures", tests, length(seen), failures }
+' "$LOG")"
 swift_testing_summary="$(grep -hoE 'Test run with [0-9]+ tests? in [0-9]+ suites? (passed|failed)' "$LOG" | tail -1)"
 summary="$(printf '%s %s' "$xctest_summary" "$swift_testing_summary")"
 
