@@ -358,6 +358,7 @@ enum ArtistColumns {
 /// menu. Tapping the name area navigates to the artist detail.
 struct MusicArtistListRow: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let artist: NavidromeArtist
     var isDuplicate = false
     var isSelected = false
@@ -397,7 +398,8 @@ struct MusicArtistListRow: View {
             // Avatar doubles as the Play button: hovering reveals a play overlay right
             // at the start of the row.
             Button {
-                Task { working = true; await ArtistActions.play(artist, model, shuffle: false); working = false }
+                if isPlayingNow { model.music.pause() }
+                else { Task { working = true; await ArtistActions.play(artist, model, shuffle: false); working = false } }
             } label: { avatar }
                 .buttonStyle(.plain)
                 .help("Play \(artist.name)")
@@ -491,7 +493,12 @@ struct MusicArtistListRow: View {
                 if working {
                     ProgressView().controlSize(.small).tint(.white)
                 } else {
-                    Image(systemName: "play.fill").font(.body).foregroundStyle(.white)
+                    // Offers pause while this is the collection you're hearing — the tile
+                    // used to say "play" over the thing already playing.
+                    Image(systemName: isPlayingNow ? "pause.fill" : "play.fill")
+                        .font(.body).foregroundStyle(.white)
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: isPlayingNow)
                 }
             }
         }
@@ -612,6 +619,11 @@ struct MusicArtistGridCard: View {
             isSelected: isPlayingSource,
             isPlaying: isPlayingNow,
             downloadStatus: DownloadStatusBadge.status(artistID: artist.id),
+            // Artists take `star` too — same affordance, same corner.
+            likeBadge: AnyView(
+                EntityHeartBadge(id: artist.id, serverLiked: artist.isLiked, visible: isHovering, size: 14)
+                    .padding(6)
+            ),
             onPlay: onPlay
         )
         .task(id: artist.id) { stats = await model.musicLibrary.artistStats(id: artist.id) }

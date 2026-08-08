@@ -200,11 +200,14 @@ private struct PinnedRow: View {
                         if hovering || isPlaying {
                             ZStack {
                                 Color.black.opacity(0.34)
-                                if isPlaying {
-                                    NowPlayingBars(isPlaying: true, tint: .white)
-                                } else {
-                                    Image(systemName: "play.fill")
+                                // Hover shows the *control*; the bars are the indicator for when the
+                                // pointer is elsewhere. Drawing bars while hovered left no way to pause.
+                                if hovering {
+                                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                                         .font(.caption).foregroundStyle(.white)
+                                        .contentTransition(.symbolEffect(.replace.downUp))
+                                } else if isPlaying {
+                                    NowPlayingBars(isPlaying: true, tint: .white)
                                 }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 6))

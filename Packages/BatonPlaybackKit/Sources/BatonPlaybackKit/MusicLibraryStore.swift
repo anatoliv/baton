@@ -251,6 +251,13 @@ public final class MusicLibraryStore {
         ratingState(for: song).isLiked
     }
 
+    /// The liked state for any starrable id — album or artist as well as song. The
+    /// optimistic override wins when one exists (so the heart flips instantly), otherwise
+    /// the server's own flag stands.
+    public func isLiked(id: String, fallback: Bool) -> Bool {
+        ratingOverrides[id]?.isLiked ?? fallback
+    }
+
     public func rating(_ song: NavidromeSong) -> Int {
         ratingState(for: song).userRating ?? 0
     }
