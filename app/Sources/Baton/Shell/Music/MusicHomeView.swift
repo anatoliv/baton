@@ -283,6 +283,14 @@ private struct SongShelfCard: View {
             isHovering: hover,
             isSelected: isCurrent,
             isPlaying: isCurrent && model.music.isPlaying,
+            // Offline state, same as the song grids. Without it a track you had downloaded
+            // looked un-downloaded on Home and downloaded everywhere else.
+            downloadStatus: DownloadStatusBadge.status(songID: song.id),
+            // Home's song shelves were the one song surface without a like control: the
+            // grids have it and every song row has it, so a track you could heart in Liked
+            // became un-heartable the moment you met it under "Jump back in". Same badge,
+            // same corner, same hover rule as everywhere else.
+            likeBadge: AnyView(SongHeartBadge(song: song, visible: hover, size: 14).padding(6)),
             onPlay: onPlay
         )
         .frame(width: homeShelfCardWidth)

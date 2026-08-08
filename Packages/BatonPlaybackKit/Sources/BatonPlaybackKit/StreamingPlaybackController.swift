@@ -1025,11 +1025,33 @@ public final class StreamingPlaybackController {
     /// Builds the AVURLAsset for a stream/local URL, attaching the active server's
     /// custom headers for remote URLs (Cloudflare Access etc.). Local files skip the
     /// options — AVFoundation ignores headers for file URLs anyway.
+    ///
+    /// **The MIME hint is what makes the audio tap possible on streams.** A Subsonic
+    /// stream URL has no file extension, so `loadTracks` — the *inspection* path — fails
+    /// with "Cannot Open" even while the *playback* path happily sniffs and plays the
+    /// bytes. And no inspection means no track, no `audioMix`, no tap: the equalizer and
+    /// the level meter silently applied only to downloaded files, never to streams.
+    /// Because that failure was `try?`-swallowed, nothing ever said so.
+    ///
+    /// The hint is exact by construction, not a guess: `streamURL(songID:)` always
+    /// requests `format=mp3`, so any URL carrying that marker delivers MPEG audio —
+    /// Navidrome transcodes everything else to match. Podcast enclosures and local files
+    /// don't carry the marker and are left for AVFoundation to identify on its own.
     static func streamAsset(_ url: URL) -> AVURLAsset {
         guard !url.isFileURL else { return AVURLAsset(url: url) }
+        var options: [String: Any] = [:]
         let headers = NavidromeConfig.customHeaders()
-        guard !headers.isEmpty else { return AVURLAsset(url: url) }
-        return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        if !headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = headers }
+        if let mime = Self.mimeHint(for: url) { options[AVURLAssetOverrideMIMETypeKey] = mime }
+        return options.isEmpty ? AVURLAsset(url: url) : AVURLAsset(url: url, options: options)
+    }
+
+    /// The out-of-band MIME type for a URL whose payload format we *know*, or nil to let
+    /// AVFoundation work it out. Only our own `format=mp3` stream request qualifies —
+    /// a wrong hint here wouldn't break an indicator, it would break playback.
+    static func mimeHint(for url: URL) -> String? {
+        guard let query = url.query, query.contains("format=mp3") else { return nil }
+        return "audio/mpeg"
     }
 
     public func pause() {

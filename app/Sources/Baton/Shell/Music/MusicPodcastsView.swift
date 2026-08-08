@@ -445,6 +445,13 @@ private struct LatestEpisodeCard: View {
 
     private var coverID: String? { episode.coverArtID ?? channel?.coverArtID }
 
+    /// An unplayable episode has no stream id, and `nowPlaying?.id` is nil with nothing
+    /// playing — without the id check both would be nil and every episode would claim to
+    /// be current. (Same guard the episode *row* already makes.)
+    private var isCurrent: Bool {
+        episode.streamID != nil && model.music.nowPlaying?.id == episode.streamID
+    }
+
     var body: some View {
         MusicMediaCard(
             coverURL: coverID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 300) },
@@ -453,6 +460,10 @@ private struct LatestEpisodeCard: View {
             title: episode.title,
             subtitle: channel?.title ?? "",
             isHovering: hover,
+            // The episode *row* has shown the playing bars all along; this card never did,
+            // so the same episode announced itself in a list and stayed silent on a shelf.
+            isSelected: isCurrent,
+            isPlaying: isCurrent && model.music.isPlaying,
             onPlay: onPlay
         )
         .frame(width: 156)
@@ -728,8 +739,13 @@ private struct PodcastEpisodeRow: View {
     @ViewBuilder private var trailing: some View {
         if episode.isPlayable {
             if hover || isCurrent {
-                Button(action: onPlay) { Image(systemName: "play.fill") }
-                    .buttonStyle(.borderless)
+                // The last play-only affordance: this offered "play" on the episode
+                // already playing.
+                Button { if isPlaying { model.music.pause() } else { onPlay() } } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .contentTransition(.symbolEffect(.replace.downUp))
+                }
+                .buttonStyle(.borderless)
             }
         } else if isDownloading || episode.isDownloadingOnServer {
             HStack(spacing: 6) {

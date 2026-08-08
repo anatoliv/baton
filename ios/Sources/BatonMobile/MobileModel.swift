@@ -149,7 +149,7 @@ final class MobileModel {
         podcastSubscriptions = PodcastSubscriptionStore()
         podcastProgress = PodcastProgressStore()
         equalizer = MusicEqualizer()
-        eqProcessor = AudioEQProcessor(coefficients: equalizer.coefficients)
+        eqProcessor = AudioEQProcessor(coefficients: equalizer.coefficients, levels: AudioLevelMonitor.shared.snapshot)
         handoff = QueueHandoff(controller: controller)
         audioSession = MobileAudioSession(controller: controller)
         audioSession.configure()
@@ -188,8 +188,10 @@ final class MobileModel {
         // EQ: attach the audio-mix tap on each loaded item, same wiring as the Mac.
         let eq = equalizer
         let processor = eqProcessor
+        // Attaches when the equalizer wants it *or* the now-playing bars do — gating on
+        // the EQ alone left the level meter dead for everyone who never opened it.
         music.configureAudioMix = { item in
-            guard eq.isEnabled else { item.audioMix = nil; return }
+            guard eq.isEnabled || AudioLevelMonitor.shared.isEnabled else { item.audioMix = nil; return }
             Task { @MainActor in
                 if let track = try? await item.asset.loadTracks(withMediaType: .audio).first {
                     item.audioMix = processor.makeAudioMix(for: track)

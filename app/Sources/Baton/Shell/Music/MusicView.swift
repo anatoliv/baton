@@ -1036,6 +1036,13 @@ struct MusicAlbumCard: View {
             isSelected: isPlayingSource,
             isPlaying: isPlayingNow,
             downloadStatus: DownloadStatusBadge.status(albumID: album.id, totalTracks: album.songCount),
+            // Albums are starrable on the server exactly like songs; the affordance simply
+            // never existed here, which is why Home's album shelves looked inert next to
+            // its track shelves.
+            likeBadge: AnyView(
+                EntityHeartBadge(id: album.id, serverLiked: album.isLiked, visible: isHovering, size: 14)
+                    .padding(6)
+            ),
             onPlay: playAlbum
         )
     }

@@ -257,6 +257,12 @@ private struct RadioStationCard: View {
         // to be asked for explicitly — it was the one card grid that stayed flat on hover.
         .hoverLift(hover)
         .zIndex(hover ? 1 : 0)
+        // The lift needs its own animation on the *cell*. Without this the scale is applied
+        // as a discrete change and the tile jumps between sizes — the inner `.animation`
+        // further up only covers the artwork's scrim and glyph, not the transform. Radio
+        // built its tiles by hand instead of using `MusicMediaCard`, so it missed the third
+        // line of a three-line idiom and was the one grid that snapped.
+        .animation(.easeOut(duration: 0.16), value: hover)
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
         .contextMenu {
@@ -366,6 +372,11 @@ private struct RadioStationListRow: View {
         .background(isOnAir ? Color.nowPlayingRowTint() : (hover ? Color.hoverTint : .clear),
                     in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
+        // The row's tint faded nowhere either — every other list row eases it in. Same
+        // durations the song and artist rows use, so a pointer crossing between screens
+        // never changes speed.
+        .animation(.easeOut(duration: 0.12), value: hover)
+        .animation(.easeInOut(duration: 0.18), value: isOnAir)
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
         .task(id: station.id) {

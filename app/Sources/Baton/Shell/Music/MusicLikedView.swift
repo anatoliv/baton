@@ -294,9 +294,14 @@ struct MusicCollectionView: View {
 
     private func ratingFor(_ song: NavidromeSong) -> Int { library.rating(song) }
 
-    /// Hide the like-heart badge on the Liked screen — every item there is already
-    /// liked, so the badge is redundant. Keep it on Search (a "sign" of liked state).
-    private var showLikeBadge: Bool { resultsSource != .starred }
+    /// Always shown, Liked included.
+    ///
+    /// This used to be hidden here on the reasoning that everything in Liked is already
+    /// liked, so the heart is redundant — true as an *indicator*, wrong as a *control*.
+    /// Liked is the one screen where you are most likely to want to un-like something, and
+    /// suppressing the badge left the context menu as the only way to do it, while every
+    /// other screen offered a click. The heart reads filled here and removes the track.
+    private var showLikeBadge: Bool { true }
 
     private func count(_ seg: Segment) -> Int {
         switch seg {
@@ -1203,6 +1208,9 @@ struct LikedSongGridCell: View {
             isSelected: isCurrent,
             isPlaying: isCurrent && model.music.isPlaying,
             downloadStatus: DownloadStatusBadge.status(songID: song.id),
+            likeBadge: showLikeBadge
+                ? AnyView(SongHeartBadge(song: song, visible: hovering, size: 14).padding(6))
+                : nil,
             onPlay: onPlay
         )
         .overlay(alignment: .topLeading) {
@@ -1215,11 +1223,6 @@ struct LikedSongGridCell: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).padding(6)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if showLikeBadge {
-                SongHeartBadge(song: song, visible: hovering, size: 14).padding(6)
             }
         }
         .hoverLift(hovering)

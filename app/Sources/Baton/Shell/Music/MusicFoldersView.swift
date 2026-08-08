@@ -305,6 +305,7 @@ enum FolderColumns {
 /// lazily from the directory cache. Tapping the name pushes the folder detail.
 struct MusicFolderListRow: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let folder: NavidromeFolder
     var isSelected = false
     var onToggleSelect: () -> Void = {}
@@ -325,7 +326,7 @@ struct MusicFolderListRow: View {
             MusicSelectCheckbox(isSelected: isSelected, visible: hovering, onToggle: onToggleSelect)
 
             Button {
-                run { await FolderActions.play(folder, model, shuffle: false) }
+                if isPlayingNow { model.music.pause() } else { run { await FolderActions.play(folder, model, shuffle: false) } }
             } label: { tile }
                 .buttonStyle(.plain)
                 .help("Play “\(folder.name)” (including subfolders)")
@@ -402,7 +403,12 @@ struct MusicFolderListRow: View {
                 if working {
                     ProgressView().controlSize(.small).tint(.white)
                 } else {
-                    Image(systemName: "play.fill").font(.body).foregroundStyle(.white)
+                    // Offers pause while this is the collection you're hearing — the tile
+                    // used to say "play" over the thing already playing.
+                    Image(systemName: isPlayingNow ? "pause.fill" : "play.fill")
+                        .font(.body).foregroundStyle(.white)
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: isPlayingNow)
                 }
             }
         }
