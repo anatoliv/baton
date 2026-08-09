@@ -200,6 +200,12 @@ public final class EnginePlaybackController {
                               guard let self else { return }
                               pipeline.pause(activeDeck)
                               deckIsSilenced = true
+                              // Nothing is playing; the graph does not need to keep
+                              // rendering silence, and the clock does not need to keep
+                              // ticking four times a second to report a position that is
+                              // not moving.
+                              pipeline.suspendIO()
+                              stopClock()
                           })
     }
 
@@ -223,6 +229,7 @@ public final class EnginePlaybackController {
             guard let self else { return }
             teardownPlayback()
             deckIsSilenced = true
+            pipeline.suspendIO()
             state = .idle
             currentTime = 0
         }

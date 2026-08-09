@@ -39,6 +39,8 @@ public final class EngineDeckBridge {
     public var onFailure: (@MainActor (String) -> Void)?
 
     private var clockTask: Task<Void, Never>?
+    /// Pending "stop ticking" after a pause, held so a quick resume can cancel it.
+    private var clockRetirement: Task<Void, Never>?
     private var reportedFailure = false
 
     public init(pipeline: EngineAudioPipeline) {
@@ -77,8 +79,30 @@ public final class EngineDeckBridge {
         startClock()
     }
 
-    public func pause() { engine.pause() }
-    public func resume() { engine.resume() }
+    public func pause() {
+        engine.pause()
+        // Retire the clock too. It was looping four times a second through every pause,
+        // declining to publish each time — a wake-up to report a position that by
+        // definition is not moving.
+        //
+        // Delayed past the engine's own fade rather than cancelled outright: `pause()`
+        // returns immediately but the fade owes a `pipeline.pause` about 0.28 s later, and
+        // the ticks in between are the ones that carry the playhead to where it actually
+        // stopped. Cancelling here would leave the scrubber a quarter-second short.
+        clockRetirement?.cancel()
+        clockRetirement = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, engine.state != .playing else { return }
+            stopClock()
+        }
+    }
+
+    public func resume() {
+        clockRetirement?.cancel()
+        clockRetirement = nil
+        engine.resume()
+        startClock()
+    }
     public func seek(to seconds: TimeInterval) { engine.seek(to: seconds) }
 
     public func stop() {
@@ -124,8 +148,34 @@ public final class EngineDeckBridge {
 
     #endif
 
-    public func startMetering(into snapshot: LevelSnapshot) { engine.startMetering(into: snapshot) }
-    public func stopMetering() { engine.stopMetering() }
+    /// Remembered so metering can be suspended and resumed without the host having to
+    /// hand the snapshot over again each time.
+    private var meteringSnapshot: LevelSnapshot?
+
+    public func startMetering(into snapshot: LevelSnapshot) {
+        meteringSnapshot = snapshot
+        engine.startMetering(into: snapshot)
+    }
+
+    public func stopMetering() {
+        meteringSnapshot = nil
+        engine.stopMetering()
+    }
+
+    /// Metering follows *ownership*, not attachment.
+    ///
+    /// The hosts install the tap once and nothing ever removed it — `stopMetering` had
+    /// exactly one caller, `shutdown()`, which production never runs. So the render tap
+    /// fired forty-odd times a second analysing whatever the graph was rendering, including
+    /// silence, for the entire life of the process and regardless of whether the engine was
+    /// playing anything at all. `AudioLevelMonitor` idles carefully all the way off; this
+    /// undercut that a layer below, where nobody was looking.
+    func suspendMetering() { engine.stopMetering() }
+
+    func resumeMetering() {
+        guard let meteringSnapshot else { return }
+        engine.startMetering(into: meteringSnapshot)
+    }
 
     // MARK: - Clock
 
@@ -160,6 +210,8 @@ public final class EngineDeckBridge {
     private var clockGeneration = 0
 
     private func stopClock() {
+        clockRetirement?.cancel()
+        clockRetirement = nil
         clockTask?.cancel()
         clockTask = nil
     }

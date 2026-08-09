@@ -1114,6 +1114,9 @@ private struct BatonPlaybackPane: View {
 /// response curve, and per-band frequency / Q / gain — driven through
 /// `model.musicEqualizer`. ⌥⌘E deep-links here.
 private struct BatonEqualizerPane: View {
+    /// Read here too: the equalizer pane is its own view, and what the equalizer
+    /// actually affects depends on whether the engine is on.
+    @AppStorage(MusicModel.experimentalEngineKey) private var experimentalEngine = false
     @Environment(MusicModel.self) private var model
 
     /// The band currently expanded for editing (nil = none).
@@ -1128,7 +1131,11 @@ private struct BatonEqualizerPane: View {
                 Toggle("Enable equalizer", isOn: Binding(
                     get: { eq.isEnabled }, set: { eq.isEnabled = $0 }
                 ))
-                Text("A parametric equalizer applied to everything Baton plays. Shape the sound per band, or start from a preset.")
+                Text("A parametric equalizer. Shape the sound per band, or start from a preset.")
+                    .font(.callout).foregroundStyle(.secondary)
+                // This used to claim it applied "to everything Baton plays", which was not
+                // true and never had been: the tap it rides does not run for streamed audio.
+                Text(MusicEqualizer.scopeExplanation(experimentalEngineEnabled: experimentalEngine))
                     .font(.callout).foregroundStyle(.secondary)
             }
 

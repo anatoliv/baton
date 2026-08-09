@@ -120,6 +120,15 @@ struct MobileSettingsView: View {
                         set: { model.equalizer.isEnabled = $0 }
                     ))
                     if model.equalizer.isEnabled {
+                        // Where it actually applies, right now, given the engine setting.
+                        // Without this the ten bands below look like they affect whatever is
+                        // playing, and for streamed music they do not.
+                        Text(MusicEqualizer.scopeExplanation(
+                            experimentalEngineEnabled: experimentalEngine))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    if model.equalizer.isEnabled {
                         // Assigning `preset` only renamed the curve — the bands were left
                         // exactly as they were, so choosing "Rock" on the phone changed a
                         // label and nothing else. `apply` is what moves the sound, and it

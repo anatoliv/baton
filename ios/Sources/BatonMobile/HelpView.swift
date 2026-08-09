@@ -233,6 +233,25 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.28",
+            date: "August 2026",
+            highlight: "The experimental engine stops working when you stop listening.",
+            changes: [
+                .init(.improved, "With the experimental audio engine on, Baton kept its audio pipeline running while paused \u{2014} rendering silence for as long as the app was open. Measured on the Mac, paused cost more power than actually playing music. It now lets the pipeline sleep when nothing is playing."),
+                .init(.improved, "The level meter no longer runs when the engine is not the one playing. It was analysing silence about forty times a second, for the life of the app."),
+                .init(.improved, "Baton asks iOS for larger audio buffers, which roughly quarters how often the system has to wake up to feed it. Long-form music does not need the low latency a game or an instrument does."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.27",
+            date: "August 2026",
+            highlight: "A crash after phone calls, on the experimental engine.",
+            changes: [
+                .init(.fixed, "With the experimental audio engine on, a phone call could leave Baton unable to play again \u{2014} the next track you tapped could take the app down with it, often minutes later and with no obvious connection to the call. An interruption stops the audio engine, and nothing was starting it back up."),
+                .init(.improved, "The equalizer now says where it actually applies. On the standard player it affects downloaded tracks only \u{2014} music streamed from your server is untouched, which has always been true and was never stated. Turn on the experimental audio engine to equalize streams too."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.26",
             date: "August 2026",
             highlight: "A volume control, at last.",

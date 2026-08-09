@@ -370,7 +370,26 @@ public final class StreamingPlaybackController {
     @ObservationIgnored private var engineDeck: EngineDeckBridge?
     /// True while the *current* track is playing on the engine deck — the routing flag
     /// every transport verb consults. False the moment a non-routable track loads.
-    @ObservationIgnored private var engineOwnsPlayback = false
+    @ObservationIgnored private var engineOwnsPlayback = false {
+        didSet {
+            guard engineOwnsPlayback != oldValue else { return }
+            // Metering follows ownership, and it does so here rather than at the five
+            // places that assign this flag — the lesson of every engine bug found by ear
+            // so far is that a rule spread across call sites is a rule that will be missed
+            // at one of them.
+            //
+            // The render tap was installed once by each host and never removed
+            // (`stopMetering` had a single caller, `shutdown()`, which production never
+            // runs), so it analysed whatever the graph rendered — silence included — forty
+            // times a second for the life of the process, whether or not the engine was
+            // playing anything.
+            if engineOwnsPlayback {
+                engineDeck?.resumeMetering()
+            } else {
+                engineDeck?.suspendMetering()
+            }
+        }
+    }
     #if DEBUG
     public var engineOwnsPlaybackForTesting: Bool { engineOwnsPlayback }
     #endif

@@ -234,6 +234,28 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.7",
+            date: "August 2026",
+            highlight: "The experimental engine no longer works while you are not listening.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "With the experimental audio engine on, Baton kept its audio "
+                        + "pipeline running while paused, rendering silence for as long as "
+                        + "the app was open — measurably more power paused than playing. "
+                        + "The pipeline now sleeps when nothing is playing, and the level "
+                        + "meter stops when the engine is not the one playing."
+                ),
+                HelpWhatsNewChange(
+                    kind: .improved,
+                    text: "The equalizer now says where it actually applies: on the "
+                        + "standard player it affects downloaded tracks, and music streamed "
+                        + "from your server is untouched. That has always been true and was "
+                        + "never stated — Settings used to claim the opposite."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.6",
             date: "August 2026",
             highlight: "An experimental audio engine, and a radio that no longer repeats itself.",
