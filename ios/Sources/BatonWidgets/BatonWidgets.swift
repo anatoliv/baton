@@ -110,18 +110,29 @@ struct NowPlayingWidgetView: View {
 struct NowPlayingLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NowPlayingActivityAttributes.self) { context in
+            // Quiet on purpose. This sits on someone's lock screen under whatever they
+            // chose to look at, and it is telling them something they already know —
+            // what is playing. A bold headline at full contrast, a tinted icon, and a
+            // second icon repeating the first read as an announcement rather than a
+            // label. One muted glyph, plain text, and the artist a step down is enough
+            // to be found at a glance and easy to ignore the rest of the time.
             HStack(spacing: 10) {
                 Image(systemName: context.state.isPlaying ? "waveform" : "pause.fill")
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading) {
-                    Text(context.state.title).font(.headline).lineLimit(1)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(context.state.title)
+                        .font(.subheadline)
+                        .lineLimit(1)
                     Text(context.state.artist ?? context.attributes.sourceLabel)
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
-                Spacer()
-                Image(systemName: "music.note")
+                Spacer(minLength: 0)
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {

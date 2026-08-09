@@ -28,6 +28,22 @@ struct RootTabView: View {
 
     var body: some View {
         tabs
+            #if DEBUG
+            // Which deck is actually rendering, readable from a UI test.
+            //
+            // "Is it even on the new path?" is the first question of every diagnosis here,
+            // and inferring it from side effects is exactly how the now-playing bars looked
+            // reactive for a day while reading zeros. A UI test can see that audio plays; it
+            // cannot see *which engine* played it, and that is the only thing worth proving
+            // about a routing change. DEBUG only — never in a shipped build.
+            .overlay(alignment: .topLeading) {
+                Text(model.music.engineOwnsPlaybackForTesting ? "engine" : "avplayer")
+                    .font(.system(size: 1))
+                    .foregroundStyle(.clear)
+                    .accessibilityIdentifier("debug.activeDeck")
+                    .allowsHitTesting(false)
+            }
+            #endif
             .environment(\.nowPlayingPalette, paletteLoader.palette)
             // Same reason the Mac forces it: dark text on a warm wash is
             // unreadable, and the player is dark on both platforms.

@@ -17,6 +17,15 @@ final class MobileAudioSession {
     private let controller: StreamingPlaybackController
     private var observers: [NSObjectProtocol] = []
 
+    /// The audio server died and took every audio object with it. Anything the app built
+    /// on top of CoreAudio — an `AVAudioEngine` above all — is now a dead handle that
+    /// will neither play nor report an error, and must be discarded and rebuilt.
+    ///
+    /// AVPlayer recovers from this largely by itself, which is why the phone never needed
+    /// the hook before. Owning the render graph is what makes it ours to handle: this is
+    /// one of the concrete costs of the engine on iOS, not an abstraction.
+    var onMediaServicesReset: (@MainActor () -> Void)?
+
     init(controller: StreamingPlaybackController) {
         self.controller = controller
     }
@@ -64,6 +73,27 @@ final class MobileAudioSession {
             let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             Task { @MainActor in self?.handleRouteChange(reasonRaw: reason) }
         })
+        observers.append(center.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleMediaServicesReset() }
+        })
+    }
+
+    /// Media services were reset: the category is gone with everything else, so re-declare
+    /// it before anyone tries to play, then let the host rebuild whatever it owns.
+    ///
+    /// Deliberately does NOT resume. The session is inactive and every audio object is
+    /// stale; resuming here would race the host's rebuild. Playback stops and waits for
+    /// the user, which is the honest outcome of the audio server dying underneath us.
+    private func handleMediaServicesReset() {
+        sessionLog.error("media services were reset — rebuilding audio")
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+        } catch {
+            sessionLog.error("setCategory after reset failed: \(error.localizedDescription, privacy: .public)")
+        }
+        onMediaServicesReset?()
     }
 
     private func handleInterruption(typeRaw: UInt?, optionsRaw: UInt?) {

@@ -125,9 +125,18 @@ struct NowPlayingBar: View {
                     if !isRadio { queueButton }
                     SleepTimerMenu(font: .body, tint: .secondary)
                         .help("Sleep timer")
-                    AirPlayRoutePicker(tint: .secondaryLabelColor)
-                        .frame(width: 18, height: 18)
-                        .help("AirPlay / output device")
+                    // The system picker routes AVPlayer, which plays nothing while the
+                    // engine deck is active — it showed routes as connected while the audio
+                    // stayed put. Swap in the per-app device picker exactly when that is
+                    // true, and keep the system picker otherwise, where it works correctly.
+                    if model.engineBridge != nil {
+                        OutputDevicePicker(tint: Color(nsColor: .secondaryLabelColor))
+                            .frame(height: 18)
+                    } else {
+                        AirPlayRoutePicker(tint: .secondaryLabelColor)
+                            .frame(width: 18, height: 18)
+                            .help("AirPlay / output device")
+                    }
                 } else {
                     compactPlayPause
                 }

@@ -18,7 +18,10 @@ let package = Package(
         ),
         .testTarget(
             name: "BatonPlaybackKitTests",
-            dependencies: ["BatonPlaybackKit"]
+            dependencies: ["BatonPlaybackKit"],
+            // A real MP3 (68 s, 48 kHz stereo, from the demo library) — the engine tests
+            // stream it over local HTTP to prove the decode path on the load-bearing format.
+            resources: [.copy("Fixtures")]
         )
     ]
 )

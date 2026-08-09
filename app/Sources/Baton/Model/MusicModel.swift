@@ -93,6 +93,15 @@ final class MusicModel {
         speechHistory.clear()
     }
 
+    /// EXPERIMENT (feat/audio-engine): opt-in AVAudioEngine deck for library streams.
+    /// When the developer setting is on, `StreamingPlaybackController` routes library
+    /// stream tracks to this deck — which is what makes the equalizer and the live
+    /// now-playing bars work on *streamed* audio (the tap-based path never could).
+    /// Podcasts, local files, downloads, and internet radio stay on AVPlayer. Read once
+    /// at launch; toggling requires a relaunch (the Settings copy says so).
+    static let experimentalEngineKey = "baton.music.experimentalEngine"
+    @ObservationIgnored private(set) var engineBridge: EngineDeckBridge?
+
     /// Retained so the audio-mix closure keeps a strong reference to the tap processor.
     @ObservationIgnored private let eqProcessor: AudioEQProcessor
     /// Band levels from the playback tap, driving the now-playing bars.
@@ -124,6 +133,19 @@ final class MusicModel {
         // Downloads LRU eviction ranks by last-played time from history.
         MusicDownloadStore.shared.lastPlayedProvider = { [musicHistory] in musicHistory.lastPlayedByID() }
         wire()
+        // EXPERIMENT: attach the AVAudioEngine deck when the developer setting is on.
+        // Never under test (the suites build their own pipelines), and a failed audio
+        // engine start (no output device) degrades to plain AVPlayer with no seam.
+        if !environment.isTesting,
+           UserDefaults.standard.bool(forKey: Self.experimentalEngineKey),
+           let bridge = try? EngineDeckBridge.deviceBridge() {
+            engineBridge = bridge
+            music.attachEngineDeck(bridge)
+            // The bars read the same snapshot the tap processor would fill — the engine's
+            // tap simply becomes the writer while the deck owns playback.
+            bridge.startMetering(into: AudioLevelMonitor.shared.snapshot)
+            pushEQToEngineAndKeepWatching()
+        }
         // Restore the persisted queue (paused, at the saved position) so relaunch picks up
         // where the user left off. After wire() so track-start side effects are connected;
         // restoreQueue itself never auto-plays.
@@ -202,7 +224,7 @@ final class MusicModel {
         // Starting a library track also stops any on-air internet-radio station so the two
         // transports stay mutually exclusive — and the bottom bar reverts from the radio
         // view back to the normal library player.
-        music.onTrackStarted = { [scrobbler, internetRadio, music] song in
+        music.onTrackStarted = { [weak self, scrobbler, internetRadio, music] song in
             internetRadio.stop()
             scrobbler.nowPlaying(song)
             // Feed the now-playing bars. The live tap only works for file-based items —
@@ -211,7 +233,12 @@ final class MusicModel {
             // and the bars read the envelope at the playhead. Downloaded files are
             // analyzed in place; podcasts are skipped (episode URLs are third-party
             // bandwidth, and the tap covers their downloaded copies).
-            if AudioLevelMonitor.shared.isEnabled, !Self.isPodcastEpisode(song) {
+            // EXPERIMENT: with the engine deck attached, streamed library tracks are
+            // metered LIVE by the engine's tap — the offline side-fetch would burn a
+            // second download to compute what the tap already measures. Downloaded
+            // files still play on AVPlayer only when the deck is absent, so the
+            // envelope path remains for the non-experimental configuration.
+            if AudioLevelMonitor.shared.isEnabled, !Self.isPodcastEpisode(song), self?.engineBridge == nil {
                 if let local = MusicDownloadStore.shared.localURL(for: song.id) {
                     Task { await TrackLevelTimeline.analyzeLocal(id: song.id, url: local) }
                 } else if let stream = try? NavidromeConfig.makeClient().streamURL(songID: song.id) {
@@ -290,6 +317,24 @@ final class MusicModel {
         // — gapless vs crossfade + autoplay — from how you actually listen. Guarded by
         // a flag so it never re-overrides a setting you later change yourself.
         MusicPersonalization.applyFirstRunIfNeeded(self)
+    }
+
+    /// EXPERIMENT: keep the engine deck's EQ in lockstep with `MusicEqualizer`.
+    ///
+    /// The tap-based path publishes coefficients the render tap pulls; the engine's EQ is
+    /// an `AVAudioUnitEQ` that wants the *bands* pushed. Observation tracking re-pushes on
+    /// every band edit or enable/disable — which is also what makes the toggle live with
+    /// no stream reload on the engine path (`refreshAudioMix` deliberately no-ops there).
+    private func pushEQToEngineAndKeepWatching() {
+        guard let bridge = engineBridge else { return }
+        let apply = { [musicEqualizer] in
+            bridge.applyEQ(bands: musicEqualizer.bands, enabled: musicEqualizer.isEnabled)
+        }
+        withObservationTracking {
+            apply()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.pushEQToEngineAndKeepWatching() }
+        }
     }
 }
 

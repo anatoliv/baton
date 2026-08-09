@@ -233,6 +233,51 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.26",
+            date: "August 2026",
+            highlight: "A volume control, at last.",
+            changes: [
+                .init(.added, "The full player has a volume slider. Baton has always had its own level \u{2014} the Mac has carried a slider for it all along \u{2014} but on the phone there was no way to see or change it, so if you asked the music friend to turn the music down there was nothing to turn it back up with."),
+                .init(.fixed, "Starting a radio from a track listed that track twice at the top of the queue, with the playing indicator on both rows."),
+                .init(.fixed, "Radios started by asking the music friend now skip tracks you have kept out of radios, like every other way of starting one."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.25",
+            date: "August 2026",
+            highlight: "Pausing is quiet again, and the lock screen stops collecting cards.",
+            changes: [
+                .init(.fixed, "On the experimental audio engine, pausing faded the music out and then let a fraction of a second back in at full volume before it stopped. The fade hands the volume back when it finishes, which is silent on the standard player because it has genuinely stopped \u{2014} the new engine still had a little audio in flight."),
+                .init(.fixed, "Baton could leave more than one \u{201C}now playing\u{201D} card on the Lock Screen, with only the newest one updating. A card outlives the app that started it, so after reopening Baton it started a second one beside the first. It now adopts the card that is already there."),
+                .init(.improved, "That Lock Screen card is quieter \u{2014} plainer text, one muted icon instead of two bright ones. It is a label, not an announcement."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.24",
+            date: "August 2026",
+            highlight: "The playhead no longer jumps when you skip to the next track.",
+            changes: [
+                .init(.fixed, "On the experimental audio engine, pressing Next briefly threw the progress bar to somewhere in the middle of the new track before it snapped back to the start. The old track's position was still being published by the system player's clock while the new engine played the new track \u{2014} two things writing one number. The system player now stands down while the engine is playing."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.23",
+            date: "August 2026",
+            highlight: "The experimental engine switch now actually does something.",
+            changes: [
+                .init(.fixed, "Turning on the experimental audio engine did nothing until you next launched Baton, so music kept playing through the standard player and equalizer presets stayed silent on streamed music \u{2014} which looked like a broken equalizer rather than a switch that wasn't connected. It now applies straight away, to whatever is playing, which is what the text under it always claimed."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.22",
+            date: "August 2026",
+            highlight: "An equalizer that works on music streamed from your server.",
+            changes: [
+                .init(.added, "Settings \u{2192} Advanced \u{2192} Experimental audio engine. Baton plays music streamed from your server through its own audio pipeline instead of the system player. This is what makes the equalizer and the moving bars work on streamed music \u{2014} until now they only ever affected downloaded tracks, on every version of Baton there has been. Podcasts, downloads and radio keep using the standard player. It is off by default, and while it is on, gapless and crossfade are skipped, so track changes are plain cuts."),
+                .init(.improved, "It is genuinely experimental: it is new, it is off unless you turn it on, and if anything about it sounds wrong, turning it off puts you back on the player Baton has always used."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.21",
             date: "August 2026",
             highlight: "One mark for the playing track, everywhere.",

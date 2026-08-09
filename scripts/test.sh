@@ -52,6 +52,138 @@ if grep -rnE '(^|[^A-Za-z])[Ll]og[A-Za-z]*\.(error|info|notice|debug|warning|fau
 fi
 [ "$lint_fail" -eq 0 ] && green "  lints clean" || { red "✗ LINT FAILED"; exit 1; }
 
+# --- iPhone build (cross-platform breakage guard) ---------------------------
+#
+# This repo ships two apps over shared packages, and until now the gate only ever
+# built one of them. Merging the AVAudioEngine work proved what that costs: the
+# engine's per-app output routing is CoreAudio HAL, which does not exist on iOS,
+# so the iPhone app stopped compiling — while this script reported 1228 tests
+# passing and 0 failures over the very same tree. A green gate meant one app was
+# healthy, and said nothing at all about the other.
+#
+# A build, not a test run: the phone's own suite runs on its own hardware and is
+# not what leaked. What leaked was compilation of shared code against a second
+# SDK, and that is exactly what this catches. Cheap insurance — it runs before
+# the long Mac suite so cross-platform breakage fails in minutes, not after.
+#
+# SKIP_IOS=1 for a fast Mac-only loop while iterating; never for a merge.
+if [ -z "${SKIP_IOS:-}" ]; then
+  IOS_LOG="$(mktemp -t baton-ios-build.XXXXXX).log"
+  ( cd ios && xcodegen generate >/dev/null )
+
+  # Prefer running the phone's unit tests on a simulator: that compiles the shared
+  # packages against the iOS SDK *and* exercises the phone-only logic (the audio-session
+  # rules for the engine, which have no macOS equivalent and which the Mac suite therefore
+  # cannot cover). Falls back to a device build where no simulator is installed — still
+  # enough to catch the cross-platform compile breakage this step exists for.
+  #
+  # The UI tests are deliberately NOT here: they drive a real app against Navidrome's
+  # public demo server, so they need the network and take minutes. Run them by hand:
+  #   xcodebuild test -project ios/BatonMobile.xcodeproj -scheme BatonMobile \
+  #     -destination 'platform=iOS Simulator,name=<device>' \
+  #     -only-testing:BatonMobileUITests/EngineDeckPlaybackUITests
+  IOS_SIM="$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
+import sys, json
+try:
+    devices = json.load(sys.stdin)['devices']
+except Exception:
+    sys.exit()
+for runtime, entries in devices.items():
+    if 'iOS' in runtime:
+        for entry in entries:
+            if 'iPhone' in entry['name']:
+                print(entry['name'])
+                sys.exit()
+" 2>/dev/null)"
+
+  set +e
+  if [ -n "$IOS_SIM" ]; then
+    bold "==> iPhone tests on $IOS_SIM (shared-package guard)"
+    xcodebuild test \
+      -project ios/BatonMobile.xcodeproj \
+      -scheme BatonMobile \
+      -destination "platform=iOS Simulator,name=$IOS_SIM" \
+      -only-testing:BatonMobileTests \
+      -derivedDataPath "${DERIVED}-ios" >"$IOS_LOG" 2>&1
+    ios_status=$?
+    ios_what="iPhone tests"
+  else
+    bold "==> Building iPhone app (no simulator installed)"
+    xcodebuild build \
+      -project ios/BatonMobile.xcodeproj \
+      -scheme BatonMobile \
+      -destination 'generic/platform=iOS' \
+      -derivedDataPath "${DERIVED}-ios" \
+      CODE_SIGNING_ALLOWED=NO >"$IOS_LOG" 2>&1
+    ios_status=$?
+    ios_what="iPhone build"
+  fi
+  set -e
+
+  if [ "$ios_status" -eq 0 ]; then
+    # The LAST rollup, not the first. `head -1` takes whichever suite happened to print
+    # first — it reported "Executed 16 tests" for a run of 101, which is the same trap the
+    # Mac summary above was built to avoid.
+    ios_count="$(grep -hoE 'Executed [0-9]+ tests?' "$IOS_LOG" | tail -1)"
+    green "  ${ios_what} pass${ios_count:+ — $ios_count}"
+  else
+    red "✗ ${ios_what} FAILED — the other app is broken"
+    grep -E 'error:|failed \(' "$IOS_LOG" | sed 's/^/    /' | head -25 >&2 || true
+    red "  Full log: $IOS_LOG"
+    exit "$ios_status"
+  fi
+  # --- Watch build -----------------------------------------------------------
+  #
+  # The third app, and the one nobody remembers. It is PARKED, not shipping — see
+  # docs/watch-app-parked.md — and this build is precisely what makes parking it safe.
+  #
+  # It links the same packages and had been failing to compile since the offline-envelope
+  # fallback landed: a call to a `#if !os(watchOS)` type that was not itself guarded, which
+  # went unnoticed for exactly as long as nothing built it. The engine merge then broke it a
+  # second, independent way.
+  #
+  # It is also what keeps `EngineDeckUnavailable.swift` honest: the watch stand-in for
+  # `EngineDeckBridge` must keep pace with the real one, and this build is the only thing
+  # that enforces that.
+  WATCH_SIM="$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
+import sys, json
+try:
+    devices = json.load(sys.stdin)['devices']
+except Exception:
+    sys.exit()
+for runtime, entries in devices.items():
+    if 'watchOS' in runtime and entries:
+        print(entries[0]['udid'])
+        sys.exit()
+" 2>/dev/null)"
+
+  if [ -n "$WATCH_SIM" ]; then
+    bold "==> Building Watch app"
+    WATCH_LOG="$(mktemp -t baton-watch-build.XXXXXX).log"
+    set +e
+    xcodebuild build \
+      -project watch/BatonWatch.xcodeproj \
+      -scheme BatonWatch \
+      -destination "id=$WATCH_SIM" \
+      -derivedDataPath "${DERIVED}-watch" \
+      CODE_SIGNING_ALLOWED=NO >"$WATCH_LOG" 2>&1
+    watch_status=$?
+    set -e
+    if [ "$watch_status" -eq 0 ]; then
+      green "  Watch builds"
+    else
+      red "✗ WATCH BUILD FAILED — shared-package change broke the third app"
+      grep -E 'error:' "$WATCH_LOG" | sed 's/^/    /' | head -20 >&2 || true
+      red "  Full log: $WATCH_LOG"
+      exit "$watch_status"
+    fi
+  else
+    bold "==> Skipping Watch build (no watchOS simulator installed)"
+  fi
+else
+  bold "==> Skipping iPhone and Watch checks (SKIP_IOS set)"
+fi
+
 bold "==> Running tests ($SCHEME)"
 set +e
 xcodebuild test \

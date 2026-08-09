@@ -139,7 +139,10 @@ final class AgentTools: RemoteToolSurface {
 
         case "music_start_radio":
             guard let seed = model.music.nowPlaying else { return "Play something first to seed the radio." }
-            let similar = await model.musicLibrary.similarSongs(seedID: seed.id)
+            // Through the bans list, like every other way of starting a radio. Asking the
+            // music friend for a radio is not a reason to hear tracks you have told Baton
+            // to keep out of one.
+            let similar = model.radioBans.filtered(await model.musicLibrary.similarSongs(seedID: seed.id))
             guard !similar.isEmpty else { return "The server has no similarity data for this track." }
             model.music.play([seed] + similar, source: .init(label: "\(seed.title) Radio", kind: .radio))
             return "Radio started from \(seed.title) with \(similar.count) similar songs."
