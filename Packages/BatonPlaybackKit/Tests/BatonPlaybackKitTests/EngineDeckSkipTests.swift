@@ -123,4 +123,29 @@ final class EngineDeckSkipTests: XCTestCase {
         )
     }
 
+
+    /// The equalizer must not claim to affect music it cannot affect.
+    ///
+    /// The tap it rides does not run for a streamed item, so on the standard player it
+    /// reaches downloads and nothing else — while the Mac's Settings said "applied to
+    /// everything Baton plays" and the phone's said nothing at all. A control that looks
+    /// like it works and doesn't is worse than a missing one: a missing feature gets asked
+    /// for, a decorative one just makes people doubt their ears.
+    ///
+    /// One sentence, shared by both apps, so the two cannot drift — and so that switching
+    /// the experimental engine on changes the answer in both places at once.
+    func testTheEqualizerSaysWhereItActuallyApplies() {
+        let standard = MusicEqualizer.scopeExplanation(experimentalEngineEnabled: false)
+        XCTAssertTrue(standard.lowercased().contains("download"),
+                      "the standard-player answer does not mention downloads, which is the only thing it reaches")
+        XCTAssertTrue(standard.lowercased().contains("stream"),
+                      "the standard-player answer does not mention streamed music, which is what it cannot reach")
+
+        let engine = MusicEqualizer.scopeExplanation(experimentalEngineEnabled: true)
+        XCTAssertNotEqual(standard, engine,
+                          "the answer does not change when the engine is on — then one of the two is a lie")
+        XCTAssertTrue(engine.lowercased().contains("everything"),
+                      "with the engine on the equalizer does reach everything, and should say so")
+    }
+
 }

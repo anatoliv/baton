@@ -10,6 +10,25 @@ private let sessionLog = Logger(subsystem: "io.tonebox.baton", category: "AudioS
 /// shipped bug fixes; each is preserved as a comment on the rule it produced.
 @MainActor
 final class MobileAudioSession {
+    /// How much audio the system asks for per render callback.
+    ///
+    /// Left at the default, iOS wakes the render thread roughly ninety times a second for
+    /// the entire listening session — and wake-up frequency weighs heavily in what the
+    /// system counts as energy use. Baton is long-form playback: nothing here is
+    /// latency-critical the way a synth or a game is, so asking for a larger slice trades
+    /// something we do not need for something a phone very much does.
+    ///
+    /// ~46 ms is about 2048 frames at 44.1 kHz — roughly a quarter of the wake-ups. It is a
+    /// *preference*: the system may give less, and asking for the maximum would make
+    /// transport actions feel sluggish, since pause and seek cannot take effect sooner than
+    /// the buffer already in flight.
+    ///
+    /// macOS deliberately has no counterpart here. Its equivalent is the device's own
+    /// buffer frame size, which is shared by every app on that device — the same objection
+    /// that made us replace the in-app AirPlay picker with per-app routing. A music player
+    /// does not get to re-tune the sound card for everyone else.
+    static let preferredIOBufferDuration: TimeInterval = 0.046
+
     /// True while an interruption (call, Siri, alarm) has playback paused and we
     /// intend to resume when it ends.
     private var wasPlayingBeforeInterruption = false
@@ -40,8 +59,9 @@ final class MobileAudioSession {
             // slot (and surfaces it in CarPlay's audio apps) rather than being treated
             // as a transient sound source.
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+            try AVAudioSession.sharedInstance().setPreferredIOBufferDuration(Self.preferredIOBufferDuration)
         } catch {
-            sessionLog.error("setCategory failed: \(error.localizedDescription, privacy: .public)")
+            sessionLog.error("session configure failed: \(error.localizedDescription, privacy: .public)")
         }
         installObservers()
     }

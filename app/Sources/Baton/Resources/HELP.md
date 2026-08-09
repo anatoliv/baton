@@ -631,6 +631,17 @@ you pressed. Move a band and it becomes **Custom**; move every band back to zero
 anything you had hand-tuned is gone — there's a **Flat / Reset** button when you want to
 start over.
 
+**What it affects.** On the standard player the equalizer applies to **downloaded tracks**,
+not to music streamed from your server. That is a platform limitation rather than a
+setting: the audio tap Baton uses to filter playback does not run for a streamed item, on
+either the Mac or the phone. It has always been that way, and Settings used to imply
+otherwise — this is the honest version.
+
+To equalize streamed music, turn on **Settings → Advanced → Experimental audio engine**,
+which plays streams through Baton's own audio pipeline where the equalizer is a real part
+of the chain. It costs noticeably more power, so it is off unless you ask for it. The
+equalizer screen tells you which of the two situations you are in.
+
 On iPhone this lives under **Settings → Equalizer**, with the bands behind the **Bands** row.
 
 Baton has a **10-band parametric equalizer**. Open it from the Audio menu (press Option,

@@ -173,7 +173,17 @@ def sample_energy(seconds, interval_ms=5000):
     return samples
 
 
-def run_arm(enabled, minutes, volume, verify):
+def run_arm(enabled, minutes, volume, verify, idle=False):
+    """One arm. `idle=True` measures what the app costs while *paused*.
+
+    The playing arms answer "what does rendering cost". They cannot answer "what does the
+    engine cost when nothing is playing", because both arms play — which is why a fix aimed
+    squarely at idle cost (suspending the render tap when the engine does not own playback)
+    moved the playing number not at all. It was never in that number to begin with.
+
+    Idle is the interesting half on a phone: an engine that never stops rendering silence
+    keeps an I/O unit awake for as long as the app is open, which is most of the day.
+    """
     set_engine(enabled)
     relaunch()
     start_playback(volume)
@@ -185,6 +195,11 @@ def run_arm(enabled, minutes, volume, verify):
                 f"engine setting is {enabled} but the log says engine-owns-playback={owns}. "
                 "Measuring the wrong thing is worse than not measuring."
             )
+    if idle:
+        # Pause, and let the transport fade and any owed work settle before sampling —
+        # otherwise the first samples measure the stopping, not the stopped.
+        mcp_call("music_pause")
+        time.sleep(10)
     samples = sample_energy(minutes * 60)
     mcp_call("music_pause")
     return samples
@@ -204,6 +219,10 @@ def main():
                              "installed build may predate the engine entirely — the log "
                              "check below catches that, but pointing at a fresh Release "
                              "build is the way to measure work that has not shipped yet.")
+    parser.add_argument("--idle", action="store_true",
+                        help="measure while PAUSED rather than while playing — the half the "
+                             "playing arms are blind to, and the one an always-rendering "
+                             "engine costs most on a phone")
     parser.add_argument("--check", action="store_true",
                         help="validate every prerequisite and change nothing")
     parser.add_argument("--no-verify", action="store_true",
@@ -259,9 +278,11 @@ def main():
         for round_index in range(args.rounds):
             for enabled in (False, True):
                 label = "engine" if enabled else "avplayer"
-                print(f"round {round_index + 1}/{args.rounds}  {label}: "
+                what = "idle" if args.idle else "playing"
+                print(f"round {round_index + 1}/{args.rounds}  {label} ({what}): "
                       f"{args.minutes} min…", flush=True)
-                samples = run_arm(enabled, args.minutes, args.volume, not args.no_verify)
+                samples = run_arm(enabled, args.minutes, args.volume,
+                                  not args.no_verify, idle=args.idle)
                 if not samples:
                     sys.exit("no Baton rows in powermetrics output — is Baton playing?")
                 results[enabled] += samples
@@ -275,7 +296,8 @@ def main():
 
     off = statistics.median(results[False])
     on = statistics.median(results[True])
-    print("\n=== energy impact (lower is better) ===")
+    print(f"\n=== energy impact while {'PAUSED' if args.idle else 'PLAYING'} "
+          "(lower is better) ===")
     print(f"  AVPlayer : {off:8.1f}   (n={len(results[False])})")
     print(f"  Engine   : {on:8.1f}   (n={len(results[True])})")
     # A ratio is only meaningful when the baseline is meaningfully above the sampler's

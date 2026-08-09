@@ -49,6 +49,8 @@ public final class EngineDeckBridge {
     public func applyEQ(bands: [EQBand], enabled: Bool) {}
     public func startMetering(into snapshot: LevelSnapshot) {}
     public func stopMetering() {}
+    func suspendMetering() {}
+    func resumeMetering() {}
 }
 
 #endif

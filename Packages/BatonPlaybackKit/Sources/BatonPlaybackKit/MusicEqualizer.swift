@@ -221,3 +221,30 @@ public final class MusicEqualizer {
         coefficients.setBands(specs, reference: reference)
     }
 }
+
+// MARK: - What the equalizer actually affects
+
+extension MusicEqualizer {
+    /// One sentence, both apps, telling the truth about where the equalizer applies.
+    ///
+    /// It has never applied to streamed music on the standard player. `MTAudioProcessingTap`
+    /// — the only way to filter a streaming `AVPlayer` — does not run for an HTTP-streamed
+    /// item, verified empirically on both platforms. It runs for local files, so downloads
+    /// are equalized and streams are not, and streaming from your own server is most of what
+    /// Baton does.
+    ///
+    /// The Mac's Settings said "applied to everything Baton plays" and the phone's said
+    /// nothing at all, so on both the control looked like it worked and quietly didn't. That
+    /// is worse than a missing feature: a missing one can be asked for, while a decorative
+    /// one just makes people doubt their ears.
+    ///
+    /// Shared rather than written twice, because the same sentence drifting apart on two
+    /// platforms is exactly how this repo has been bitten before — and because when the
+    /// experimental engine is switched on, the true answer changes on both at once.
+    public static func scopeExplanation(experimentalEngineEnabled: Bool) -> String {
+        experimentalEngineEnabled
+            ? "Applies to everything Baton plays, including music streamed from your server."
+            : "Applies to downloaded tracks. Music streamed from your server is unaffected — "
+              + "turn on the experimental audio engine in Advanced to equalize that too."
+    }
+}

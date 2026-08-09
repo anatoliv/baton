@@ -177,10 +177,43 @@ public final class EngineAudioPipeline {
 
     #endif
 
+    /// Let the I/O unit sleep while nothing is being played.
+    ///
+    /// Measured, not assumed: paused, the engine cost ~2.1 energy impact against AVPlayer's
+    /// ~0.1 — *more* than the 1.8 it costs while actually playing music. Pausing a deck
+    /// stops the player node, but the engine kept pulling blend → timePitch → EQ → mixer
+    /// and rendering silence, for as long as the app was open. On a phone, paused and
+    /// backgrounded is most of the day.
+    ///
+    /// `pause()` rather than `stop()`: it parks the I/O unit while keeping the graph,
+    /// connections and formats intact, so waking is cheap and nothing needs rebuilding.
+    /// `play()` restarts a stopped engine by construction (see the guard there), which is
+    /// what makes this safe to do at all — and is why that fix had to land first.
+    func suspendIO() {
+        guard engine.isRunning else { return }
+        engine.pause()
+    }
+
+    #if DEBUG
+    /// Stop the engine the way an interruption does, so the crash hole above can be tested.
+    public func stopEngineForTesting() { engine.stop() }
+    public var isEngineRunningForTesting: Bool { engine.isRunning }
+    #endif
+
     private func handleConfigurationChange() {
         // The engine stops itself on a device/rate change. Restart it, then hand the
         // controller the job of rescheduling audio from the current playhead.
-        try? engine.start()
+        //
+        // A swallowed failure here used to be followed immediately by an autoplay reload
+        // straight into a stopped engine — the crash above, reached through a *failed*
+        // restart rather than an absent one, which no `isRunning` check downstream can
+        // distinguish from success. `play()` now refuses on a stopped engine, so this can
+        // no longer crash; it is logged because a silent no-audio is its own bug report.
+        do {
+            try engine.start()
+        } catch {
+            engineLog.error("engine: restart after configuration change failed: \(error.localizedDescription, privacy: .public)")
+        }
         onConfigurationChange?()
     }
 
@@ -234,6 +267,32 @@ public final class EngineAudioPipeline {
         guard decks[deck]?.format != nil else {
             engineLog.error("engine: refused play() on unprepared deck \(String(describing: deck))")
             return
+        }
+        // The engine must be running before a node is told to play, and nothing else
+        // guarantees that it is.
+        //
+        // `AVAudioPlayerNode.play()` on a stopped engine raises an ObjC exception, and that
+        // exception unwinding through Swift-concurrency frames corrupts the task allocator —
+        // so the process dies somewhere else entirely, with a "freed pointer was not the
+        // last allocation" that names none of this. It was found once by bisection already.
+        //
+        // An AVAudioSession interruption — a phone call — stops the engine, and an
+        // interruption does not reliably post a configuration change, so the only restarts
+        // in this file (init, the macOS device switch, the configuration-change handler)
+        // may never run. All three `pipeline.play` callers are exposed: resume, seek, and
+        // the feeder, which is reached by tapping *any* track. So the check belongs here,
+        // where it covers them by construction, rather than on the resume path where only
+        // the least likely of the three lives.
+        if !engine.isRunning {
+            do {
+                try engine.start()
+                engineLog.notice("engine: restarted a stopped engine before play()")
+            } catch {
+                // Refuse rather than proceed. Silence with a log is a bad outcome; an
+                // abort in an unrelated frame minutes later is a far worse one.
+                engineLog.error("engine: could not restart before play(): \(error.localizedDescription, privacy: .public)")
+                return
+            }
         }
         node(deck).play()
     }
