@@ -494,9 +494,21 @@ public final class MusicLibraryStore {
         // Prefer true "similar" tracks. Many self-hosted Navidrome servers have no Last.fm agent,
         // so getSimilarSongs2 returns nothing — fall back to random library tracks so autoplay
         // ("continuous radio") keeps playing instead of stopping at the queue's end. (autoplay fix)
-        let similar = (try? await client.getSimilarSongs(id: seedID)) ?? []
+        // Never the seed itself. A song is not similar to itself, and every caller here
+        // either starts a radio with `[seed] + similar` or shows a "related" shelf — so a
+        // seed that comes back in its own results is a duplicate in the queue with the
+        // same id, which also puts the now-playing indicator on two rows at once.
+        //
+        // Both server paths can return it: Last.fm-backed `getSimilarSongs` includes the
+        // seed on some servers, and the random fallback has no reason not to. The demo path
+        // has always filtered it, which is exactly the sort of inconsistency that hides a
+        // bug — one of the four radio call sites filtered too, and the other three did not.
+        // Doing it here fixes all of them, and the "related" and "because you liked"
+        // shelves as well.
+        let similar = ((try? await client.getSimilarSongs(id: seedID)) ?? [])
+            .filter { $0.id != seedID }
         if !similar.isEmpty { return similar }
-        return (try? await client.getRandomSongs()) ?? []
+        return ((try? await client.getRandomSongs()) ?? []).filter { $0.id != seedID }
     }
 
     /// A one-off album list of a given `getAlbumList2` kind (newest / random / frequent …),

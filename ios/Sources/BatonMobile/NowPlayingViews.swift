@@ -201,6 +201,7 @@ struct FullPlayerView: View {
 
                         scrubber
                         transport
+                        volumeRow
                         secondaryControls(for: song)
                         // The stars are five targets wide, so they get their own line
                         // rather than squeezing the icon row.
@@ -409,6 +410,43 @@ struct FullPlayerView: View {
             }
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Repeat \(model.music.repeatMode.rawValue)")
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// Baton's own level, which the phone had no way to see or change.
+    ///
+    /// The Mac carries this in three places and a menu; the phone carried it nowhere, so
+    /// `volumePercent` was reachable only through the music friend — meaning "turn it down"
+    /// left you with a quiet player and no control to undo it. This is not the system
+    /// volume (that is what the hardware buttons are for); it is Baton's own attenuation,
+    /// the same value the Mac's slider drives, so the two platforms mean the same thing by
+    /// the word.
+    ///
+    /// Not `MusicVolumeControl` from the Mac, deliberately: that one is built around a
+    /// scroll wheel and hover tooltips, neither of which a phone has. Shared concept,
+    /// different instrument.
+    private var volumeRow: some View {
+        HStack(spacing: 10) {
+            Button { model.music.toggleMute() } label: {
+                Image(systemName: model.music.isMuted || model.music.volumePercent == 0
+                      ? "speaker.slash.fill" : "speaker.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(model.music.isMuted ? 1 : 0.6))
+                    .frame(width: 18)
+            }
+            .accessibilityLabel(model.music.isMuted ? "Unmute" : "Mute")
+
+            Slider(
+                value: Binding(
+                    get: { Double(model.music.volumePercent) },
+                    set: { model.music.setVolume(percent: Int($0)) }
+                ),
+                in: 0 ... 100
+            )
+            .tint(accent)
+            .accessibilityLabel("Volume")
+            .accessibilityValue("\(model.music.volumePercent) percent")
         }
         .padding(.horizontal, 16)
     }

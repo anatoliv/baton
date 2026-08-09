@@ -234,6 +234,30 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.6",
+            date: "August 2026",
+            highlight: "An experimental audio engine, and a radio that no longer repeats itself.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "Settings \u{2192} Advanced \u{2192} Experimental audio engine plays "
+                        + "music streamed from your server through Baton's own pipeline. It is "
+                        + "what makes the equalizer work on streamed music \u{2014} on the "
+                        + "standard player the equalizer has only ever affected downloads. It "
+                        + "also lets Baton send its own audio to a chosen speaker without moving "
+                        + "every other app's. It costs noticeably more power, so it is off unless "
+                        + "you turn it on."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Starting a radio from a track listed that track twice at the top of "
+                        + "the queue, with the playing indicator on both rows. The same fix "
+                        + "removes it from the Related and Because You Liked shelves, which were "
+                        + "quietly including the track you were already listening to."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.5",
             date: "August 2026",
             highlight: "The bars move with the music, and the heart is everywhere it should be.",

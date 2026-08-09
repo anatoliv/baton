@@ -45,6 +45,16 @@ final class MobileModel {
 
     @ObservationIgnored private let audioSession: MobileAudioSession
 
+    // MARK: - Experimental audio engine (docs/audio-engine-ios.md)
+
+    /// Opt-in AVAudioEngine deck for library streams, mirroring the Mac's setting. It is
+    /// what makes the equalizer and the live now-playing bars work on *streamed* audio:
+    /// the tap-based path they use today (`MTAudioProcessingTap`) never runs for an
+    /// HTTP-streamed AVPlayer item, so on this phone the ten-band equalizer in Settings
+    /// has only ever affected downloads. Podcasts, downloads and radio stay on AVPlayer.
+    static let experimentalEngineKey = "baton.music.experimentalEngine"
+    @ObservationIgnored private(set) var engineBridge: EngineDeckBridge?
+
     /// True once a server is configured — gates the onboarding flow.
     var isConfigured: Bool { NavidromeConfig.isConfigured }
 
@@ -153,6 +163,7 @@ final class MobileModel {
         handoff = QueueHandoff(controller: controller)
         audioSession = MobileAudioSession(controller: controller)
         audioSession.configure()
+        installExperimentalEngineIfEnabled()
 
         // Podcasts: resume where the episode left off, and record progress so the
         // Mac (via future gateway sync) and this phone agree on played state.
@@ -358,5 +369,82 @@ final class MobileModel {
         isDemoMode = false
         credentialsRejected = false
         showsSetup = true
+    }
+
+    // MARK: - Experimental audio engine
+
+    /// Hand the controller a way to build the engine deck, rather than a built one.
+    ///
+    /// The Mac constructs its deck in the composition root. The phone cannot: an
+    /// `AVAudioEngine` will not start without an active `AVAudioSession`, and activating
+    /// the session at launch cuts off whatever the user is already listening to. So the
+    /// deck is built at the first moment a library stream is genuinely about to play,
+    /// which is the same moment activating the session is warranted anyway.
+    ///
+    /// A failure to build degrades to AVPlayer in silence — the same behaviour as the Mac
+    /// with no output device. The experiment must never be able to cost someone playback.
+    /// Turn the experiment on or off while the app is running, on the track already
+    /// playing.
+    ///
+    /// This is what the Settings copy promises, and until now it was untrue: the provider
+    /// was installed once in `init` and nowhere else, so flipping the switch did nothing
+    /// until the next launch. Playing music therefore stayed on AVPlayer, where the tap
+    /// never runs for a stream — so switching equalizer presets was silent, and the
+    /// equalizer looked broken when the real fault was a switch that wasn't wired.
+    func setExperimentalEngine(_ enabled: Bool) {
+        if enabled {
+            installExperimentalEngineIfEnabled(force: true)
+        } else {
+            // Order matters: clear the provider first so the reload below cannot simply
+            // build a new deck, then detach — which stops the deck and drops the routing
+            // flag, leaving the reload to land on AVPlayer.
+            music.engineDeckProvider = nil
+            music.attachEngineDeck(nil)
+            engineBridge = nil
+        }
+        music.reloadCurrentTrackForDeckChange()
+    }
+
+    private func installExperimentalEngineIfEnabled(force: Bool = false) {
+        guard force || UserDefaults.standard.bool(forKey: Self.experimentalEngineKey) else { return }
+        music.engineDeckProvider = { [weak self] in
+            guard let self else { return nil }
+            audioSession.activateForPlayback()
+            guard let bridge = try? EngineDeckBridge.deviceBridge() else { return nil }
+            engineBridge = bridge
+            bridge.startMetering(into: AudioLevelMonitor.shared.snapshot)
+            pushEQToEngineAndKeepWatching()
+            return bridge
+        }
+        audioSession.onMediaServicesReset = { [weak self] in self?.rebuildEngineAfterReset() }
+    }
+
+    /// Keep the engine deck's EQ in lockstep with `MusicEqualizer` — same mechanism as the
+    /// Mac. The tap path publishes coefficients the render tap pulls; the engine's EQ is an
+    /// `AVAudioUnitEQ` that wants bands pushed, and observation tracking re-pushes on every
+    /// edit. This is also what makes the toggle live with no stream reload.
+    private func pushEQToEngineAndKeepWatching() {
+        guard let bridge = engineBridge else { return }
+        let apply = { [equalizer] in
+            bridge.applyEQ(bands: equalizer.bands, enabled: equalizer.isEnabled)
+        }
+        withObservationTracking {
+            apply()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.pushEQToEngineAndKeepWatching() }
+        }
+    }
+
+    /// The audio server died: every CoreAudio object we hold is a dead handle. Detach the
+    /// corpse and re-arm the provider so the next track builds a fresh engine.
+    ///
+    /// Rebuilding eagerly here would be wrong twice over — the session is inactive, and
+    /// doing it while the user is not playing anything would activate the session behind
+    /// their back. Re-arming defers the rebuild to the next real play, which is the same
+    /// rule the cold-launch path follows.
+    private func rebuildEngineAfterReset() {
+        music.attachEngineDeck(nil)
+        engineBridge = nil
+        installExperimentalEngineIfEnabled()
     }
 }

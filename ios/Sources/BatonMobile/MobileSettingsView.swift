@@ -14,6 +14,7 @@ struct MobileSettingsView: View {
     @State private var credentialsUnlocked = false
     @AppStorage(CrashReporting.enabledKey) private var sendsCrashReports = false
     @AppStorage("baton.display.keepAwake") private var keepAwake = false
+    @AppStorage(MobileModel.experimentalEngineKey) private var experimentalEngine = false
     @State private var showsWhatsNew = false
     /// A footer's "Learn more" opens Help at the topic it just requested.
     @State private var showsHelp = false
@@ -203,6 +204,28 @@ struct MobileSettingsView: View {
                         topic: SettingsHelpTopic.equalizer,
                         onOpenHelp: { showsHelp = true }
                     )
+                }
+
+                Section {
+                    Toggle("Experimental audio engine", isOn: $experimentalEngine)
+                        .accessibilityIdentifier("settings.experimentalEngine")
+                        .onChange(of: experimentalEngine) { _, isOn in
+                            // Without this the switch only took effect at the next launch,
+                            // while the text below promised otherwise.
+                            model.setExperimentalEngine(isOn)
+                        }
+                } header: {
+                    Text("Advanced")
+                } footer: {
+                    Text("""
+                    Plays music streamed from your server through Baton's own audio \
+                    pipeline instead of the system player. This is what makes the \
+                    equalizer and the moving bars work on streamed music — on the \
+                    standard player they only affect downloaded tracks. Podcasts, \
+                    downloads and radio keep using the standard player. While it is on, \
+                    gapless and crossfade are skipped, so track changes are plain cuts. \
+                    It applies straight away, to whatever is playing.
+                    """)
                 }
 
                 Section {

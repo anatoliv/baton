@@ -55,6 +55,23 @@ enum WidgetBridge {
         let state = NowPlayingActivityAttributes.ContentState(
             title: song.title, artist: song.artist, isPlaying: isPlaying
         )
+        // A Live Activity outlives the app that started it — that is the whole point of one
+        // — but `activity` is an in-memory handle that does not. After a relaunch the
+        // handle is nil while the card is still on the lock screen, so requesting another
+        // stacks a second card next to an orphan nothing can update. Reinstall a few times
+        // in a day and you have a little pile of them, only the newest responding.
+        //
+        // So before starting anything, adopt what the system says is already running: keep
+        // one, end the rest. `Activity.activities` is the only source of truth here, and
+        // it survives the launch that loses our handle.
+        if activity == nil {
+            let alreadyRunning = Activity<NowPlayingActivityAttributes>.activities
+            activity = alreadyRunning.first
+            for orphan in alreadyRunning.dropFirst() {
+                Task { await orphan.end(nil, dismissalPolicy: .immediate) }
+            }
+        }
+
         if let running = activity {
             Task { await running.update(ActivityContent(state: state, staleDate: nil)) }
         } else {

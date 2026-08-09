@@ -2,6 +2,11 @@ import AVFAudio
 import SwiftUI
 import WatchConnectivity
 
+/// **PARKED — not a shipping product.** See `docs/watch-app-parked.md`. This target gets no
+/// new work; it is kept compiling by `scripts/test.sh` so it does not rot again (it silently
+/// stopped building twice, and nobody noticed either time, because nothing built it). If you
+/// are here to add a feature, check that decision first.
+///
 /// Baton on the wrist — standalone playback over the same shared engine as the Mac
 /// and iPhone (the thing only NaviBeat ships today). The server config arrives from
 /// the paired iPhone over WatchConnectivity's encrypted channel; after that the

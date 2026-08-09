@@ -733,6 +733,7 @@ private struct BatonPlaybackPane: View {
     /// Whether the niche "Advanced" area (filter history) is expanded. Persisted so
     /// power users who open it keep it open; collapsed by default for everyone else.
     @AppStorage("baton.settings.playbackAdvancedExpanded") private var advancedExpanded = false
+    @AppStorage(MusicModel.experimentalEngineKey) private var experimentalEngine = false
 
     /// Fixed width for the trailing value labels on the Sound sliders, so Pre-amp and
     /// Crossfade line up identically down the right edge.
@@ -994,6 +995,19 @@ private struct BatonPlaybackPane: View {
                 Text("How many recent filter terms each browse screen's search box remembers. Each screen keeps its own history.")
                     .font(.callout).foregroundStyle(.secondary)
                 Button("Clear filter history", role: .destructive) { FilterHistory.clearAll() }
+
+                Divider()
+
+                Toggle("Experimental audio engine", isOn: $experimentalEngine)
+                Text("""
+                Plays **library streams** through Baton's own decode pipeline (AVAudioEngine) \
+                instead of the system player — which makes the equalizer and the live \
+                now-playing bars work on streamed audio. Podcasts, downloaded files, and \
+                internet radio stay on the standard player. While active, crossfade and \
+                gapless are ignored (track changes are plain cuts) and AirPlay falls back to \
+                realtime mirroring. Takes effect after relaunching Baton.
+                """)
+                    .font(.callout).foregroundStyle(.secondary)
             } label: {
                 Text("Advanced")
             }

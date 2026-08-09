@@ -35,6 +35,29 @@ final class VoiceInput {
 
     var isListening: Bool { state == .listening }
 
+    #if DEBUG
+    /// Suppresses the speech-recognition permission dialog under UI test. See `start()`.
+    static let skipSpeechAuthorizationArgument = "-uitestSkipSpeechAuthorization"
+
+    /// True in **any** test run, unit or UI — not merely when a launch argument was passed.
+    ///
+    /// The launch argument alone was not enough, and the way it failed is worth keeping.
+    /// `VoiceInputCrashTests` calls `start()` three times to exercise the dispatch-isolation
+    /// crash fix. Those are *unit* tests, so they never see a UI test's launch arguments —
+    /// and each call raised the speech-permission dialog inside the test host. The dialog
+    /// is drawn by SpringBoard and outlives the suite that raised it, so every UI test
+    /// scheduled afterwards ran behind a modal alert nobody could tap.
+    ///
+    /// That is what produced a "twenty-one minute iPad hang" which was neither a hang nor
+    /// about the iPad: running the unit suite and the UI suite in one invocation was the
+    /// only thing that mattered. The same invocation on a freshly erased iPhone did it too,
+    /// and a UI test run on its own passed on both. Ordering, not platform.
+    static var isUnderTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.arguments.contains(skipSpeechAuthorizationArgument)
+    }
+    #endif
+
     /// Starts listening. Music pauses (audio focus), the session flips to
     /// play-and-record, and partial results stream into `transcript`.
     func start() async {
@@ -50,6 +73,22 @@ final class VoiceInput {
         // [com.apple.main-thread]`. That is a hard crash, not a warning, and it is what
         // happened every time anyone tapped the microphone. `@Sendable` opts the closure
         // out of inheriting the isolation, which is the truth of where it runs.
+        #if DEBUG
+        // UI tests must never be able to raise this dialog. `simctl privacy` cannot
+        // pre-grant speech recognition — it is not among the services that command knows —
+        // and the alert is drawn by SpringBoard, app-modal, so it blocks every subsequent
+        // tap no matter which screen is behind it.
+        //
+        // That is not hypothetical. On iPad, where the layout differs, a stray tap reached
+        // the Friend tab's microphone; the dialog went up on the setup screen and three
+        // tests then burned their timeouts behind it, twenty-one minutes of what looked
+        // exactly like a hang. Mirrors `-uitestBypassBiometrics`; never in a release build.
+        if Self.isUnderTest {
+            state = .denied("Speech recognition is disabled under test.")
+            return
+        }
+        #endif
+
         let speechAuthorized = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { @Sendable status in
                 continuation.resume(returning: status == .authorized)

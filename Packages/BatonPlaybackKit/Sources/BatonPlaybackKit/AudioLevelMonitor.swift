@@ -115,11 +115,19 @@ public final class AudioLevelMonitor {
         // (platform behaviour, verified empirically). When the tap is silent but an offline
         // envelope of this track exists, read the levels at the playhead instead: the same
         // analyzer over the same bytes, just computed ahead of time.
+        // `TrackLevelTimeline` is itself `#if !os(watchOS)` — offline analysis needs
+        // AVFoundation's reader, which the watch does not get — but this call was not
+        // guarded to match, so the watch app stopped compiling the day the fallback landed
+        // and nobody noticed for as long as nothing built it. That is the same hole the
+        // engine merge fell through on iOS: a gate that builds one of three apps says
+        // nothing about the other two.
+        #if !os(watchOS)
         if next.peak == 0, let playhead = playheadProvider?(), playhead.playing,
            let id = playhead.id,
            let fromEnvelope = TrackLevelTimeline.levels(id: id, at: playhead.time) {
             next = fromEnvelope
         }
+        #endif
         // Only republish on a visible change: `@Observable` invalidates every reader on
         // assignment, and a still meter shouldn't redraw the list 24 times a second.
         if Self.differs(next, levels) { levels = next }
