@@ -31,6 +31,12 @@ final class AgentClient {
     struct Reply {
         var text: String
         var toolCallsMade: Int
+        /// The calls with their arguments. A count cannot explain a wrong track; the query
+        /// that was actually sent usually can.
+        var toolCalls: [FriendExchange.Action] = []
+        /// True when something the model did actually started playback — the only honest
+        /// basis for recording "this is what it played".
+        var startedPlayback: Bool = false
     }
 
     enum AgentError: Error, LocalizedError {
@@ -53,6 +59,14 @@ final class AgentClient {
     /// After a successful failover, route straight to the fallback until the user
     /// touches configuration — the degraded latch.
     private var degradedToFallback = false
+
+    /// What this person has told the friend it got wrong, as a prompt block.
+    ///
+    /// A closure rather than a stored value: corrections change while the app runs, and a
+    /// snapshot taken at construction would mean a thumbs-down never affected anything
+    /// until the next launch — which is the version of this feature that looks finished
+    /// and does nothing.
+    var learnedCorrections: (@MainActor () -> String?)?
 
     init(tools: AgentTools, player: StreamingPlaybackController, config: AgentConfig) {
         self.tools = tools
@@ -251,11 +265,14 @@ final class AgentClient {
                 tools: RemoteAgent.toolSchemas(definitions: tools.definitions()),
                 runTool: { [tools] call in
                     await tools.run(name: call.name, arguments: call.jsonArguments, sessionID: nil)
-                }
+                },
+                learned: learnedCorrections?()
             )
             let text = outcome.choice?.rendered() ?? outcome.text
             remember(message, text)
-            return Reply(text: text, toolCallsMade: outcome.toolsRun.count)
+            return Reply(text: text, toolCallsMade: outcome.toolsRun.count,
+                         toolCalls: outcome.toolCalls,
+                         startedPlayback: outcome.toolsRun.contains(where: RemoteAgent.startsPlayback.contains))
         } catch let error as URLError {
             throw AgentError.http(error.errorCode, "The model endpoint was unreachable.")
         } catch {

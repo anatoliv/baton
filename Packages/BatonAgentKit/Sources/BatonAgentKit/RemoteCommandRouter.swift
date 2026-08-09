@@ -13,6 +13,13 @@ import BatonSubsonicModels
 /// apart in what they accept or what they permit.
 @MainActor
 public final class RemoteCommandRouter {
+    /// The feedback log, when the host keeps one. Every answer given over a chat bridge is
+    /// recorded here for the same reason the phone's are: a log that covers one surface and
+    /// silently skips the others is worse than none, because it looks complete.
+    public var feedbackLog: FriendFeedbackLog?
+    /// What this person has said the friend got wrong, fed back into its prompt.
+    public var learning: FriendLearningStore?
+
     private let player: StreamingPlaybackController
     private let tools: RemoteToolSurface
     private let focus: BatonAudioFocusRegistry
@@ -84,7 +91,8 @@ public final class RemoteCommandRouter {
                 return (RemoteAgentResults.annotate(
                     shaped, tool: call.name, memory: self.memory,
                     recentPicks: self.memory.recentPicks(key: chatKey)), false)
-            }
+            },
+            learned: self.learning?.promptBlock
         )
     }
 
@@ -120,6 +128,13 @@ public final class RemoteCommandRouter {
     }
 
     private func route(_ inbound: RemoteInbound) async -> RemoteReply? {
+        // Rating the last answer, before anything else looks at the text.
+        //
+        // Deliberately ahead of the parser: a lone "👎" is not a command and is not a
+        // question, and letting it fall through to the model would have it earnestly
+        // interpret a complaint about itself as a request for music.
+        if isAuthorized(inbound), let reply = rateLastExchange(inbound) { return reply }
+
         let action = RemoteCommandParser.parse(inbound.text)
         if case .ignore = action { return nil }
 
@@ -295,8 +310,25 @@ public final class RemoteCommandRouter {
         }
         do {
             let key = RemoteConversationLog.key(for: inbound)
+            let askedAt = Date()
             let outcome = try await resolveAgent(
                 text, conversation.history(for: key), await agentContext(for: inbound), key)
+
+            // Recorded here rather than on the phone only. A log covering one surface and
+            // silently skipping the rest is worse than no log: it reads as complete, so a
+            // fortnight of chat-bridge conversations leaves no trace and the tally quietly
+            // describes the phone alone.
+            if let feedbackLog {
+                feedbackLog.record(FriendExchange(
+                    date: askedAt,
+                    surface: Self.surface(for: inbound),
+                    request: text,
+                    reply: outcome.text,
+                    actions: outcome.toolCalls,
+                    latency: Date().timeIntervalSince(askedAt),
+                    model: settings.naturalLanguage.model
+                ))
+            }
 
             // Remember what it started, so "surprise me" stops surprising you
             // with the same three tracks. The reply's own first line is the
@@ -310,6 +342,61 @@ public final class RemoteCommandRouter {
             remoteLog.error("Agent turn failed: \(error.localizedDescription, privacy: .public)")
             return .failure(error)
         }
+    }
+
+    /// One router serves both bridges, so the surface has to come from the message.
+    ///
+    /// It was a stored property defaulting to `.telegram` that nothing ever assigned, so
+    /// every Discord conversation was logged as Telegram and a Discord thumb rated whatever
+    /// the newest bridge exchange happened to be — the precise misattribution the tests
+    /// claimed to guard against.
+    static func surface(for inbound: RemoteInbound) -> FriendExchange.Surface {
+        switch inbound.platform {
+        case .telegram: .telegram
+        case .discord: .discord
+        }
+    }
+
+    /// A bare thumb rates the most recent answer on this surface.
+    ///
+    /// Nothing more elaborate on a chat bridge: there are no buttons to attach a fault to,
+    /// and asking a follow-up question ("which of these four things went wrong?") turns a
+    /// one-second gesture into a conversation nobody will have twice. A plain thumbs-down
+    /// with the message text kept as the note is worth more than a fault taxonomy nobody
+    /// fills in — and the words people actually type after a bad answer are usually the
+    /// most useful thing in the whole record.
+    private func rateLastExchange(_ inbound: RemoteInbound) -> RemoteReply? {
+        guard let feedbackLog else { return nil }
+        let text = inbound.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let up = ["👍", "👍🏻", "👍🏼", "👍🏽", "👍🏾", "👍🏿", "+1"]
+        let down = ["👎", "👎🏻", "👎🏼", "👎🏽", "👎🏾", "👎🏿", "-1"]
+
+        let rating: FriendExchange.Rating
+        if up.contains(text) { rating = .up }
+        else if down.contains(text) { rating = .down }
+        else if let first = text.first, down.contains(String(first)), text.count > 1 {
+            // "👎 I meant the live version" — the thumb plus the reason, in one message.
+            rating = .down
+        } else { return nil }
+
+        let surface = Self.surface(for: inbound)
+        guard let last = feedbackLog.exchanges.first(where: { $0.surface == surface })
+        else { return .init(text: "Nothing to rate yet.") }
+
+        // Strip the *marker*, not one character. `dropFirst()` on "-1" left the note "1",
+        // and on "+1" attached that same "1" to a thumbs-up.
+        let marker = (up + down).first { text.hasPrefix($0) } ?? ""
+        let note = String(text.dropFirst(marker.count)).trimmingCharacters(in: .whitespaces)
+        feedbackLog.rate(last.id, rating, note: note.isEmpty ? nil : note)
+        if rating == .down, let updated = feedbackLog.exchanges.first(where: { $0.id == last.id }) {
+            // Words go to the memory store this router already owns, where they read as
+            // guidance and inherit its caps, provenance and `memories`/`forget` UX.
+            learning?.memory = memory
+            learning?.learn(from: updated)
+        } else if rating == .up, let updated = feedbackLog.exchanges.first(where: { $0.id == last.id }) {
+            learning?.retireIfApproved(updated)
+        }
+        return .init(text: rating == .up ? "Noted — thank you." : "Noted. I'll bear that in mind.")
     }
 
     /// Turn an agent result into a reply, arming the auto-pick when it ended by
@@ -465,9 +552,8 @@ public final class RemoteCommandRouter {
     ]
 
     /// Tools that put something new on: what gets logged as a recent pick.
-    static let startsPlayback: Set<String> = [
-        "music_play", "music_build_mix", "music_play_playlist", "music_start_radio",
-    ]
+    /// Lives on `RemoteAgent` so the phone can ask the same question.
+    static var startsPlayback: Set<String> { RemoteAgent.startsPlayback }
 
     /// Tools whose result leaves the user looking at playback state, and which
     /// therefore deserve transport buttons under the reply.

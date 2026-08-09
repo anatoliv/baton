@@ -12,9 +12,12 @@ struct MusicFriendView: View {
         let id = UUID()
         var role: Role
         var text: String
+        /// The logged exchange this reply belongs to, so a thumb knows what it is rating.
+        var exchangeID: UUID?
     }
 
     @State private var messages: [Message] = []
+    @State private var showsLog = false
     @State private var draft = ""
     @State private var isThinking = false
     /// Speak the friend's replies aloud when the message arrived by voice.
@@ -34,7 +37,9 @@ struct MusicFriendView: View {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             if messages.isEmpty { emptyState }
                             ForEach(messages) { message in
-                                MessageBubble(message: message)
+                                MessageBubble(message: message, rate: message.exchangeID.map { id in
+                                    { rating, fault in model.rateFriendExchange(id, rating, fault: fault) }
+                                })
                                     .id(message.id)
                             }
                             if isThinking {
@@ -63,15 +68,31 @@ struct MusicFriendView: View {
                     Button("Done") { inputFocused = false }
                 }
             }
+            .sheet(isPresented: $showsLog) { FriendLogView(log: model.friendLog, learning: model.friendLearning) }
             .rootScreenHeader("Music Friend", subtitle: modelLine) {
-                Button {
-                    messages = []
-                    model.agent.resetConversation()
-                } label: {
-                    Image(systemName: "square.and.pencil")
+                // Absent rather than disabled when there is nothing to clear.
+                //
+                // It was `.disabled(messages.isEmpty)`, and this header's accessory does
+                // not render the dimming — so on an empty conversation it looked like a
+                // live control, read as an edit button, and did nothing when tapped. A
+                // control that cannot respond is worse than one that is not there: the
+                // first makes people doubt the app, the second tells them the truth.
+                HStack(spacing: 14) {
+                    Button { showsLog = true } label: {
+                        Image(systemName: "list.bullet.rectangle")
+                    }
+                    .accessibilityLabel("Friend log")
+
+                    if !messages.isEmpty {
+                        Button {
+                            messages = []
+                            model.agent.resetConversation()
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                        }
+                        .accessibilityLabel("New conversation")
+                    }
                 }
-                .disabled(messages.isEmpty)
-                .accessibilityLabel("New conversation")
             }
         }
     }
@@ -178,10 +199,32 @@ struct MusicFriendView: View {
         messages.append(Message(role: .user, text: text))
         isThinking = true
         let spoken = lastMessageWasVoice
+        let askedAt = Date()
         Task {
             do {
                 let reply = try await model.agent.send(text)
-                messages.append(Message(role: .friend, text: reply.text))
+                // Recorded before it is shown, so the id the reply carries is the id the
+                // thumbs write to. What played is read from the player rather than parsed
+                // out of the answer: the answer is prose, and prose about what happened is
+                // not evidence of what happened.
+                let exchange = FriendExchange(
+                    date: askedAt,
+                    surface: .phone,
+                    request: text,
+                    reply: reply.text,
+                    actions: reply.toolCalls,
+                    // Only when a tool actually started something. Reading `nowPlaying`
+                    // unconditionally logged the track that was already on as though the
+                    // friend had chosen it — so asking "what is this?" recorded a pick it
+                    // never made, and every wrong-track diagnosis started from a lie.
+                    played: reply.startedPlayback
+                        ? (model.music.nowPlaying.map { [$0.title] } ?? [])
+                        : [],
+                    latency: Date().timeIntervalSince(askedAt),
+                    model: model.agentConfig.model
+                )
+                model.friendLog.record(exchange)
+                messages.append(Message(role: .friend, text: reply.text, exchangeID: exchange.id))
                 if spoken, speakReplies {
                     speak(reply.text)
                 }
@@ -203,17 +246,59 @@ struct MusicFriendView: View {
 
 private struct MessageBubble: View {
     let message: MusicFriendView.Message
+    var rate: ((FriendExchange.Rating, FriendExchange.Fault?) -> Void)?
+
+    @State private var rating: FriendExchange.Rating?
+    @State private var showsFaultPicker = false
 
     var body: some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 48) }
-            Text(message.text)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(background, in: RoundedRectangle(cornerRadius: 16))
-                .foregroundStyle(message.role == .user ? Color.white : .primary)
-                .font(message.role == .status ? .footnote : .body)
-            if message.role != .user { Spacer(minLength: 48) }
+        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+            HStack {
+                if message.role == .user { Spacer(minLength: 48) }
+                Text(message.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(background, in: RoundedRectangle(cornerRadius: 16))
+                    .foregroundStyle(message.role == .user ? Color.white : .primary)
+                    .font(message.role == .status ? .footnote : .body)
+                if message.role != .user { Spacer(minLength: 48) }
+            }
+            // Only on answers, and only once there is something to rate against.
+            //
+            // Quiet by default: a pair of thumbs under every reply, at caption weight,
+            // that colour in once used. Loud rating controls make a conversation feel like
+            // a survey, and a survey is the thing people stop filling in.
+            if message.role == .friend, message.exchangeID != nil, let rate {
+                HStack(spacing: 14) {
+                    Button {
+                        rating = .up
+                        rate(.up, nil)
+                    } label: {
+                        Image(systemName: rating == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
+                    }
+                    .accessibilityLabel("Good answer")
+
+                    Button {
+                        rating = .down
+                        showsFaultPicker = true
+                    } label: {
+                        Image(systemName: rating == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    }
+                    .accessibilityLabel("Poor answer")
+                }
+                .font(.caption)
+                .foregroundStyle(rating == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .confirmationDialog("What went wrong?", isPresented: $showsFaultPicker, titleVisibility: .visible) {
+                    // The fault, not the severity. "Bad" cannot be acted on; "it understood
+                    // me and picked the wrong track" points straight at tool arguments.
+                    ForEach(FriendExchange.Fault.allCases, id: \.self) { fault in
+                        Button(fault.label) { rate(.down, fault) }
+                    }
+                    Button("Just wrong", role: .cancel) { rate(.down, nil) }
+                }
+            }
         }
         .padding(.horizontal, 12)
     }

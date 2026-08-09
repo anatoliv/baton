@@ -49,9 +49,44 @@ public enum RemoteAgent {
         /// Tool calls that actually ran, in order — the router uses these to
         /// decide on transport buttons, and tests use them to see the reasoning.
         public var toolsRun: [String] = []
+        /// The same calls with their **arguments**, for the feedback log.
+        ///
+        /// Names alone cannot explain a bad answer. "Wrong track" is almost never a wrong
+        /// *tool* — it is `music_search` carrying a query nobody would have typed — so a
+        /// log holding only names records that something happened and not what. Kept
+        /// separate from `toolsRun` so the router's button logic and every existing test
+        /// are untouched.
+        public var toolCalls: [FriendExchange.Action] = []
         /// Set when the model ended by asking the person to choose.
         public var choice: RemoteChoicePrompt?
     }
+
+    /// Arguments as a short readable string. The log is read by a person, so this favours
+    /// legibility over round-tripping: `query: deep house, limit: 20` rather than JSON.
+    static func describe(_ arguments: [String: Any]) -> String {
+        arguments.keys.sorted()
+            .map { key in "\(key): \(String(describing: arguments[key] ?? ""))" }
+            .joined(separator: ", ")
+    }
+
+    /// The first few lines of a tool result — what the model had in front of it.
+    ///
+    /// Bounded hard: these end up in a log a person reads and in a file that must not grow
+    /// without limit, and the head is where the candidates are. The tail of a fifty-track
+    /// search result answers no question anyone asks afterwards.
+    static func candidateHead(_ text: String, lines: Int = 5, characters: Int = 400) -> String {
+        let head = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .prefix(lines)
+            .joined(separator: "\n")
+        return head.count <= characters ? head : String(head.prefix(characters)) + "…"
+    }
+
+    /// Tools that put something new on — the only honest basis for "this is what it
+    /// played". Anything else and a question like "what is this?" logs the track that was
+    /// already playing as though the friend had chosen it.
+    public static let startsPlayback: Set<String> = [
+        "music_play", "music_build_mix", "music_play_playlist", "music_start_radio",
+    ]
 
     // MARK: - System prompt
 
@@ -170,6 +205,9 @@ public enum RemoteAgent {
         tools: RemoteToolSchemas,
         runTool: ToolRunner,
         turn: Turn? = nil,
+        /// What this person has told the agent it got wrong before. Evidence about their
+        /// meaning, appended to the prompt — see `FriendLearningStore`.
+        learned: String? = nil,
         now: @Sendable () -> Date = Date.init
     ) async throws -> Outcome {
         guard config.isConfigured else { throw RemoteNaturalLanguage.Failure.notConfigured }
@@ -182,7 +220,7 @@ public enum RemoteAgent {
             let isFirstTurn = forcesFirstToolCall && messages.last?.role == "user"
             return try await requestTurn(
                 messages, tools: schemas, config: config,
-                playerContext: playerContext, forceTool: isFirstTurn
+                playerContext: playerContext, forceTool: isFirstTurn, learned: learned
             )
         }
 
@@ -191,6 +229,7 @@ public enum RemoteAgent {
         messages.append(RemoteAgentMessage(role: "user", text: message))
 
         var toolsRun: [String] = []
+        var toolCalls: [FriendExchange.Action] = []
         var lastText = ""
         /// Spent once per exchange — see the `step.calls.isEmpty` branch.
         var nudgedToAct = false
@@ -252,7 +291,7 @@ public enum RemoteAgent {
                     messages.append(RemoteAgentMessage(role: "user", text: Self.followThroughNotice))
                     continue
                 }
-                return Outcome(text: Self.sanitize(lastText), toolsRun: toolsRun)
+                return Outcome(text: Self.sanitize(lastText), toolsRun: toolsRun, toolCalls: toolCalls)
             }
 
             // A choice ends the exchange — the next thing that happens is up to
@@ -270,6 +309,7 @@ public enum RemoteAgent {
                 return Outcome(
                     text: lastText.isEmpty ? prompt.question : Self.sanitize(lastText),
                     toolsRun: toolsRun,
+                    toolCalls: toolCalls,
                     choice: prompt
                 )
             }
@@ -285,6 +325,10 @@ public enum RemoteAgent {
             for pending in step.calls {
                 let (text, isError) = await runTool(pending.call)
                 toolsRun.append(pending.call.name)
+                toolCalls.append(.init(tool: pending.call.name,
+                                       arguments: Self.describe(pending.call.arguments),
+                                       succeeded: !isError,
+                                       candidates: Self.candidateHead(text)))
                 results.append(.init(id: pending.id, text: RemoteAgentResults.shape(text), isError: isError))
             }
             messages.append(RemoteAgentMessage(role: "tool_results", results: results))
@@ -302,7 +346,11 @@ public enum RemoteAgent {
 
         return Outcome(
             text: lastText.isEmpty ? "I looked, but couldn't finish that one." : Self.sanitize(lastText),
-            toolsRun: toolsRun
+            toolsRun: toolsRun,
+            // Was dropped here, which lost the arguments for precisely the longest,
+            // most tool-heavy exchanges — the ones a wrong track is most likely to
+            // come from.
+            toolCalls: toolCalls
         )
     }
 
@@ -384,11 +432,12 @@ public enum RemoteAgent {
         config: RemoteControlSettings.NaturalLanguageConfig,
         playerContext: String?,
         forceTool: Bool = false,
+        learned: String? = nil,
         session: URLSession = .shared
     ) async throws -> RemoteAgentStep {
         let request = try buildRequest(
             messages, tools: tools, config: config,
-            playerContext: playerContext, forceTool: forceTool)
+            playerContext: playerContext, forceTool: forceTool, learned: learned)
 
         // A model on your own network is one Wi-Fi hiccup away from an error the
         // reader can only interpret as "Baton is broken" — and three of 109 eval
@@ -438,9 +487,16 @@ public enum RemoteAgent {
         tools: RemoteToolSchemas,
         config: RemoteControlSettings.NaturalLanguageConfig,
         playerContext: String?,
-        forceTool: Bool = false
+        forceTool: Bool = false,
+        learned: String? = nil
     ) throws -> URLRequest {
-        let system = playerContext.map { systemPrompt + "\n\n" + $0 } ?? systemPrompt
+        // Order matters. The base prompt is the instructions; `learned` is evidence about
+        // this particular person; the player context is volatile state and stays last,
+        // where the tail of a prompt is cheapest to vary. Corrections sit between them:
+        // after the rules they qualify, before the state they have nothing to do with.
+        let system = [systemPrompt, learned, playerContext]
+            .compactMap { $0 }
+            .joined(separator: "\n\n")
 
         var request = URLRequest(url: try RemoteNaturalLanguage.endpoint(for: config))
         request.httpMethod = "POST"

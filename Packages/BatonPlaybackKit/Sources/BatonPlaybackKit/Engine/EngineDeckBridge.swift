@@ -126,6 +126,13 @@ public final class EngineDeckBridge {
 
     public func setPlaybackRate(_ rate: Float) { engine.playbackRate = rate }
 
+    /// The user's stall timeout, which never reached the engine.
+    ///
+    /// `stallTimeoutSeconds` is a setting someone can change, and while the engine deck
+    /// owned playback it was inert: there was no way across the bridge, so the engine kept
+    /// its default and the preference silently did nothing.
+    public func setStallTimeout(_ seconds: Double) { engine.stallTimeoutSeconds = seconds }
+
     /// EQ into the graph — live, no reload (the whole point; see the engine tests).
     public func applyEQ(bands: [EQBand], enabled: Bool) {
         engine.applyEQ(bands: bands, enabled: enabled)

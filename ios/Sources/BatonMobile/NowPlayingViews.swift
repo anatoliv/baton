@@ -300,6 +300,27 @@ struct FullPlayerView: View {
             .frame(width: 272, height: 272)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .shadow(color: Color.playingGlowTint(accent), radius: 24, y: 8)
+            // The heart belongs to the artwork, as it does on the Mac — a corner badge on
+            // the cover rather than one more grey glyph in a row of five. Applied after
+            // the clip so it sits on the corner of the image; inside the scale effect so
+            // it breathes with the cover instead of drifting away from it.
+            .overlay(alignment: .bottomTrailing) {
+                if !model.isDemoMode {
+                    let liked = model.musicLibrary.isLiked(song)
+                    Button {
+                        Task { await model.musicLibrary.toggleLike(song) }
+                    } label: {
+                        Image(systemName: liked ? "heart.fill" : "heart")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(liked ? accent : .white)
+                            .shadow(color: .black.opacity(0.55), radius: 3, y: 1)
+                            .padding(10)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(liked ? "Remove from Liked" : "Like")
+                }
+            }
             .scaleEffect(breatheScale)
             .frame(maxWidth: .infinity)
     }
@@ -455,19 +476,9 @@ struct FullPlayerView: View {
     /// live across the expanded bar; the phone gathers them where the thumb is.
     private func secondaryControls(for song: NavidromeSong) -> some View {
         HStack(spacing: 0) {
-            // Like drives a server-side star; in demo mode there is no server, so
-            // showing a heart that silently reverts would be worse than none.
-            if !model.isDemoMode {
-                Button {
-                    Task { await model.musicLibrary.toggleLike(song) }
-                } label: {
-                    let liked = model.musicLibrary.isLiked(song)
-                    Image(systemName: liked ? "heart.fill" : "heart")
-                        .foregroundStyle(liked ? accent : .white.opacity(0.6))
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel("Like")
-            }
+            // The like control now lives on the artwork's bottom-right corner, where the
+            // Mac has always kept it. Leaving a second one here would be the same
+            // affordance in two places — the drift this codebase keeps paying for.
 
             // Up Next opens a screen of its own. It used to be a List sharing this
             // view's VStack with the artwork, the scrubber and two rows of controls, so

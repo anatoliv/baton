@@ -234,6 +234,33 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.8",
+            date: "August 2026",
+            highlight: "Correctness in the experimental engine, and a music friend that learns.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "On the experimental audio engine: a stream that ended early "
+                        + "could advance the queue mid-song with no recovery, pausing and "
+                        + "immediately choosing another track left the new one silent, and "
+                        + "a pause during loading was ignored while the app showed paused."
+                ),
+                HelpWhatsNewChange(
+                    kind: .added,
+                    text: "The music friend keeps a record of what it was asked and what it "
+                        + "did, and learns from a thumbs-down sent over Telegram or Discord. "
+                        + "What you tell it you meant becomes something it remembers, "
+                        + "alongside everything else in Baton's memory."
+                ),
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Your stall timeout setting had no effect while the experimental "
+                        + "engine was playing, and its retry counters never reset after a "
+                        + "successful track."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.7",
             date: "August 2026",
             highlight: "The experimental engine no longer works while you are not listening.",

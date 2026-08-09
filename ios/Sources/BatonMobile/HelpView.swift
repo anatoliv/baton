@@ -233,6 +233,19 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.29",
+            date: "August 2026",
+            highlight: "Tell the music friend when it gets it wrong.",
+            changes: [
+                .init(.added, "A thumbs up or down under each of the friend's answers. A thumbs-down asks which of four things went wrong \u{2014} wrong track, misunderstood, too slow, too chatty \u{2014} because \u{201C}bad\u{201D} is not something anyone can act on."),
+                .init(.added, "A Friend log, from the list button at the top of the Friend screen. Every conversation, what the friend actually did about it, what it was looking at when it chose, and whether you skipped the track straight away. Faults are counted so you can see what goes wrong most."),
+                .init(.added, "It learns. Tell it \u{201C}I meant the Classic Trance playlist\u{201D} and that becomes something it knows about you, listed in the log and removable with a swipe."),
+                .init(.improved, "The like heart moved to the bottom-right corner of the artwork in the player, where the Mac has always kept it \u{2014} and it no longer appears on every row of a list where everything is liked."),
+                .init(.fixed, "The Lock Screen card could name a different track than the system did, when a track advanced on its own."),
+                .init(.fixed, "On the experimental engine: pausing and immediately picking another track left the new one silent, a pause during loading was ignored while the app showed paused, and a stream that ended early could skip to the next track mid-song."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.28",
             date: "August 2026",
             highlight: "The experimental engine stops working when you stop listening.",

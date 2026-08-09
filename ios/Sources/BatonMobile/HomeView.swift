@@ -318,6 +318,11 @@ struct MixDetailView: View {
                         .songContextMenu(song, model: model)
                 }
             }
+            // "Forgotten Favorites" is liked-by-construction, and a heart on every row
+            // said nothing while crowding the states that do vary. Decided from the list
+            // rather than from the mix's name, so any all-liked list gets the same
+            // treatment and a renamed mix cannot quietly lose it.
+            .likedByConstruction(!songs.isEmpty && songs.allSatisfy { model.musicLibrary.isLiked($0) })
         }
         .listStyle(.plain)
         .navigationTitle(mix.title)

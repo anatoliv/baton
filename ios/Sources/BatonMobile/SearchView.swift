@@ -236,9 +236,31 @@ struct SearchView: View {
 }
 
 /// The one shared song row: title/artist + artwork + the playing indicator.
+/// Whether a list is liked-by-construction, so its rows should not each wear a heart.
+///
+/// A badge that is true of every row carries no information — it is decoration that costs
+/// a glance. Set by the container, which is the only thing that knows what the list *is*;
+/// `SongRow` cannot see its own siblings.
+private struct HidesLikeBadgeKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var hidesLikeBadge: Bool {
+        get { self[HidesLikeBadgeKey.self] }
+        set { self[HidesLikeBadgeKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Marks a list whose every row is liked, so the per-row heart is suppressed.
+    func likedByConstruction(_ isLiked: Bool = true) -> some View {
+        environment(\.hidesLikeBadge, isLiked)
+    }
+}
+
 struct SongRow: View {
     let song: NavidromeSong
     let model: MobileModel
+    @Environment(\.hidesLikeBadge) private var hidesLikeBadge
 
     var body: some View {
         HStack {
@@ -257,7 +279,9 @@ struct SongRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if model.musicLibrary.isLiked(song) {
+            // Not in a list where everything is liked: there the heart is on every row,
+            // says nothing, and crowds the three signals that do vary.
+            if !hidesLikeBadge, model.musicLibrary.isLiked(song) {
                 Image(systemName: "heart.fill")
                     .font(.caption)
                     .foregroundStyle(.tint)

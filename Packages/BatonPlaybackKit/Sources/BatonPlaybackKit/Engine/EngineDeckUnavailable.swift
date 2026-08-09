@@ -51,6 +51,7 @@ public final class EngineDeckBridge {
     public func stopMetering() {}
     func suspendMetering() {}
     func resumeMetering() {}
+    public func setStallTimeout(_ seconds: Double) {}
 }
 
 #endif
