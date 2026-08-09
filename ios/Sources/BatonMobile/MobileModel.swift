@@ -22,6 +22,31 @@ final class MobileModel {
     let podcastSubscriptions: PodcastSubscriptionStore
     let podcastProgress: PodcastProgressStore
     let equalizer: MusicEqualizer
+    /// What the music friend was asked, what it did, and what you thought of it.
+    let friendLog = FriendFeedbackLog()
+    /// What it has learned from being told it was wrong — visible and deletable in the
+    /// Friend log, and appended to its prompt as evidence rather than as rules.
+    let friendLearning = FriendLearningStore()
+    /// The same store the chat bridges use for "remember that…", now also the home for a
+    /// rating that came with words — see `FriendLearningStore.memory`.
+    let friendMemory = RemoteMemoryStore()
+
+    /// Rate an exchange, and learn from it in the same breath.
+    ///
+    /// One entry point so the two can never disagree: a rating recorded without the
+    /// learning step would be a thumbs-down that changes nothing, which is the version of
+    /// this feature that quietly wastes someone's time.
+    func rateFriendExchange(_ id: UUID, _ rating: FriendExchange.Rating,
+                            fault: FriendExchange.Fault? = nil, note: String? = nil) {
+        friendLog.rate(id, rating, fault: fault, note: note)
+        guard let exchange = friendLog.exchanges.first(where: { $0.id == id }) else { return }
+        friendLearning.memory = friendMemory
+        friendLearning.learn(from: exchange)
+        // An approval of the same words retires an older complaint about them. Otherwise a
+        // correction outlives the problem it described, and keeps shaping answers after the
+        // thing it complained about has been fixed.
+        friendLearning.retireIfApproved(exchange)
+    }
     /// Internet radio (station list + raw-stream engine) and the local "keep this out of
     /// radio" list — both shared with the Mac.
     let radio = InternetRadioStore()
@@ -36,8 +61,24 @@ final class MobileModel {
     /// Where the music friend's brain lives, and whether it has been proven to work.
     /// Observable because the Friend tab appears and disappears with it.
     let agentConfig = AgentConfig()
-    @ObservationIgnored private(set) lazy var agent: AgentClient =
-        AgentClient(tools: AgentTools(model: self), player: music, config: agentConfig)
+    @ObservationIgnored private(set) lazy var agent: AgentClient = {
+        let client = AgentClient(tools: AgentTools(model: self), player: music, config: agentConfig)
+        // The loop was open here: corrections were being written and never sent, so the
+        // Friend log's promise that they were "added to what the friend is told about you"
+        // was false on the phone. Read fresh on every question, not captured once, or a
+        // rating would not take effect until the next launch.
+        client.learnedCorrections = { [weak self] in
+            guard let self else { return nil }
+            // Two sources, one block: what they have told the friend they mean (memory),
+            // and what it demonstrably got wrong (corrections). Memory first — guidance
+            // before evidence.
+            return [friendMemory.rendered(), friendLearning.promptBlock]
+                .compactMap { $0 }
+                .joined(separator: "\n\n")
+                .nilIfEmpty
+        }
+        return client
+    }()
     @ObservationIgnored private(set) lazy var voice: VoiceInput = VoiceInput(controller: music)
     /// Makes this phone the gateway's player while Baton is foregrounded.
     @ObservationIgnored private(set) lazy var deviceLink: GatewayDeviceLink =

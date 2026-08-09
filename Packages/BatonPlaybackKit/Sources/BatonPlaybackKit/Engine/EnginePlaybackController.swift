@@ -191,6 +191,17 @@ public final class EnginePlaybackController {
     }
 
     public func pause() {
+        // A pause that lands while a track is still loading used to be dropped on the
+        // floor: this guard refused it, the load completed with `autoplay: true`, and audio
+        // started — while the host had already moved its own state, the lock screen and the
+        // transport button to "paused". The app then showed paused and played, which is
+        // worse than either outcome on its own.
+        //
+        // Latch it instead. The load honours it the moment it would otherwise start.
+        if state == .loading {
+            pauseRequestedDuringLoad = true
+            return
+        }
         guard state == .playing else { return }
         state = .paused
         // Same shape as the old engine: the envelope fades, *then* the deck pauses —
@@ -211,6 +222,11 @@ public final class EnginePlaybackController {
 
     public func resume() {
         guard nowPlaying != nil else { return }
+        if state == .loading {
+            // Resuming during a load withdraws a pause asked for during the same load.
+            pauseRequestedDuringLoad = false
+            return
+        }
         if state == .paused {
             deckIsSilenced = false
             pipeline.play(activeDeck)
@@ -343,6 +359,19 @@ public final class EnginePlaybackController {
     /// The invariant TransportFade is protecting (never leave the envelope at silence) is
     /// right, and this does not fight it: the envelope is still restored. This just
     /// declines to *hear* it until there is something to play.
+    /// A pause asked for while a track was still loading, honoured when the load lands.
+    private var pauseRequestedDuringLoad = false
+
+    /// Re-requests spent recovering from a stream that ended before the track did.
+    ///
+    /// A transcode can die and still close its response cleanly — ffmpeg exits, Navidrome
+    /// closes the chunked stream properly — and nothing downstream could tell that from a
+    /// finished track: the boundary advanced the queue mid-song with no recovery. AVPlayer
+    /// has been guarded against this since `StreamSeek` was written; the engine never was,
+    /// while the design doc said it had been. On this failure class the engine was the
+    /// worse of the two, on the path this project is proudest of.
+    private var spuriousEndRecoveries = 0
+
     private var deckIsSilenced = false
 
     private func applyVolume() {
@@ -385,6 +414,13 @@ public final class EnginePlaybackController {
         // does not apply to it. Without this, loading after a pause or a stop would render
         // into a muted graph and play nothing at all — a far worse bug than the blip this
         // gate exists to remove.
+        // A new track supersedes any pause still owed by a fade in flight. Without this,
+        // pausing and then picking a different track within ~280 ms handed the *new* track
+        // the old track's pause: silenced, paused, and reported as playing.
+        transportFade.supersede(apply: { [weak self] in self?.applyVolume() })
+        // A new load is a fresh intent; a pause asked for during the *previous* load is
+        // not owed to this one.
+        pauseRequestedDuringLoad = false
         deckIsSilenced = false
         // Clearing the flag is not enough on its own: the graph is still carrying the zero
         // that was applied when it was silenced, and nothing else recomputes it until the
@@ -433,6 +469,22 @@ public final class EnginePlaybackController {
                 // raises an ObjC exception that, thrown through Swift-concurrency
                 // frames, corrupts the task allocator and aborts far away ("freed
                 // pointer was not the last allocation"; found by bisection).
+                if pauseRequestedDuringLoad {
+                    // Asked for while this was loading. Honour it now rather than starting
+                    // audio the user has already said they do not want.
+                    pauseRequestedDuringLoad = false
+                    state = .playing      // so pause() has something to act on
+                    applyDeckGain()
+                    pause()
+                    return
+                }
+                // A track that reaches playing is the end of whatever failure run
+                // preceded it. Neither counter reset on success — `consecutiveFailures`
+                // was never reset anywhere, its increment being the only write after
+                // init — so an evening of occasional hiccups walked the ladder up until
+                // the next real failure gave up immediately.
+                sameTrackRetries = 0
+                consecutiveFailures = 0
                 state = .playing
                 applyDeckGain()
                 startClock()
@@ -612,6 +664,33 @@ public final class EnginePlaybackController {
     private func handleTrackAudioEnded(endingIndex: Int, boundaryFrames: Int64, generation: Int) {
         guard generation == loadGeneration else { return } // flushed, not played
         guard !isCrossfading else { return } // the ramp owns this transition
+
+        // An end that arrives well short of the track's own duration is not an end.
+        //
+        // A dying transcode can close its response cleanly — ffmpeg exits, Navidrome closes
+        // the chunked stream properly — and that is indistinguishable from a finished track
+        // to everything downstream: `markComplete` → `nextChunk` nil → boundary → advance.
+        // The queue jumps mid-song and nothing recovers. AVPlayer has been guarded against
+        // exactly this since `StreamSeek` was written, with the same tolerance and the same
+        // bounded budget; the engine never was, though the design doc said it had been.
+        //
+        // Re-request from the playhead instead, under a budget, so a genuinely short track
+        // or a repeatedly-failing stream still advances rather than looping forever.
+        let expected = queue.indices.contains(endingIndex) ? queue[endingIndex].duration : 0
+        if expected > 0,
+           currentTime < expected - StreamSeek.spuriousEndTolerance,
+           spuriousEndRecoveries < StreamingPlaybackController.maxSpuriousEndRecoveries,
+           queue.indices.contains(endingIndex) {
+            spuriousEndRecoveries += 1
+            let shortBy = expected - currentTime
+            let attempt = spuriousEndRecoveries
+            engineLog.notice(
+                "engine: stream ended \(shortBy, format: .fixed(precision: 1))s early — re-requesting from the playhead (attempt \(attempt))"
+            )
+            load(track: queue[endingIndex], startingAt: currentTime, autoplay: state == .playing)
+            return
+        }
+        spuriousEndRecoveries = 0
         switch StreamingPlaybackController.onTrackEnd(current: endingIndex, count: queue.count, repeatMode: repeatMode) {
         case let .play(nextIndex) where nextIndex != endingIndex && queue.indices.contains(nextIndex):
             #if DEBUG

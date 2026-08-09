@@ -28,17 +28,17 @@ import BatonSubsonicModels
 public final class RemoteMemoryStore {
     // MARK: Shapes
 
-    struct Entry: Codable, Equatable, Identifiable {
-        var id: Int
+    public struct Entry: Codable, Equatable, Identifiable {
+        public var id: Int
         /// `preference`, `fact`, `vocabulary`, or `dislike` — a label for the
         /// reader, not a switch anything branches on.
-        var kind: String
+        public var kind: String
         /// One line, in Baton's words, of what this means.
-        var text: String
+        public var text: String
         /// What the person actually said. Required.
-        var quote: String
-        var created: Date
-        var lastApplied: Date?
+        public var quote: String
+        public var created: Date
+        public var lastApplied: Date?
     }
 
     struct Pick: Codable, Equatable {
@@ -70,11 +70,11 @@ public final class RemoteMemoryStore {
     private var contents = Contents()
     private let url: URL?
 
-    var entries: [Entry] { contents.entries }
+    public var entries: [Entry] { contents.entries }
 
     /// `url: nil` keeps everything in memory — what the tests use, and what a
     /// caller gets if the support directory is unwritable.
-    init(url: URL? = RemoteMemoryStore.defaultURL()) {
+    public init(url: URL? = RemoteMemoryStore.defaultURL()) {
         self.url = url
         load()
     }
@@ -85,7 +85,7 @@ public final class RemoteMemoryStore {
     /// non-empty — a memory with no source is exactly what this store exists to
     /// prevent.
     @discardableResult
-    func remember(kind: String, text: String, quote: String, now: Date = Date()) -> Entry? {
+    public func remember(kind: String, text: String, quote: String, now: Date = Date()) -> Entry? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let quote = quote.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !quote.isEmpty else { return nil }
@@ -110,14 +110,14 @@ public final class RemoteMemoryStore {
     }
 
     @discardableResult
-    func forget(id: Int) -> Entry? {
+    public func forget(id: Int) -> Entry? {
         guard let index = contents.entries.firstIndex(where: { $0.id == id }) else { return nil }
         let removed = contents.entries.remove(at: index)
         save()
         return removed
     }
 
-    func forgetEverything() {
+    public func forgetEverything() {
         contents = Contents()
         save()
     }
@@ -154,7 +154,7 @@ public final class RemoteMemoryStore {
     // MARK: Rendering for the model
 
     /// The block handed to the agent, or nil when there is nothing to say.
-    func rendered(now: Date = Date()) -> String? {
+    public func rendered(now: Date = Date()) -> String? {
         guard !contents.entries.isEmpty else { return nil }
         let shown = contents.entries
             .sorted { ($0.lastApplied ?? $0.created) > ($1.lastApplied ?? $1.created) }
@@ -198,7 +198,7 @@ public final class RemoteMemoryStore {
         }
     }
 
-    static func defaultURL() -> URL? {
+    public static func defaultURL() -> URL? {
         guard let base = try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
         ) else { return nil }

@@ -272,12 +272,21 @@ final class EngineLiveNavidromeTests: XCTestCase {
         // constant in a run of this test), so requiring variation unconditionally is a
         // flake, and requiring none would miss a stuck meter. Compare the two.
         var audioRMS: [Double] = []
+        // Ten slices rather than four, and it stops as soon as the meter has clearly moved.
+        //
+        // Four was too few under load. The bug this guards — a meter wired to nothing,
+        // reading a constant while music plays — shows up within a second or two when it
+        // is real, so waiting longer costs nothing on a healthy build and removes a class
+        // of failure that had nothing to do with the meter. It flaked twice in one day
+        // inside the full gate while passing every time in isolation, which is the
+        // signature of a threshold set by the machine's mood rather than by the code.
         var readings: [Float] = [first.peak]
-        for _ in 0 ..< 4 {
+        for _ in 0 ..< 10 {
             let slice = try await harness.renderSeconds(1.0)
             audioRMS.append(EngineTestSignals.rms(slice))
             monitor.sampleNow()
             readings.append(monitor.levels.peak)
+            if (readings.max() ?? 0) - (readings.min() ?? 0) > 0.02 { break }
         }
         let audioVaried = (audioRMS.max() ?? 0) > (audioRMS.min() ?? 0) * 1.4 + 0.001
         let meterVaried = (readings.max() ?? 0) - (readings.min() ?? 0) > 0.02

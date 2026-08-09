@@ -118,6 +118,32 @@ public final class TransportFade {
         }
     }
 
+    /// Abandons any ramp in flight **and the pause it owed**, for a caller that is about
+    /// to play something else.
+    ///
+    /// This type has three deliberate policies: `out` settles the previous obligation
+    /// before taking over, `in` discards it because resuming *means* discarding it, and
+    /// `cancel` honours it because dropping a pause would leave music playing after
+    /// someone asked for silence. Loading a new track was wired to none of them, and that
+    /// was a missing case rather than an oversight in any one of the three.
+    ///
+    /// What it cost: pause, then pick a different track within the fade's 280 ms, and the
+    /// owed pause landed on the *new* track — silenced and paused while the app said it
+    /// was playing. Stop then play in the same window was worse: the deferred teardown
+    /// killed the fresh load. Both are reachable by ordinary clicking, and both were
+    /// invisible to a test suite that slept past the fade before asserting anything.
+    ///
+    /// A new track supersedes an owed pause for exactly the reason resuming does — the
+    /// user has asked for audio, and the pause they asked for was about audio that is no
+    /// longer playing.
+    public func supersede(apply: @MainActor () -> Void) {
+        pendingStop = nil
+        task?.cancel()
+        task = nil
+        multiplier = 1
+        apply()
+    }
+
     /// Abandons any ramp in flight and restores full level immediately. Any pause the
     /// abandoned ramp had promised is still honoured — dropping it would leave music
     /// playing after someone pressed pause, the one outcome worse than a click.

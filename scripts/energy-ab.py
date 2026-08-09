@@ -51,7 +51,27 @@ def mcp_endpoint():
         return None, {}
 
 
-def mcp_call(tool, arguments=None, timeout=10):
+def mcp_call(tool, arguments=None, timeout=25, attempts=2):
+    """One retry by default.
+
+    A single timed-out call used to abandon a run that was otherwise twenty minutes from an
+    answer. These calls cross to Baton, which crosses to Navidrome — `music_random` over a
+    real library is not a local operation, and ten seconds was optimistic. Losing the run to
+    that is a bad trade when the whole point is a measurement that takes half an hour.
+    """
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return _mcp_call_once(tool, arguments, timeout)
+        except Exception as error:            # noqa: BLE001 — any transport failure retries
+            last = error
+            if attempt + 1 < attempts:
+                print(f"  (mcp {tool} failed: {error}; retrying)", flush=True)
+                time.sleep(3)
+    raise last
+
+
+def _mcp_call_once(tool, arguments=None, timeout=25):
     url, headers = mcp_endpoint()
     if not url:
         raise RuntimeError("no Baton MCP server registered in ~/.claude.json")
@@ -128,7 +148,7 @@ def start_playback(volume):
     # Shuffle of the whole library: identical call both ways, and long enough that no arm
     # runs out of music. What plays differs between arms, which is why this runs for
     # minutes and compares medians rather than trusting one sample.
-    mcp_call("music_random", {"limit": 200})
+    mcp_call("music_random", {"limit": 200}, timeout=45)
     time.sleep(2)
     playing = mcp_call("music_now_playing")
     return playing
@@ -246,6 +266,14 @@ def main():
     if not mcp_endpoint()[0]:
         problems.append("no Baton MCP server registered in ~/.claude.json")
     else:
+        # Playback is driven through Baton's own MCP server, which only exists while Baton
+        # is running — and the app under test is usually *not* running when a measurement
+        # starts, because the last thing anyone did was quit it. Start it here rather than
+        # failing with a connection-refused that reads like a broken endpoint.
+        if not wait_for_mcp(3):
+            print(f"starting {APP} for the preflight…", flush=True)
+            subprocess.run(["open", "-a", APP], capture_output=True)
+            wait_for_mcp(60)
         try:
             reply = mcp_call("music_now_playing", timeout=5)
             if not isinstance(reply, dict) or "result" not in reply:

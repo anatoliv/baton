@@ -51,6 +51,23 @@ struct RootTabView: View {
             .onAppear { paletteLoader.update(url: nowPlayingCoverURL) }
             .onChange(of: model.music.nowPlaying?.id) { _, _ in
                 paletteLoader.update(url: nowPlayingCoverURL)
+                // A change this soon after the friend put something on is someone reaching
+                // for the button, not a track ending — no track is ten seconds long. Logged
+                // only; the learning store never sees it.
+                model.friendLog.noteQuickSkip()
+                // Every track change, however it happened.
+                //
+                // The Lock Screen card was published from two places — inside
+                // `onTrackStarted`, which is deliberately skipped for a continuation, and
+                // on `isPlaying` changes. A track advancing on its own is neither, so the
+                // card kept the previous song while the system's own Now Playing moved on:
+                // two panels on the same screen naming different tracks. `pushNowPlaying`
+                // feeds the system one on every change; this is the equivalent for ours.
+                WidgetBridge.publish(
+                    song: model.music.nowPlaying,
+                    isPlaying: model.music.isPlaying,
+                    artworkURL: nowPlayingCoverURL
+                )
             }
     }
 

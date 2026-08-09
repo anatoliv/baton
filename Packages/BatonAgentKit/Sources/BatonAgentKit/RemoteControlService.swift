@@ -31,7 +31,17 @@ public final class RemoteControlService {
         router.deliver = { [weak self] reply, platform, channelID in
             await self?.push(reply, to: channelID, on: platform)
         }
+        // Chat-bridge conversations go in the same log as the phone's, and the same
+        // corrections come back out into the prompt. One log across every surface is the
+        // point: a tally that quietly describes one of them is worse than no tally.
+        router.feedbackLog = feedbackLog
+        router.learning = learning
     }
+
+    /// Shared with the app, so what you rate in Telegram and what you rate on the phone are
+    /// the same record and teach the same agent.
+    public let feedbackLog = FriendFeedbackLog()
+    public let learning = FriendLearningStore()
 
     private func push(_ reply: RemoteReply, to channelID: String, on platform: RemotePlatform) async {
         switch platform {

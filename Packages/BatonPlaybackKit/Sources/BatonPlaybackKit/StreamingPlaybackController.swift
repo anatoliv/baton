@@ -458,6 +458,9 @@ public final class StreamingPlaybackController {
         // phone silently on AVPlayer until relaunch.
         if deck == nil { engineDeckResolved = false }
         engineDeck = deck
+        // The user's stall timeout is a setting; it was inert whenever the engine owned
+        // playback, because nothing carried it across the bridge.
+        deck?.setStallTimeout(stallTimeoutSeconds)
         guard let deck else { return }
         deck.onClock = { [weak self] time, engineDuration, buffering in
             guard let self, engineOwnsPlayback else { return }
@@ -564,6 +567,7 @@ public final class StreamingPlaybackController {
             let clamped = min(max(stallTimeoutSeconds, Self.minStallTimeout), Self.maxStallTimeout)
             if clamped != stallTimeoutSeconds { stallTimeoutSeconds = clamped; return }
             guard stallTimeoutSeconds != oldValue else { return }
+            engineDeck?.setStallTimeout(stallTimeoutSeconds)
             defaults.set(stallTimeoutSeconds, forKey: Self.stallTimeoutKey)
         }
     }

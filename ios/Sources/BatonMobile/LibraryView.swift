@@ -248,7 +248,11 @@ struct LikedView: View {
                         Image(systemName: selection.contains(song.id) ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(selection.contains(song.id) ? Color.accentColor : .secondary)
                     }
+                    // The Liked screen is liked-by-construction: a heart on every row is
+                    // decoration that costs a glance, and crowds the downloaded/playing
+                    // marks that actually vary.
                     SongRow(song: song, model: model)
+                        .likedByConstruction()
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
