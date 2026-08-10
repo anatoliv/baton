@@ -234,6 +234,20 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.9",
+            date: "August 2026",
+            highlight: "Skip to the next track and the playhead starts where it should.",
+            changes: [
+                HelpWhatsNewChange(
+                    kind: .fixed,
+                    text: "Clicking next while a track was playing loaded the new one but "
+                        + "left the playhead part-way along, showing a position the new track "
+                        + "had never reached. The experimental engine was fixed for this in "
+                        + "0.16.6; the standard player had the same bug and kept it."
+                ),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.8",
             date: "August 2026",
             highlight: "Correctness in the experimental engine, and a music friend that learns.",

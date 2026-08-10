@@ -930,6 +930,17 @@ public final class StreamingPlaybackController {
                 // AVPlayer's business — the stall watchdog, the resume offset, listening
                 // accumulation — and none of it applies to a track this player is not playing.
                 guard !self.engineOwnsPlayback else { return }
+                // Nor during a skip blend, for the same reason: two things would be
+                // writing one value.
+                //
+                // `beginSkipBlend` advances the transport immediately and zeroes the
+                // playhead, but this observer stays attached to the *outgoing* player until
+                // the incoming one is promoted — so it went on publishing the old track's
+                // position over that zero. The bar jumped to wherever the previous track had
+                // reached, then snapped back when the new player took over. Reported on the
+                // desktop after the engine-side fix, because the engine was never the only
+                // path this happened on.
+                guard !self.isCrossfading else { return }
                 // Stalled-stream watchdog: runs on the same clock so a parked player
                 // with a recovered buffer gets nudged (see +StallRecovery).
                 self.stallRecoveryTick(player: self.player)
@@ -1391,6 +1402,10 @@ public final class StreamingPlaybackController {
         // changes land here rather than in `loadCurrent`.
         rotateListenRecord(to: queue[index])
         currentTime = 0
+        // The observer publishes `streamStartOffset + player.currentTime`. Left stale from
+        // an offset load, it would re-add the old track's offset to the new track's clock.
+        streamStartOffset = 0
+        lastClockSample = nil
         duration = Double(queue[index].duration ?? 0)
         scrobbledCurrent = false
         notifyTrackStarted(queue[index])

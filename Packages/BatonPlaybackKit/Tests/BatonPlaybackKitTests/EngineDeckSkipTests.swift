@@ -68,9 +68,14 @@ final class EngineDeckSkipTests: XCTestCase {
             .appendingPathComponent("Sources/BatonPlaybackKit/StreamingPlaybackController.swift")
         let source = try String(contentsOf: url, encoding: .utf8)
 
+        // Bounded by structure. This was a `prefix(3000)` window and it failed on correct
+        // code the moment the guard above it grew a comment — the fourth time today a test
+        // written that way has cried wolf. A window sized by guesswork tests the guess.
         let observer = try XCTUnwrap(source.range(of: "addPeriodicTimeObserver"),
                                      "the periodic observer has moved or been renamed")
-        let body = String(source[observer.upperBound...].prefix(3000))
+        let rest = source[observer.upperBound...]
+        let closing = rest.range(of: "\n    }") ?? rest.range(of: "\n    private func ")
+        let body = String(closing.map { rest[..<$0.lowerBound] } ?? rest)
 
         let guardRange = try XCTUnwrap(
             body.range(of: "guard !self.engineOwnsPlayback else { return }"),
@@ -148,4 +153,60 @@ final class EngineDeckSkipTests: XCTestCase {
                       "with the engine on the equalizer does reach everything, and should say so")
     }
 
+}
+
+/// Only one thing may publish the playhead during a skip blend either.
+///
+/// The engine-side fix stopped AVPlayer's clock writing over an engine-owned playhead. This
+/// is the same bug between two AVPlayers, which is where it was actually being seen: a skip
+/// advances the transport and zeroes the playhead immediately, but the periodic observer
+/// stays attached to the *outgoing* player until the incoming one is promoted, so it kept
+/// publishing the old track's position over that zero — the bar jumping to wherever the
+/// previous track had reached and snapping back a moment later.
+///
+/// Asserted on the source: reproducing it needs two live AVPlayers mid-ramp, which proves
+/// less than reading the guard and breaks far more often.
+@MainActor
+final class SkipBlendPlayheadTests: XCTestCase {
+    private func controllerSource() throws -> String {
+        try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/BatonPlaybackKit/StreamingPlaybackController.swift"),
+                   encoding: .utf8)
+    }
+
+    func testTheClockStandsDownDuringASkipBlend() throws {
+        let source = try controllerSource()
+        // Bounded by *structure*, not by a character count. Three tests today have been
+        // written with `prefix(n)` windows and all three failed on correct code the moment a
+        // comment grew — the guard was still there, just past the window. A window sized by
+        // guesswork tests the guess.
+        let observer = try XCTUnwrap(source.range(of: "addPeriodicTimeObserver"))
+        let rest = source[observer.upperBound...]
+        let closing = rest.range(of: "\n    }") ?? rest.range(of: "\n    private func ")
+        let body = String(closing.map { rest[..<$0.lowerBound] } ?? rest)
+
+        let guardRange = try XCTUnwrap(
+            body.range(of: "guard !self.isCrossfading else { return }"),
+            "the clock still publishes during a skip blend — the playhead will jump to the outgoing track's position"
+        )
+        let publish = try XCTUnwrap(body.range(of: "self.currentTime = playhead"))
+        XCTAssertTrue(guardRange.upperBound < publish.lowerBound,
+                      "the guard sits after the playhead is published, so the stale value lands anyway")
+    }
+
+    /// The offset the observer adds must be cleared by the advance, or the new track's clock
+    /// is read against the old track's starting point.
+    func testTheSkipClearsTheStreamOffset() throws {
+        let source = try controllerSource()
+        let start = try XCTUnwrap(source.range(of: "private func beginSkipBlend"))
+        let rest = source[start.upperBound...]
+        let end = try XCTUnwrap(rest.range(of: "\n    private func "))
+        let body = String(rest[..<end.lowerBound])
+
+        XCTAssertTrue(body.contains("streamStartOffset = 0"),
+                      "a skip after an offset load re-adds the old offset to the new track's clock")
+        XCTAssertTrue(body.contains("lastClockSample = nil"),
+                      "the listening accumulator carries the outgoing track's last position into the new one")
+    }
 }
