@@ -165,7 +165,13 @@ enum ArtworkColorExtractor {
 @Observable
 final class ArtworkPaletteLoader {
     private(set) var palette: ArtworkPalette = .neutral
+    /// Bounded. This was a plain dictionary that only ever grew: play through a 2,600-album
+    /// library in one session and it holds 2,600 palettes, none of which will be asked for
+    /// again. Small because the useful window is "tracks you have played recently" — the
+    /// wash is re-derived in milliseconds for anything older.
     @ObservationIgnored private var cache: [URL: ArtworkPalette] = [:]
+    @ObservationIgnored private var cacheOrder: [URL] = []
+    private static let cacheLimit = 64
     @ObservationIgnored private var currentURL: URL?
     @ObservationIgnored private var task: Task<Void, Never>?
 
@@ -180,8 +186,20 @@ final class ArtworkPaletteLoader {
         task = Task { [weak self] in
             let result = await ArtworkColorExtractor.palette(from: url) ?? .neutral
             guard let self, !Task.isCancelled, currentURL == url else { return }
-            cache[url] = result
+            remember(url, result)
             withAnimation(.easeInOut(duration: 0.6)) { self.palette = result }
+        }
+    }
+
+    /// Least-recently-inserted eviction. Insertion order rather than access order on
+    /// purpose: a palette is looked up once when its track starts and then not again, so
+    /// "recently used" and "recently added" are the same thing here, and the simpler one
+    /// cannot get the bookkeeping wrong.
+    private func remember(_ url: URL, _ palette: ArtworkPalette) {
+        if cache[url] == nil { cacheOrder.append(url) }
+        cache[url] = palette
+        while cacheOrder.count > Self.cacheLimit {
+            cache.removeValue(forKey: cacheOrder.removeFirst())
         }
     }
 }

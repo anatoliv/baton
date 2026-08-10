@@ -47,11 +47,36 @@ struct BatonApp: App {
         // Start opt-in crash reporting if (and only if) the user turned it on
         // and a DSN is baked into this build. No-op otherwise. See CrashReporting.
         CrashReporting.startIfEnabled()
+        // Before anything asks the cache to hold something. The default is 512KB in
+        // memory — about four covers against a 2,600-album library.
+        ArtworkCache.configureURLCache()
+        LegacyKeyMigration.run()
         // Start Sparkle's background update scheduler at launch — not lazily from the
         // Settings UI — so a user who just plays music still receives automatic checks.
         // Gated on a genuinely-live channel so a placeholder-key dev build stays dormant.
         if UpdateChannel.isConfiguredFromBundle {
             MainActor.assumeIsolated { _ = SparkleUpdater.shared }
+        }
+    }
+
+    /// Acts on a `baton://` link. Deliberately small, and deliberately reusing what is
+    /// already wired: `pendingSourceNavigation` is how the full-screen player's "Playing
+    /// from" link already navigates, and `music.music.play` is the same call every row in
+    /// the app makes.
+    @MainActor
+    private func handle(_ link: BatonDeepLink) async {
+        switch link {
+        case .presentPlayer:
+            commandRouter.showNowPlayingToken += 1
+        case let .playSong(id):
+            if let song = try? await NavidromeConfig.makeClient().getSong(id: id) {
+                music.music.play([song], source: .init(label: song.title, kind: .song, id: id))
+            }
+        case let .playAlbum(id):
+            let songs = await music.musicLibrary.albumSongs(id: id)
+            if !songs.isEmpty {
+                music.music.play(songs, source: .init(label: "Album", kind: .album, id: id))
+            }
         }
     }
 
@@ -68,6 +93,9 @@ struct BatonApp: App {
                 // brand; the player wires the dynamic artwork accent explicitly on top.
                 .tint(.batonOrange)
                 .task {
+                    // Expose the composition root to Shortcuts/Siri, same shape as the
+                    // phone's AppServicesHolder.
+                    MacIntentServices.model = music
                     BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips
                     if syncScheduler == nil {
                         let scheduler = PreferenceSyncScheduler(model: music)
@@ -103,6 +131,15 @@ struct BatonApp: App {
                             }
                         }
                     }
+                }
+                // `baton://` — the front door the Mac never had. Every path behind these
+                // links already existed (the router navigates, the engine plays); only the
+                // scheme and this handler were missing, so a link that worked on the phone
+                // silently did nothing on the desktop. Same `BatonDeepLink` vocabulary as
+                // the phone, in Shared/, so the two cannot mean different things by it.
+                .onOpenURL { url in
+                    guard let link = BatonDeepLink(url: url) else { return }
+                    Task { await handle(link) }
                 }
         }
         // Match Tonebox's music window: SwiftUI-managed title-bar hiding, persistent

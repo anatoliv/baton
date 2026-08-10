@@ -170,6 +170,22 @@ public final class StreamingPlaybackController {
     /// Wall-clock time the current track began — captured at every start path so a threshold
     /// scrobble (or a later offline retry) reports when playback actually started.
     @ObservationIgnored private var currentTrackStartedAt = Date()
+    /// Playback position when the current track began, so listened time is *audio* time
+    /// rather than wall clock — a track paused for an hour was not listened to for an hour.
+    @ObservationIgnored private var listenedSecondsAtStart: Double = 0
+    /// Why the current track is about to end. Set by whoever ends it; read once, when the
+    /// next one starts.
+    @ObservationIgnored private var pendingEventReason: PlaybackEventLog.Event.Reason = .interrupted
+    /// What was played and for how long, for the music friend. Session-scoped.
+    public let playbackEvents = PlaybackEventLog()
+
+    /// Records the track that is finishing, if it played for long enough to mean anything.
+    private func closeCurrentPlaybackEvent(reason: PlaybackEventLog.Event.Reason) {
+        guard let song = nowPlaying, startNotifiedForCurrentItem else { return }
+        let listened = max(0, currentTime - listenedSecondsAtStart)
+        playbackEvents.record(song: song, startedAt: currentTrackStartedAt,
+                              listenedSeconds: listened, reason: reason)
+    }
     /// Fired when a fixed-time sleep timer elapses (after the fade-out). AppModel wires this to
     /// also stop internet radio, which plays on a separate engine the library pause can't reach.
     @ObservationIgnored public var onSleepFire: (@MainActor () -> Void)?
@@ -492,6 +508,7 @@ public final class StreamingPlaybackController {
             if !scrobbledCurrent, let song = nowPlaying, duration > 30,
                currentTime >= MusicScrobbler.scrobbleThreshold(duration: duration) {
                 scrobbledCurrent = true
+                pendingEventReason = .finished
                 onScrobbleEligible?(song, currentTrackStartedAt)
             }
         }
@@ -790,8 +807,14 @@ public final class StreamingPlaybackController {
         if MediaKind(id: songID) == .podcastEpisode, let url = URL(string: songID) {
             return url
         }
-        // Otherwise it's a Subsonic media id — stream from the configured server.
-        return try NavidromeConfig.makeClient().streamURL(songID: songID)
+        // Otherwise it's a Subsonic media id — stream from the configured server, capped
+        // for the network in use. The cap has been supported by the client since it was
+        // written and passed by nobody, so a phone on cellular streamed at the server's
+        // default bitrate.
+        return try NavidromeConfig.makeClient().streamURL(
+            songID: songID,
+            maxBitRate: NetworkReachability.shared.streamQuality.maxBitRate
+        )
     }
 
     public init(
@@ -1029,9 +1052,25 @@ public final class StreamingPlaybackController {
             toggle: { [weak self] in self?.handleRemoteToggle() },
             next: { [weak self] in self?.handleRemoteNext() },
             previous: { [weak self] in self?.handleRemotePrevious() },
-            seek: { [weak self] in self?.handleRemoteSeek(to: $0) }
+            seek: { [weak self] in self?.handleRemoteSeek(to: $0) },
+            // ±15s. Offered per item in `pushNowPlaying` — a song does not want them.
+            skip: { [weak self] delta in
+                guard let self else { return }
+                handleRemoteSeek(to: max(0, min(duration, currentTime + delta)))
+            },
+            // Nil unless the app supplied a way to do it. The engine has no opinion about
+            // what "liked" means; the library store does.
+            toggleLike: remoteLikeHandler,
+            ban: remoteBanHandler
         ))
     }
+
+    /// Like / ban / liked-state, supplied by the app because the engine does not know what
+    /// a "like" is. Absent on a host that has no library (the Watch, tests), and the OS
+    /// then simply does not draw the buttons.
+    public var remoteLikeHandler: (() -> Void)?
+    public var remoteBanHandler: (() -> Void)?
+    public var remoteIsLiked: ((NavidromeSong) -> Bool)?
 
     /// Cached Now Playing artwork URL, resolved once per cover id — the signed cover
     /// URL embeds a fresh salt each build, so recomputing it every push would make the
@@ -1053,7 +1092,14 @@ public final class StreamingPlaybackController {
     /// Notifies listeners a track began and arms its resume offset (podcasts). Call in place of
     /// `onTrackStarted?(song)` so every start path resumes + logs identically.
     private func notifyTrackStarted(_ song: NavidromeSong) {
+        // Close out whatever was playing before this. Done here rather than at each exit
+        // point because every path into a new track comes through here — a manual skip, a
+        // natural end, a queue replacement — and hanging the bookkeeping off one of them
+        // is how you end up logging skips but not finishes.
+        closeCurrentPlaybackEvent(reason: pendingEventReason)
+        pendingEventReason = .interrupted
         currentTrackStartedAt = Date()
+        listenedSecondsAtStart = 0
         startNotifiedForCurrentItem = true
         onTrackStarted?(song)
         pendingResumeOffset = resumeOffsetProvider?(song)
@@ -1073,12 +1119,19 @@ public final class StreamingPlaybackController {
             nowPlayingDirectArt = directArt
             nowPlayingCoverURL = directArt ?? coverID.flatMap { coverArtURLProvider($0) }
         }
+        let isPodcast = nowPlaying?.isPodcastEpisode == true
         nowPlayingCenter.update(
             song: nowPlaying,
             isPlaying: isPlaying,
             currentTime: currentTime,
             duration: duration,
-            artworkURL: nowPlayingCoverURL
+            artworkURL: nowPlayingCoverURL,
+            // The real rate. A 1.5× episode published as 1.0 made the OS advance its own
+            // clock too slowly, so the lock screen fell further behind the audio the
+            // longer the episode ran.
+            rate: playbackRate,
+            offersSkip: isPodcast,
+            isLiked: nowPlaying.map { remoteIsLiked?($0) ?? false } ?? false
         )
     }
 
@@ -1343,6 +1396,9 @@ public final class StreamingPlaybackController {
     public func next() {
         cancelCrossfade()
         guard !queue.isEmpty else { return }
+        // A manual next is the skip signal — the single most informative thing a listener
+        // does without being asked.
+        pendingEventReason = .skipped
         bumpStateGeneration()
         let wasPlaying = state == .playing
         switch Self.onManualNext(current: currentIndex, count: queue.count, repeatMode: repeatMode) {
@@ -1469,17 +1525,20 @@ public final class StreamingPlaybackController {
 
     /// Reorders the queue (drag-and-drop), keeping the current track selected.
     public func moveQueueItem(from source: IndexSet, to destination: Int) {
-        let current = nowPlaying
-        // Foundation-only reorder with SwiftUI's move(fromOffsets:toOffset:) semantics
-        // (destination is an index into the PRE-removal array).
-        let moving = source.sorted().compactMap { queue.indices.contains($0) ? queue[$0] : nil }
-        let before = queue.prefix(destination).enumerated()
-            .filter { !source.contains($0.offset) }.map(\.element)
-        let after = queue.enumerated().dropFirst(destination)
-            .filter { !source.contains($0.offset) }.map(\.element)
-        queue = before + moving + after
-        if let current, let idx = queue.firstIndex(where: { $0.id == current.id }) {
-            currentIndex = idx
+        // Permute *indices*, then map the queue through them, so the current row can be
+        // followed by where it went rather than looked up by id. The id lookup found the
+        // first copy, so reordering around a song queued twice moved the highlight onto the
+        // other copy. Same reason `removeFromQueue` counts positions.
+        //
+        // SwiftUI's move(fromOffsets:toOffset:) semantics: destination indexes the
+        // PRE-removal array.
+        let moving = source.sorted().filter { queue.indices.contains($0) }
+        let before = queue.indices.prefix(destination).filter { !source.contains($0) }
+        let after = queue.indices.dropFirst(destination).filter { !source.contains($0) }
+        let order = Array(before) + moving + Array(after)
+        queue = order.map { queue[$0] }
+        if let landed = order.firstIndex(of: currentIndex) {
+            currentIndex = landed
         }
         preloadGaplessNextIfNeeded() // reorder may have changed which track is next
         persistQueue()
@@ -1496,8 +1555,15 @@ public final class StreamingPlaybackController {
         for index in offsets.sorted(by: >) where queue.indices.contains(index) {
             queue.remove(at: index)
         }
-        if let current, !removingCurrent, let idx = queue.firstIndex(where: { $0.id == current.id }) {
-            currentIndex = idx
+        if current != nil, !removingCurrent {
+            // Count what was removed *before* this row rather than searching for the id.
+            // A queue is the one list where the same song legitimately appears twice — "Play
+            // Next" on something already queued does it — and `firstIndex(where: id ==)`
+            // returns the first copy, so playing the second one and deleting an earlier row
+            // re-anchored playback onto the wrong copy: the highlight jumped backwards and
+            // the next track changed. Position is what actually moved, so count positions.
+            let removedBeforeCurrent = offsets.filter { $0 < currentIndex }.count
+            currentIndex = min(max(0, currentIndex - removedBeforeCurrent), max(0, queue.count - 1))
             preloadGaplessNextIfNeeded() // removed a queued track — the next may have changed
         } else if removingCurrent {
             // Land on the current track's successor: subtract the items removed BEFORE the
@@ -2142,6 +2208,17 @@ public final class StreamingPlaybackController {
 
     /// Current size of the gapless prefetch cache on disk, in bytes.
     public var gaplessCacheSizeBytes: Int64 { gaplessPrefetcher.cacheSizeBytes }
+
+    /// A local file for `songID` if the gapless prefetcher has already pulled one down.
+    ///
+    /// Exposed so the scrubber can draw a real waveform for a *streamed* track. The
+    /// waveform has been downloads-only since it shipped — reasonably, since a live stream
+    /// cannot be analysed — but the prefetcher has been quietly writing the next track to
+    /// disk all along for gapless playback. By the time you are listening to it, the file
+    /// is right there.
+    public func prefetchedLocalURL(for songID: String) -> URL? {
+        gaplessPrefetcher.cachedURL(for: songID)
+    }
 
     /// Empties the gapless prefetch cache. Safe during playback: cancels in-flight
     /// prefetches and drops any queued preload that may point at a file we're deleting, then

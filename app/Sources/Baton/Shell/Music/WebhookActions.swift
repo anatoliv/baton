@@ -655,7 +655,7 @@ struct WebhookActionEditor: View {
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .font(.callout)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.warningTint)
                     }
                     // The mirror image, and the harder one to spot: the name is right but the value
                     // is blank. Header values live in the Keychain, so this is also what you see if
@@ -670,7 +670,7 @@ struct WebhookActionEditor: View {
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .font(.callout)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.warningTint)
                     }
                 }
                 Section {
@@ -700,7 +700,7 @@ struct WebhookActionEditor: View {
                                 HStack(spacing: 6) {
                                     Text("{\(entry.token)}").font(.caption.monospaced()).foregroundStyle(Color.accentColor)
                                     if entry.credentialed {
-                                        Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange)
+                                        Image(systemName: "lock.fill").font(.caption2).foregroundStyle(Color.warningTint)
                                     }
                                     Spacer()
                                     Text(entry.description).font(.caption).foregroundStyle(.secondary)
@@ -746,7 +746,7 @@ struct WebhookActionEditor: View {
                         Image(systemName: testResult.ok
                               ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     }
-                    .foregroundStyle(testResult.ok ? Color.green : Color.orange)
+                    .foregroundStyle(testResult.ok ? Color.green : Color.warningTint)
                 }
 
                 Spacer()

@@ -91,7 +91,7 @@ struct BatonHelpView: View {
             case .note: .blue
             case .tip: .green
             case .important: HelpTokens.accent
-            case .warning: .orange
+            case .warning: Color.warningTint
             }
         }
     }

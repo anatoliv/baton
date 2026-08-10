@@ -119,6 +119,10 @@ struct HomeView: View {
 
 /// A horizontal shelf of album covers.
 struct AlbumShelf: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// One shelf card size for every shelf. The album and song shelves hardcoded 142
+    /// while the mix shelf asked `CardMetrics`, so iPad drew two card sizes side by side.
+    private var shelfSide: CGFloat { CardMetrics.shelfCard(sizeClass) }
     let title: String
     let albums: [NavidromeAlbum]
     let model: MobileModel
@@ -127,18 +131,18 @@ struct AlbumShelf: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.headline).padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 14) {
+                LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(albums) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400), wholeCover: true)
-                                    .frame(width: 142, height: 142)
+                                    .frame(width: shelfSide, height: shelfSide)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
                                 Text(album.name).font(.subheadline.weight(.medium)).lineLimit(1)
                                 Text(album.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
-                            .frame(width: 142)
+                            .frame(width: shelfSide)
                         }
                         .buttonStyle(.plain)
                         .albumContextMenu(album, model: model)
@@ -152,6 +156,10 @@ struct AlbumShelf: View {
 
 /// A horizontal shelf of songs — tap to play the shelf from that track.
 struct SongShelf: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// One shelf card size for every shelf. The album and song shelves hardcoded 142
+    /// while the mix shelf asked `CardMetrics`, so iPad drew two card sizes side by side.
+    private var shelfSide: CGFloat { CardMetrics.shelfCard(sizeClass) }
     let title: String
     let songs: [NavidromeSong]
     let model: MobileModel
@@ -161,20 +169,20 @@ struct SongShelf: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.headline).padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 14) {
+                LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                         Button {
                             model.music.play(songs, startAt: index, source: source)
                         } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkView(url: model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 400), wholeCover: true)
-                                    .frame(width: 142, height: 142)
+                                    .frame(width: shelfSide, height: shelfSide)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
                                 Text(song.title).font(.subheadline.weight(.medium)).lineLimit(1)
                                 Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
-                            .frame(width: 142)
+                            .frame(width: shelfSide)
                         }
                         .buttonStyle(.plain)
                         .songContextMenu(song, model: model)
@@ -196,7 +204,7 @@ struct MixShelf: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.headline).padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 14) {
+                LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(mixes) { mix in
                         NavigationLink(value: mix) {
                             MixCard(mix: mix)

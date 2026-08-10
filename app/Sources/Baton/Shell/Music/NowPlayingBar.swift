@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -29,6 +30,9 @@ struct NowPlayingBar: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var showingQueue = false
+    /// Fewer bars than the full-screen player: this scrubber is a fraction of the width, and
+    /// 120 bars in a bar-height strip is noise rather than a shape.
+    @State private var barWaveform: [Float]?
     /// Collapse the control cluster (rating · transport · volume · queue · sleep · AirPlay)
     /// for a slim "what's playing" bar — the same expand/collapse idea as the mini player.
     /// Persisted.
@@ -80,7 +84,7 @@ struct NowPlayingBar: View {
                     }
                 }
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.warningTint)
                 .transition(.opacity)
             }
             if !barCollapsed, !isRadio { seekRow }
@@ -161,7 +165,7 @@ struct NowPlayingBar: View {
         .padding(.top, barCollapsed ? 3 : 4).padding(.bottom, barCollapsed ? 3 : 6)
         // Translucent frost (not the opaque `.bar`) so the window's adaptive
         // artwork backdrop flows through the player bar, matching the main area.
-        .background(.ultraThinMaterial)
+        .adaptiveMaterial(Rectangle())
         .overlay(alignment: .top) { Divider() }
         // Collapsed mode hides the scrubber — keep a 2px progress hairline along the top edge so the
         // slim bar still shows how far into the track you are.
@@ -240,9 +244,24 @@ struct NowPlayingBar: View {
     }
 
     private var seekRow: some View {
-        MusicScrubber(currentTime: player.currentTime, duration: player.duration, tint: accent) {
+        // The bar never drew a waveform, even for a downloaded track the full-screen player
+        // was drawing one for at the same moment — the same track, two scrubbers, two
+        // different answers about whether its shape was knowable.
+        MusicScrubber(currentTime: player.currentTime, duration: player.duration,
+                      tint: accent, waveform: barWaveform) {
             player.seek(to: $0)
         }
+        .task(id: player.nowPlaying?.id) { await loadBarWaveform() }
+    }
+
+    private func loadBarWaveform() async {
+        barWaveform = nil
+        guard let song = player.nowPlaying else { return }
+        let url = MusicDownloadStore.shared.localURL(for: song.id)
+            ?? player.prefetchedLocalURL(for: song.id)
+        guard let url else { return }
+        let bars = await WaveformExtractor.bars(forSongID: song.id, url: url, count: 60)
+        if player.nowPlaying?.id == song.id { barWaveform = bars }
     }
 
     private var transport: some View {
@@ -349,6 +368,29 @@ struct NowPlayingBar: View {
         .help("Queue")
         .accessibilityLabel("Queue")
         .accessibilityValue(upcomingCount > 0 ? "\(upcomingCount) up next" : "Empty")
+        // Drop tracks here to queue them. The button is on screen from every browse
+        // screen, which makes it the one drop target that is always where you are —
+        // dragging to a playlist means finding the playlist first.
+        .dropDestination(for: SongDragPayload.self) { payloads, _ in
+            let ids = payloads.flatMap(\.ids)
+            guard !ids.isEmpty else { return false }
+            Task {
+                // Resolved one at a time through the client: a drag carries ids, and the
+                // rows they came from may already be gone by the time this runs.
+                let client = try? NavidromeConfig.makeClient()
+                var songs: [NavidromeSong] = []
+                for id in ids {
+                    if let song = try? await client?.getSong(id: id) { songs.append(song) }
+                }
+                guard !songs.isEmpty else { return }
+                model.music.enqueue(songs)
+                model.music.postToast(
+                    songs.count == 1 ? "Queued “\(songs[0].title)”" : "Queued \(songs.count) songs",
+                    symbol: "text.append"
+                )
+            }
+            return true
+        }
         .popover(isPresented: $showingQueue, arrowEdge: .top) {
             MusicQueueView()
                 .environment(model)
@@ -358,8 +400,7 @@ struct NowPlayingBar: View {
 
     static func time(_ seconds: TimeInterval) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
+        return PlayTime.track(seconds: seconds) ?? "0:00"
     }
 }
 
@@ -374,8 +415,8 @@ struct MusicQueueView: View {
         let queue = model.music.queue
         guard start < queue.count else { return nil }
         let upcoming = queue[start...]
-        let mins = upcoming.reduce(0) { $0 + ($1.duration ?? 0) } / 60
-        let time = mins >= 60 ? "\(mins / 60) hr \(mins % 60) min" : "\(mins) min"
+        let seconds = upcoming.reduce(0) { $0 + ($1.duration ?? 0) }
+        let time = PlayTime.spoken(seconds) ?? "0 min"
         return "\(upcoming.count) track\(upcoming.count == 1 ? "" : "s") · \(time)"
     }
 

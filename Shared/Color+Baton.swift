@@ -45,6 +45,22 @@ extension Color {
     static let badgeIdleTint = Color.primary.opacity(0.08)
     /// Soft glow around the now-playing **source** card (50%).
     static func playingGlowTint(_ context: Color = .accentColor) -> Color { context.opacity(0.5) }
+
+    // MARK: Semantic status tokens
+    //
+    // Baton's brand *is* orange, and system `.orange` was carrying every warning in the
+    // app — a failed download, a stalled stream, an unreachable server — in a hue two
+    // shades from the one that means "this is the thing to click". That erodes the accent
+    // faster than any amount of misuse elsewhere: if orange means both "act here" and
+    // "something is wrong", it means neither.
+    //
+    // Amber sits far enough from `batonOrange` to read as a different signal while staying
+    // recognisably a warning. Red is unambiguous and was never in tension with the brand.
+
+    /// Non-blocking warning: something degraded but working. Distinct from brand orange.
+    static let warningTint = Color(red: 0.98, green: 0.75, blue: 0.18)
+    /// A real failure: the thing did not happen.
+    static let errorTint = Color(red: 0.90, green: 0.29, blue: 0.24)
 }
 
 /// WCAG relative-luminance + contrast math. The single implementation used by

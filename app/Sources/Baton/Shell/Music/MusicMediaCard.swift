@@ -553,9 +553,15 @@ struct MusicMediaCard: View {
     }
 
     // Blurred fill behind — a separate overlay so it can't dictate sizing.
+    //
+    // Both this and `cover` used to be their own `AsyncImage` for the same URL, so every
+    // card decoded the same JPEG twice — twenty grid surfaces' worth. `CachedArtwork` hands
+    // back one decoded image and both layers draw from it.
     @ViewBuilder private var fill: some View {
         if let coverURL {
-            AsyncImage(url: coverURL) { $0.resizable().scaledToFill() } placeholder: {
+            CachedArtwork(url: coverURL, side: Self.decodeSide) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
                 Color.secondary.opacity(0.12)
             }
             .blur(radius: 18)
@@ -568,11 +574,20 @@ struct MusicMediaCard: View {
     // Full cover on top — scaledToFit, so nothing is ever cropped.
     @ViewBuilder private var cover: some View {
         if let coverURL {
-            AsyncImage(url: coverURL) { $0.resizable().scaledToFit() } placeholder: { Color.clear }
+            CachedArtwork(url: coverURL, side: Self.decodeSide) { image in
+                image.resizable().scaledToFit()
+            } placeholder: {
+                Color.clear
+            }
         } else {
             Image(systemName: placeholder).font(.largeTitle).foregroundStyle(.secondary)
         }
     }
+
+    /// Decode target for a grid card. The grids are `.adaptive(minimum: 220)`, so a card is
+    /// rarely much wider than this; decoding to the drawn size instead of full resolution is
+    /// most of the memory saving.
+    private static let decodeSide: CGFloat = 260
 
     @ViewBuilder private var badge: some View {
         if let cornerBadge {
@@ -705,7 +720,68 @@ struct KeyboardRowNavigation: ViewModifier {
     }
 }
 
+/// Arrow-key navigation for a **grid**, where left/right move by one and up/down move by a
+/// row.
+///
+/// The list layouts have had `KeyboardRowNavigation` for versions; the grids — which are
+/// the *default* layout on Albums, Artists, Playlists and the rest — had nothing, so the
+/// twenty grid surfaces in this app were keyboard-dead. Tab reached them and the arrow keys
+/// did nothing.
+///
+/// `columns` is supplied by the caller rather than measured: the grid is
+/// `.adaptive(minimum:)`, so only the layout knows how many actually fit, and guessing here
+/// would put the cursor somewhere the eye did not follow.
+struct KeyboardGridNavigation: ViewModifier {
+    @Binding var highlighted: Int?
+    let count: Int
+    let columns: Int
+    let proxy: ScrollViewProxy
+    let idForIndex: (Int) -> AnyHashable
+    let onActivate: (Int) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .onKeyPress(.leftArrow) { move(-1) }
+            .onKeyPress(.rightArrow) { move(1) }
+            .onKeyPress(.upArrow) { move(-max(1, columns)) }
+            .onKeyPress(.downArrow) { move(max(1, columns)) }
+            .onKeyPress(.return, phases: .down) { _ in
+                guard let index = highlighted, index < count else { return .ignored }
+                onActivate(index)
+                return .handled
+            }
+    }
+
+    private func move(_ delta: Int) -> KeyPress.Result {
+        guard count > 0 else { return .ignored }
+        // Clamped, not wrapped: wrapping a grid means pressing right at the end of a row
+        // lands you at the start of the next one, which is correct for text and wrong for
+        // a wall of covers — the eye expects the cursor to stop at the edge.
+        let next = min(max((highlighted ?? -1) + delta, 0), count - 1)
+        guard next != highlighted else { return .handled }
+        highlighted = next
+        withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(idForIndex(next), anchor: .center) }
+        return .handled
+    }
+}
+
 extension View {
+    /// Arrow-key navigation for a grid. See `KeyboardGridNavigation`.
+    func keyboardGridNavigation(
+        highlighted: Binding<Int?>,
+        count: Int,
+        columns: Int,
+        proxy: ScrollViewProxy,
+        idForIndex: @escaping (Int) -> AnyHashable,
+        onActivate: @escaping (Int) -> Void
+    ) -> some View {
+        modifier(KeyboardGridNavigation(
+            highlighted: highlighted, count: count, columns: columns,
+            proxy: proxy, idForIndex: idForIndex, onActivate: onActivate
+        ))
+    }
+
     func keyboardRowNavigation(
         highlighted: Binding<Int?>,
         count: Int,

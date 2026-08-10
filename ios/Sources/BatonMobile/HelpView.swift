@@ -233,6 +233,30 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.30",
+            date: "August 2026",
+            highlight: "Widgets that show your artwork, and a lock screen that keeps time.",
+            changes: [
+                .init(.fixed, "Tapping the Now Playing widget opened the app and restarted the track from the beginning, throwing away your queue. It takes you to the player now, which is what a tap on \u{201C}what is playing\u{201D} should do."),
+                .init(.fixed, "The Lock Screen clock drifted behind podcasts played faster than 1\u{00D7}, falling further behind the longer an episode ran. Baton was telling iOS the wrong playback speed."),
+                .init(.added, "The widget draws your cover art, in lock screen and StandBy sizes as well as on the Home Screen, with play/pause and next you can tap without opening the app."),
+                .init(.added, "Skip back and forward 15 seconds on the Lock Screen for podcasts, and like the current track from there or from CarPlay."),
+                .init(.added, "Playback speed for podcasts in the player itself, instead of only from the show\u{2019}s page."),
+                .init(.added, "Separate Wi\u{2011}Fi and cellular streaming quality. Baton has always been able to ask the server for a smaller stream and never did."),
+                .init(.added, "Lyrics from LRCLIB when your files have none \u{2014} off by default, since it is the one lookup that leaves your own server."),
+                .init(.improved, "Podcasts, Radio, Artists and Playlists in grid layout were missing their content, their refresh and their add button entirely."),
+                .init(.improved, "Cover art is cached properly, so scrolling a large library stops re-downloading and re-decoding artwork it just showed."),
+                .init(.improved, "The player fits at the largest text sizes instead of pushing the transport off the screen, and the mini bar\u{2019}s buttons are thumb-sized."),
+                .init(.improved, "VoiceOver reads an album as one item rather than three, and your server address is behind a biometric check as the screen always claimed."),
+                .init(.fixed, "Queueing the same song twice made the queue reorder and delete the wrong rows."),
+                .init(.fixed, "Downloads updates while you watch it, and shows what is still downloading."),
+                .init(.fixed, "A track over an hour long showed a nonsense time everywhere it appeared."),
+                .init(.improved, "The player closes with a chevron rather than a \u{201C}Done\u{201D} button. Nothing was being finished \u{2014} the music keeps playing and the player drops back into the mini bar, which is what the arrow says and what the Mac has always done."),
+                .init(.improved, "The Music Friend\u{2019}s composer lines up with the mini player and the tab bar below it. It was a full-width bar sitting under two floating capsules, so the send button looked like it was hanging off the edge."),
+                .init(.added, "The A\u{2013}Z rail is on Liked, Playlists and Genres now, not just Albums, Artists and Folders. Liked is the list that grows without bound and was the one long alphabetical list with no way to jump."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.29",
             date: "August 2026",
             highlight: "Tell the music friend when it gets it wrong.",

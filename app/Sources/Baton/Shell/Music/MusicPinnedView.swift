@@ -12,7 +12,7 @@ struct MusicPinnedView: View {
     @State private var kindFilter: PinnedItem.Kind?
     @State private var showClearConfirm = false
     @FocusState private var filterFocused: Bool
-    @AppStorage("tonebox.music.laterLayout") private var layout: MusicBrowseLayout = .list
+    @AppStorage(BrowseScreen.later.layoutKey) private var layout: MusicBrowseLayout = .list
 
     private var store: PinStore { model.pins }
 

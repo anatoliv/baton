@@ -40,6 +40,7 @@ final class MCPSchemaSnapshotTests: XCTestCase {
     private static let expectedNames: Set<String> = [
         "music_search", "music_play", "music_queue_add", "music_pause", "music_resume",
         "music_stop", "music_next", "music_previous", "music_set_volume", "music_now_playing",
+        "music_recent_events",
         "music_list_playlists", "music_get_playlist", "music_play_playlist", "music_like",
         "music_rate", "music_create_playlist", "music_add_to_playlist", "music_delete_playlist",
         "music_build_mix", "music_seek", "music_set_repeat", "music_set_shuffle",

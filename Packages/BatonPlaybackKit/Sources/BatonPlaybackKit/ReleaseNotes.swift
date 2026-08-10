@@ -16,13 +16,18 @@ public struct ReleaseNote: Identifiable, Sendable {
     /// One sentence on what this release is about, before the itemised list.
     public let highlight: String
     public let changes: [Change]
+    /// Asset-catalog image name for a screenshot under the highlight. The Mac's cards use
+    /// it; the phone's don't yet, which is a layout choice rather than a different model.
+    public let image: String?
 
     public var id: String { version }
 
-    public init(version: String, date: String, highlight: String, changes: [Change]) {
+    public init(version: String, date: String, highlight: String,
+                image: String? = nil, changes: [Change]) {
         self.version = version
         self.date = date
         self.highlight = highlight
+        self.image = image
         self.changes = changes
     }
 

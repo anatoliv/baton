@@ -147,7 +147,7 @@ struct DeviceLinkPane: View {
     private func failure(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(message, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.warningTint)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Try again") { start() }
         }

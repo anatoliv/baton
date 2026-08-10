@@ -10,10 +10,21 @@ struct MobileSettingsView: View {
     @State private var showsConnect = false
     /// Captured when the dialog opens so the copy can name what's about to go.
     @State private var purgePreview = SessionPurge.Preview(downloadCount: 0, downloadBytes: 0, historyCount: 0)
-    /// Server credentials are revealed only behind a biometric challenge.
+    /// Server credentials are revealed only behind a biometric challenge. Reset on every
+    /// appearance of this screen, so unlocking once does not leave them visible for the
+    /// life of the process.
     @State private var credentialsUnlocked = false
     @AppStorage(CrashReporting.enabledKey) private var sendsCrashReports = false
     @AppStorage("baton.display.keepAwake") private var keepAwake = false
+    /// Defaults to Dark, which is what the app has always been — so this setting appearing
+    /// changes nothing until somebody moves it.
+    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
+    @AppStorage(LRCLIBLyrics.enabledKey) private var lrclibEnabled = false
+    @AppStorage(StreamQuality.wifiKey) private var wifiQuality = StreamQuality.original.rawValue
+    /// Defaults to High rather than Original — the whole point is that the cellular case
+    /// differs, and a default equal to Wi-Fi would make the setting a no-op for everyone
+    /// who never opens this screen.
+    @AppStorage(StreamQuality.cellularKey) private var cellularQuality = StreamQuality.high.rawValue
     @AppStorage(MobileModel.experimentalEngineKey) private var experimentalEngine = false
     @State private var showsWhatsNew = false
     /// A footer's "Learn more" opens Help at the topic it just requested.
@@ -23,6 +34,14 @@ struct MobileSettingsView: View {
 
     /// Spells out everything the purge removes. Deleting someone's offline music quietly
     /// would be worse than not deleting it at all.
+    /// Enough to recognise, not enough to copy. A fully hidden value is a screen that
+    /// cannot answer "am I on the right server?" without a biometric prompt, which is
+    /// worse than useless for the question people open Settings with.
+    private static func masked(_ value: String) -> String {
+        let visible = value.prefix(6)
+        return value.count <= 6 ? "••••••" : "\(visible)••••••"
+    }
+
     private var disconnectMessage: String {
         var parts = ["Baton will forget this server and remove its data from this iPhone: listening history, playlisted downloads, radio bans, scrobble accounts and the music friend's key."]
         if purgePreview.historyCount > 0 {
@@ -67,8 +86,26 @@ struct MobileSettingsView: View {
                         ServerStatusRow(status: serverStatus) {
                             Task { await serverStatus.check() }
                         }
-                        LabeledContent("Address", value: NavidromeConfig.serverURLString)
-                        LabeledContent("User", value: NavidromeConfig.username)
+                        // The comment above `credentialsUnlocked` has promised a biometric
+                        // gate since this screen shipped, and the flag was declared and
+                        // never read — so the address and username were simply on display
+                        // to anyone holding an unlocked phone. `MusicFriendSettingsView`
+                        // has done this properly for the agent's API key all along; this
+                        // is the same pattern, finally applied where it was documented.
+                        if credentialsUnlocked {
+                            LabeledContent("Address", value: NavidromeConfig.serverURLString)
+                            LabeledContent("User", value: NavidromeConfig.username)
+                        } else {
+                            LabeledContent("Address", value: Self.masked(NavidromeConfig.serverURLString))
+                            LabeledContent("User", value: Self.masked(NavidromeConfig.username))
+                            Button("Show Server Details") {
+                                Task {
+                                    credentialsUnlocked = await BiometricGate.authenticate(
+                                        reason: "Show your server address and username"
+                                    )
+                                }
+                            }
+                        }
                         Button("Disconnect…", role: .destructive) {
                             purgePreview = SessionPurge.preview(model)
                             showsDisconnectConfirm = true
@@ -259,6 +296,27 @@ struct MobileSettingsView: View {
                     )) {
                         ForEach(StreamingPlaybackController.LoudnessMode.allCases) { mode in
                             Text(mode.label).tag(mode)
+                        }
+                    }
+                    // Per-network stream quality. The server has always accepted a cap and
+                    // nothing ever sent one, so a phone on cellular pulled the same bitrate
+                    // as one on Wi-Fi.
+                    // Off by default: this is the one lookup in the app that leaves your
+                    // own server, so it is a choice rather than an assumption.
+                    Toggle("Look Up Missing Lyrics", isOn: $lrclibEnabled)
+                    Picker("Appearance", selection: $appearanceRaw) {
+                        ForEach(AppearanceSetting.allCases) { setting in
+                            Text(setting.label).tag(setting.rawValue)
+                        }
+                    }
+                    Picker("Wi-Fi Quality", selection: $wifiQuality) {
+                        ForEach(StreamQuality.allCases) { quality in
+                            Text(quality.label).tag(quality.rawValue)
+                        }
+                    }
+                    Picker("Cellular Quality", selection: $cellularQuality) {
+                        ForEach(StreamQuality.allCases) { quality in
+                            Text(quality.label).tag(quality.rawValue)
                         }
                     }
                 } header: {

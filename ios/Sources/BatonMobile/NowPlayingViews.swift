@@ -1,4 +1,5 @@
 import AVKit
+import BatonPlaybackKit
 import SwiftUI
 
 /// The floating mini-bar above the tab bar: artwork, title, a live progress
@@ -65,20 +66,30 @@ struct NowPlayingBar: View {
                         Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
+                    // 44pt hit targets. These were the glyph's own ~20pt, which is a
+                    // coin-sized target on a bus — and the mini bar is precisely where
+                    // people tap without looking. The bar's height doesn't grow: the
+                    // frame is the touch area, not the drawing.
                     Button {
                         model.music.isPlaying ? model.music.pause() : model.music.resume()
                     } label: {
                         Image(systemName: model.music.isPlaying ? "pause.fill" : "play.fill")
                             .font(.title3)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel(model.music.isPlaying ? "Pause" : "Play")
+                    .sensoryFeedback(.impact(weight: .light), trigger: model.music.isPlaying)
                     Button {
                         model.music.next()
                     } label: {
                         Image(systemName: "forward.fill")
                             .font(.title3)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Next track")
+                    .sensoryFeedback(.selection, trigger: model.music.nowPlaying?.id)
                     // Dismissing the bar means ending the session — it can only disappear
                     // when nothing is playing. Clearing the queue is what the Mac's
                     // equivalent xmark does, so both apps mean the same thing by it.
@@ -140,10 +151,7 @@ private struct NowPlayingBarChrome: ViewModifier {
             // Capsule, not a rounded rectangle — it sits free above the tab bar and the
             // ends should be fully round, which is what the system accessory looks like.
             content
-                .background(.bar, in: Capsule())
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 4)
+                .bottomChromeCapsule()
         }
     }
 }
@@ -154,6 +162,24 @@ private struct NowPlayingBarChrome: ViewModifier {
 /// transport, and the queue below. Shares the Mac's palette extractor, so the
 /// same cover produces the same accent on both devices.
 struct FullPlayerView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// The hero cover, *shrinking* as text grows.
+    ///
+    /// This was `@ScaledMetric`, which was exactly backwards: that scales a value **up**
+    /// with the text size, so at accessibility sizes it made a 272pt cover into something
+    /// wider than the phone — the artwork was clipped off both edges and the title with it,
+    /// and the transport was pushed further down rather than nearer. The UI test caught it
+    /// with a screenshot; the assertion alone would only have said "still unreachable".
+    ///
+    /// The relationship is inverse: bigger text needs *more* room for text, which has to
+    /// come from the one element that is decoration. Clamped to the screen too, so it can
+    /// never exceed the width available whatever the setting.
+    private func heroArtworkSide(for width: CGFloat) -> CGFloat {
+        let base: CGFloat = dynamicTypeSize.isAccessibilitySize ? 180 : 272
+        return min(base, max(120, width - 48))
+    }
+
     let model: MobileModel
     @Environment(\.dismiss) private var dismiss
     /// Local scrub position while the finger is down, so the slider doesn't fight
@@ -163,7 +189,9 @@ struct FullPlayerView: View {
     @State private var showsRelated = false
     @State private var showsQueue = false
     @AppStorage("baton.player.showsRemaining") private var showsRemainingTime = false
-    @State private var isEditingQueue = false
+    // `isEditingQueue` removed: declared, never read, never set. Up Next has used
+    // swipe-to-delete and drag-to-reorder since it moved to its own screen, so there was
+    // no edit mode for it to track.
     /// Real peaks for the scrubber, when the track is downloaded. A live stream can't be
     /// analysed, so streams keep the capsule — the same rule the Mac follows.
     @State private var waveform: [Float]?
@@ -180,7 +208,14 @@ struct FullPlayerView: View {
             ZStack {
                 AdaptiveBackdrop(palette: paletteLoader.palette)
 
-                VStack(spacing: 22) {
+                // Scrollable. The fixed VStack fitted at the default text size and at
+                // nothing above it: at the largest accessibility size the labels grow, the
+                // rows grow with them, and the transport left the screen entirely — the
+                // controls, not the decoration. Scrolling costs nothing at normal sizes
+                // (the content still fits) and is the difference between usable and not
+                // at the top of the range.
+                ScrollView {
+                    VStack(spacing: 22) {
                     if let song = model.music.nowPlaying {
                         artwork(for: song)
 
@@ -217,13 +252,32 @@ struct FullPlayerView: View {
                     } else {
                         ContentUnavailableView("Nothing playing", systemImage: "music.note")
                     }
+                    }
+                    .padding(.top, 12)
                 }
-                .padding(.top, 12)
+                .scrollBounceBehavior(.basedOnSize)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(.white)
+                // A chevron, not "Done", and leading rather than trailing.
+                //
+                // "Done" means *I have finished a task* — it belongs on a form or an edit
+                // mode. Nothing is committed here: the music keeps playing and the player
+                // shrinks back into the mini bar it came from. The queue sheet next door
+                // uses "Done" for its Edit mode, so the same word meant two things two taps
+                // apart. The Mac has always collapsed this view with `chevron.down`; this
+                // is the same affordance, and the one Apple Music and Spotify teach.
+                //
+                // Leading, because trailing is where actions live and dismissal is
+                // navigation. 44pt frame for the same reason the mini bar's buttons got one.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.title3.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(.white)
+                    .accessibilityLabel("Minimize player")
                 }
             }
             .sheet(isPresented: $showsQueue) {
@@ -294,10 +348,20 @@ struct FullPlayerView: View {
     private var accent: Color { paletteLoader.palette.uiAccent }
 
     private func artwork(for song: NavidromeSong) -> some View {
+        // Measured, not assumed: the clamp needs the real width to keep the cover on screen
+        // on every device from an SE to a Max.
+        let side = heroArtworkSide(for: UIScreen.main.bounds.width)
+        return artworkBody(for: song, side: side)
+    }
+
+    private func artworkBody(for song: NavidromeSong, side: CGFloat) -> some View {
         // Fixed size, not maxWidth/maxHeight: the queue List below is greedy, and a
         // flexible frame lets it squeeze the artwork into a clipped sliver.
         ArtworkView(url: model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 800), wholeCover: true)
-            .frame(width: 272, height: 272)
+            // Shrinks as text grows. At the largest accessibility sizes a fixed 272pt
+            // cover plus grown labels and two rows of controls simply does not fit a
+            // phone, and what fell off the bottom was the transport.
+            .frame(width: side, height: side)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .shadow(color: Color.playingGlowTint(accent), radius: 24, y: 8)
             // The heart belongs to the artwork, as it does on the Mac — a corner badge on
@@ -311,10 +375,10 @@ struct FullPlayerView: View {
                         Task { await model.musicLibrary.toggleLike(song) }
                     } label: {
                         Image(systemName: liked ? "heart.fill" : "heart")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold, design: .default))
+                            .frame(minWidth: 44, minHeight: 44)
                             .foregroundStyle(liked ? accent : .white)
                             .shadow(color: .black.opacity(0.55), radius: 3, y: 1)
-                            .padding(10)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -473,6 +537,35 @@ struct FullPlayerView: View {
     }
 
     /// Like, lyrics, AirPlay, sleep — the row under the transport. On the Mac these
+    /// Playback speed. The same 0.5–2× the engine clamps to, so the menu cannot offer a
+    /// rate that would be silently corrected.
+    private var rateMenu: some View {
+        Menu {
+            ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
+                Button {
+                    model.music.playbackRate = Float(rate)
+                } label: {
+                    if abs(Double(model.music.playbackRate) - rate) < 0.01 {
+                        Label(Self.rateLabel(rate), systemImage: "checkmark")
+                    } else {
+                        Text(Self.rateLabel(rate))
+                    }
+                }
+            }
+        } label: {
+            Text(Self.rateLabel(Double(model.music.playbackRate)))
+                .foregroundStyle(.white.opacity(0.6))
+                .monospacedDigit()
+        }
+        .accessibilityLabel("Playback speed")
+    }
+
+    /// "1×", "1.5×" — no trailing zero on a whole number, which is how every podcast app
+    /// writes it and how people say it.
+    private static func rateLabel(_ rate: Double) -> String {
+        rate == rate.rounded() ? "\(Int(rate))×" : String(format: "%.2g×", rate)
+    }
+
     /// live across the expanded bar; the phone gathers them where the thumb is.
     private func secondaryControls(for song: NavidromeSong) -> some View {
         HStack(spacing: 0) {
@@ -506,6 +599,14 @@ struct FullPlayerView: View {
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Related")
 
+            // Speed, on the player, for podcasts only. It was settable from the show list
+            // and nowhere else — so changing it meant leaving the thing you were listening
+            // to, which is the one moment you know you want it faster.
+            if song.isPodcastEpisode {
+                rateMenu
+                    .frame(maxWidth: .infinity)
+            }
+
             AirPlayButton()
                 .frame(width: 44, height: 24)
                 .frame(maxWidth: .infinity)
@@ -534,10 +635,10 @@ struct FullPlayerView: View {
     }
 
 
+    // Was `%d:%02d` with no hour branch, so an hour-long mix read `70:23` here too — the
+    // player is the one place the number has to be right.
     private func timeString(_ t: TimeInterval) -> String {
-        guard t.isFinite, t > 0 else { return "0:00" }
-        let s = Int(t.rounded())
-        return String(format: "%d:%02d", s / 60, s % 60)
+        PlayTime.track(seconds: t) ?? "0:00"
     }
 }
 
@@ -599,7 +700,13 @@ struct QueueSheet: View {
                             }
                             .listSectionSpacing(0)
                         }
-                        ForEach(Array(model.music.queue.enumerated()), id: \.element.id) { index, song in
+                        // Keyed by position, not by song id. A queue is the one list in the
+                        // app where the same item legitimately appears twice — "Play Next"
+                        // on something already queued does exactly that — and duplicate
+                        // ForEach ids make SwiftUI render the wrong rows and hand `onMove`
+                        // and `onDelete` the wrong index, so a reorder edits a different
+                        // track than the one you dragged. Position is unique by definition.
+                        ForEach(Array(model.music.queue.enumerated()), id: \.offset) { index, song in
                             HStack(spacing: 10) {
                                 if index == model.music.currentIndex {
                                     // The same bars every other list uses. This row drew
@@ -696,7 +803,7 @@ struct MobileStarRating: View {
                         .foregroundStyle(star <= rating ? tint : .white.opacity(0.45))
                         // Thumb-sized without making the row taller: the icon stays small
                         // while the tappable area does not.
-                        .frame(width: 26, height: 30)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -707,6 +814,9 @@ struct MobileStarRating: View {
         .accessibilityElement(children: .contain)
         .accessibilityValue(rating == 0 ? "Not rated" : "\(rating) of 5 stars")
         .accessibilityIdentifier("StarRating")
+        // Rating is a deliberate, aimed tap with no other confirmation — the stars simply
+        // fill. A tick is what tells you it registered without watching for it.
+        .sensoryFeedback(.selection, trigger: rating)
     }
 }
 

@@ -60,6 +60,34 @@ extension FriendEvalExportTests {
                        "it must not be an active case until a human picks the expectation")
     }
 
+    /// The rating prompt and the exporter must agree about which faults carry a "should have".
+    ///
+    /// They disagreed once by construction: the rule lived only in `swiftCases`, so the phone
+    /// never asked for a note, and the first two real ratings both exported as TODOs nobody
+    /// could resolve without guessing. Asserted against `allCases` so a fifth fault fails here
+    /// rather than silently joining one side.
+    func testOnlyFaultsWithAnExpectationExport() {
+        for fault in FriendExchange.Fault.allCases {
+            let exported = FriendEvalExport.swiftCases(from: [down("play my trance", fault)])
+            XCTAssertEqual(!exported.isEmpty, fault.hasObservableExpectation,
+                           "\(fault.rawValue) exports but does not carry an expectation, or vice versa")
+        }
+    }
+
+    /// The note is the whole point of asking, so it has to survive into the artifact — and
+    /// be readable as a quote rather than as something the exporter made up.
+    func testTheirOwnWordsReachTheExportedCase() {
+        let exported = FriendEvalExport.swiftCases(from: [
+            FriendExchange(surface: .phone, request: "Show tracks", reply: "…",
+                           rating: .down, fault: .misunderstood,
+                           note: "list them, don't play them"),
+        ])
+        XCTAssertTrue(exported.contains("they said: list them, don't play them"),
+                      "the note never reached the case a human has to decide")
+        XCTAssertFalse(exported.contains("rated misunderstood on"),
+                       "a real note was replaced by the fallback remark")
+    }
+
     /// A multi-line request would otherwise emit Swift that does not compile.
     func testNewlinesInARequestDoNotBreakTheOutput() {
         let exported = FriendEvalExport.swiftCases(from: [

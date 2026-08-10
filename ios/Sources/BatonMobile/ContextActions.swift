@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 
 /// Long-press actions for songs, albums, artists and playlists — the phone's answer to
@@ -130,8 +131,8 @@ struct SongContextMenu: ViewModifier {
     /// "start radio from this". The seed plays first so the tap has an immediate result.
     private func startRadio() async {
         let similar = model.radioBans.filtered(await model.musicLibrary.similarSongs(seedID: song.id))
-        let queue = [song] + similar.filter { $0.id != song.id }
-        model.music.play(queue, source: .init(label: "Radio · \(song.title)", kind: .radio, id: song.id))
+        model.music.play(RadioQueue.build(seed: song, similar: similar),
+                         source: .init(label: RadioQueue.label(song.title), kind: .radio, id: song.id))
     }
 }
 

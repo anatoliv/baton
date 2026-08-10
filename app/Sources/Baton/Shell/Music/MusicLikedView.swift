@@ -599,9 +599,9 @@ struct MusicCollectionView: View {
     private func radioFromAll() {
         guard let seed = songs.first else { return }
         Task {
-            let radio = await library.similarSongs(seedID: seed.id)
-            model.music.play(radio.isEmpty ? songs : radio,
-                             source: .init(label: "\(title) Radio", kind: .radio, id: nil))
+            let similar = model.musicRadioBans.filtered(await library.similarSongs(seedID: seed.id))
+            model.music.play(RadioQueue.build(seed: seed, similar: similar, fallback: songs),
+                             source: .init(label: RadioQueue.label(title), kind: .radio, id: nil))
         }
     }
 
@@ -1006,6 +1006,8 @@ struct MusicCollectionView: View {
 /// a 5-star rating, and a like heart — inside the width-capped table so nothing is
 /// flung to the window edge.
 struct MusicLikedSongRow: View {
+    // Optional so previews and snapshot hosts without the router still render.
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
     @Environment(MusicModel.self) private var model
     let song: NavidromeSong
     var isSelected: Bool = false
@@ -1142,7 +1144,7 @@ struct MusicLikedSongRow: View {
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
-            songPlaybackMenuItems(song, model, onPlay: onPlay)
+            songPlaybackMenuItems(song, model, router: router, onPlay: onPlay)
             Divider()
             songDownloadMenuItems(song, model)
             songActionsMenu(song, model)
@@ -1171,8 +1173,9 @@ struct MusicLikedSongRow: View {
 
     private func startRadio() {
         Task {
-            let radio = await model.musicLibrary.similarSongs(seedID: song.id)
-            model.music.play([song] + radio, source: .init(label: "\(song.title) Radio", kind: .radio, id: nil))
+            let similar = model.musicRadioBans.filtered(await model.musicLibrary.similarSongs(seedID: song.id))
+            model.music.play(RadioQueue.build(seed: song, similar: similar),
+                             source: .init(label: RadioQueue.label(song.title), kind: .radio, id: song.id))
         }
     }
 }
@@ -1181,6 +1184,8 @@ struct MusicLikedSongRow: View {
 /// `MusicMediaCard` (cover, title, artist, duration) plus a hover/selected checkbox
 /// overlay. Clicking the card (or the hover play button) plays from this song.
 struct LikedSongGridCell: View {
+    // Optional so previews and snapshot hosts without the router still render.
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
     @Environment(MusicModel.self) private var model
     let song: NavidromeSong
     var isSelected: Bool
@@ -1230,7 +1235,7 @@ struct LikedSongGridCell: View {
         .animation(.easeOut(duration: 0.16), value: hovering)
         .onHover { hovering = $0 }
         .contextMenu {
-            songPlaybackMenuItems(song, model, onPlay: onPlay)
+            songPlaybackMenuItems(song, model, router: router, onPlay: onPlay)
             Divider()
             songDownloadMenuItems(song, model)
             songActionsMenu(song, model)

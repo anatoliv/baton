@@ -1,5 +1,14 @@
 # 05 — Roadmap: New Features
 
+> **On the file references below.** File *names* here are current as of this note; the
+> **line numbers are not** — they were accurate when written and the code has moved since.
+> Treat `File.swift:123` as "look in File.swift", not as an address. (The claim in
+> `docs/plan-review-execution-2026-08.md` that every citation here is dead is overstated:
+> of 29 files referenced across docs/05 and docs/06, 28 still exist — only `MCPTools.swift`
+> had been renamed, to `BatonMCPTools.swift`.)
+
+
+
 New capabilities to build in **Baton**, prioritized, each with an
 effort tag and tied to the competitive gap it closes. Effort: **S** ≈ days,
 **M** ≈ 1–3 weeks, **L** ≈ a month+.

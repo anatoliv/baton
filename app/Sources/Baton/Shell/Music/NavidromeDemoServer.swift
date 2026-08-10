@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import Foundation
 import BatonSubsonicKit
 
@@ -11,10 +12,14 @@ import BatonSubsonicKit
 /// and can take it down or change its sign-in without notice. Anything that fails against it must
 /// say so explicitly, or the very first thing a new user clicks reads as a bug in Baton.
 enum NavidromeDemoServer {
+    // The address and credentials are `NavidromePublicDemo`'s, in the package, so the two
+    // apps cannot disagree about which server the demo button reaches. Two copies of a URL
+    // is two copies until someone changes one. What stays here is the behaviour the package
+    // has no business knowing: how Baton authenticates, and what it says when this fails.
+    static var urlString: String { NavidromePublicDemo.url }
+    static var username: String { NavidromePublicDemo.username }
+    static var password: String { NavidromePublicDemo.password }
     static let host = "demo.navidrome.org"
-    static let urlString = "https://\(host)"
-    static let username = "demo"
-    static let password = "demo"
     static let authMode: NavidromeAuthMode = .tokenSalt
 
     /// Whether a URL points at the demo. Matches on **host**, so a user who edited the scheme,

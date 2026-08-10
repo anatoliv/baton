@@ -137,6 +137,12 @@ final class RemoteAgentConversationEval: XCTestCase {
         Case(message: "what's my most played song", expect: .answers),
         Case(message: "find songs by dido", expect: .answers),
         Case(message: "search for trance", expect: .answers),
+        // Kept verbatim from conversations rated "misunderstood" on the phone,
+        // 9 Aug 2026. Bare "show" with no "me" is the shape that got missed —
+        // "show me my liked songs" above already passes, so the corpus knew the
+        // polite form and not the terse one. Both mean display, not play.
+        Case(message: "Show piano tracks", expect: .answers),
+        Case(message: "Show tracks", expect: .answers),
 
         // — Liking and rating.
         Case(message: "i love this song", expect: .runs("music_like"), context: playing),

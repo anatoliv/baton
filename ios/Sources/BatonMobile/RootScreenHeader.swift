@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonPlaybackKit
 
 /// The header every root tab wears in place of a navigation bar.
 ///
@@ -112,30 +113,9 @@ enum Counted {
     }
 }
 
-/// Play time, in the two shapes lists need.
-///
-/// A track and a collection want different answers to "how long": `4:21` reads as a
-/// position on a clock, `6h 57m` reads as an evening. Using one format for both makes
-/// track lists look like spreadsheets and album totals look like timestamps — so these
-/// stay separate, and every list picks the one that matches what its row *is*.
-enum PlayTime {
-    /// A single track: `4:21`, or `1:04:30` once it passes an hour (live sets, mixes).
-    static func track(_ seconds: Int?) -> String? {
-        guard let seconds, seconds > 0 else { return nil }
-        let hours = seconds / 3600, minutes = (seconds % 3600) / 60, secs = seconds % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
-            : String(format: "%d:%02d", minutes, secs)
-    }
-
-    /// A collection: `6h 57m`, or `45m` under an hour. Never seconds — nobody plans an
-    /// evening to the second, and the extra digits only add noise.
-    static func total(_ seconds: Int?) -> String? {
-        guard let seconds, seconds > 0 else { return nil }
-        let hours = seconds / 3600, minutes = (seconds % 3600) / 60
-        return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
-    }
-}
+// `PlayTime` moved to BatonPlaybackKit so the Mac shares it — the same 70-minute mix read
+// `1:04:30` here and `70:23` there, because six Mac sites formatted `%d:%02d` with no hour
+// branch. One implementation, both apps.
 
 /// The search field, in the header, because there is no navigation bar to put it in.
 ///

@@ -742,7 +742,10 @@ public enum RemoteResultFormatter {
     }
 
     private static func clock(_ seconds: Int) -> String {
-        String(format: "%d:%02d", seconds / 60, seconds % 60)
+        // Through the shared formatter: this is what the agent says back in Telegram and
+        // Discord, and it had the same missing hour branch as everywhere else — an
+        // hour-long mix reported as "70:23" in chat.
+        PlayTime.track(seconds) ?? "0:00"
     }
 
     /// Last resort for a shape with no bespoke renderer: flatten the top level

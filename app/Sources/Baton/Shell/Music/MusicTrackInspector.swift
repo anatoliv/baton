@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 
 /// The **track inspector** — a "Get Info" sheet surfacing the technical + library metadata a
@@ -135,8 +136,7 @@ struct MusicTrackInspector: View {
     }
 
     static func duration(_ seconds: Int) -> String {
-        let m = seconds / 60, s = seconds % 60
-        return String(format: "%d:%02d", m, s)
+        PlayTime.track(seconds) ?? "0:00"
     }
 
     static func byteSize(_ bytes: Int) -> String {

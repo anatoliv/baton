@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.16.9"
-    CURRENT_PROJECT_VERSION: "68"
+    MARKETING_VERSION: "0.16.10"
+    CURRENT_PROJECT_VERSION: "69"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -117,11 +117,30 @@ targets:
       - path: ../Shared/MixArt.xcassets
       - path: ../Shared/MixBackdrop.swift
       - path: ../Shared/NowPlayingBars.swift
+      - path: ../Shared/ContentStateView.swift
+      - path: ../Shared/BrowseScreen.swift
+      - path: ../Shared/RadioStationInput.swift
+      - path: ../Shared/SongAction.swift
+      - path: ../Shared/BatonDeepLink.swift
+      - path: ../Shared/AccessibleChrome.swift
+      - path: ../Shared/AppearanceSetting.swift
+      - path: ../Shared/ArtworkCache.swift
+      - path: ../Shared/BottomChrome.swift
+      - path: ../Shared/MixCardSpec.swift
+      - path: ../Shared/CrashReporting.swift
+      - path: ../Shared/Color+Baton.swift
+      - path: ../Shared/ArtworkPalette.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
         PRODUCT_NAME: Baton
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Without this, every `Color.accentColor` on the Mac falls back to system blue —
+        # the orange in AccentColor.colorset is compiled into the catalog and then never
+        # named as the global accent, so sidebar selection and links rendered blue right
+        # next to orange badges. iOS has always set it (ios/project.yml); the Mac target
+        # simply never did, and nothing fails when a brand quietly goes missing.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         # A physical Info.plist is generated from `info:` below (instead of the
         # build-setting generator) so the nested App Transport Security dict can be
         # expressed — INFOPLIST_KEY_* only supports flat keys.
@@ -143,6 +162,21 @@ targets:
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         NSHumanReadableCopyright: "by Tonebox"
         NSHighResolutionCapable: true
+        # The `baton://` scheme. The phone has claimed it since its widgets shipped and the
+        # Mac never did — so a link that opened the player on an iPhone did nothing at all
+        # on the desktop, and every execution path behind it already existed. The doors
+        # were the only missing part.
+        # Baton's own drag type, so a drop target can tell "songs from Baton" from
+        # "some text that happens to be on the pasteboard".
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: io.tonebox.baton.song-ids
+            UTTypeDescription: Baton songs
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {}
+        CFBundleURLTypes:
+          - CFBundleURLName: io.tonebox.baton.deeplink
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes: [baton]
         # Internet-radio stations are overwhelmingly plain-HTTP Shoutcast/Icecast
         # streams; default ATS blocks them, so AVPlayer shows "On air" but never
         # starts (silent). This scopes the exception to AVFoundation media only —

@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -206,12 +207,11 @@ struct MusicAlbumDetail: View {
     private func startRadio() {
         Task {
             guard let seed = songs.first else { return }
-            let radio = await model.musicLibrary.similarSongs(seedID: seed.id)
-            if !radio.isEmpty {
-                model.music.play(radio, source: .init(label: "\(album.name) Radio", kind: .radio, id: nil))
-            } else {
-                model.music.play(songs, source: albumSource)
-            }
+            let similar = model.musicRadioBans.filtered(await model.musicLibrary.similarSongs(seedID: seed.id))
+            let queue = RadioQueue.build(seed: seed, similar: similar, fallback: songs)
+            model.music.play(queue, source: similar.isEmpty
+                             ? albumSource
+                             : .init(label: RadioQueue.label(album.name), kind: .radio, id: nil))
         }
     }
 }
@@ -677,7 +677,7 @@ struct MusicArtistBanner: View {
         Label("Auto-import", systemImage: "arrow.down.doc")
             .font(.caption2.weight(.semibold)).foregroundStyle(.white)
             .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(.orange.opacity(0.9)))
+            .background(Capsule().fill(Color.warningTint.opacity(0.9)))
     }
 
     private var backButton: some View {

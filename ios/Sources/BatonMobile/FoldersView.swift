@@ -44,19 +44,19 @@ struct FoldersView: View {
         .searchable(text: $filter, prompt: "Filter folders")
         .navigationTitle("Folders")
         .navigationBarTitleDisplayMode(.inline)
-        .overlay {
-            if loaded, roots.isEmpty {
-                ContentUnavailableView(
-                    "No folders",
-                    systemImage: "folder",
-                    description: Text(model.isDemoMode
-                        ? "The demo library has no folder tree — connect a server to browse by folder."
-                        : "The server didn't report a folder tree.")
-                )
-            } else if !loaded {
-                ProgressView()
-            }
-        }
+        // "The server didn't report a folder tree" was shown whether the server said so or
+        // failed to answer at all — a confident explanation of the wrong thing.
+        .contentState(
+            ContentDisplayState.resolve(isLoading: !loaded,
+                                        error: model.musicLibrary.lastError,
+                                        isEmpty: roots.isEmpty),
+            emptyTitle: "No folders",
+            emptyMessage: model.isDemoMode
+                ? "The demo library has no folder tree — connect a server to browse by folder."
+                : "The server didn't report a folder tree.",
+            emptySymbol: "folder",
+            onRetry: { Task { roots = await model.musicLibrary.folderRoots() } }
+        )
         .task {
             roots = await model.musicLibrary.folderRoots()
             loaded = true

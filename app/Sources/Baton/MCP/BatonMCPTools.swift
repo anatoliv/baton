@@ -76,6 +76,15 @@ enum BatonMCPToolCatalog {
                 required: []
             ),
             tool(
+                "music_recent_events",
+                "What was played recently and for how long before moving on — including "
+                    + "skips. Answers 'did they actually like it', which play history cannot: "
+                    + "a track heard to the end and one skipped after nine seconds look "
+                    + "identical there.",
+                properties: [:],
+                required: []
+            ),
+            tool(
                 "music_list_playlists",
                 "List the playlists on the connected Navidrome server.",
                 properties: [:],
@@ -349,6 +358,8 @@ enum BatonMCPToolCatalog {
         "music_get_queue",
         "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
         "music_random", "music_artist_info",
+        // Reports what already happened; changes nothing.
+        "music_recent_events",
     ]
 
     /// All music tools reach the Navidrome server; the audio-focus tools are local.
@@ -407,6 +418,7 @@ enum BatonMCPToolCatalog {
             case "music_previous": text = musicPrevious(arguments, music)
             case "music_set_volume": text = try musicSetVolume(arguments, music)
             case "music_now_playing": text = musicNowPlaying(music)
+            case "music_recent_events": text = musicRecentEvents(music)
             case "music_list_playlists": text = try await musicListPlaylists()
             case "music_get_playlist": text = try await musicGetPlaylist(arguments)
             case "music_play_playlist": text = try await musicPlayPlaylist(arguments, music)
@@ -798,24 +810,32 @@ enum BatonMCPToolCatalog {
         ])
     }
 
+    // The transport tools return the same structured shape `music_now_playing` does.
+    //
+    // They used to return a prose sentence — "Playing: Title — Artist [3/25]" — which an
+    // agent has to *parse* to answer the question it just asked ("what is playing now?"),
+    // and which changes shape the moment the wording is edited. Every one of these is
+    // followed by a caller wanting the new state; handing back the state is cheaper than
+    // handing back a sentence about it. `summary` is still in there, so a client that was
+    // reading the prose keeps working.
     private static func musicPause(_ music: MusicModel) -> String {
         music.music.pause()
-        return music.music.nowPlayingSummary
+        return musicNowPlaying(music)
     }
 
     private static func musicResume(_ music: MusicModel) -> String {
         music.music.resume()
-        return music.music.nowPlayingSummary
+        return musicNowPlaying(music)
     }
 
     private static func musicStop(_ music: MusicModel) -> String {
         music.music.stop()
-        return "Stopped."
+        return musicNowPlaying(music)
     }
 
     private static func musicNext(_ music: MusicModel) -> String {
         music.music.next()
-        return music.music.nowPlayingSummary
+        return musicNowPlaying(music)
     }
 
     private static func musicPrevious(_ args: [String: Any], _ music: MusicModel) -> String {
@@ -825,7 +845,7 @@ enum BatonMCPToolCatalog {
         // defaulting it off means a client that never learned about the flag still gets the
         // behaviour it asked for.
         music.music.previous(force: (args["force"] as? Bool) ?? true)
-        return music.music.nowPlayingSummary
+        return musicNowPlaying(music)
     }
 
     private static func musicSetVolume(_ args: [String: Any], _ music: MusicModel) throws -> String {
@@ -833,7 +853,7 @@ enum BatonMCPToolCatalog {
             throw BatonMCPToolError(message: "Missing required argument 'percent' (0–100).")
         }
         music.music.setVolume(percent: percent)
-        return "Music volume set to \(music.music.volumePercent)."
+        return musicNowPlaying(music)
     }
 
     static func musicNowPlaying(_ music: MusicModel) -> String {
@@ -847,6 +867,28 @@ enum BatonMCPToolCatalog {
         ]
         if let song = player.nowPlaying { out["now_playing"] = songJSON(song) }
         return jsonText(out)
+    }
+
+    /// Recent play/skip events, with how much of each track was actually heard.
+    static func musicRecentEvents(_ music: MusicModel) -> String {
+        let events = music.music.playbackEvents.events.prefix(40).map { event -> [String: Any] in
+            var out: [String: Any] = [
+                "song_id": event.songID,
+                "title": event.title,
+                "listened_seconds": Int(event.listenedSeconds.rounded()),
+                "reason": event.reason.rawValue,
+                "abandoned_immediately": event.wasAbandonedImmediately,
+            ]
+            if let artist = event.artist { out["artist"] = artist }
+            if event.durationSeconds > 0 { out["duration_seconds"] = Int(event.durationSeconds) }
+            // The proportion, because thirty seconds of a ninety-second interlude and thirty
+            // seconds of an hour are very different acts.
+            if let completion = event.completion {
+                out["completion"] = (completion * 100).rounded() / 100
+            }
+            return out
+        }
+        return jsonText(["events": Array(events)])
     }
 
     private static func musicListPlaylists() async throws -> String {
@@ -1054,13 +1096,22 @@ enum BatonMCPToolCatalog {
         throw BatonMCPToolError(message: "No playlist is exactly named \"\(name)\". Delete requires an exact name or 'playlist_id'. Did you mean: \(list)?")
     }
 
+    /// Name → id, cached briefly.
+    ///
+    /// Every playlist tool that takes a *name* re-fetched the entire playlist list to
+    /// resolve it, so "add these five songs to Focus" was five full playlist fetches. An
+    /// agent works in bursts of related calls, which is exactly the shape a short cache
+    /// serves — and exactly the shape an uncached resolver punishes.
     private static func resolvePlaylistID(_ args: [String: Any], client: NavidromeClient) async throws -> String {
         if let id = optionalString(args, "playlist_id") { return id }
         guard let name = optionalString(args, "name") else {
             throw BatonMCPToolError(message: "Provide either 'name' or 'playlist_id'.")
         }
-        let all = try await client.getPlaylists()
         let lowered = name.lowercased()
+        if let cached = PlaylistIDCache.shared.id(forLoweredName: lowered) { return cached }
+
+        let all = try await client.getPlaylists()
+        PlaylistIDCache.shared.store(all.map { ($0.name.lowercased(), $0.id) })
         guard let match = all.first(where: { $0.name.lowercased() == lowered })
             ?? all.first(where: { $0.name.lowercased().contains(lowered) })
         else { throw BatonMCPToolError(message: "No playlist named \"\(name)\".") }

@@ -100,7 +100,7 @@ block](screenshots/baton-agents.png)
 
 <sub>The bearer token is masked in this screenshot; the app shows it only when you reveal it.</sub>
 
-The control server is live whenever Baton is running. It exposes 36 `music_*` operations
+The control server is live whenever Baton is running. It exposes 37 `music_*` operations
 (including `music_build_mix` and the library-discovery tools — genres, liked, similar songs,
 artist info, and albums browsed by newest, most-played or random), the `audio_suspend` /
 `audio_resume` focus hand-off, and a `speak_summary` tool; it publishes now-playing, queue, playlists, liked, and recent history as

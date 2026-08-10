@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import Foundation
 import OSLog
 
@@ -45,6 +46,25 @@ public struct FriendExchange: Codable, Identifiable, Sendable, Equatable {
             case .misunderstood: "Misunderstood me"
             case .tooSlow: "Too slow"
             case .tooChatty: "Too chatty"
+            }
+        }
+
+        /// Whether this fault leaves behind an expectation somebody could assert.
+        ///
+        /// "Wrong track" and "misunderstood" both imply a *should have* — it should have
+        /// played something else, it should have understood — so they are the two that can
+        /// become eval cases, and the two worth asking "what should it have done?" about.
+        /// "Too slow" and "too chatty" are judgements about speed and style, which no
+        /// assertion holds without inventing a threshold nobody agreed to.
+        ///
+        /// One property rather than the same pair of cases written out twice. The rule lived
+        /// in `FriendEvalExport` alone, so the phone never asked for the note the exporter
+        /// needed — and the first two real ratings both exported as undecidable TODOs
+        /// because of it. Whoever adds a fifth fault now answers this question once.
+        public var hasObservableExpectation: Bool {
+            switch self {
+            case .wrongTrack, .misunderstood: true
+            case .tooSlow, .tooChatty: false
             }
         }
     }
@@ -189,7 +209,11 @@ public final class FriendFeedbackLog {
     /// Ten seconds is well short of any track and well past a mis-tap. Longer would collect
     /// ordinary skipping; shorter would miss the moment someone hears the first bar and
     /// reaches for the button.
-    public static let quickSkipWindow: TimeInterval = 10
+    /// The one definition lives in `QuickSkip.window` (BatonPlaybackKit, which this package
+    /// depends on). Two copies of "how soon is too soon" would drift, and the two places
+    /// that ask the question must agree or the friend's log and the play events disagree
+    /// about the same skip.
+    public static let quickSkipWindow: TimeInterval = QuickSkip.window
 
     /// Mark the most recent exchange as skipped, if it started something and it was recent.
     @discardableResult

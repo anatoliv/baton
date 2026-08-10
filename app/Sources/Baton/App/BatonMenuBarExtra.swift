@@ -139,6 +139,29 @@ struct BatonMenuBarContent: View {
             Button(liked ? "Unlike" : "Like") { Task { await model.musicLibrary.toggleLike(song) } }
         }
 
+        // Volume, inline. A `MenuBarExtra` menu cannot host a slider, so this is the
+        // stepped version — which is what a keyboard-and-menu surface wants anyway.
+        Menu("Volume") {
+            ForEach([100, 75, 50, 25, 0], id: \.self) { percent in
+                Button("\(percent)%") { player.setVolume(percent: percent) }
+            }
+        }
+
+        // The same sleep-timer options the player offers, from the same list, so the two
+        // cannot drift into offering different durations.
+        if !isRadio {
+            Menu("Sleep Timer") {
+                ForEach(SleepTimerOptions.minutes, id: \.self) { minutes in
+                    Button(SleepTimerOptions.label(minutes)) { player.setSleepTimer(minutes: minutes) }
+                }
+                Button("End of Track") { player.sleepAtEndOfTrack() }
+                if player.sleepTimerArmed {
+                    Divider()
+                    Button("Turn Off Sleep Timer") { player.cancelSleepTimer() }
+                }
+            }
+        }
+
         Divider()
 
         Button("Open Baton") {
@@ -161,6 +184,21 @@ struct BatonMenuBarContent: View {
         Divider()
 
         // App-level actions — reachable here even with every window closed.
+        // The endpoint, one click from the menu bar — the address an agent needs, which
+        // is otherwise four clicks into Settings.
+        //
+        // Deliberately *not* the bearer token. Settings puts that behind a section that
+        // explains what it is and says to keep it private; a one-click "Copy Token" in a
+        // menu you open to skip a track removes that context and makes putting a live
+        // credential on the clipboard an easy mis-click. The endpoint is a URL and carries
+        // no authority on its own.
+        if let endpoint = AgentAccessInfo.loadCurrent()?.url {
+            Button("Copy MCP Endpoint") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(endpoint, forType: .string)
+            }
+        }
+
         Button("Settings…") {
             openWindow(id: BatonSettingsView.windowID)
             NSApp.activate(ignoringOtherApps: true)

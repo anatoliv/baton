@@ -48,9 +48,9 @@ struct ServerPodcastsView: View {
     @State private var filterText = ""
     @FocusState private var filterFocused: Bool
     /// List ⇄ grid + sort, persisted like the other browse screens.
-    @AppStorage("tonebox.music.podcastLayout") private var layout: MusicBrowseLayout = .grid
-    @AppStorage("tonebox.music.podcastSort") private var sortField: PodcastSort = .name
-    @AppStorage("tonebox.music.podcastSortAscending") private var sortAscending = true
+    @AppStorage(BrowseScreen.podcast.layoutKey) private var layout: MusicBrowseLayout = .grid
+    @AppStorage(BrowseScreen.podcast.sortKey) private var sortField: PodcastSort = .name
+    @AppStorage(BrowseScreen.podcast.sortAscendingKey) private var sortAscending = true
 
     /// Sort fields for the Podcasts screen (mirrors the other browse screens).
     enum PodcastSort: String, CaseIterable, Identifiable, MusicSortField {
@@ -762,15 +762,12 @@ private struct PodcastEpisodeRow: View {
     }
 
     private var metaLine: String? {
-        var parts: [String] = []
-        if let date = episode.publishDate.flatMap(Self.formatDate) { parts.append(date) }
-        // Prefer "N min left" while an episode is in progress; else its total length.
-        if let pid, let remaining = model.podcastProgress.remaining(id: pid), remaining > 60 {
-            parts.append("\(Int(remaining / 60)) min left")
-        } else if let seconds = episode.duration, seconds > 0 {
-            parts.append(String(format: "%d min", max(1, seconds / 60)))
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        PodcastEpisodeMeta.line(
+            publishDate: episode.publishDate.flatMap(PodcastEpisodeMeta.parseISODate),
+            duration: episode.duration,
+            remaining: pid.flatMap { model.podcastProgress.remaining(id: $0) },
+            isPlayed: pid.map { model.podcastProgress.isPlayed(id: $0) } ?? false
+        )
     }
 
     /// Renders the server's ISO-8601 publish date as a short local date; falls back to the

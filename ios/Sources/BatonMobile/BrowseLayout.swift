@@ -20,9 +20,8 @@ enum BrowseLayout: String, CaseIterable, Identifiable {
     var symbol: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
     var label: String { self == .grid ? "Grid" : "List" }
 
-    /// Storage key for a screen. Mirrors the Mac's `tonebox.music.<screen>Layout` naming so
-    /// the two are recognisable as the same setting when read side by side.
-    static func key(_ screen: String) -> String { "tonebox.music.\(screen)Layout" }
+    // Keys live on `BrowseScreen` in Shared/ now — the Mac had twelve of them spelled out
+    // by hand, and a helper that only one of the two apps could reach was how that happened.
 }
 
 /// The control itself — a compact segmented pair, sized for a header's accessory slot.
@@ -77,6 +76,8 @@ struct BrowseTile: View {
                 .clipShape(AnyShape(circular ? AnyShape(Circle())
                                              : AnyShape(RoundedRectangle(cornerRadius: 12))))
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+                // Decorative — the title says what this is.
+                .accessibilityHidden(true)
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
@@ -89,6 +90,10 @@ struct BrowseTile: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // One VoiceOver stop per tile. Every grid on the phone uses this, so leaving it
+        // uncombined multiplied every browse screen's swipe count by three.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(subtitle.map { "\(title), \($0)" } ?? title)
     }
 
 }

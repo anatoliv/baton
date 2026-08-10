@@ -84,7 +84,13 @@ struct FullScreenNowPlaying: View {
         // (their art is a direct URL), so keying on the cover id would never refresh between
         // episodes.
         .onChange(of: player.nowPlaying?.id) { _, _ in paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
-        .task(id: player.nowPlaying?.id) { coverImage = await loadCoverImage() }
+        // Clear first. The old artwork stayed on screen for the whole fetch, so skipping
+        // a track showed the *previous* song's cover under the new song's title — briefly,
+        // but on the one surface that is entirely about the artwork.
+        .task(id: player.nowPlaying?.id) {
+            coverImage = nil
+            coverImage = await loadCoverImage()
+        }
         .confirmationDialog(
             "Delete this track?",
             isPresented: $showRemovalConfirm,
@@ -108,19 +114,29 @@ struct FullScreenNowPlaying: View {
         player.removeFromQueue(at: IndexSet(integer: index))
     }
 
-    /// Fetch the cover as an NSImage (self-authenticating URL; URLCache-backed).
+    /// Fetch the cover, through the shared decoded cache.
+    ///
+    /// Was a bare `URLSession` fetch plus `NSImage(data:)` on every track change — no
+    /// decoded cache, full-resolution decode, and a second request for a cover the palette
+    /// extractor had just downloaded at a different size.
     private func loadCoverImage() async -> NSImage? {
         guard let url = coverURL(size: 500) else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
-        return NSImage(data: data)
+        return await ArtworkCache.shared.image(for: url, side: 500)
     }
 
     /// Compute a real waveform for the scrubber when the current track is downloaded
     /// (a live stream can't be analyzed). Guards against a track change mid-load.
     private func loadWaveform() async {
         waveform = nil
-        guard let song = player.nowPlaying,
-              let url = MusicDownloadStore.shared.localURL(for: song.id) else { return }
+        guard let song = player.nowPlaying else { return }
+        // A permanent download first, then whatever the gapless prefetcher already pulled
+        // down for this track. The second case is most of a listening session: the
+        // prefetcher writes the next track to disk for gapless playback, so by the time you
+        // are hearing it there is a real file to analyse — and the scrubber drew a plain
+        // capsule anyway, because "streamed" was treated as "unanalysable".
+        let url = MusicDownloadStore.shared.localURL(for: song.id)
+            ?? player.prefetchedLocalURL(for: song.id)
+        guard let url else { return }
         let bars = await WaveformExtractor.bars(forSongID: song.id, url: url)
         if player.nowPlaying?.id == song.id { waveform = bars }
     }
@@ -418,7 +434,7 @@ struct FullScreenNowPlaying: View {
                     }
                 }
             }
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .adaptiveMaterial(RoundedRectangle(cornerRadius: 16))
         }
     }
 

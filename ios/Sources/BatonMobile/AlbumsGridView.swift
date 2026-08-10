@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonPlaybackKit
 
 /// The Albums browse tab — a two-column grid over `MusicLibraryStore.albums`, the
 /// iPhone rendering of the Mac app's grid branch. Artwork rides `AsyncImage` +
@@ -15,7 +16,7 @@ struct AlbumsGridView: View {
     // Mac's and unlike the five that just joined it. Moved onto the shared key so all six
     // read the same way. The cost is that an existing choice resets to grid once — which
     // is the default it almost certainly already was.
-    @AppStorage(BrowseLayout.key("album")) private var styleRaw = BrowseLayout.grid.rawValue
+    @AppStorage(BrowseScreen.album.layoutKey) private var styleRaw = BrowseLayout.grid.rawValue
     private var isGrid: Bool { styleRaw == "grid" }
 
     var body: some View {
@@ -67,11 +68,17 @@ struct AlbumsGridView: View {
                 AlbumDetailView(album: album, model: model)
             }
             .refreshable { await model.musicLibrary.loadAlbums() }
-            .overlay {
-                if model.musicLibrary.albums.isEmpty, model.musicLibrary.isLoading {
-                    ProgressView()
-                }
-            }
+            // Was a spinner and nothing else: a server returning 500 left an empty grid
+            // that read as "you have no music".
+            .contentState(
+                ContentDisplayState.resolve(isLoading: model.musicLibrary.isLoading,
+                                            error: model.musicLibrary.lastError,
+                                            isEmpty: model.musicLibrary.albums.isEmpty),
+                emptyTitle: "No albums",
+                emptyMessage: "Nothing in your library yet.",
+                emptySymbol: "square.stack",
+                onRetry: { Task { await model.musicLibrary.loadAlbums() } }
+            )
         }
     }
 
@@ -162,6 +169,9 @@ private struct AlbumCell: View {
             ArtworkView(url: model.musicLibrary.coverArtURL(id: album.coverArtID ?? album.id, size: 400), wholeCover: true)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                // Decorative: the title and artist below say everything the cover does,
+                // and VoiceOver announcing "image" before each one is pure noise.
+                .accessibilityHidden(true)
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
             Text(album.name)
                 .font(.subheadline.weight(.semibold))
@@ -176,6 +186,11 @@ private struct AlbumCell: View {
         // Every cell the same width as its column, so two columns line up and a long
         // title truncates instead of widening its cell.
         .frame(maxWidth: .infinity, alignment: .leading)
+        // One stop per album, not three. Uncombined, VoiceOver reads cover, then title,
+        // then artist — so reaching the end of a 2,600-album grid is 7,800 swipes instead
+        // of 2,600, and the album is never announced as one thing.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(album.artist.map { "\(album.name), by \($0)" } ?? album.name)
     }
 }
 
@@ -185,6 +200,9 @@ struct ArtworkView: View {
     /// Draw the cover *whole* over a blurred enlargement of itself, instead of cropping it
     /// to the cell. Off for small row thumbnails, where the blur is invisible.
     var wholeCover = false
+    /// Decode target in points. A row thumbnail wants a fraction of a hero's pixels, and
+    /// decoding both at hero size is most of what a naive image cache wastes.
+    var side: CGFloat = 200
 
     var body: some View {
         // `Color.clear` first, image in an overlay.
@@ -209,29 +227,31 @@ struct ArtworkView: View {
         // the covers for that pool, and across a grid the visible artwork simply never
         // arrived: forty seconds in, every cell was still a placeholder. Reusing the
         // decoded image costs one extra draw and no network at all.
+        // `CachedArtwork` rather than `AsyncImage`: the latter caches *bytes* in a
+        // `URLCache` that defaults to 512KB in memory — roughly four covers — and decodes
+        // again on every appearance. Against 2,600 albums that means scrolling back up a
+        // grid re-downloads and re-decodes artwork it showed seconds ago. This decodes to
+        // the drawn size, once, and keeps it.
         Color.clear
             .overlay {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        if wholeCover {
-                            ZStack {
-                                image.resizable()
-                                    .scaledToFill()
-                                    .blur(radius: 18)
-                                    .overlay(Color.black.opacity(0.15))
-                                image.resizable().scaledToFit()
-                            }
-                        } else {
-                            image.resizable().scaledToFill()
-                        }
-                    default:
+                CachedArtwork(url: url, side: side) { image in
+                    if wholeCover {
                         ZStack {
-                            Rectangle().fill(.quaternary)
-                            Image(systemName: "music.note")
-                                .font(.title2)
-                                .foregroundStyle(.tertiary)
+                            image.resizable()
+                                .scaledToFill()
+                                .blur(radius: 18)
+                                .overlay(Color.black.opacity(0.15))
+                            image.resizable().scaledToFit()
                         }
+                    } else {
+                        image.resizable().scaledToFill()
+                    }
+                } placeholder: {
+                    ZStack {
+                        Rectangle().fill(.quaternary)
+                        Image(systemName: "music.note")
+                            .font(.title2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }

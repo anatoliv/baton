@@ -77,10 +77,14 @@ struct MiniPlayerWindowView: View {
             expandToggle
         }
         .animation(.easeInOut(duration: 0.2), value: expanded)
-        .onAppear { paletteLoader.update(url: artworkURL) }
+        // `paletteCoverURL`, not `artworkURL`. The 120px display thumbnail was being fed to
+        // the extractor, so the mini player derived a *different* accent from the main
+        // window for the same track — the purpose-built URL at `ArtworkColorExtractor
+        // .coverSize` was computed right above and never used.
+        .onAppear { paletteLoader.update(url: paletteCoverURL) }
         // Key on the song id, not coverArtID — podcast episodes share a nil coverArtID (their art is
         // a direct URL), so keying on the cover id would never refresh the wash between episodes.
-        .onChange(of: player.nowPlaying?.id) { _, _ in paletteLoader.update(url: artworkURL) }
+        .onChange(of: player.nowPlaying?.id) { _, _ in paletteLoader.update(url: paletteCoverURL) }
         // Return-to-full-player, pinned to the panel's top-right corner.
         .overlay(alignment: .topTrailing) { expandButton }
         .padding(14)

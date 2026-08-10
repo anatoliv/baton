@@ -92,7 +92,7 @@ struct SymbolField: View {
                 Button { showingPicker = true } label: {
                     Image(systemName: SFSymbolCatalog.resolved(symbol))
                         .font(.system(size: 15))
-                        .foregroundStyle(isBroken ? Color.orange : Color.accentColor)
+                        .foregroundStyle(isBroken ? Color.warningTint : Color.accentColor)
                         .frame(width: 26, height: 22)
                 }
                 .buttonStyle(.borderless)
@@ -106,7 +106,7 @@ struct SymbolField: View {
             if isBroken {
                 Text("No SF Symbol called “\(symbol.trimmingCharacters(in: .whitespaces))” — the \(SFSymbolCatalog.fallback) icon will be used instead.")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.warningTint)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

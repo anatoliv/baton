@@ -99,7 +99,7 @@ struct MusicFoldersView: View {
     @FocusState private var filterFocused: Bool
     /// List (dense table) vs Grid (cards). Persisted; shared with the folder detail so
     /// the tree reads the same at every level. Folders are name-first → default list.
-    @AppStorage("tonebox.music.folderLayout") private var layout: MusicBrowseLayout = .list
+    @AppStorage(BrowseScreen.folder.layoutKey) private var layout: MusicBrowseLayout = .list
 
     enum FolderSort: String, CaseIterable, Identifiable, MusicSortField {
         case name
@@ -487,7 +487,7 @@ struct MusicFolderDetailView: View {
     @State private var loaded = false
     @State private var filter = ""
     @State private var kbIndex: Int?
-    @AppStorage("tonebox.music.folderLayout") private var layout: MusicBrowseLayout = .list
+    @AppStorage(BrowseScreen.folder.layoutKey) private var layout: MusicBrowseLayout = .list
 
     private var folderSource: StreamingPlaybackController.QueueSource {
         .init(label: folder.name, kind: .folder, id: folder.id)

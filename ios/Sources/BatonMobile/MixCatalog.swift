@@ -23,47 +23,56 @@ struct MobileMix: Identifiable, Hashable {
     // to know which card was tapped.
     static func == (lhs: MobileMix, rhs: MobileMix) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// Built from the shared card, so the six titles and subtitles have one home.
+    init(card: MixCardSpec, songs: @escaping @MainActor () async -> [NavidromeSong]) {
+        self.id = card.id
+        self.title = card.title
+        self.subtitle = card.subtitle
+        self.icon = card.icon
+        self.tint = card.tint
+        self.artwork = card.artwork
+        self.songs = songs
+    }
+
+    /// The literal form, for the genre and server-playlist mixes built from library data.
+    init(id: String, title: String, subtitle: String, icon: String, tint: Color,
+         artwork: String? = nil, songs: @escaping @MainActor () async -> [NavidromeSong]) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.icon = icon
+        self.tint = tint
+        self.artwork = artwork
+        self.songs = songs
+    }
 }
 
 /// Builds the phone's mix catalog from the shared store and play history.
 @MainActor
 enum MobileMixCatalog {
-    /// Art-directed backdrops for specific server-generated playlists, by name — the same
-    /// table the Mac uses. Anything absent keeps the generated mesh; this is opt-in per
-    /// playlist, not a required asset.
-    static let serverArtwork: [String: String] = [
-        "Focus · Deep": "MixArtFocusDeep",
-        "Focus · Momentum": "MixArtFocusMomentum",
-        "Focus · Lift": "MixArtFocusLift",
-        "Fresh": "MixArtFresh",
-        "Daily Jams": "MixArtDailyJams",
-        "Daily Discovery": "MixArtDailyDiscovery",
-        "Deep Cuts": "MixArtDeepCuts",
-        "Favorites Radio": "MixArtFavoritesRadio",
-        "Favorites Inbox": "MixArtFavoritesInbox",
-    ]
+    /// Server-playlist backdrops live in `MixCards.serverArtwork` (Shared/) — the Mac
+    /// had the identical table, and an art direction that exists on one platform is a
+    /// half-finished art direction.
+    static var serverArtwork: [String: String] { MixCards.serverArtwork }
+
 
     /// The six auto-mixes, matching the Mac's set so the two apps offer the same things.
     static func auto(_ model: MobileModel) -> [MobileMix] {
         [
-            MobileMix(id: "mostPlayed", title: "Most Played", subtitle: "Your top tracks",
-                      icon: "flame.fill", tint: .orange, artwork: "MixArtMostPlayed") {
+            MobileMix(card: MixCards.card("mostPlayed")) {
                 model.history.topTracks(since: .distantPast).map(\.song)
             },
-            MobileMix(id: "recentlyAdded", title: "Just Added", subtitle: "Newest in your library",
-                      icon: "sparkles", tint: .green, artwork: "MixArtJustAdded") {
+            MobileMix(card: MixCards.card("recentlyAdded")) {
                 await model.musicLibrary.mixSongs(type: "newest")
             },
-            MobileMix(id: "topRated", title: "Top Rated", subtitle: "Your highest-rated",
-                      icon: "star.fill", tint: .yellow, artwork: "MixArtTopRated") {
+            MobileMix(card: MixCards.card("topRated")) {
                 await model.musicLibrary.mixSongs(type: "highest")
             },
-            MobileMix(id: "onRepeat", title: "On Repeat", subtitle: "Frequently played",
-                      icon: "repeat", tint: .pink, artwork: "MixArtOnRepeat") {
+            MobileMix(card: MixCards.card("onRepeat")) {
                 await model.musicLibrary.mixSongs(type: "frequent")
             },
-            MobileMix(id: "forgotten", title: "Forgotten Favorites", subtitle: "Liked, not heard lately",
-                      icon: "heart.circle.fill", tint: .red, artwork: "MixArtForgotten") {
+            MobileMix(card: MixCards.card("forgotten")) {
                 let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
                 let recent = Set(model.history.entries.filter { $0.playedAt >= cutoff }.map(\.song.id))
                 return MixCatalogRules.forgottenFavorites(
@@ -71,8 +80,7 @@ enum MobileMixCatalog {
                     recentlyPlayedIDs: recent
                 )
             },
-            MobileMix(id: "discover", title: "Discover", subtitle: "A random shuffle",
-                      icon: "shuffle", tint: .blue, artwork: "MixArtDiscover") {
+            MobileMix(card: MixCards.card("discover")) {
                 // A fresh shuffle each open, spread so it never stacks one artist.
                 MixCatalogRules.spreadArtists(await model.musicLibrary.mixSongs(type: "random").shuffled())
             },

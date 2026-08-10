@@ -17,9 +17,9 @@ struct MusicDownloadsView: View {
     @FocusState private var filterFocused: Bool
     @State private var sel = MusicMultiSelect()
     @State private var showBatchDeleteConfirm = false
-    @AppStorage("tonebox.music.downloadLayout") private var layout: MusicBrowseLayout = .list
-    @AppStorage("tonebox.music.downloadSort") private var sortField: DownloadSort = .name
-    @AppStorage("tonebox.music.downloadSortAscending") private var sortAscending = true
+    @AppStorage(BrowseScreen.download.layoutKey) private var layout: MusicBrowseLayout = .list
+    @AppStorage(BrowseScreen.download.sortKey) private var sortField: DownloadSort = .name
+    @AppStorage(BrowseScreen.download.sortAscendingKey) private var sortAscending = true
 
     /// Sort fields for the Downloads screen (mirrors the other browse screens).
     enum DownloadSort: String, CaseIterable, Identifiable, MusicSortField {
@@ -157,7 +157,7 @@ struct MusicDownloadsView: View {
                 Spacer(minLength: 8)
                 if !store.failedIDs.isEmpty {
                     Label("\(store.failedIDs.count) failed", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange).labelStyle(.titleAndIcon)
+                        .font(.caption).foregroundStyle(Color.warningTint).labelStyle(.titleAndIcon)
                     Button("Retry") { Task { await store.retryFailed() } }
                         .buttonStyle(.bordered).controlSize(.small)
                 }
@@ -254,15 +254,15 @@ struct MusicDownloadsView: View {
 
     // MARK: - Empty state
 
+    /// Downloads are local, so there is no fetch to fail and no error branch to add — this
+    /// goes through the shared placeholder for consistency of look, not of logic.
     private var empty: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "arrow.down.circle")
-                .font(.system(size: 40)).foregroundStyle(.tertiary)
-            Text("No downloads yet").font(.title3.bold())
-            Text("Download tracks from an album or playlist to play them offline.")
-                .font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
+        ContentStatePlaceholder(
+            state: .empty,
+            emptyTitle: "No downloads yet",
+            emptyMessage: "Download tracks from an album or playlist to play them offline.",
+            emptySymbol: "arrow.down.circle"
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
     }
