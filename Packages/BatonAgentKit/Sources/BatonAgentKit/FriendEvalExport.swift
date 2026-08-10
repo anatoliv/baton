@@ -26,7 +26,7 @@ public enum FriendEvalExport {
     public static func swiftCases(from exchanges: [FriendExchange]) -> String {
         let usable = exchanges.filter { exchange in
             exchange.rating == .down
-                && (exchange.fault == .wrongTrack || exchange.fault == .misunderstood)
+                && exchange.fault?.hasObservableExpectation == true
                 && !exchange.request.trimmingCharacters(in: .whitespaces).isEmpty
         }
         guard !usable.isEmpty else { return "" }
@@ -44,8 +44,11 @@ public enum FriendEvalExport {
                 // A multi-line request otherwise emits Swift that will not compile.
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\r", with: " ")
+            // "they said:" marks the words as a quote. A note and a machine-written remark
+            // read identically once they are both trailing comments, and the whole reason
+            // this line is worth reading is that somebody typed it.
             let why = exchange.note.map { note in
-                " // " + note.replacingOccurrences(of: "\n", with: " ")
+                " // they said: " + note.replacingOccurrences(of: "\n", with: " ")
             } ?? " // rated \(exchange.fault?.rawValue ?? "down") on \(exchange.date.formatted(date: .abbreviated, time: .omitted))"
             // The fault cannot decide the expectation, and guessing is worse than asking.
             //

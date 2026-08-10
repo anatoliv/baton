@@ -185,7 +185,7 @@ private struct RemoteSettingsForm: View {
             // do next just reads as something being broken. So the next step goes
             // where the problem is noticed, without duplicating the control.
             Label("No chats authorized yet", systemImage: "person.crop.circle.badge.xmark")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.warningTint)
             Text("Send your bot `/link \(settings.linkCode)` from the chat you want to use.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -362,7 +362,7 @@ private struct RemoteSettingsForm: View {
         case .off:
             Label("Not connected", systemImage: "circle").foregroundStyle(.secondary)
         case .connecting:
-            Label("Connecting…", systemImage: "circle.dotted").foregroundStyle(.orange)
+            Label("Connecting…", systemImage: "circle.dotted").foregroundStyle(Color.warningTint)
         case let .connected(account):
             Label(account, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
         case let .failed(message):

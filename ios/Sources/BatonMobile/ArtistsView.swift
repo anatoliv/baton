@@ -9,7 +9,7 @@ struct ArtistsView: View {
     @State private var query = ""
     // List by default: this library has thousands of artists and you find them by name,
     // not by face. The grid is there for when you're browsing rather than looking.
-    @AppStorage(BrowseLayout.key("artist")) private var layoutRaw = BrowseLayout.list.rawValue
+    @AppStorage(BrowseScreen.artist.layoutKey) private var layoutRaw = BrowseLayout.list.rawValue
     private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .list }
 
     var body: some View {
@@ -28,6 +28,35 @@ struct ArtistsView: View {
                         .padding(.vertical, 8)
                     }
                 }
+                // Shared by both branches. The grid had no load, no refresh and no empty
+                // state — harmless only because the default here is `.list`, which is the
+                // definition of a bug waiting for someone to change a default.
+                .searchable(text: $query, prompt: "Artists")
+                .navigationTitle("Artists")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) }
+                }
+                // A 500ing server used to render as "No artists" — an empty library and a
+                // broken one looked identical, so the phone told you your music was gone.
+                // `lastError` has been on the shared store the whole time and iOS read it
+                // nowhere.
+                .overlay {
+                    if !query.isEmpty, filtered.isEmpty, model.musicLibrary.lastError == nil {
+                        ContentUnavailableView.search(text: query)
+                    }
+                }
+                .contentState(
+                    ContentDisplayState.resolve(isLoading: model.musicLibrary.isLoading,
+                                                error: model.musicLibrary.lastError,
+                                                isEmpty: model.musicLibrary.artists.isEmpty),
+                    emptyTitle: "No artists",
+                    emptyMessage: "Nothing in your library yet.",
+                    emptySymbol: "music.mic",
+                    onRetry: { Task { await model.musicLibrary.loadArtists() } }
+                )
+                .task { await model.musicLibrary.loadArtists() }
+                .refreshable { await model.musicLibrary.loadArtists() }
         }
     }
 
@@ -65,10 +94,6 @@ struct ArtistsView: View {
             }
             .padding(BrowseGrid.padding)
         }
-        .searchable(text: $query, prompt: "Artists")
-        .navigationTitle("Artists")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
     }
 
     private var layoutBinding: Binding<BrowseLayout> {
@@ -96,19 +121,6 @@ struct ArtistsView: View {
             .id(artist.id)
         }
         .listStyle(.plain)
-        .searchable(text: $query, prompt: "Artists")
-        .navigationTitle("Artists")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
-        .overlay {
-            if model.musicLibrary.artists.isEmpty {
-                ContentUnavailableView("No artists", systemImage: "music.mic")
-            } else if filtered.isEmpty {
-                ContentUnavailableView.search(text: query)
-            }
-        }
-        .task { await model.musicLibrary.loadArtists() }
-        .refreshable { await model.musicLibrary.loadArtists() }
     }
 
     private var filtered: [NavidromeArtist] {
@@ -267,10 +279,7 @@ struct ArtistDetailView: View {
     private var source: QueueSource { .init(label: artist.name, kind: .artist, id: artist.id) }
     private func songs() async -> [NavidromeSong] { await model.musicLibrary.artistSongs(id: artist.id) }
 
-    private func durationText(_ seconds: Int) -> String {
-        let hours = seconds / 3600, minutes = (seconds % 3600) / 60
-        return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
-    }
+    private func durationText(_ seconds: Int) -> String { PlayTime.total(seconds) ?? "" }
 }
 
 /// Genres browse — chips into a genre's songs, using the same "is this genre actually a
@@ -281,7 +290,14 @@ struct GenresView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
 
+    private var indexEntries: [AlphabetIndex.Entry] {
+        let genres = useful
+        guard genres.count > 30 else { return [] }
+        return AlphabetIndex.entries(from: genres.map { ($0.id, $0.name) })
+    }
+
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(useful, id: \.id) { genre in
@@ -305,9 +321,22 @@ struct GenresView: View {
                         .background(Color.hoverTint, in: RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
+                    .id(genre.id)
                 }
             }
             .padding()
+        }
+        // Same rail as Albums, Artists and Folders. A well-tagged library reports enough
+        // genres to need it; a sparse one falls under the thirty-item floor and gets none.
+        .overlay(alignment: .trailing) {
+            let entries = indexEntries
+            if !entries.isEmpty {
+                AlphabetIndexRail(entries: entries) { entry in
+                    proxy.scrollTo(entry.firstID, anchor: .top)
+                }
+                .padding(.vertical, 8)
+            }
+        }
         }
         .navigationTitle("Genres")
         .navigationBarTitleDisplayMode(.inline)

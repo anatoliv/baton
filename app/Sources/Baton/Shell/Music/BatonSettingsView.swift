@@ -77,6 +77,8 @@ struct BatonSettingsView: View {
             BatonAgentsPane()
         case .remote:
             BatonRemotePane()
+        case .friendLog:
+            MacFriendLogView()
         case .about:
             BatonAboutPane()
         }
@@ -92,6 +94,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case speech
     case agents
     case remote
+    case friendLog
     case about
 
     var id: Self { self }
@@ -105,6 +108,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .speech: "Speech"
         case .agents: "Agents"
         case .remote: "Remote"
+        case .friendLog: "Friend Log"
         case .about: "About"
         }
     }
@@ -118,6 +122,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .speech: "waveform"
         case .agents: "sparkles"
         case .remote: "antenna.radiowaves.left.and.right"
+        case .friendLog: "list.bullet.rectangle"
         case .about: "info.circle"
         }
     }
@@ -328,7 +333,7 @@ private struct BatonAgentsPane: View {
             } else {
                 Section("Connection") {
                     LabeledContent("Status") {
-                        Label("Not running yet", systemImage: "circle").foregroundStyle(.orange).labelStyle(.titleAndIcon)
+                        Label("Not running yet", systemImage: "circle").foregroundStyle(Color.warningTint).labelStyle(.titleAndIcon)
                     }
                     Text("The MCP server starts with the main window. If it never appears here, another Baton instance may already own the endpoint.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -384,6 +389,11 @@ private struct BatonAgentsPane: View {
 /// *window* (⌘-menu → About Baton) still uses `BatonAboutView`; this is the
 /// consistent in-Settings presentation of the same facts.
 private struct BatonAboutPane: View {
+    /// Defaults to Dark — what the window has always been — so this appearing changes
+    /// nothing until somebody moves it.
+    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
+    @AppStorage(LRCLIBLyrics.enabledKey) private var lrclibEnabled = false
+
     /// Opt-in remote crash & error reporting. Off by default. See CrashReporting.
     @AppStorage(CrashReporting.enabledKey) private var crashUploadEnabled = false
 
@@ -427,6 +437,31 @@ private struct BatonAboutPane: View {
 
             SupportBatonSection()
 
+            Section("Lyrics") {
+                Toggle("Look up missing lyrics", isOn: $lrclibEnabled)
+                Text("Navidrome only serves lyrics that are embedded in your files, so for "
+                     + "most libraries this panel is always empty. With this on, Baton asks "
+                     + "LRCLIB — a free, open lyrics database — for anything your server "
+                     + "doesn't have. It sends the track title, artist and length, and "
+                     + "nothing else. Lyrics in your own files always win.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+
+            Section("Appearance") {
+                Picker("Appearance", selection: $appearanceRaw) {
+                    ForEach(AppearanceSetting.allCases) { setting in
+                        Text(setting.label).tag(setting.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text("Baton's library window was always dark, because the colour wash it "
+                     + "takes from your artwork needs a dark ground to stay readable — while "
+                     + "these settings followed your system, so the app disagreed with "
+                     + "itself. Pick once. The player keeps its dark treatment either way.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+
             Section("Startup") {
                 BatonLoginItemToggle()
                 Text("Adds Baton to your macOS login items so its menu-bar controls are ready right after you sign in. You can also manage this in System Settings → General → Login Items.")
@@ -442,7 +477,7 @@ private struct BatonAboutPane: View {
                 LabeledContent("Status") {
                     Text(UpdateChannel.isConfiguredFromBundle ? "Ready" : "Not available yet")
                         .font(.callout)
-                        .foregroundStyle(UpdateChannel.isConfiguredFromBundle ? .secondary : Color.orange)
+                        .foregroundStyle(UpdateChannel.isConfiguredFromBundle ? .secondary : Color.warningTint)
                 }
                 if UpdateChannel.isConfiguredFromBundle {
                     BatonUpdatesControls()
@@ -668,11 +703,11 @@ private struct BatonLoginItemToggle: View {
                 }
             }
         if let error {
-            Text("Couldn't change the login item: \(error)").font(.callout).foregroundStyle(.orange)
+            Text("Couldn't change the login item: \(error)").font(.callout).foregroundStyle(Color.warningTint)
         }
         if LoginItem.requiresApproval {
             Text("Approve Baton in System Settings → General → Login Items to enable this.")
-                .font(.callout).foregroundStyle(.orange)
+                .font(.callout).foregroundStyle(Color.warningTint)
         }
     }
 }
@@ -701,11 +736,11 @@ private struct BatonUpdatesControls: View {
             LabeledContent("Last check") {
                 Text(result)
                     .font(.callout)
-                    .foregroundStyle(SparkleUpdater.shared.lastError == nil ? .secondary : Color.orange)
+                    .foregroundStyle(SparkleUpdater.shared.lastError == nil ? .secondary : Color.warningTint)
             }
         }
         if let error = SparkleUpdater.shared.lastError {
-            Text(error).font(.callout).foregroundStyle(.orange).textSelection(.enabled)
+            Text(error).font(.callout).foregroundStyle(Color.warningTint).textSelection(.enabled)
         }
     }
 }

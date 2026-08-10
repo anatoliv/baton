@@ -117,7 +117,7 @@ struct OnboardingView: View {
                         Text("Navidrome's demo server isn't answering right now — \(reason) "
                              + "It's their server, not ours, so this happens. The built-in demo "
                              + "works with no connection at all.")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.warningTint)
                     } else {
                         Text(NavidromePublicDemo.caveat)
                     }

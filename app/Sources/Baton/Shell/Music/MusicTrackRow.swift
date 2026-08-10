@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 
 /// One track row in the music player: play affordance, title/artist, a 5-star
@@ -5,6 +6,8 @@ import SwiftUI
 /// server via `MusicLibraryStore` (optimistic), so they double as the pipeline signal.
 struct MusicTrackRow: View {
     @Environment(MusicModel.self) private var model
+    // Optional so previews and snapshot hosts without the router still render.
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
     let song: NavidromeSong
     /// Whether this row is the one currently loaded in the player.
     var isCurrent: Bool = false
@@ -52,8 +55,12 @@ struct MusicTrackRow: View {
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .onTapGesture(count: 2, perform: onPlay)
+        // Drag a track onto a playlist in the Playlists tab, or onto the queue button.
+        // The gesture the Finder taught everyone, and the one every desktop music app has
+        // — Baton could only reorder *within* a list before this.
+        .draggable(SongDragPayload(ids: [song.id]))
         .contextMenu {
-            songPlaybackMenuItems(song, model, onPlay: onPlay)
+            songPlaybackMenuItems(song, model, router: router, onPlay: onPlay)
             PinMenuButton(item: .song(song), model: model)
             Divider()
             songDownloadMenuItems(song, model)
@@ -73,7 +80,7 @@ struct MusicTrackRow: View {
     }
 
     static func formatDuration(_ seconds: Int) -> String {
-        String(format: "%d:%02d", seconds / 60, seconds % 60)
+        PlayTime.track(seconds) ?? "0:00"
     }
 }
 

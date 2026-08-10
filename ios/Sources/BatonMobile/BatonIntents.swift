@@ -8,38 +8,13 @@ import Foundation
 /// iOS 18 baseline: classic App Intents + App Shortcuts phrases. The iOS 27
 /// assistant-schema variants (play-without-naming-the-app, Shelv-style) layer on
 /// later without changing these.
-struct PlayMusicIntent: AudioPlaybackIntent {
-    static let title: LocalizedStringResource = "Play music"
-    static let description = IntentDescription("Resume playback in Baton.")
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        AppServices.shared?.music.resume()
-        return .result()
-    }
-}
-
-struct PauseMusicIntent: AudioPlaybackIntent {
-    static let title: LocalizedStringResource = "Pause music"
-    static let description = IntentDescription("Pause playback in Baton.")
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        AppServices.shared?.music.pause()
-        return .result()
-    }
-}
-
-struct NextTrackIntent: AudioPlaybackIntent {
-    static let title: LocalizedStringResource = "Next track"
-    static let description = IntentDescription("Skip to the next track in Baton.")
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        AppServices.shared?.music.next()
-        return .result()
-    }
-}
+// PlayMusicIntent / PauseMusicIntent / NextTrackIntent — plus the new toggle, previous
+// and like — moved to `Sources/Shared/TransportIntents.swift`, which the widget extension
+// also compiles. They lived here, in a target the widget cannot see, which is why the
+// widget had no buttons: the intents existed and were simply out of reach.
+//
+// `PlaySearchIntent` stays: it needs the library and the composition root, and a widget
+// has no business with either.
 
 struct PlaySearchIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play songs matching"

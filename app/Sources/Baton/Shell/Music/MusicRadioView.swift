@@ -15,9 +15,9 @@ struct MusicRadioView: View {
     @State private var filterText = ""
     @FocusState private var filterFocused: Bool
     /// List ⇄ grid + sort, persisted like the other browse screens (Playlists/Artists/…).
-    @AppStorage("tonebox.music.radioLayout") private var layout: MusicBrowseLayout = .grid
-    @AppStorage("tonebox.music.radioSort") private var sortField: RadioSort = .name
-    @AppStorage("tonebox.music.radioSortAscending") private var sortAscending = true
+    @AppStorage(BrowseScreen.radio.layoutKey) private var layout: MusicBrowseLayout = .grid
+    @AppStorage(BrowseScreen.radio.sortKey) private var sortField: RadioSort = .name
+    @AppStorage(BrowseScreen.radio.sortAscendingKey) private var sortAscending = true
 
     private var store: InternetRadioStore { model.internetRadio }
 
@@ -229,7 +229,7 @@ private struct RadioStationCard: View {
                     VStack {
                         HStack {
                             Spacer()
-                            EqualizerBars(active: true, color: .white)
+                            NowPlayingBars(isPlaying: true, tint: .white)
                                 .padding(6)
                                 .background(.black.opacity(0.35), in: Capsule())
                                 .padding(6)
@@ -346,7 +346,7 @@ private struct RadioStationListRow: View {
             // Fixed-width slot for the on-air equalizer so the website column stays
             // vertically aligned across rows whether or not a station is playing.
             ZStack {
-                if isPlaying { EqualizerBars(active: true, color: Color.accentColor) }
+                if isPlaying { NowPlayingBars(isPlaying: true) }
             }
             .frame(width: 24)
 
@@ -443,34 +443,10 @@ struct RadioArtworkView: View {
     }
 }
 
-/// A tiny animated equalizer — four bars that dance while `active`, flat otherwise.
-struct EqualizerBars: View {
-    var active: Bool
-    var color: Color
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if active && !reduceMotion {
-            TimelineView(.animation) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                bars { i in 0.3 + 0.7 * abs(sin(t * 3.0 + Double(i) * 0.7)) }
-            }
-        } else {
-            // Under Reduce Motion, show tall static bars for "on air" (no continuous animation)
-            // and short bars when idle.
-            bars { _ in active ? 0.85 : 0.32 }
-        }
-    }
-
-    private func bars(_ height: @escaping (Int) -> Double) -> some View {
-        HStack(alignment: .center, spacing: 2) {
-            ForEach(0 ..< 4, id: \.self) { i in
-                Capsule().fill(color).frame(width: 3, height: 13 * height(i))
-            }
-        }
-        .frame(width: 21, height: 13)
-    }
-}
+// The local `EqualizerBars` lived here and shadowed `Shared/NowPlayingBars.swift`, which
+// the other twelve now-playing indicators already use. Two hand-animated four-bar meters
+// for the identical state, in one app — and the shared one is driven by the real audio
+// level while this one drew a sine wave.
 
 // MARK: - Add / edit sheet
 
@@ -537,13 +513,9 @@ struct RadioStationEditor: View {
         }
     }
 
-    /// Pure validation seam (unit-tested): a station needs a non-empty name and an
-    /// absolute http(s) stream URL.
+    /// Kept as a forwarding seam so the existing tests and call sites stay put; the rule
+    /// itself is in `RadioStationInput` (Shared/), because the phone needs it too.
     static func isValid(name: String, streamURL: String) -> Bool {
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        let trimmedURL = streamURL.trimmingCharacters(in: .whitespaces)
-        guard !trimmedName.isEmpty, !trimmedURL.isEmpty else { return false }
-        guard let url = URL(string: trimmedURL), let scheme = url.scheme?.lowercased() else { return false }
-        return (scheme == "http" || scheme == "https") && url.host != nil
+        RadioStationInput.isValid(name: name, streamURL: streamURL)
     }
 }

@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 
 /// Home shelf cards match the browse grids' card width so a card looks the same size here as
@@ -44,7 +45,16 @@ struct MusicHomeView: View {
     /// Client episodes are joined against the subscribed feeds; server episodes come from the
     /// registry `PodcastProgressStore` keeps (their ids look like library tracks, so they can't be
     /// recognised from the id alone). Both are ranked by the same last-played order.
-    private var continueListening: [ContinueEpisode] {
+    /// Cached, because this is not cheap and the body reads it three times.
+    ///
+    /// It walks every subscribed feed's entire episode list — thousands of episodes across
+    /// a dozen shows — and it sat in a computed property, so every observed change anywhere
+    /// on Home re-ran the whole join before drawing a shelf that had not changed. Recomputed
+    /// where the data can actually change: the initial load, and whenever podcast progress
+    /// moves.
+    @State private var continueListening: [ContinueEpisode] = []
+
+    private func computeContinueListening() -> [ContinueEpisode] {
         let ids = model.podcastProgress.inProgressIDs()
         guard !ids.isEmpty else { return [] }
         let rank = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
@@ -112,7 +122,14 @@ struct MusicHomeView: View {
                 .padding(.vertical, 18)
             }
         }
-        .task { await loadIfNeeded() }
+        .task {
+            await loadIfNeeded()
+            continueListening = computeContinueListening()
+        }
+        // Progress is what decides this shelf, and it moves while you listen.
+        .onChange(of: model.podcastProgress.progress) { _, _ in
+            continueListening = computeContinueListening()
+        }
     }
 
     private var greeting: String {
@@ -265,16 +282,19 @@ private struct SongShelfCard: View {
     let onPlay: () -> Void
     @State private var hover = false
 
-    private var playTime: String? {
-        guard let seconds = song.duration, seconds > 0 else { return nil }
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
+    private var playTime: String? { PlayTime.track(song.duration) }
 
     private var isCurrent: Bool { model.music.nowPlaying?.id == song.id }
 
     var body: some View {
         MusicMediaCard(
-            coverURL: song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 400) },
+            // `artworkURL` first, exactly as the downloads rows and the mini player do.
+            // A client podcast episode carries its art there and has no `coverArtID` at
+            // all, so resolving from the id alone gave every episode on the Continue
+            // listening shelf the placeholder music note — while the same show's artwork
+            // rendered correctly two screens away.
+            coverURL: song.artworkURL
+                ?? song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 400) },
             placeholder: "music.note",
             title: song.title,
             subtitle: [song.displayArtistName, song.genres.first ?? song.genre].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),

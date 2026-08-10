@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 
 /// A custom progress scrubber — a thin rounded track with a draggable knob and
@@ -130,10 +131,11 @@ struct MusicScrubber: View {
         }
     }
 
+    /// The scrubber's clock. Was `%d:%02d` with no hour branch, which is what printed
+    /// `70:23` under an hour-long mix while the phone printed `1:04:30`.
     static func time(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
+        return PlayTime.track(seconds: seconds) ?? "0:00"
     }
 }
 
@@ -258,7 +260,12 @@ struct MusicRatingCluster: View {
             Button { Task { await model.musicLibrary.toggleLike(song) } } label: {
                 Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.title3)
-                    .foregroundStyle(liked ? Color.pink : tint.opacity(0.8))
+                    // The passed tint, not a hardcoded pink. The design doc says favourite
+                    // and rating in *player* surfaces follow the artwork palette, and
+                    // FullScreenNowPlaying has been passing `palette.uiAccent` all along —
+                    // into a branch that ignored it, so the heart stayed pink over every
+                    // cover. Callers that want pink pass pink.
+                    .foregroundStyle(liked ? tint : tint.opacity(0.8))
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
@@ -272,7 +279,7 @@ struct MusicRatingCluster: View {
                     } label: {
                         Image(systemName: star <= rating ? "star.fill" : "star")
                             .font(.body)
-                            .foregroundStyle(star <= rating ? Color.yellow : tint.opacity(0.55))
+                            .foregroundStyle(star <= rating ? tint : tint.opacity(0.55))
                             .frame(width: 24, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -298,12 +305,25 @@ struct ScrollWheelAdjust: ViewModifier {
     let onTick: (Int) -> Void
     @State private var monitor: Any?
     @State private var accum: CGFloat = 0
+    /// The control's frame in window coordinates, so the monitor can tell a scroll *on*
+    /// this control from any other scroll in the app.
+    @State private var frame: CGRect = .zero
 
     func body(content: Content) -> some View {
         content
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame = $0 }
             .onHover { inside in
                 if inside, monitor == nil {
                     monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                        // Only consume what actually landed on the control.
+                        //
+                        // This returned nil unconditionally while hovering, so a local
+                        // monitor installed by a slider swallowed *every* scroll event in
+                        // the application — including scrolls in another window, and the
+                        // list underneath once the hover state went stale. The symptom is
+                        // maddening and untraceable: scrolling stops working somewhere
+                        // else entirely, and starts again when you move the mouse.
+                        guard hit(event) else { return event }
                         handle(event)
                         return nil // consume — don't also scroll an ancestor
                     }
@@ -312,6 +332,20 @@ struct ScrollWheelAdjust: ViewModifier {
                 }
             }
             .onDisappear { removeMonitor() }
+    }
+
+    /// Whether a scroll event landed inside this control.
+    ///
+    /// AppKit's `locationInWindow` has a bottom-left origin; SwiftUI's `.global` frame has a
+    /// top-left one. Flipping through the content view's height is the conversion — getting
+    /// this backwards would consume scrolls from the mirror-image position on screen, which
+    /// looks random rather than wrong.
+    private func hit(_ event: NSEvent) -> Bool {
+        guard frame != .zero, let window = event.window,
+              let height = window.contentView?.bounds.height
+        else { return true } // no geometry yet: behave as before rather than ignore the user
+        let point = CGPoint(x: event.locationInWindow.x, y: height - event.locationInWindow.y)
+        return frame.contains(point)
     }
 
     private func handle(_ event: NSEvent) {

@@ -92,7 +92,7 @@ struct FriendLogView: View {
                             // itself — far more common than anyone bothering to rate it.
                             if exchange.skippedQuickly {
                                 Label("skipped straight away", systemImage: "forward.end")
-                                    .font(.caption2).foregroundStyle(.orange)
+                                    .font(.caption2).foregroundStyle(Color.warningTint)
                             }
                             // What it was looking at when it chose. The question behind
                             // every wrong track is whether the right answer was on the list.

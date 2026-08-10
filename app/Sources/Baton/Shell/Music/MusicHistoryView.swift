@@ -15,7 +15,7 @@ struct MusicHistoryView: View {
     @State private var isExporting = false
     @State private var isImporting = false
     @State private var importMessage: String?
-    @AppStorage("tonebox.music.historyLayout") private var layout: MusicBrowseLayout = .list
+    @AppStorage(BrowseScreen.history.layoutKey) private var layout: MusicBrowseLayout = .list
     @FocusState private var filterFocused: Bool
 
     private var history: MusicPlayHistory { model.musicHistory }
@@ -366,15 +366,15 @@ struct MusicHistoryView: View {
             : "Added \(added) listen\(added == 1 ? "" : "s") to your history."
     }
 
+    /// Through the shared placeholder, so History looks like every other empty screen.
+    ///
+    /// This was a hand-rolled VStack — the fifth such helper in the app, each with its own
+    /// spacing and its own idea of how grey "secondary" is. Kept as a local function
+    /// because its five call sites read well; only the drawing is shared now.
     private func empty(_ icon: String, _ title: String, _ subtitle: String) -> some View {
-        VStack(spacing: 8) {
-            Spacer()
-            Image(systemName: icon).font(.largeTitle).foregroundStyle(.tertiary)
-            Text(title).foregroundStyle(.secondary)
-            Text(subtitle).font(.callout).foregroundStyle(.tertiary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ContentStatePlaceholder(state: .empty, emptyTitle: title,
+                                emptyMessage: subtitle, emptySymbol: icon)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

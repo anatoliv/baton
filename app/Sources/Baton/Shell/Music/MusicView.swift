@@ -1,4 +1,5 @@
 import AppKit
+import BatonPlaybackKit
 import SwiftUI
 
 /// The full in-app music player: search + browse (albums / artists / playlists /
@@ -25,9 +26,9 @@ struct MusicView: View {
     @State private var albumGenreFilter: String?
     @State private var albumLikedOnly = false
     // List ⇄ Grid layout per browse screen (Albums / Playlists default to grid).
-    @AppStorage("tonebox.music.albumLayout") private var albumLayout: MusicBrowseLayout = .grid
+    @AppStorage(BrowseScreen.album.layoutKey) private var albumLayout: MusicBrowseLayout = .grid
     @AppStorage(ArtistHeuristics.hideAutoImportsKey) private var hideAutoImports = false
-    @AppStorage("tonebox.music.playlistLayout") private var playlistLayout: MusicBrowseLayout = .grid
+    @AppStorage(BrowseScreen.playlist.layoutKey) private var playlistLayout: MusicBrowseLayout = .grid
     /// Collapse the left rail to an icons-only strip. Persisted.
     @AppStorage("tonebox.music.railCollapsed") private var railCollapsed = false
     /// Sidebar sections the user has hidden (comma-separated `MusicTab` raw values). Home is never
@@ -36,7 +37,14 @@ struct MusicView: View {
     /// The library-error banner text the user has dismissed (hidden until a *different* error occurs).
     @State private var dismissedError: String?
     /// Keyboard-nav focus row in the Albums list layout (↑/↓ move, Return opens).
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
+    private var appearance: AppearanceSetting {
+        AppearanceSetting(rawValue: appearanceRaw) ?? .dark
+    }
     @State private var albumKbIndex: Int?
+    /// Measured width of the album grid, so keyboard up/down can move by a real row.
+    @State private var gridWidth: CGFloat = 0
     /// Close action for the pop-out window (nil inline). Drives the rail's close button.
     @Environment(\.musicWindowClose) private var windowClose
     @State private var closeHovering = false
@@ -62,6 +70,65 @@ struct MusicView: View {
         // A plain NSTextField that is its own responder (no field editor yet).
         if let field = responder as? NSTextField { return field.isEditable }
         return false
+    }
+
+    @ViewBuilder
+    private func playlistListRow(_ playlist: NavidromePlaylist) -> some View {
+        MusicPlaylistRow(
+            playlist: playlist,
+            isSelected: playlistSel.contains(playlist.id),
+            onToggleSelect: { playlistSel.clicked(playlist.id, ordered: orderedPlaylistIDs) }
+        ) {
+            Task { await library.deletePlaylist(id: playlist.id) }
+        }
+        .dropDestination(for: SongDragPayload.self) { payloads, _ in
+            addDraggedSongs(payloads, to: playlist)
+        }
+    }
+
+    @ViewBuilder
+    private func playlistGridCell(_ playlist: NavidromePlaylist) -> some View {
+        PlaylistGridCell(
+            playlist: playlist,
+            isSelected: playlistSel.contains(playlist.id),
+            onToggleSelect: { playlistSel.clicked(playlist.id, ordered: orderedPlaylistIDs) }
+        ) {
+            Task { await library.deletePlaylist(id: playlist.id) }
+        }
+        .dropDestination(for: SongDragPayload.self) { payloads, _ in
+            addDraggedSongs(payloads, to: playlist)
+        }
+    }
+
+    /// How many cards fit across, for grid keyboard navigation.
+    ///
+    /// Mirrors `GridItem(.adaptive(minimum: 220), spacing: 12)` — the single place that
+    /// number is written down otherwise. If the grid's minimum changes and this does not,
+    /// up/down will move by the wrong number of cards, which is subtle and maddening; the
+    /// constant is named here so the two are edited together.
+    static func gridColumns(forWidth width: CGFloat, minimum: CGFloat = 220, spacing: CGFloat = 12) -> Int {
+        guard width > 0 else { return 1 }
+        return max(1, Int((width + spacing) / (minimum + spacing)))
+    }
+
+    /// Adds dropped tracks to a playlist, and says so.
+    ///
+    /// A drop with no feedback is indistinguishable from a drop that missed — the rows do
+    /// not visibly change, because the playlist you dropped onto is not the one you are
+    /// looking at. The toast is the confirmation.
+    @discardableResult
+    private func addDraggedSongs(_ payloads: [SongDragPayload], to playlist: NavidromePlaylist) -> Bool {
+        let ids = payloads.flatMap(\.ids)
+        guard !ids.isEmpty else { return false }
+        Task {
+            await library.addToPlaylist(id: playlist.id, songIDs: ids)
+            await library.loadPlaylists()
+            model.music.postToast(
+                ids.count == 1 ? "Added to “\(playlist.name)”" : "Added \(ids.count) songs to “\(playlist.name)”",
+                symbol: "music.note.list"
+            )
+        }
+        return true
     }
 
     private var orderedAlbumIDs: [String] { filteredAlbums.map(\.id) }
@@ -285,7 +352,7 @@ struct MusicView: View {
                             withAnimation(.spring(response: 0.42, dampingFraction: 0.85)) { showFullScreen = true }
                         }
                     }
-                    .background(.ultraThinMaterial)
+                    .adaptiveMaterial(Rectangle())
                 }
                 .overlay {
                     if showFullScreen {
@@ -294,10 +361,13 @@ struct MusicView: View {
                             .zIndex(10)
                     }
                 }
-                // Dark scheme so text/icons stay readable over the color-from-artwork
-                // backdrop (the library was near-black text on a warm wash in Light
-                // mode) — and consistent with the full-screen player.
-                .preferredColorScheme(.dark)
+                // The user's choice, defaulting to Dark. The wash *is* built for a dark
+                // ground — near-black text over a warm gradient is unreadable, which is why
+                // this was hardcoded — but the Mac then had two answers at once, since
+                // Settings and Help always followed the system. One control, one answer.
+                // The player surfaces stay dark regardless; they are a design, not a
+                // preference.
+                .batonAppearance(appearance)
                 .onAppear { paletteLoader.update(url: nowPlayingCoverURL) }
                 // Key on the song id, not coverArtID: podcast episodes share a nil cover id, so
                 // keying on it would leave the window wash stuck between episodes.
@@ -343,13 +413,27 @@ struct MusicView: View {
                 // ancestor sees the key *before* a focused descendant TextField does, so without it
                 // every search/filter field silently ate spaces AND toggled playback — "daft punk"
                 // typed as "daftpunk" while the music stopped. Verified on-device.
-                .focusable()
-                .focusEffectDisabled()
-                .onKeyPress(.space) {
-                    guard !showFullScreen, !Self.isEditingText, model.music.nowPlaying != nil
-                    else { return .ignored }
-                    model.music.isPlaying ? model.music.pause() : model.music.resume()
-                    return .handled
+                // Space = play/pause, without `focusEffectDisabled()` on the root.
+                //
+                // Making the whole window focusable *and* suppressing its focus effect
+                // killed the focus ring for every control inside it — so Full Keyboard
+                // Access users could tab through the app with no way to see where they
+                // were. The zero-size focusable sibling from `FullScreenNowPlaying` gets
+                // the key without owning the window's focus appearance.
+                //
+                // The text-field guard is still load-bearing: `.onKeyPress` on a focusable
+                // ancestor sees the key *before* a focused descendant TextField, so
+                // without it every search field silently ate spaces AND toggled playback —
+                // "daft punk" typed as "daftpunk" while the music stopped.
+                .background {
+                    Button("Play or Pause") {
+                        guard !showFullScreen, !Self.isEditingText, model.music.nowPlaying != nil
+                        else { return }
+                        model.music.isPlaying ? model.music.pause() : model.music.resume()
+                    }
+                    .keyboardShortcut(.space, modifiers: [])
+                    .opacity(0)
+                    .accessibilityHidden(true)
                 }
             } else {
                 MusicNotConnectedView()
@@ -406,22 +490,33 @@ struct MusicView: View {
         // Prefetch the collections so their nav badges populate without visiting each
         // tab. Guarded so it doesn't refetch what's already loaded.
         .task {
-            if library.albums.isEmpty { await library.loadAlbums() }
-            if library.artists.isEmpty { await library.loadArtists() }
-            if library.playlists.isEmpty { await library.loadPlaylists() }
-            if library.starred.songs.isEmpty, library.starred.albums.isEmpty, library.starred.artists.isEmpty {
-                await library.loadStarred()
+            // Concurrently, not one after another.
+            //
+            // These are seven independent round trips to the same server, and they ran in
+            // series — so first paint waited for the sum of them, and the last badge to
+            // populate waited on six requests that had nothing to do with it. None depends
+            // on another's result; the sequence was just the order they were written in.
+            //
+            // A task group rather than `async let`: the set is heterogeneous and the ones
+            // that are already loaded should contribute nothing at all.
+            await withTaskGroup(of: Void.self) { group in
+                if library.albums.isEmpty { group.addTask { await library.loadAlbums() } }
+                if library.artists.isEmpty { group.addTask { await library.loadArtists() } }
+                if library.playlists.isEmpty { group.addTask { await library.loadPlaylists() } }
+                if library.starred.songs.isEmpty, library.starred.albums.isEmpty,
+                   library.starred.artists.isEmpty {
+                    group.addTask { await library.loadStarred() }
+                }
+                // Radio stations, for the Radio nav badge.
+                group.addTask { await model.internetRadio.loadIfNeeded() }
+                // Whether the server implements the Subsonic podcast API; the Podcasts tab
+                // uses this to pick its backend (server-managed vs Baton's own RSS).
+                group.addTask { await model.podcastCapability.probeIfNeeded() }
+                // Client-side podcast subscriptions, for that badge.
+                group.addTask { await model.podcastSubscriptions.loadIfNeeded() }
             }
-            // Prefetch radio stations so the Radio nav badge populates like the others.
-            await model.internetRadio.loadIfNeeded()
-            // Probe whether the server implements the Subsonic podcast API; the Podcasts tab
-            // uses that to pick its backend (server-managed vs. Baton's own RSS subscriptions).
-            await model.podcastCapability.probeIfNeeded()
-            // Load client-side podcast subscriptions so the nav badge populates.
-            await model.podcastSubscriptions.loadIfNeeded()
-            // Load per-episode progress so resume/played state is ready before the tab opens.
+            // Local, synchronous, and cheap — no reason to be in the group.
             model.podcastProgress.loadIfNeeded()
-            // Load pinned ("Later") items so the nav badge populates.
             model.pins.loadIfNeeded()
         }
     }
@@ -429,6 +524,10 @@ struct MusicView: View {
     @ViewBuilder
     private func sidebarRow(_ item: MusicTab) -> some View {
         let selected = tab == item
+        // Selection was accent-coloured text on an accent-tinted background — two channels,
+        // both colour. With Differentiate Without Color on, neither reaches the user, so
+        // the current section looked exactly like the other nine.
+        let marker = DifferentiateWithoutColor(isOn: differentiateWithoutColor).selectionMarker
         Button {
             tab = item
             path = NavigationPath() // leave any drill-down when switching sections
@@ -444,8 +543,13 @@ struct MusicView: View {
                         .help(item.label)
                 } else {
                     HStack(spacing: 6) {
+                        if selected, let marker {
+                            Image(systemName: marker)
+                                .font(.caption2.weight(.bold))
+                                .accessibilityHidden(true)
+                        }
                         Label(item.label, systemImage: item.icon)
-                            .font(.callout.weight(.medium))
+                            .font(.callout.weight(selected ? .semibold : .medium))
                             .foregroundStyle(selected ? Color.accentColor : .primary)
                         Spacer(minLength: 4)
                         if let count = tabCount(item) {
@@ -470,6 +574,16 @@ struct MusicView: View {
             .animation(.easeInOut(duration: 0.18), value: selected)
         }
         .buttonStyle(.plain)
+        // Which section you are in, and how much is in it.
+        //
+        // Selection was signalled by colour and a tinted background alone, so VoiceOver
+        // read every rail row identically whether or not it was the current one — and the
+        // count badge beside each label went unread entirely, which is the one number the
+        // rail exists to show.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.label)
+        .accessibilityValue(tabCount(item).map { "\($0)" } ?? "")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         // Right-click to hide a section from the rail (still reachable via the Go menu). Home can't
         // be hidden; "Show All Sections" appears once anything is hidden.
         .contextMenu {
@@ -585,7 +699,7 @@ struct MusicView: View {
             if let error = library.lastError, error != dismissedError {
                 HStack(spacing: 6) {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout).foregroundStyle(.orange)
+                        .font(.callout).foregroundStyle(Color.warningTint)
                     Spacer(minLength: 6)
                     Button { dismissedError = error } label: { Image(systemName: "xmark") }
                         .buttonStyle(.plain).foregroundStyle(.secondary).help("Dismiss")
@@ -700,7 +814,24 @@ struct MusicView: View {
                 }
                 .frame(maxWidth: .infinity).padding(.horizontal, 16)
             } else {
-                ScrollView { albumGrid(filteredAlbums).padding(12) }
+                ScrollViewReader { proxy in
+                    ScrollView { albumGrid(filteredAlbums).padding(12) }
+                        // Arrow keys through the grid. This is the *default* layout on
+                        // Albums, and it was keyboard-dead: Tab reached it, the arrows did
+                        // nothing. Column count is passed rather than measured because the
+                        // grid is `.adaptive(minimum:)` — only the layout knows how many
+                        // fit, and a guess would move the cursor somewhere the eye did not
+                        // follow.
+                        .keyboardGridNavigation(
+                            highlighted: $albumKbIndex,
+                            count: filteredAlbums.count,
+                            columns: Self.gridColumns(forWidth: gridWidth),
+                            proxy: proxy,
+                            idForIndex: { filteredAlbums[$0].id },
+                            onActivate: { path.append(filteredAlbums[$0]) }
+                        )
+                }
+                .onGeometryChange(for: CGFloat.self, of: \.size.width) { gridWidth = $0 }
                     // The dismissible library banner owns error reporting (no double-report); the grid
                     // handles loading/empty, and suppresses "empty" during an error so it isn't
                     // mislabeled "No albums" while the banner explains the real failure.
@@ -775,13 +906,7 @@ struct MusicView: View {
                         ScrollView {
                             LazyVStack(spacing: 2) {
                                 ForEach(filteredPlaylists) { playlist in
-                                    MusicPlaylistRow(
-                                        playlist: playlist,
-                                        isSelected: playlistSel.contains(playlist.id),
-                                        onToggleSelect: { playlistSel.clicked(playlist.id, ordered: orderedPlaylistIDs) }
-                                    ) {
-                                        Task { await library.deletePlaylist(id: playlist.id) }
-                                    }
+                                    playlistListRow(playlist)
                                 }
                             }
                             .padding(.vertical, 8)
@@ -792,13 +917,7 @@ struct MusicView: View {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                             ForEach(filteredPlaylists) { playlist in
-                                PlaylistGridCell(
-                                    playlist: playlist,
-                                    isSelected: playlistSel.contains(playlist.id),
-                                    onToggleSelect: { playlistSel.clicked(playlist.id, ordered: orderedPlaylistIDs) }
-                                ) {
-                                    Task { await library.deletePlaylist(id: playlist.id) }
-                                }
+                                playlistGridCell(playlist)
                             }
                         }
                         .padding(12)
@@ -1047,13 +1166,12 @@ struct MusicAlbumCard: View {
         )
     }
 
-    /// Compact total-length label for an album: "1h 12m" / "47 min".
+    /// Compact total-length label for an album: "1h 12m" / "47m".
+    ///
+    /// Was inconsistent with itself — "1h 12m" but "47 min" — and with the phone, which
+    /// has always said "47m" for the same album.
     static func albumDuration(_ seconds: Int) -> String {
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        if minutes > 0 { return "\(minutes) min" }
-        return "\(seconds)s"
+        PlayTime.total(seconds) ?? "\(max(0, seconds))s"
     }
 
     private func playAlbum() {

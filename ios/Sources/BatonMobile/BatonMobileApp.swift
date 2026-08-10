@@ -25,10 +25,29 @@ struct BatonMobileApp: App {
     init() {
         // No-op unless the user opted in AND a DSN is baked into this build.
         CrashReporting.startIfEnabled()
+        // The default URLCache is 512KB in memory — about four covers. Raised before the
+        // first request goes out, or the setting arrives after the cache it was meant to
+        // size.
+        ArtworkCache.configureURLCache()
+        LegacyKeyMigration.run()
         let model = MobileModel()
         _model = State(initialValue: model)
         // Expose the composition root to Siri/Shortcuts intents (in-process).
         AppServicesHolder.model = model
+        // Wire the shared transport intents to the live engine. They are declared in
+        // Sources/Shared so the widget can *offer* them; only the app can *do* them.
+        TransportIntentHandler.resume = { [weak model] in model?.music.resume() }
+        TransportIntentHandler.pause = { [weak model] in model?.music.pause() }
+        TransportIntentHandler.togglePlayPause = { [weak model] in
+            guard let model else { return }
+            model.music.isPlaying ? model.music.pause() : model.music.resume()
+        }
+        TransportIntentHandler.next = { [weak model] in model?.music.next() }
+        TransportIntentHandler.previous = { [weak model] in model?.music.previous() }
+        TransportIntentHandler.toggleLike = { [weak model] in
+            guard let model, let song = model.music.nowPlaying else { return }
+            Task { await model.musicLibrary.toggleLike(song) }
+        }
     }
     var body: some Scene {
         WindowGroup {
@@ -60,24 +79,23 @@ struct BatonMobileApp: App {
         }
     }
 
-    /// baton:// deep-link routing. Kept deliberately small: play a song, or play an
-    /// album — the two links the widgets and the agent need first.
+    /// Acts on a `baton://` link. What the link *means* is decided by `BatonDeepLink`,
+    /// which is a pure function and tested as one; this only carries it out.
     @MainActor
     private func route(_ url: URL) async {
-        guard url.scheme == "baton", NavidromeConfig.isConfigured else { return }
-        let id = url.lastPathComponent
-        switch url.host() {
-        case "play" where !id.isEmpty:
+        guard NavidromeConfig.isConfigured, let link = BatonDeepLink(url: url) else { return }
+        switch link {
+        case .presentPlayer:
+            model.requestFullPlayer()
+        case let .playSong(id):
             if let song = try? await NavidromeConfig.makeClient().getSong(id: id) {
                 model.music.play([song], source: .init(label: song.title, kind: .song, id: id))
             }
-        case "album" where !id.isEmpty:
+        case let .playAlbum(id):
             let songs = await model.musicLibrary.albumSongs(id: id)
             if !songs.isEmpty {
                 model.music.play(songs, source: .init(label: "Album", kind: .album, id: id))
             }
-        default:
-            break
         }
     }
 }

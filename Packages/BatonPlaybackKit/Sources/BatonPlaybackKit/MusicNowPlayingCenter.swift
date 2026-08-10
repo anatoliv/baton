@@ -28,6 +28,29 @@ public final class MusicNowPlayingCenter {
         public var next: () -> Void
         public var previous: () -> Void
         public var seek: (TimeInterval) -> Void
+        /// Jump by ±15s. Podcast-only in practice, which is why it is separate from `seek`:
+        /// the OS draws different buttons for skip commands than for scrubbing.
+        public var skip: ((TimeInterval) -> Void)?
+        /// Like / unlike what is playing, from the lock screen or CarPlay.
+        public var toggleLike: (() -> Void)?
+        /// "Never play this in radio" — the dislike half, which the app already models.
+        public var ban: (() -> Void)?
+
+        public init(play: @escaping () -> Void, pause: @escaping () -> Void,
+                    toggle: @escaping () -> Void, next: @escaping () -> Void,
+                    previous: @escaping () -> Void, seek: @escaping (TimeInterval) -> Void,
+                    skip: ((TimeInterval) -> Void)? = nil,
+                    toggleLike: (() -> Void)? = nil, ban: (() -> Void)? = nil) {
+            self.play = play
+            self.pause = pause
+            self.toggle = toggle
+            self.next = next
+            self.previous = previous
+            self.seek = seek
+            self.skip = skip
+            self.toggleLike = toggleLike
+            self.ban = ban
+        }
     }
 
     private var configured = false
@@ -55,13 +78,50 @@ public final class MusicNowPlayingCenter {
             center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
             center.nextTrackCommand, center.previousTrackCommand, center.changePlaybackPositionCommand,
         ] { command.isEnabled = true }
+        // Skip ±15s — the control people actually reach for on a podcast, and the one the
+        // lock screen had no way to offer because these were disabled globally. Enabled per
+        // item in `update(...)`: on a song they are wrong (that is what next/previous are
+        // for), on a 90-minute episode they are the whole point.
+        center.skipForwardCommand.preferredIntervals = [NSNumber(value: Self.skipInterval)]
+        center.skipBackwardCommand.preferredIntervals = [NSNumber(value: Self.skipInterval)]
+        center.skipForwardCommand.addTarget { _ in
+            guard let skip = handlers.skip else { return .commandFailed }
+            skip(Self.skipInterval)
+            return .success
+        }
+        center.skipBackwardCommand.addTarget { _ in
+            guard let skip = handlers.skip else { return .commandFailed }
+            skip(-Self.skipInterval)
+            return .success
+        }
+
+        // Like and dislike. The app has modelled both for versions — `toggleLike` and the
+        // radio bans — and neither reached the lock screen or CarPlay, so the one gesture
+        // worth making without looking at a screen could only be made by looking at one.
+        center.likeCommand.localizedTitle = "Like"
+        center.dislikeCommand.localizedTitle = "Never Play in Radio"
+        center.likeCommand.addTarget { _ in
+            guard let like = handlers.toggleLike else { return .commandFailed }
+            like()
+            return .success
+        }
+        center.dislikeCommand.addTarget { _ in
+            guard let ban = handlers.ban else { return .commandFailed }
+            ban()
+            return .success
+        }
+        center.likeCommand.isEnabled = handlers.toggleLike != nil
+        center.dislikeCommand.isEnabled = handlers.ban != nil
+
         // Commands we don't model — disable so the OS hides them from the widget.
         for command in [
             center.seekForwardCommand, center.seekBackwardCommand,
-            center.skipForwardCommand, center.skipBackwardCommand,
             center.changeRepeatModeCommand, center.changeShuffleModeCommand,
         ] { command.isEnabled = false }
     }
+
+    /// Fifteen seconds each way — the interval every podcast client has trained people on.
+    public static let skipInterval: TimeInterval = 15
 
     /// Pushes the current track + transport state to the OS Now Playing surfaces.
     /// The OS interpolates elapsed time from `playbackRate`, so this only needs to be
@@ -71,7 +131,18 @@ public final class MusicNowPlayingCenter {
         isPlaying: Bool,
         currentTime: TimeInterval,
         duration: TimeInterval,
-        artworkURL: URL?
+        artworkURL: URL?,
+        /// The engine's actual rate. Podcasts play at 0.5–2×, and the OS *interpolates*
+        /// elapsed time from this between pushes — so publishing 1.0 for a 1.5× episode
+        /// left the lock-screen clock drifting further behind the audio the longer you
+        /// listened, then jumping back on the next real update.
+        rate: Float = 1,
+        /// Whether ±15s should be offered. True for podcasts, where it is the most-used
+        /// control; false for songs, where next/previous already mean "move on".
+        offersSkip: Bool = false,
+        /// Reflected on the lock screen's heart, so it shows the current state rather than
+        /// a button that always looks the same.
+        isLiked: Bool = false
     ) {
         let center = MPNowPlayingInfoCenter.default()
         guard let song else {
@@ -84,9 +155,14 @@ public final class MusicNowPlayingCenter {
             artworkTask?.cancel()
             return
         }
-        var info = Self.nowPlayingInfo(song: song, isPlaying: isPlaying, currentTime: currentTime, duration: duration)
+        var info = Self.nowPlayingInfo(song: song, isPlaying: isPlaying,
+                                       currentTime: currentTime, duration: duration, rate: rate)
         if let lastArtwork { info[MPMediaItemPropertyArtwork] = lastArtwork }
         center.nowPlayingInfo = info
+        let center2 = MPRemoteCommandCenter.shared()
+        center2.skipForwardCommand.isEnabled = offersSkip
+        center2.skipBackwardCommand.isEnabled = offersSkip
+        center2.likeCommand.isActive = isLiked
         #if os(macOS)
         center.playbackState = isPlaying ? .playing : .paused
         #endif
@@ -102,7 +178,8 @@ public final class MusicNowPlayingCenter {
         song: NavidromeSong,
         isPlaying: Bool,
         currentTime: TimeInterval,
-        duration: TimeInterval
+        duration: TimeInterval,
+        rate: Float = 1
     ) -> [String: Any] {
         var info: [String: Any] = [:]
         info[MPMediaItemPropertyTitle] = song.title
@@ -110,7 +187,9 @@ public final class MusicNowPlayingCenter {
         if let album = song.album { info[MPMediaItemPropertyAlbumTitle] = album }
         if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, currentTime)
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        // The engine's rate, not a constant. Zero while paused is what tells the OS to
+        // stop advancing its own clock.
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0.0
         return info
     }
 

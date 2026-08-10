@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonPlaybackKit
 
 /// The Library tab: Liked, Playlists, and Downloads over the shared stores.
 struct LibraryView: View {
@@ -138,7 +139,7 @@ struct LikedView: View {
     // Only the Albums and Artists segments offer a grid. Liked *songs* stay a list: a song
     // is a title, an artist and a duration, and a wall of identical album covers is a
     // worse way to find one.
-    @AppStorage(BrowseLayout.key("liked")) private var layoutRaw = BrowseLayout.list.rawValue
+    @AppStorage(BrowseScreen.liked.layoutKey) private var layoutRaw = BrowseLayout.list.rawValue
     private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .list }
     private var layoutBinding: Binding<BrowseLayout> {
         Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
@@ -178,19 +179,35 @@ struct LikedView: View {
     @State private var showsBatchPlaylist = false
 
     var body: some View {
-        List {
-            Section {
-                Picker("View", selection: $segment) {
-                    ForEach(Segment.allCases) { Text($0.label).tag($0) }
+        ScrollViewReader { proxy in
+            List {
+                Section {
+                    Picker("View", selection: $segment) {
+                        ForEach(Segment.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowSeparator(.hidden)
                 }
-                .pickerStyle(.segmented)
-                .listRowSeparator(.hidden)
-            }
 
-            switch segment {
-            case .songs: songsSection
-            case .albums: layout == .grid ? AnyView(albumsGrid) : AnyView(albumsSection)
-            case .artists: layout == .grid ? AnyView(artistsGrid) : AnyView(artistsSection)
+                switch segment {
+                case .songs: songsSection
+                case .albums: layout == .grid ? AnyView(albumsGrid) : AnyView(albumsSection)
+                case .artists: layout == .grid ? AnyView(artistsGrid) : AnyView(artistsSection)
+                }
+            }
+            // The A–Z rail, indexing whichever segment is showing.
+            //
+            // Liked is the list this app's own code calls "the one that grows without
+            // bound", and it was the only long alphabetical list on the phone with no way
+            // to jump — Albums, Artists and Folders all had one.
+            .overlay(alignment: .trailing) {
+                let entries = indexEntries
+                if !entries.isEmpty {
+                    AlphabetIndexRail(entries: entries) { entry in
+                        proxy.scrollTo(entry.firstID, anchor: .top)
+                    }
+                    .padding(.vertical, 8)
+                }
             }
         }
         .listStyle(.plain)
@@ -411,6 +428,33 @@ struct LikedView: View {
 
     /// "Recently added" keeps the server's own order — Subsonic returns starred items
     /// newest-first, and re-deriving that locally would only be able to guess.
+    /// Rail entries for the visible segment.
+    ///
+    /// Same rules as Albums, Artists and Folders: nothing while filtering (a rail over five
+    /// hits is noise), and nothing under thirty items (below that, flicking beats jumping).
+    /// Songs additionally need an alphabetical sort — jumping to "S" in a recently-added
+    /// order is a question with no answer.
+    private var indexEntries: [AlphabetIndex.Entry] {
+        guard filter.isEmpty else { return [] }
+        switch segment {
+        case .songs:
+            guard sort == .title || sort == .artist else { return [] }
+            let songs = sorted(filtered(model.musicLibrary.starred.songs))
+            guard songs.count > 30 else { return [] }
+            return AlphabetIndex.entries(from: songs.map {
+                ($0.id, sort == .artist ? ($0.artist ?? "") : $0.title)
+            })
+        case .albums:
+            let albums = model.musicLibrary.starred.albums.filter { matches($0.name, $0.artist) }
+            guard albums.count > 30 else { return [] }
+            return AlphabetIndex.entries(from: albums.map { ($0.id, $0.name) })
+        case .artists:
+            let artists = model.musicLibrary.starred.artists.filter { matches($0.name, nil) }
+            guard artists.count > 30 else { return [] }
+            return AlphabetIndex.entries(from: artists.map { ($0.id, $0.name) })
+        }
+    }
+
     private func sorted(_ songs: [NavidromeSong]) -> [NavidromeSong] {
         switch sort {
         case .recent: songs
@@ -448,9 +492,7 @@ enum PlaylistSort: String, CaseIterable, Identifiable {
 /// "80 songs · 6h 57m". Public-ish shape so the tests can pin it.
 func playlistSubtitle(_ playlist: NavidromePlaylist) -> String {
     let songs = Counted.phrase(playlist.songCount, "song")
-    guard let seconds = playlist.duration, seconds > 0 else { return songs }
-    let hours = seconds / 3600, minutes = (seconds % 3600) / 60
-    let time = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+    guard let time = PlayTime.total(playlist.duration) else { return songs }
     return "\(songs) · \(time)"
 }
 
@@ -467,17 +509,114 @@ struct PlaylistsView: View {
 
     // List by default: playlists are chosen by name and length, and this library has 324
     // of them — the grid is for the ones you made covers for.
-    @AppStorage(BrowseLayout.key("playlist")) private var layoutRaw = BrowseLayout.list.rawValue
+    @AppStorage(BrowseScreen.playlist.layoutKey) private var layoutRaw = BrowseLayout.list.rawValue
     private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .list }
     private var layoutBinding: Binding<BrowseLayout> {
         Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
     }
 
     var body: some View {
-        Group {
-            if layout == .grid { playlistGrid } else { playlistList }
+        ScrollViewReader { proxy in
+            Group {
+                if layout == .grid { playlistGrid } else { playlistList }
+            }
+            // A–Z over whichever layout is showing. Sorted alphabetically or not, the rail
+            // only appears for the name sort — the same rule Albums uses, for the same
+            // reason: jumping to "S" in a track-count ordering answers nothing.
+            .overlay(alignment: .trailing) {
+                let entries = indexEntries
+                if !entries.isEmpty {
+                    AlphabetIndexRail(entries: entries) { entry in
+                        proxy.scrollTo(entry.firstID, anchor: .top)
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
         }
         .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
+        // On the Group, not the list. Everything below — the load, refresh, the + button,
+        // the sort menu, the content state and the new-playlist alert — was attached to
+        // `playlistList` alone, so the grid branch had none of it. Harmless only because
+        // this screen defaults to `.list`, which is exactly how the Artists bug hid: the
+        // plan named three screens with this shape and there were four.
+        .navigationTitle("Playlists")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    Picker("Sort", selection: $sortRaw) {
+                        ForEach(PlaylistSort.allCases) { option in
+                            Text(option.label).tag(option.rawValue)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                .accessibilityLabel("Sort playlists")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { newName = ""; showsNew = true } label: { Image(systemName: "plus") }
+                    .disabled(model.isDemoMode)
+            }
+        }
+        .contentState(
+            ContentDisplayState.resolve(isLoading: model.musicLibrary.isLoading,
+                                        error: model.musicLibrary.lastError,
+                                        isEmpty: model.musicLibrary.playlists.isEmpty),
+            emptyTitle: "No playlists",
+            emptyMessage: "Make one here, or add songs to a new playlist from any track's long-press menu.",
+            emptySymbol: "music.note.list",
+            onRetry: { Task { await model.musicLibrary.loadPlaylists() } }
+        )
+        .task { await model.musicLibrary.loadPlaylists() }
+        .refreshable { await model.musicLibrary.loadPlaylists() }
+        .alert("New playlist", isPresented: $showsNew) {
+            TextField("Name", text: $newName)
+            Button("Create") {
+                let name = newName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                Task {
+                    _ = await model.musicLibrary.createPlaylist(name: name)
+                    await model.musicLibrary.loadPlaylists()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Rename playlist", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $renameText)
+            Button("Rename") {
+                guard let playlist = renaming else { return }
+                let name = renameText.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                Task {
+                    await model.musicLibrary.renamePlaylist(id: playlist.id, to: name)
+                    await model.musicLibrary.loadPlaylists()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "Delete \(deleting?.name ?? "")?",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let playlist = deleting else { return }
+                Task {
+                    await model.musicLibrary.deletePlaylist(id: playlist.id)
+                    await model.musicLibrary.loadPlaylists()
+                }
+            }
+        } message: {
+            Text("This removes the playlist from your server. The songs stay in your library.")
+        }
+    }
+
+    private var indexEntries: [AlphabetIndex.Entry] {
+        guard sort == .name else { return [] }
+        let playlists = sort.sorted(model.musicLibrary.playlists)
+        guard playlists.count > 30 else { return [] }
+        return AlphabetIndex.entries(from: playlists.map { ($0.id, $0.name) })
     }
 
     private var playlistGrid: some View {
@@ -499,7 +638,6 @@ struct PlaylistsView: View {
             }
             .padding(BrowseGrid.padding)
         }
-        .navigationTitle("Playlists")
     }
 
     private var playlistList: some View {
@@ -557,74 +695,6 @@ struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle("Playlists")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Menu {
-                    Picker("Sort", selection: $sortRaw) {
-                        ForEach(PlaylistSort.allCases) { option in
-                            Text(option.label).tag(option.rawValue)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                }
-                .accessibilityLabel("Sort playlists")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { newName = ""; showsNew = true } label: { Image(systemName: "plus") }
-                    .disabled(model.isDemoMode)
-            }
-        }
-        .overlay {
-            if model.musicLibrary.playlists.isEmpty {
-                ContentUnavailableView("No playlists", systemImage: "music.note.list",
-                                       description: Text("Make one here, or add songs to a new playlist from any track's long-press menu."))
-            }
-        }
-        .task { await model.musicLibrary.loadPlaylists() }
-        .refreshable { await model.musicLibrary.loadPlaylists() }
-        .alert("New playlist", isPresented: $showsNew) {
-            TextField("Name", text: $newName)
-            Button("Create") {
-                let name = newName.trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty else { return }
-                Task {
-                    _ = await model.musicLibrary.createPlaylist(name: name)
-                    await model.musicLibrary.loadPlaylists()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Rename playlist", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("Name", text: $renameText)
-            Button("Rename") {
-                guard let playlist = renaming else { return }
-                let name = renameText.trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty else { return }
-                Task {
-                    await model.musicLibrary.renamePlaylist(id: playlist.id, to: name)
-                    await model.musicLibrary.loadPlaylists()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .confirmationDialog(
-            "Delete \(deleting?.name ?? "")?",
-            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                guard let playlist = deleting else { return }
-                Task {
-                    await model.musicLibrary.deletePlaylist(id: playlist.id)
-                    await model.musicLibrary.loadPlaylists()
-                }
-            }
-        } message: {
-            Text("This removes the playlist from your server. The songs stay in your library.")
-        }
     }
 }
 
@@ -734,11 +804,24 @@ struct PlaylistDetailView: View {
 /// Downloads: what's on this phone, how much space it takes, and the offline switch.
 struct DownloadsView: View {
     let model: MobileModel
-    @State private var items: [MusicDownloadStore.DownloadItem] = []
-    @State private var failed: [NavidromeSong] = []
-    @State private var bytes: Int64 = 0
+    /// Read the `@Observable` store directly rather than snapshotting it into `@State` in
+    /// `.task`. The snapshot was taken once per appearance, so a download finishing while
+    /// you watched changed nothing on screen — and the whole reason to open this screen is
+    /// to watch downloads finish. `refresh()` is gone with it; there is nothing to refresh.
+    private var store: MusicDownloadStore { MusicDownloadStore.shared }
     @State private var isRetrying = false
     @State private var offlineMode = StreamingPlaybackController.isOfflineMode
+
+    private var items: [MusicDownloadStore.DownloadItem] { store.downloadedItems() }
+    private var failed: [NavidromeSong] { Array(store.failedDownloads.values) }
+    private var bytes: Int64 { store.totalBytes() }
+
+    /// Mean completion across in-flight downloads, same as the Mac's aggregate bar.
+    private var aggregateProgress: Double {
+        let ids = store.inFlight
+        guard !ids.isEmpty else { return 0 }
+        return ids.reduce(0.0) { $0 + (store.downloadProgress[$1] ?? 0) } / Double(ids.count)
+    }
 
     var body: some View {
         List {
@@ -750,6 +833,20 @@ struct DownloadsView: View {
                     }
             } footer: {
                 Text("Offline mode plays only downloaded tracks and never streams.")
+            }
+
+            // What is happening right now. `inFlight` and `downloadProgress` have been on
+            // the store all along and only the Mac ever drew them, so on the phone a
+            // five-track download looked identical to nothing happening at all.
+            if !store.inFlight.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ProgressView(value: aggregateProgress)
+                        Text("Downloading \(Counted.phrase(store.inFlight.count, "track"))…")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
             }
 
             // A download that failed used to vanish without trace on the phone: the store
@@ -764,9 +861,8 @@ struct DownloadsView: View {
                     Button(isRetrying ? "Retrying…" : "Retry all") {
                         isRetrying = true
                         Task {
-                            await MusicDownloadStore.shared.retryFailed()
+                            await store.retryFailed()
                             isRetrying = false
-                            refresh()
                         }
                     }
                     .disabled(isRetrying)
@@ -792,8 +888,7 @@ struct DownloadsView: View {
                     .songContextMenu(item.song, model: model)
                     .swipeActions {
                         Button("Remove", role: .destructive) {
-                            MusicDownloadStore.shared.delete(item.id)
-                            refresh()
+                            store.delete(item.id)
                         }
                     }
                 }
@@ -804,8 +899,11 @@ struct DownloadsView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Downloads")
         .navigationBarTitleDisplayMode(.inline)
+        // A download finishing is the one event here worth feeling: people start one and
+        // put the phone down, and the screen changing silently tells them nothing.
+        .sensoryFeedback(.success, trigger: items.count)
         .overlay {
-            if items.isEmpty, failed.isEmpty {
+            if items.isEmpty, failed.isEmpty, store.inFlight.isEmpty {
                 ContentUnavailableView(
                     "Nothing downloaded",
                     systemImage: "arrow.down.circle",
@@ -813,7 +911,6 @@ struct DownloadsView: View {
                 )
             }
         }
-        .task { refresh() }
     }
 
     /// How many, and how much of the phone they're using. A count alone doesn't answer the
@@ -824,11 +921,6 @@ struct DownloadsView: View {
         return "\(count) · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
     }
 
-    private func refresh() {
-        items = MusicDownloadStore.shared.downloadedItems()
-        failed = Array(MusicDownloadStore.shared.failedDownloads.values)
-        bytes = MusicDownloadStore.shared.totalBytes()
-    }
 }
 
 

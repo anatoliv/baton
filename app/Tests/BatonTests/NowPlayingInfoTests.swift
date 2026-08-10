@@ -47,4 +47,28 @@ final class NowPlayingInfoTests: XCTestCase {
         let info = MusicNowPlayingCenter.nowPlayingInfo(song: song(), isPlaying: true, currentTime: -3, duration: 100)
         XCTAssertEqual(info[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 0)
     }
+
+    /// The OS interpolates elapsed time from this between pushes, so a constant 1.0 for a
+    /// 1.5× podcast made the lock-screen clock run at two-thirds speed — falling further
+    /// behind the audio the longer the episode played, then jumping forward on the next
+    /// real update. Nothing crashed and nothing logged; the number was just wrong.
+    func testPlaybackRateIsTheEnginesRateNotAConstant() {
+        let info = MusicNowPlayingCenter.nowPlayingInfo(
+            song: song(), isPlaying: true, currentTime: 30, duration: 3600, rate: 1.5)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.5)
+    }
+
+    /// Zero while paused is what tells the OS to stop advancing its own clock — whatever
+    /// rate the engine was last set to.
+    func testPausedPublishesZeroRateEvenAtDoubleSpeed() {
+        let info = MusicNowPlayingCenter.nowPlayingInfo(
+            song: song(), isPlaying: false, currentTime: 30, duration: 3600, rate: 2.0)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 0)
+    }
+
+    func testRateDefaultsToNormalSpeed() {
+        let info = MusicNowPlayingCenter.nowPlayingInfo(
+            song: song(), isPlaying: true, currentTime: 0, duration: 100)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
+    }
 }

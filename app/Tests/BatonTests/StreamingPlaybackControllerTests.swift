@@ -295,6 +295,37 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(c.nowPlaying?.id, "d", "should play c's successor d, not skip to e")
     }
 
+    /// A queue is the one list where the same item legitimately appears twice.
+    ///
+    /// "Play Next" on something already queued does exactly that, and both `moveQueueItem`
+    /// and `removeFromQueue` re-find the current track by `firstIndex(where: id ==)` — which
+    /// returns the *first* copy. Playing the second copy and deleting an unrelated earlier
+    /// row therefore re-anchored playback onto the first one: the highlight jumped backwards
+    /// and the next track became wrong. Same defect the queue's `ForEach` had, one layer down.
+    func testRemovingARowKeepsPositionWhenTheSameSongIsQueuedTwice() {
+        let c = makeController()
+        c.play([song("a"), song("dup"), song("b"), song("dup"), song("c")], startAt: 3)
+        XCTAssertEqual(c.currentIndex, 3, "playing the SECOND copy of dup")
+
+        c.removeFromQueue(at: IndexSet([0])) // drop "a", which is before the current track
+        XCTAssertEqual(c.queue.map(\.id), ["dup", "b", "dup", "c"])
+        XCTAssertEqual(c.currentIndex, 2,
+                       "must stay on the second copy — index 0 is a different row that happens to share an id")
+        XCTAssertEqual(c.nowPlaying?.id, "dup")
+    }
+
+    func testReorderingKeepsPositionWhenTheSameSongIsQueuedTwice() {
+        let c = makeController()
+        c.play([song("dup"), song("a"), song("dup"), song("b")], startAt: 2)
+        XCTAssertEqual(c.currentIndex, 2)
+
+        // Move "b" to the front. Nothing about the current track changed, so it must ride
+        // along to index 3 rather than snapping to the copy at the top.
+        c.moveQueueItem(from: IndexSet([3]), to: 0)
+        XCTAssertEqual(c.queue.map(\.id), ["b", "dup", "a", "dup"])
+        XCTAssertEqual(c.currentIndex, 3, "the current row moved by one; it did not become the other copy")
+    }
+
     /// Releasable gate so a test can hold an async related-fetch open, act, then let it finish.
     private final class TestGate: @unchecked Sendable {
         private var continuation: CheckedContinuation<Void, Never>?

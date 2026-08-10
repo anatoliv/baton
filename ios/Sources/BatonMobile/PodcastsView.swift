@@ -8,7 +8,7 @@ struct PodcastsListBody: View {
     let model: MobileModel
     // Grid by default: a show is its cover art. You recognise "Latent Space" by the
     // picture long before you finish reading the words.
-    @AppStorage(BrowseLayout.key("podcast")) private var layoutRaw = BrowseLayout.grid.rawValue
+    @AppStorage(BrowseScreen.podcast.layoutKey) private var layoutRaw = BrowseLayout.grid.rawValue
     private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .grid }
     private var layoutBinding: Binding<BrowseLayout> {
         Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
@@ -17,11 +17,49 @@ struct PodcastsListBody: View {
     @State private var feedURLText = ""
     @State private var addError: String?
 
+    // Everything that is not the rows themselves belongs on the Group, not on one branch.
+    //
+    // Loading, refresh, the + button, the empty state and the add-feed alert all used to
+    // hang off `channelList` while the default layout is `.grid` — so a first run showed a
+    // blank screen with no way to add anything, and no amount of pulling or tapping helped.
+    // A modifier on one branch of a layout switch is invisible in the other, and the branch
+    // people actually see is the one nobody attached them to.
     var body: some View {
         Group {
             if layout == .grid { channelGrid } else { channelList }
         }
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showsAddFeed = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Add podcast feed")
+            }
+        }
+        .refreshable { await model.podcastSubscriptions.refresh() }
+        .task {
+            await model.podcastSubscriptions.loadIfNeeded()
+            // Subscriptions made on the Mac arrive as a list of feed URLs; this is
+            // where they become real subscriptions. Additive — see `adoptSyncedFeeds`.
+            _ = await model.podcastSubscriptions.adoptSyncedFeeds()
+        }
+        .overlay {
+            if model.podcastSubscriptions.channels.isEmpty {
+                ContentUnavailableView(
+                    "No podcasts yet",
+                    systemImage: "mic",
+                    description: Text("Add an RSS feed to subscribe.")
+                )
+            }
+        }
+        .alert("Add podcast feed", isPresented: $showsAddFeed) {
+            TextField("https://example.com/feed.xml", text: $feedURLText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Subscribe") { subscribe() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let addError { Text(addError) }
+        }
     }
 
     private var channelGrid: some View {
@@ -72,36 +110,6 @@ struct PodcastsListBody: View {
                 }
             }
             .listStyle(.plain)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showsAddFeed = true } label: { Image(systemName: "plus") }
-                }
-            }
-            .refreshable { await model.podcastSubscriptions.refresh() }
-            .task {
-                await model.podcastSubscriptions.loadIfNeeded()
-                // Subscriptions made on the Mac arrive as a list of feed URLs; this is
-                // where they become real subscriptions. Additive — see `adoptSyncedFeeds`.
-                _ = await model.podcastSubscriptions.adoptSyncedFeeds()
-            }
-            .overlay {
-                if model.podcastSubscriptions.channels.isEmpty {
-                    ContentUnavailableView(
-                        "No podcasts yet",
-                        systemImage: "mic",
-                        description: Text("Add an RSS feed to subscribe.")
-                    )
-                }
-            }
-            .alert("Add podcast feed", isPresented: $showsAddFeed) {
-                TextField("https://example.com/feed.xml", text: $feedURLText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Subscribe") { subscribe() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                if let addError { Text(addError) }
-            }
     }
 
     private func subscribe() {
@@ -171,15 +179,17 @@ struct PodcastChannelView: View {
                 .lineLimit(2)
                 .foregroundStyle(played ? .secondary : .primary)
             HStack(spacing: 8) {
-                if let date = episode.publishDate {
-                    Text(date, style: .date)
+                // One builder for all three podcast lists — this one and the Mac's two,
+                // which disagreed with each other and with this on every field.
+                if let meta = PodcastEpisodeMeta.line(
+                    publishDate: episode.publishDate,
+                    duration: episode.duration,
+                    remaining: model.podcastProgress.remaining(id: id),
+                    isPlayed: played
+                ) {
+                    Text(meta)
                 }
-                if let duration = episode.duration {
-                    Text("\(duration / 60) min")
-                }
-                if played {
-                    Label("Played", systemImage: "checkmark").labelStyle(.titleAndIcon)
-                } else if let fraction, fraction > 0.02 {
+                if !played, let fraction, fraction > 0.02 {
                     ProgressView(value: fraction).frame(width: 60)
                 }
                 if id == model.music.nowPlaying?.id {

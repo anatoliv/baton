@@ -72,7 +72,7 @@ struct BatonConnectSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else if isInsecure {
                 Label("This is an unencrypted (http) connection — your \(authMode == .apiKey ? "API key" : "username and password") are sent in the clear. Prefer https unless this server is on your local network.", systemImage: "lock.open")
-                    .font(.callout).foregroundStyle(.orange)
+                    .font(.callout).foregroundStyle(Color.warningTint)
                     .fixedSize(horizontal: false, vertical: true)
             }
 

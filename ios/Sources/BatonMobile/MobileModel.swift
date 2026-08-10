@@ -144,6 +144,16 @@ final class MobileModel {
     var revealedAlbum: NavidromeAlbum?
     var revealedArtist: NavidromeArtist?
 
+    /// Bumped when something outside the view tree asks for the full player — today the
+    /// `baton://player` deep link the Now Playing widget uses.
+    ///
+    /// A counter rather than a `Bool`: the widget is most often tapped when the player is
+    /// already the thing you want back, and a flag that is already `true` publishes no
+    /// change, so the second tap would do nothing. `RootTabView` presents on any change.
+    private(set) var playerPresentationRequests = 0
+
+    func requestFullPlayer() { playerPresentationRequests += 1 }
+
     /// A song's album, built from what the song already carries. `albumID` is on every
     /// Subsonic song; the rest is cosmetic and the detail screen fetches the real thing.
     func revealAlbum(of song: NavidromeSong) {
@@ -262,7 +272,8 @@ final class MobileModel {
             self?.history.record(song)
             WidgetBridge.publish(
                 song: song, isPlaying: true,
-                artworkURL: library.coverArtURL(id: song.coverArtID ?? song.id, size: 300)
+                artworkURL: library.coverArtURL(id: song.coverArtID ?? song.id, size: 300),
+                elapsed: 0, duration: Double(song.duration ?? 0)
             )
         }
         controller.onScrobbleEligible = { [weak self] song, startedAt in
@@ -273,6 +284,22 @@ final class MobileModel {
         // In demo mode there is no server to ask, and the whole library is already
         // in the queue, so autoplay stops at the end rather than hanging on a call.
         // Banned tracks are filtered here so both autoplay and Related honour them.
+        // Lock screen / CarPlay like + dislike. Both actions have existed in the app for
+        // versions and neither reached the one surface where you would use them without
+        // looking: a phone in a pocket, a car, a watch face.
+        controller.remoteLikeHandler = { [weak self] in
+            guard let self, let song = music.nowPlaying else { return }
+            Task { await musicLibrary.toggleLike(song) }
+        }
+        controller.remoteBanHandler = { [weak self] in
+            guard let self, let song = music.nowPlaying else { return }
+            radioBans.toggle(song.id)
+            preferenceSync.noteLocalChange("tonebox.music.radioBans")
+        }
+        controller.remoteIsLiked = { [weak self] song in
+            self?.musicLibrary.isLiked(song) ?? false
+        }
+
         controller.relatedProvider = { [weak self] song in
             guard let self, !isDemoMode else { return [] }
             return radioBans.filtered(await musicLibrary.similarSongs(seedID: song.id))

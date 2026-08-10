@@ -38,7 +38,9 @@ struct MusicFriendView: View {
                             if messages.isEmpty { emptyState }
                             ForEach(messages) { message in
                                 MessageBubble(message: message, rate: message.exchangeID.map { id in
-                                    { rating, fault in model.rateFriendExchange(id, rating, fault: fault) }
+                                    { rating, fault, note in
+                                        model.rateFriendExchange(id, rating, fault: fault, note: note)
+                                    }
                                 })
                                     .id(message.id)
                             }
@@ -118,7 +120,7 @@ struct MusicFriendView: View {
             if !model.agentConfig.isReady {
                 Label("Set up and test a model in Settings → Music Friend first.", systemImage: "key")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.warningTint)
             }
         }
         .padding(.horizontal)
@@ -127,7 +129,7 @@ struct MusicFriendView: View {
     private var inputBar: some View {
         VStack(spacing: 4) {
             if case .denied(let why) = model.voice.state {
-                Text(why).font(.footnote).foregroundStyle(.orange)
+                Text(why).font(.footnote).foregroundStyle(Color.warningTint)
             }
             HStack(spacing: 10) {
                 TextField(
@@ -169,9 +171,19 @@ struct MusicFriendView: View {
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || isThinking || model.voice.isListening)
             }
         }
-        .padding(.horizontal, 12)
+        // A floating capsule, like the mini player and the tab bar below it.
+        //
+        // This was a full-bleed `.background(.bar)` slab at a 12pt inset while the mini bar
+        // sat in a capsule at 10 — so three things stacked in the same 200pt of screen, and
+        // one of them ran edge to edge past the other two. The send button looked like it
+        // was hanging outside the column because the shelf under it was wider than
+        // everything else, not because it was misaligned.
+        //
+        // `bottomChromeCapsule()` carries the shared inset, so a third floating element
+        // cannot introduce a third value — which is exactly how 10 and 12 diverged.
+        .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(.bar)
+        .bottomChromeCapsule()
     }
 
     /// Tap to start listening; tap again to stop and send what was heard.
@@ -246,10 +258,13 @@ struct MusicFriendView: View {
 
 private struct MessageBubble: View {
     let message: MusicFriendView.Message
-    var rate: ((FriendExchange.Rating, FriendExchange.Fault?) -> Void)?
+    var rate: ((FriendExchange.Rating, FriendExchange.Fault?, String?) -> Void)?
 
     @State private var rating: FriendExchange.Rating?
     @State private var showsFaultPicker = false
+    /// The fault whose note we are asking about — non-nil drives the prompt.
+    @State private var noteFault: FriendExchange.Fault?
+    @State private var noteText = ""
 
     var body: some View {
         VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
@@ -272,7 +287,7 @@ private struct MessageBubble: View {
                 HStack(spacing: 14) {
                     Button {
                         rating = .up
-                        rate(.up, nil)
+                        rate(.up, nil, nil)
                     } label: {
                         Image(systemName: rating == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
                     }
@@ -294,13 +309,44 @@ private struct MessageBubble: View {
                     // The fault, not the severity. "Bad" cannot be acted on; "it understood
                     // me and picked the wrong track" points straight at tool arguments.
                     ForEach(FriendExchange.Fault.allCases, id: \.self) { fault in
-                        Button(fault.label) { rate(.down, fault) }
+                        Button(fault.label) {
+                            // Record the rating first, unconditionally. The note is a bonus
+                            // question; a dismissed prompt, a backgrounded app or a changed
+                            // mind must never cost the thumbs-down that was already given.
+                            rate(.down, fault, nil)
+                            if fault.hasObservableExpectation { noteFault = fault }
+                        }
                     }
-                    Button("Just wrong", role: .cancel) { rate(.down, nil) }
+                    Button("Just wrong", role: .cancel) { rate(.down, nil, nil) }
+                }
+                // Only for the faults that imply a "should have". Asking "what should it
+                // have done?" about "too chatty" collects an opinion nothing can act on,
+                // and every question you ask costs you answers to the next one.
+                .alert("What should it have done?", isPresented: askingForNote) {
+                    TextField("In your own words", text: $noteText)
+                    Button("Save") {
+                        let typed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        // Re-rate with the same fault: `rate` overwrites the note only when
+                        // there is something new to say, so an empty box changes nothing.
+                        if !typed.isEmpty { rate(.down, noteFault, typed) }
+                        dismissNote()
+                    }
+                    Button("Skip", role: .cancel) { dismissNote() }
+                } message: {
+                    Text("Optional. What you meant is the one thing the log cannot work out on its own.")
                 }
             }
         }
         .padding(.horizontal, 12)
+    }
+
+    private var askingForNote: Binding<Bool> {
+        Binding(get: { noteFault != nil }, set: { if !$0 { dismissNote() } })
+    }
+
+    private func dismissNote() {
+        noteText = ""
+        noteFault = nil
     }
 
     private var background: AnyShapeStyle {

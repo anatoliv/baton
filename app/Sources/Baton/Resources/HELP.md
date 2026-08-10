@@ -1122,7 +1122,7 @@ background even with every window closed.
 
 ### What an agent can do
 
-The control server exposes **36 music operations**. They're the same actions Baton's own
+The control server exposes **37 music operations**. They're the same actions Baton's own
 interface uses, so anything an agent does is something you could have done by hand. Here's the
 full catalog.
 
@@ -1191,6 +1191,7 @@ play can suggest something from your collection instead of guessing at song titl
 | Tool | What it does | Main inputs |
 |---|---|---|
 | `music_now_playing` | Report the current track, playback state, and queue position | none |
+| `music_recent_events` | What was played recently and how long each was heard before moving on, including skips | none |
 | `music_set_eq` | Turn the equalizer on or off and apply a preset | `enabled`, `preset` |
 
 ### Live resources an agent can read

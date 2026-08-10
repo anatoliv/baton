@@ -10,7 +10,7 @@ struct RadioView: View {
     let model: MobileModel
     // Grid by default: a station's logo is its identity — the names are often
     // interchangeable strings of call letters and genres.
-    @AppStorage(BrowseLayout.key("radio")) private var layoutRaw = BrowseLayout.grid.rawValue
+    @AppStorage(BrowseScreen.radio.layoutKey) private var layoutRaw = BrowseLayout.grid.rawValue
     private var layout: BrowseLayout { BrowseLayout(rawValue: layoutRaw) ?? .grid }
     private var layoutBinding: Binding<BrowseLayout> {
         Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
@@ -21,11 +21,68 @@ struct RadioView: View {
     @State private var newURL = ""
     @State private var editing: NavidromeRadioStation?
 
+    // Chrome belongs on the Group. Loading, refresh, the + button, the empty/error state
+    // and both alerts used to live on `stationList` alone while the default layout is
+    // `.grid`, so the screen most people open first had no way to add a station and never
+    // loaded one either.
     var body: some View {
         Group {
             if layout == .grid { stationGrid } else { stationList }
         }
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
+        .searchable(text: $query, prompt: "Stations")
+        .navigationTitle("Radio")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    newName = ""; newURL = ""; showsAdd = true
+                } label: { Image(systemName: "plus") }
+                .disabled(model.isDemoMode)
+                .accessibilityLabel("Add station")
+            }
+        }
+        .overlay {
+            if model.radio.loading {
+                ProgressView()
+            } else if model.radio.stations.isEmpty {
+                ContentUnavailableView(
+                    "No stations",
+                    systemImage: "dot.radiowaves.left.and.right",
+                    description: Text(model.radio.loadError
+                                      ?? "Add a stream URL here, or save stations on your server.")
+                )
+            }
+        }
+        .task { await model.radio.loadIfNeeded() }
+        .refreshable { await model.radio.reload() }
+        .alert("Add station", isPresented: $showsAdd) {
+            TextField("Name", text: $newName)
+            TextField("Stream URL", text: $newURL)
+            Button("Add") {
+                let name = newName.trimmingCharacters(in: .whitespaces)
+                let url = newURL.trimmingCharacters(in: .whitespaces)
+                // Same rule the Mac editor has always enforced. Non-empty was not enough:
+                // a stream URL of "radio" saved and then failed silently at play time.
+                guard RadioStationInput.isValid(name: name, streamURL: url) else { return }
+                Task { await model.radio.add(name: name, streamURL: url, homepage: nil) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Edit station", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+            TextField("Name", text: $newName)
+            TextField("Stream URL", text: $newURL)
+            Button("Save") {
+                guard let station = editing else { return }
+                Task {
+                    await model.radio.update(station,
+                                             name: newName.trimmingCharacters(in: .whitespaces),
+                                             streamURL: newURL.trimmingCharacters(in: .whitespaces),
+                                             homepage: station.homepageUrl)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     /// Tiles. The on-air station keeps its own row above the grid — it's a state, not a
@@ -57,13 +114,18 @@ struct RadioView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                        .task {
+                            // Same resolve the list rows do. Without it the grid — the
+                            // default layout — showed monograms and no subtitle forever,
+                            // because neither is in Navidrome's station record.
+                            model.radio.resolveMeta(for: station)
+                            model.radio.resolveArtwork(for: station)
+                        }
                     }
                 }
                 .padding(BrowseGrid.padding)
             }
         }
-        .searchable(text: $query, prompt: "Stations")
-        .navigationTitle("Radio")
     }
 
     private var stationList: some View {
@@ -115,56 +177,6 @@ struct RadioView: View {
             }
         }
         .listStyle(.plain)
-        .searchable(text: $query, prompt: "Stations")
-        .navigationTitle("Radio")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    newName = ""; newURL = ""; showsAdd = true
-                } label: { Image(systemName: "plus") }
-                .disabled(model.isDemoMode)
-            }
-        }
-        .overlay {
-            if model.radio.loading {
-                ProgressView()
-            } else if model.radio.stations.isEmpty {
-                ContentUnavailableView(
-                    "No stations",
-                    systemImage: "dot.radiowaves.left.and.right",
-                    description: Text(model.radio.loadError
-                                      ?? "Add a stream URL here, or save stations on your server.")
-                )
-            }
-        }
-        .task { await model.radio.loadIfNeeded() }
-        .refreshable { await model.radio.reload() }
-        .alert("Add station", isPresented: $showsAdd) {
-            TextField("Name", text: $newName)
-            TextField("Stream URL", text: $newURL)
-            Button("Add") {
-                let name = newName.trimmingCharacters(in: .whitespaces)
-                let url = newURL.trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty, !url.isEmpty else { return }
-                Task { await model.radio.add(name: name, streamURL: url, homepage: nil) }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Edit station", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-            TextField("Name", text: $newName)
-            TextField("Stream URL", text: $newURL)
-            Button("Save") {
-                guard let station = editing else { return }
-                Task {
-                    await model.radio.update(station,
-                                             name: newName.trimmingCharacters(in: .whitespaces),
-                                             streamURL: newURL.trimmingCharacters(in: .whitespaces),
-                                             homepage: station.homepageUrl)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 
     /// The on-air banner: what's playing right now, and the stop control. Stations

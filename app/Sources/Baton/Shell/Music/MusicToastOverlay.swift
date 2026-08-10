@@ -39,6 +39,13 @@ private struct MusicToastOverlay: ViewModifier {
             }
             .onChange(of: model.music.toast) { _, toast in
                 guard let toast else { return }
+                // Say it out loud. The toast is the *only* confirmation for queueing,
+                // downloading, saving a playlist and a dozen other actions — and it is
+                // `allowsHitTesting(false)` decoration that VoiceOver never reached, so a
+                // VoiceOver user pressed "Add to Queue" and got silence. An announcement
+                // rather than a focusable element: it is transient, and moving focus to a
+                // pill that vanishes in three seconds would strand the cursor.
+                AccessibilityNotification.Announcement(toast.text).post()
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { shown = toast }
                 dismissTask?.cancel()
                 dismissTask = Task {

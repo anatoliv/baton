@@ -170,7 +170,7 @@ your Mac is the sentence you typed plus the list of Baton's own commands. Not yo
 not your server address or credentials, not your listening history.
 
 **Is agent control available today?**
-Yes. The control server runs while Baton is open. It exposes 28 music operations (including a
+Yes. The control server runs while Baton is open. It exposes 37 music operations (including a
 `music_build_mix` tool that assembles a mix to a length you ask for), two behind-the-scenes
 audio-focus operations for ducking, and a `speak_summary` tool. It publishes five live views
 (what's playing, your queue, playlists, liked music, and recent history), and it writes a

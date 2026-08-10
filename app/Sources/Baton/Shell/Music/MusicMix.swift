@@ -22,6 +22,30 @@ struct MusicMix: Identifiable, Hashable {
     // NavigationLink to open the mix's detail page.
     static func == (lhs: MusicMix, rhs: MusicMix) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// Build from the shared card, so the copy the user reads has one home.
+    init(card: MixCardSpec, songs: @escaping @MainActor () async -> [NavidromeSong]) {
+        self.id = card.id
+        self.title = card.title
+        self.subtitle = card.subtitle
+        self.icon = card.icon
+        self.color = card.tint
+        self.artwork = card.artwork
+        self.songs = songs
+    }
+
+    /// The literal form, still used by the genre and server-playlist mixes, which are built
+    /// from library data rather than from a fixed table.
+    init(id: String, title: String, subtitle: String, icon: String, color: Color,
+         artwork: String? = nil, songs: @escaping @MainActor () async -> [NavidromeSong]) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.icon = icon
+        self.color = color
+        self.artwork = artwork
+        self.songs = songs
+    }
 }
 
 /// The catalog of standard mixes, built from the current library + play-history signals.
@@ -30,22 +54,22 @@ enum MusicMixCatalog {
     /// The six server + local-signal auto-mixes.
     @MainActor static func auto(_ model: MusicModel) -> [MusicMix] {
         [
-            MusicMix(id: "mostPlayed", title: "Most Played", subtitle: "Your top tracks", icon: "flame.fill", color: .orange, artwork: "MixArtMostPlayed") {
+            MusicMix(card: MixCards.card("mostPlayed")) {
                 model.musicHistory.topTracks(since: .distantPast).map(\.song)
             },
-            MusicMix(id: "recentlyAdded", title: "Just Added", subtitle: "Newest in your library", icon: "sparkles", color: .green, artwork: "MixArtJustAdded") {
+            MusicMix(card: MixCards.card("recentlyAdded")) {
                 await model.musicLibrary.mixSongs(type: "newest")
             },
-            MusicMix(id: "topRated", title: "Top Rated", subtitle: "Your highest-rated", icon: "star.fill", color: .yellow, artwork: "MixArtTopRated") {
+            MusicMix(card: MixCards.card("topRated")) {
                 await model.musicLibrary.mixSongs(type: "highest")
             },
-            MusicMix(id: "onRepeat", title: "On Repeat", subtitle: "Frequently played", icon: "repeat", color: .pink, artwork: "MixArtOnRepeat") {
+            MusicMix(card: MixCards.card("onRepeat")) {
                 await model.musicLibrary.mixSongs(type: "frequent")
             },
-            MusicMix(id: "forgotten", title: "Forgotten Favorites", subtitle: "Liked, not heard lately", icon: "heart.circle.fill", color: .red, artwork: "MixArtForgotten") {
+            MusicMix(card: MixCards.card("forgotten")) {
                 forgottenFavorites(model)
             },
-            MusicMix(id: "discover", title: "Discover", subtitle: "A random shuffle", icon: "shuffle", color: .blue, artwork: "MixArtDiscover") {
+            MusicMix(card: MixCards.card("discover")) {
                 // Stay a shuffle (fresh each open), but spread artists so it never stacks the
                 // same artist back-to-back (F2 — sonic-aware discovery, docs/09 finding #6).
                 MixBuilder.curate(await model.musicLibrary.mixSongs(type: "random").shuffled(), mood: .neutral)
@@ -352,7 +376,7 @@ struct MusicMixCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
             }
-            .background(.ultraThinMaterial)
+            .adaptiveMaterial(Rectangle())
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)))
             // The app's standard lift, not a bespoke one. This card carried scale 1.02

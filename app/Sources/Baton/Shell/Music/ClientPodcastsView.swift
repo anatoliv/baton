@@ -15,9 +15,9 @@ struct ClientPodcastsView: View {
     @State private var refreshing = false
     @State private var showSel = MusicMultiSelect()
     @FocusState private var filterFocused: Bool
-    @AppStorage("tonebox.music.clientPodcastLayout") private var layout: MusicBrowseLayout = .grid
-    @AppStorage("tonebox.music.clientPodcastSort") private var sortField: PodcastSort = .recent
-    @AppStorage("tonebox.music.clientPodcastSortAscending") private var sortAscending = false
+    @AppStorage(BrowseScreen.clientPodcast.layoutKey) private var layout: MusicBrowseLayout = .grid
+    @AppStorage(BrowseScreen.clientPodcast.sortKey) private var sortField: PodcastSort = .recent
+    @AppStorage(BrowseScreen.clientPodcast.sortAscendingKey) private var sortAscending = false
 
     enum PodcastSort: String, CaseIterable, Identifiable, MusicSortField {
         case name, recent, episodes
@@ -189,16 +189,19 @@ struct ClientPodcastsView: View {
         }
     }
 
+    /// The shared placeholder, with its call-to-action slot doing the work the bespoke
+    /// button did. `ContentStatePlaceholder` grew `emptyActionLabel`/`emptyAction` for
+    /// exactly this case and nothing was using it.
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "mic").font(.system(size: 34)).foregroundStyle(.secondary)
-            Text("No podcasts yet").font(.headline)
-            Text("Subscribe to a podcast by pasting its RSS feed URL. Baton fetches episodes "
-                + "directly, so this works with any server — including Navidrome.")
-                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button { showingAdd = true } label: { Label("Add a Show", systemImage: "plus") }
-                .padding(.top, 4)
-        }
+        ContentStatePlaceholder(
+            state: .empty,
+            emptyTitle: "No podcasts yet",
+            emptyMessage: "Subscribe to a podcast by pasting its RSS feed URL. Baton fetches "
+                + "episodes directly, so this works with any server — including Navidrome.",
+            emptySymbol: "mic",
+            emptyActionLabel: "Add a Show",
+            emptyAction: { showingAdd = true }
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 40)
         .sheet(isPresented: $showingAdd) { AddPodcastSheet() }
     }
@@ -238,7 +241,7 @@ private struct AddPodcastSheet: View {
                 .disabled(working)
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange).lineLimit(3)
+                    .font(.caption).foregroundStyle(Color.warningTint).lineLimit(3)
             }
             HStack {
                 Spacer()
@@ -686,7 +689,7 @@ private struct ClientPodcastEpisodeRow: View {
             // marks the current episode; a checkmark marks a finished one; duration is always
             // shown, tertiary, like a track row.
             if isPlaying {
-                EqualizerBars(active: true, color: Color.accentColor)
+                NowPlayingBars(isPlaying: true)
             } else if isPlayed {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary).help("Played")
             }
@@ -788,18 +791,14 @@ private struct ClientPodcastEpisodeRow: View {
         }
     }
 
-    /// "Jul 9, 2026" — plus "· 12 min left" while an episode is partway through.
+    /// "Jul 9, 2026 · 12 min left". Built by `PodcastEpisodeMeta` so this screen, the
+    /// server-podcasts screen and the phone all answer the question the same way.
     private var subLine: String? {
-        var parts: [String] = []
-        if let date = episode.publishDate {
-            let formatter = DateFormatter(); formatter.dateStyle = .medium
-            parts.append(formatter.string(from: date))
-        }
-        if let remaining = model.podcastProgress.remaining(id: songID), remaining > 60 {
-            parts.append("\(Int(remaining / 60)) min left")
-        } else if isPlayed {
-            parts.append("Played")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        PodcastEpisodeMeta.line(
+            publishDate: episode.publishDate,
+            duration: episode.duration,
+            remaining: model.podcastProgress.remaining(id: songID),
+            isPlayed: isPlayed
+        )
     }
 }

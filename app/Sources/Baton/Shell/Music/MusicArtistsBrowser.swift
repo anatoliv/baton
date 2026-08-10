@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 
 /// Heuristics for cleaning up a messy (YouTube-imported) artist library.
@@ -41,9 +42,7 @@ enum ArtistHeuristics {
     }
 
     static func formatDuration(_ seconds: Int) -> String {
-        let hours = seconds / 3600, minutes = (seconds % 3600) / 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        if minutes > 0 { return "\(minutes) min" }
+        if let total = PlayTime.total(seconds) { return total }
         return seconds > 0 ? "\(seconds)s" : "—"
     }
 }
@@ -65,9 +64,10 @@ enum ArtistActions {
     }
 
     static func radio(_ artist: NavidromeArtist, _ model: MusicModel) async {
-        let radio = await model.musicLibrary.similarSongs(seedID: artist.id)
-        if !radio.isEmpty {
-            model.music.play(radio, source: .init(label: "\(artist.name) Radio", kind: .radio, id: nil))
+        let similar = model.musicRadioBans.filtered(await model.musicLibrary.similarSongs(seedID: artist.id))
+        let queue = RadioQueue.build(seed: nil, similar: similar)
+        if !queue.isEmpty {
+            model.music.play(queue, source: .init(label: RadioQueue.label(artist.name), kind: .radio, id: nil))
         }
     }
 
@@ -152,7 +152,7 @@ struct MusicArtistsBrowser: View {
     @State private var showBatchRemoveConfirm = false
     @FocusState private var filterFocused: Bool
     /// List (dense table) vs Grid (cards). Persisted; Artists defaults to list.
-    @AppStorage("tonebox.music.artistLayout") private var layout: MusicBrowseLayout = .list
+    @AppStorage(BrowseScreen.artist.layoutKey) private var layout: MusicBrowseLayout = .list
 
     private var library: MusicLibraryStore { model.musicLibrary }
 
@@ -410,7 +410,7 @@ struct MusicArtistListRow: View {
                     if isPlayingNow { NowPlayingSourceGlyph() }
                     Text(artist.name).font(.body.weight(.medium))
                         .foregroundStyle(isPlayingNow ? Color.accentColor : .primary).lineLimit(1)
-                    if ArtistHeuristics.isAutoImport(artist.name) { flag("auto-import", .orange) }
+                    if ArtistHeuristics.isAutoImport(artist.name) { flag("auto-import", Color.warningTint) }
                     if isDuplicate { flag("duplicate", .yellow) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -594,7 +594,7 @@ struct MusicArtistGridCard: View {
     private var durationText: String? { stats.map { ArtistHeuristics.formatDuration($0.seconds) } }
 
     private var badge: (text: String, color: Color)? {
-        if ArtistHeuristics.isAutoImport(artist.name) { return ("auto-import", .orange) }
+        if ArtistHeuristics.isAutoImport(artist.name) { return ("auto-import", Color.warningTint) }
         if isDuplicate { return ("duplicate", .yellow) }
         return nil
     }

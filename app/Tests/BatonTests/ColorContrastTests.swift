@@ -43,6 +43,29 @@ struct ColorContrastTests {
         #expect(Contrast.ratio(fixed, .black) >= 4.5)
     }
 
+    // MARK: Status tokens
+
+    @Test("Warning and error clear AA on both the dark player surface and a light sheet")
+    func statusTokensAreLegibleOnBothGrounds() {
+        for color in [Color.warningTint, Color.errorTint] {
+            #expect(Contrast.ratio(color, .black) >= 4.5)
+        }
+        // Settings and Help follow the system appearance, so these appear on white too.
+        #expect(Contrast.ratio(.errorTint, .white) >= 3.0)
+    }
+
+    /// The point of the tokens: a warning must not be mistakable for "click here".
+    ///
+    /// System `.orange` carried 25+ warning states in an app whose brand is orange, so a
+    /// failed download and the primary action wore nearly the same colour. Asserted as a
+    /// distance rather than left to judgement, because the next person reaching for a
+    /// warning colour will reach for orange again.
+    @Test("Warning is visibly distinct from brand orange")
+    func warningIsNotTheBrand() {
+        #expect(Contrast.ratio(.warningTint, .batonOrange) >= 1.25)
+        #expect(Contrast.ratio(.errorTint, .batonOrange) >= 1.25)
+    }
+
     // MARK: uiAccent (Brand ⇄ Dynamic + contrast)
 
     @Test("Grayscale artwork falls back to brand orange for the player accent")

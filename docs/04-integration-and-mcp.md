@@ -100,7 +100,7 @@ Baton writes, at startup (after it binds a port):
 ## 3. The MCP tool catalog
 
 **39 tools** ship as of 0.13.1 (`BatonMCPToolCatalog.definitions()`, dispatch in
-`BatonMCPToolCatalog.run(...)`): 36 `music_*` — the control tools, the agent-native
+`BatonMCPToolCatalog.run(...)`): 37 `music_*` — the control tools, the agent-native
 `music_build_mix`, the 10 gap-fillers (§3.4) and the 6 library-discovery tools (§3.5) —
 plus the two `audio_*` focus tools (§4) and `speak_summary`.
 
@@ -634,7 +634,7 @@ Settings.
 
 - **One universal surface:** MCP over Streamable HTTP, `127.0.0.1`, bearer token,
   discoverable via `mcp.json`, multi-client, with SSE notifications.
-- **Complete tool catalog:** 39 tools — 36 `music_*` (control + `music_build_mix` + 10
+- **Complete tool catalog:** 40 tools — 37 `music_*` (control + `music_build_mix` + 10
   gap-fillers + 6 discovery) + `audio_suspend` / `audio_resume` + `speak_summary`.
 - **Live state:** 5 resources (`baton://now-playing`, `baton://queue`,
   `baton://library/playlists`, `baton://library/liked`, `baton://history/recent`) with

@@ -453,9 +453,30 @@ public final class MusicLibraryStore {
         try? await clientProvider().getPlaylist(id: id)
     }
 
-    /// Structured/synced lyrics for a song (nil when the server has none).
+    /// Structured/synced lyrics for a song (nil when neither the server nor LRCLIB has any).
+    ///
+    /// The server is asked first and always wins: lyrics embedded in a file were chosen by
+    /// whoever tagged the library, and a remote database has no business overriding them.
+    /// LRCLIB is a fallback, and only when the user has turned it on — it is the one lookup
+    /// in this app that leaves their own server.
     public func lyrics(for songID: String) async -> NavidromeLyrics? {
-        await (try? clientProvider().getLyrics(songID: songID)) ?? nil
+        if let fromServer = await (try? clientProvider().getLyrics(songID: songID)) ?? nil,
+           !fromServer.lines.isEmpty {
+            return fromServer
+        }
+        guard LRCLIBLyrics.isEnabled, let song = songForLyrics(songID) else { return nil }
+        return await LRCLIBLyrics.lyrics(
+            title: song.title, artist: song.artist, album: song.album,
+            durationSeconds: song.duration
+        )
+    }
+
+    /// The metadata LRCLIB needs, from whatever this store already knows about the track.
+    /// Nil for an id we have never seen — there is nothing to look up with.
+    private func songForLyrics(_ songID: String) -> NavidromeSong? {
+        if let hit = searchResults.songs.first(where: { $0.id == songID }) { return hit }
+        if let hit = starred.songs.first(where: { $0.id == songID }) { return hit }
+        return nil
     }
 
     /// The folder tree's roots — the file system's opinion of the library, for people

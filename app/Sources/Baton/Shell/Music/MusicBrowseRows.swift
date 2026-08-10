@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import SwiftUI
 
 /// Column geometry shared by the album/playlist table rows and their headers.
@@ -187,16 +188,35 @@ struct DownloadStatusBadge: View {
 /// Start Radio — so the top group is identical on every song row (Liked, Search, Artist,
 /// Album, Playlist, Related). `onPlay` matches the row's own tap/double-tap behavior.
 @MainActor @ViewBuilder
-func songPlaybackMenuItems(_ song: NavidromeSong, _ model: MusicModel, onPlay: @escaping () -> Void) -> some View {
-    Button("Get Info", systemImage: "info.circle") { model.inspectorSong = song }
+func songPlaybackMenuItems(_ song: NavidromeSong, _ model: MusicModel,
+                           router: BatonCommandRouter? = nil,
+                           onPlay: @escaping () -> Void) -> some View {
+    Button(SongAction.getInfo.label, systemImage: SongAction.getInfo.symbol) { model.inspectorSong = song }
     Divider()
-    Button("Play", systemImage: "play.fill", action: onPlay)
-    Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { model.music.playNext([song]) }
-    Button("Add to Queue", systemImage: "text.append") { model.music.enqueue([song]) }
-    Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
+    Button(SongAction.play.label, systemImage: SongAction.play.symbol, action: onPlay)
+    Button(SongAction.playNext.label, systemImage: SongAction.playNext.symbol) { model.music.playNext([song]) }
+    Button(SongAction.addToQueue.label, systemImage: SongAction.addToQueue.symbol) { model.music.enqueue([song]) }
+    Button(SongAction.startRadio.label, systemImage: SongAction.startRadio.symbol) {
         Task {
-            let radio = await model.musicLibrary.similarSongs(seedID: song.id)
-            model.music.play([song] + radio, source: .init(label: "\(song.title) Radio", kind: .radio, id: nil))
+            let similar = model.musicRadioBans.filtered(await model.musicLibrary.similarSongs(seedID: song.id))
+            model.music.play(RadioQueue.build(seed: song, similar: similar),
+                             source: .init(label: RadioQueue.label(song.title), kind: .radio, id: song.id))
+        }
+    }
+    // Where this song lives. The phone has had these since it shipped; the Mac never did,
+    // despite `pendingSourceNavigation` — the exact mechanism they need — existing for
+    // versions and being used by the full-screen player's "Playing from" link. A dead end
+    // on one platform and a one-tap jump on the other, for the same right-click.
+    Divider()
+    if let albumID = song.albumID {
+        Button(SongAction.goToAlbum.label, systemImage: SongAction.goToAlbum.symbol) {
+            router?.pendingSourceNavigation = .init(
+                label: song.album ?? song.title, kind: .album, id: albumID)
+        }
+    }
+    if let artist = song.artist, !artist.isEmpty {
+        Button(SongAction.goToArtist.label, systemImage: SongAction.goToArtist.symbol) {
+            router?.pendingSourceNavigation = .init(label: artist, kind: .artist, id: nil)
         }
     }
     songAddToPlaylistMenu([song], model)

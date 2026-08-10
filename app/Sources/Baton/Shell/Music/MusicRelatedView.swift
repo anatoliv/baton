@@ -21,16 +21,22 @@ struct MusicRelatedView: View {
 
     var body: some View {
         Group {
-            if isLoading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if shown.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: "sparkles").font(.title).foregroundStyle(.secondary)
-                    Text("No related tracks").foregroundStyle(.secondary)
-                    Text("Your server had no similar songs for this track.")
-                        .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity).padding()
+            if isLoading || shown.isEmpty {
+                // "Your server had no similar songs" is a confident claim about the server's
+                // answer. When the request failed there was no answer to describe — the
+                // dismissible library banner explains that, so the empty state stands down
+                // rather than contradicting it.
+                Color.clear.contentState(
+                    ContentDisplayState.resolve(
+                        isLoading: isLoading,
+                        error: nil,
+                        isEmpty: shown.isEmpty && model.musicLibrary.lastError == nil
+                    ),
+                    emptyTitle: "No related tracks",
+                    emptyMessage: "Your server had no similar songs for this track.",
+                    emptySymbol: "sparkles"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
@@ -79,6 +85,8 @@ struct MusicRelatedView: View {
 /// wide library `MusicTrackRow` doesn't fit here and truncates the title).
 struct MusicPanelTrackRow: View {
     @Environment(MusicModel.self) private var model
+    // Optional so previews and snapshot hosts without the router still render.
+    @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
     let index: Int
     let song: NavidromeSong
     var onPlay: () -> Void
@@ -126,7 +134,7 @@ struct MusicPanelTrackRow: View {
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
-            songPlaybackMenuItems(song, model, onPlay: onPlay)
+            songPlaybackMenuItems(song, model, router: router, onPlay: onPlay)
             Divider()
             songDownloadMenuItems(song, model)
             songActionsMenu(song, model)

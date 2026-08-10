@@ -14,6 +14,10 @@ struct RootTabView: View {
     /// every tab was flat black while the Mac's whole window took its color
     /// from the track.
     @State private var paletteLoader = ArtworkPaletteLoader()
+    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
+    private var appearance: AppearanceSetting {
+        AppearanceSetting(rawValue: appearanceRaw) ?? .dark
+    }
 
     /// Cover URL at the canonical extraction size, so the phone derives the
     /// *same* accent as the Mac for a given track. Prefers a direct artwork
@@ -45,9 +49,9 @@ struct RootTabView: View {
             }
             #endif
             .environment(\.nowPlayingPalette, paletteLoader.palette)
-            // Same reason the Mac forces it: dark text on a warm wash is
-            // unreadable, and the player is dark on both platforms.
-            .preferredColorScheme(.dark)
+            // The user's choice, defaulting to Dark — the same control the Mac now has,
+            // reading the same key. The player sheet stays dark on its own.
+            .batonAppearance(appearance)
             .onAppear { paletteLoader.update(url: nowPlayingCoverURL) }
             .onChange(of: model.music.nowPlaying?.id) { _, _ in
                 paletteLoader.update(url: nowPlayingCoverURL)
@@ -66,7 +70,9 @@ struct RootTabView: View {
                 WidgetBridge.publish(
                     song: model.music.nowPlaying,
                     isPlaying: model.music.isPlaying,
-                    artworkURL: nowPlayingCoverURL
+                    artworkURL: nowPlayingCoverURL,
+                    elapsed: model.music.currentTime,
+                    duration: model.music.duration
                 )
             }
     }
@@ -121,6 +127,11 @@ struct RootTabView: View {
         // player sheet or the queue sheet, so the target is presented here at the root —
         // and any open player is dismissed first, because iOS will not stack a second
         // sheet on top of one it is already showing.
+        // The widget's `baton://player` link, presented here for the same reason the
+        // reveals are: the asker is outside any NavigationStack this view owns.
+        .onChange(of: model.playerPresentationRequests) { _, _ in
+            showsFullPlayer = true
+        }
         .onChange(of: model.revealedAlbum) { _, album in
             if album != nil, showsFullPlayer { showsFullPlayer = false }
         }
@@ -189,7 +200,9 @@ struct RootTabView: View {
                 song: model.music.nowPlaying, isPlaying: is_,
                 artworkURL: model.music.nowPlaying.flatMap {
                     model.musicLibrary.coverArtURL(id: $0.coverArtID ?? $0.id, size: 300)
-                }
+                },
+                elapsed: model.music.currentTime,
+                duration: model.music.duration
             )
         }
         .alert(

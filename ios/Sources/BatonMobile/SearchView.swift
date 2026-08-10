@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonPlaybackKit
 
 /// Search across songs, albums and artists via the shared store's `search3`
 /// (which already folds diacritics the way Navidrome indexes them).
@@ -130,6 +131,22 @@ struct SearchView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            // A search that found nothing, and a search that failed, both used to render as
+            // an empty list — indistinguishable from not having typed yet. The system's own
+            // no-results view names the term back, which is the difference between "nothing
+            // matches that" and "something is wrong".
+            .overlay {
+                let results = model.musicLibrary.searchResults
+                let nothingFound = results.songs.isEmpty && results.albums.isEmpty
+                    && results.artists.isEmpty
+                if !query.trimmingCharacters(in: .whitespaces).isEmpty, nothingFound {
+                    if let error = model.musicLibrary.lastError, !error.isEmpty {
+                        ContentStatePlaceholder(state: .failed(error))
+                    } else if !model.musicLibrary.isLoading {
+                        ContentUnavailableView.search(text: query)
+                    }
+                }
+            }
             // Scroll the results to put the keyboard away. Without it the keyboard covers
             // the tab bar and this screen has no exit either.
             .scrollDismissesKeyboard(.interactively)
