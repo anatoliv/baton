@@ -153,7 +153,7 @@ appcast per `docs/RELEASE-APPCAST-HOSTING.md`. Then real updates flow.
 **Build:** add the Sparkle SPM package; wire an updater controller plus a "Check for
 Updates..." menu item; add the `SUFeedURL`, `SUEnableAutomaticChecks`, and `SUPublicEDKey`
 Info.plist keys; generate an EdDSA key pair and keep the **private** key out of the repo;
-host an `appcast.xml` (likely on web-host / baton.tonebox.io alongside the DMG) and sign each
+host an `appcast.xml` (on baton.tonebox.io alongside the DMG) and sign each
 build's update entry.
 
 **Why:** users expect a shipping macOS app to update itself; manual reinstall is a poor

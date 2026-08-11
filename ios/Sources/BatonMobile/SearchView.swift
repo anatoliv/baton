@@ -149,13 +149,7 @@ struct SearchView: View {
             }
             // Scroll the results to put the keyboard away. Without it the keyboard covers
             // the tab bar and this screen has no exit either.
-            .scrollDismissesKeyboard(.interactively)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { searchFocused = false }
-                }
-            }
+            .searchKeyboardDismissal()
             .nowPlayingWash(wash)
             // `.searchable` renders into the navigation bar, so on a screen that hides
             // its bar the field simply never appears — the Search tab would have had no

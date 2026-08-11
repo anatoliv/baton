@@ -180,14 +180,37 @@ extension View {
     /// One modifier so forgetting is no longer possible.
     func alphabetIndexRail(_ ordered: AlphabetIndex.Ordered,
                            proxy: ScrollViewProxy) -> some View {
-        let entries = ordered.entries
+        modifier(AlphabetIndexRailModifier(entries: ordered.entries, proxy: proxy))
+    }
+}
+
+/// Attaches the rail, reserves its room, and withholds both at accessibility text sizes.
+///
+/// The letters are hardcoded 10pt in a 22pt column: under the 44pt touch target, and the
+/// one piece of type in the app that ignores Dynamic Type outright. Scaling it was costed
+/// and cancelled as overengineering — a rail wide enough for accessibility type is a rail
+/// that eats the rows it indexes.
+///
+/// So at accessibility sizes there is no rail, and the filter every one of these screens
+/// now has is the accessible way to reach "S". Withholding the padding along with the
+/// overlay matters as much: reserving a gutter for a rail that isn't drawn is 34pt of
+/// nothing down the side of the list, at exactly the sizes with the least room to spare.
+private struct AlphabetIndexRailModifier: ViewModifier {
+    let entries: [AlphabetIndex.Entry]
+    let proxy: ScrollViewProxy
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var showsRail: Bool { !entries.isEmpty && !dynamicTypeSize.isAccessibilitySize }
+
+    func body(content: Content) -> some View {
         // The rail's own width plus its clearance, both from the rail itself. Reserving
         // less than the rail measures is not a smaller gutter, it is an overlap.
-        return padding(.trailing, entries.isEmpty
-                ? 0
-                : AlphabetIndexRail.reservedWidth + AlphabetIndexRail.clearance)
+        content
+            .padding(.trailing, showsRail
+                     ? AlphabetIndexRail.reservedWidth + AlphabetIndexRail.clearance
+                     : 0)
             .overlay(alignment: .trailing) {
-                if !entries.isEmpty {
+                if showsRail {
                     AlphabetIndexRail(entries: entries) { entry in
                         proxy.scrollTo(entry.firstID, anchor: .top)
                     }

@@ -582,11 +582,11 @@ final class RemoteNaturalLanguageTests: XCTestCase {
     /// A self-hosted OpenAI-compatible server (vLLM, Ollama, LM Studio) is the
     /// point of this dialect — it must survive a plain-http LAN address.
     func testSelfHostedEndpointsAreSupported() throws {
-        let config = openAIConfig(base: "http://gpu-host.local:8000/v1")
+        let config = openAIConfig(base: "http://mediabox.local:8000/v1")
         XCTAssertNil(RemoteNaturalLanguage.complaint(about: config))
         XCTAssertEqual(
             try RemoteNaturalLanguage.endpoint(for: config).absoluteString,
-            "http://gpu-host.local:8000/v1/chat/completions"
+            "http://mediabox.local:8000/v1/chat/completions"
         )
     }
 
@@ -630,7 +630,7 @@ final class RemoteNaturalLanguageTests: XCTestCase {
 
     func testAnUnansweredHostIsReportedAsSuch() {
         let failure = RemoteNaturalLanguage.transportFailure(
-            URLError(.cannotConnectToHost), host: "gpu-host.local"
+            URLError(.cannotConnectToHost), host: "mediabox.local"
         )
         guard case .unreachable = failure else {
             return XCTFail("expected .unreachable, got \(failure)")
@@ -638,7 +638,7 @@ final class RemoteNaturalLanguageTests: XCTestCase {
     }
 
     func testPrivateHostDetection() {
-        for host in ["192.168.4.21", "10.0.0.5", "172.16.4.1", "172.31.255.1", "localhost", "gpu-host.local", "127.0.0.1"] {
+        for host in ["192.168.4.21", "10.0.0.5", "172.16.4.1", "172.31.255.1", "localhost", "mediabox.local", "127.0.0.1"] {
             XCTAssertTrue(RemoteNaturalLanguage.isPrivate(host), host)
         }
         for host in ["api.openai.com", "api.anthropic.com", "172.32.0.1", "8.8.8.8"] {

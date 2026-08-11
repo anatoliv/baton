@@ -21,7 +21,7 @@ import Foundation
 //   BATON_GATEWAY_PORT    listen port (default 8788)
 //   NAVIDROME_URL/USER/PASSWORD   the library it curates from (required)
 //   BATON_LLM_PROVIDER    anthropic | openai-compatible (default anthropic)
-//   BATON_LLM_BASE_URL    override endpoint (e.g. LiteLLM on gpu-host)
+//   BATON_LLM_BASE_URL    override endpoint (e.g. a LiteLLM or Ollama box on your LAN)
 //   BATON_LLM_MODEL       model id (default claude-haiku-4-5-20251001)
 //   BATON_LLM_API_KEY     key for the provider
 

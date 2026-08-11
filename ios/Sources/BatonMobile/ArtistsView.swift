@@ -24,6 +24,7 @@ struct ArtistsView: View {
                 // state — harmless only because the default here is `.list`, which is the
                 // definition of a bug waiting for someone to change a default.
                 .searchable(text: $query, prompt: "Artists")
+                .searchKeyboardDismissal()
                 .navigationTitle("Artists")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -336,6 +337,7 @@ struct GenresView: View {
         }
         .listStyle(.plain)
         .searchable(text: $filter, prompt: "Filter genres")
+        .searchKeyboardDismissal()
         .navigationTitle("Genres")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {

@@ -30,6 +30,7 @@ struct RadioView: View {
             if layout == .grid { stationGrid } else { stationList }
         }
         .searchable(text: $query, prompt: "Stations")
+        .searchKeyboardDismissal()
         .navigationTitle("Radio")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

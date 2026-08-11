@@ -64,12 +64,6 @@ struct MusicFriendView: View {
                 }
                 inputBar
             }
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { inputFocused = false }
-                }
-            }
             .sheet(isPresented: $showsLog) { FriendLogView(log: model.friendLog, learning: model.friendLearning) }
             .rootScreenHeader("Music Friend", subtitle: modelLine) {
                 // Absent rather than disabled when there is nothing to clear.
@@ -158,6 +152,11 @@ struct MusicFriendView: View {
                 .submitLabel(.send)
                 .onSubmit(sendDraft)
                 .disabled(model.voice.isListening)
+                // Demo mode hides this whole tab, so no simulator run against the demo
+                // library can render the composer — which is how two fixes to it shipped
+                // unlooked-at. `LiveFriendComposerCaptureTests` photographs it against a
+                // real provider, and it needs a name to find it by.
+                .accessibilityIdentifier("FriendComposerField")
 
                 Button(action: toggleMic) {
                     Image(systemName: model.voice.isListening ? "mic.fill" : "mic")
@@ -166,11 +165,15 @@ struct MusicFriendView: View {
                         .symbolEffect(.pulse, isActive: model.voice.isListening)
                 }
                 .disabled(isThinking)
+                .accessibilityLabel(model.voice.isListening ? "Stop listening" : "Speak")
 
                 Button(action: sendDraft) {
                     Image(systemName: "arrow.up.circle.fill").font(.title2)
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || isThinking || model.voice.isListening)
+                // An unlabelled symbol is "arrow up circle fill" to VoiceOver and nothing
+                // at all to a test.
+                .accessibilityLabel("Send")
             }
         }
         // A floating capsule, like the mini player and the tab bar below it.
