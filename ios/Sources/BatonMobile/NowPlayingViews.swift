@@ -21,6 +21,12 @@ struct NowPlayingBar: View {
 
     let model: MobileModel
     var chrome: Chrome = .standalone
+    /// True while the system accessory is in its *inline* placement — docked
+    /// beside a minimized tab bar with roughly two-thirds of the expanded
+    /// width. The bar sheds next and close and keeps artwork, title and
+    /// play/pause, so the title still has room to be a title. Meaningless
+    /// (and always false) for `.standalone` chrome.
+    var compact: Bool = false
     var onOpen: () -> Void
 
     /// Artwork size.
@@ -80,33 +86,35 @@ struct NowPlayingBar: View {
                     }
                     .accessibilityLabel(model.music.isPlaying ? "Pause" : "Play")
                     .sensoryFeedback(.impact(weight: .light), trigger: model.music.isPlaying)
-                    Button {
-                        model.music.next()
-                    } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                    if !compact {
+                        Button {
+                            model.music.next()
+                        } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.title3)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Next track")
+                        .sensoryFeedback(.selection, trigger: model.music.nowPlaying?.id)
+                        // Dismissing the bar means ending the session — it can only disappear
+                        // when nothing is playing. Clearing the queue is what the Mac's
+                        // equivalent xmark does, so both apps mean the same thing by it.
+                        // Not `role: .destructive` — a red X in a mini player reads as "delete
+                        // this track", which isn't what it does. Grey reads as dismiss.
+                        Button {
+                            model.music.clearQueue()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                // Icon-sized hit targets are painful on a moving phone; pad
+                                // out to something thumb-sized without growing the bar.
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Stop and close the player")
                     }
-                    .accessibilityLabel("Next track")
-                    .sensoryFeedback(.selection, trigger: model.music.nowPlaying?.id)
-                    // Dismissing the bar means ending the session — it can only disappear
-                    // when nothing is playing. Clearing the queue is what the Mac's
-                    // equivalent xmark does, so both apps mean the same thing by it.
-                    // Not `role: .destructive` — a red X in a mini player reads as "delete
-                    // this track", which isn't what it does. Grey reads as dismiss.
-                    Button {
-                        model.music.clearQueue()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            // Icon-sized hit targets are painful on a moving phone; pad
-                            // out to something thumb-sized without growing the bar.
-                            .frame(width: 30, height: 30)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Stop and close the player")
                 }
                 .padding(.horizontal, sideInset)
                 // The accessory sizes itself to its content, so vertical padding here is

@@ -114,6 +114,12 @@ struct RootTabView: View {
         // iPad: the tab bar becomes an adaptable sidebar — the cheap-but-real first
         // step of the two-column iPad layout.
         .tabViewStyle(.sidebarAdaptable)
+        // Scrolling down shrinks the tab bar to the active tab's icon and docks
+        // the mini player beside it — one compact row while the user is reading
+        // content, the full bar back on scroll-up or a tap. The tab *set* never
+        // changes: tabs minimize by scroll state, they are never removed by
+        // context, so nothing moves out from under muscle memory.
+        .modifier(TabBarMinimizesOnScroll())
         // iOS 26 gives the tab bar a real accessory slot — the same one Apple
         // Music's mini player sits in. `safeAreaInset` predates it and draws
         // *over* the floating tab bar instead of above it, which clipped the
@@ -258,18 +264,64 @@ private struct NowPlayingAccessory: ViewModifier {
             }
         } else if #available(iOS 26.0, *) {
             content.tabViewBottomAccessory {
-                // Capped on iPad. The accessory spans whatever width it's given, which on
-                // a 13-inch canvas puts the track title at one edge and the controls at
-                // the other with two feet of nothing between them — technically a bar,
-                // visually a mistake. The phone is untouched: `readableWidth` is a no-op
-                // in compact.
-                NowPlayingBar(model: model, chrome: .systemAccessory, onOpen: onTap)
+                AccessoryNowPlayingBar(model: model, onTap: onTap)
             }
         } else {
             content.safeAreaInset(edge: .bottom) {
                 NowPlayingBar(model: model, chrome: .standalone, onOpen: onTap)
             }
         }
+    }
+}
+
+/// Collapses the tab bar while the user scrolls down, where the OS supports it.
+///
+/// A modifier rather than an inline call because `tabBarMinimizeBehavior` is
+/// iOS 26-only and the view chain it hangs off still builds for iOS 18.
+/// Harmless on iPad: `sidebarAdaptable` means there is no bottom tab bar to
+/// minimize there.
+private struct TabBarMinimizesOnScroll: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            content
+        }
+    }
+}
+
+/// The accessory-slot mini player, reshaped to match how much room the system
+/// is giving it.
+///
+/// When the tab bar minimizes, the OS moves the accessory *inline* beside the
+/// remaining tab icon — roughly two-thirds of the width the expanded slot had.
+/// The full control row (play, next, close) doesn't fit there without crushing
+/// the title, so the inline placement drops to artwork + title + play/pause:
+/// the controls someone mid-scroll actually reaches for. Scroll up and the
+/// expanded slot — and the full row — come back.
+///
+/// Lives in its own view because `tabViewBottomAccessoryPlacement` is an
+/// iOS 26-only environment key, which `NowPlayingBar` (still built for
+/// iOS 18) cannot declare.
+@available(iOS 26.0, *)
+private struct AccessoryNowPlayingBar: View {
+    let model: MobileModel
+    let onTap: () -> Void
+
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+    var body: some View {
+        // Capped on iPad. The accessory spans whatever width it's given, which on
+        // a 13-inch canvas puts the track title at one edge and the controls at
+        // the other with two feet of nothing between them — technically a bar,
+        // visually a mistake. The phone is untouched: `readableWidth` is a no-op
+        // in compact.
+        NowPlayingBar(
+            model: model,
+            chrome: .systemAccessory,
+            compact: placement == .inline,
+            onOpen: onTap
+        )
     }
 }
 
