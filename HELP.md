@@ -532,6 +532,19 @@ It's a compact card you can park in a corner while you work in other apps, showi
 current track, artwork, the scrubber, the rating, and what's up next, and it expands for a
 little more. On macOS 26 and later it's drawn with Liquid Glass.
 
+### The mini player on iPhone
+
+On the phone, the now-playing bar is a small capsule floating above the tabs: artwork, the
+track title, play/pause, next, and an ✕ that ends the session. Tap anywhere else on it for
+the full player.
+
+On iOS 26 and later, the bar also **gets out of the way while you browse**. Scroll down any
+list and the tab bar shrinks to just the current tab's icon, with a slimmer player — artwork,
+title, play/pause — docking beside it, so one compact row is all the screen gives up while
+you're reading. Scroll back up, or tap the shrunken bar, and the full tabs and controls
+return exactly as they were. No tab ever disappears for good; the row only stays small while
+you're actively scrolling away from it.
+
 ### The menu-bar controller
 
 Baton also lives in the menu bar. The menu-bar item shows what's playing and gives you
