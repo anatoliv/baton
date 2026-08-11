@@ -233,6 +233,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.34",
+            date: "August 2026",
+            highlight: "Square artist artwork, and one button where there were three outlines.",
+            changes: [
+                .init(.improved, "Artist pictures are square now, wherever they appear. The round crop crossed the edges off the group shots it was meant to flatter \u{2014} and artists were the only circular artwork in the app."),
+                .init(.fixed, "The grid/list control drew a box inside the toolbar's own box, with a third around whichever side was selected. It is a single button showing the layout you would switch to, which also makes it a bigger thing to hit."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.33",
             date: "August 2026",
             highlight: "Genres reads like the rest of the library, and Artists fills the screen again.",
