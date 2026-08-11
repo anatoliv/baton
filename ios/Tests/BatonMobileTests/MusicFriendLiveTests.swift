@@ -24,8 +24,12 @@ final class MusicFriendLiveTests: XCTestCase {
 
     private func live() throws -> Live {
         // The simulator can read the host filesystem, which is what makes this possible
-        // without shipping a key into the test bundle.
-        let path = "/Users/you/.baton-live-agent.json"
+        // without shipping a key into the test bundle. `NSHomeDirectory()` is no use here —
+        // inside the simulator that is the app's sandbox, not the person's home — but the
+        // simulator exports the real one as `SIMULATOR_HOST_HOME`. This was a hardcoded
+        // `/Users/you/…`, which published a name and worked on exactly one machine.
+        let home = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"] ?? NSHomeDirectory()
+        let path = "\(home)/.baton-live-agent.json"
         try XCTSkipIf(!FileManager.default.isReadableFile(atPath: path),
                       "no live agent config — skipping")
         guard let data = FileManager.default.contents(atPath: path),
