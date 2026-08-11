@@ -217,6 +217,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.12",
+            date: "August 2026",
+            highlight: "The listening trend stops drawing dashes on a quiet week.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "History's trend strip drew a mark for every day you played nothing, "
+                    + "so a week with a single play came out as a row of dashes with one "
+                    + "block at the end. Quiet days are quiet now, along a single baseline "
+                    + "\u{2014} and the strip stays out of the way entirely until there is "
+                    + "more than one day's listening to show."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.11",
             date: "August 2026",
             highlight: "Housekeeping \u{2014} nothing on screen changes in this one.",

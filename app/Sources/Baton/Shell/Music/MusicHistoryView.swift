@@ -334,7 +334,11 @@ struct MusicHistoryView: View {
                 stat("\(history.playCount(since: window.since))", window.rawValue.lowercased())
             }
             Spacer()
-            if daily.count > 1 {
+            // Guard on the *data*, not on the window. `daily.count` is how many days the
+            // window spans, so a single play in a seven-day window passed this and drew
+            // six hairlines beside one bar — which reads as a dashed line with a stray
+            // block, not a trend. Two days with plays is the least that can show a shape.
+            if daily.filter({ $0.count > 0 }).count > 1 {
                 Sparkline(values: daily.map { Double($0.count) })
                     .frame(width: 120, height: 22)
                     .help("Plays per day over \(window.rawValue.lowercased())")
@@ -378,8 +382,10 @@ struct MusicHistoryView: View {
     }
 }
 
-/// A tiny bar sparkline for the listening-trend strip. Bars are normalised to the peak; an
-/// empty day still shows a hairline so gaps read as "nothing played," not "no data."
+/// A tiny bar sparkline for the listening-trend strip. Bars are normalised to the peak, and
+/// empty days are empty — a single baseline carries "nothing played here" for the whole
+/// strip, where a per-day hairline drew one dash per quiet day and turned a slow week into
+/// what looked like a broken rule.
 private struct Sparkline: View {
     let values: [Double]
 
@@ -389,12 +395,23 @@ private struct Sparkline: View {
             let count = max(values.count, 1)
             let gap: CGFloat = values.count > 60 ? 0 : 1
             let barWidth = (geo.size.width - CGFloat(count - 1) * gap) / CGFloat(count)
-            HStack(alignment: .bottom, spacing: gap) {
-                ForEach(Array(values.enumerated()), id: \.offset) { _, value in
-                    RoundedRectangle(cornerRadius: 1, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.75))
-                        .frame(width: max(barWidth, 0.5),
-                               height: max(CGFloat(value / peak) * geo.size.height, value > 0 ? 1.5 : 0.5))
+            ZStack(alignment: .bottom) {
+                // One continuous baseline instead of a 0.5pt stub under every empty day.
+                // The stubs were meant to say "nothing played here" and said it once per
+                // day, which on a quiet week rendered as a row of dashes. A single rule is
+                // the same information as an axis, and it cannot be mistaken for data.
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.25))
+                    .frame(height: 0.5)
+                HStack(alignment: .bottom, spacing: gap) {
+                    ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                        RoundedRectangle(cornerRadius: 1, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.75))
+                            .frame(width: max(barWidth, 0.5),
+                                   height: value > 0
+                                       ? max(CGFloat(value / peak) * geo.size.height, 1.5)
+                                       : 0)
+                    }
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
