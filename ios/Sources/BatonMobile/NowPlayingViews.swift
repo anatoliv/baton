@@ -1,4 +1,5 @@
 import AVKit
+import BatonSubsonicModels
 import BatonPlaybackKit
 import SwiftUI
 
@@ -68,8 +69,10 @@ struct NowPlayingBar: View {
                         .clipShape(RoundedRectangle(cornerRadius: 7))
                         .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
                     VStack(alignment: .leading) {
-                        Text(song.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                        Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(DisplayName.title(song.title)).font(.subheadline.weight(.medium)).lineLimit(1)
+                        if let artist = DisplayName.artist(song.artist) {
+                            Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
                     }
                     Spacer()
                     // 44pt hit targets. These were the glyph's own ~20pt, which is a
@@ -228,13 +231,19 @@ struct FullPlayerView: View {
                         artwork(for: song)
 
                         VStack(spacing: 4) {
-                            Text(song.title)
+                            Text(DisplayName.title(song.title))
                                 .font(.title3.weight(.semibold))
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.white)
-                            Text(song.artist ?? "")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.65))
+                            // Absent, not blank. An `Text("")` still takes its frame and the
+                            // stack's spacing, so a placeholder artist left a gap where the
+                            // word "Unknown" had been — which reads as a layout bug rather
+                            // than as a track that simply has no artist.
+                            if let artist = DisplayName.artist(song.artist) {
+                                Text(artist)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.65))
+                            }
                         }
                         .padding(.horizontal)
                         // Long-press the title for everything a song row offers —

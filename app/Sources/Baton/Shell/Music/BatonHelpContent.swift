@@ -217,6 +217,26 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.15",
+            date: "August 2026",
+            highlight: "No more \u{201C}Unknown\u{201D}, and titles read the way they were written.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "An artist Baton doesn\u{2019}t know is simply not shown, instead of the "
+                    + "word \u{201C}Unknown\u{201D} sitting under the title. The line is left "
+                    + "out entirely, so the title gets the space."),
+                HelpWhatsNewChange(.fixed,
+                    "Titles imported from YouTube carried odd full-width lookalikes where "
+                    + "quotes, pipes and slashes belong \u{2014} a downloader substitutes them "
+                    + "because those characters can\u{2019}t go in a filename, and the "
+                    + "filenames became tags. They read normally now. Nothing else about a "
+                    + "title is changed: emoji, capitals and long names are yours."),
+                HelpWhatsNewChange(.improved,
+                    "The music friend says \u{201C}Clair de Lune is paused\u{201D} rather than "
+                    + "\u{201C}Clair de Lune by [unknown] is paused\u{201D}."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.14",
             date: "August 2026",
             highlight: "Talk to your music friend, and it talks back.",

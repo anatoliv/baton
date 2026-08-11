@@ -1,3 +1,4 @@
+import BatonSubsonicModels
 import Foundation
 import OSLog
 
@@ -285,7 +286,10 @@ final class AgentClient {
     private func playerContext() -> String {
         guard let song = player.nowPlaying else { return "Player state: nothing is playing right now." }
         let state = player.isPlaying ? "Playing" : "Paused"
-        return "Player state: \(state) \"\(song.title)\" by \(song.artist ?? "unknown")."
+        // Collapses to just the title when the artist is a placeholder: telling the model
+        // the artist is "unknown" invites it to say so back, and "by unknown" out loud makes
+        // the app sound confused about its own library.
+        return "Player state: \(state) \(DisplayName.titleWithArtist(title: song.title, artist: song.artist))."
     }
 
     private func remember(_ message: String, _ reply: String) {
