@@ -22,10 +22,12 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertTrue(out.contains("<redacted-url>") || out.contains("<redacted"), "should show a redaction marker")
     }
 
+    /// The fixture name is deliberately not the author's. A test that proves home paths are
+    /// redacted has no need to carry a real one, and this file published one for months.
     func testExportRedactsLANIPAndHomePath() {
-        let out = Diagnostics.format([line("connect 192.168.1.1 wrote /Users/you/Music/x.flac")])
+        let out = Diagnostics.format([line("connect 192.168.1.1 wrote /Users/casey/Music/x.flac")])
         XCTAssertFalse(out.contains("192.168.1.1"))
-        XCTAssertFalse(out.contains("/Users/you"))
+        XCTAssertFalse(out.contains("/Users/casey"))
     }
 
     func testWriteExportProducesAReadableFile() throws {
