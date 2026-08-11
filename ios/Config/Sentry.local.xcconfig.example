@@ -1,0 +1,9 @@
+// Copy this file to Sentry.local.xcconfig (gitignored) and paste your DSN
+// to enable opt-in crash & error reporting for your own signed builds.
+//
+// Store the DSN WITHOUT its "https://" scheme (xcconfig treats "//" as a
+// comment). CrashReporting re-adds the scheme at runtime.
+//
+//   SENTRY_DSN = examplePublicKey@o0.ingest.sentry.io/0
+
+SENTRY_DSN =
