@@ -1,0 +1,239 @@
+name: BatonMobile
+
+options:
+  bundleIdPrefix: io.tonebox
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+  defaultConfig: Release
+
+packages:
+  # Renders the bundled HELP.md / FAQ.md guides, same library and pin as the Mac
+  # app so the Markdown theming matches.
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    exactVersion: "2.4.1"
+  # Opt-in remote crash & error reporting, pinned to the same tested minor as the
+  # Mac app (the privacy hardening depends on 8.58.x option names/defaults).
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    exactVersion: "8.58.4"
+  BatonDSP:
+    path: ../Packages/BatonDSP
+  BatonSubsonicModels:
+    path: ../Packages/BatonSubsonicModels
+  BatonSubsonicKit:
+    path: ../Packages/BatonSubsonicKit
+  BatonPlaybackKit:
+    path: ../Packages/BatonPlaybackKit
+  BatonAgentKit:
+    path: ../Packages/BatonAgentKit
+  BatonSpeech:
+    path: ../Packages/BatonSpeech
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    GENERATE_INFOPLIST_FILE: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "Apple Distribution: Anatoli Vishnyakov (Q8822GNL2H)"
+    DEVELOPMENT_TEAM: "Q8822GNL2H"
+    MARKETING_VERSION: "0.3.37"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      ONLY_ACTIVE_ARCH: YES
+
+targets:
+  BatonMobile:
+    type: application
+    platform: iOS
+    entitlements:
+      path: BatonMobile.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.tonebox.baton]
+    dependencies:
+      - target: BatonWidgets
+      - package: Sentry
+      - package: MarkdownUI
+      - package: BatonDSP
+      - package: BatonSubsonicModels
+      - package: BatonSubsonicKit
+      - package: BatonPlaybackKit
+      - package: BatonAgentKit
+      - package: BatonSpeech
+    sources:
+      - path: Sources/BatonMobile
+      - path: Assets.xcassets
+      # Mix card art direction, shared with the other app so the two
+      # can't drift apart release by release.
+      - path: ../Shared/MixArt.xcassets
+      - path: ../Shared/MixBackdrop.swift
+      - path: ../Shared/NowPlayingBars.swift
+      - path: ../Shared/ContentStateView.swift
+      - path: ../Shared/BrowseScreen.swift
+      - path: ../Shared/RadioStationInput.swift
+      - path: ../Shared/SongAction.swift
+      - path: ../Shared/BatonDeepLink.swift
+      - path: ../Shared/AccessibleChrome.swift
+      - path: ../Shared/AppearanceSetting.swift
+      - path: ../Shared/ArtworkCache.swift
+      - path: ../Shared/BottomChrome.swift
+      - path: ../Shared/MixCardSpec.swift
+      # Opt-in crash reporting and the visual design system (brand colour, WCAG contrast
+      # math, artwork-palette extractor), shared verbatim. They used to be compiled out of
+      # the *Mac* tree, so nothing about their location said "both apps read this".
+      - path: ../Shared/CrashReporting.swift
+      - path: ../Shared/Color+Baton.swift
+      - path: ../Shared/ArtworkPalette.swift
+      - path: Sources/Shared
+      - path: Resources
+    # Keep the app-bundled copies of the user guides in step with the canonical
+    # HELP.md / FAQ.md at the repo root on every build, so in-app Help never
+    # drifts from the docs we edit — the same prebuild step the Mac app runs.
+    preBuildScripts:
+      - name: Sync Help guides
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          mkdir -p "$SRCROOT/Resources"
+          cp "$SRCROOT/../HELP.md" "$SRCROOT/Resources/HELP.md"
+          cp "$SRCROOT/../FAQ.md"  "$SRCROOT/Resources/FAQ.md"
+    configFiles:
+      Debug: Config/Sentry.xcconfig
+      Release: Config/Sentry.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
+        PRODUCT_NAME: Baton
+        PROVISIONING_PROFILE_SPECIFIER: "Baton App Store"
+        # The bundle is "Baton"; the Swift module is named for the target so tests
+        # can @testable import it without colliding with the Mac app's module.
+        # The CarPlay scene delegate is referenced via $(PRODUCT_MODULE_NAME), so
+        # it follows this automatically.
+        PRODUCT_MODULE_NAME: BatonMobile
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Brand orange (#E98345) as the global accent, so `.tint`/`Color.accentColor`
+        # resolve to Baton's identity everywhere — the design doc's Brand rule.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Baton
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: "public.app-category.music"
+        # The one background mode a music player needs: keep the audio session
+        # alive when the app leaves the foreground.
+        UIBackgroundModes: [audio]
+        NSSupportsLiveActivities: true
+        # Export compliance, declared once here so every future build skips the
+        # App Store Connect prompt. Baton uses only Apple-provided HTTPS/TLS and
+        # CryptoKit — no proprietary or non-standard cryptography — which is the
+        # exempt case. (The hand-rolled MD5 in BatonSubsonicKit is in the Linux
+        # branch for the gateway and never compiles into this app.)
+        ITSAppUsesNonExemptEncryption: false
+        # Substituted from the SENTRY_DSN build setting (Config/Sentry.xcconfig →
+        # optional gitignored Sentry.local.xcconfig). Empty in repo builds, so
+        # remote reporting stays off even if the user opts in.
+        SentryDSN: "$(SENTRY_DSN)"
+        # Same media-only ATS shape as the Mac app: plain-HTTP internet-radio
+        # streams may play; cleartext NSURLSession is allowed only to LAN hosts
+        # (self-hosted Navidrome/TTS on RFC-1918 addresses).
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsForMedia: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: "Baton connects to your Navidrome server and self-hosted text-to-speech services on your local network."
+        NSCameraUsageDescription: "The camera reads the pairing code your Mac shows, so your iPhone can be set up without typing a server address and password. Nothing is recorded."
+        NSMicrophoneUsageDescription: "The microphone lets you talk to your music friend — push to talk, ask for music."
+        NSSpeechRecognitionUsageDescription: "Speech recognition turns what you say into a request for your music friend. On-device where available."
+        # baton:// deep links — net-new on iOS (the Mac app has none). Routes:
+        # baton://album/<id> and baton://play/<songID>; more (agent, playlist) later.
+        CFBundleURLTypes:
+          - CFBundleURLName: io.tonebox.baton
+            CFBundleURLSchemes: [baton]
+        # CarPlay audio-app scene. Dormant until Apple grants the
+        # com.apple.developer.carplay-audio entitlement (requested in Phase 0 of
+        # docs/plan-ios-app.md) — iOS only launches this scene when entitled.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate"
+
+  BatonMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/BatonMobileTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        BUNDLE_LOADER: $(TEST_HOST)
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Baton.app/Baton
+    dependencies:
+      - target: BatonMobile
+
+  # Drives the real app on a simulator: every screen opened, every control
+  # enumerated, a screenshot attached per screen. Synthetic CGEvent taps
+  # reach the Simulator only intermittently, so a UI-test target is the only
+  # way to exercise controls reliably enough to call a screen "checked".
+  BatonMobileUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/BatonMobileUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: BatonMobile
+
+  BatonWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/BatonWidgets
+      - path: Sources/Shared
+    entitlements:
+      path: BatonWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.tonebox.baton]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton.widgets
+        PROVISIONING_PROFILE_SPECIFIER: "Baton Widgets App Store"
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+    info:
+      path: WidgetsInfo.plist
+      properties:
+        CFBundleDisplayName: Baton Widgets
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+schemes:
+  BatonMobile:
+    build:
+      targets:
+        BatonMobile: all
+        BatonMobileTests: [test]
+        BatonMobileUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BatonMobileTests
+        - BatonMobileUITests
+    archive:
+      config: Release

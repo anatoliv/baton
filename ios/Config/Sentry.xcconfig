@@ -1,0 +1,19 @@
+// Sentry DSN build setting.
+//
+// Default is EMPTY: repo builds ship with remote crash reporting fully
+// disabled, even if a user flips the opt-in toggle. To enable uploads for
+// your own signed builds, drop your DSN into Config/Sentry.local.xcconfig
+// (gitignored) — see Config/Sentry.local.xcconfig.example.
+//
+// IMPORTANT: store the DSN WITHOUT its "https://" scheme. xcconfig treats
+// "//" as a comment, so a full "https://…" value gets truncated. The rest
+// of a DSN has no "//", so the schemeless form is safe; CrashReporting
+// re-adds "https://" at runtime. Example:
+//
+//   SENTRY_DSN = examplePublicKey@o0.ingest.sentry.io/0
+
+SENTRY_DSN =
+
+// Optional local override (gitignored). The "?" makes the include silent
+// when the file is absent, so clean checkouts still build.
+#include? "Sentry.local.xcconfig"
