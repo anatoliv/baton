@@ -65,8 +65,27 @@ struct GoMenuCommands: Commands {
 
             Divider()
 
+            // Its own window, so it opens rather than navigating. ⌘⇧F because ⌘F is Find and
+            // a conversation is a place you go to, not a tab you switch to.
+            OpenMusicFriendButton()
+
+            Divider()
+
             Button(railCollapsed ? "Show Sidebar" : "Hide Sidebar") { railCollapsed.toggle() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
         }
+    }
+}
+
+/// Opens the Music Friend window from the Go menu.
+///
+/// A view rather than an inline `Button` because `openWindow` is an environment value, and
+/// `Commands` bodies are not views — reading it needs somewhere with an environment.
+private struct OpenMusicFriendButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Music Friend") { openWindow(id: MacMusicFriendView.windowID) }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
     }
 }

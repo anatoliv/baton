@@ -47,7 +47,39 @@ public final class RemoteControlService {
         switch platform {
         case .telegram: await telegram?.push(reply, to: channelID)
         case .discord: await discord?.push(reply, to: channelID)
+        // Nothing to push to: the desktop conversation is synchronous, so its reply is the
+        // return value of `ask`. This path is only reached by the router speaking unprompted
+        // — an auto-picked choice landing after its reply — which the desktop transcript
+        // cannot show retroactively. Dropping it is a known, small gap rather than a silent
+        // one; see the note on `ask`.
+        case .desktop: break
         }
+    }
+
+    /// Ask the music friend something from the app's own window, and get the reply back.
+    ///
+    /// The desktop conversation deliberately routes through the same `RemoteCommandRouter`
+    /// as Telegram and Discord rather than growing a client of its own. Everything the
+    /// bridges have earned comes with it: the command parser (so "pause" stays instant and
+    /// free), the model fallback, the memory, the shared conversation log, and the feedback
+    /// log that the Mac has been writing all along. A second implementation would be a
+    /// second dialect of the same conversation, which is how the phone and the Mac drift.
+    ///
+    /// One known gap, stated rather than hidden: a reply the router produces *unprompted*
+    /// (an auto-picked choice that resolves after the fact) has nowhere to go on the
+    /// desktop, because this is a request/response call rather than a live channel. It is
+    /// recorded in the conversation log either way.
+    @discardableResult
+    public func ask(_ text: String) async -> RemoteReply? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return await router.handle(RemoteInbound(
+            platform: .desktop,
+            senderID: "desktop",
+            senderName: "You",
+            channelID: "desktop",
+            text: trimmed
+        ))
     }
 
     /// Erase every durable note about the owner. Wired to the Settings button,
@@ -89,6 +121,11 @@ public final class RemoteControlService {
         }
 
         switch platform {
+        // There is no bridge to start: the desktop friend is a function call from the app's
+        // own window. Reached only if something iterates platforms to start them, which
+        // `RemotePlatform.bridges` exists to prevent.
+        case .desktop:
+            return
         case .telegram:
             let bridge = TelegramBridge(token: token, router: router, onStateChange: onStateChange)
             telegram = bridge
@@ -105,6 +142,8 @@ public final class RemoteControlService {
         switch platform {
         case .telegram: telegram?.stop(); telegram = nil
         case .discord: discord?.stop(); discord = nil
+        // Nothing to stop; the desktop conversation holds no connection.
+        case .desktop: break
         }
         settings.state[platform] = .off
     }
@@ -113,6 +152,8 @@ public final class RemoteControlService {
         switch platform {
         case .telegram: telegram != nil
         case .discord: discord != nil
+        // Always available: it needs no connection to be usable, only a configured model.
+        case .desktop: true
         }
     }
 }

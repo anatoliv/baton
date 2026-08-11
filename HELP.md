@@ -45,6 +45,7 @@ in [`docs/`](docs/).
 - [Webhook actions](#webhook-actions)
 - [Speaking summaries aloud](#speaking-summaries-aloud)
 - [Letting an agent control your music](#letting-an-agent-control-your-music)
+- [The music friend](#the-music-friend)
 - [Controlling Baton from Telegram or Discord](#controlling-baton-from-telegram-or-discord)
 - [Settings reference](#settings-reference)
 - [Updates](#updates)
@@ -1270,6 +1271,33 @@ For the deeper technical design (transport, protocol revision, notifications, an
 fast-path), see [`docs/04-integration-and-mcp.md`](docs/04-integration-and-mcp.md).
 
 ---
+
+## The music friend
+
+Baton has a music friend: ask for something in plain language and it works out what you
+meant, then does it with your library and your player. "Something calmer", "what is this?",
+"play the live version instead" — it has the same hands you do.
+
+Open it on the Mac from **Go › Music Friend**, or press **⌘⇧F**. On iPhone it is the
+**Friend** tab, which appears once you have set a model provider.
+
+It is one friend, not three. The window on the Mac, the tab on the phone, and the chat
+bridges below all run the same conversation, so what it has learned about you in one place
+it knows in the others, and a thumbs-down you give here counts the same as one you give in
+Telegram.
+
+**Plain commands stay plain.** "Pause", "next", "louder" and their like are understood
+directly and answer immediately, without asking a model anything. That keeps the obvious
+things instant and free; the model is for the requests that actually need thinking about.
+
+**You have to bring the brain.** Baton ships no key and talks to no model provider until you
+set one up in **Settings, Remote** — point it at Anthropic, at OpenAI, or at something
+running on your own machine. Until then the friend has nothing to answer with.
+
+**Tell it when it is wrong.** Every answer has a quiet thumbs-up and thumbs-down under it. A
+thumbs-down asks what went wrong — wrong track, misunderstood, too slow, too chatty — and
+that correction goes into what it reads before answering next time. On the Mac you can read
+the whole history in **Settings, Friend Log**.
 
 ## Controlling Baton from Telegram or Discord
 

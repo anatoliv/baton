@@ -17,7 +17,12 @@ public struct RemoteInbound: Sendable {
 
 /// What to send back.
 public struct RemoteReply: Sendable {
-    var text: String
+    /// Public because the desktop friend is a caller outside this module: `ask` hands the
+    /// reply straight to a SwiftUI view rather than to a bridge that formats it here. The
+    /// rest stays internal — `showsTransport` and `choices` describe chat-client affordances
+    /// (button rows) that a native window renders its own way, so exposing them would invite
+    /// the desktop to imitate Telegram instead of looking like the Mac.
+    public var text: String
     /// The tool errored, or answered with nothing. Used to decide whether a
     /// literal reading is worth a second opinion from the model.
     var isFailure: Bool = false

@@ -217,6 +217,28 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.13",
+            date: "August 2026",
+            highlight: "The music friend comes to the Mac.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Talk to your music friend in its own window \u{2014} Go \u{203A} Music "
+                    + "Friend, or Command-Shift-F. Ask for something to play, ask what this "
+                    + "is, or tell it what you are in the mood for, and it drives this Mac's "
+                    + "player. It is the same friend that has been answering on Telegram and "
+                    + "Discord all along, so it already knows what you listen to, and what "
+                    + "you rate here counts the same as what you rate there."),
+                HelpWhatsNewChange(.improved,
+                    "Plain commands like \u{201C}pause\u{201D} or \u{201C}next\u{201D} are "
+                    + "understood directly and answer instantly, without asking a model."),
+                HelpWhatsNewChange(.fixed,
+                    "With gapless playback on, removing the track queued up next could leave "
+                    + "its audio playing under the following track's name. Baton was "
+                    + "matching the queued track by its position, and removing a track "
+                    + "shifts a different song into that position."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.12",
             date: "August 2026",
             highlight: "The listening trend stops drawing dashes on a quiet week.",
