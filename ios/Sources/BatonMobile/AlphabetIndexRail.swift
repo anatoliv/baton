@@ -1,4 +1,5 @@
 import SwiftUI
+import BatonSubsonicModels
 
 /// The A–Z scrubber down the right edge of a long alphabetical list.
 ///
@@ -13,6 +14,15 @@ enum AlphabetIndex {
         let letter: String
         let firstID: String
         var id: String { letter }
+
+        /// What the rail actually draws.
+        ///
+        /// Server buckets are not always single characters: Navidrome returns ranges like
+        /// `X-Z` and a literal `[Unknown]`, and a word in a 22pt column wraps onto two
+        /// lines and clips mid-letter. Up to three characters fits — which keeps `X-Z`,
+        /// the one that carries information — and anything longer becomes `?`, the
+        /// conventional mark for "filed under nothing".
+        var displayLetter: String { letter.count <= 3 ? letter : "?" }
     }
 
     /// Builds the rail from `(id, sortName)` pairs already in display order.
@@ -33,6 +43,56 @@ enum AlphabetIndex {
         return out
     }
 
+    /// How many items a list needs before it earns a rail.
+    ///
+    /// Overridable with `-baton.railMinimum <n>` because the default hid this whole
+    /// feature from every test that could have caught its bugs: demo.navidrome.org reports
+    /// 26 artists and 19 playlists, both under 30, so a simulator run against the demo
+    /// library renders every rail screen railless. Two broken rails shipped behind that.
+    static var minimumItems: Int {
+        let override = UserDefaults.standard.integer(forKey: "baton.railMinimum")
+        return override > 0 ? override : 30
+    }
+
+    /// Rail entries that something has vouched for the ordering of.
+    ///
+    /// The rail is a map of the list, so it is only ever correct when its letters run in
+    /// the same order as the rows. Nothing used to enforce that. Four screens each wrote
+    /// their own `guard sort == …` and Genres forgot, so it drew an index over a list
+    /// ordered by song count — `E, R, H, A, C, P` — where tapping "A" jumped to wherever
+    /// the first A-genre sat in a popularity ranking.
+    ///
+    /// A rule living in four places is a rule one of them will miss. This is the only way
+    /// to obtain entries, and neither route lets a caller stay silent about ordering.
+    struct Ordered {
+        let entries: [Entry]
+
+        /// No rail. What a screen whose list isn't alphabetically ordered gets.
+        static let none = Ordered(entries: [])
+
+        /// From the server's own index buckets — `getArtists`, `getIndexes`.
+        ///
+        /// Correct by construction and in any script: the party that ordered the rows is
+        /// the party naming the letters, so the two cannot disagree.
+        static func server<Element>(_ list: ServerIndexedList<Element>,
+                                    minimum: Int = AlphabetIndex.minimumItems) -> Ordered
+        where Element.ID == String {
+            guard list.items.count > minimum else { return .none }
+            return Ordered(entries: list.indexTargets.map {
+                Entry(letter: $0.letter, firstID: $0.firstID)
+            })
+        }
+
+        /// From a list the *client* put in order, where the caller states in the same
+        /// breath whether that order is alphabetical. Passing `false` yields no rail.
+        static func clientSorted(_ items: [(id: String, name: String)],
+                                 isAlphabetical: Bool,
+                                 minimum: Int = AlphabetIndex.minimumItems) -> Ordered {
+            guard isAlphabetical, items.count > minimum else { return .none }
+            return Ordered(entries: AlphabetIndex.entries(from: items))
+        }
+    }
+
     static func bucket(for name: String) -> String {
         // Fold diacritics the way the sort does, so "Édith" lands under E.
         let folded = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
@@ -44,6 +104,25 @@ enum AlphabetIndex {
 /// The rail itself. Tap a letter or drag along the edge; `onSelect` receives the id to
 /// scroll to. Kept dumb on purpose — the host owns the ScrollViewReader.
 struct AlphabetIndexRail: View {
+    /// Horizontal room the rail needs — its own width, and the inset callers reserve.
+    ///
+    /// One constant used in both places, because the first attempt used two. The rail was
+    /// framed at 22 while `alphabetIndexRail(_:proxy:)` reserved 18, so it overhung the
+    /// content by 4pt and the letters kept landing on the chevrons — the collision the
+    /// modifier exists to prevent, 4pt instead of 22pt but still there and still visible.
+    ///
+    /// The 18 came from Albums, where it is written *on top of* a `.padding(.horizontal)`:
+    /// 16 + 18 = 34pt of gutter for the same 22pt rail. Transplanted out of that context it
+    /// silently lost the 16 underneath it. Deriving the frame from this constant is what
+    /// makes the two impossible to disagree.
+    static let reservedWidth: CGFloat = 22
+
+    /// Breathing room between the letters and whatever the rows end in.
+    ///
+    /// Albums' effective 12pt, kept explicit so it reads as a choice rather than as
+    /// whatever fell out of two paddings adding up.
+    static let clearance: CGFloat = 12
+
     let entries: [AlphabetIndex.Entry]
     var onSelect: (AlphabetIndex.Entry) -> Void
 
@@ -53,8 +132,10 @@ struct AlphabetIndexRail: View {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 ForEach(entries) { entry in
-                    Text(entry.letter)
+                    Text(entry.displayLetter)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -78,10 +159,40 @@ struct AlphabetIndexRail: View {
                     .onEnded { _ in lastLetter = nil }
             )
         }
-        .frame(width: 22)
+        .frame(width: Self.reservedWidth)
         .accessibilityElement()
         .accessibilityLabel("Alphabet index")
         .accessibilityHint("Drag to jump through the list")
         .accessibilityIdentifier("AlphabetIndexRail")
+    }
+}
+
+extension View {
+    /// Attaches the A–Z rail *and* reserves the room it needs.
+    ///
+    /// These two have to happen together and did not. The rail is an overlay, so it draws
+    /// on top of whatever is under it — and only Albums ever added the matching trailing
+    /// inset. On Artists and Folders the letters have always sat on top of the rows'
+    /// disclosure chevrons, and when Liked, Playlists and Genres gained the rail they
+    /// inherited the same collision, because the overlay is the memorable half and the
+    /// padding is the half you forget.
+    ///
+    /// One modifier so forgetting is no longer possible.
+    func alphabetIndexRail(_ ordered: AlphabetIndex.Ordered,
+                           proxy: ScrollViewProxy) -> some View {
+        let entries = ordered.entries
+        // The rail's own width plus its clearance, both from the rail itself. Reserving
+        // less than the rail measures is not a smaller gutter, it is an overlap.
+        return padding(.trailing, entries.isEmpty
+                ? 0
+                : AlphabetIndexRail.reservedWidth + AlphabetIndexRail.clearance)
+            .overlay(alignment: .trailing) {
+                if !entries.isEmpty {
+                    AlphabetIndexRail(entries: entries) { entry in
+                        proxy.scrollTo(entry.firstID, anchor: .top)
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
     }
 }

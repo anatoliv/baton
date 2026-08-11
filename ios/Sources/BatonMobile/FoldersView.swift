@@ -10,7 +10,8 @@ import BatonSubsonicModels
 /// simply never pointed a screen at it. Both apps get one in the same release.
 struct FoldersView: View {
     let model: MobileModel
-    @State private var roots: [NavidromeFolder] = []
+    @State private var rootIndex = ServerIndexedList<NavidromeFolder>(buckets: [])
+    private var roots: [NavidromeFolder] { rootIndex.items }
     @State private var loaded = false
     @State private var filter = ""
 
@@ -31,15 +32,7 @@ struct FoldersView: View {
             .listStyle(.plain)
             // The roots are typically artist folders — hundreds of them — so the same
             // A–Z rail as Albums and Artists.
-            .overlay(alignment: .trailing) {
-                let entries = indexEntries
-                if !entries.isEmpty {
-                    AlphabetIndexRail(entries: entries) { entry in
-                        proxy.scrollTo(entry.firstID, anchor: .top)
-                    }
-                    .padding(.vertical, 8)
-                }
-            }
+            .alphabetIndexRail(indexEntries, proxy: proxy)
         }
         .searchable(text: $filter, prompt: "Filter folders")
         .navigationTitle("Folders")
@@ -55,20 +48,22 @@ struct FoldersView: View {
                 ? "The demo library has no folder tree — connect a server to browse by folder."
                 : "The server didn't report a folder tree.",
             emptySymbol: "folder",
-            onRetry: { Task { roots = await model.musicLibrary.folderRoots() } }
+            onRetry: { Task { rootIndex = await model.musicLibrary.folderRootIndex() } }
         )
         .task {
-            roots = await model.musicLibrary.folderRoots()
+            rootIndex = await model.musicLibrary.folderRootIndex()
             loaded = true
         }
         .refreshable {
-            roots = await model.musicLibrary.folderRoots()
+            rootIndex = await model.musicLibrary.folderRootIndex()
         }
     }
 
-    private var indexEntries: [AlphabetIndex.Entry] {
-        guard filter.isEmpty, shown.count > 30 else { return [] }
-        return AlphabetIndex.entries(from: shown.map { ($0.id, $0.name) })
+    /// The server's own index, exactly as `getIndexes` bucketed it — see `ServerIndexedList`.
+    /// Not while filtering: a filtered list is no longer the list the server bucketed.
+    private var indexEntries: AlphabetIndex.Ordered {
+        guard filter.isEmpty else { return .none }
+        return .server(rootIndex)
     }
 }
 

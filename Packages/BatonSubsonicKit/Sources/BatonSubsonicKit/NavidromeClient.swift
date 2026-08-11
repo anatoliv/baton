@@ -332,13 +332,18 @@ public struct NavidromeClient: Sendable {
         return (response.albumList2?.album ?? []).map { $0.toDomain() }
     }
 
-    /// The folder tree's roots (`getIndexes`), flattened from the server's A–Z buckets —
-    /// the client rebuilds any lettering it needs from the names themselves.
+    /// The folder tree's roots (`getIndexes`), flat — the order the server gave them.
     public func getIndexes() async throws -> [NavidromeFolder] {
+        try await getFolderIndex().items
+    }
+
+    /// The folder tree's roots with the server's own A–Z buckets kept, for the rail.
+    public func getFolderIndex() async throws -> ServerIndexedList<NavidromeFolder> {
         let response = try await performJSON("getIndexes.view", query: [])
-        return (response.indexes?.index ?? [])
-            .flatMap { $0.artist ?? [] }
-            .map { NavidromeFolder(id: $0.id, name: $0.name) }
+        return ServerIndexedList(buckets: (response.indexes?.index ?? []).map { bucket in
+            .init(letter: bucket.name ?? "#",
+                  items: (bucket.artist ?? []).map { NavidromeFolder(id: $0.id, name: $0.name) })
+        })
     }
 
     /// One folder's contents (`getMusicDirectory`): subfolders and playable songs.
@@ -355,10 +360,15 @@ public struct NavidromeClient: Sendable {
         )
     }
 
-    /// All artists (`getArtists`), flattened from the alphabetical index buckets.
+    /// All artists (`getArtists`), flat — the order the server's index buckets give.
     public func getArtists() async throws -> [NavidromeArtist] {
+        try await getArtistIndex().items
+    }
+
+    /// All artists with the server's own index letters kept, for the rail.
+    public func getArtistIndex() async throws -> ServerIndexedList<NavidromeArtist> {
         let response = try await performJSON("getArtists.view")
-        return response.artists?.flatArtists() ?? []
+        return response.artists?.indexed() ?? ServerIndexedList(buckets: [])
     }
 
     /// One artist's albums (`getArtist`).

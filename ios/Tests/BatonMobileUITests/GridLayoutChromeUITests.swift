@@ -70,8 +70,13 @@ final class GridLayoutChromeUITests: XCTestCase {
 
         // The layout control proves which branch is on screen; without it a passing test
         // could simply be looking at the list.
-        XCTAssertTrue(app.otherElements["LayoutPicker"].firstMatch.waitForExistence(timeout: 20)
-                      || app.segmentedControls.firstMatch.waitForExistence(timeout: 5),
+        // A button now, not a segmented control: the segmented style drew its own capsule
+        // inside the toolbar's, which read as a stray outline. Queried by identifier so
+        // the next change of control type doesn't silently stop proving anything —
+        // `otherElements` matched the old picker and would match nothing today.
+        XCTAssertTrue(app.descendants(matching: .any)
+                        .matching(identifier: "LayoutPicker").firstMatch
+                        .waitForExistence(timeout: 20),
                       "the layout picker should be present on Podcasts")
         XCTAssertTrue(app.buttons["Add podcast feed"].firstMatch.waitForExistence(timeout: 20),
                       "the + button was list-only: a grid user could never add a feed")

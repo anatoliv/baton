@@ -19,13 +19,39 @@ struct AlbumsGridView: View {
     @AppStorage(BrowseScreen.album.layoutKey) private var styleRaw = BrowseLayout.grid.rawValue
     private var isGrid: Bool { styleRaw == "grid" }
 
+    /// The long-list answer on the screen that needed one most.
+    ///
+    /// 2,657 albums and no way to narrow them: Artists, Folders, Liked and every playlist
+    /// already had a filter, and Albums — the biggest list in the app and the one people
+    /// actually browse — had only a sort menu. The A–Z rail stood in for it, badly, and it
+    /// is the reason nobody noticed the gap.
+    ///
+    /// Client-side is honest here: `loadAlbums()` pages until the server runs out, so the
+    /// whole library is already in memory and the filter searches all of it rather than
+    /// whatever happens to have scrolled by.
+    @State private var filter = ""
+    /// Owned here, not by the field: the keyboard covers the tab bar, so the screen needs
+    /// to be able to take focus back. Without it a filtered Albums has no exit — which is
+    /// precisely what `HeaderSearchField`'s own documentation warns about, and what the
+    /// capture test hit the first time it typed here.
+    @FocusState private var filterFocused: Bool
+
+    private var shown: [NavidromeAlbum] {
+        let trimmed = filter.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return model.musicLibrary.albums }
+        return model.musicLibrary.albums.filter {
+            $0.name.localizedCaseInsensitiveContains(trimmed)
+                || ($0.artist ?? "").localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
                     if isGrid {
                         LazyVGrid(columns: columns, spacing: 18) {
-                            ForEach(model.musicLibrary.albums) { album in
+                            ForEach(shown) { album in
                                 NavigationLink(value: album) {
                                     AlbumCell(album: album, model: model)
                                 }
@@ -34,11 +60,9 @@ struct AlbumsGridView: View {
                             }
                         }
                         .padding(.horizontal)
-                        // Room for the rail, so the last column's titles don't slide under it.
-                        .padding(.trailing, indexEntries.isEmpty ? 0 : 18)
                     } else {
                         LazyVStack(spacing: 0) {
-                            ForEach(model.musicLibrary.albums) { album in
+                            ForEach(shown) { album in
                                 NavigationLink(value: album) {
                                     AlbumListRow(album: album, model: model)
                                 }
@@ -48,22 +72,27 @@ struct AlbumsGridView: View {
                             }
                         }
                         .padding(.horizontal)
-                        .padding(.trailing, indexEntries.isEmpty ? 0 : 18)
                     }
                 }
-                // The A–Z rail, for alphabetical sorts on a big library. 2,604 albums
-                // without one is a flick marathon.
-                .overlay(alignment: .trailing) {
-                    if !indexEntries.isEmpty {
-                        AlphabetIndexRail(entries: indexEntries) { entry in
-                            proxy.scrollTo(entry.firstID, anchor: .top)
-                        }
-                        .padding(.vertical, 8)
-                    }
-                }
+                // No A–Z rail. Albums is ordered by the server with no index returned, so
+                // its letters could only ever be re-derived client-side — which is what
+                // produced `A Б З M P` trailing off the end of the alphabet on a library
+                // with Cyrillic titles. The filter above answers "where is X" without
+                // needing to agree with anyone's collation, in any script, on any sort.
+                // Artists and Folders keep their rail: there the server hands us the
+                // buckets, so it costs nothing to be right.
             }
+            // `.immediately`, not `.interactively`: interactive dismissal needs a slow
+            // drag *on* the keyboard's own region, and the thing you do after typing here
+            // is scroll the results. Any scroll puts it away — which also means the tab
+            // bar it covers is never more than a flick from reachable.
+            .scrollDismissesKeyboard(.immediately)
             .nowPlayingWash(wash)
-            .rootScreenHeader("Albums", subtitle: countLine) { sortMenu }
+            .rootScreenHeader("Albums", subtitle: countLine) { sortMenu } accessory: {
+                HeaderSearchField(prompt: "Filter albums", text: $filter,
+                                  externalFocus: $filterFocused,
+                                  onSubmit: { filterFocused = false })
+            }
             .navigationDestination(for: NavidromeAlbum.self) { album in
                 AlbumDetailView(album: album, model: model)
             }
@@ -85,28 +114,17 @@ struct AlbumsGridView: View {
     /// What the shelf actually holds. Empty while the first load is in flight rather
     /// than "0 albums", which reads as an empty library instead of a pending one.
     private var countLine: String? {
+        // While filtering, the shelf's total is the wrong number to show: it said
+        // "2657 albums" over four Yello records. Say what is on screen, and against what.
+        if !filter.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "\(shown.count) of \(model.musicLibrary.albums.count) albums"
+        }
         let albums = model.musicLibrary.albums.count
         let artists = model.musicLibrary.artists.count
         return Counted.line([
             albums > 0 ? Counted.phrase(albums, "album") : nil,
             artists > 0 ? Counted.phrase(artists, "artist") : nil,
         ])
-    }
-
-    /// Rail entries for the current sort — empty (rail hidden) unless the order is
-    /// alphabetical, because jumping to "S" in a most-played ordering means nothing.
-    /// Thirty-plus items is where flicking starts to lose to jumping.
-    private var indexEntries: [AlphabetIndex.Entry] {
-        let albums = model.musicLibrary.albums
-        guard albums.count > 30 else { return [] }
-        switch model.musicLibrary.albumSort {
-        case .name:
-            return AlphabetIndex.entries(from: albums.map { ($0.id, $0.name) })
-        case .artist:
-            return AlphabetIndex.entries(from: albums.map { ($0.id, $0.artist ?? "") })
-        default:
-            return []
-        }
     }
 
     private var sortMenu: some View {

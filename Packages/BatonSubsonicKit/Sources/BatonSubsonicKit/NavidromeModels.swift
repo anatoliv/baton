@@ -50,9 +50,12 @@ public struct SubsonicResponse: Decodable {
     }
 }
 
-/// `getIndexes` — the folder tree's roots, bucketed A–Z by the server. The buckets are
-/// flattened by the client; the A–Z rail rebuilds its own letters from the data, so the
-/// server's grouping carries nothing the names don't.
+/// `getIndexes` — the folder tree's roots, bucketed A–Z by the server.
+///
+/// The buckets used to be flattened here, on the reasoning that the rail could rebuild the
+/// letters from the names. It cannot: the server's collation and the client's bucketing
+/// rule disagree on any library that isn't plain Latin, and the rail then labels rows it
+/// does not match. `ServerIndexedList` keeps them.
 public struct IndexesWire: Decodable {
     public struct BucketWire: Decodable {
         public let name: String?
@@ -401,11 +404,22 @@ public struct LyricsListWire: Decodable {
 public struct ArtistsWire: Decodable {
     public let index: [IndexWire]?
     public struct IndexWire: Decodable {
+        /// The server's index letter. Previously not decoded at all, which is why the
+        /// rail had to guess its own — see `ServerIndexedList`.
+        let name: String?
         let artist: [ArtistWire]?
     }
 
     public func flatArtists() -> [NavidromeArtist] {
-        (index ?? []).flatMap { ($0.artist ?? []).map { $0.toDomain() } }
+        indexed().items
+    }
+
+    /// The artists with the server's own index letters kept.
+    public func indexed() -> ServerIndexedList<NavidromeArtist> {
+        ServerIndexedList(buckets: (index ?? []).map { bucket in
+            .init(letter: bucket.name ?? "#",
+                  items: (bucket.artist ?? []).map { $0.toDomain() })
+        })
     }
 }
 

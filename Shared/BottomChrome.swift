@@ -11,8 +11,13 @@ import SwiftUI
 /// One constant so a third floating element cannot introduce a third inset, which is
 /// exactly how the first two drifted.
 public enum BottomChrome {
-    /// Outer inset for a floating capsule, tuned against the iOS 26 tab bar's own inset.
-    public static let inset: CGFloat = 10
+    /// Outer inset for a floating capsule.
+    ///
+    /// Measured against the *system* tab bar and the accessory slot the mini player sits
+    /// in on iOS 26 — not the app's own `.standalone` fallback, which is where the first
+    /// attempt took its 10pt from. The result was a composer capsule visibly wider than the
+    /// two capsules under it, which is the same misalignment in a new shape.
+    public static let inset: CGFloat = 20
     /// Gap between stacked capsules.
     public static let gap: CGFloat = 4
     public static let shadowRadius: CGFloat = 8

@@ -466,6 +466,51 @@ public struct NavidromeFolder: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A list the *server* both ordered and bucketed — `getArtists` and `getIndexes` return
+/// their items already grouped under index letters.
+///
+/// Those letters used to be thrown away on the grounds that "the A–Z rail rebuilds its own
+/// letters from the data, so the server's grouping carries nothing the names don't". That
+/// is only true when the client's bucketing rule and the server's collation agree, and on
+/// a mixed-script library they do not: Navidrome ordered 2,657 albums and ~40 index
+/// buckets its way, the client re-derived buckets from display names its way, and the rail
+/// ended up reading `# Z Λ B Д И К Л М О П С Т I デ ル 周 喵 浜 락 무 G A T B …` — letters in
+/// an order the rows underneath them do not follow.
+///
+/// Keeping the server's buckets makes the rail agree with the list by construction, in any
+/// locale and any script, because whoever ordered the rows is the one naming the letters.
+public struct ServerIndexedList<Element: Identifiable & Sendable>: Sendable {
+    /// One index letter and the items filed under it, in the server's order.
+    public struct Bucket: Sendable {
+        public let letter: String
+        public let items: [Element]
+
+        public init(letter: String, items: [Element]) {
+            self.letter = letter
+            self.items = items
+        }
+    }
+
+    public let buckets: [Bucket]
+
+    public init(buckets: [Bucket]) {
+        self.buckets = buckets
+    }
+
+    /// The flat list, in the order the buckets give — what every existing caller wants.
+    public var items: [Element] { buckets.flatMap(\.items) }
+
+    /// Non-empty buckets paired with the id of their first item, which is what a rail
+    /// needs to scroll to. Empty buckets are dropped: a letter that scrolls nowhere is a
+    /// dead target, and servers do report them.
+    public var indexTargets: [(letter: String, firstID: Element.ID)] {
+        buckets.compactMap { bucket in
+            guard let first = bucket.items.first else { return nil }
+            return (bucket.letter, first.id)
+        }
+    }
+}
+
 /// One folder's contents: subfolders first, then songs — the order a Finder window
 /// would show them, which is the mental model folder browsing exists to honour.
 public struct NavidromeDirectory: Sendable {
