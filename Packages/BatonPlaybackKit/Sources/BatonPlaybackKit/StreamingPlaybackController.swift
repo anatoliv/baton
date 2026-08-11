@@ -528,10 +528,42 @@ public final class StreamingPlaybackController {
     /// The item we consider "current" — compared against `player.currentItem` to detect a
     /// gapless auto-advance (the OS moved to the preloaded next track on its own).
     private var loadedItem: AVPlayerItem?
-    /// The preloaded next item + its queue index (gapless mode only). Nil when nothing is
-    /// queued ahead. Inserted into the `AVQueuePlayer` so the OS auto-advances with no gap;
-    /// `handleEnded` reconciles our logical state once the outgoing item's end fires.
-    private var gaplessPreload: (index: Int, item: AVPlayerItem)?
+    /// The item queued ahead of the current one for a gap-free boundary, and what it is.
+    ///
+    /// This was `(index: Int, item: AVPlayerItem)`, and the missing field was the song.
+    /// Everything that validated the preload compared the *index* — but an index is a
+    /// position, not an identity, and the queue moves underneath it. Remove the track
+    /// sitting at index 1 and index 1 still exists, now holding a different song: the
+    /// preload matched, survived, and the boundary played the removed track's audio while
+    /// `gaplessAdvanced(to:)` reconciled state onto whatever had shifted into that slot.
+    /// The app named one track and played another, which is the defect class this codebase
+    /// has already paid for once at the Lock Screen.
+    ///
+    /// Carrying `songID` makes identity the thing that is checked, and `stage` makes the
+    /// lifecycle explicit rather than inferred from whether a URL happens to be a file.
+    private struct PreloadSlot {
+        /// Where the preload's `stage` sits between being queued and being played.
+        enum Stage: Equatable {
+            /// Queued as a network stream. A disk prefetch may still be in flight.
+            case stream
+            /// Queued as a local file — either already cached, downloaded, or swapped in
+            /// by `adoptPrefetchedNext`. The boundary is guaranteed gap-free.
+            case local
+        }
+        let index: Int
+        let songID: String
+        let item: AVPlayerItem
+        var stage: Stage
+
+        /// Whether this preload still describes the track the queue plans to play next.
+        /// Both halves are required: the index can stay while the song changes (a removal
+        /// shifts the queue up) and the song can stay while the index changes (a reorder).
+        func matches(index plannedIndex: Int?, songID plannedSongID: String?) -> Bool {
+            index == plannedIndex && songID == plannedSongID
+        }
+    }
+
+    private var gaplessPreload: PreloadSlot?
     /// Owns the second player + volume ramp during a crossfade overlap; its player is promoted to
     /// `player` in `finishCrossfade` when the fade completes.
     /// Shapes the player's own volume around pause/stop/resume so transport actions don't
@@ -601,6 +633,16 @@ public final class StreamingPlaybackController {
     /// `gaplessAdvanceCountForTesting` (state reconciled onto the already-playing preloaded
     /// item — no reload); a hard reload increments `loadCurrentCountForTesting`.
     public private(set) var gaplessAdvanceCountForTesting = 0
+
+    /// The URL the player is actually sounding right now.
+    ///
+    /// The one observation that separates "named the right track" from "played the right
+    /// track". Every other signal — `nowPlaying`, `currentIndex`, the advance and reload
+    /// counts — is our own bookkeeping, and the whole class of gapless bug is bookkeeping
+    /// that disagrees with the audio. Only the item's own asset can settle it.
+    public var currentItemURLForTesting: URL? {
+        (player.currentItem?.asset as? AVURLAsset)?.url
+    }
     public private(set) var loadCurrentCountForTesting = 0
     /// Counts how many times the queued gapless-next stream item was swapped for a local
     /// prefetched file (the zero-gap-on-streams path).
@@ -2061,9 +2103,19 @@ public final class StreamingPlaybackController {
         // presence rather than comparing against `player.currentItem`: the end notification
         // can fire before `currentItem` flips, and the queue player is guaranteed to advance
         // to the item we inserted next.
-        if isGaplessMode, let preload = gaplessPreload {
+        // Only when the preload still describes the track sitting at that index. If the queue
+        // moved under it, the audio the OS is about to play is not the track we would name,
+        // and reloading (a gap) is the honest outcome — a seamless boundary onto the wrong
+        // song is worse than an audible one onto the right song.
+        if isGaplessMode, let preload = gaplessPreload,
+           queue.indices.contains(preload.index), queue[preload.index].id == preload.songID {
             gaplessAdvanced(to: preload.index, item: preload.item)
             return
+        }
+        if let stale = gaplessPreload {
+            streamingLog.info("gapless preload stale at boundary (index \(stale.index, privacy: .public)) — reloading instead")
+            player.remove(stale.item)
+            gaplessPreload = nil
         }
         advanceAfterEnd()
     }
@@ -2137,7 +2189,9 @@ public final class StreamingPlaybackController {
         let plannedID = planned.map { queue[$0].id }
         gaplessPrefetcher.reap(keeping: plannedID)
         // Drop a preload that no longer matches (mode off, queue reordered, crossfade on…).
-        if let existing = gaplessPreload, !isGaplessMode || existing.index != planned {
+        // Matched on song *and* index: comparing index alone let a removal shift a different
+        // track into the preloaded slot and keep the stale item queued.
+        if let existing = gaplessPreload, !isGaplessMode || !existing.matches(index: planned, songID: plannedID) {
             player.remove(existing.item)
             gaplessPreload = nil
         }
@@ -2158,7 +2212,8 @@ public final class StreamingPlaybackController {
         configureAudioMix?(item) // attach EQ at preload creation, before it plays
         guard player.canInsert(item, after: current) else { return }
         player.insert(item, after: current)
-        gaplessPreload = (planned, item)
+        gaplessPreload = PreloadSlot(index: planned, songID: songID, item: item,
+                                        stage: preloadURL.isFileURL ? .local : .stream)
         streamingLog.info("gapless preloaded next → queue index \(planned, privacy: .public)\(preloadURL.isFileURL ? " (local)" : " (stream)")")
         // If the next track is a network stream, prefetch it to disk so we can swap the
         // queued item to a local file before the boundary — zero-gap even on transcoded
@@ -2187,14 +2242,18 @@ public final class StreamingPlaybackController {
     /// Swap the queued (streaming) gapless-next item for its freshly prefetched local file —
     /// but only if it's still the queued next and we haven't already advanced onto it.
     private func adoptPrefetchedNext(songID: String, index: Int, localURL: URL) {
-        guard isGaplessMode, let preload = gaplessPreload, preload.index == index,
+        // The download that finishes is the one that was started, but the queue may have
+        // moved on while it ran — hence checking the preload's own song, the queue's song
+        // at that index, and that we have not already advanced onto the item.
+        guard isGaplessMode, let preload = gaplessPreload,
+              preload.matches(index: index, songID: songID),
               queue.indices.contains(index), queue[index].id == songID,
               player.currentItem !== preload.item, let current = loadedItem else { return }
         let item = AVPlayerItem(asset: Self.streamAsset(localURL))
         guard player.canInsert(item, after: current) else { return }
         player.remove(preload.item)
         player.insert(item, after: current)
-        gaplessPreload = (index, item)
+        gaplessPreload = PreloadSlot(index: index, songID: songID, item: item, stage: .local)
         #if DEBUG
         gaplessLocalSwapCountForTesting += 1
         #endif
