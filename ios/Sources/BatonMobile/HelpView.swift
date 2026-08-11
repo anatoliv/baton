@@ -234,6 +234,14 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.38",
+            date: "August 2026",
+            highlight: "Remove the track that's up next and the right one still plays.",
+            changes: [
+                .init(.fixed, "With gapless on, removing the track queued up next could leave its audio playing under the following track's name: the player showed one song and sounded another. Baton was matching the queued track by its position in the queue, and a removal shifts a different song into that position."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.37",
             date: "August 2026",
             highlight: "Scroll down and the bottom of the screen gets out of the way.",

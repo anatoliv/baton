@@ -201,6 +201,64 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         c.stop()
     }
 
+    /// Removing the preloaded track must not leave its audio queued under a new name.
+    ///
+    /// The preload used to be validated by queue *index* alone. Play [a, b, c] and index 1
+    /// is preloaded as "b"; remove "b" and index 1 still exists, now holding "c" — the
+    /// index still matched, so the stale item for "b" stayed inserted in the AVQueuePlayer.
+    /// At the boundary the OS played b's audio while the app reconciled its state onto c:
+    /// the player naming one track and sounding another, which this codebase has already
+    /// shipped once on the Lock Screen.
+    ///
+    /// Real tone files and the real AVQueuePlayer, because the bug lives in the interaction
+    /// between our bookkeeping and the OS queue — a mocked URL cannot reach it.
+    func testRemovingThePreloadedTrackDoesNotPlayItUnderTheNextTracksName() throws {
+        let a = try makeToneFile(frequency: 440, seconds: 1.0, name: "stale-a")
+        let b = try makeToneFile(frequency: 660, seconds: 1.0, name: "stale-b")
+        let cFile = try makeToneFile(frequency: 880, seconds: 1.0, name: "stale-c")
+        defer { for u in [a, b, cFile] { try? FileManager.default.removeItem(at: u) } }
+        let urls = ["a": a, "b": b, "c": cFile]
+
+        let c = StreamingPlaybackController(
+            streamURLProvider: { urls[$0]! },
+            defaults: suite,
+            systemNowPlaying: false
+        )
+        c.gaplessEnabled = true
+        c.crossfadeSeconds = 0
+        c.play([song("a"), song("b"), song("c")])
+        XCTAssertEqual(c.state, .playing)
+
+        // "b" is now preloaded at index 1. Pull it out from under the preload.
+        c.removeFromQueue(at: IndexSet(integer: 1))
+        XCTAssertEqual(c.queue.map(\.id), ["a", "c"])
+
+        // Let the first tone finish and the boundary happen however it happens.
+        let deadline = Date().addingTimeInterval(8)
+        while c.currentIndex == 0, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTAssertEqual(c.currentIndex, 1, "did not advance past the first track")
+        XCTAssertEqual(c.nowPlaying?.id, "c", "the removed track's slot should now be c")
+        XCTAssertEqual(c.state, .playing, "playback stalled across the boundary")
+
+        // This is the whole test, and the reason the assertions above are not enough: on the
+        // buggy code `nowPlaying` was ALSO "c", the queue was ALSO [a, c], and the boundary
+        // was ALSO a gapless advance. Every piece of our own bookkeeping agreed. What
+        // differed was the audio — the stale item for "b" was still queued in the
+        // AVQueuePlayer, so the OS sounded b while the app said c. Only the playing item's
+        // asset can tell the two apart.
+        // Compared by path: a preloaded item carries a `?prefetch=1` marker on its URL, so
+        // the whole URL is not equal even when the file is right.
+        let sounding = c.currentItemURLForTesting?.path
+        XCTAssertEqual(sounding, cFile.path,
+                       "the app says it is playing c; the player must actually be sounding c")
+        XCTAssertNotEqual(sounding, b.path,
+                          "still sounding the track that was removed from the queue")
+        c.stop()
+    }
+
     /// A queue restored on launch loads **paused**, so the initial preload is skipped.
     /// Pressing play (`resume`) must buffer the next track, or the first boundary after
     /// launch reloads (gap) instead of gapless-advancing. Regression guard for that path.
