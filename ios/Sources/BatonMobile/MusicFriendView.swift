@@ -148,9 +148,11 @@ struct MusicFriendView: View {
                 // a stadium with enormous ends. At one line 20pt *is* the capsule; at four
                 // it stays a nicely rounded box.
                 .textFieldStyle(.plain)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 20))
+                // No background of its own. The composer is now a capsule, and a field pill
+                // inside a bar pill is two containers for one control — visibly a box
+                // behind a box, with the mic and send button stranded in the gap between
+                // them. The capsule *is* the field's container.
+                .padding(.vertical, 4)
                 .lineLimit(1 ... 4)
                 .focused($inputFocused)
                 .submitLabel(.send)

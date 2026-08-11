@@ -19,15 +19,7 @@ struct ArtistsView: View {
             }
                 // Same A–Z rail as Albums: the artists list is alphabetical by nature and
                 // long by nature, which is exactly the combination the rail exists for.
-                .overlay(alignment: .trailing) {
-                    let entries = indexEntries
-                    if !entries.isEmpty {
-                        AlphabetIndexRail(entries: entries) { entry in
-                            proxy.scrollTo(entry.firstID, anchor: .top)
-                        }
-                        .padding(.vertical, 8)
-                    }
-                }
+                .alphabetIndexRail(indexEntries, proxy: proxy)
                 // Shared by both branches. The grid had no load, no refresh and no empty
                 // state — harmless only because the default here is `.list`, which is the
                 // definition of a bug waiting for someone to change a default.
@@ -60,10 +52,18 @@ struct ArtistsView: View {
         }
     }
 
-    /// Only while browsing, not while filtering — a rail over five search hits is noise.
-    private var indexEntries: [AlphabetIndex.Entry] {
-        guard query.isEmpty, filtered.count > 30 else { return [] }
-        return AlphabetIndex.entries(from: filtered.map { ($0.id, $0.name) })
+    /// The server's own index, not a rebuilt one.
+    ///
+    /// `getArtists` returns its artists already bucketed under index letters, computed
+    /// with the collation the server used to order them. Rebuilding those letters from
+    /// display names produced a rail that disagreed with the rows on any library that
+    /// isn't plain Latin — forty-odd buckets reading `# Z Λ B Д И К Л М О П С Т I デ ル …`.
+    ///
+    /// Only while browsing, not while filtering: a rail over five search hits is noise,
+    /// and a filtered list is no longer the list the server bucketed.
+    private var indexEntries: AlphabetIndex.Ordered {
+        guard query.isEmpty else { return .none }
+        return .server(model.musicLibrary.artistIndex)
     }
 
     /// Tiles, for recognising someone by their picture.
@@ -74,19 +74,15 @@ struct ArtistsView: View {
                     NavigationLink {
                         ArtistDetailView(artist: artist, model: model)
                     } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ArtworkView(url: portraitURL(for: artist),
-                                        wholeCover: true)
-                                .aspectRatio(1, contentMode: .fit)
-                                .clipShape(Circle())
-                            Text(artist.name)
-                                .font(.subheadline.weight(.medium))
-                                .lineLimit(1)
-                            if let count = artist.albumCount {
-                                Text("\(count) \(count == 1 ? "album" : "albums")")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
+                        // The shared tile, as Playlists, Podcasts and Downloads use —
+                        // this screen had grown its own copy of the same shape, which is
+                        // how the artwork shadow and the VoiceOver grouping in `BrowseTile`
+                        // never reached it.
+                        BrowseTile(artwork: portraitURL(for: artist),
+                                   title: artist.name,
+                                   subtitle: artist.albumCount.map {
+                                       "\($0) \($0 == 1 ? "album" : "albums")"
+                                   })
                     }
                     .buttonStyle(.plain)
                     .id(artist.id)
@@ -108,7 +104,9 @@ struct ArtistsView: View {
                 HStack(spacing: 12) {
                     ArtworkView(url: portraitURL(for: artist))
                         .frame(width: 48, height: 48)
-                        .clipShape(Circle())
+                        // 8pt, the radius the album list row uses — same screen shape,
+                        // same corner, rather than a circle here and a square there.
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     VStack(alignment: .leading) {
                         Text(artist.name).lineLimit(1)
                         if let count = artist.albumCount {
@@ -288,56 +286,56 @@ struct ArtistDetailView: View {
 struct GenresView: View {
     let model: MobileModel
 
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
 
-    private var indexEntries: [AlphabetIndex.Entry] {
-        let genres = useful
-        guard genres.count > 30 else { return [] }
-        return AlphabetIndex.entries(from: genres.map { ($0.id, $0.name) })
+    /// A filter, which is what this screen needed instead of a rail.
+    ///
+    /// The grid is ordered by song count, and no index can be drawn over that — see
+    /// The grid is ordered by song count — Electronic 73, Rock 28, Hip-Hop 26 — and no
+    /// index can be honestly drawn over that: it read `E, R, H, A, C, P` down the edge,
+    /// and tapping "A" landed wherever the first A-genre sat in a popularity ranking. A
+    /// filter does not care how the list is sorted, which is why it fits here and the rail
+    /// never did.
+    @State private var filter = ""
+
+    private var shown: [NavidromeGenre] {
+        let trimmed = filter.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return useful }
+        return useful.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
     }
 
+
+    /// A list, in the shape Folders uses — the browse screen this one sits beside, and
+    /// also a text-only list of names and counts.
+    ///
+    /// This was a two-column grid of bespoke cards: a tinted symbol taking a third of a
+    /// half-width cell, then the name in what was left. Nothing else in the app draws that
+    /// cell, and it is the only browse screen without the shared grid/list picker, because
+    /// its cell fits neither vocabulary. The symbol is derived from the genre's own name by
+    /// `MixCatalogRules.symbol(forGenre:)`, so it identifies nothing you cannot already
+    /// read — and paying a third of the width for it is why the names truncated:
+    /// "Castlevania…", "Uplifting Tra…". Full width, and they fit.
+    ///
+    /// Fewer genres per screen than the grid managed. That trade is worth taking now the
+    /// screen has a filter: you narrow, then read, rather than scanning twenty at once.
     var body: some View {
-        ScrollViewReader { proxy in
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(useful, id: \.id) { genre in
-                    NavigationLink {
-                        GenreSongsView(genre: genre, model: model)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: MixCatalogRules.symbol(forGenre: genre.name))
-                                .font(.title3)
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 30)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(genre.name).font(.subheadline.weight(.medium)).lineLimit(1)
-                                Text("\(genre.songCount ?? 0) songs")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 12)
-                        .background(Color.hoverTint, in: RoundedRectangle(cornerRadius: 12))
+        List(shown, id: \.id) { genre in
+            NavigationLink {
+                GenreSongsView(genre: genre, model: model)
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(genre.name).lineLimit(1)
+                        Text("\(genre.songCount ?? 0) songs")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .id(genre.id)
+                } icon: {
+                    Image(systemName: MixCatalogRules.symbol(forGenre: genre.name))
                 }
             }
-            .padding()
+            .id(genre.id)
         }
-        // Same rail as Albums, Artists and Folders. A well-tagged library reports enough
-        // genres to need it; a sparse one falls under the thirty-item floor and gets none.
-        .overlay(alignment: .trailing) {
-            let entries = indexEntries
-            if !entries.isEmpty {
-                AlphabetIndexRail(entries: entries) { entry in
-                    proxy.scrollTo(entry.firstID, anchor: .top)
-                }
-                .padding(.vertical, 8)
-            }
-        }
-        }
+        .listStyle(.plain)
+        .searchable(text: $filter, prompt: "Filter genres")
         .navigationTitle("Genres")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {

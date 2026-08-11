@@ -200,15 +200,7 @@ struct LikedView: View {
             // Liked is the list this app's own code calls "the one that grows without
             // bound", and it was the only long alphabetical list on the phone with no way
             // to jump — Albums, Artists and Folders all had one.
-            .overlay(alignment: .trailing) {
-                let entries = indexEntries
-                if !entries.isEmpty {
-                    AlphabetIndexRail(entries: entries) { entry in
-                        proxy.scrollTo(entry.firstID, anchor: .top)
-                    }
-                    .padding(.vertical, 8)
-                }
-            }
+            .alphabetIndexRail(indexEntries, proxy: proxy)
         }
         .listStyle(.plain)
         .searchable(text: $filter, prompt: "Filter liked")
@@ -359,7 +351,7 @@ struct LikedView: View {
                 } label: {
                     BrowseTile(artwork: model.musicLibrary.coverArtURL(
                                    id: artist.coverArtID ?? artist.id, size: 400),
-                               title: artist.name, circular: true)
+                               title: artist.name)
                 }
                 .buttonStyle(.plain)
             }
@@ -434,24 +426,23 @@ struct LikedView: View {
     /// hits is noise), and nothing under thirty items (below that, flicking beats jumping).
     /// Songs additionally need an alphabetical sort — jumping to "S" in a recently-added
     /// order is a question with no answer.
-    private var indexEntries: [AlphabetIndex.Entry] {
-        guard filter.isEmpty else { return [] }
+    /// The claim about ordering is now an argument rather than a `guard` this screen
+    /// happens to remember to write — see `AlphabetIndex.Ordered`.
+    private var indexEntries: AlphabetIndex.Ordered {
+        guard filter.isEmpty else { return .none }
         switch segment {
         case .songs:
-            guard sort == .title || sort == .artist else { return [] }
             let songs = sorted(filtered(model.musicLibrary.starred.songs))
-            guard songs.count > 30 else { return [] }
-            return AlphabetIndex.entries(from: songs.map {
+            return .clientSorted(songs.map {
                 ($0.id, sort == .artist ? ($0.artist ?? "") : $0.title)
-            })
-        case .albums:
-            let albums = model.musicLibrary.starred.albums.filter { matches($0.name, $0.artist) }
-            guard albums.count > 30 else { return [] }
-            return AlphabetIndex.entries(from: albums.map { ($0.id, $0.name) })
-        case .artists:
-            let artists = model.musicLibrary.starred.artists.filter { matches($0.name, nil) }
-            guard artists.count > 30 else { return [] }
-            return AlphabetIndex.entries(from: artists.map { ($0.id, $0.name) })
+            }, isAlphabetical: sort == .title || sort == .artist)
+        case .albums, .artists:
+            // No rail. `sorted(_:)` only ever ordered the songs segment — these two rows
+            // come straight out of `getStarred2` in whatever order the server starred
+            // them, and an index over that is the Genres bug in a second place: letters
+            // that look like an alphabet over a list that isn't one. Sort these segments
+            // and the rail can come back with them.
+            return .none
         }
     }
 
@@ -504,8 +495,18 @@ struct PlaylistsView: View {
     @State private var renaming: NavidromePlaylist?
     @State private var renameText = ""
     @State private var deleting: NavidromePlaylist?
+    /// Every other long list in the app can be narrowed; this one could only be sorted.
+    @State private var filter = ""
 
     private var sort: PlaylistSort { PlaylistSort(rawValue: sortRaw) ?? .name }
+
+    /// Sorted, then narrowed — the rail indexes this same list, so both have to see it.
+    private var shown: [NavidromePlaylist] {
+        let sorted = sort.sorted(model.musicLibrary.playlists)
+        let trimmed = filter.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return sorted }
+        return sorted.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+    }
 
     // List by default: playlists are chosen by name and length, and this library has 324
     // of them — the grid is for the ones you made covers for.
@@ -515,7 +516,10 @@ struct PlaylistsView: View {
         Binding(get: { layout }, set: { layoutRaw = $0.rawValue })
     }
 
-    var body: some View {
+    /// Split out from `body` purely so the type-checker can finish: adding one more
+    /// modifier to that chain tipped it past its budget ("unable to type-check this
+    /// expression in reasonable time").
+    private var indexedLayouts: some View {
         ScrollViewReader { proxy in
             Group {
                 if layout == .grid { playlistGrid } else { playlistList }
@@ -523,22 +527,19 @@ struct PlaylistsView: View {
             // A–Z over whichever layout is showing. Sorted alphabetically or not, the rail
             // only appears for the name sort — the same rule Albums uses, for the same
             // reason: jumping to "S" in a track-count ordering answers nothing.
-            .overlay(alignment: .trailing) {
-                let entries = indexEntries
-                if !entries.isEmpty {
-                    AlphabetIndexRail(entries: entries) { entry in
-                        proxy.scrollTo(entry.firstID, anchor: .top)
-                    }
-                    .padding(.vertical, 8)
-                }
-            }
+            .alphabetIndexRail(indexEntries, proxy: proxy)
         }
+    }
+
+    var body: some View {
+        indexedLayouts
         .toolbar { ToolbarItem(placement: .topBarTrailing) { LayoutPicker(layout: layoutBinding) } }
         // On the Group, not the list. Everything below — the load, refresh, the + button,
         // the sort menu, the content state and the new-playlist alert — was attached to
         // `playlistList` alone, so the grid branch had none of it. Harmless only because
         // this screen defaults to `.list`, which is exactly how the Artists bug hid: the
         // plan named three screens with this shape and there were four.
+        .searchable(text: $filter, prompt: "Filter playlists")
         .navigationTitle("Playlists")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -612,17 +613,20 @@ struct PlaylistsView: View {
         }
     }
 
-    private var indexEntries: [AlphabetIndex.Entry] {
-        guard sort == .name else { return [] }
-        let playlists = sort.sorted(model.musicLibrary.playlists)
-        guard playlists.count > 30 else { return [] }
-        return AlphabetIndex.entries(from: playlists.map { ($0.id, $0.name) })
+    /// Client-sorted, so the client buckets — and says so in the same call rather than in
+    /// a separate `guard` that a later screen can forget. See `AlphabetIndex.Ordered`.
+    /// Not while filtering: an index over five hits is noise, and the rail's letters are
+    /// only meaningful against the unfiltered list they were built from.
+    private var indexEntries: AlphabetIndex.Ordered {
+        guard filter.isEmpty else { return .none }
+        return .clientSorted(shown.map { ($0.id, $0.name) },
+                             isAlphabetical: sort == .name)
     }
 
     private var playlistGrid: some View {
         ScrollView {
             LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
-                ForEach(sort.sorted(model.musicLibrary.playlists)) { playlist in
+                ForEach(shown) { playlist in
                     NavigationLink {
                         PlaylistDetailView(playlist: playlist, model: model)
                     } label: {
@@ -641,7 +645,7 @@ struct PlaylistsView: View {
     }
 
     private var playlistList: some View {
-        List(sort.sorted(model.musicLibrary.playlists)) { playlist in
+        List(shown) { playlist in
             NavigationLink {
                 PlaylistDetailView(playlist: playlist, model: model)
             } label: {

@@ -217,6 +217,18 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.11",
+            date: "August 2026",
+            highlight: "Housekeeping \u{2014} nothing on screen changes in this one.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Baton now keeps the alphabetical index your server sends with its "
+                    + "artist and folder lists, instead of rebuilding one from the names. "
+                    + "The iPhone app uses it today; on the Mac this is groundwork, and "
+                    + "nothing you can see has changed."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.10",
             date: "August 2026",
             highlight: "The doors the Mac never had, and a brand that was never registered.",

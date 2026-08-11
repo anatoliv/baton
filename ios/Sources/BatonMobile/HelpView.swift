@@ -233,6 +233,34 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.33",
+            date: "August 2026",
+            highlight: "Genres reads like the rest of the library, and Artists fills the screen again.",
+            changes: [
+                .init(.improved, "Genres is a list now, like Folders. It was a grid of cards where an icon took a third of each one and the names were squeezed into what was left \u{2014} long genres came out as \u{201C}Castlevania\u{2026}\u{201D}. Full width, full names."),
+                .init(.fixed, "Artists in grid layout showed one enormous circle at a time on smaller iPhones. Two columns again, and the tiles are the same ones the rest of the app uses \u{2014} which also gives them their artwork shadow and reads as a single item to VoiceOver."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.32",
+            date: "August 2026",
+            highlight: "Filter any long list, and an A\u{2013}Z rail that matches what it points at.",
+            changes: [
+                .init(.added, "Filter albums, genres and playlists by typing, the way Artists, Folders and Liked already could. Albums is the biggest list in the app and had no way to narrow it at all \u{2014} the header says how many of your albums match while you type."),
+                .init(.fixed, "The A\u{2013}Z letters on Artists and Folders were built from track names rather than from your server's own index, so on a library with more than one alphabet they ran in an order the rows underneath them did not follow. Baton now uses the index the server already computed, which matches the list by definition."),
+                .init(.fixed, "Genres and the Albums and Artists tabs of Liked drew A\u{2013}Z letters over lists that were not in alphabetical order \u{2014} genres are ordered by how much music you have in them \u{2014} so tapping a letter jumped somewhere arbitrary. Those lists have a filter instead."),
+                .init(.fixed, "The letters sat on top of the arrows at the end of each row, because the rail was given less room than it takes up."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.31",
+            date: "August 2026",
+            highlight: "The A\u{2013}Z letters stop sitting on top of your lists.",
+            changes: [
+                .init(.fixed, "The A\u{2013}Z rail down the right edge of Artists, Folders, Liked, Playlists and Genres drew on top of the rows, with the letters landing on the arrows at the end of each line. The lists now leave the rail a column of its own."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.30",
             date: "August 2026",
             highlight: "Widgets that show your artwork, and a lock screen that keeps time.",

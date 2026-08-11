@@ -78,6 +78,9 @@ public final class MusicLibraryStore {
     public private(set) var searchResults = NavidromeSearchResults.empty
     public private(set) var albums: [NavidromeAlbum] = []
     public private(set) var artists: [NavidromeArtist] = []
+    /// The same artists with the server's index letters kept, for the A–Z rail. The flat
+    /// `artists` above is derived from it, so the two can never drift apart.
+    public private(set) var artistIndex = ServerIndexedList<NavidromeArtist>(buckets: [])
     public private(set) var starred = NavidromeSearchResults.empty
     public private(set) var playlists: [NavidromePlaylist] = []
     public private(set) var genres: [NavidromeGenre] = []
@@ -323,7 +326,11 @@ public final class MusicLibraryStore {
     public func loadArtists() async {
         if isDemo { return }
 
-        await run { client in self.artists = try await client.getArtists() }
+        await run { client in
+            let indexed = try await client.getArtistIndex()
+            self.artistIndex = indexed
+            self.artists = indexed.items
+        }
     }
 
     public func loadStarred() async {
@@ -483,8 +490,13 @@ public final class MusicLibraryStore {
     /// whose collections are organized that way on disk. Empty in demo mode and on
     /// failure alike; the Folders screen states its own empty case.
     public func folderRoots() async -> [NavidromeFolder] {
-        guard !isDemo, let client = try? clientProvider() else { return [] }
-        return (try? await client.getIndexes()) ?? []
+        await folderRootIndex().items
+    }
+
+    /// The folder roots with the server's index letters kept, for the A–Z rail.
+    public func folderRootIndex() async -> ServerIndexedList<NavidromeFolder> {
+        guard !isDemo, let client = try? clientProvider() else { return .init(buckets: []) }
+        return (try? await client.getFolderIndex()) ?? .init(buckets: [])
     }
 
     /// One folder's contents, or nil when the server can't answer.
