@@ -202,6 +202,18 @@ struct BatonApp: App {
         .defaultSize(width: 1040, height: 660)
         .defaultPosition(.center)
 
+        // The music friend, in its own window rather than a Settings pane — a conversation is
+        // something you keep open beside the library, not something you configure. The Mac
+        // has been running this agent for the chat bridges all along; this is the first way
+        // to talk to it without opening Telegram.
+        Window("Music Friend", id: MacMusicFriendView.windowID) {
+            MacMusicFriendView()
+                .environment(remote)
+                .tint(.batonOrange)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 520, height: 620)
+
         // Spoken-summary history — a two-pane window: the history list on the left, the same player
         // card as the floating speaking HUD on the right, so a replay plays inline here.
         Window("Spoken Summaries", id: SpeechHistoryView.windowID) {

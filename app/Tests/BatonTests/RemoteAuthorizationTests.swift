@@ -553,4 +553,54 @@ final class RemoteAuthorizationTests: XCTestCase {
         let reply = await router.handle(inbound("do something odd"))
         XCTAssertTrue(reply?.text.contains("declined") == true, reply?.text ?? "nil")
     }
+
+    // MARK: The desktop surface
+
+    /// The app's own window is authorized without an allowlist entry.
+    ///
+    /// This is the one place the fail-closed rule is deliberately not applied, so it needs a
+    /// test that says why rather than a comment. The allowlist exists because a bot token is
+    /// not a credential — anyone who can message the bot could otherwise drive the speakers.
+    /// Nobody is "finding" the Music Friend window: they are already sitting at the Mac that
+    /// is playing the music and can press the buttons directly.
+    func testTheDesktopWindowIsAuthorizedWithoutAnAllowlist() async {
+        let (router, settings) = makeRouter()
+        // Explicitly empty — the state that denies every chat platform.
+        XCTAssertTrue(settings.config(for: .telegram).allowedSenders.isEmpty)
+
+        let reply = await router.handle(RemoteInbound(
+            platform: .desktop, senderID: "desktop", senderName: "You",
+            channelID: "desktop", text: "pause"
+        ))
+        let text = reply?.text ?? ""
+        XCTAssertFalse(text.contains("isn't authorized"),
+                       "the desktop window was refused by the chat allowlist: \(text)")
+    }
+
+    /// Authorizing the desktop must not authorize anyone else.
+    ///
+    /// The bypass is a single `platform == .desktop` check, and the failure mode worth
+    /// guarding is that it widens: a stranger on Telegram must still be refused with the
+    /// desktop path in place.
+    func testAuthorizingTheDesktopDoesNotAuthorizeTelegram() async {
+        let (router, _) = makeRouter()
+        _ = await router.handle(RemoteInbound(
+            platform: .desktop, senderID: "desktop", senderName: "You",
+            channelID: "desktop", text: "pause"
+        ))
+        let reply = await router.handle(inbound("pause", sender: "stranger"))
+        XCTAssertTrue(reply?.text.contains("isn't authorized") == true,
+                      "an unknown Telegram sender was let in: \(reply?.text ?? "nil")")
+    }
+
+    /// Desktop exchanges are logged as `.mac`, not as a fourth surface.
+    ///
+    /// One product, one tally. A separate surface would split the Mac's feedback between the
+    /// bridges and the window and make both look quieter than they are.
+    func testDesktopExchangesAreRecordedAgainstTheMacSurface() {
+        XCTAssertEqual(RemoteCommandRouter.surface(for: RemoteInbound(
+            platform: .desktop, senderID: "desktop", senderName: "You",
+            channelID: "desktop", text: "hello"
+        )), .mac)
+    }
 }

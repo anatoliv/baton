@@ -14,6 +14,19 @@ let remoteLog = Logger(subsystem: "io.tonebox.baton", category: "RemoteControl")
 public enum RemotePlatform: String, CaseIterable, Codable, Sendable, Identifiable {
     case telegram
     case discord
+    /// The app's own window, on the machine running the player.
+    ///
+    /// Not a bridge and not a network peer: nothing listens, nothing is polled, and there is
+    /// no token. It exists as a platform so the desktop music friend routes through the same
+    /// `RemoteCommandRouter` as the chat bridges instead of growing a second conversation
+    /// with its own parser, memory and fallback — which is exactly how the phone and the Mac
+    /// would drift apart. `bridges` is what settings iterates, so this never renders as a
+    /// third thing to configure.
+    case desktop
+
+    /// The platforms that are actually remote, i.e. everything a person configures with a
+    /// token and an allowlist. `desktop` is deliberately absent.
+    public static let bridges: [RemotePlatform] = [.telegram, .discord]
 
     public var id: String { rawValue }
 
@@ -21,6 +34,7 @@ public enum RemotePlatform: String, CaseIterable, Codable, Sendable, Identifiabl
         switch self {
         case .telegram: "Telegram"
         case .discord: "Discord"
+        case .desktop: "This Mac"
         }
     }
 
@@ -28,6 +42,7 @@ public enum RemotePlatform: String, CaseIterable, Codable, Sendable, Identifiabl
         switch self {
         case .telegram: "paperplane"
         case .discord: "bubble.left.and.bubble.right"
+        case .desktop: "sparkles"
         }
     }
 
@@ -36,6 +51,8 @@ public enum RemotePlatform: String, CaseIterable, Codable, Sendable, Identifiabl
         switch self {
         case .telegram: "Message @BotFather → /newbot → paste the token it gives you."
         case .discord: "discord.com/developers → your app → Bot → Reset Token. Turn on the Message Content intent."
+        // Never shown: the desktop friend has no token to get, which is the point of it.
+        case .desktop: ""
         }
     }
 
@@ -254,6 +271,10 @@ public final class RemoteControlSettings {
         switch platform {
         case .telegram: telegram
         case .discord: discord
+        // The desktop has no token, no allowlist and no channels — it is the app itself.
+        // `isAuthorized` short-circuits before reaching here; this is only so the type is
+        // total, and an empty config authorizes nobody if that ever stops being true.
+        case .desktop: PlatformConfig()
         }
     }
 
@@ -261,6 +282,9 @@ public final class RemoteControlSettings {
         switch platform {
         case .telegram: telegram = config
         case .discord: discord = config
+        // Nothing to store. Deliberately not a crash: a caller iterating platforms and
+        // writing config should quietly do nothing here rather than take the app down.
+        case .desktop: break
         }
     }
 

@@ -354,6 +354,10 @@ public final class RemoteCommandRouter {
         switch inbound.platform {
         case .telegram: .telegram
         case .discord: .discord
+        // The desktop conversation is the Mac's, and `.mac` already exists — the same
+        // surface the phone's counterpart uses for its own app. A separate case would
+        // split one product's feedback into two tallies.
+        case .desktop: .mac
         }
     }
 
@@ -529,6 +533,14 @@ public final class RemoteCommandRouter {
     }
 
     private func isAuthorized(_ inbound: RemoteInbound) -> Bool {
+        // The app's own window is authorized by being the app's own window.
+        //
+        // The allowlist exists because a bot token is not a credential: anyone who can
+        // message the bot would otherwise own the speakers. Nothing about that applies to a
+        // person typing into Baton on the Mac that is playing the music — they can already
+        // press the buttons. Requiring a sender id here would mean inventing one, storing
+        // it, and checking it against itself.
+        if inbound.platform == .desktop { return true }
         let config = settings.config(for: inbound.platform)
         // Empty allowlist authorizes nobody. A bot token is not a credential —
         // anyone who can message the bot would otherwise own the speakers.
