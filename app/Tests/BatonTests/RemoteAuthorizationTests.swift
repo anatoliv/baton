@@ -603,4 +603,31 @@ final class RemoteAuthorizationTests: XCTestCase {
             channelID: "desktop", text: "hello"
         )), .mac)
     }
+
+    /// An unprompted desktop reply reaches the transcript instead of vanishing.
+    ///
+    /// The router speaks on its own when a pending choice auto-picks, and the desktop has no
+    /// channel to push down — so the first version dropped it, which meant music could start
+    /// on the Mac with nothing in the window to say why. The sink is what a transcript
+    /// subscribes to; this proves the wiring, not the timer.
+    func testAnUnpromptedDesktopReplyReachesTheSink() async {
+        let music = MusicModel(environment: .testing)
+        let focus = BatonAudioFocusRegistry()
+        let service = RemoteControlService(
+            player: music.music,
+            tools: MCPToolSurface(music: music, focus: focus),
+            focus: focus,
+            settings: RemoteControlSettings(
+                environment: .testing,
+                defaults: UserDefaults(suiteName: "baton.sink.tests.\(UUID().uuidString)")!,
+                secrets: InMemorySecretStore()
+            )
+        )
+        var delivered: [String] = []
+        service.desktopSink = { delivered.append($0.text) }
+
+        await service.deliverForTesting(RemoteReply(text: "started the quiet one"), on: .desktop)
+        XCTAssertEqual(delivered, ["started the quiet one"],
+                       "an unprompted desktop reply was dropped instead of reaching the window")
+    }
 }

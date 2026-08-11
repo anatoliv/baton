@@ -234,6 +234,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.40",
+            date: "August 2026",
+            highlight: "Mixes shaped by mood now listen to your music.",
+            changes: [
+                .init(.improved, "Ask for something upbeat or something calmer and Baton uses tempo measured from your own audio, not just the BPM tag your server happened to have. Most libraries tag almost nothing, so those requests used to reorder a handful of tracks and leave the rest alone. It measures only tracks already on your device, and never downloads anything to do it."),
+                .init(.improved, "The music friend on the Mac gained a microphone and spoken replies, so both apps now work the same way. What you rate in either still counts once."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.39",
             date: "August 2026",
             highlight: "Your music friend is on the Mac now too, and it is the same one.",

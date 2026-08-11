@@ -2,16 +2,26 @@
 
 *Conduct your music.*
 
-Baton plays the music you already own. Point it at your own
+**Baton has a music friend.** Ask it for something in plain language and it works out what
+you meant, then does it with your own library: "something calmer", "what is this?", "play
+the live version instead". It has the same hands you do, so it can search, queue, build a
+mix and start it playing. It is on the Mac, on the iPhone, and over Telegram and Discord if
+you want the stereo to answer your phone from the other end of a train line. No other
+Subsonic client has one.
+
+Underneath that it is a careful player for the music you already own. Point it at your own
 [Navidrome](https://www.navidrome.org/) server (or anything that speaks the Subsonic API),
 and it streams your library with the kind of care most players skip: true gapless, crossfade,
 ReplayGain loudness matching, and a proper 10-band parametric EQ.
 
-The part that makes Baton unusual is that it can be handed off. It runs a small
+The friend is one face of something more general: Baton can be handed off. It runs a small
 [MCP](https://modelcontextprotocol.io/) control server, so an AI agent (Claude, or
 [Tonebox](https://tonebox.io)) can pick up the baton and search, queue, build a mix, or duck
 the music when you take a call. The control surface is really the whole point; the player is
 just the thing it conducts.
+
+You bring the brain. Baton ships no API key and talks to no model provider until you set one
+up, and you can point it at something running on your own machine.
 
 It's free, and it always will be. Made under [Tonebox](https://tonebox.io).
 

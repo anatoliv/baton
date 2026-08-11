@@ -32,11 +32,17 @@ final class VoiceInputCrashTests: XCTestCase {
     /// and traps — a hard crash, every time anyone tapped the microphone.
     func testTheAuthorizationCallbackStaysSendable() throws {
         let source = try String(
+            // Four levels to the repo root, then into Shared/: push-to-talk moved out of
+            // the phone's sources when the Mac gained the music friend, and both apps
+            // compile the same file now. This guard follows it — a source-text test that
+            // silently reads nothing is worse than no test, and moving the file it watches
+            // is precisely how that happens.
             contentsOf: URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
-                .appendingPathComponent("Sources/BatonMobile/VoiceInput.swift"),
+                .deletingLastPathComponent()
+                .appendingPathComponent("Shared/VoiceInput.swift"),
             encoding: .utf8
         )
         XCTAssertTrue(
