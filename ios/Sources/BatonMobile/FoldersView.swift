@@ -35,6 +35,7 @@ struct FoldersView: View {
             .alphabetIndexRail(indexEntries, proxy: proxy)
         }
         .searchable(text: $filter, prompt: "Filter folders")
+        .searchKeyboardDismissal()
         .navigationTitle("Folders")
         .navigationBarTitleDisplayMode(.inline)
         // "The server didn't report a folder tree" was shown whether the server said so or

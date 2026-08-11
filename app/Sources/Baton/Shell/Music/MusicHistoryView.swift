@@ -386,7 +386,11 @@ struct MusicHistoryView: View {
 /// empty days are empty — a single baseline carries "nothing played here" for the whole
 /// strip, where a per-day hairline drew one dash per quiet day and turned a slow week into
 /// what looked like a broken rule.
-private struct Sparkline: View {
+/// Internal rather than private so `SparklineRenderTests` can render it. It shipped built,
+/// reasoned and unlooked-at — two running copies of the app blocked the one screenshot
+/// that would have confirmed it — and "a quiet week draws no dashes" is a claim about
+/// pixels that a test can hold better than a memory can.
+struct Sparkline: View {
     let values: [Double]
 
     var body: some View {

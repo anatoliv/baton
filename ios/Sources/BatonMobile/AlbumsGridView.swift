@@ -82,11 +82,9 @@ struct AlbumsGridView: View {
                 // Artists and Folders keep their rail: there the server hands us the
                 // buckets, so it costs nothing to be right.
             }
-            // `.immediately`, not `.interactively`: interactive dismissal needs a slow
-            // drag *on* the keyboard's own region, and the thing you do after typing here
-            // is scroll the results. Any scroll puts it away — which also means the tab
-            // bar it covers is never more than a flick from reachable.
-            .scrollDismissesKeyboard(.immediately)
+            // This screen's reasoning became the whole app's policy; it lives in
+            // `searchKeyboardDismissal()` now, applied by every filterable list.
+            .searchKeyboardDismissal()
             .nowPlayingWash(wash)
             .rootScreenHeader("Albums", subtitle: countLine) { sortMenu } accessory: {
                 HeaderSearchField(prompt: "Filter albums", text: $filter,

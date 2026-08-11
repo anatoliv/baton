@@ -150,7 +150,15 @@ struct HeaderSearchField: View {
             if !text.isEmpty {
                 Button {
                     text = ""
-                    focused = true
+                    // Through whichever binding is actually live. This wrote `focused`
+                    // unconditionally, and `focused` is only the field's binding when no
+                    // caller passed one — so on Albums, which does pass one, clearing the
+                    // filter dropped the keyboard instead of leaving you typing.
+                    if let externalFocus {
+                        externalFocus.wrappedValue = true
+                    } else {
+                        focused = true
+                    }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)

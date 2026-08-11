@@ -204,6 +204,7 @@ struct LikedView: View {
         }
         .listStyle(.plain)
         .searchable(text: $filter, prompt: "Filter liked")
+        .searchKeyboardDismissal()
         .navigationTitle("Liked")
         .toolbar {
             // Only where a grid is on offer — a picker over the Songs segment would be a
@@ -540,6 +541,7 @@ struct PlaylistsView: View {
         // this screen defaults to `.list`, which is exactly how the Artists bug hid: the
         // plan named three screens with this shape and there were four.
         .searchable(text: $filter, prompt: "Filter playlists")
+        .searchKeyboardDismissal()
         .navigationTitle("Playlists")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -773,6 +775,7 @@ struct PlaylistDetailView: View {
         // Pushed screen, so the navigation bar is there to host it — unlike the root
         // tabs, `.searchable` works here.
         .searchable(text: $filter, prompt: "Filter this playlist")
+        .searchKeyboardDismissal()
         .environment(\.editMode, .constant(isEditing ? .active : .inactive))
         .navigationTitle(playlist.name)
         .navigationBarTitleDisplayMode(.inline)

@@ -367,11 +367,12 @@ final class FullWalkUITests: XCTestCase {
         field.tap()
         field.typeText("First")
 
-        // With the keyboard up, the tab bar is covered.
-        let done = app.buttons["Done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 5),
-                      "there must be a way to dismiss the keyboard")
-        done.tap()
+        // With the keyboard up, the tab bar is covered. The keyboard's own Search key
+        // is the visible way out (drag-to-dismiss on the results is the other); the
+        // Done accessory bar it used to assert on is gone on purpose.
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5),
+                      "typing must bring up the keyboard")
+        field.typeText("\n")
 
         // A tab that still exists: Settings left the tab bar for Home's header, and this
         // assertion was written before that.

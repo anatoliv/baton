@@ -13,10 +13,22 @@ import SwiftUI
 public enum BottomChrome {
     /// Outer inset for a floating capsule.
     ///
-    /// Measured against the *system* tab bar and the accessory slot the mini player sits
-    /// in on iOS 26 — not the app's own `.standalone` fallback, which is where the first
-    /// attempt took its 10pt from. The result was a composer capsule visibly wider than the
-    /// two capsules under it, which is the same misalignment in a new shape.
+    /// **What this does and does not align.** On iOS 26 the mini player is handed to
+    /// `tabViewBottomAccessory` (`RootTabView.swift`) as `.systemAccessory`, and that
+    /// branch never calls `bottomChromeCapsule()` — the system draws the container and
+    /// owns its inset. So on the current OS this constant governs the Friend composer
+    /// alone, and the 20pt is an eyeball match to the system slot rather than a measured
+    /// agreement with it. There is no public API that reports the accessory's inset, which
+    /// is why it stays an eyeball match instead of being derived.
+    ///
+    /// Where it genuinely aligns two things is the `.standalone` path — iPad, and iOS 18
+    /// through 25 — where the mini player draws its own capsule through the same modifier.
+    ///
+    /// The distinction is written down because losing it cost a misdiagnosis: a composer
+    /// that looked wrong against the accessory was chased through this constant, which on
+    /// that OS could not have been the cause. If the composer and the accessory drift
+    /// again on iOS 26, the fix is this number, checked against a screenshot — the code
+    /// cannot enforce it.
     public static let inset: CGFloat = 20
     /// Gap between stacked capsules.
     public static let gap: CGFloat = 4

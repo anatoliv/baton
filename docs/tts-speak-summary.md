@@ -41,9 +41,9 @@ press Play. The tool's result reports `"engine":"system (fallback)"` when this p
 
 ## 2. Backend (self-hosted TTS)
 
-Deployed on **gpu-host (`gpu-host.local`)**, managed from `~/tts`. (web-host was the first choice —
-always-on web box — but its RTX 3090 Ti was 100% held by a vLLM engine; only disk was free.
-gpu-host has idle Blackwell GPUs.)
+Deployed on **a GPU box on the LAN (`gpu-host.local`)**, managed from `~/tts`. The
+always-on web box was the first choice, but its RTX 3090 Ti was entirely held by a vLLM
+engine and only disk was free, while the GPU box had idle Blackwell cards.
 
 | Service | Container | Port | Device | Image / build | Steady-state |
 |---|---|---|---|---|---|
@@ -55,7 +55,7 @@ gpu-host has idle Blackwell GPUs.)
 - Chatterbox default model = `chatterbox-turbo` (English). API **requires both `model` and
   `voice`** fields; voices are `*.wav` names from `GET /v1/audio/voices` (e.g. `Emily.wav`).
   Multilingual (Spanish) = switch the model in its `config.yaml`.
-- GPU map on gpu-host: GPU0 idle · GPU1 = vLLM-30B (~83 GB) · **GPU2 = Chatterbox** · GPU3 idle.
+- GPU map on the GPU host: GPU0 idle · GPU1 = vLLM-30B (~83 GB) · **GPU2 = Chatterbox** · GPU3 idle.
 
 ### Bring-up (reference)
 ```sh
@@ -232,7 +232,7 @@ call returns `-1009` once (Local Network init), then consistent.
 - **Endpoints:** Kokoro `http://gpu-host.local:8880`, Chatterbox `http://gpu-host.local:8004` (both
   `/v1/audio/speech`, `/v1/audio/voices`). MCP `http://127.0.0.1:8787/mcp` (bearer token).
 - **Restart:** `cd ~/tts && docker compose up -d`; `cd ~/tts/Chatterbox-TTS-Server && docker compose -f docker-compose-cu128.yml up -d`.
-- **Future:** move Kokoro to web-host (CPU, always-on) so presets survive when gpu-host is busy;
+- **Future:** move Kokoro to the always-on CPU host so presets survive when the GPU box is busy;
   a UI to upload Chatterbox cloning reference samples; cache text→audio by hash (low volume →
   not needed yet). *(In-app Settings → Speech editor for hosts + voice map is done.)*
 - **Licensing:** Kokoro (Apache-2.0) + Chatterbox (MIT) are commercial-safe — matters because

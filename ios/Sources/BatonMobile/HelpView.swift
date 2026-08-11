@@ -52,6 +52,7 @@ struct HelpView: View {
             .navigationTitle("Help")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "Search help")
+            .searchKeyboardDismissal()
             .navigationDestination(for: HelpGuide.Topic.self) { topic in
                 HelpTopicView(topic: topic, topics: topics) { path.append($0) }
             }
@@ -232,6 +233,14 @@ struct WhatsNewView: View {
     /// Newest first. `WhatsNewFreshnessTests` fails when the top entry falls behind the
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
+        ReleaseNote(
+            version: "0.3.35",
+            date: "August 2026",
+            highlight: "The keyboard stops taking a row of the screen with it.",
+            changes: [
+                .init(.improved, "Typing in Search or in Music Friend no longer puts a \u{201C}Done\u{201D} bar above the keyboard. Drag the results or the conversation downward to put the keyboard away, tap the conversation in Music Friend, or press Search on the keyboard itself. The bar was a fourth way to do what those already did, and it cost a row of the screen every time you typed."),
+            ]
+        ),
         ReleaseNote(
             version: "0.3.34",
             date: "August 2026",
