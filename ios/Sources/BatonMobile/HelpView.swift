@@ -234,6 +234,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.39",
+            date: "August 2026",
+            highlight: "Your music friend is on the Mac now too, and it is the same one.",
+            changes: [
+                .init(.added, "Baton on the Mac has a music friend window of its own. It is the same friend you talk to here: what it has learned about you it knows in both places, and a thumbs-down you give on one counts on the other."),
+                .init(.improved, "Help gained a section about the music friend, covering the phone, the Mac and the Telegram and Discord bridges in one place."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.38",
             date: "August 2026",
             highlight: "Remove the track that's up next and the right one still plays.",
