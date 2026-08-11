@@ -245,6 +245,23 @@ final class MusicModel {
                     Task { await TrackLevelTimeline.analyzeStream(id: song.id, url: stream) }
                 }
             }
+            // Profile what a track sounds like, whenever a copy of it is already on disk.
+            //
+            // This is the backfill the mood mixes need, and it is deliberately opportunistic:
+            // it never fetches. A profile is three numbers that matter later, so spending a
+            // transfer on one would be a bad trade — but a downloaded track, or the copy the
+            // gapless prefetcher left behind on the way here, is free to read. Over normal
+            // listening that covers most of what anyone actually plays.
+            //
+            // Podcasts are excluded for the same reason they are excluded above: an episode
+            // is not library music and nothing will ever build a mix from one.
+            if !Self.isPodcastEpisode(song) {
+                let local = MusicDownloadStore.shared.localURL(for: song.id)
+                    ?? music.prefetchedLocalURL(for: song.id)
+                if let local {
+                    Task { await SonicProfileStore.shared.analyzeLocal(id: song.id, url: local) }
+                }
+            }
         }
         AudioLevelMonitor.shared.playheadProvider = { [music] in
             (music.nowPlaying?.id, music.currentTime, music.state == .playing)

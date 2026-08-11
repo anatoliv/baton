@@ -1,3 +1,4 @@
+import AVFoundation
 import BatonAgentKit
 import SwiftUI
 
@@ -22,6 +23,21 @@ struct MacMusicFriendView: View {
     static let windowID = "music-friend"
 
     @Environment(RemoteControlService.self) private var remote: RemoteControlService?
+    @Environment(MusicModel.self) private var music: MusicModel?
+
+    /// Push-to-talk, shared verbatim with the phone. Built lazily so the window costs
+    /// nothing until someone actually presses the mic — constructing it asks the system
+    /// about speech recognition, which is not free and not needed to read a transcript.
+    @State private var voice: VoiceInput?
+
+    /// Speak replies back when the question was asked out loud, and only then.
+    ///
+    /// The phone's rule exactly, and the same preference key, so turning it off on one turns
+    /// it off on the other. Typing a question and having the Mac talk at you is a different
+    /// product; answering out loud when you spoke out loud is a conversation.
+    @AppStorage("baton.agent.speakReplies") private var speakReplies = true
+    @State private var lastMessageWasVoice = false
+    @State private var synthesizer = AVSpeechSynthesizer()
 
     struct Message: Identifiable, Equatable {
         enum Role { case you, friend, status }
@@ -57,7 +73,17 @@ struct MacMusicFriendView: View {
         }
         .frame(minWidth: 420, minHeight: 320)
         .batonAppearance(appearance)
-        .onAppear { composerFocused = true }
+        .onAppear {
+            composerFocused = true
+            // Catch the replies nobody asked for: an auto-picked choice lands well after the
+            // question was answered, and without this the music starts with nothing in the
+            // transcript to explain it.
+            remote?.desktopSink = { reply in
+                messages.append(Message(role: .friend, text: reply.text,
+                                        exchangeID: remote?.feedbackLog.exchanges.first { $0.surface == .mac }?.id))
+            }
+        }
+        .onDisappear { remote?.desktopSink = nil }
     }
 
     // MARK: Transcript
@@ -68,7 +94,9 @@ struct MacMusicFriendView: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if messages.isEmpty { emptyState }
                     ForEach(messages) { message in
-                        MacFriendBubble(message: message, rate: rateAction(for: message))
+                        MacFriendBubble(message: message,
+                                        rate: rateAction(for: message),
+                                        recordedRating: recordedRating(for: message))
                             .id(message.id)
                     }
                     if isThinking {
@@ -100,6 +128,12 @@ struct MacMusicFriendView: View {
             """)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            if case .denied(let why)? = voice?.state {
+                Label(why, systemImage: "mic.slash")
+                    .font(.callout)
+                    .foregroundStyle(Color.warningTint)
+                    .padding(.top, 4)
+            }
             if !isConfigured {
                 Label("Set a model provider in Settings → Remote Control before it can answer.",
                       systemImage: "exclamationmark.triangle")
@@ -127,6 +161,16 @@ struct MacMusicFriendView: View {
                 .disabled(isThinking)
                 .accessibilityIdentifier("FriendComposerField")
 
+            Button(action: toggleMic) {
+                Image(systemName: voice?.isListening == true ? "mic.fill" : "mic")
+                    .font(.title3)
+                    .foregroundStyle(voice?.isListening == true ? Color.red : Color.batonOrange)
+            }
+            .buttonStyle(.plain)
+            .disabled(isThinking)
+            .help(voice?.isListening == true ? "Stop and send what you said" : "Hold a thought — click to talk")
+            .accessibilityLabel(voice?.isListening == true ? "Stop listening" : "Speak")
+
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill").font(.title2)
             }
@@ -145,6 +189,13 @@ struct MacMusicFriendView: View {
         remote?.settings.naturalLanguage.isEnabled == true
     }
 
+    /// What this answer was already rated, read back from the log so a reopened window shows
+    /// it. Without this the thumbs reset every time and a rating looked like it never took.
+    private func recordedRating(for message: Message) -> FriendExchange.Rating? {
+        guard let id = message.exchangeID, let remote else { return nil }
+        return remote.feedbackLog.exchanges.first { $0.id == id }?.rating
+    }
+
     private func rateAction(for message: Message)
     -> ((FriendExchange.Rating, FriendExchange.Fault?, String?) -> Void)? {
         guard message.role == .friend, let id = message.exchangeID, let remote else { return nil }
@@ -153,9 +204,37 @@ struct MacMusicFriendView: View {
         }
     }
 
+    /// Click to start listening, click again to stop and send what was heard.
+    ///
+    /// The same gesture as the phone's, deliberately. A hold-to-talk button would be more
+    /// natural with a mouse and would then be a second thing to learn for anyone who uses
+    /// both — and the transcript arriving as you speak already tells you it is listening.
+    private func speak(_ text: String) {
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.prefersAssistiveTechnologySettings = false
+        synthesizer.speak(utterance)
+    }
+
+    private func toggleMic() {
+        guard let music else { return }
+        let input = voice ?? VoiceInput(controller: music.music)
+        voice = input
+        if input.isListening {
+            let heard = input.stop()
+            guard !heard.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            draft = heard
+            lastMessageWasVoice = true
+            send()
+        } else {
+            Task { await input.start() }
+        }
+    }
+
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isThinking else { return }
+        let spoken = lastMessageWasVoice
+        lastMessageWasVoice = false
         draft = ""
         messages.append(Message(role: .you, text: text))
         guard let remote else {
@@ -181,6 +260,7 @@ struct MacMusicFriendView: View {
                 // the first `.mac` entry is the answer that just arrived.
                 exchangeID: remote.feedbackLog.exchanges.first { $0.surface == .mac }?.id
             ))
+            if spoken, speakReplies { speak(reply.text) }
         }
     }
 }
@@ -195,8 +275,15 @@ private struct MacFriendBubble: View {
     let message: MacMusicFriendView.Message
     var rate: ((FriendExchange.Rating, FriendExchange.Fault?, String?) -> Void)?
 
+    /// Seeded from the log rather than starting nil.
+    ///
+    /// A rating used to live only in this view's state, so it vanished the moment the window
+    /// closed — you could rate the same answer twice and the transcript would never admit
+    /// you had rated it at all. The log is where the rating actually lives; this reads it.
     @State private var rating: FriendExchange.Rating?
     @State private var showsFaultPicker = false
+    /// The recorded rating for this message, if there is one.
+    var recordedRating: FriendExchange.Rating?
 
     var body: some View {
         VStack(alignment: message.role == .you ? .trailing : .leading, spacing: 4) {
@@ -215,6 +302,7 @@ private struct MacFriendBubble: View {
             if message.role == .friend, rate != nil { ratingControls }
         }
         .frame(maxWidth: .infinity, alignment: message.role == .you ? .trailing : .leading)
+        .onAppear { rating = rating ?? recordedRating }
     }
 
     private var ratingControls: some View {

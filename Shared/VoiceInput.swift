@@ -113,9 +113,15 @@ final class VoiceInput {
         focusToken = controller.acquireAudioFocusSuspend(owner: "voice-input")
 
         do {
+            // Shaping the audio session is an iOS concern. macOS has no `AVAudioSession` at
+            // all — the system arbitrates input and output itself, and an app that wants the
+            // microphone simply asks for it. Everything below this guard is identical on
+            // both platforms, which is why this file is shared rather than duplicated.
+            #if os(iOS)
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers])
             try session.setActive(true)
+            #endif
 
             let engine = AVAudioEngine()
             let request = SFSpeechAudioBufferRecognitionRequest()
@@ -180,11 +186,13 @@ final class VoiceInput {
     private func releaseFocusAndRestoreSession() {
         // Back to the playback shape BEFORE releasing focus, so an auto-resume
         // plays through the right session.
+        #if os(iOS)
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
         } catch {
             voiceLog.error("session restore failed: \(error.localizedDescription, privacy: .public)")
         }
+        #endif
         if let token = focusToken {
             _ = controller.releaseAudioFocus(token)
             focusToken = nil

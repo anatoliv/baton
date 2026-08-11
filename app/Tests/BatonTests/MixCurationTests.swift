@@ -115,4 +115,40 @@ final class MixCurationTests: XCTestCase {
         XCTAssertEqual(MixBuilder.Mood.detect(["jazz", "saturday"]), .neutral)
         XCTAssertEqual(MixBuilder.Mood.detect([]), .neutral)
     }
+
+    // MARK: Measured tempo (A1 — sonic profiles filling in what the server never tagged)
+
+    /// A track the server never tagged still takes its place in the tempo curve.
+    ///
+    /// This is the whole point of measuring: most Subsonic libraries carry a BPM on almost
+    /// nothing, so before this an untagged track fell into the "no tempo" bucket and was
+    /// appended in arrival order however energetic it actually was.
+    func testMeasuredTempoOrdersTracksTheServerNeverTagged() {
+        let songs = [song("a", artist: "A"), song("b", artist: "B"), song("c", artist: "C")]
+        let measured = ["a": 150, "b": 80, "c": 115]
+        let ordered = MixBuilder.tempoSorted(songs, mood: .energetic, measuredBPM: measured)
+        XCTAssertEqual(ids(ordered), ["b", "c", "a"], "measured tempo did not shape the order")
+    }
+
+    /// The server's own tag wins over a measurement.
+    ///
+    /// A tag is metadata somebody curated; a measurement is an estimate from 90 seconds of
+    /// audio. When they disagree the stated fact should win, or tagging a library correctly
+    /// would stop meaning anything.
+    func testATaggedBPMBeatsAMeasuredOne() {
+        let songs = [song("tagged", artist: "A", bpm: 70), song("plain", artist: "B")]
+        // If the measurement were preferred, "tagged" (measured 200) would sort last here.
+        let ordered = MixBuilder.tempoSorted(songs, mood: .energetic,
+                                             measuredBPM: ["tagged": 200, "plain": 120])
+        XCTAssertEqual(ids(ordered), ["tagged", "plain"],
+                       "a measured tempo overruled the server's own tag")
+    }
+
+    /// No profiles means no change — the safety property that lets this ship before the
+    /// backfill has covered anything.
+    func testAnEmptyProfileStoreChangesNothing() {
+        let songs = [song("a", artist: "A", bpm: 120), song("b", artist: "B", bpm: 90)]
+        XCTAssertEqual(ids(MixBuilder.tempoSorted(songs, mood: .chill, measuredBPM: [:])),
+                       ids(MixBuilder.tempoSorted(songs, mood: .chill)))
+    }
 }

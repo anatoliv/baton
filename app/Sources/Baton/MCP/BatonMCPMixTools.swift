@@ -69,7 +69,16 @@ enum BatonMCPMixTools {
             throw BatonMCPToolError(message: "Couldn't find any songs to build a mix from. Try a broader prompt or a different seed.")
         }
 
-        let chosen = MixBuilder.buildMix(candidates: pool.songs, targetSeconds: targetSeconds, seed: seed)
+        // Tempo measured from the audio, for the tracks Baton has already profiled. Most
+        // Subsonic libraries tag BPM on almost nothing, so a mood asked for in good faith
+        // used to reorder a handful of tracks and leave the rest as they arrived. This only
+        // fills gaps — a server's own tag still wins — and an empty store simply changes
+        // nothing, which is why it is safe to ask for before the backfill has covered much.
+        let profiles = await SonicProfileStore.shared.allProfiles()
+        let measuredBPM = profiles.compactMapValues { $0.tempo.map { Int($0.rounded()) } }
+
+        let chosen = MixBuilder.buildMix(candidates: pool.songs, targetSeconds: targetSeconds,
+                                         seed: seed, measuredBPM: measuredBPM)
         guard !chosen.isEmpty else {
             throw BatonMCPToolError(message: "No songs matched the seed for this mix.")
         }
@@ -382,10 +391,12 @@ enum MixBuilder {
     static func buildMix(
         candidates: [NavidromeSong],
         targetSeconds: Int,
-        seed: Seed
+        seed: Seed,
+        measuredBPM: [String: Int] = [:]
     ) -> [NavidromeSong] {
         var rng = SystemRandomNumberGenerator()
-        return buildMix(candidates: candidates, targetSeconds: targetSeconds, seed: seed, using: &rng)
+        return buildMix(candidates: candidates, targetSeconds: targetSeconds, seed: seed,
+                        measuredBPM: measuredBPM, using: &rng)
     }
 
     /// Seedable overload (deterministic given the generator) so tests can pin the shuffle.
@@ -393,6 +404,7 @@ enum MixBuilder {
         candidates: [NavidromeSong],
         targetSeconds: Int,
         seed: Seed,
+        measuredBPM: [String: Int] = [:],
         using generator: inout some RandomNumberGenerator
     ) -> [NavidromeSong] {
         let usable = candidates.filter { ($0.duration ?? 0) > 0 }
@@ -431,7 +443,7 @@ enum MixBuilder {
 
         // Reorder the chosen set for *flow* — spread artists, and shape the tempo curve to the
         // prompt's mood — without changing which tracks were selected (duration stays on target).
-        return curate(chosen, mood: Mood.detect(seed.keywords))
+        return curate(chosen, mood: Mood.detect(seed.keywords), measuredBPM: measuredBPM)
     }
 
     // MARK: - Sonic-aware curation (F2 — docs/09 finding #6)
@@ -464,19 +476,37 @@ enum MixBuilder {
     /// **Pure and deterministic** — same input, same output — and it never adds/drops a track, so
     /// callers keep whatever duration/selection they built. Tracks with no `bpm` degrade
     /// gracefully (kept in incoming order, appended after the tempo-shaped ones).
-    static func curate(_ songs: [NavidromeSong], mood: Mood) -> [NavidromeSong] {
-        spreadArtists(tempoSorted(songs, mood: mood))
+    static func curate(_ songs: [NavidromeSong], mood: Mood,
+                       measuredBPM: [String: Int] = [:]) -> [NavidromeSong] {
+        spreadArtists(tempoSorted(songs, mood: mood, measuredBPM: measuredBPM))
     }
 
     /// Order by the mood's tempo shape using the server-provided `bpm` (a real sonic feature the
     /// server extracts from the file). Stable for equal tempos; `.neutral` is the identity.
     /// Songs without `bpm` are kept in their original order and appended at the end.
-    static func tempoSorted(_ songs: [NavidromeSong], mood: Mood) -> [NavidromeSong] {
+    /// `measuredBPM` fills in what the server did not tag.
+    ///
+    /// Most Subsonic libraries have a BPM on almost nothing, so a mood asked for in good
+    /// faith used to reorder a handful of tracks and leave the rest in whatever order they
+    /// arrived. `SonicProfileStore` measures tempo from the audio for tracks that have been
+    /// on disk, and this is where that measurement earns its keep. Passed in as a resolved
+    /// dictionary rather than read from the actor here, so this stays pure and
+    /// deterministic — the same input still gives the same output.
+    ///
+    /// The server's own tag wins where it exists: it is metadata someone curated, and a
+    /// measurement should defer to a stated fact rather than overrule it.
+    static func tempoSorted(_ songs: [NavidromeSong], mood: Mood,
+                            measuredBPM: [String: Int] = [:]) -> [NavidromeSong] {
         guard mood != .neutral else { return songs }
+        func bpm(of song: NavidromeSong) -> Int? {
+            if let tagged = song.bpm, tagged > 0 { return tagged }
+            if let measured = measuredBPM[song.id], measured > 0 { return measured }
+            return nil
+        }
         var withBPM: [(song: NavidromeSong, index: Int)] = []
         var withoutBPM: [NavidromeSong] = []
         for (i, song) in songs.enumerated() {
-            if let bpm = song.bpm, bpm > 0 { withBPM.append((song, i)) } else { withoutBPM.append(song) }
+            if bpm(of: song) != nil { withBPM.append((song, i)) } else { withoutBPM.append(song) }
         }
         // Sort key per mood; the original index is the stable tie-breaker.
         func key(_ bpm: Int) -> Int {
@@ -488,7 +518,7 @@ enum MixBuilder {
             }
         }
         let ordered = withBPM.sorted { a, b in
-            let ka = key(a.song.bpm ?? 0), kb = key(b.song.bpm ?? 0)
+            let ka = key(bpm(of: a.song) ?? 0), kb = key(bpm(of: b.song) ?? 0)
             return ka != kb ? ka < kb : a.index < b.index
         }.map(\.song)
         return ordered + withoutBPM

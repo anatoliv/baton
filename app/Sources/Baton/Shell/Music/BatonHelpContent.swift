@@ -217,6 +217,29 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.14",
+            date: "August 2026",
+            highlight: "Talk to your music friend, and it talks back.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "The music friend window has a microphone. Click it, say what you want, "
+                    + "and click again to send \u{2014} the music ducks while you speak and "
+                    + "comes back after. If you asked out loud, the answer is read back to "
+                    + "you; if you typed it, it is not."),
+                HelpWhatsNewChange(.improved,
+                    "Mixes shaped by mood now use tempo measured from your own audio, not "
+                    + "just the BPM tag your server happened to have. Most libraries tag "
+                    + "almost nothing, so \u{201C}something upbeat\u{201D} used to reorder a "
+                    + "handful of tracks and leave the rest alone. Baton measures tracks it "
+                    + "already has on disk, and never downloads anything to do it."),
+                HelpWhatsNewChange(.fixed,
+                    "A thumbs-up or thumbs-down in the friend window is remembered when you "
+                    + "reopen it, and an answer the friend gives on its own \u{2014} after "
+                    + "picking between options for you \u{2014} now appears in the "
+                    + "conversation instead of nowhere."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.13",
             date: "August 2026",
             highlight: "The music friend comes to the Mac.",

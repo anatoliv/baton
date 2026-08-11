@@ -47,28 +47,30 @@ public final class RemoteControlService {
         switch platform {
         case .telegram: await telegram?.push(reply, to: channelID)
         case .discord: await discord?.push(reply, to: channelID)
-        // Nothing to push to: the desktop conversation is synchronous, so its reply is the
-        // return value of `ask`. This path is only reached by the router speaking unprompted
-        // — an auto-picked choice landing after its reply — which the desktop transcript
-        // cannot show retroactively. Dropping it is a known, small gap rather than a silent
-        // one; see the note on `ask`.
-        case .desktop: break
+        // The desktop has no channel to push down, so it registers a sink instead. This is
+        // the path the router takes when it speaks *unprompted* — an auto-picked choice
+        // resolving a minute after the question — which used to be dropped here, meaning
+        // music could start on the Mac with nothing in the transcript to say why.
+        case .desktop: desktopSink?(reply)
         }
     }
 
+    /// Replies the router speaks without being asked go here.
+    ///
+    /// Most of a conversation is request/response, and `ask` returns those. But the router
+    /// can also speak on its own — a pending choice auto-picks after a delay, and the answer
+    /// arrives long after the question was answered. On a chat bridge that is just another
+    /// message; on the desktop there is no channel, so without this the music would start
+    /// with nothing in the transcript to explain it.
+    public var desktopSink: (@MainActor (RemoteReply) -> Void)?
+
     /// Ask the music friend something from the app's own window, and get the reply back.
     ///
-    /// The desktop conversation deliberately routes through the same `RemoteCommandRouter`
-    /// as Telegram and Discord rather than growing a client of its own. Everything the
-    /// bridges have earned comes with it: the command parser (so "pause" stays instant and
-    /// free), the model fallback, the memory, the shared conversation log, and the feedback
-    /// log that the Mac has been writing all along. A second implementation would be a
-    /// second dialect of the same conversation, which is how the phone and the Mac drift.
-    ///
-    /// One known gap, stated rather than hidden: a reply the router produces *unprompted*
-    /// (an auto-picked choice that resolves after the fact) has nowhere to go on the
-    /// desktop, because this is a request/response call rather than a live channel. It is
-    /// recorded in the conversation log either way.
+    /// Routes through the same `RemoteCommandRouter` as Telegram and Discord rather than
+    /// growing a client of its own, so everything the bridges have earned comes with it: the
+    /// command parser (so "pause" stays instant and free), the model fallback, the memory,
+    /// the shared conversation log, and the feedback log the Mac has been writing all along.
+    /// A second implementation would be a second dialect of the same conversation.
     @discardableResult
     public func ask(_ text: String) async -> RemoteReply? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -80,6 +82,13 @@ public final class RemoteControlService {
             channelID: "desktop",
             text: trimmed
         ))
+    }
+
+    /// Exercises the unprompted-delivery path without waiting out an auto-pick timer.
+    /// The timer is the router's business and is tested there; what this reaches is the
+    /// wiring between "the router spoke" and "the window heard it".
+    public func deliverForTesting(_ reply: RemoteReply, on platform: RemotePlatform) async {
+        await push(reply, to: "desktop", on: platform)
     }
 
     /// Erase every durable note about the owner. Wired to the Settings button,
