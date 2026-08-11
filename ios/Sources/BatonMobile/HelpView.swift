@@ -234,6 +234,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.41",
+            date: "August 2026",
+            highlight: "No more \u{201C}Unknown\u{201D} under the title.",
+            changes: [
+                .init(.improved, "An artist Baton doesn\u{2019}t know is simply not shown now, instead of the word \u{201C}Unknown\u{201D} sitting under the track title. The line is left out entirely, so the title gets the room."),
+                .init(.fixed, "Titles imported from YouTube carried odd full-width lookalikes where quotes, pipes and slashes belong. A downloader substitutes those because they cannot go in a filename, and the filenames became tags. They read normally now. Emoji, capitals and long names are left exactly as they are \u{2014} those are yours."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.40",
             date: "August 2026",
             highlight: "Mixes shaped by mood now listen to your music.",

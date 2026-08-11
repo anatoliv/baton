@@ -745,7 +745,7 @@ public enum RemoteResultFormatter {
     }
 
     private static func describe(_ track: [String: Any]) -> String {
-        let title = track["title"] as? String ?? "Unknown"
+        let title = DisplayName.title(track["title"] as? String ?? "")
         let artist = track["artist"] as? String
         let duration = (track["duration_seconds"] as? Int).map(clock)
         var out = artist.map { "\(title) — \($0)" } ?? title
