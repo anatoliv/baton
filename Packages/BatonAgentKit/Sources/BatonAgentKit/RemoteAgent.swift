@@ -359,6 +359,7 @@ public enum RemoteAgent {
     /// it can decline.
     static let discoveryTools: Set<String> = [
         "music_search", "music_list_genres", "music_browse_albums", "music_similar_songs",
+        "music_discover_external",
         "music_liked", "music_random", "music_artist_info", "music_list_playlists",
         "music_get_playlist", "music_get_queue", "music_now_playing",
     ]

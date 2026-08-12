@@ -284,6 +284,16 @@ enum BatonMCPToolCatalog {
                 required: []
             ),
             tool(
+                "music_discover_external",
+                "Music the owner does NOT have, from public catalogues (MusicBrainz, ListenBrainz, and Last.fm / YouTube where a key is set). The outward-facing twin of `music_similar_songs`: use that one for 'what else in my library', and this one for 'what should I go and find'. Off unless the owner turned it on — if it reports that, say so plainly and don't retry.",
+                properties: [
+                    "artist": ["type": "string", "description": "Artist to look outward from. Omit to use whatever is playing."],
+                    "title": ["type": "string", "description": "Track title, when there is one. Sharpens the sources that work track-by-track."],
+                    "limit": ["type": "integer", "description": "Max suggestions (default 25, max 50)."],
+                ],
+                required: []
+            ),
+            tool(
                 "music_liked",
                 "The owner's liked/starred songs, albums, and artists. The single best signal of taste — read it before recommending anything.",
                 properties: [
@@ -358,6 +368,8 @@ enum BatonMCPToolCatalog {
         "music_get_queue",
         "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
         "music_random", "music_artist_info",
+        // Reads public catalogues rather than the library, but reads is all it does.
+        "music_discover_external",
         // Reports what already happened; changes nothing.
         "music_recent_events",
     ]
@@ -376,6 +388,8 @@ enum BatonMCPToolCatalog {
         "music_start_radio", "music_sleep_timer", "music_set_eq", "music_set_crossfade",
         "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
         "music_random", "music_artist_info",
+        // The only tool here that reaches past the owner's own server.
+        "music_discover_external",
         "speak_summary",
     ]
 
@@ -442,6 +456,7 @@ enum BatonMCPToolCatalog {
             case "music_list_genres": text = try await musicListGenres(arguments)
             case "music_browse_albums": text = try await musicBrowseAlbums(arguments)
             case "music_similar_songs": text = try await musicSimilarSongs(arguments)
+            case "music_discover_external": text = try await musicDiscoverExternal(arguments, music)
             case "music_liked": text = try await musicLiked(arguments)
             case "music_random": text = try await musicRandom(arguments)
             case "music_artist_info": text = try await musicArtistInfo(arguments)
@@ -614,6 +629,57 @@ enum BatonMCPToolCatalog {
         } catch {
             throw musicError(error)
         }
+    }
+
+    /// The outward-facing twin of `musicSimilarSongs`.
+    ///
+    /// The two failure modes are reported as *states* rather than errors, because that is
+    /// what they are: the feature being switched off is a choice the owner made, and a
+    /// source with no key is a source that is off. An agent told "error" retries and
+    /// apologises; an agent told "this is off, here's the switch" says something useful.
+    private static func musicDiscoverExternal(_ args: [String: Any], _ music: MusicModel) async throws -> String {
+        let limit = min(max(optionalInt(args, "limit") ?? 25, 1), 50)
+        // "Find me more like this" usually means the thing playing, so no argument is a
+        // valid way to ask. It also keeps the schema shape identical to
+        // `music_similar_songs`, its in-library twin: both are discovery tools, and a
+        // discovery tool that demands an argument is one an agent can't try speculatively.
+        let playing = music.music.nowPlaying
+        let artist = optionalString(args, "artist") ?? playing?.artist ?? ""
+        guard !artist.isEmpty else {
+            throw BatonMCPToolError(
+                message: "Nothing is playing — provide `artist` to say what to look outward from."
+            )
+        }
+        let title = optionalString(args, "title")
+            ?? (optionalString(args, "artist") == nil ? playing?.title : nil)
+        do {
+            let findings = try await ExternalDiscovery.similar(
+                toTitle: title, artist: artist, limit: limit
+            )
+            return jsonText([
+                "suggestions": findings.suggestions.map { suggestion in
+                    [
+                        "title": suggestion.title,
+                        "artist": suggestion.artist ?? "",
+                        "source": suggestion.source.label,
+                        "url": suggestion.url?.absoluteString ?? "",
+                        "score": suggestion.score,
+                    ] as [String: Any]
+                },
+                "sources_off": findings.quietSources.map { ["source": $0.source.label, "why": $0.detail] },
+                "note": findings.suggestions.isEmpty
+                    ? "The public catalogues had nothing for that artist. This is normal for very obscure or mistagged names."
+                    : "",
+            ])
+        } catch ExternalDiscovery.Failure.notEnabled {
+            return jsonText([
+                "enabled": false,
+                "note": "Looking outside the library is off. The owner can turn it on in Settings, Playback — it is the one lookup that talks to a service other than their own server.",
+            ])
+        } catch ExternalDiscovery.Failure.noArtist {
+            throw BatonMCPToolError(message: "Provide `artist`.")
+        }
+
     }
 
     private static func musicSimilarSongs(_ args: [String: Any]) async throws -> String {

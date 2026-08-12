@@ -75,49 +75,94 @@ public final class PodcastSubscriptionStore {
         mirrorFeedsForSync()
     }
 
+    /// Record a deliberate subscribe or unsubscribe against a feed.
+    private func noteLedger(_ feed: String, removed: Bool, defaults: UserDefaults = .standard) {
+        var ledger = PodcastSubscriptionLedger.decode(defaults.data(forKey: Self.ledgerKey))
+            ?? PodcastSubscriptionLedger.fromLegacyFeeds(defaults.stringArray(forKey: Self.syncedFeedsKey) ?? [])
+        ledger.note(feed: feed, removed: removed)
+        if let encoded = ledger.encoded() { defaults.set(encoded, forKey: Self.ledgerKey) }
+    }
+
     /// Which shows you subscribe to, in a place cross-device sync can actually see.
     ///
     /// Subscriptions live as JSON in Application Support, and both transports —
     /// `PreferenceSync` and `SettingsTransfer` — carry `UserDefaults` and the Keychain.
     /// So podcasts could not travel between a Mac and a phone at all: you subscribed on
-    /// one and the other never heard about it. Mirroring the feed URLs into a synced
-    /// default fixes that without shipping the episode cache, which is derived data every
-    /// device should fetch for itself rather than inherit stale.
+    /// one and the other never heard about it. Mirroring into a synced default fixes that
+    /// without shipping the episode cache, which is derived data every device should fetch
+    /// for itself rather than inherit stale.
     private func mirrorFeedsForSync() {
-        let feeds = channels.map(\.feedURL.absoluteString)
         let defaults = UserDefaults.standard
-        guard defaults.stringArray(forKey: Self.syncedFeedsKey) != feeds else { return }
-        defaults.set(feeds, forKey: Self.syncedFeedsKey)
+        let feeds = channels.map(\.feedURL.absoluteString)
+
+        // The ledger is the real record: it can say "unsubscribed", which a list cannot.
+        var ledger = PodcastSubscriptionLedger.decode(defaults.data(forKey: Self.ledgerKey))
+            ?? PodcastSubscriptionLedger.fromLegacyFeeds(defaults.stringArray(forKey: Self.syncedFeedsKey) ?? [])
+        ledger.reconcile(withSubscribed: feeds)
+        if let encoded = ledger.encoded(), defaults.data(forKey: Self.ledgerKey) != encoded {
+            defaults.set(encoded, forKey: Self.ledgerKey)
+        }
+
+        // The plain list is still written, for a device on an older build that only knows
+        // how to read that. It syncs additively there, exactly as it always did.
+        if defaults.stringArray(forKey: Self.syncedFeedsKey) != feeds {
+            defaults.set(feeds, forKey: Self.syncedFeedsKey)
+        }
     }
 
     /// The synced list of feed URLs. Under `tonebox.` so `SettingsTransfer` exports it by
     /// the same prefix rule as everything else.
+    ///
+    /// Superseded by `ledgerKey`, and still written so a device running an older build
+    /// keeps working. It cannot express an unsubscribe, which is why it was replaced.
     public static let syncedFeedsKey = "tonebox.podcasts.feeds"
 
-    /// Subscribes to anything the other device knows about and this one doesn't.
+    /// Subscribes *and* unsubscribes, as a `PodcastSubscriptionLedger`.
+    public static let ledgerKey = "tonebox.podcasts.subscriptions"
+
+    /// Brings this device into line with what the other one did.
     ///
-    /// Additive on purpose. An unsubscribe that propagated as a deletion would let a phone
-    /// with a stale list silently remove shows from the Mac — and losing a subscription you
-    /// didn't ask to lose is far worse than keeping one you meant to drop.
+    /// Both directions now, which is the change: it adopts shows added elsewhere, **and**
+    /// drops shows unsubscribed elsewhere. The second half is only safe because a tombstone
+    /// carries a time — a device that simply hasn't synced in a while no longer looks the
+    /// same as one that deliberately removed something.
+    ///
+    /// Returns what it did, so a caller can say so rather than having the list change under
+    /// the user with no explanation.
     @discardableResult
-    public func adoptSyncedFeeds(defaults: UserDefaults = .standard) async -> Int {
-        let known = Set(channels.map(\.feedURL.absoluteString))
-        let incoming = (defaults.stringArray(forKey: Self.syncedFeedsKey) ?? [])
+    public func adoptSyncedFeeds(defaults: UserDefaults = .standard) async -> (added: Int, removed: Int) {
+        let ledger = PodcastSubscriptionLedger.merged(
+            PodcastSubscriptionLedger.decode(defaults.data(forKey: Self.ledgerKey)) ?? .init(),
+            PodcastSubscriptionLedger.fromLegacyFeeds(defaults.stringArray(forKey: Self.syncedFeedsKey) ?? [])
+        )
+
+        // Removals first: dropping a show costs nothing and cannot fail, while a subscribe
+        // hits the network. Doing them in this order means a slow feed can't leave the
+        // unsubscribe half-applied.
+        var removed = 0
+        for channel in channels
+        where ledger.record(for: channel.feedURL.absoluteString)?.removed == true {
+            channels.removeAll { $0.id == channel.id }
+            removed += 1
+        }
+
+        let known = Set(channels.map { PodcastSubscriptionLedger.normalize($0.feedURL.absoluteString) })
+        let incoming = ledger.liveFeeds
             .filter { !known.contains($0) }
             .compactMap(URL.init(string:))
-        guard !incoming.isEmpty else { return 0 }
 
-        var adopted = 0
+        var added = 0
         for feed in incoming {
             do {
                 _ = try await subscribe(to: feed)
-                adopted += 1
+                added += 1
             } catch {
                 // One dead feed must not stop the rest arriving.
                 podcastStoreLog.error("couldn't adopt synced feed \(feed.absoluteString, privacy: .public)")
             }
         }
-        return adopted
+        if removed > 0 && added == 0 { persist() }
+        return (added, removed)
     }
 
     // MARK: - Mutations
@@ -132,6 +177,10 @@ public final class PodcastSubscriptionStore {
             let channel = try await fetchChannel(feedURL: feedURL)
             upsert(channel)
             lastError = nil
+            // Said explicitly, not inferred from the file system. Subscribing is the one
+            // move that has to be able to beat an existing tombstone, and `reconcile`
+            // deliberately won't do that on its own — see `PodcastSubscriptionLedger`.
+            noteLedger(feedURL.absoluteString, removed: false)
             persist()
             return channel
         } catch {

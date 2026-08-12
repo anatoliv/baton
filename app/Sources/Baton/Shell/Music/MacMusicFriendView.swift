@@ -171,6 +171,12 @@ struct MacMusicFriendView: View {
             .help(voice?.isListening == true ? "Stop and send what you said" : "Hold a thought — click to talk")
             .accessibilityLabel(voice?.isListening == true ? "Stop listening" : "Speak")
 
+            // A way out of here. This window is the one place in the app where someone can
+            // be genuinely stuck — nothing answers, and the reason (no model provider) is
+            // not something the window can fix for them. Every other feature is reachable
+            // from a menu that sits next to Help; a window with its own scene is not.
+            HelpTopicButton(topicSlug: "the-music-friend", label: "About the music friend")
+
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill").font(.title2)
             }

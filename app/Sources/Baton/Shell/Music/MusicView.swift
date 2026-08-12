@@ -444,6 +444,15 @@ struct MusicView: View {
         .sheet(item: inspectorSongBinding) { song in
             MusicTrackInspector(song: song)
         }
+        // "Find more like this" — the outward-facing twin of Start Radio.
+        .sheet(item: discoverySeedBinding) { song in
+            MusicDiscoveryView(song: song)
+        }
+    }
+
+    /// Binding into the model's discovery seed for the "Find more like this" sheet.
+    private var discoverySeedBinding: Binding<NavidromeSong?> {
+        Binding(get: { model.discoverySeed }, set: { model.discoverySeed = $0 })
     }
 
     /// Binding into the model's inspector-song for the ⌘I "Get Info" sheet.

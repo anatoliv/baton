@@ -18,6 +18,7 @@ struct SongContextMenu: ViewModifier {
     let song: NavidromeSong
     let model: MobileModel
     @State private var showsPlaylistPicker = false
+    @State private var showsDiscovery = false
 
     func body(content: Content) -> some View {
         content
@@ -100,6 +101,14 @@ struct SongContextMenu: ViewModifier {
                         Task { await startRadio() }
                     } label: { Label("Start Radio", systemImage: "dot.radiowaves.left.and.right") }
 
+                    // Start Radio's outward-facing twin: the same "more like this", asked
+                    // of the public catalogues instead of the library. Next to it on
+                    // purpose — they are one feature with two ranges.
+                    Button {
+                        showsDiscovery = true
+                    } label: { Label(SongAction.findMoreLikeThis.label,
+                                     systemImage: SongAction.findMoreLikeThis.symbol) }
+
                     // A ban keeps the song in your library and playlists — it only stops
                     // radio and autoplay suggesting it, so those suggestions learn.
                     Button {
@@ -124,6 +133,9 @@ struct SongContextMenu: ViewModifier {
             }
             .sheet(isPresented: $showsPlaylistPicker) {
                 PlaylistPickerSheet(songIDs: [song.id], model: model)
+            }
+            .sheet(isPresented: $showsDiscovery) {
+                MobileDiscoverySheet(song: song)
             }
     }
 

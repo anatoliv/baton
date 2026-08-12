@@ -203,6 +203,84 @@ extension HelpTour {
                 ),
             ]
         ),
+        HelpTour(
+            id: "music-friend",
+            title: "Your music friend",
+            subtitle: "Ask for music in plain language, on any of your screens.",
+            symbol: "bubble.left.and.bubble.right",
+            tint: .orange,
+            steps: [
+                HelpTourStep(
+                    symbol: "quote.bubble",
+                    title: "What it's for",
+                    body: """
+                    Ask for what you want the way you'd say it to a person: \
+                    *"something calmer," "what is this?," "play the live \
+                    version instead."* It works out what you meant, then does \
+                    it with your library and this Mac's player.
+
+                    Open it with **Go, Music Friend**, or press **⌘⇧F**.
+                    """
+                ),
+                HelpTourStep(
+                    symbol: "key",
+                    title: "You bring the brain",
+                    body: """
+                    Baton ships no API key and contacts no model provider until \
+                    you set one up in **Settings, Remote** — Anthropic, OpenAI, \
+                    or a model running on your own machine. Until then the \
+                    window will say it has nothing to answer with.
+
+                    That's also the answer to what it costs: whatever your \
+                    provider charges. Baton adds nothing on top, and a local \
+                    model costs nothing at all.
+                    """
+                ),
+                HelpTourStep(
+                    symbol: "bolt",
+                    title: "Plain commands stay plain",
+                    body: """
+                    "Pause", "next", "louder" and their like are understood \
+                    directly and answer immediately, without asking a model \
+                    anything. The obvious things stay instant and free; the \
+                    model is for requests that actually need thinking about.
+                    """
+                ),
+                HelpTourStep(
+                    symbol: "mic",
+                    title: "Or just say it",
+                    body: """
+                    The composer has a microphone: click it, talk, click again \
+                    to send. macOS asks for microphone and speech permission \
+                    the first time, and if you decline, the window tells you \
+                    rather than appearing to listen.
+                    """
+                ),
+                HelpTourStep(
+                    symbol: "rectangle.on.rectangle",
+                    title: "One friend, every screen",
+                    body: """
+                    This window, the **Friend** tab on iPhone, and the Telegram \
+                    and Discord bridges are all the *same* friend having one \
+                    conversation. What it learns about you at your desk it \
+                    knows on the train, and a thumbs-down you give here counts \
+                    the same as one you give in Telegram.
+                    """
+                ),
+                HelpTourStep(
+                    symbol: "hand.thumbsdown",
+                    title: "Tell it when it's wrong",
+                    body: """
+                    Every answer carries a quiet thumbs-up and thumbs-down. A \
+                    thumbs-down asks what went wrong — wrong track, \
+                    misunderstood, too slow, too chatty — and that correction \
+                    goes into what it reads before answering next time.
+
+                    **Settings, Friend Log** holds the whole history.
+                    """
+                ),
+            ]
+        ),
     ]
 }
 
@@ -216,6 +294,45 @@ extension HelpWhatsNewRelease {
     /// enforced it. `WhatsNewFreshnessTests` now fails when the newest entry falls behind
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
+        HelpWhatsNewRelease(
+            version: "0.16.16",
+            date: "August 2026",
+            highlight: "Help search works, lyrics turn up, and you can look past your own library.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Searching Help found nothing. Not \u{201C}nothing for that word\u{201D} \u{2014} "
+                    + "nothing for any word, in every version that has shipped with the Help "
+                    + "window. Type \u{201C}scrobb\u{201D} now and you get Scrobbling."),
+                HelpWhatsNewChange(.improved,
+                    "Lyrics turn up far more often. A track tagged \u{201C}Wearing My Shoes "
+                    + "(Louis Bailar\u{2019}s radio Chillout)\u{201D} by \u{201C}Aura feat. Dani "
+                    + "Senior\u{201D} is filed as a slightly different remix by just "
+                    + "\u{201C}Aura\u{201D}, and an exact match can\u{2019}t survive that. Baton "
+                    + "now searches as well, and only accepts a match whose length agrees \u{2014} "
+                    + "so the right words scroll against the right song, or none do. Separately, "
+                    + "songs played from an album or the queue were never looked up at all."),
+                HelpWhatsNewChange(.added,
+                    "Find More Like This, on any track. \u{201C}More like this\u{201D} has always "
+                    + "meant your own library; this asks the public catalogues what else is out "
+                    + "there, and hands you a link. Ask the music friend for it too. Off until "
+                    + "you turn it on in Settings, Playback: it sends the artist and title and "
+                    + "nothing else, and two of its four sources need no account at all."),
+                HelpWhatsNewChange(.improved,
+                    "Unsubscribing from a podcast now travels between your Mac and your iPhone. "
+                    + "It used to be handed straight back by whichever device still had the "
+                    + "show. Subscribing already worked, and still does."),
+                HelpWhatsNewChange(.improved,
+                    "Help covers what the app actually does. Later had no page at all; Folders "
+                    + "predated the browser it became; Scrobbling explained itself thoroughly "
+                    + "without ever saying what it is for. There is a guided tour of the music "
+                    + "friend, the friend\u{2019}s window has a way into Help, and Settings\u{2019} "
+                    + "Agents and Friend Log panes are documented."),
+                HelpWhatsNewChange(.fixed,
+                    "On iPhone: the full-screen player no longer pushes the star rating off the "
+                    + "bottom edge, and the Downloads row counts downloads rather than the "
+                    + "things you saved for later."),
+            ]
+        ),
         HelpWhatsNewRelease(
             version: "0.16.15",
             date: "August 2026",

@@ -225,6 +225,18 @@ struct FullPlayerView: View {
                 // controls, not the decoration. Scrolling costs nothing at normal sizes
                 // (the content still fits) and is the difference between usable and not
                 // at the top of the range.
+                // Measured so the stack can *distribute* its slack instead of pooling it.
+                //
+                // The content used to be pinned to the top of the scroll view with a fixed
+                // 12pt inset and nothing at all underneath it. That reads as a broad empty
+                // band between the collapse chevron and the artwork while the last control —
+                // the star rating — sits on the bottom edge with the home indicator running
+                // through it. Both halves of that are fixed here: the content is given a
+                // minimum height of the viewport and centred inside it, so when it fits, the
+                // spare room is shared top and bottom rather than all landing in one place;
+                // and it carries real padding at the bottom, which is what the overflowing
+                // case (a small phone, or a large text size) actually needed.
+                GeometryReader { viewport in
                 ScrollView {
                     VStack(spacing: 22) {
                     if let song = model.music.nowPlaying {
@@ -265,14 +277,27 @@ struct FullPlayerView: View {
                                 Task { await model.musicLibrary.setRating(song, rating: stars) }
                             }
                         }
-                        Spacer(minLength: 0)
                     } else {
                         ContentUnavailableView("Nothing playing", systemImage: "music.note")
                     }
                     }
-                    .padding(.top, 12)
+                    // The trailing `Spacer(minLength: 0)` that used to close this stack did
+                    // nothing: a scroll view proposes no height, so the spacer took its
+                    // minimum and the content still ended flush against the last control.
+                    // Padding is the thing that actually reserves room.
+                    .padding(.top, 8)
+                    // Roughly a home indicator's worth. The safe area already keeps content
+                    // out of the indicator itself; this is the gap *above* it, so the last
+                    // row reads as the end of the stack rather than as something the screen
+                    // ran out of room for.
+                    .padding(.bottom, 36)
+                    .frame(maxWidth: .infinity,
+                           minHeight: viewport.size.height,
+                           alignment: .center)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                }
+                .accessibilityIdentifier("FullPlayerContent")
             }
             .toolbar {
                 // A chevron, not "Done", and leading rather than trailing.
@@ -935,7 +960,12 @@ struct LyricsSheet: View {
                         }
                     }
                 } else if loaded {
-                    ContentUnavailableView("No lyrics for this track", systemImage: "quote.bubble")
+                    if LRCLIBLyrics.isLikelyLyricless(durationSeconds: song.duration) {
+                        ContentUnavailableView("Too long to have lyrics", systemImage: "quote.bubble",
+                                               description: Text("Mixes and sets this length aren't written down anywhere."))
+                    } else {
+                        ContentUnavailableView("No lyrics for this track", systemImage: "quote.bubble")
+                    }
                 } else {
                     ProgressView()
                 }
@@ -946,7 +976,7 @@ struct LyricsSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
             .task {
-                lyrics = await model.musicLibrary.lyrics(for: song.id)
+                lyrics = await model.musicLibrary.lyrics(for: song.id, song: song)
                 loaded = true
             }
         }

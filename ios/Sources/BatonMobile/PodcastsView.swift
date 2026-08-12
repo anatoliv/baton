@@ -39,7 +39,8 @@ struct PodcastsListBody: View {
         .task {
             await model.podcastSubscriptions.loadIfNeeded()
             // Subscriptions made on the Mac arrive as a list of feed URLs; this is
-            // where they become real subscriptions. Additive — see `adoptSyncedFeeds`.
+            // where they become real subscriptions — and shows dropped on the Mac are
+            // dropped here too. See `PodcastSubscriptionLedger` for why that is safe.
             _ = await model.podcastSubscriptions.adoptSyncedFeeds()
         }
         .overlay {

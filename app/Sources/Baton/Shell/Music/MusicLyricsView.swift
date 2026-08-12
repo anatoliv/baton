@@ -19,6 +19,14 @@ struct MusicLyricsView: View {
         previewLyrics == nil && loading
     }
 
+    /// A two-hour set is not a song that happens to be missing its words, and saying so is
+    /// kinder than the generic empty state after a lookup that never had a chance.
+    private var emptyMessage: String {
+        LRCLIBLyrics.isLikelyLyricless(durationSeconds: song.duration)
+            ? "Too long to have lyrics — mixes and sets aren't written down"
+            : "No lyrics for this track"
+    }
+
     private var currentLine: Int? {
         guard let lyrics = displayLyrics, lyrics.synced else { return nil }
         let time = model.music.currentTime
@@ -45,7 +53,7 @@ struct MusicLyricsView: View {
             } else {
                 VStack(spacing: 6) {
                     Image(systemName: "text.quote").font(.title).foregroundStyle(.secondary)
-                    Text("No lyrics for this track").foregroundStyle(.secondary)
+                    Text(emptyMessage).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -53,7 +61,7 @@ struct MusicLyricsView: View {
         .task(id: song.id) {
             if let previewLyrics { lyrics = previewLyrics; loading = false; return }
             loading = true
-            lyrics = await model.musicLibrary.lyrics(for: song.id)
+            lyrics = await model.musicLibrary.lyrics(for: song.id, song: song)
             loading = false
         }
     }

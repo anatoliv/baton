@@ -91,7 +91,10 @@ struct LibraryView: View {
         case .downloads:
             NavigationLink { DownloadsView(model: model) } label: {
                 Label("Downloads", systemImage: section.symbol)
-                    .badge(model.pins.pins.count)
+                    // The *download* store, not `model.pins`. This badge read the
+                    // save-for-later pin count, so a library with twelve things saved for
+                    // later and nothing downloaded advertised twelve downloads.
+                    .badge(MusicDownloadStore.shared.downloadedIDs.count)
             }
         case .podcasts:
             NavigationLink { PodcastsInlineView(model: model) } label: {
@@ -120,7 +123,8 @@ struct LibraryView: View {
             likedCount > 0 ? Counted.phrase(likedCount, "liked", plural: "liked") : nil,
             model.musicLibrary.playlists.count > 0
                 ? Counted.phrase(model.musicLibrary.playlists.count, "playlist") : nil,
-            model.pins.pins.count > 0 ? "\(model.pins.pins.count) downloaded" : nil,
+            MusicDownloadStore.shared.downloadedIDs.count > 0
+                ? "\(MusicDownloadStore.shared.downloadedIDs.count) downloaded" : nil,
             model.musicLibrary.artists.count > 0
                 ? Counted.phrase(model.musicLibrary.artists.count, "artist") : nil,
         ]

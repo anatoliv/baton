@@ -58,8 +58,10 @@ struct ClientPodcastsView: View {
             }
             .task {
                 await store.loadIfNeeded()
-                // Subscriptions made on the phone arrive as feed URLs through the same
-                // sync the Mac already runs; this turns them into real subscriptions.
+                // Subscriptions made on the phone arrive through the same sync the Mac
+                // already runs, and so do *un*subscriptions: the synced ledger records
+                // when each show was added or dropped, so a removal here reaches the phone
+                // instead of being handed straight back by whichever device still had it.
                 _ = await store.adoptSyncedFeeds()
             }
             .onChange(of: store.channels) { _, channels in

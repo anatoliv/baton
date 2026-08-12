@@ -769,6 +769,10 @@ private struct BatonPlaybackPane: View {
     /// power users who open it keep it open; collapsed by default for everyone else.
     @AppStorage("baton.settings.playbackAdvancedExpanded") private var advancedExpanded = false
     @AppStorage(MusicModel.experimentalEngineKey) private var experimentalEngine = false
+    /// Looking past the owner's own server. Off, and stays off until asked.
+    @AppStorage(ExternalDiscovery.enabledKey) private var externalDiscoveryEnabled = false
+    @AppStorage(ExternalDiscovery.lastFMKeyKey) private var lastFMDiscoveryKey = ""
+    @AppStorage(ExternalDiscovery.youTubeKeyKey) private var youTubeDiscoveryKey = ""
 
     /// Fixed width for the trailing value labels on the Sound sliders, so Pre-amp and
     /// Crossfade line up identically down the right edge.
@@ -787,6 +791,7 @@ private struct BatonPlaybackPane: View {
             menuBarSection
             downloadsSection
             scrobblingSection
+            externalDiscoverySection
             advancedSection
             resetSection
         }
@@ -1066,6 +1071,44 @@ private struct BatonPlaybackPane: View {
 
             Divider()
             scrobbleSourceControls
+        }
+    }
+
+    /// Looking outside the library — the one lookup that reaches past the owner's own
+    /// server, so it states what it sends before it offers the switch.
+    @ViewBuilder private var externalDiscoverySection: some View {
+        Section("Finding music you don't have") {
+            Toggle("Look outside my library", isOn: $externalDiscoveryEnabled)
+            Text("\"More like this\" normally searches the music you already own. With this on, "
+                 + "Baton can also ask the public catalogues what else is out there — and the "
+                 + "music friend can too. It sends the artist and title of the track you asked "
+                 + "about, and nothing else: not your library, not your history.")
+                .font(.callout).foregroundStyle(.secondary)
+
+            if externalDiscoveryEnabled {
+                Divider()
+                ForEach(ExternalDiscovery.sourceStatus(), id: \.source) { status in
+                    LabeledContent(status.source.label) {
+                        Label(status.detail,
+                              systemImage: status.isAvailable ? "checkmark.circle" : "moon.zzz")
+                            .foregroundStyle(status.isAvailable ? Color.secondary : Color.secondary)
+                            .labelStyle(.titleAndIcon)
+                            .font(.callout)
+                    }
+                }
+
+                // Optional, and framed that way. A missing key switches a source off; it is
+                // not an error and nothing here should read like one.
+                TextField("Last.fm API key", text: $lastFMDiscoveryKey,
+                          prompt: Text("Optional — adds track-by-track similarity"))
+                    .textFieldStyle(.roundedBorder)
+                TextField("YouTube API key", text: $youTubeDiscoveryKey,
+                          prompt: Text("Optional — adds results you can play straight away"))
+                    .textFieldStyle(.roundedBorder)
+                Text("MusicBrainz and ListenBrainz need no account and work as soon as this is "
+                     + "on. The other two stay off until you add a key.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
         }
     }
 

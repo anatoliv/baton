@@ -54,7 +54,10 @@ struct BatonHelpView: View {
     // MARK: Model
 
     /// Which bundled guide a topic comes from.
-    private enum Guide: String {
+    ///
+    /// Carries display strings only. Its raw values are **not** an identity — deriving one
+    /// from them is the bug documented on `Topic` below.
+    enum Guide: String {
         case help
         case faq
 
@@ -96,29 +99,41 @@ struct BatonHelpView: View {
         }
     }
 
-    /// One `##`-delimited section of a guide — a single sidebar entry.
-    private struct Topic: Identifiable, Hashable {
-        let guide: Guide
-        let title: String
-        let slug: String
+    /// One `##`-delimited section of a guide — a single sidebar entry: the shared topic
+    /// plus the few things only this window cares about (a sidebar symbol, which badge to
+    /// draw).
+    ///
+    /// It **wraps** the shared topic rather than copying its fields, and that is the whole
+    /// point. It used to copy them and re-derive its own `id` as
+    /// `"\(guide.rawValue)#\(slug)"` — the same formula the shared topic uses, over a
+    /// *different* enum. `HelpGuide.Kind.help` has the raw value `"Guide"`; this file's
+    /// `Guide.help` has `"help"`. So the shared search returned scores keyed
+    /// `"Guide#scrobbling"` while this view looked them up under `"help#scrobbling"`, and
+    /// the lookup missed every single time.
+    ///
+    /// The symptom was that Help search found *nothing*, for *any* word, in every build —
+    /// while the parser and the matcher both passed their tests, because both were tested
+    /// on the shared type where the two ids agree with themselves. The bug lived in the
+    /// seam, so the seam is gone: there is now one topic identity, and it belongs to
+    /// `HelpGuide.Topic`.
+    ///
+    /// Internal rather than private so `HelpSearchPipelineTests` can drive the real sidebar
+    /// search — bundle load, parse, rank — instead of only the shared matcher, which is the
+    /// layer that stayed green throughout.
+    struct Topic: Identifiable, Hashable {
+        let shared: HelpGuide.Topic
+
+        init(_ shared: HelpGuide.Topic) { self.shared = shared }
+
+        var guide: Guide { shared.guide == .help ? .help : .faq }
+        var title: String { shared.title }
+        var slug: String { shared.slug }
         /// Section Markdown with its heading line removed.
-        let body: String
+        var body: String { shared.body }
 
-        init(_ shared: HelpGuide.Topic) {
-            self.guide = shared.guide == .help ? .help : .faq
-            self.title = shared.title
-            self.slug = shared.slug
-            self.body = shared.body
-        }
-
-        /// Back to the shared shape, for the shared search.
-        var shared: HelpGuide.Topic {
-            HelpGuide.Topic(guide: guide.shared, title: title, slug: slug, body: body)
-        }
-
-        var id: String { "\(guide.rawValue)#\(slug)" }
+        var id: String { shared.id }
         var symbol: String { BatonHelpView.symbol(for: title) }
-        var searchText: String { (title + " " + body).lowercased() }
+        var searchText: String { shared.searchText }
 
         static func == (lhs: Topic, rhs: Topic) -> Bool { lhs.id == rhs.id }
         func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -413,15 +428,24 @@ struct BatonHelpView: View {
 
     /// Keyword ranking — title matches outrank body mentions.
     private func keywordRanked(for query: String) -> [Topic] {
-        let scores = keywordScores(for: query)
+        Self.ranked(topics, query: query)
+    }
+
+    /// The sidebar's ranking, as a plain function of its inputs.
+    ///
+    /// Static and topic-in so a test can run the same code the window runs. The scores
+    /// come back keyed by `HelpGuide.Topic.id`, and the lookup uses the id of the very
+    /// topic those scores were computed from — which is the whole of the fix, and the
+    /// reason `Topic` no longer keeps an id of its own.
+    static func ranked(_ topics: [Topic], query: String) -> [Topic] {
+        let scores = HelpGuide.scores(topics.map(\.shared), query: query)
         return topics
             .filter { scores[$0.id] != nil }
             .sorted { (scores[$0.id] ?? 0) > (scores[$1.id] ?? 0) }
     }
 
-    private func keywordScores(for query: String) -> [String: Int] {
-        HelpGuide.scores(topics.map(\.shared), query: query)
-    }
+    /// Every topic in both bundled guides — the same list the window builds at launch.
+    static func allTopicsForTesting() -> [Topic] { buildTopics() }
 
     // MARK: Markdown theme
 
