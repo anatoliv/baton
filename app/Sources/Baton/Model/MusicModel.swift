@@ -72,6 +72,11 @@ final class MusicModel {
     /// any row or the now-playing surface sets it. Nil when closed.
     var inspectorSong: NavidromeSong?
 
+    /// The track we're looking *outward* from ("Find more like this"). `MusicView` presents
+    /// it as a sheet. Nil when closed, and never set at all unless the owner turned
+    /// `ExternalDiscovery` on.
+    var discoverySeed: NavidromeSong?
+
     /// Re-synthesize and play a past spoken summary from history, in its original voice. Stops any
     /// current/paused utterance first so it starts *now* rather than queuing behind it — this is a
     /// deliberate user action (Replay / the pane's Play), not an agent's FIFO summary.

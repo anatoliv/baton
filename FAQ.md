@@ -197,6 +197,59 @@ Baton has to be running for the server to be live. See
 [Connecting an agent to Baton](HELP.md#connecting-an-agent-to-baton) for Claude Desktop and
 Cursor config examples, opt-in "speak only when asked" rules, and the full details.
 
+## The music friend
+
+**What is the music friend?**
+Someone to ask for music in plain language. "Something calmer", "what is this?", "play the
+live version instead" — it works out what you meant and does it with your library and your
+player, rather than handing you search results to sort through yourself. Open it on the Mac
+from **Go, Music Friend** or with **⌘⇧F**; on iPhone it's the **Friend** tab. The full
+walkthrough is [The music friend](HELP.md#the-music-friend), and there's a guided tour of the
+same name in Help.
+
+**Do I need an API key, and what does it cost?**
+You need one, and Baton doesn't include it. Baton ships no key and contacts no model provider
+until you set one up in **Settings, Remote** — Anthropic, OpenAI, or a model running on your
+own machine. What it costs is whatever that provider charges you; Baton adds nothing and takes
+nothing. Point it at a local model and it costs nothing at all.
+
+Plain commands are free either way. "Pause", "next", "louder" and their like are understood
+directly, without asking a model anything.
+
+**Where does my data go?**
+To the provider you configured, and nowhere else. With **Let it look around first** off — the
+default — only your question is sent. With it on, what it finds in your library while
+answering (song titles, artists, genres) goes along with the question, because there is no
+other way for it to answer. If the model runs on your own machine or network, nothing leaves
+it in either case. [Agent control](#agent-control) above goes into what "look around" sends
+and why.
+
+**Why is the window empty, or why does it say it can't answer?**
+Almost always because no model provider is set. The window says so directly when that's the
+case, with a line pointing at **Settings, Remote**. It's also what "I can't answer that right
+now" means when nothing else looks wrong.
+
+If a provider *is* configured and answers still fail, the status line in **Settings, Remote**
+gives the provider's own reason — usually a mistyped key, or a model name the provider doesn't
+recognise.
+
+**Is the friend on my Mac the same one on my phone and in Telegram?**
+Yes, and that's the most useful thing about it. The Mac window, the phone's Friend tab, and
+the Telegram and Discord bridges are all one friend sharing one conversation, so a preference
+it learns in one place holds in the others, and a thumbs-down you give here counts the same as
+one you give in Telegram.
+
+**Can I talk to it instead of typing?**
+Yes. Click the microphone in the composer and talk; click it again to stop and send. macOS
+asks for microphone and speech-recognition permission the first time, and if you decline, the
+window says so rather than failing silently.
+
+**How do I correct it when it gets something wrong?**
+Every answer has a quiet thumbs-up and thumbs-down under it. A thumbs-down asks what went
+wrong — wrong track, misunderstood, too slow, too chatty — and that correction goes into what
+it reads before answering next time. **Settings, Friend Log** on the Mac holds the whole
+history.
+
 ## Playback
 
 **Does Baton do gapless?**
@@ -326,3 +379,16 @@ instead. Either way your server address, sign-in, equalizer and the rest come ac
 Your likes, ratings, playlists and play counts never needed this: they live on your
 Navidrome server and both apps read and write them as the same user, so they are already
 the same everywhere.
+
+**Do my podcasts and radio stations follow me between devices?**
+Yes, by two different routes. **Radio stations** live on your server alongside your music, so
+they're simply the same on every device with nothing to set up. **Podcast subscriptions**
+can't work that way — Navidrome has no podcast API, so Baton follows RSS feeds itself — and
+they travel with your other settings through the gateway instead.
+
+Both directions work, including removals: unsubscribe from a show on the Mac and it goes on
+the phone too, rather than reappearing next time the two talk. Baton records *when* you
+subscribed or unsubscribed to each show, so a device that has been switched off for a week
+can't undo something you deleted yesterday.
+
+How far you are into an episode is still per-device.

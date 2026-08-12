@@ -203,6 +203,12 @@ func songPlaybackMenuItems(_ song: NavidromeSong, _ model: MusicModel,
                              source: .init(label: RadioQueue.label(song.title), kind: .radio, id: song.id))
         }
     }
+    // The same question as Start Radio above, asked of the world instead of the library.
+    // Deliberately adjacent to it: they are one feature with two ranges, and a menu is
+    // where that either reads as obvious or doesn't read at all.
+    Button(SongAction.findMoreLikeThis.label, systemImage: SongAction.findMoreLikeThis.symbol) {
+        model.discoverySeed = song
+    }
     // Where this song lives. The phone has had these since it shipped; the Mac never did,
     // despite `pendingSourceNavigation` — the exact mechanism they need — existing for
     // versions and being used by the full-screen player's "Playing from" link. A dead end

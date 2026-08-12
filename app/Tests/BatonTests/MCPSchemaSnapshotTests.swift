@@ -51,6 +51,9 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         // "what IS in here", which is what a recommendation has to start from.
         "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
         "music_random", "music_artist_info",
+        // The outward-facing twin of `music_similar_songs`: same question, asked of the
+        // public catalogues instead of the library.
+        "music_discover_external",
     ]
 
     func testPublishedToolNamesExactlyMatchTheSnapshot() {
@@ -110,7 +113,8 @@ final class MCPSchemaSnapshotTests: XCTestCase {
     /// guess about what to look for, which is the problem they were added to fix.
     func testDiscoveryToolsAskForNothingUpFront() {
         for name in ["music_list_genres", "music_browse_albums", "music_liked",
-                     "music_random", "music_similar_songs", "music_artist_info"] {
+                     "music_random", "music_similar_songs", "music_artist_info",
+                     "music_discover_external"] {
             let tool = try! XCTUnwrap(catalog()[name], "\(name) is missing")
             XCTAssertTrue(required(tool).isEmpty, "\(name) must be callable with no arguments")
             let ann = tool["annotations"] as? [String: Any]

@@ -47,6 +47,11 @@ public final class PreferenceSync {
         "baton.agent.speakReplies",
         // Which podcasts you subscribe to. The episode cache stays local — it is derived
         // data each device refetches, and syncing it would ship staleness around.
+        //
+        // Two keys, on purpose. The plain list is what older builds read, and it is
+        // additive: it cannot express an unsubscribe. The ledger beside it can, and lives
+        // in `mergedKeys` because a whole-blob last-write-wins would throw away whatever
+        // the quieter device subscribed to.
         "tonebox.podcasts.feeds",
         // How long the filter-history lists are allowed to get. An ordinary scalar; the
         // lists themselves are in `mergedKeys` below because they need a different rule.
@@ -61,10 +66,21 @@ public final class PreferenceSync {
     /// the same reasoning that made podcast feeds additive-only.
     public static let mergedKeys: Set<String> =
         Set(FilterHistory.allKeys.map(FilterHistory.storageKey))
-            .union([SearchRecents.storageKey])
+            .union([SearchRecents.storageKey, PodcastSubscriptionStore.ledgerKey])
 
     /// Combine this device's list with the shared one. `nil` when there is nothing to say.
     static func mergedValue(key: String, local: Any?, remote: Any?) -> Any? {
+        // Podcast subscriptions merge per *feed*, not per document: each side's newest
+        // statement about a given show wins, so an unsubscribe here survives contact with
+        // a device that still had the show, and a later resubscribe survives the tombstone.
+        if key == PodcastSubscriptionStore.ledgerKey {
+            let decode = { (value: Any?) -> PodcastSubscriptionLedger in
+                PodcastSubscriptionLedger.decode(value as? Data) ?? .init()
+            }
+            let merged = PodcastSubscriptionLedger.merged(decode(local), decode(remote))
+            guard !merged.records.isEmpty else { return nil }
+            return merged.encoded()
+        }
         if key == SearchRecents.storageKey {
             let decode = { (value: Any?) -> [SearchRecents.Entry] in
                 guard let data = value as? Data else { return [] }

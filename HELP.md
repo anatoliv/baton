@@ -28,6 +28,7 @@ in [`docs/`](docs/).
 - [Albums and artists](#albums-and-artists)
 - [Playlists](#playlists)
 - [Liked](#liked)
+- [Later](#later)
 - [History](#history)
 - [Podcasts](#podcasts)
 - [Internet radio](#internet-radio)
@@ -40,6 +41,7 @@ in [`docs/`](docs/).
 - [The equalizer](#the-equalizer)
 - [Rating, liking, and multi-select](#rating-liking-and-multi-select)
 - [Scrobbling](#scrobbling)
+- [Finding music you don't have](#finding-music-you-dont-have)
 - [Media keys and AirPlay](#media-keys-and-airplay)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Webhook actions](#webhook-actions)
@@ -222,9 +224,25 @@ Across list views you can select several rows at once and act on them together. 
 
 The tag views — albums, artists, genres — are Navidrome's reading of your library. The
 **Folders** view is the file system's: the directory tree exactly as it sits on disk, which
-for a collection organized by hand often carries meaning the tags don't. Open a folder to
-see its subfolders and its tracks in file order, and **Play Folder** plays it top to bottom
-like an album.
+for a collection organized by hand often carries meaning the tags don't. If you have a
+`Live bootlegs` folder, or a `1997` folder, or a folder per DJ set, that structure *is* your
+filing system, and no amount of tag-reading will reconstruct it.
+
+Open a folder to see its subfolders and its tracks in file order.
+
+**Play means everything underneath.** Playing a folder plays every track inside it *and*
+inside all of its subfolders, in order — so playing `Live bootlegs` plays the lot, not just
+the handful of loose files at the top. On a very large tree Baton stops walking at some point
+and tells you it did, rather than quietly playing a part of what you asked for.
+
+It browses like the rest of the app, because it is the rest of the app:
+
+- **Filter and sort** at the top, with the filter box remembering your recent terms.
+- **List or grid**, whichever you prefer, remembered per screen.
+- **Hover a folder** for a play button without opening it.
+- **Right-click** for the same actions as a menu — play, queue, save to Later.
+- **Select several** folders and act on all of them at once. Baton gathers the tracks under
+  each one and treats them as a single pile.
 
 On the Mac, Folders is a sidebar section. On iPhone it's a row in the Library tab. Both
 browse the same tree, live from the server — nothing is duplicated locally.
@@ -359,8 +377,38 @@ Anything you heart shows up in **Liked**, split into **Songs**, **Albums**, and 
 so each kind is easy to find. The same sort and filter controls from the rest of the app
 apply here too.
 
+The heart appears when you hover a row or a card, so it's there when you want it and out of
+the way when you don't. It works the same on an album or an artist as on a song: hover, click
+the heart, and it lands in the matching tab of **Liked**.
+
 Likes are stored per user on your server (as Subsonic "stars"), so they're not just a Baton
 thing. They travel with you to any Subsonic client, and back again.
+
+---
+
+## Later
+
+**Later** is the pile of things you mean to get to. Someone sends you an album, you find a
+podcast worth a proper sitting, a station catches your ear in passing: right-click it and
+choose **Save to Later**, and it waits for you in one list.
+
+It takes anything — songs, albums, artists, playlists, podcasts, and radio stations — and
+keeps them together rather than scattering them across five screens. When more than one kind
+is saved, buttons above the list let you narrow it to just the albums, or just the podcasts.
+There's a filter box for the same reason, and the list/grid switch works here as everywhere
+else. Clicking anything plays it, whatever kind it is.
+
+**Later is not Liked, and it isn't the queue.** The three answer different questions:
+
+| | What it means | Where it lives |
+|---|---|---|
+| **Liked** | I love this | On your server, as a star, shared with every Subsonic client |
+| **Later** | I mean to get to this | On this Mac only |
+| **Queue** | I'm listening to this now | Gone when you replace it |
+
+Because Later is a note to yourself rather than a judgement about the music, it stays on the
+machine you made it on and never touches your server. Take something off the list by
+right-clicking it and removing it, or clear the whole list at once from the same place.
 
 ---
 
@@ -430,6 +478,12 @@ How it works:
 - **Keeping your place.** Baton remembers how far into an episode you got and shows a small
   progress bar and a "minutes left" note, with a checkmark once you've finished. You can mark
   an episode played or unplayed by hand.
+- **Your shows follow you.** Subscribe on the Mac and the show appears on your iPhone, and
+  the other way round. Unsubscribing travels too: drop a show on one device and it goes on
+  the other, rather than being handed back the next time they talk. This rides the same
+  device sync as your other settings, so it needs the gateway set up — see
+  [Getting your Mac's setup onto your phone](#getting-your-macs-setup-onto-your-phone).
+  Where you are in an episode is still per-device.
 - **Downloading.** For shows you follow by RSS, episodes play right away with no download
   step, and a show's menu can grab the **latest 5**, **latest 10**, or **all** episodes at
   once for offline listening (and remove them again). For server-hosted shows, an episode
@@ -466,6 +520,9 @@ them alongside your library.
   name that's been sent twice.
 - **Station logos.** For stations with a homepage, Baton fetches the site's icon. If it
   can't find one, it shows a colored monogram made from the station's name.
+- **Your stations are already everywhere.** Unlike podcasts, stations live on your server
+  rather than on the device, so a station you add on the Mac is simply there on your iPhone
+  the next time it loads the Radio tab — no sync to set up, and nothing to keep in step.
 
 When a station is on air, the [now-playing bar](#playing-music) switches into radio mode:
 station artwork and name, the live track, and **Previous** and **Next station** buttons in
@@ -517,6 +574,22 @@ A bar sits at the bottom of the window the whole time. Expanded, it gives you th
 the transport controls (previous, play and pause, next), volume, the queue, a sleep timer,
 and the AirPlay picker. You can **collapse it to a slim strip** to reclaim space (press
 Command, Control, and J), and expand it again the same way.
+
+### The little bars that mark what's playing
+
+Wherever a track appears in a list — search results, an album, the queue, a folder — the one
+you're listening to is marked by a small set of moving bars instead of a static symbol. They
+tell you two things at a glance: which row is current, and whether it's actually running. A
+paused track holds its bars still rather than pretending.
+
+**They move with the music, not on a loop.** The bars are driven by the sound itself, read in
+four frequency bands as it plays, so they lift with the bassline and flicker on the hi-hats.
+Where that reading isn't available — internet radio, or the first second of a track before
+any audio has arrived — they fall back to an even animation that looks much the same. The
+difference is that one of them is telling the truth.
+
+If you have **Reduce Motion** turned on in macOS, the bars are drawn at rest instead of
+moving. They still mark the row; they just hold still.
 
 ### Full-screen Now Playing
 
@@ -690,8 +763,18 @@ frequencies, you can move each band where you want it.
 
 ## Scrobbling
 
-Scrobbling is the record of what you listened to. Baton can report your listens to three
-places:
+Scrobbling is the record of what you listened to — and it is what most of the rest of Baton
+is built out of.
+
+That record is where **Home** gets its shelves, where **Rediscover** finds the album you
+loved two years ago and haven't played since, and what the automatic **Mixes** are assembled
+from. It is also how Baton set up your own playback: after about twenty plays it looks at
+whether you listen straight through albums or hop between single tracks, and turns on gapless
+or crossfade accordingly, once, without asking. None of that is possible about a library it
+has never watched you use. Turn scrobbling off and Baton still plays everything perfectly
+well; it just stops being able to tell you anything you didn't already know.
+
+Baton can report your listens to three places:
 
 - **Your Navidrome or Subsonic server**, which updates its own play counts. This always
   happens.
@@ -701,10 +784,17 @@ places:
   browser authorization: enter your API key and shared secret, click to authorize in the
   browser, approve, and come back to finish.
 
-A track scrobbles once you've played **half of it, up to a maximum of four minutes**, which
-is the usual scrobbling convention. Baton reports "now playing" to your server when a track
-starts, and the completed play when you cross that halfway point, so a skip near the start
-never gets miscredited. Podcasts and internet radio are never scrobbled.
+A track counts as played once you've heard **half of it, or four minutes, whichever comes
+first** — the usual scrobbling convention. In practice:
+
+- A 3-minute song counts at **1:30**.
+- A 7-minute song counts at **3:30**.
+- A 20-minute mix counts at **4:00**, not at ten minutes.
+
+Baton reports "now playing" to your server the moment a track starts, and the completed play
+when you cross that point, so skipping through the first thirty seconds of a dozen tracks
+never gets miscredited as having listened to them. Podcasts and internet radio are never
+scrobbled.
 
 If your **server** is already linked to Last.fm or ListenBrainz, you can avoid
 double-counting by switching scrobbling to **Handled by my server** in the same pane. The
@@ -713,6 +803,45 @@ default is **Sent by Baton**. Either way, your server's own play counts are alwa
 > [!TIP]
 > Scrobbles you make while offline aren't lost. Baton keeps a durable queue and submits them
 > once you're back online.
+
+---
+
+## Finding music you don't have
+
+Everything else in Baton looks *inside* your library. "More like this" finds the neighbours
+of a track among the songs you already own, which is the right answer right up until the
+moment you've heard them all.
+
+**Looking outward** asks the same question of the public music catalogues instead: given this
+artist, what else is out there. Turn it on in **Settings, Playback**, then right-click any
+track or artist and choose **Find more like this**, or just ask the music friend — *"find me
+more like this"* — on the Mac, on your phone, or over Telegram.
+
+Results are things you can act on rather than a list of names: where the source gives a link,
+Baton gives you the link.
+
+> [!IMPORTANT]
+> This is the one feature that talks to a service that isn't your own server. Asking
+> "what sounds like Aura?" tells the catalogue you were listening to Aura. That's a small
+> disclosure and an obvious one, but it's yours to make, so it's **off until you turn it
+> on** — and it sends the artist and title, nothing else. Not your library, not your
+> history, not who you are.
+
+### The four places it looks
+
+Two need nothing from you at all, which is why this is worth having before you go and
+collect API keys:
+
+| Source | What it gives you | Needs |
+|---|---|---|
+| **MusicBrainz** | Identity — which "Aura" you actually mean | Nothing |
+| **ListenBrainz** | Related artists, ranked by what real people play in the same sitting | Nothing |
+| **Last.fm** | Track-by-track similarity, finer-grained than the above | An API key |
+| **YouTube** | Something you can press play on immediately | An API key |
+
+A source with **no key is off, not broken**. Baton says which ones are quiet and why, and
+gets on with the answer from the ones that aren't. If you never add a key, you still get
+related artists — you just don't get the YouTube links.
 
 ---
 
@@ -1136,7 +1265,7 @@ background even with every window closed.
 
 ### What an agent can do
 
-The control server exposes **37 music operations**. They're the same actions Baton's own
+The control server exposes **38 music operations**. They're the same actions Baton's own
 interface uses, so anything an agent does is something you could have done by hand. Here's the
 full catalog.
 
@@ -1163,6 +1292,7 @@ play can suggest something from your collection instead of guessing at song titl
 | `music_list_genres` | List the genres in your library with song counts — the vocabulary it really uses, which is rarely the words people say | `limit` |
 | `music_browse_albums` | Browse albums by kind rather than by search: random, newest, most-played, recently played, liked, by genre, by year | `type`, `genre`, `from_year`, `to_year`, `limit` |
 | `music_similar_songs` | Songs your server considers similar to a track or artist — real neighbour data, not a keyword match | `song_id` or `query`, `limit` |
+| `music_discover_external` | Music you *don't* have, from public catalogues — the outward-facing twin of the one above. Off unless you turn it on | `artist`, `title`, `limit` |
 | `music_liked` | Your liked songs, albums, and artists | `limit` |
 | `music_random` | Random songs, optionally within a genre or year range | `genre`, `from_year`, `to_year`, `limit` |
 | `music_artist_info` | An artist's biography and every album of theirs you have | `artist_id` or `query` |
@@ -1294,10 +1424,19 @@ things instant and free; the model is for the requests that actually need thinki
 set one up in **Settings, Remote** — point it at Anthropic, at OpenAI, or at something
 running on your own machine. Until then the friend has nothing to answer with.
 
+**Talk to it if you'd rather.** The composer has a microphone: click it and speak, click it
+again to stop and send what you said. The first time, macOS asks for permission to use the
+microphone and to recognise speech; if you say no, the window tells you so instead of
+appearing to listen and doing nothing. Typing is always there as well, and **Return** sends
+while **Option-Return** starts a new line.
+
 **Tell it when it is wrong.** Every answer has a quiet thumbs-up and thumbs-down under it. A
 thumbs-down asks what went wrong — wrong track, misunderstood, too slow, too chatty — and
 that correction goes into what it reads before answering next time. On the Mac you can read
 the whole history in **Settings, Friend Log**.
+
+There is a guided tour for all of this in Help, called **Your music friend**, and the
+question-mark button in the friend window's composer opens this page directly.
 
 ## Controlling Baton from Telegram or Discord
 
@@ -1607,12 +1746,25 @@ Your webhook actions. See [Webhook actions](#webhook-actions).
 The text-to-speech servers and the category-to-voice map for spoken summaries. See
 [Speaking summaries aloud](#speaking-summaries-aloud).
 
+### Agents
+
+Whether an AI agent can drive Baton, and everything it needs to: the connection status, the
+endpoint address, and the access token, with a button to copy each. See
+[Letting an agent control your music](#letting-an-agent-control-your-music).
+
 ### Remote
 
 Telegram and Discord bot tokens, the link code and the list of chats you've authorized (each
-revocable), an optional restriction to particular Discord channels, and the natural-language
-settings. See [Controlling Baton from Telegram or
-Discord](#controlling-baton-from-telegram-or-discord).
+revocable), an optional restriction to particular Discord channels, and the model provider
+and natural-language settings the music friend runs on. See [Controlling Baton from Telegram
+or Discord](#controlling-baton-from-telegram-or-discord) and
+[The music friend](#the-music-friend).
+
+### Friend Log
+
+Every exchange you've had with the music friend, on any of your screens, with the thumbs-up
+or thumbs-down you gave it. This is where a correction goes to live, and where to look when
+you want to know why it answered the way it did. See [The music friend](#the-music-friend).
 
 ### About
 

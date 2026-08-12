@@ -467,11 +467,22 @@ public final class MusicLibraryStore {
     /// LRCLIB is a fallback, and only when the user has turned it on — it is the one lookup
     /// in this app that leaves their own server.
     public func lyrics(for songID: String) async -> NavidromeLyrics? {
+        await lyrics(for: songID, song: songForLyrics(songID))
+    }
+
+    /// The same lookup for a caller that already holds the track.
+    ///
+    /// Which every caller does: both Lyrics panels are handed a `NavidromeSong` to render.
+    /// Passing it through matters because the id-only path can only find metadata for songs
+    /// this store happens to be holding — a search result or a starred track — so a song
+    /// played from an album, a playlist or the queue reached the fallback with nothing to
+    /// look up, and returned nil before a single request was made.
+    public func lyrics(for songID: String, song: NavidromeSong?) async -> NavidromeLyrics? {
         if let fromServer = await (try? clientProvider().getLyrics(songID: songID)) ?? nil,
            !fromServer.lines.isEmpty {
             return fromServer
         }
-        guard LRCLIBLyrics.isEnabled, let song = songForLyrics(songID) else { return nil }
+        guard LRCLIBLyrics.isEnabled, let song = song ?? songForLyrics(songID) else { return nil }
         return await LRCLIBLyrics.lyrics(
             title: song.title, artist: song.artist, album: song.album,
             durationSeconds: song.duration

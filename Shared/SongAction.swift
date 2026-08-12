@@ -16,7 +16,7 @@ import Foundation
 /// and an iOS one with a rating submenu are genuinely different chrome, and pretending
 /// otherwise is how shared code turns into a switch on the platform.
 public enum SongAction: String, CaseIterable, Sendable {
-    case getInfo, play, playNext, addToQueue, startRadio
+    case getInfo, play, playNext, addToQueue, startRadio, findMoreLikeThis
     case like, unlike, rate, goToAlbum, goToArtist
     case addToPlaylist, download, banFromRadio, allowInRadio, markForRemoval
 
@@ -27,6 +27,9 @@ public enum SongAction: String, CaseIterable, Sendable {
         case .playNext: "Play Next"
         case .addToQueue: "Add to Queue"
         case .startRadio: "Start Radio"
+        // Sits beside Start Radio because it is the same question asked of the world
+        // rather than of the library. The ellipsis is a promise that a sheet opens.
+        case .findMoreLikeThis: "Find More Like This…"
         case .like: "Like"
         case .unlike: "Unlike"
         case .rate: "Rate"
@@ -49,6 +52,7 @@ public enum SongAction: String, CaseIterable, Sendable {
         case .playNext: "text.line.first.and.arrowtriangle.forward"
         case .addToQueue: "text.append"
         case .startRadio: "dot.radiowaves.left.and.right"
+        case .findMoreLikeThis: "binoculars"
         case .like: "heart"
         case .unlike: "heart.slash"
         case .rate: "star"
@@ -69,7 +73,7 @@ public enum SongAction: String, CaseIterable, Sendable {
     /// Reading order, so the two menus put the same things in the same place. Grouped:
     /// playback, then this song's metadata, then where it lives, then destructive-ish.
     public static let order: [SongAction] = [
-        .getInfo, .play, .playNext, .addToQueue, .startRadio,
+        .getInfo, .play, .playNext, .addToQueue, .startRadio, .findMoreLikeThis,
         .like, .unlike, .rate,
         .goToAlbum, .goToArtist, .addToPlaylist,
         .download, .banFromRadio, .allowInRadio, .markForRemoval,

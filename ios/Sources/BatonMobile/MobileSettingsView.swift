@@ -20,6 +20,8 @@ struct MobileSettingsView: View {
     /// changes nothing until somebody moves it.
     @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
     @AppStorage(LRCLIBLyrics.enabledKey) private var lrclibEnabled = false
+    /// "Find More Like This", pointed outward at the public catalogues. Off by default.
+    @AppStorage(ExternalDiscovery.enabledKey) private var externalDiscoveryEnabled = false
     @AppStorage(StreamQuality.wifiKey) private var wifiQuality = StreamQuality.original.rawValue
     /// Defaults to High rather than Original — the whole point is that the cellular case
     /// differs, and a default equal to Wi-Fi would make the setting a no-op for everyone
@@ -301,9 +303,12 @@ struct MobileSettingsView: View {
                     // Per-network stream quality. The server has always accepted a cap and
                     // nothing ever sent one, so a phone on cellular pulled the same bitrate
                     // as one on Wi-Fi.
-                    // Off by default: this is the one lookup in the app that leaves your
-                    // own server, so it is a choice rather than an assumption.
+                    // Off by default: both of these leave your own server, so each is a
+                    // choice rather than an assumption. (There are two now — the comment
+                    // here used to say "the one lookup", and said it for a while after it
+                    // stopped being true.)
                     Toggle("Look Up Missing Lyrics", isOn: $lrclibEnabled)
+                    Toggle("Look Outside My Library", isOn: $externalDiscoveryEnabled)
                     Picker("Appearance", selection: $appearanceRaw) {
                         ForEach(AppearanceSetting.allCases) { setting in
                             Text(setting.label).tag(setting.rawValue)
@@ -330,6 +335,13 @@ struct MobileSettingsView: View {
                         things, so crossfade is hidden while gapless is on. Loudness \
                         evens out volume between quiet and loud tracks so you stop \
                         reaching for the volume.
+
+                        Look Up Missing Lyrics and Look Outside My Library are the two \
+                        things here that talk to a service other than your own server. \
+                        Lyrics sends a track's title, artist and length. Looking outside \
+                        sends the artist and title of the track you asked about, so the \
+                        public catalogues can say what else is out there — never your \
+                        library or your history. Both are off until you turn them on.
                         """,
                         topic: SettingsHelpTopic.soundQuality,
                         onOpenHelp: { showsHelp = true }
