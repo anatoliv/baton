@@ -34,7 +34,7 @@ final class EngineStreamedEQTests: XCTestCase {
             let track = EnginePlaybackController.Track(
                 id: "tone", url: server.url, duration: 4, supportsTimeOffset: false
             )
-            harness.controller.play([track])
+            harness.controller.play(track)
             // Everything is local, so the whole 4 s schedules quickly; waiting for it
             // makes the render deterministic.
             try await harness.waitUntil(timeout: 15) {
@@ -76,7 +76,7 @@ final class EngineStreamedEQTests: XCTestCase {
             let track = EnginePlaybackController.Track(
                 id: "mp3", url: server.url, duration: 68, supportsTimeOffset: false
             )
-            harness.controller.play([track])
+            harness.controller.play(track)
             try await harness.waitUntil(timeout: 20) {
                 harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 3.0
             }
@@ -112,7 +112,7 @@ final class EngineStreamedEQTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: "tone", url: server.url, duration: 6, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         try await harness.waitUntil(timeout: 15) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 4.5
         }

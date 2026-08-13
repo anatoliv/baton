@@ -106,7 +106,7 @@ final class AgentTools: RemoteToolSurface {
             lastQuery = query
             if lastResults.isEmpty { return "No songs matched \"\(query)\"." }
             let listing = lastResults.prefix(10).enumerated()
-                .map { "\($0.offset + 1). \($0.element.title) — \($0.element.artist ?? "?")" }
+                .map { "\($0.offset + 1). \(DisplayName.titleWithArtist(title: $0.element.title, artist: $0.element.artist))" }
                 .joined(separator: "\n")
             return "Found \(lastResults.count) songs:\n\(listing)"
 
@@ -119,7 +119,8 @@ final class AgentTools: RemoteToolSurface {
 
         case "music_now_playing":
             guard let song = model.music.nowPlaying else { return "Nothing is playing." }
-            return "\(model.music.isPlaying ? "Playing" : "Paused"): \(song.title) — \(song.artist ?? "?")"
+            return "\(model.music.isPlaying ? "Playing" : "Paused"): "
+                + DisplayName.titleWithArtist(title: song.title, artist: song.artist)
 
         case "music_pause":
             model.music.pause(); return "Paused."

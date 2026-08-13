@@ -7,10 +7,17 @@ import BatonSubsonicModels
 
 let streamingLog = Logger(subsystem: "io.tonebox.baton", category: "StreamingPlayback")
 
-/// Streams music from a Navidrome (Subsonic) server and plays it locally on the
-/// Mac via `AVPlayer`. A deliberate **sibling** to the recording-playback
-/// `PlaybackController`: it owns its own `AVPlayer` and never shares state, so
-/// music and recording review can't fight over the transport.
+/// Streams music from a Navidrome (Subsonic) server and plays it locally. A deliberate
+/// **sibling** to the recording-playback `PlaybackController`: it owns its own renderer and
+/// never shares state, so music and recording review can't fight over the transport.
+///
+/// **It decides what to play; a `PlaybackDeck` renders it.** Everything here is policy — the
+/// queue, repeat and shuffle, scrobbling, now-playing, persistence, the retry ladder, and
+/// which deck takes a given track. The audio itself is `AVPlayerDeck`'s (podcasts,
+/// downloads, local files, and every stream when the experiment is off) or
+/// `EngineDeckBridge`'s (library streams, when it is on). Before Stage 5b the AVPlayer half
+/// lived inline here and every transport verb was written twice, chosen between at
+/// twenty-two hand-written branch sites.
 ///
 /// The queue drives play/next/previous; volume is a per-player volume (0–100)
 /// that never touches the CoreAudio system master (`OutputVolumeController`).
@@ -69,12 +76,6 @@ public final class StreamingPlaybackController {
     @ObservationIgnored private var isSeeking = false
     /// Stamps each seek so only the newest one's completion clears `isSeeking`.
     @ObservationIgnored private var seekGeneration = 0
-
-    /// How many seconds into the track the current stream *begins*, when it was fetched with
-    /// Subsonic `timeOffset` to reach a position a still-encoding transcode couldn't seek to
-    /// (see `StreamSeek`). The player's clock restarts at zero for such a stream, so every
-    /// track-logical reading is `streamStartOffset + player clock`. Zero for a normal load.
-    @ObservationIgnored private var streamStartOffset: TimeInterval = 0
 
     /// Seconds of audio that have actually **played** for the current track.
     ///
@@ -198,7 +199,7 @@ public final class StreamingPlaybackController {
         // Engine deck: the EQ is a node in the graph, toggled live with no reload —
         // MusicModel pushes band/enable changes straight to the deck.
         if engineOwnsPlayback { return }
-        guard nowPlaying != nil, player.currentItem != nil else { return }
+        guard nowPlaying != nil, avDeck.hasCurrentItem else { return }
         // AVFoundation binds an item's audioMix (the EQ tap) when the item starts playing, NOT when
         // it's reassigned on a live item — so toggling the EQ on/off had no audible effect on the
         // current track. Reload the current track at its position so the tap attaches (EQ on) or
@@ -217,6 +218,26 @@ public final class StreamingPlaybackController {
     /// A 0…1 fade envelope multiplied into the output volume — used for the sleep-timer
     /// fade-out (and available for other gentle fades). 1 = no fade.
     @ObservationIgnored public var fadeMultiplier: Float = 1
+
+    /// The audio-focus duck's own envelope, so ducking under speech is a ramp rather than a step.
+    ///
+    /// **Why this is separate from `volumePercent`, which the duck also moves.** The duck
+    /// deliberately writes the ducked level into the *persisted* volume: that is what makes it
+    /// observable, and what lets `recoverStuckDuckFromPreviousSession()` put the level back if
+    /// the app dies mid-duck. Ramping that value instead would mean twenty `UserDefaults`
+    /// writes per fade and a persisted level that is briefly meaningless.
+    ///
+    /// So the persisted value still steps, and this envelope is set to exactly cancel the step
+    /// at the instant it happens, then ramped to 1. Effective level is `percent × envelope`, so
+    /// the two moves are level-continuous where they meet and the listener hears one smooth
+    /// slope. Not persisted, and reset to 1 on any release, so a crash can never strand it.
+    ///
+    /// **Why not reuse `fadeMultiplier`:** that is the sleep timer's, and a summary arriving
+    /// during a sleep fade would otherwise fight it — the last writer would win and the timer's
+    /// fade-to-silence would jump back up. Two independent envelopes multiply, which is the
+    /// correct composition for two independent reasons to be quieter.
+    @ObservationIgnored public var duckEnvelope: Float = 1
+    @ObservationIgnored var duckRampTask: Task<Void, Never>?
     @ObservationIgnored private var fadeTask: Task<Void, Never>?
 
     /// Track-to-track loudness normalization using the server's ReplayGain/R128 data —
@@ -345,9 +366,7 @@ public final class StreamingPlaybackController {
         didSet {
             let clamped = min(2.0, max(0.5, playbackRate))
             if playbackRate != clamped { playbackRate = clamped; return }
-            player.defaultRate = clamped
-            if isPlaying { player.rate = clamped }
-            if engineOwnsPlayback { engineDeck?.setPlaybackRate(clamped) }
+            eachDeck { $0.setPlaybackRate(clamped) }
         }
     }
 
@@ -371,10 +390,31 @@ public final class StreamingPlaybackController {
 
     // MARK: - Internals
 
-    /// `AVQueuePlayer` (an `AVPlayer` subclass, so seek/volume/observers all work) so that
-    /// true **gapless** playback can preload the next item and let the OS auto-advance
-    /// with no gap. Non-gapless paths keep exactly one item queued at a time.
-    private var player = AVQueuePlayer()
+    /// The AVPlayer renderer. Always present — it is what plays podcasts, downloads, local
+    /// files and internet radio, and what the engine degrades back to.
+    ///
+    /// It used to be an `AVQueuePlayer` inline in this file, which is why every transport
+    /// verb here was written twice: once through the deck the engine gave us, once through
+    /// the player it did not. (Stage 5b / TBX-2872)
+    @ObservationIgnored private let avDeck = AVPlayerDeck()
+
+    /// The deck rendering the current track. One question, asked one way — the routing
+    /// decision now happens at load and nowhere else.
+    private var activeDeck: any PlaybackDeck {
+        engineOwnsPlayback ? (engineDeck ?? avDeck) : avDeck
+    }
+
+    /// Push a setting to every deck, not only the one currently rendering.
+    ///
+    /// Level, rate, loudness and the stall timeout are idempotent state, and a deck that
+    /// receives them only while it happens to own playback carries a stale value into the
+    /// moment it takes over. That is the shape of the mute bug documented at `toggleMute`:
+    /// `applyVolume()` was the only path that reached the engine deck, so muting did nothing
+    /// audible on an engine-owned track until some unrelated volume event happened to run.
+    private func eachDeck(_ body: (any PlaybackDeck) -> Void) {
+        body(avDeck)
+        if let engineDeck { body(engineDeck) }
+    }
 
     // MARK: - Experimental engine deck (feat/audio-engine)
 
@@ -383,10 +423,20 @@ public final class StreamingPlaybackController {
     /// streams, in-spool + `timeOffset` seeks — while podcasts, local files, and radio
     /// stay on AVPlayer. All queue/focus/scrobble policy in this type is unchanged; the
     /// deck is only ever the thing that renders audio. Nil in production by default.
-    @ObservationIgnored private var engineDeck: EngineDeckBridge?
+    ///
+    /// Held as the seam rather than as a concrete type: the routing branches this type is
+    /// full of exist because there are two renderers, and a second implementation cannot be
+    /// held at all while this field names one of them. (Stage 5b / TBX-2872)
+    @ObservationIgnored private var engineDeck: (any PlaybackDeck)?
     /// True while the *current* track is playing on the engine deck — the routing flag
     /// every transport verb consults. False the moment a non-routable track loads.
-    @ObservationIgnored private var engineOwnsPlayback = false {
+    ///
+    /// Observable, and public, because the UI has to ask the same question the transport
+    /// does. The now-playing bar used to swap in the per-app output picker whenever a deck
+    /// was *attached*, which is not the same thing: playing a podcast with a device chosen
+    /// left the picker claiming a route it did not control while AVPlayer rendered to the
+    /// system default. It changes about once per track load, so observing it is cheap.
+    public private(set) var engineOwnsPlayback = false {
         didSet {
             guard engineOwnsPlayback != oldValue else { return }
             // Metering follows ownership, and it does so here rather than at the five
@@ -408,6 +458,11 @@ public final class StreamingPlaybackController {
     }
     #if DEBUG
     public var engineOwnsPlaybackForTesting: Bool { engineOwnsPlayback }
+    /// Whether a manual skip would blend or hard-cut. The routing decision is the whole of
+    /// §3.3, and asserting it on the source text (as `EngineDeckSkipTests` must, for the
+    /// shape of the guard) cannot tell whether a *podcast* still blends with a deck attached.
+    @discardableResult
+    public func beginSkipBlendForTesting(to index: Int) -> Bool { beginSkipBlend(to: index) }
     #endif
 
     /// Builds the deck the first time a track genuinely wants it, for hosts that cannot
@@ -424,13 +479,13 @@ public final class StreamingPlaybackController {
     /// Called at most once. A provider that returns nil (no output, engine refused to
     /// start) is not retried — the host silently keeps AVPlayer, which is the correct
     /// degradation and matches what the Mac does with a failed `deviceBridge()`.
-    @ObservationIgnored public var engineDeckProvider: (@MainActor () -> EngineDeckBridge?)?
+    @ObservationIgnored public var engineDeckProvider: (@MainActor () -> (any PlaybackDeck)?)?
     @ObservationIgnored private var engineDeckResolved = false
 
     /// The deck, building it on first demand. Call *after* establishing that the track is
     /// engine-routable, never before: resolving eagerly would spin up an audio engine to
     /// play a podcast, and on the phone would activate the audio session to do it.
-    private func resolveEngineDeck() -> EngineDeckBridge? {
+    private func resolveEngineDeck() -> (any PlaybackDeck)? {
         if let engineDeck { return engineDeck }
         guard !engineDeckResolved, let provider = engineDeckProvider else { return nil }
         engineDeckResolved = true
@@ -444,7 +499,7 @@ public final class StreamingPlaybackController {
     /// the phone plays with an equalizer or silently without one, and they are not
     /// observable from outside without driving real audio. Exposed for tests only.
     @discardableResult
-    public func resolveEngineDeckForTesting() -> EngineDeckBridge? { resolveEngineDeck() }
+    public func resolveEngineDeckForTesting() -> (any PlaybackDeck)? { resolveEngineDeck() }
     #endif
 
     /// Move the track that is already playing onto whichever deck now applies.
@@ -466,7 +521,7 @@ public final class StreamingPlaybackController {
     /// Attach (or detach, with nil) the experimental engine deck. Wired here, in the main
     /// file, because the deck's callbacks need this type's private clock/scrobble state —
     /// they ARE the periodic-observer body for engine-owned tracks.
-    public func attachEngineDeck(_ deck: EngineDeckBridge?) {
+    public func attachEngineDeck(_ deck: (any PlaybackDeck)?) {
         if deck == nil, engineOwnsPlayback { engineDeck?.stop(); engineOwnsPlayback = false }
         // Detaching re-arms the provider. iOS media-services reset leaves every audio
         // object dead, and recovery is exactly "throw this deck away and let the next
@@ -478,115 +533,153 @@ public final class StreamingPlaybackController {
         // playback, because nothing carried it across the bridge.
         deck?.setStallTimeout(stallTimeoutSeconds)
         guard let deck else { return }
-        deck.onClock = { [weak self] time, engineDuration, buffering in
-            guard let self, engineOwnsPlayback else { return }
-            // A host-side seek holds the scrubber at the target until the engine's clock
-            // reaches it — the same snap-back guard the AVPlayer path gets from its seek
-            // completion, expressed against the engine's authoritative clock.
-            if isSeeking {
-                guard abs(time - currentTime) < 1.0 else { return }
-                isSeeking = false
-            }
-            currentTime = time
-            if engineDuration > 1, abs(engineDuration - duration) > 1 { duration = engineDuration }
-            isBuffering = buffering && state == .playing
-            // The periodic-observer essentials, so an engine-owned track scrobbles,
-            // saves progress, and persists exactly like an AVPlayer one.
-            if let previous = lastClockSample {
-                let step = time - previous
-                if step > 0, step <= Self.maxListenStep { listenedSeconds += step }
-            }
-            lastClockSample = time
-            if let song = nowPlaying, duration > 1, abs(currentTime - lastProgressSaveTime) >= 5 {
-                lastProgressSaveTime = currentTime
-                onProgressUpdate?(song, currentTime, duration)
-            }
-            if duration > 1, abs(currentTime - lastQueuePersistTime) >= 15 {
-                lastQueuePersistTime = currentTime
-                persistQueue()
-            }
-            if !scrobbledCurrent, let song = nowPlaying, duration > 30,
-               currentTime >= MusicScrobbler.scrobbleThreshold(duration: duration) {
-                scrobbledCurrent = true
-                pendingEventReason = .finished
-                onScrobbleEligible?(song, currentTrackStartedAt)
-            }
+        wire(deck, isEngine: true)
+    }
+
+    /// Wire a deck's three signals to this type's policy.
+    ///
+    /// Both decks land on the *same* handlers, and each callback is gated on whether the
+    /// deck it came from is the one that owns playback right now. That gate is what used to
+    /// be written by hand at the top of two separate observer bodies — `guard
+    /// engineOwnsPlayback` in one, `guard !engineOwnsPlayback` in the other — and getting it
+    /// wrong is how the playhead ended up with two publishers, jumping and snapping back on
+    /// every Next. There is one clock body now, so there is nothing left to keep in step.
+    private func wire(_ deck: any PlaybackDeck, isEngine: Bool) {
+        deck.onClock = { [weak self] time, deckDuration, buffering in
+            guard let self, engineOwnsPlayback == isEngine else { return }
+            handleClock(time: time, duration: deckDuration, buffering: buffering)
         }
         deck.onEnded = { [weak self] in
-            guard let self, engineOwnsPlayback else { return }
+            guard let self, engineOwnsPlayback == isEngine else { return }
             // The engine already refused any spurious early EOF itself (its own bounded
-            // re-request ladder), so this end is genuine by construction.
-            currentTime = duration
+            // re-request ladder), so an end reported from there is genuine by construction —
+            // hence the playhead is moved to the end before `handleEnded`'s own spurious-end
+            // check, which would otherwise re-request a track that really finished.
+            if isEngine { currentTime = duration }
             handleEnded()
         }
         deck.onFailure = { [weak self] message in
-            guard let self, engineOwnsPlayback else { return }
-            handleLoadFailure(message)
-        }
-    }
-    private var endObserver: (any NSObjectProtocol)?
-    /// The item we consider "current" — compared against `player.currentItem` to detect a
-    /// gapless auto-advance (the OS moved to the preloaded next track on its own).
-    private var loadedItem: AVPlayerItem?
-    /// The item queued ahead of the current one for a gap-free boundary, and what it is.
-    ///
-    /// This was `(index: Int, item: AVPlayerItem)`, and the missing field was the song.
-    /// Everything that validated the preload compared the *index* — but an index is a
-    /// position, not an identity, and the queue moves underneath it. Remove the track
-    /// sitting at index 1 and index 1 still exists, now holding a different song: the
-    /// preload matched, survived, and the boundary played the removed track's audio while
-    /// `gaplessAdvanced(to:)` reconciled state onto whatever had shifted into that slot.
-    /// The app named one track and played another, which is the defect class this codebase
-    /// has already paid for once at the Lock Screen.
-    ///
-    /// Carrying `songID` makes identity the thing that is checked, and `stage` makes the
-    /// lifecycle explicit rather than inferred from whether a URL happens to be a file.
-    private struct PreloadSlot {
-        /// Where the preload's `stage` sits between being queued and being played.
-        enum Stage: Equatable {
-            /// Queued as a network stream. A disk prefetch may still be in flight.
-            case stream
-            /// Queued as a local file — either already cached, downloaded, or swapped in
-            /// by `adoptPrefetchedNext`. The boundary is guaranteed gap-free.
-            case local
-        }
-        let index: Int
-        let songID: String
-        let item: AVPlayerItem
-        var stage: Stage
-
-        /// Whether this preload still describes the track the queue plans to play next.
-        /// Both halves are required: the index can stay while the song changes (a removal
-        /// shifts the queue up) and the song can stay while the index changes (a reorder).
-        func matches(index plannedIndex: Int?, songID plannedSongID: String?) -> Bool {
-            index == plannedIndex && songID == plannedSongID
+            guard let self, engineOwnsPlayback == isEngine else { return }
+            // `afterEngineLadder`, because the engine only ever reports `.error` once it has
+            // already retried this track at the playhead three times with backoff. Running
+            // the host's identical ladder on top of that multiplied them: one dead track
+            // cost about sixteen fetch cycles and half a minute of dead air.
+            handleLoadFailure(message, afterEngineLadder: isEngine)
         }
     }
 
-    private var gaplessPreload: PreloadSlot?
-    /// Owns the second player + volume ramp during a crossfade overlap; its player is promoted to
-    /// `player` in `finishCrossfade` when the fade completes.
-    /// Shapes the player's own volume around pause/stop/resume so transport actions don't
-    /// click. Distinct from `crossfadeRamp`, which overlaps two players at a track boundary.
-    private let transportFade = TransportFade()
-    private let crossfadeRamp = CrossfadeRamp()
+    /// The AVPlayer deck's extra signals — the ones with no engine counterpart, because the
+    /// engine answers those questions inside itself.
+    private func wireAVDeck() {
+        wire(avDeck, isEngine: false)
+        avDeck.hostIntendsToPlay = { [weak self] in self?.state == .playing }
+        avDeck.configureItem = { [weak self] item in self?.configureAudioMix?(item) }
+        avDeck.onBuffering = { [weak self] buffering in
+            guard let self, !engineOwnsPlayback else { return }
+            isBuffering = buffering && state == .playing
+        }
+        avDeck.onItemReady = { [weak self] in
+            guard let self, !engineOwnsPlayback else { return }
+            consecutiveFailures = 0
+            isBuffering = false
+            if let target = pendingSeek {
+                pendingSeek = nil
+                seek(to: target)
+            }
+        }
+        avDeck.onSeekLanded = { [weak self] in
+            guard let self, !engineOwnsPlayback else { return }
+            isSeeking = false
+        }
+        avDeck.onDuration = { [weak self] seconds in
+            guard let self, !engineOwnsPlayback, seconds != duration else { return }
+            duration = seconds
+            pushNowPlaying()
+        }
+        avDeck.onReloadStream = { [weak self] offset in
+            guard let self, !engineOwnsPlayback else { return }
+            reloadStream(startingAt: offset)
+        }
+    }
+
+    /// One clock body, for whichever deck is rendering.
+    ///
+    /// This was two: an `AVPlayer` periodic observer and the engine bridge's 4 Hz tick, each
+    /// carrying its own copy of the listening accumulator, the progress save, the queue
+    /// persist and the scrobble threshold. The deck-specific halves — the stream offset, the
+    /// stall recovery nudge, the parked-player end fallback — went with the deck that owns
+    /// them, and what is left is the same for both.
+    private func handleClock(time: TimeInterval, duration deckDuration: TimeInterval, buffering: Bool) {
+        // Only one thing may publish the playhead at a time, and during a blend the deck is
+        // still rendering the *outgoing* track while every observable property has already
+        // moved to the incoming one. Publishing here would put the bar back on the old
+        // track's position and snap it forward again when the ramp promotes.
+        guard !isCrossfading else { return }
+        // A host-side seek holds the scrubber at the target until the deck's clock reaches
+        // it, so a tick already in flight can't snap it back to where it was.
+        if isSeeking {
+            guard abs(time - currentTime) < 1.0 else { return }
+            isSeeking = false
+        }
+        currentTime = time
+        if deckDuration > 1, abs(deckDuration - duration) > 1 { duration = deckDuration }
+        isBuffering = buffering && state == .playing
+        // Accumulate real listening: only small forward steps, so a seek (or a stall's
+        // catch-up) adds nothing. See `listenedSeconds`.
+        if let previous = lastClockSample {
+            let step = time - previous
+            if step > 0, step <= Self.maxListenStep { listenedSeconds += step }
+        }
+        lastClockSample = time
+        // Resume: once the item is ready (duration known), jump to the saved offset exactly
+        // once. Done here rather than at track start because the item may not be seekable
+        // and its duration may be unknown until audio actually flows.
+        if let offset = pendingResumeOffset, duration > 1 {
+            pendingResumeOffset = nil
+            if PlaybackResume.shouldResume(offset: offset, duration: duration) {
+                lastProgressSaveTime = offset
+                seek(to: offset)
+                return
+            }
+        }
+        // Persist listening progress (podcasts) roughly every 5 s of playback.
+        if let song = nowPlaying, duration > 1, abs(currentTime - lastProgressSaveTime) >= 5 {
+            lastProgressSaveTime = currentTime
+            onProgressUpdate?(song, currentTime, duration)
+        }
+        // Persist queue + playhead ~every 15 s so a quit mid-track restores near the real
+        // position (persistQueue otherwise only runs on transport events).
+        if duration > 1, abs(currentTime - lastQueuePersistTime) >= 15 {
+            lastQueuePersistTime = currentTime
+            persistQueue()
+        }
+        // Fire an external scrobble once the track's been played long enough.
+        if !scrobbledCurrent, let song = nowPlaying, duration > 30,
+           currentTime >= MusicScrobbler.scrobbleThreshold(duration: duration) {
+            scrobbledCurrent = true
+            pendingEventReason = .finished
+            onScrobbleEligible?(song, currentTrackStartedAt)
+        }
+        // Start a crossfade into the next track when we're within the crossfade window of
+        // the end (opt-in; 0 keeps the classic hard cut).
+        maybeStartCrossfade()
+    }
+
+    /// True while a track boundary is being blended. A belief about the audio, deliberately
+    /// separate from `avDeck.isCrossfadeRampActive`, which is the truth: the two disagreeing
+    /// is what once left a second player running that no transport action could stop.
     private var isCrossfading = false
 
     // Test seams for the crossfade leak. The bug lived precisely in these two disagreeing,
     // so a test has to be able to put them out of step deliberately — that state is
     // otherwise only reachable through a timing race nobody can stage on demand.
-    var crossfadeRampForTesting: CrossfadeRamp { crossfadeRamp }
+    var crossfadeRampForTesting: CrossfadeRamp { avDeck.crossfadeRamp }
     var isCrossfadingForTesting: Bool { isCrossfading }
     func setCrossfadingForTesting(_ value: Bool) { isCrossfading = value }
 
     /// True when true-gapless is active: gapless toggle on and no crossfade set (a nonzero
     /// crossfade takes over the transition instead).
     private var isGaplessMode: Bool { gaplessEnabled && crossfadeSeconds < 0.05 }
-    /// Periodic observer on the player clock — updates `currentTime` smoothly (~4 Hz)
-    /// while audio flows. Replaces the old manual poll loop.
-    private var timeObserverToken: Any?
-    /// Stalled-stream auto-recovery bookkeeping (see +StallRecovery). Reset per track.
-    var stallPolicy = StallRecoveryPolicy()
     /// A position to seek to once the current item reaches `readyToPlay` — used to
     /// restore a persisted playhead without racing a fixed delay.
     private var pendingSeek: TimeInterval?
@@ -598,25 +691,17 @@ public final class StreamingPlaybackController {
     /// track change / successful load.
     private var sameTrackRetries = 0
     public static let maxSameTrackRetries = 3
-    /// Watchdog for a mid-stream buffering STALL. AVPlayer's `automaticallyWaitsToMinimizeStalling`
-    /// waits *indefinitely* on a slow-but-open connection — the classic symptom behind a corporate
-    /// proxy / TLS-inspection middlebox or a high-latency, jittery link — so the UI shows an endless
-    /// spinner and never recovers. When the player sits in `waitingToPlayAtSpecifiedRate` while we
-    /// intend to play, we arm this; if it's still stalled after `stallTimeout` we route into the same
-    /// `handleLoadFailure` ladder a hard failure uses (same-track retry preserving the playhead, then
-    /// skip). Cancelled the instant audio flows or we pause/stop.
-    private var stallWatchdog: Task<Void, Never>?
-    /// How long the player may sit buffering before we treat it as a stall and recover (see
-    /// `stallWatchdog`). User-configurable in Settings → Playback and clamped to a sane range:
-    /// generous by default so a legitimately slow connection still fills its buffer, but low enough
-    /// that a blocked one recovers promptly. A retry preserves the playhead, so even a premature fire
-    /// just resumes in place. Persisted.
+    /// How long a deck may sit buffering before it treats the wait as a stall and recovers.
+    /// User-configurable in Settings → Playback and clamped to a sane range: generous by
+    /// default so a legitimately slow connection still fills its buffer, but low enough that
+    /// a blocked one recovers promptly. A retry preserves the playhead, so even a premature
+    /// fire just resumes in place. Persisted.
     public var stallTimeoutSeconds: Double = 20 {
         didSet {
             let clamped = min(max(stallTimeoutSeconds, Self.minStallTimeout), Self.maxStallTimeout)
             if clamped != stallTimeoutSeconds { stallTimeoutSeconds = clamped; return }
             guard stallTimeoutSeconds != oldValue else { return }
-            engineDeck?.setStallTimeout(stallTimeoutSeconds)
+            eachDeck { $0.setStallTimeout(stallTimeoutSeconds) }
             defaults.set(stallTimeoutSeconds, forKey: Self.stallTimeoutKey)
         }
     }
@@ -640,9 +725,7 @@ public final class StreamingPlaybackController {
     /// track". Every other signal — `nowPlaying`, `currentIndex`, the advance and reload
     /// counts — is our own bookkeeping, and the whole class of gapless bug is bookkeeping
     /// that disagrees with the audio. Only the item's own asset can settle it.
-    public var currentItemURLForTesting: URL? {
-        (player.currentItem?.asset as? AVURLAsset)?.url
-    }
+    public var currentItemURLForTesting: URL? { avDeck.currentItemURL }
     public private(set) var loadCurrentCountForTesting = 0
     /// Counts how many times the queued gapless-next stream item was swapped for a local
     /// prefetched file (the zero-gap-on-streams path).
@@ -720,13 +803,6 @@ public final class StreamingPlaybackController {
     /// True while a `suspendForCapture()` is actively ducking playback it paused. Kept as a
     /// computed shim over the capture token so existing call sites / tests are unchanged.
     private var suspendedForCapture: Bool { captureToken?.didSuspend == true }
-    /// KVO on the current item's `status` — surfaces decode / stream failures that
-    /// would otherwise leave the transport stuck at "playing" with no audio.
-    private var statusObservation: NSKeyValueObservation?
-    /// KVO on the player's `timeControlStatus` — logs (at error level, so it
-    /// persists) when the player is stuck waiting to play and why, versus actually
-    /// playing. Makes a "playing but silent" report diagnosable from the logs.
-    private var timeControlObservation: NSKeyValueObservation?
     /// Builds a signed Subsonic stream URL for a song id. Injectable for tests;
     /// defaults to the configured Navidrome client.
     private let streamURLProvider: @MainActor (String) throws -> URL
@@ -929,153 +1005,14 @@ public final class StreamingPlaybackController {
         gaplessPrefetchWifiOnly = defaults.bool(forKey: Self.gaplessWifiOnlyKey)
         duckPercent = defaults.object(forKey: Self.duckKey) as? Int ?? 20
         stallTimeoutSeconds = defaults.object(forKey: Self.stallTimeoutKey) as? Double ?? Self.defaultStallTimeout
+        // Wire before the first level push, so the deck is already answering for itself when
+        // it receives one.
+        wireAVDeck()
+        avDeck.setStallTimeout(stallTimeoutSeconds)
         applyVolume()
-        player.isMuted = false
-        attachPlayerObservers()
         configureNowPlaying()
         // If a prior run crashed while ducked for audio focus, restore the stranded volume.
         recoverStuckDuckFromPreviousSession()
-    }
-
-    /// Wire the transport-status + periodic-clock observers to the current `player`.
-    /// Factored out so a crossfade can promote its second player and re-observe it.
-    private func attachPlayerObservers() {
-        // Diagnose "playing but silent": log why the player is stalled, or confirm
-        // audio is actually flowing. `.error` level so it persists to the log store.
-        // Doubles as the UI buffering signal (`isBuffering`).
-        timeControlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-            // KVO can fire on AVFoundation's internal queues; read Sendable values
-            // here, then hop to the main actor (assumeIsolated would trap off-main).
-            let status = player.timeControlStatus
-            let rate = player.rate
-            let waitReason = player.reasonForWaitingToPlay?.rawValue ?? "unknown"
-            Task { @MainActor in
-                guard let self else { return }
-                switch status {
-                case .playing:
-                    self.isBuffering = false
-                    self.cancelStallWatchdog()
-                    streamingLog.info("player: audio flowing (rate \(rate, privacy: .public))")
-                case .waitingToPlayAtSpecifiedRate:
-                    // Only "buffering" while we actually intend to play (not paused).
-                    self.isBuffering = (self.state == .playing)
-                    streamingLog.error("player: waiting to play — reason \(waitReason, privacy: .public)")
-                    // A slow-but-open connection can wait here forever (corporate proxy / VPN /
-                    // TLS inspection). Arm the watchdog so playback recovers instead of spinning.
-                    if self.isBuffering { self.armStallWatchdog() } else { self.cancelStallWatchdog() }
-                case .paused:
-                    self.isBuffering = false
-                    self.cancelStallWatchdog()
-                @unknown default:
-                    break
-                }
-            }
-        }
-        // Smooth playhead updates while audio flows — an AVPlayer clock observer,
-        // auto-suspended when paused, replacing the old 500 ms poll `Task`.
-        timeObserverToken = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
-            queue: .main
-        ) { [weak self] time in
-            MainActor.assumeIsolated {
-                guard let self, time.seconds.isFinite else { return }
-                // While the engine deck owns playback, AVPlayer is not the clock — and this
-                // observer must not act as though it were.
-                //
-                // It publishes `streamStartOffset + time.seconds`. On a track change the
-                // player is emptied but this observer stays installed, so it can still fire
-                // with a zeroed player clock while `streamStartOffset` still holds the
-                // *previous* track's offset — publishing the old position, which the engine's
-                // own tick then corrects to zero a moment later. That is the playhead
-                // jumping somewhere and snapping back on every Next.
-                //
-                // It is a second writer of the same value, which is why fixing the engine's
-                // stale tick (the `clockGeneration` guard in `EngineDeckBridge`) did not end
-                // the symptom: two publishers, one fixed. Everything below this line is
-                // AVPlayer's business — the stall watchdog, the resume offset, listening
-                // accumulation — and none of it applies to a track this player is not playing.
-                guard !self.engineOwnsPlayback else { return }
-                // Nor during a skip blend, for the same reason: two things would be
-                // writing one value.
-                //
-                // `beginSkipBlend` advances the transport immediately and zeroes the
-                // playhead, but this observer stays attached to the *outgoing* player until
-                // the incoming one is promoted — so it went on publishing the old track's
-                // position over that zero. The bar jumped to wherever the previous track had
-                // reached, then snapped back when the new player took over. Reported on the
-                // desktop after the engine-side fix, because the engine was never the only
-                // path this happened on.
-                guard !self.isCrossfading else { return }
-                // Stalled-stream watchdog: runs on the same clock so a parked player
-                // with a recovered buffer gets nudged (see +StallRecovery).
-                self.stallRecoveryTick(player: self.player)
-                // Don't let a stale clock tick override a just-issued seek target.
-                if self.isSeeking { return }
-                // An offset stream's clock restarts at zero, so the track-logical playhead is
-                // the offset plus the player's clock (`streamStartOffset` is 0 for a normal load).
-                let playhead = max(0, self.streamStartOffset + time.seconds)
-                // Accumulate real listening: only small forward steps, so a seek (or a stall's
-                // catch-up) adds nothing. See `listenedSeconds`.
-                if let previous = self.lastClockSample {
-                    let step = playhead - previous
-                    if step > 0, step <= Self.maxListenStep { self.listenedSeconds += step }
-                }
-                self.lastClockSample = playhead
-                self.currentTime = playhead
-                // Resume: once the item is ready (duration known), jump to the saved offset
-                // exactly once. Done here (not at track start) because the item may not be
-                // seekable and its duration may be unknown until audio actually flows.
-                if let offset = self.pendingResumeOffset, self.duration > 1 {
-                    self.pendingResumeOffset = nil
-                    if PlaybackResume.shouldResume(offset: offset, duration: self.duration) {
-                        self.lastProgressSaveTime = offset
-                        self.seek(to: offset)
-                        return
-                    }
-                }
-                // Persist listening progress (podcasts) roughly every 5 s of playback.
-                if let song = self.nowPlaying, self.duration > 1,
-                   abs(self.currentTime - self.lastProgressSaveTime) >= 5 {
-                    self.lastProgressSaveTime = self.currentTime
-                    self.onProgressUpdate?(song, self.currentTime, self.duration)
-                }
-                // Persist queue + playhead ~every 15 s so a quit mid-track restores near
-                // the real position (persistQueue otherwise only runs on transport events).
-                if self.duration > 1, abs(self.currentTime - self.lastQueuePersistTime) >= 15 {
-                    self.lastQueuePersistTime = self.currentTime
-                    self.persistQueue()
-                }
-                // Fire an external scrobble once the track's been played long enough.
-                if !self.scrobbledCurrent, let song = self.nowPlaying, self.duration > 30,
-                   self.currentTime >= MusicScrobbler.scrobbleThreshold(duration: self.duration) {
-                    self.scrobbledCurrent = true
-                    self.onScrobbleEligible?(song, self.currentTrackStartedAt)
-                }
-                // Start a crossfade into the next track when we're within the crossfade
-                // window of the end (opt-in; 0 keeps the classic hard cut).
-                self.maybeStartCrossfade()
-                // Fallback end-of-track detection: some streams never post
-                // AVPlayerItemDidPlayToEndTime. If we intend to be playing but the item has
-                // reached its end and the player has stopped advancing (rate 0), drive the
-                // end handler so the transport doesn't get stuck showing "playing" with a
-                // parked player. handleEnded() flips the state, so this won't re-fire.
-                if self.state == .playing,
-                   !self.isSeeking,
-                   TrackBoundary.isAtEnd(currentTime: self.currentTime, duration: self.duration),
-                   self.player.timeControlStatus == .paused
-                {
-                    self.handleEnded()
-                }
-            }
-        }
-    }
-
-    /// Remove the current player observers (before swapping players in a crossfade).
-    private func detachPlayerObservers() {
-        timeControlObservation?.invalidate()
-        timeControlObservation = nil
-        if let timeObserverToken { player.removeTimeObserver(timeObserverToken) }
-        timeObserverToken = nil
     }
 
     // Radio-awareness hooks for media-key / Now Playing remote commands. Wired by MusicModel; nil
@@ -1269,35 +1206,20 @@ public final class StreamingPlaybackController {
         guard nowPlaying != nil else { return }
         bumpStateGeneration()
         resetFade() // in case we were paused mid sleep-timer fade
-        // Engine deck: resume in place (or reload from the top when parked at the end).
-        // Must precede the currentItem-nil check below — the AVPlayer is deliberately
-        // empty while the deck owns playback, and that nil means nothing here.
-        if engineOwnsPlayback, let deck = engineDeck {
-            if TrackBoundary.isAtEnd(currentTime: currentTime, duration: duration) {
-                loadCurrent(autoplay: true)
-                return
-            }
-            deck.resume()
-            state = .playing
-            if !startNotifiedForCurrentItem, let song = nowPlaying {
-                notifyTrackStarted(song)
-            }
-            pushNowPlaying()
-            return
-        }
-        // AVQueuePlayer *drains* its current item when a track (or the whole queue) plays to
-        // its end, so `player.currentItem` becomes nil and `play()` would do nothing (the
-        // "waiting to play — no item" state). It's also nil right after a restore that failed
-        // to buffer. In either case — or when parked at the end — reload the current track
-        // from the top instead of calling play() on an empty player.
-        if player.currentItem == nil || TrackBoundary.isAtEnd(currentTime: currentTime, duration: duration) {
+        // Parked at the end, or nothing left to resume: reload the current track from the
+        // top rather than telling a deck to carry on with a track it has finished.
+        //
+        // The second half of that question is AVPlayer's alone: `AVQueuePlayer` *drains* its
+        // current item when a track (or the whole queue) plays to its end, so its
+        // `currentItem` becomes nil and `play()` would do nothing (the "waiting to play — no
+        // item" state). It is also nil right after a restore that failed to buffer. The
+        // engine has no such state, and its deck is deliberately empty of items either way.
+        if TrackBoundary.isAtEnd(currentTime: currentTime, duration: duration)
+            || (!engineOwnsPlayback && !avDeck.hasCurrentItem) {
             loadCurrent(autoplay: true)
             return
         }
-        player.play()
-        // Ramped up rather than switched on: resuming mid-waveform is the same
-        // discontinuity as pausing mid-waveform, just in the other direction.
-        transportFade.in(apply: { [weak self] in self?.applyVolume() })
+        activeDeck.resume()
         state = .playing
         // First play of a restored (loaded-paused) item: fire the track-start side effects
         // (history / "now playing") and stamp the scrobble timestamp now, so a restored
@@ -1312,39 +1234,6 @@ public final class StreamingPlaybackController {
         pushNowPlaying()
     }
 
-
-    /// Builds the AVURLAsset for a stream/local URL, attaching the active server's
-    /// custom headers for remote URLs (Cloudflare Access etc.). Local files skip the
-    /// options — AVFoundation ignores headers for file URLs anyway.
-    ///
-    /// **The MIME hint is what makes the audio tap possible on streams.** A Subsonic
-    /// stream URL has no file extension, so `loadTracks` — the *inspection* path — fails
-    /// with "Cannot Open" even while the *playback* path happily sniffs and plays the
-    /// bytes. And no inspection means no track, no `audioMix`, no tap: the equalizer and
-    /// the level meter silently applied only to downloaded files, never to streams.
-    /// Because that failure was `try?`-swallowed, nothing ever said so.
-    ///
-    /// The hint is exact by construction, not a guess: `streamURL(songID:)` always
-    /// requests `format=mp3`, so any URL carrying that marker delivers MPEG audio —
-    /// Navidrome transcodes everything else to match. Podcast enclosures and local files
-    /// don't carry the marker and are left for AVFoundation to identify on its own.
-    static func streamAsset(_ url: URL) -> AVURLAsset {
-        guard !url.isFileURL else { return AVURLAsset(url: url) }
-        var options: [String: Any] = [:]
-        let headers = NavidromeConfig.customHeaders()
-        if !headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = headers }
-        if let mime = Self.mimeHint(for: url) { options[AVURLAssetOverrideMIMETypeKey] = mime }
-        return options.isEmpty ? AVURLAsset(url: url) : AVURLAsset(url: url, options: options)
-    }
-
-    /// The out-of-band MIME type for a URL whose payload format we *know*, or nil to let
-    /// AVFoundation work it out. Only our own `format=mp3` stream request qualifies —
-    /// a wrong hint here wouldn't break an indicator, it would break playback.
-    static func mimeHint(for url: URL) -> String? {
-        guard let query = url.query, query.contains("format=mp3") else { return nil }
-        return "audio/mpeg"
-    }
-
     public func pause() {
         bumpStateGeneration()
         pauseInternal()
@@ -1356,19 +1245,10 @@ public final class StreamingPlaybackController {
     /// pause read back as user intervention. `pause()` is the user-facing wrapper.
     public func pauseInternal() {
         cancelCrossfade()
-        // Engine deck: it shapes its own pause fade; running this type's transport fade
-        // on top would double-ramp the same audio.
-        if engineOwnsPlayback, let deck = engineDeck {
-            deck.pause()
-            if state == .playing { state = .paused }
-            pushNowPlaying()
-            persistQueue()
-            return
-        }
-        // Ramped rather than cut. State and Now Playing update immediately below, so the
-        // UI still responds instantly; only the audio is shaped.
-        transportFade.out(apply: { [weak self] in self?.applyVolume() },
-                          then: { [weak self] in self?.player.pause() })
+        // Each deck shapes its own pause fade — the host used to run a transport ramp of
+        // its own on top of the AVPlayer, and skip it for the engine, which is why this verb
+        // was written twice.
+        activeDeck.pause()
         if state == .playing { state = .paused }
         pushNowPlaying()
         persistQueue() // capture the playhead where the user paused
@@ -1381,29 +1261,9 @@ public final class StreamingPlaybackController {
     public func stop() {
         bumpStateGeneration()
         cancelCrossfade()
-        if engineOwnsPlayback {
-            engineDeck?.stop()
-            engineOwnsPlayback = false // a later resume() re-routes via loadCurrent
-            cancelStallWatchdog()
-            state = .idle
-            currentTime = 0
-            isBuffering = false
-            persistQueue()
-            pushNowPlaying()
-            return
-        }
-        // Fade, then pause and rewind — seeking a still-audible player is the other way to
-        // produce a click.
-        transportFade.out(apply: { [weak self] in self?.applyVolume() }) { [weak self] in
-            guard let self else { return }
-            self.player.pause()
-            // Seek the player to the start too, so a later play() resumes from 0:00 — matching
-            // the scrubber we reset below — instead of continuing from where Stop was
-            // pressed.
-            self.player.seek(to: .zero)
-        }
+        activeDeck.stop()
+        engineOwnsPlayback = false // a later resume() re-routes via loadCurrent
         cancelGaplessPrefetch() // don't keep downloading a "next" track after Stop
-        cancelStallWatchdog()
         state = .idle
         currentTime = 0
         isBuffering = false
@@ -1423,9 +1283,7 @@ public final class StreamingPlaybackController {
             engineDeck?.stop()
             engineOwnsPlayback = false
         }
-        player.removeAllItems()
-        loadedItem = nil
-        gaplessPreload = nil
+        avDeck.clear()
         state = .idle
         currentTime = 0
         duration = 0
@@ -1477,15 +1335,24 @@ public final class StreamingPlaybackController {
         // every observable property to the next track while the engine carried on rendering
         // the old one, and the playhead oscillated between the two clocks. Returning false
         // sends the caller down `loadCurrent`, which is the only path that reaches the deck.
-        guard engineDeck == nil else { return false }
+        //
+        // This guarded on *attachment* (`engineDeck == nil`), not ownership — so once a deck
+        // existed at all (Mac: at launch with the toggle on; iPhone: after the first library
+        // stream), Next hard-cut for media the engine never renders. Downloads are the case
+        // that lost something real: a library id served from a `file://` URL, which the deck
+        // refuses and AVPlayer blended perfectly well before. (Podcasts did not — the
+        // `isPodcastEpisode` guard below has always refused those on its own.)
+        guard !engineOwnsPlayback else { return false }
         guard queue.indices.contains(index), !isCrossfading,
               nowPlaying?.isPodcastEpisode != true,
               let url = try? annotatedStreamURL(queue[index].id) else { return false }
+        // The other half of the real worry: the *incoming* track. Blending into an AVPlayer
+        // item for a track that belongs on the deck would leave the wrong renderer playing
+        // it — ownership is decided at load, and this blend loads its own item.
+        if engineDeck != nil, EngineDeckBridge.canPlay(songID: queue[index].id, url: url) {
+            return false
+        }
 
-        let outgoing = player
-        let startOut = outgoing.volume
-        let item = AVPlayerItem(asset: Self.streamAsset(url))
-        configureAudioMix?(item)
         let targetIn = Float(volumePercent) / 100
             * Self.normalizationGain(for: queue[index], mode: loudnessMode, preampDB: loudnessPreampDB)
 
@@ -1500,9 +1367,9 @@ public final class StreamingPlaybackController {
         // changes land here rather than in `loadCurrent`.
         rotateListenRecord(to: queue[index])
         currentTime = 0
-        // The observer publishes `streamStartOffset + player.currentTime`. Left stale from
-        // an offset load, it would re-add the old track's offset to the new track's clock.
-        streamStartOffset = 0
+        // The deck publishes `streamStartOffset + its clock`, and the promotion clears that
+        // offset — the incoming stream starts at the track's top, so an offset left over
+        // from the outgoing track's `timeOffset` load would be re-added to the new clock.
         lastClockSample = nil
         duration = Double(queue[index].duration ?? 0)
         scrobbledCurrent = false
@@ -1510,14 +1377,11 @@ public final class StreamingPlaybackController {
         pushNowPlaying()
         persistQueue()
 
-        crossfadeRamp.begin(
-            item: item, targetIn: targetIn, isMuted: isMuted,
-            outgoing: outgoing, startOut: startOut,
+        avDeck.beginCrossfade(
+            into: queue[index], url: url, targetIn: targetIn,
             duration: Crossfade.manualSkipSeconds, steps: 12
-        ) { [weak self] promoted in
-            self?.finishCrossfade(
-                to: index, promoted: promoted, retiring: outgoing, alreadyAdvanced: true
-            )
+        ) { [weak self] in
+            self?.finishCrossfade(to: index, alreadyAdvanced: true)
         }
         return true
     }
@@ -1656,13 +1520,12 @@ public final class StreamingPlaybackController {
         cancelCrossfade()
         bumpStateGeneration()
         let target = max(0, min(seconds, duration > 0 ? duration : seconds))
-        // Guard the periodic time observer while AVPlayer's async seek is in flight — it
-        // ticks every 0.25 s and would otherwise clobber `currentTime` back to the *old*
-        // playhead before the seek lands, snapping the scrubber back to where it was. The
-        // generation stamp means only the latest seek's completion lifts the guard, so a
-        // fast drag (many seeks) doesn't clear it early.
+        // Guard the clock while the deck's seek is in flight — it ticks every 0.25 s and
+        // would otherwise clobber `currentTime` back to the *old* playhead before the seek
+        // lands, snapping the scrubber back to where it was. The generation stamp means only
+        // the latest seek's completion lifts the guard, so a fast drag (many seeks) doesn't
+        // clear it early.
         seekGeneration &+= 1
-        let generation = seekGeneration
         isSeeking = true
         currentTime = target
         // Each seek is a fresh intent, not a retry of the last one, so it gets a fresh recovery
@@ -1675,50 +1538,12 @@ public final class StreamingPlaybackController {
         if !TrackBoundary.isAtEnd(currentTime: target, duration: duration) { didHandleEnd = false }
         pushNowPlaying()
 
-        // Engine deck: the engine runs the whole seek decision itself (in-spool
-        // reposition vs `timeOffset` re-request — the same reused `StreamSeek` rules).
-        // `isSeeking` stays up; the deck's clock callback clears it when its playhead
-        // reaches the target, which is this path's version of the completion guard.
-        if engineOwnsPlayback, let deck = engineDeck {
-            deck.seek(to: target)
-            return
-        }
-
-        // Can this stream actually reach the target? A transcode the server is still encoding
-        // reports `Accept-Ranges: none`, so AVPlayer's seek silently runs off the end and the item
-        // reports EOF — which used to advance the queue. Ask the item what it can reach, and
-        // re-request the stream from the target when it can't. (See `StreamSeek`.)
-        switch StreamSeek.strategy(target: target,
-                                   seekableRanges: currentSeekableRanges(),
-                                   streamStartOffset: streamStartOffset) {
-        case .reload(let offset):
-            reloadStream(startingAt: offset)
-        case .direct:
-            player.seek(to: CMTime(seconds: target - streamStartOffset, preferredTimescale: 600)) { [weak self] finished in
-                Task { @MainActor in
-                    guard let self, generation == self.seekGeneration else { return }
-                    self.isSeeking = false
-                    // `finished == false` past the generation guard is a genuine failure, not a
-                    // superseding seek — the item couldn't reach the target after all. Recover by
-                    // re-requesting rather than leaving the scrubber claiming a position the
-                    // audio never went to.
-                    guard !finished else { return }
-                    streamingLog.info("direct seek did not complete; re-requesting stream at \(Int(target))s")
-                    self.reloadStream(startingAt: target)
-                }
-            }
-        }
-    }
-
-    /// What the current item can actually seek to, in stream-local seconds.
-    private func currentSeekableRanges() -> [ClosedRange<TimeInterval>] {
-        (player.currentItem?.seekableTimeRanges ?? []).compactMap {
-            let r = $0.timeRangeValue
-            let start = r.start.seconds
-            let end = (r.start + r.duration).seconds
-            guard start.isFinite, end.isFinite, end >= start else { return nil }
-            return start...end
-        }
+        // Each deck runs its own seek decision, because they are genuinely different
+        // questions: the engine repositions inside its spool or re-requests with
+        // `timeOffset`, while AVPlayer asks the item what byte ranges it can reach and asks
+        // us to re-request when it can't. Both reuse the same `StreamSeek` rules, and both
+        // leave `isSeeking` up until their clock actually arrives at the target.
+        activeDeck.seek(to: target)
     }
 
     /// Re-request the current track's stream starting at `offset`, preserving playback state.
@@ -1736,33 +1561,47 @@ public final class StreamingPlaybackController {
     /// so an in-flight audio-focus duck/pause won't auto-restore over the user's new level.
     public func setVolume(percent: Int) {
         bumpStateGeneration()
-        volumePercent = max(0, min(percent, 100))
-        if volumePercent > 0, isMuted {
-            isMuted = false
-            player.isMuted = false
-        }
+        // A duck ramp in flight is now stale: the user has taken the level themselves, and the
+        // generation bump above has already cancelled any auto-restore. Leaving the ramp
+        // running would drag their new level around for the rest of its duration — the slider
+        // would move and then keep sliding on its own.
+        duckRampTask?.cancel()
+        duckRampTask = nil
+        duckEnvelope = 1
+        let target = max(0, min(percent, 100))
+        // Clear the mute *before* assigning the level, not after. `volumePercent`'s didSet
+        // calls `applyVolume()`, which reads `isMuted` — so the old order pushed the stale
+        // "still muted" down to the deck and then never corrected it. Moving the slider to
+        // unmute left an engine-owned track silent.
+        if target > 0, isMuted { isMuted = false }
+        volumePercent = target
     }
 
     /// Toggles mute independently of the volume level (the slider keeps its value).
+    ///
+    /// `applyVolume()` is the only path that reaches a deck — `isMuted` is a plain stored
+    /// property with no `didSet` — so without this call, mute did nothing audible on an
+    /// engine-owned track until some unrelated volume event happened to run. Four UI sites
+    /// reach this: the menu-bar extra, the now-playing bar, the mini player and the Playback
+    /// menu, and all four looked dead with the developer toggle on.
     public func toggleMute() {
         isMuted.toggle()
-        player.isMuted = isMuted
+        applyVolume()
     }
 
-    /// Push the effective volume to AVPlayer: the user's level times the current track's
-    /// loudness-normalization multiplier. (Mute is separate — `player.isMuted`.)
+    /// Push the user's level, mute, and the host's fade envelope to every deck.
+    ///
+    /// The envelope is the sleep-timer fade times the audio-focus duck — the two reasons the
+    /// *host* has to be quieter. Each deck multiplies its own transport ramp on top and
+    /// applies the loaded track's loudness normalization itself, which is what removed the
+    /// second copy of both from this file. It also fixed a real disagreement: the host
+    /// computed normalization from `nowPlaying`, which during a skip blend is already the
+    /// *incoming* track, so the outgoing player briefly carried the wrong track's gain.
     public func applyVolume() {
-        let mult = Self.loudnessMultiplier(for: nowPlaying, mode: loudnessMode, preampDB: loudnessPreampDB)
-        player.volume = PlaybackVolume.effective(percent: volumePercent, loudness: mult,
-                                                 fade: fadeMultiplier,
-                                                 transport: transportFade.multiplier)
-        // Engine deck: mirror the same composition onto the engine's own level model —
-        // user volume + mute as-is, loudness by song via the engine's identical math,
-        // and the sleep/transport envelopes folded into its external envelope.
-        if engineOwnsPlayback, let deck = engineDeck {
-            deck.applyLevel(volumePercent: volumePercent, isMuted: isMuted,
-                            envelope: fadeMultiplier * transportFade.multiplier)
-            deck.applyLoudness(mode: loudnessMode, preampDB: loudnessPreampDB)
+        let envelope = fadeMultiplier * duckEnvelope
+        eachDeck {
+            $0.applyLevel(volumePercent: volumePercent, isMuted: isMuted, envelope: envelope)
+            $0.applyLoudness(mode: loudnessMode, preampDB: loudnessPreampDB)
         }
     }
 
@@ -1814,13 +1653,6 @@ public final class StreamingPlaybackController {
     ///     playhead back to the resume point immediately after the listener chose a position.
     private func loadCurrent(autoplay: Bool, isRetry: Bool = false,
                              startingAt: TimeInterval = 0, isContinuation: Bool = false) {
-        cancelStallWatchdog() // a fresh load supersedes any pending stall watchdog
-        // Settle any transport ramp still in flight, *before* the item is replaced. A
-        // pending stop finishes with pause() + seek(.zero); arriving after the new item is
-        // in place, it would pause and rewind the track that just started — press Stop,
-        // pick another song inside the fade, and the app looks frozen with no error. This
-        // has to precede replaceCurrentItem so the teardown lands on the outgoing item.
-        transportFade.cancel(apply: { [weak self] in self?.applyVolume() })
         #if DEBUG
         loadCurrentCountForTesting += 1
         #endif
@@ -1843,100 +1675,77 @@ public final class StreamingPlaybackController {
         }
         // Clamp: an offset at or past the end would fetch an empty stream that instantly "ends".
         let offset = max(0, min(startingAt, max(0, Double(song.duration ?? 0) - 1)))
-        streamStartOffset = offset
+        // The **base** annotated URL, with no offset rewritten into it. Both decks take the
+        // offset as an argument and do their own thing with it — the engine skips decoded
+        // frames, the AVPlayer deck re-requests the stream with Subsonic `timeOffset` — and
+        // handing them one URL each is what lets the load below be a single call rather than
+        // a branch that builds two.
         let url: URL
         do {
-            url = try annotatedStreamURL(song.id, startingAt: offset)
+            url = try annotatedStreamURL(song.id)
         } catch {
             streamingLog.error("stream URL failed: \(error.localizedDescription, privacy: .public)")
             state = .error((error as? NavidromeError)?.errorDescription ?? error.localizedDescription)
             return
         }
 
-        // Tear down the previous item's observers before swapping.
-        if let endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-            self.endObserver = nil
-        }
-        statusObservation?.invalidate()
-
         streamingLog.info("streaming song id \(song.id, privacy: .public)")
-        #if DEBUG
-        lastStreamURLForTesting = url
-        #endif
 
         // EXPERIMENT (feat/audio-engine): route library stream tracks to the engine deck.
-        // The deck handles offsets itself (its own `timeOffset` / decode-skip logic), so it
-        // gets the base annotated URL rather than the offset-rewritten one above.
         // Routability is decided BEFORE the deck is resolved, so a host using a lazy
         // provider never builds an audio engine (or, on the phone, activates the audio
         // session) merely to discover the track was a podcast.
-        if let engineURL = try? annotatedStreamURL(song.id),
-           EngineDeckBridge.canPlay(songID: song.id, url: engineURL),
-           let deck = resolveEngineDeck() {
+        let deck: any PlaybackDeck
+        if EngineDeckBridge.canPlay(songID: song.id, url: url), let engine = resolveEngineDeck() {
             engineOwnsPlayback = true
             // Say which deck took the track. With two engines behind one transport, "is it
             // even on the new path?" is the first question of every diagnosis, and inferring
             // it from side effects is how you end up measuring the wrong thing — see the
             // now-playing bars, which looked reactive for a day while reading zeros.
             streamingLog.info("engine deck owns playback (AVAudioEngine) for \(song.id, privacy: .public)")
-            // Nothing may be left on the AVPlayer side — a stale item would play in parallel.
-            player.removeAllItems()
-            loadedItem = nil
-            gaplessPreload = nil
-            // The retry paths park the playhead in `pendingSeek` (the AVPlayer path
-            // applies it at readyToPlay); the engine takes it up front as the offset,
-            // so a retried track resumes in place rather than restarting.
-            var offset = offset
-            if let pending = pendingSeek {
-                pendingSeek = nil
-                offset = max(offset, pending)
+            // Nothing may be left on the AVPlayer side — a stale item would play in
+            // parallel, and an emptied queue is also what stands its clock down.
+            avDeck.clear()
+            deck = engine
+        } else {
+            if engineOwnsPlayback {
+                // Leaving the engine path (podcast, local file, deck detached): silence the
+                // deck before AVPlayer takes over, or both would play at once.
+                engineDeck?.stop()
+                engineOwnsPlayback = false
             }
-            deck.load(
-                song: song, url: engineURL, startingAt: offset, autoplay: autoplay,
-                headers: NavidromeConfig.customHeaders(),
-                supportsTimeOffset: StreamSeek.needsTranscode(suffix: song.suffix)
-            )
-            applyVolume() // routes level + loudness to the deck while it owns playback
-            currentTime = offset
-            duration = Double(song.duration ?? 0)
-            if autoplay {
-                state = .playing
-                if !isContinuation { notifyTrackStarted(song) }
-            } else {
-                state = .paused
-            }
-            pushNowPlaying()
-            extendQueueIfNeeded()
-            return
-        } else if engineOwnsPlayback {
-            // Leaving the engine path (podcast, local file, deck detached): silence the
-            // deck before AVPlayer takes over, or both would play at once.
-            engineDeck?.stop()
-            engineOwnsPlayback = false
+            deck = avDeck
         }
 
-        let item = AVPlayerItem(asset: Self.streamAsset(url))
-        setCurrentItem(item)
-        configureAudioMix?(item)
-        applyVolume()
-        currentTime = offset
-        // Seed duration from the track's metadata immediately — Navidrome transcodes
-        // on the fly, so AVPlayer often can't determine the stream's duration, which
-        // left the scrubber stuck at 0:00. The async load below refines it if possible.
+        // The retry paths park the playhead in `pendingSeek`. The engine takes it up front
+        // as its offset, so a retried track resumes in place rather than restarting; the
+        // AVPlayer path applies it when the item reaches `readyToPlay`, because its offset
+        // is a `timeOffset` re-request the server honours only for a transcode.
+        var startAt = offset
+        if engineOwnsPlayback, let pending = pendingSeek {
+            pendingSeek = nil
+            startAt = max(offset, pending)
+        }
+
+        deck.load(
+            song: song, url: url, startingAt: startAt, autoplay: autoplay,
+            headers: NavidromeConfig.customHeaders(),
+            supportsTimeOffset: StreamSeek.needsTranscode(suffix: song.suffix)
+        )
+        #if DEBUG
+        lastStreamURLForTesting = avDeck.lastLoadedURL
+        #endif
+        currentTime = startAt
+        // Seed duration from the track's metadata immediately — Navidrome transcodes on the
+        // fly, so a deck often can't determine the stream's duration, which left the scrubber
+        // stuck at 0:00. Each deck refines it through `onDuration` if it ever can.
         duration = Double(song.duration ?? 0)
-
-        // Surface decode/stream failures + end-of-track — factored so a promoted crossfade
-        // player can re-observe its item the same way.
-        attachItemObservers(item)
-
         if autoplay {
-            player.isMuted = isMuted
-            resetFade()
-            player.play()
+            resetFade() // also pushes the level, now that the deck knows its track
             state = .playing
             if !isContinuation { notifyTrackStarted(song) }
         } else {
+            applyVolume()
             state = .paused
         }
         pushNowPlaying()
@@ -1945,26 +1754,9 @@ public final class StreamingPlaybackController {
         // on a hard stop (see autoplayEnabled / extendQueueIfNeeded).
         extendQueueIfNeeded()
 
-        // True-gapless: buffer the next track so the OS advances with no gap.
+        // True-gapless: buffer the next track so the OS advances with no gap. A no-op while
+        // the engine owns playback — deck-mode transitions are hard cuts.
         preloadGaplessNextIfNeeded()
-
-        // Refine duration from the asset when it's actually determinable (a real
-        // finite value) — otherwise keep the metadata seed above.
-        //
-        // `StreamSeek.logicalDuration` owns the rule — notably that an offset stream's own
-        // duration must be ignored, because it reports the whole track rather than the remainder.
-        let metadataDuration = duration
-        Task { [weak self] in
-            let seconds = await (try? item.asset.load(.duration))?.seconds
-            guard let self else { return }
-            let logical = StreamSeek.logicalDuration(assetSeconds: seconds,
-                                                     metadata: metadataDuration,
-                                                     streamStartOffset: offset)
-            if player.currentItem === item, logical > 1, logical != duration {
-                duration = logical
-                pushNowPlaying()
-            }
-        }
     }
 
     /// User-initiated retry of the current track after an error (the now-playing bar's **Retry**).
@@ -1983,13 +1775,23 @@ public final class StreamingPlaybackController {
     /// A stream item failed to load (bad format, auth, network). Surfaces the error
     /// and — so one dud track doesn't stall the whole queue — auto-skips to the next
     /// after a short beat, unless every track has failed (guarded to avoid a loop).
-    private func handleLoadFailure(_ message: String) {
+    ///
+    /// `afterEngineLadder` marks a failure the engine deck has *already* laddered — it retries
+    /// the same track at the playhead three times with backoff before it will report `.error`
+    /// at all. Repeating that here made the two ladders multiply: each host retry reloaded the
+    /// deck, which re-armed the engine's ladder underneath it, so one dead track cost about
+    /// sixteen fetch cycles and half a minute of dead air before the queue moved on. Deck mode
+    /// gets one owner for retries — the engine — and the host contributes the part the engine
+    /// cannot: the skip. (§2.6; the AVPlayer path below is untouched, since nothing has
+    /// retried for it.)
+    private func handleLoadFailure(_ message: String, afterEngineLadder: Bool = false) {
         isBuffering = false
-        cancelStallWatchdog() // recovery is taking over; don't let a pending watchdog double-fire
+        // The deck's own stall watchdog is disarmed by this too: it re-checks the host's
+        // intent before firing, and every branch below leaves `state` off `.playing`.
         // First, retry the SAME track with a capped backoff, preserving the playhead — a brief
         // outage (Wi-Fi blip, server restart) then recovers in place instead of skipping the
         // track and cascade-skipping the rest of the queue.
-        if sameTrackRetries < Self.maxSameTrackRetries {
+        if !afterEngineLadder, sameTrackRetries < Self.maxSameTrackRetries {
             sameTrackRetries += 1
             let resumeAt = currentTime
             let attempt = sameTrackRetries
@@ -2022,45 +1824,24 @@ public final class StreamingPlaybackController {
         }
     }
 
-    /// Arm the stall watchdog if it isn't already running (see `stallWatchdog`). Fires once after
-    /// `stallTimeout`; before acting it re-checks that we're *still* stalled — intending to play and
-    /// the player still `waitingToPlayAtSpecifiedRate` — so a connection that recovers on its own is
-    /// left untouched. On a real stall it enters the same recovery ladder as a hard load failure.
-    private func armStallWatchdog() {
-        guard stallWatchdog == nil else { return }
-        let timeout = stallTimeoutSeconds
-        stallWatchdog = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(timeout))
-            guard let self, !Task.isCancelled else { return }
-            self.stallWatchdog = nil
-            guard self.state == .playing, self.isBuffering,
-                  self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
-            streamingLog.error("player: buffering stalled > \(timeout, privacy: .public)s — recovering")
-            self.handleLoadFailure(
-                "Playback stalled — the connection may be blocked or too slow (check VPN or network filtering)."
-            )
-        }
-    }
-
-    /// Cancel any pending stall watchdog (audio resumed, we paused/stopped, or recovery took over).
-    private func cancelStallWatchdog() {
-        stallWatchdog?.cancel()
-        stallWatchdog = nil
-    }
-
     #if DEBUG
     /// Test seam: drives the end-of-track handler without a real AVPlayer clock.
     public func simulateTrackEndedForTesting() { handleEnded() }
     /// Test seam: drives the load-failure handler without a real stream failure.
-    public func simulateLoadFailureForTesting(_ message: String = "test failure") { handleLoadFailure(message) }
+    public func simulateLoadFailureForTesting(_ message: String = "test failure",
+                                              afterEngineLadder: Bool = false) {
+        handleLoadFailure(message, afterEngineLadder: afterEngineLadder)
+    }
     public var sameTrackRetriesForTesting: Int { sameTrackRetries }
     /// Test seam: the URL actually handed to `AVPlayerItem`, after provenance annotation and the
     /// `StreamSeek` rewrite — the only place the offset/transcode decisions become observable.
     public private(set) var lastStreamURLForTesting: URL?
-    public var streamStartOffsetForTesting: TimeInterval { streamStartOffset }
+    public var streamStartOffsetForTesting: TimeInterval { avDeck.streamStartOffset }
     /// Test seam: stand in for "this stream was fetched with `timeOffset`", which a local file
     /// can't produce (it is fully seekable, so a seek never needs a re-request).
-    public func setStreamStartOffsetForTesting(_ seconds: TimeInterval) { streamStartOffset = seconds }
+    public func setStreamStartOffsetForTesting(_ seconds: TimeInterval) {
+        avDeck.setStreamStartOffsetForTesting(seconds)
+    }
     /// Test seam: force a queue snapshot without waiting for a transport event.
     public func persistQueueForTesting() { persistQueue() }
     /// Test seam: advance the listening accumulator without waiting out real playback.
@@ -2100,22 +1881,21 @@ public final class StreamingPlaybackController {
         // True-gapless: the `AVQueuePlayer` auto-advances the *audio* to the preloaded next
         // item with no gap. Rather than reload (which would re-buffer and insert a pause),
         // reconcile our logical state onto that already-queued item. We trust the preload's
-        // presence rather than comparing against `player.currentItem`: the end notification
-        // can fire before `currentItem` flips, and the queue player is guaranteed to advance
-        // to the item we inserted next.
+        // presence rather than comparing against the deck's current item: the end
+        // notification can fire before that flips, and the queue player is guaranteed to
+        // advance to the item we inserted next.
         // Only when the preload still describes the track sitting at that index. If the queue
         // moved under it, the audio the OS is about to play is not the track we would name,
         // and reloading (a gap) is the honest outcome — a seamless boundary onto the wrong
         // song is worse than an audible one onto the right song.
-        if isGaplessMode, let preload = gaplessPreload,
+        if isGaplessMode, let preload = avDeck.preload,
            queue.indices.contains(preload.index), queue[preload.index].id == preload.songID {
-            gaplessAdvanced(to: preload.index, item: preload.item)
+            gaplessAdvanced(to: preload.index)
             return
         }
-        if let stale = gaplessPreload {
+        if let stale = avDeck.preload {
             streamingLog.info("gapless preload stale at boundary (index \(stale.index, privacy: .public)) — reloading instead")
-            player.remove(stale.item)
-            gaplessPreload = nil
+            avDeck.clearPreparedNext()
         }
         advanceAfterEnd()
     }
@@ -2128,7 +1908,7 @@ public final class StreamingPlaybackController {
         if sleepAfterCurrentTrack {
             sleepAfterCurrentTrack = false
             state = .paused
-            player.pause()
+            activeDeck.pause()
             currentTime = 0
             persistQueue()
             pushNowPlaying()
@@ -2156,16 +1936,6 @@ public final class StreamingPlaybackController {
 
     // MARK: - Gapless queue
 
-    /// Make `item` the sole queued item on the `AVQueuePlayer` and adopt it as current.
-    /// Replaces the old `replaceCurrentItem(with:)` — on a queue player we clear the queue
-    /// (dropping any stale gapless preload) and insert exactly one item.
-    private func setCurrentItem(_ item: AVPlayerItem) {
-        player.removeAllItems()
-        if player.canInsert(item, after: nil) { player.insert(item, after: nil) }
-        loadedItem = item
-        gaplessPreload = nil
-    }
-
     /// The queue index the current track will advance to at its natural end, or nil when the
     /// track will replay or the queue will stop (nothing meaningful to preload).
     private func plannedNextIndex() -> Int? {
@@ -2174,13 +1944,18 @@ public final class StreamingPlaybackController {
         return next
     }
 
-    /// Keep the `AVQueuePlayer`'s look-ahead item in sync with the current mode + queue: in
-    /// gapless mode, buffer the next track so the OS advances to it with no gap; otherwise
-    /// (or when the planned next changed) discard any stale preload. Idempotent — safe to
-    /// call after any queue mutation or setting change.
+    /// Keep the deck's look-ahead item in sync with the current mode + queue: in gapless
+    /// mode, buffer the next track so the OS advances to it with no gap; otherwise (or when
+    /// the planned next changed) discard any stale preload. Idempotent — safe to call after
+    /// any queue mutation or setting change.
+    ///
+    /// *Which* track is next is queue policy and stays here; holding the item is AVPlayer
+    /// mechanics and lives on `AVPlayerDeck`. It stays off `PlaybackDeck` on purpose: having
+    /// no gapless path is a fact about the engine, not a gap in the protocol, and a
+    /// no-op-on-one-deck method would make the two look interchangeable.
     private func preloadGaplessNextIfNeeded() {
-        // Engine deck: the AVQueuePlayer look-ahead is meaningless while the deck owns
-        // playback — deck-mode transitions are hard cuts (documented degradation).
+        // Engine deck: the look-ahead is meaningless while it owns playback — deck-mode
+        // transitions are hard cuts (documented degradation).
         guard !engineOwnsPlayback else { return }
         let planned = plannedNextIndex()
         // Reap in-flight prefetches for tracks that are no longer the planned next (e.g. after
@@ -2191,16 +1966,11 @@ public final class StreamingPlaybackController {
         // Drop a preload that no longer matches (mode off, queue reordered, crossfade on…).
         // Matched on song *and* index: comparing index alone let a removal shift a different
         // track into the preloaded slot and keep the stale item queued.
-        if let existing = gaplessPreload, !isGaplessMode || !existing.matches(index: planned, songID: plannedID) {
-            player.remove(existing.item)
-            gaplessPreload = nil
+        if let existing = avDeck.preload, !isGaplessMode || !existing.matches(index: planned, songID: plannedID) {
+            avDeck.clearPreparedNext()
         }
-        // Insert after `loadedItem` (the track we last made current). Note we do NOT gate on
-        // `loadedItem === player.currentItem`: AVQueuePlayer doesn't update `currentItem`
-        // synchronously after an `insert`, so requiring identity here would skip the preload
-        // and the boundary would fall back to a reload (gap).
         guard isGaplessMode, state == .playing, !isCrossfading, !sleepAfterCurrentTrack,
-              gaplessPreload == nil, let planned, let current = loadedItem else { return }
+              avDeck.preload == nil, let planned else { return }
         let songID = queue[planned].id
         // Marked as a prefetch: this downloads a whole track that may never be heard, and an
         // unmarked one is counted as a complete play by anything reading the server's access log.
@@ -2208,12 +1978,7 @@ public final class StreamingPlaybackController {
         // Prefer an already-prefetched local file (or an offline download, which
         // streamURLProvider already resolves to a file URL) so the handoff is gap-free.
         let preloadURL = GaplessPreload.preloadURL(stream: streamURL, cached: gaplessPrefetcher.cachedURL(for: songID))
-        let item = AVPlayerItem(asset: Self.streamAsset(preloadURL))
-        configureAudioMix?(item) // attach EQ at preload creation, before it plays
-        guard player.canInsert(item, after: current) else { return }
-        player.insert(item, after: current)
-        gaplessPreload = PreloadSlot(index: planned, songID: songID, item: item,
-                                        stage: preloadURL.isFileURL ? .local : .stream)
+        guard avDeck.prepareNext(song: queue[planned], at: planned, url: preloadURL) else { return }
         streamingLog.info("gapless preloaded next → queue index \(planned, privacy: .public)\(preloadURL.isFileURL ? " (local)" : " (stream)")")
         // If the next track is a network stream, prefetch it to disk so we can swap the
         // queued item to a local file before the boundary — zero-gap even on transcoded
@@ -2243,17 +2008,11 @@ public final class StreamingPlaybackController {
     /// but only if it's still the queued next and we haven't already advanced onto it.
     private func adoptPrefetchedNext(songID: String, index: Int, localURL: URL) {
         // The download that finishes is the one that was started, but the queue may have
-        // moved on while it ran — hence checking the preload's own song, the queue's song
-        // at that index, and that we have not already advanced onto the item.
-        guard isGaplessMode, let preload = gaplessPreload,
-              preload.matches(index: index, songID: songID),
-              queue.indices.contains(index), queue[index].id == songID,
-              player.currentItem !== preload.item, let current = loadedItem else { return }
-        let item = AVPlayerItem(asset: Self.streamAsset(localURL))
-        guard player.canInsert(item, after: current) else { return }
-        player.remove(preload.item)
-        player.insert(item, after: current)
-        gaplessPreload = PreloadSlot(index: index, songID: songID, item: item, stage: .local)
+        // moved on while it ran — hence checking the queue's song at that index here, and
+        // the preload's own identity (plus that we have not already advanced onto it) in the
+        // deck, which is the only place that can see the item.
+        guard isGaplessMode, queue.indices.contains(index), queue[index].id == songID,
+              avDeck.swapPreparedNext(to: localURL, index: index, songID: songID) else { return }
         #if DEBUG
         gaplessLocalSwapCountForTesting += 1
         #endif
@@ -2284,63 +2043,43 @@ public final class StreamingPlaybackController {
     /// rebuilds it from the stream so the next boundary still has something to advance to.
     public func clearGaplessCache() {
         cancelGaplessPrefetch()
-        if let preload = gaplessPreload {
-            player.remove(preload.item)
-            gaplessPreload = nil
-        }
+        avDeck.clearPreparedNext()
         gaplessPrefetcher.clearCache()
         preloadGaplessNextIfNeeded()
     }
 
     /// The OS gaplessly advanced to the preloaded next track — sync our logical state onto
     /// the item already playing (no reload, no re-buffer), then preload the one after it.
-    private func gaplessAdvanced(to index: Int, item: AVPlayerItem) {
+    private func gaplessAdvanced(to index: Int) {
         guard queue.indices.contains(index) else { return }
         let song = queue[index]
+        // The deck adopts the item it is already playing: observers, offset and level. It
+        // refuses if the preload has gone, and then there is nothing to reconcile onto.
+        guard avDeck.adoptPreparedNext() else { return }
         #if DEBUG
         gaplessAdvanceCountForTesting += 1
         #endif
         streamingLog.info("gapless advance → queue index \(index, privacy: .public) (no reload)")
-        // Retire the outgoing item's observers and adopt the new current item's.
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
-        statusObservation?.invalidate()
-        loadedItem = item
-        gaplessPreload = nil
         currentIndex = index
-        // The incoming track was preloaded from the top, so its clock is the track's. Carrying a
-        // previous track's `timeOffset` across the boundary would make the periodic observer read
-        // `staleOffset + 0` as the new playhead — minutes into a track that just started, which
-        // reads as already-finished and skips it. Set BEFORE `currentTime`, which depends on it.
-        streamStartOffset = 0
         currentTime = 0
         duration = Double(song.duration ?? 0)
         didHandleEnd = false
         rotateListenRecord(to: song)
         scrobbledCurrent = false
         resetFade()
-        attachItemObservers(item)
-        configureAudioMix?(item)
-        applyVolume()
         state = .playing
         notifyTrackStarted(song)
         pushNowPlaying()
         persistQueue()
         extendQueueIfNeeded()
         preloadGaplessNextIfNeeded()
-        // Refine duration from the asset when it's actually determinable.
-        Task { [weak self] in
-            let seconds = await (try? item.asset.load(.duration))?.seconds
-            guard let self, let seconds, seconds.isFinite, seconds > 1, self.player.currentItem === item else { return }
-            self.duration = seconds
-            self.pushNowPlaying()
-        }
     }
 
     /// The genuine end-of-queue stop (autoplay off, or it had nothing more to add).
     private func endOfQueue() {
         currentTime = duration
         state = .idle
-        player.pause()
+        activeDeck.pause()
         persistQueue()
         pushNowPlaying()
     }
@@ -2398,41 +2137,6 @@ public final class StreamingPlaybackController {
         }
     }
 
-    /// Wire an item's status (decode/stream failures) + end-of-track notification. Shared
-    /// by `loadCurrent` and the crossfade promotion so both paths behave identically.
-    private func attachItemObservers(_ item: AVPlayerItem) {
-        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            // KVO can fire off-main; read Sendable values, then hop to the main actor.
-            let status = item.status
-            let failureMessage = item.error?.localizedDescription
-            Task { @MainActor in
-                guard let self else { return }
-                switch status {
-                case .readyToPlay:
-                    streamingLog.info("stream item ready to play")
-                    self.consecutiveFailures = 0
-                    self.isBuffering = false
-                    if let target = self.pendingSeek {
-                        self.pendingSeek = nil
-                        self.seek(to: target)
-                    }
-                case .failed:
-                    let message = failureMessage
-                        ?? "Playback failed — the track may be an unsupported format (e.g. Ogg/Opus)."
-                    streamingLog.error("stream item failed: \(message, privacy: .public)")
-                    self.handleLoadFailure(message)
-                default:
-                    break
-                }
-            }
-        }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleEnded() }
-        }
-    }
-
     // MARK: - Crossfade
 
     /// From the periodic clock tick: begin a crossfade into the next track when we're
@@ -2476,66 +2180,44 @@ public final class StreamingPlaybackController {
         // (played-state, download auto-remove) — the suppressed handler was their only trigger.
         // Harmless for music; correctness for any non-podcast that reports progress.
         if let outgoing = nowPlaying, duration > 0 { onProgressUpdate?(outgoing, duration, duration) }
-        // Attach the EQ tap to the incoming item BEFORE it plays, or the EQ would silently
-        // switch off at the first crossfade boundary and stay off for every crossfaded
-        // track thereafter.
-        let item = AVPlayerItem(asset: Self.streamAsset(url))
-        configureAudioMix?(item)
-        let outgoing = player
         let targetIn = Float(volumePercent) / 100
             * Self.normalizationGain(for: queue[nextIndex], mode: loudnessMode, preampDB: loudnessPreampDB)
-        // The collaborator owns the second player + the ramp loop; we promote the incoming player
-        // when it hands it back on completion.
-        crossfadeRamp.begin(
-            item: item, targetIn: targetIn, isMuted: isMuted,
-            outgoing: outgoing, startOut: outgoing.volume, duration: seconds
-        ) { [weak self] promoted in
-            self?.finishCrossfade(to: nextIndex, promoted: promoted, retiring: outgoing)
+        // The deck owns the second player and the ramp loop; we decide when to blend, which
+        // track to blend into, and what happens to the queue when it lands.
+        avDeck.beginCrossfade(into: queue[nextIndex], url: url, targetIn: targetIn,
+                              duration: seconds) { [weak self] in
+            self?.finishCrossfade(to: nextIndex)
         }
     }
 
-    /// Retire the outgoing player, promote the crossfade player to `player`, and advance
-    /// the queue — the "hard cut" that happens under the cover of the completed fade.
+    /// Promote the blended-in player and advance the queue — the "hard cut" that happens
+    /// under the cover of the completed fade.
     /// - Parameter alreadyAdvanced: true when the caller advanced the queue *before* the fade
     ///   started (a manual skip). The transport must move the instant you press skip — deferring
     ///   it until the ramp completes would make `music_next` and the UI report the previous track
     ///   for the length of the blend. In that case this only swaps the players; the queue
     ///   bookkeeping and `notifyTrackStarted` already happened and must not fire twice.
-    private func finishCrossfade(
-        to nextIndex: Int,
-        promoted: AVQueuePlayer,
-        retiring: AVQueuePlayer,
-        alreadyAdvanced: Bool = false
-    ) {
+    private func finishCrossfade(to nextIndex: Int, alreadyAdvanced: Bool = false) {
         // Bailing out must not leave the incoming player running. This returns when the
-        // queue changed under the fade (an index that no longer exists), when a transport
-        // action already cleared the flag, or when a newer ramp replaced this one — and in
-        // the first two cases `promoted` is still playing. Stopping it here is the
-        // difference between a dropped transition and a track nobody can turn off.
-        guard isCrossfading, crossfadeRamp.player === promoted, queue.indices.contains(nextIndex) else {
-            if crossfadeRamp.player === promoted {
+        // queue changed under the fade (an index that no longer exists) or when a transport
+        // action already cleared the flag — and in both cases the blended-in player is still
+        // playing. Stopping it here is the difference between a dropped transition and a
+        // track nobody can turn off.
+        guard isCrossfading, queue.indices.contains(nextIndex) else {
+            if avDeck.isCrossfadeRampActive {
                 isCrossfading = false
-                crossfadeRamp.cancel()
+                avDeck.cancelCrossfade()
                 applyVolume()
             }
             return
         }
-        retiring.pause()
-        detachPlayerObservers()
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
-        statusObservation?.invalidate()
-
-        player = promoted
-        loadedItem = promoted.currentItem
-        gaplessPreload = nil
-        crossfadeRamp.clearAfterPromotion() // release the ramp's ref without pausing the now-main player
+        guard avDeck.promoteCrossfade() else {
+            isCrossfading = false
+            applyVolume()
+            return
+        }
         isCrossfading = false
         didHandleEnd = false
-        // Same as the gapless boundary: the incoming stream starts at the track's top, so a
-        // previous track's `timeOffset` must not carry across. Unconditional — the promoted
-        // player is a new stream either way, and `alreadyAdvanced` only means the logical index
-        // was reconciled elsewhere, not that the offset still applies.
-        streamStartOffset = 0
         // A crossfade is a track boundary like any other, so the outgoing track's listening
         // record closes here too. Unconditional: `alreadyAdvanced` only means the logical index
         // was reconciled elsewhere, not that the boundary didn't happen. (A manual skip is a
@@ -2547,8 +2229,6 @@ public final class StreamingPlaybackController {
             duration = Double(queue[nextIndex].duration ?? 0)
             scrobbledCurrent = false
         }
-        attachPlayerObservers()
-        if let item = promoted.currentItem { attachItemObservers(item) }
         fadeMultiplier = 1
         applyVolume()
         state = .playing
@@ -2558,30 +2238,21 @@ public final class StreamingPlaybackController {
             persistQueue()
         }
         extendQueueIfNeeded()
-
-        if let item = promoted.currentItem {
-            Task { [weak self] in
-                let seconds = await (try? item.asset.load(.duration))?.seconds
-                guard let self, let seconds, seconds.isFinite, seconds > 1, self.player.currentItem === item else { return }
-                self.duration = seconds
-                self.pushNowPlaying()
-            }
-        }
     }
 
     /// Abort an in-flight crossfade (a transport action interrupted it): stop the second
     /// player, restore the current player's volume, and let the action proceed normally.
     ///
-    /// Guarded on the ramp's *actual* state as well as the flag. `isCrossfading` and
-    /// `crossfadeRamp` can disagree — `finishCrossfade` used to bail out of its guard
-    /// leaving a live second player behind — and once they did, this returned early and no
-    /// transport action could ever stop that player again. The symptom is a track that
-    /// keeps playing under everything you choose afterwards, two at once, with no way to
-    /// silence it short of killing the app. The flag is a belief; the ramp is the truth.
+    /// Guarded on the ramp's *actual* state as well as the flag. The flag here and the ramp
+    /// on the deck can disagree — `finishCrossfade` used to bail out of its guard leaving a
+    /// live second player behind — and once they did, this returned early and no transport
+    /// action could ever stop that player again. The symptom is a track that keeps playing
+    /// under everything you choose afterwards, two at once, with no way to silence it short
+    /// of killing the app. The flag is a belief; the ramp is the truth.
     public func cancelCrossfade() {
-        guard isCrossfading || crossfadeRamp.isActive else { return }
+        guard isCrossfading || avDeck.isCrossfadeRampActive else { return }
         isCrossfading = false
-        crossfadeRamp.cancel()
+        avDeck.cancelCrossfade()
         didHandleEnd = false
         applyVolume()
     }

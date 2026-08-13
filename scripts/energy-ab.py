@@ -133,14 +133,17 @@ def set_engine(enabled):
 
 
 def relaunch():
+    """Restart the app under test. Returns the moment it started, for the log check below."""
     subprocess.run(["osascript", "-e", 'tell application "Baton" to quit'],
                    capture_output=True)
     time.sleep(3)
     subprocess.run(["pkill", "-f", "/Applications/Baton.app"], capture_output=True)
     time.sleep(1)
+    started = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 2))
     subprocess.run(["open", "-a", APP], check=True)
     if not wait_for_mcp():
         raise RuntimeError("Baton did not come up (its MCP server never answered)")
+    return started
 
 
 def start_playback(volume):
@@ -154,14 +157,20 @@ def start_playback(volume):
     return playing
 
 
-def engine_owns_playback():
+def engine_owns_playback(since):
     """Ground truth from the app's own log, not from the setting we just wrote.
 
     The setting being on does not prove the deck took the track — that is exactly the
     assumption that made an entire afternoon's 'reactive' now-playing bars meaningless.
+
+    Anchored at *this arm's relaunch*, not a fixed window. It used to read the last two
+    minutes, which is history rather than the present: run this script twice in a row and
+    the AVPlayer arm reads the previous run's engine arm, concludes the engine took the
+    track, and aborts a forty-minute measurement that was set up correctly. Measured, at
+    01:54 this morning.
     """
     out = subprocess.run(
-        ["/usr/bin/log", "show", "--last", "2m", "--predicate",
+        ["/usr/bin/log", "show", "--start", since, "--predicate",
          'subsystem == "io.tonebox.baton"', "--info", "--style", "compact"],
         capture_output=True, text=True,
     ).stdout
@@ -169,11 +178,22 @@ def engine_owns_playback():
 
 
 def sample_energy(seconds, interval_ms=5000):
-    """Per-process energy impact for Baton, via powermetrics. Returns a list of samples."""
+    """Energy per sample, as a dict: Baton, coreaudiod, and the machine's CPU power.
+
+    **Baton's row alone answers the wrong question**, which is the whole reason the plan
+    ranks a system-wide A/B above everything else. In-process rendering is charged to
+    Baton; a share of AVPlayer's pipeline is done for it by `coreaudiod` and charged there.
+    Comparing only the app's row therefore flatters AVPlayer by exactly the amount it
+    delegates — and that comparison is where the widely-quoted engine-versus-AVPlayer gap
+    came from.
+
+    So three numbers per sample: the app, the audio daemon, and total CPU power from the
+    `cpu_power` sampler, which counts everything including whatever neither row names.
+    """
     count = max(1, int(seconds * 1000 / interval_ms))
     proc = subprocess.run(
-        ["sudo", "-n", "powermetrics", "--samplers", "tasks", "--show-process-energy",
-         "-i", str(interval_ms), "-n", str(count)],
+        ["sudo", "-n", "powermetrics", "--samplers", "tasks,cpu_power",
+         "--show-process-energy", "-i", str(interval_ms), "-n", str(count)],
         capture_output=True, text=True,
     )
     if proc.returncode != 0:
@@ -182,14 +202,26 @@ def sample_energy(seconds, interval_ms=5000):
             + proc.stderr.strip()[:400]
         )
     samples = []
+    current = {}
     for line in proc.stdout.splitlines():
-        # The tasks sampler prints one row per process; Baton's row ends with its energy
+        # The tasks sampler prints one row per process; the row ends with its energy
         # impact. Matched on the row rather than a fixed column, because the column set
         # differs between machines and macOS versions.
-        if re.match(r"^\s*Baton\s+\d+", line):
-            numbers = re.findall(r"\d+\.\d+|\d+", line)
-            if len(numbers) >= 2:
-                samples.append(float(numbers[-1]))
+        for name, key in (("Baton", "app"), ("coreaudiod", "coreaudiod")):
+            if re.match(rf"^\s*{name}\s+\d+", line):
+                numbers = re.findall(r"\d+\.\d+|\d+", line)
+                if len(numbers) >= 2:
+                    current[key] = float(numbers[-1])
+        # `cpu_power` prints this once per sample, and it is the last thing in the sample,
+        # so it doubles as the record separator.
+        match = re.match(r"^CPU Power:\s+(\d+)\s*mW", line)
+        if match:
+            current["cpu_mw"] = float(match.group(1))
+            if "app" in current:
+                samples.append({"app": current.get("app", 0.0),
+                                "coreaudiod": current.get("coreaudiod", 0.0),
+                                "cpu_mw": current["cpu_mw"]})
+            current = {}
     return samples
 
 
@@ -205,11 +237,11 @@ def run_arm(enabled, minutes, volume, verify, idle=False):
     keeps an I/O unit awake for as long as the app is open, which is most of the day.
     """
     set_engine(enabled)
-    relaunch()
+    started = relaunch()
     start_playback(volume)
     if verify:
         time.sleep(5)
-        owns = engine_owns_playback()
+        owns = engine_owns_playback(started)
         if owns != enabled:
             raise RuntimeError(
                 f"engine setting is {enabled} but the log says engine-owns-playback={owns}. "
@@ -314,20 +346,44 @@ def main():
                 if not samples:
                     sys.exit("no Baton rows in powermetrics output — is Baton playing?")
                 results[enabled] += samples
-                print(f"  {len(samples)} samples, median energy impact "
-                      f"{statistics.median(samples):.1f}", flush=True)
+                print(f"  {len(samples)} samples — Baton {statistics.median([s['app'] for s in samples]):.1f}, "
+                      f"coreaudiod {statistics.median([s['coreaudiod'] for s in samples]):.1f}, "
+                      f"CPU {statistics.median([s['cpu_mw'] for s in samples]):.0f} mW", flush=True)
     finally:
         # Including on Ctrl-C and on failure: the setting goes back either way.
         restore_engine_setting(original)
         print(f"\n(restored the experimental engine setting to "
               f"{'unset' if original is None else original})")
 
-    off = statistics.median(results[False])
-    on = statistics.median(results[True])
-    print(f"\n=== energy impact while {'PAUSED' if args.idle else 'PLAYING'} "
-          "(lower is better) ===")
-    print(f"  AVPlayer : {off:8.1f}   (n={len(results[False])})")
-    print(f"  Engine   : {on:8.1f}   (n={len(results[True])})")
+    def median(enabled, key):
+        return statistics.median([s[key] for s in results[enabled]])
+
+    print(f"\n=== while {'PAUSED' if args.idle else 'PLAYING'} (lower is better) ===")
+    print(f"{'':12}{'Baton':>10}{'coreaudiod':>13}{'app+daemon':>13}{'CPU total':>12}")
+    for enabled, label in ((False, "AVPlayer"), (True, "Engine")):
+        print(f"  {label:10}{median(enabled, 'app'):10.1f}{median(enabled, 'coreaudiod'):13.1f}"
+              f"{median(enabled, 'app') + median(enabled, 'coreaudiod'):13.1f}"
+              f"{median(enabled, 'cpu_mw'):9.0f} mW   (n={len(results[enabled])})")
+    # Whole-CPU power is the number that matters and also the noisiest: it counts every
+    # other thing the machine chose to do during the window. Print its spread next to it, so
+    # a difference smaller than the arms' own variation is visibly not a result.
+    for enabled, label in ((False, "AVPlayer"), (True, "Engine")):
+        values = sorted(s['cpu_mw'] for s in results[enabled])
+        low = values[len(values) // 4]
+        high = values[3 * len(values) // 4]
+        print(f"  {label:10} CPU spread (p25–p75): {low:.0f}–{high:.0f} mW")
+
+    daemon_delta = median(True, 'coreaudiod') - median(False, 'coreaudiod')
+    cpu_delta = median(True, 'cpu_mw') - median(False, 'cpu_mw')
+    print(f"\n  coreaudiod difference: {daemon_delta:+.1f}   "
+          "(negative = the engine moves work OUT of the daemon, which the app-only")
+    print("                          number charges to the engine and credits to nobody)")
+    print(f"  whole-CPU difference : {cpu_delta:+.0f} mW   "
+          "— the number the adoption decision actually rests on")
+
+    off = median(False, 'app')
+    on = median(True, 'app')
+    print(f"\n  app-only, the historically quoted comparison:")
     # A ratio is only meaningful when the baseline is meaningfully above the sampler's
     # floor. AVPlayer idles at ~0.0–0.1 energy impact because it offloads decode, so
     # dividing by it produces arithmetic like "29x" that is really "0.1 rounds badly".

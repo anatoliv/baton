@@ -61,13 +61,16 @@ enum BatonMenuBarText {
 
     static func title(_ s: String) -> String { clip(s, max: titleMax) }
 
-    /// The artist line to show, or nil when it's empty or a placeholder ("Unknown" from imports)
-    /// — so the header doesn't carry a meaningless "Unknown" line.
+    /// The artist line to show, or nil when there is nothing worth showing — so the header
+    /// doesn't carry a meaningless "Unknown" line.
+    ///
+    /// This used to test `caseInsensitiveCompare("Unknown")` itself, which is the fourth
+    /// spelling of the rule `DisplayName` exists to hold, and it caught only that one
+    /// spelling: a library tagged "[unknown]" or "n/a" still got a line here. Clipping stays
+    /// local — that is a menu-bar constraint, not a naming rule.
     static func artist(_ s: String?) -> String? {
-        guard let s else { return nil }
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, t.caseInsensitiveCompare("Unknown") != .orderedSame else { return nil }
-        return clip(t, max: artistMax)
+        guard let shown = DisplayName.artist(s) else { return nil }
+        return clip(shown, max: artistMax)
     }
 }
 

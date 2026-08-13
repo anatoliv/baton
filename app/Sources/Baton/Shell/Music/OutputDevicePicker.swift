@@ -20,6 +20,15 @@ import BatonPlaybackKit
 /// menu says so and points at Control Centre, instead of silently offering a shorter list
 /// than the user expects and leaving them to guess why.
 struct OutputDevicePicker: View {
+    /// The boundary of per-app routing, in the menu rather than in a doc nobody opens.
+    ///
+    /// Spoken summaries used to be on the wrong side of this line, and the line was honest
+    /// about it. They now render through `SpeechAudioPlayer`, an engine speech owns, so they
+    /// follow the choice — including the built-in fallback voice, which needed synthesizing to
+    /// buffers before it could be routed anywhere.
+    static let scopeNote =
+        "Moves music and spoken summaries. Podcasts, downloads and radio follow the system output."
+
     @Environment(MusicModel.self) private var model
     var tint: Color = .secondary
 
@@ -28,10 +37,29 @@ struct OutputDevicePicker: View {
 
     private var bridge: EngineDeckBridge? { model.engineBridge }
 
+    /// Point everything Baton renders itself at `device`, and report whether the music engine
+    /// took it.
+    ///
+    /// Two engines, one choice. Speech has its own graph (`SpeechAudioPlayer`) because neither
+    /// `AVAudioPlayer` nor `AVSpeechSynthesizer` can target a device — but a user picking a
+    /// speaker means "send Baton there", not "send one subsystem there". Routing them from a
+    /// single place is what keeps that promise; this is exactly the shape CLAUDE.md warns
+    /// about, so there is one call site rather than two.
+    ///
+    /// The return value is the *music* engine's, because that is what decides whether the tick
+    /// moves: speech has nothing playing most of the time, and a summary that routes
+    /// successfully while the music deck refuses shouldn't tick a device music is not using.
+    @discardableResult
+    private func route(to device: AudioDeviceID?) -> Bool {
+        let musicTook = bridge?.setOutputDevice(device) == true
+        model.speech.setOutputDevice(device)
+        return musicTook
+    }
+
     var body: some View {
         Menu {
             Button {
-                bridge?.setOutputDevice(nil)
+                route(to: nil)
                 selected = nil
                 refresh()
             } label: {
@@ -40,7 +68,7 @@ struct OutputDevicePicker: View {
             Divider()
             ForEach(devices) { device in
                 Button {
-                    if bridge?.setOutputDevice(device.id) == true { selected = device.id }
+                    if route(to: device.id) { selected = device.id }
                     refresh()
                 } label: {
                     // The system-default device is marked, because "System output" above and
@@ -60,13 +88,25 @@ struct OutputDevicePicker: View {
             // connecting; the list above then routes Baton to it without moving anyone else.
             Button("Connect a Speaker…") { openSystemRoutePicker() }
             Text(AudioOutputDevices.systemDefaultHint)
+            // What this control does *not* move (§3.5). Per-app routing means rendering
+            // through a graph we own, so it reaches exactly what we render: library streams
+            // on the music engine, and spoken summaries on speech's own engine. Podcasts,
+            // downloads and internet radio are AVPlayer, which has no output-device API, so
+            // they still follow the system output.
+            //
+            // Spoken summaries were on that list until §3.5 was done, and moving them off it
+            // took more than a swap: the built-in fallback voice had to be synthesized to
+            // buffers first, because `AVSpeechSynthesizer` cannot target a device either.
+            // Saying where the boundary is, is the difference between a capability with a
+            // boundary and a control that quietly lies about its reach.
+            Text(Self.scopeNote)
         } label: {
             Image(systemName: "airplayaudio").foregroundStyle(tint)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Output device")
+        .help("Output device for music and spoken summaries — podcasts, downloads and radio follow the system output")
         .onAppear(perform: refresh)
     }
 
@@ -118,7 +158,7 @@ struct OutputDevicePicker: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let now = AudioOutputDevices.outputs()
             if let fresh = now.first(where: { !before.contains($0.id) }) {
-                if bridge?.setOutputDevice(fresh.id) == true { selected = fresh.id }
+                if route(to: fresh.id) { selected = fresh.id }
                 refresh()
             } else {
                 followNewlyConnectedDevice(notIn: before, attemptsLeft: attemptsLeft - 1)

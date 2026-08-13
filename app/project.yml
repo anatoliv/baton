@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.16.16"
-    CURRENT_PROJECT_VERSION: "75"
+    MARKETING_VERSION: "0.16.17"
+    CURRENT_PROJECT_VERSION: "76"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -230,6 +230,10 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        # Instantiated when XCTest loads the bundle, which is how `RunnerExitDiagnostic`
+        # arms before the first test rather than partway through the run. See TBX-2848:
+        # a gate run's host process exited cleanly mid-suite and left no evidence at all.
+        INFOPLIST_KEY_NSPrincipalClass: BatonRunnerExitDiagnostic
         BUNDLE_LOADER: $(TEST_HOST)
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Baton.app/Contents/MacOS/Baton
     dependencies:
@@ -277,6 +281,12 @@ schemes:
         - package: BatonDSP/BatonDSPTests
         - package: BatonPlaybackKit/BatonPlaybackKitTests
         - package: BatonAgentKit/BatonAgentKitTests
+        # BatonSubsonicModels was the one package with tests that this list missed, which
+        # is the same hole one layer down: `DisplayNameTests` guards the rule deciding what
+        # metadata reaches the screen, an agent reply and a widget, and the gate had never
+        # run it. Found by checking which of the suites added for TBX-2838 actually
+        # appeared in the result bundle — the total alone looked fine.
+        - package: BatonSubsonicModels/BatonSubsonicModelsTests
     profile:
       config: Release
     analyze:

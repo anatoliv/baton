@@ -84,6 +84,65 @@ public enum AudioOutputDevices {
     public static let systemDefaultHint =
         "AirPlay speakers appear here once macOS connects them — pick them in Control Centre first."
 
+    // MARK: - Render quantum
+
+    /// How many frames the device hands its clients per render callback.
+    ///
+    /// This is the wake-up rate of the whole audio pipeline: at 512 frames and 44.1 kHz the
+    /// I/O proc runs about 86 times a second for as long as the engine is running, and
+    /// wake-up frequency weighs heavily in the energy-impact figure the engine is judged on.
+    public static func bufferFrameSize(of id: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyBufferFrameSize,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var frames: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &frames) == noErr, frames > 0
+        else { return nil }
+        return frames
+    }
+
+    /// The sizes this device will accept. Not a formality: the built-in output on this
+    /// hardware tops out at **1024** frames, so the obvious "just ask for 4096" both fails
+    /// and silently forfeits the whole optimisation. Callers clamp to what is on offer.
+    public static func bufferFrameSizeRange(of id: AudioDeviceID) -> ClosedRange<UInt32>? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyBufferFrameSizeRange,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var range = AudioValueRange()
+        var size = UInt32(MemoryLayout<AudioValueRange>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &range) == noErr else { return nil }
+        let low = UInt32(max(1, range.mMinimum))
+        let high = UInt32(max(range.mMinimum, range.mMaximum))
+        return low <= high ? low...high : nil
+    }
+
+    /// Ask `id` to run at `frames` per callback. Reports whether the device took it.
+    ///
+    /// **This property belongs to the device, not to our connection to it** — every app on
+    /// that output renders at whatever size wins. That is why the caller only ever raises a
+    /// device that is running smaller than it wants, never lowers one that another app has
+    /// already raised, and puts the original back when it is done. See
+    /// `EngineAudioPipeline.adoptRenderQuantum()`.
+    @discardableResult
+    public static func setBufferFrameSize(_ frames: UInt32, on id: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyBufferFrameSize,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var settable: DarwinBoolean = false
+        guard AudioObjectIsPropertySettable(id, &address, &settable) == noErr, settable.boolValue
+        else { return false }
+        var value = frames
+        let size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectSetPropertyData(id, &address, 0, nil, size, &value) == noErr
+    }
+
     // MARK: - CoreAudio plumbing
 
     private static func allDeviceIDs() -> [AudioDeviceID] {

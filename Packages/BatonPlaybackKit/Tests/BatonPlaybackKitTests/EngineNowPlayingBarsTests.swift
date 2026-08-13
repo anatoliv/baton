@@ -66,7 +66,7 @@ final class EngineNowPlayingBarsTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: id, url: server.url, duration: 3, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         try await harness.waitUntil(timeout: 20) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 1.0
         }
@@ -100,7 +100,7 @@ final class EngineNowPlayingBarsTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: "live", url: server.url, duration: 3, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         try await harness.waitUntil(timeout: 20) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 1.0
         }
@@ -145,7 +145,7 @@ final class EngineNowPlayingBarsTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: "dynamics", url: server.url, duration: 3, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         try await harness.waitUntil(timeout: 20) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 2.5
         }
@@ -182,7 +182,7 @@ final class EngineNowPlayingBarsTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: "silent", url: server.url, duration: 2, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         try await harness.waitUntil(timeout: 20) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 1.0
         }

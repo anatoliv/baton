@@ -133,7 +133,13 @@ struct NowPlayingBar: View {
                     // engine deck is active — it showed routes as connected while the audio
                     // stayed put. Swap in the per-app device picker exactly when that is
                     // true, and keep the system picker otherwise, where it works correctly.
-                    if model.engineBridge != nil {
+                    //
+                    // "When that is true" means the engine *owns playback*, not that a deck
+                    // is attached. Gating on attachment made the per-app picker appear for
+                    // podcasts and downloads as well, which AVPlayer renders to the system
+                    // default — so choosing a device there moved nothing and the control
+                    // lied in the other direction. Same bug, opposite deck.
+                    if model.music.engineOwnsPlayback {
                         OutputDevicePicker(tint: Color(nsColor: .secondaryLabelColor))
                             .frame(height: 18)
                     } else {

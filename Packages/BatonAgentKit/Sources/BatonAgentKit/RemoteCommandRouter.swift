@@ -474,8 +474,13 @@ public final class RemoteCommandRouter {
         // The album is included because its absence was measured to matter:
         // "what album is this from" sent the model searching for the answer
         // instead of to music_now_playing, which displays it.
-        let album = (song.album?.isEmpty == false) ? ", from the album \"\(song.album!)\"" : ""
-        return "Player state: \"\(song.title)\" by \(song.artist)\(album)\(position)."
+        let album = DisplayName.shown(song.album).map { ", from the album \"\($0)\"" } ?? ""
+        // `song.artist` is optional, and this interpolated it bare: every player context the
+        // Mac's agent has ever read said `by Optional("Debussy")`, or `by nil` when the tag
+        // was missing. `DisplayName.artist` also drops the line entirely for an importer's
+        // placeholder, so the model is never told the artist is "[unknown]".
+        let artist = DisplayName.artist(song.artist).map { " by \($0)" } ?? ""
+        return "Player state: \"\(DisplayName.title(song.title))\"\(artist)\(album)\(position)."
     }
 
     /// Everything the agent is told about its owner before it answers: what is

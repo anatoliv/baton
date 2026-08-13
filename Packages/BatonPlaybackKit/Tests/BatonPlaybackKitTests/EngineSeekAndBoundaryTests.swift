@@ -23,7 +23,7 @@ final class EngineSeekAndBoundaryTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: "twotone", url: server.url, duration: 6, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         // Local server: the whole file spools + schedules far ahead of the playhead.
         try await harness.waitUntil(timeout: 15) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 5.5
@@ -59,7 +59,7 @@ final class EngineSeekAndBoundaryTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: "twotone", url: server.url, duration: 6, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         try await harness.waitUntil(timeout: 15) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 0.5
         }
@@ -75,68 +75,26 @@ final class EngineSeekAndBoundaryTests: XCTestCase {
         let at880 = EngineTestSignals.goertzelPower(samples: steady, sampleRate: 44_100, frequency: 880)
         let at440 = EngineTestSignals.goertzelPower(samples: steady, sampleRate: 44_100, frequency: 440)
         XCTAssertGreaterThan(at880, at440 * 10, "the reloaded seek must land on the 880 Hz half")
-        XCTAssertEqual(harness.controller.currentIndex, 0, "a seek must never advance the queue (the old spurious-EOF bug)")
+        XCTAssertEqual(harness.controller.nowPlaying?.id, "twotone",
+                       "a seek must never change the track (the old spurious-EOF bug)")
     }
 
-    /// Gapless: two tracks scheduled back-to-back on one deck. The rendered boundary
-    /// must contain **no silent gap** — asserted on the audio, window by window — and
-    /// the logical state must advance exactly once, via the boundary callback.
-    func testGaplessBoundaryHasNoSilentGap() async throws {
-        let serverA = try EngineHTTPServer(
-            payload: EngineTestSignals.sineWAV(frequency: 440, seconds: 3), contentType: "audio/wav")
-        let serverB = try EngineHTTPServer(
-            payload: EngineTestSignals.sineWAV(frequency: 660, seconds: 3), contentType: "audio/wav")
-        defer { serverA.stop(); serverB.stop() }
-        let harness = try EngineRenderHarness(sampleRate: 44_100)
-        defer { harness.shutdown() }
-
-        let tracks = [
-            EnginePlaybackController.Track(id: "a", url: serverA.url, duration: 3, supportsTimeOffset: false),
-            EnginePlaybackController.Track(id: "b", url: serverB.url, duration: 3, supportsTimeOffset: false),
-        ]
-        harness.controller.play(tracks)
-        // Both tracks fit inside the 8 s high-water mark, so the feeder rolls into
-        // track B and schedules all of it before we render a single frame.
-        try await harness.waitUntil(timeout: 20) {
-            harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 5.8
-        }
-
-        let samples = try await harness.renderSeconds(5.5)
-        // Let the boundary's .dataPlayedBack callback (a main-actor hop) settle.
-        try await harness.waitUntil(timeout: 5) { harness.controller.gaplessAdvanceCountForTesting == 1 }
-
-        XCTAssertEqual(harness.controller.currentIndex, 1, "the queue must have advanced at the audio boundary")
-        XCTAssertEqual(harness.controller.loadCountForTesting, 1, "a gapless advance must not reload")
-
-        let rate = 44_100.0
-        func window(_ from: Double, _ seconds: Double) -> [Float] {
-            let start = Int(from * rate), count = Int(seconds * rate)
-            return Array(samples[start ..< min(start + count, samples.count)])
-        }
-        // The right audio on each side of the boundary…
-        let before = window(1.0, 1.0)
-        XCTAssertGreaterThan(
-            EngineTestSignals.goertzelPower(samples: before, sampleRate: rate, frequency: 440),
-            EngineTestSignals.goertzelPower(samples: before, sampleRate: rate, frequency: 660) * 10
-        )
-        let after = window(4.0, 1.0)
-        XCTAssertGreaterThan(
-            EngineTestSignals.goertzelPower(samples: after, sampleRate: rate, frequency: 660),
-            EngineTestSignals.goertzelPower(samples: after, sampleRate: rate, frequency: 440) * 10
-        )
-        // …and no dropout across it: every 512-frame window (~11.6 ms) around the
-        // boundary keeps signal. A sine at 0.5 amplitude has RMS ≈ 0.35; a rendered gap
-        // would show a window near zero.
-        let windowFrames = 512
-        var scan = Int(2.5 * rate)
-        let scanEnd = Int(3.5 * rate)
-        while scan + windowFrames <= scanEnd {
-            let rms = EngineTestSignals.rms(Array(samples[scan ..< scan + windowFrames]))
-            XCTAssertGreaterThan(
-                rms, 0.1,
-                "silent window at \(Double(scan) / rate)s — the 'gapless' boundary rendered a gap"
-            )
-            scan += windowFrames
-        }
-    }
+    // `testGaplessBoundaryHasNoSilentGap` used to live here: two servers, two tracks
+    // scheduled back-to-back on one deck, and a 512-frame RMS scan proving the rendered
+    // boundary carried no dropout. It is deleted with `rollIntoGaplessNext` (Stage 5 /
+    // TBX-2876) — the roll only ever fired for a multi-track queue, and production always
+    // handed the engine exactly one track.
+    //
+    // What is lost, stated plainly: this was the only proof the engine's gapless boundary
+    // ever worked, and re-establishing it is part of the cost of any future standalone
+    // engine. Gapless *as a user feature* is unaffected — it is the host's AVQueuePlayer
+    // preload path, which has its own coverage.
+    //
+    // What is NOT lost is the end-of-track path itself: `handleTrackAudioEnded` is still
+    // the production route for every engine track, still carries the §2.1 spurious-end
+    // guard, and still hands off through `onPlaybackEnded`.
+    //
+    // That path had **no** coverage of its own — these two deleted tests were the only
+    // things that ever drove a track to its natural end, incidentally, while asserting
+    // about the queue. `EngineEndOfTrackTests` was written to cover it directly.
 }

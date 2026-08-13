@@ -9,6 +9,49 @@ import OSLog
 
 let engineLog = Logger(subsystem: "io.tonebox.baton", category: "EnginePlayback")
 
+/// What the download delegate hands the actor. Deliberately plain values rather than the
+/// `URLResponse` itself: this crosses a concurrency domain under Swift 6, and a status code
+/// and a length are `Sendable` where the response object is not.
+private enum DownloadEvent: Sendable {
+    case head(statusCode: Int, expectedLength: Int64)
+    case data(Data)
+}
+
+/// Bridges URLSession's delegate callbacks into an ordered async stream.
+///
+/// Order is the whole point, and it is why this is a stream rather than a `Task` per
+/// callback: URLSession delivers a task's callbacks serially on its delegate queue, and
+/// `yield` preserves that order, whereas spawning a task per chunk would let the actor
+/// append them interleaved and silently corrupt the byte stream.
+///
+/// The buffer is unbounded on purpose. Every other policy drops elements, and a dropped
+/// chunk here is not backpressure — it is a corrupt track.
+private final class StreamDownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation
+
+    init(continuation: AsyncThrowingStream<DownloadEvent, Error>.Continuation) {
+        self.continuation = continuation
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        // A non-HTTP response (a file: URL in a test) has no status; treat it as 200 so the
+        // status guard stays about real HTTP failures.
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+        continuation.yield(.head(statusCode: status, expectedLength: response.expectedContentLength))
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        continuation.yield(.data(data))
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error { continuation.finish(throwing: error) } else { continuation.finish() }
+    }
+}
+
 /// One track's streaming pipeline: URLSession → `StreamSpool` → `AudioStreamDecoder` →
 /// PCM chunks, **pulled** by the consumer.
 ///
@@ -58,6 +101,15 @@ actor TrackStreamSource {
     /// Frames to drop from the front of the next decoded buffer (sample-accurate seek
     /// landing). Consumed once.
     private var pendingTrimFrames: Int = 0
+    /// The file byte this stream was asked to begin at (0 for an ordinary fetch).
+    private var rangeStart: Int64 = 0
+    /// Bytes still to throw away because the server ignored `Range` and sent the file from
+    /// the top anyway. Then the prefix is discarded here rather than decoded and dropped
+    /// later, and the spool still begins exactly where the caller was promised.
+    private var bytesToDrop: Int64 = 0
+    /// Whether the server actually honoured the range. Reported for the log, and for a
+    /// caller that wants to know the seek cost what a full fetch costs.
+    private(set) var rangeHonoured = true
     /// PCM decoded *while discovering the format* — the parse chunk that reveals the
     /// header usually also contains the first audio, and dropping it would silently
     /// shave the track's opening (measured: 0.37 s lost on a WAV). Drained before any
@@ -80,55 +132,101 @@ actor TrackStreamSource {
 
     /// Kick off the download. Separate from `init` so the caller controls when the
     /// network is touched.
-    func start() throws {
+    ///
+    /// - Parameters:
+    ///   - fromByte: start the *stream* at this byte of the file, via HTTP `Range`. The
+    ///     resulting source's own zero is that byte: its spool, its parse offsets and its
+    ///     packet numbering all begin there, so nothing downstream needs to know. What the
+    ///     caller must know is that the audio starts part-way into the track, which it
+    ///     records as `streamStartOffset` exactly as it does for a `timeOffset` stream.
+    ///   - fileTypeHint: required with `fromByte`, because a stream that begins mid-file has
+    ///     no header to sniff. See `AudioStreamDecoder.fileTypeHint(forSuffix:)`.
+    func start(fromByte: Int64 = 0, fileTypeHint: AudioFileTypeID = 0) throws {
         let spool = try StreamSpool()
         self.spool = spool
-        decoder = try AudioStreamDecoder()
-        let request = makeRequest()
+        decoder = try AudioStreamDecoder(fileTypeHint: fileTypeHint)
+        rangeStart = max(0, fromByte)
+        bytesToDrop = 0
+        let request = makeRequest(fromByte: rangeStart)
         networkTask = Task { [weak self] in
             await self?.runDownload(request: request)
         }
     }
 
-    private func makeRequest() -> URLRequest {
+    private func makeRequest(fromByte: Int64) -> URLRequest {
         var request = URLRequest(url: url)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        if fromByte > 0 { request.setValue("bytes=\(fromByte)-", forHTTPHeaderField: "Range") }
         return request
     }
 
-    /// The download loop: bytes → spool, batched. Runs as its own task inside the actor;
-    /// all spool access is serialized here with the consumer's pulls.
+    /// The download loop: chunks → spool. Runs as its own task inside the actor; all spool
+    /// access is serialized here with the consumer's pulls.
+    ///
+    /// This used to iterate `URLSession.bytes(for:)`, which is an `AsyncSequence` of
+    /// `UInt8` — one async iterator resumption **per byte**, roughly ten million of them
+    /// for a 10 MB track, arriving in bursts at wire speed. The bytes were then
+    /// re-accumulated into 16 KB batches by hand. A data delegate hands over `Data` as the
+    /// network produces it, so the batching and the ten million resumptions both go away.
+    ///
+    /// A side effect worth naming, because it is an improvement rather than a wash: the old
+    /// batching *withheld* a partial batch. A server that sent 10 KB and then stalled left
+    /// those bytes sitting in the array, unspooled and undecodable, until either more
+    /// arrived or the stream ended — the opposite of what its own comment intended. Chunks
+    /// reach the spool as they land.
     private func runDownload(request: URLRequest) async {
+        let (events, continuation) = AsyncThrowingStream<DownloadEvent, Error>.makeStream()
+        let delegate = StreamDownloadDelegate(continuation: continuation)
+        // A delegate is per-session, so this track gets its own rather than sharing
+        // `URLSession.shared`. Invalidated on the way out or the session leaks its delegate.
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        continuation.onTermination = { _ in task.cancel() }
+        task.resume()
+        defer { session.finishTasksAndInvalidate() }
+
         do {
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
-            if let http = response as? HTTPURLResponse {
-                guard (200 ..< 300).contains(http.statusCode) else {
-                    networkFailure = .http(http.statusCode)
-                    return
-                }
-                if http.expectedContentLength > 0 {
-                    spool?.expectedByteCount = http.expectedContentLength
+            for try await event in events {
+                if cancelled { task.cancel(); return }
+                switch event {
+                case .head(let statusCode, let expectedLength):
+                    guard (200 ..< 300).contains(statusCode) else {
+                        networkFailure = .http(statusCode)
+                        task.cancel()
+                        return
+                    }
+                    // 206 means the range was honoured and the body starts where we asked.
+                    // 200 to a range request means the server ignored it and is sending the
+                    // whole file — legal, and Navidrome does it for transcodes. Rather than
+                    // hand the parser a stream that starts somewhere other than it was told,
+                    // drop the prefix as it arrives: same bytes over the wire as before this
+                    // feature existed, and the spool still begins where it was promised.
+                    if rangeStart > 0, statusCode != 206 {
+                        rangeHonoured = false
+                        bytesToDrop = rangeStart
+                        engineLog.info("engine: server ignored Range — dropping \(self.rangeStart) bytes to reach the seek point")
+                    }
+                    if expectedLength > 0 { spool?.expectedByteCount = expectedLength }
+                case .data(let data):
+                    var data = data
+                    if bytesToDrop > 0 {
+                        let drop = min(bytesToDrop, Int64(data.count))
+                        bytesToDrop -= drop
+                        data = data.dropFirst(Int(drop))
+                        if data.isEmpty { continue }
+                    }
+                    spool?.append(data)
                 }
             }
-            // 16 KB batches: small enough that a slow trickle reaches the decoder
-            // promptly (time-to-first-audio, and honest stall behaviour — a 64 KB batch
-            // held back ~0.7 s of a stalled WAV, measured), large enough to amortize
-            // the spool write.
-            var batch = [UInt8]()
-            batch.reserveCapacity(16 * 1024)
-            for try await byte in bytes {
-                if cancelled { return }
-                batch.append(byte)
-                if batch.count >= 16 * 1024 {
-                    spool?.append(Data(batch))
-                    batch.removeAll(keepingCapacity: true)
-                }
-            }
-            if !batch.isEmpty { spool?.append(Data(batch)) }
+            // Safe on the cancel path too: `cancel()` drops the spool before cancelling the
+            // task, so a torn-down source has nothing left to mark complete.
             spool?.markComplete()
-        } catch is CancellationError {
-            // cancelled — the source is being torn down; nothing to report
         } catch {
+            // A cancelled transfer is a teardown, not a failure. Reporting one would raise a
+            // spurious error against a track the user has already moved on from.
+            if cancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return
+            }
             networkFailure = .transport(error.localizedDescription)
         }
     }
@@ -147,6 +245,14 @@ actor TrackStreamSource {
         // a parse chunk.
         if !deliveredFormat {
             while decoder.pcmFormat == nil {
+                // The same check the PCM loop below makes, and its absence here was a hang:
+                // a connection that dies *before* a format is parsed leaves the spool
+                // incomplete and never growing, so `parseMore` answers `.waiting` forever and
+                // this loop polls for the rest of the process's life. Nothing throws, so the
+                // feeder never fails, so the retry ladder is never told, so the track stops
+                // with no error and no next attempt — invisible, because the only thing that
+                // logs here is a failure that never arrives.
+                if let failure = networkFailure { throw failure }
                 switch try await parseMore(spool: spool, decoder: decoder) {
                 case .produced(let buffers): stagedBuffers.append(contentsOf: buffers)
                 case .waiting: continue
@@ -275,6 +381,69 @@ actor TrackStreamSource {
         let audioBytes = max(0, spool.byteCount - decoder.dataOffset)
         let end = Double(audioBytes) / bytesPerSecond
         return end > 0 ? 0...end : nil
+    }
+
+    /// Re-announce the decoded format on the next pull.
+    ///
+    /// For a consumer that has lost its *graph* while keeping its bytes: an engine
+    /// configuration change (device switch, rate change) invalidates node connections, and
+    /// the deck is only ever reconnected by `prepareDeck`, which the feeder calls when it
+    /// sees a `.format` chunk. Without this the re-feed after a route change would schedule
+    /// PCM into a disconnected deck and render silence.
+    ///
+    /// Costs nothing: the format is already known, so `nextChunk` returns it without
+    /// re-parsing a byte, and the parse offset is untouched.
+    func replayFormat() { deliveredFormat = false }
+
+    /// Where `seconds` lives in the *file*, for a seek that has to re-request rather than
+    /// reposition in the spool.
+    ///
+    /// This is the mapping the in-spool seek already uses, asked one question further out:
+    /// `AudioFileStreamSeek` answers for any target, not only for bytes that happen to have
+    /// arrived, and the byte it names is exactly what an HTTP `Range` request wants. Before
+    /// this, a target past the spool threw the mapping away and re-fetched from zero — which
+    /// on an hour-long file means tens of megabytes and forty minutes of decoding before one
+    /// sample can be scheduled.
+    ///
+    /// Returns nil when the parser cannot map the target (no packet structure yet), and adds
+    /// `rangeStart` back so the answer is a file offset even when this source is itself a
+    /// range fetch. Callers treat nil as "fetch from zero", the old path.
+    /// - Parameter trackDuration: the whole track's length, which turns the file's size into
+    ///   a second, independent estimate. Needed because the parser's own extrapolation is
+    ///   only as good as the bitrate it has seen so far.
+    func fileByteOffset(forSeconds seconds: TimeInterval, trackDuration: TimeInterval) -> Int64? {
+        guard let decoder, decoder.sampleRate > 0, seconds > 0 else { return nil }
+        let totalBytes = spool?.expectedByteCount ?? 0
+
+        // A mapped packet is the truth: the parser read a real index (a Xing/VBR table) and
+        // the byte it names is exact.
+        let frame = Int64(seconds * decoder.sampleRate)
+        if let target = decoder.seekTarget(forFrame: frame), !target.isEstimate {
+            return clampToFile(rangeStart + target.byteOffset, totalBytes: totalBytes)
+        }
+
+        // Otherwise it extrapolated from the average bitrate of what it has parsed, and over
+        // a long file that is not a small error. Measured live: forty minutes into a 4797 s
+        // track, from four seconds of parsed audio, it named a byte past the end of an 8 MB
+        // file and the server answered **416 Range Not Satisfiable**.
+        //
+        // The file's own size is the better extrapolation and cannot overshoot by
+        // construction: bytes are proportional to seconds for anything near-constant
+        // bitrate, and the answer is bounded by the file. Only for a stream fetched from
+        // zero, where "byte X of this stream" and "byte X of the file" are the same thing.
+        guard rangeStart == 0, totalBytes > 0, trackDuration > 0, seconds < trackDuration else { return nil }
+        let audioStart = decoder.dataOffset
+        let audioBytes = Double(totalBytes - audioStart)
+        return clampToFile(audioStart + Int64(audioBytes * (seconds / trackDuration)),
+                           totalBytes: totalBytes)
+    }
+
+    /// A byte the server can actually serve. Past the end is a 416, which costs a wasted
+    /// request and a retry.
+    private func clampToFile(_ offset: Int64, totalBytes: Int64) -> Int64? {
+        guard offset > 0 else { return nil }
+        guard totalBytes > 0 else { return offset }   // unknown length: trust the parser
+        return offset < totalBytes ? offset : nil     // past the end: no range, use the old path
     }
 
     /// Whether the download has delivered every byte (distinguishes "stream ended" from

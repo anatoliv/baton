@@ -124,7 +124,9 @@ struct NowPlayingWidgetView: View {
         switch family {
         // One line, no room for anything but words.
         case .accessoryInline:
-            Text("\(snapshot.title) — \(snapshot.artist ?? "")")
+            // The bridge already dropped a placeholder artist, so nil here means there is
+            // none — and the separator has to go with it, or the line ends in a bare dash.
+            Text(snapshot.artist.map { "\(snapshot.title) — \($0)" } ?? snapshot.title)
 
         // A ring on the lock screen. The glyph carries the state; there is no space
         // for a title anybody could read.

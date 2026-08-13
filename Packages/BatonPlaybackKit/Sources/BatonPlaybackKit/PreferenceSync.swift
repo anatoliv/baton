@@ -28,6 +28,13 @@ public final class PreferenceSync {
     /// mode and demo mode fail it — they describe *this* device. Secrets are absent for a
     /// different reason: they're Keychain-resident and pairing already moves them, so
     /// putting them in a synced JSON blob would be a downgrade in handling.
+    ///
+    /// The discovery *sources* pass that test — deciding twice that you don't want YouTube
+    /// results is exactly the annoyance this list exists to prevent. Two neighbouring keys
+    /// deliberately stay out: the API keys, which are secrets and now Keychain-resident, and
+    /// the master "look outside my library" switch, because that one is consent and consent
+    /// is per device. A phone that syncs a Mac's decision to start talking to strangers
+    /// would be making that choice on the owner's behalf.
     public static let syncedKeys: Set<String> = Set<String>([
         "tonebox.music.eq.enabled",
         "tonebox.music.eq.preset",
@@ -56,7 +63,9 @@ public final class PreferenceSync {
         // How long the filter-history lists are allowed to get. An ordinary scalar; the
         // lists themselves are in `mergedKeys` below because they need a different rule.
         FilterHistory.sizeKey,
-    ]).union(mergedKeys)
+    ])
+    .union(ExternalDiscovery.Source.allCases.map(ExternalDiscovery.enabledKey(for:)))
+    .union(mergedKeys)
 
     /// Keys holding an accumulating **list**, where last-write-wins is the wrong rule.
     ///

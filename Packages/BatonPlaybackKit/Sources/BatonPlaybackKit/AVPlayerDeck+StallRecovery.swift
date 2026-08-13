@@ -4,7 +4,8 @@ import OSLog
 
 private let stallLog = Logger(subsystem: "io.tonebox.baton", category: "StallRecovery")
 
-/// Stalled-stream auto-recovery. A cellular hiccup can park `AVPlayer` at rate-0 with
+/// Stalled-stream auto-recovery for the `AVPlayerDeck`. A cellular hiccup can park
+/// `AVPlayer` at rate-0 with
 /// a full buffer — playback silently stuck while the UI says "playing" (observed in
 /// the field as tens of seconds of silence with over a minute buffered). The design is
 /// adapted (with thanks) from Vibrdrome's MIT-licensed recovery state machine; the
@@ -80,13 +81,17 @@ public struct StallRecoveryPolicy: Sendable {
 }
 
 extension StreamingPlaybackController {
-    /// Kill switch for the auto-recovery (UserDefaults, default on).
+    /// Kill switch for the auto-recovery (UserDefaults, default on). It stays on the
+    /// controller because it is a user setting, not a property of the renderer.
     public static let stallRecoveryEnabledKey = "baton.music.stallRecovery.enabled"
+}
 
+extension AVPlayerDeck {
     /// The periodic-clock hook: detect a parked player with a recovered buffer and
     /// nudge it back into motion within the policy's bounds.
-    func stallRecoveryTick(player: AVQueuePlayer) {
-        guard UserDefaults.standard.object(forKey: Self.stallRecoveryEnabledKey) as? Bool ?? true else { return }
+    func stallRecoveryTick() {
+        let key = StreamingPlaybackController.stallRecoveryEnabledKey
+        guard UserDefaults.standard.object(forKey: key) as? Bool ?? true else { return }
         let status = player.timeControlStatus
         if status == .playing {
             stallPolicy.notePlaying()
@@ -96,7 +101,7 @@ extension StreamingPlaybackController {
         let buffered = player.currentItem?.isPlaybackLikelyToKeepUp ?? false
         let action = stallPolicy.evaluate(
             now: Date().timeIntervalSinceReferenceDate,
-            intendsToPlay: isPlaying,
+            intendsToPlay: hostIntendsToPlay?() == true,
             isParked: parked,
             bufferRecovered: buffered
         )

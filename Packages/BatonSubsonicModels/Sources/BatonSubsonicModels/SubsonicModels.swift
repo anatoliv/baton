@@ -203,8 +203,16 @@ public struct NavidromeSong: Identifiable, Hashable, Codable, Sendable {
     public var isPodcastEpisode: Bool { mediaKind == .podcastEpisode }
 
     /// "Artist — Title" for one-line display / agent responses.
+    ///
+    /// Goes through `DisplayName` rather than testing `isEmpty` itself. An importer's
+    /// placeholder is not empty — it is the literal string "[unknown]" — so the emptiness
+    /// check passed it straight through, and the MCP `music_now_playing` payload was still
+    /// answering "Paused: [unknown] — Clair de Lune" in 0.16.15, after the views had
+    /// stopped. This property is the single place the four agent-facing strings that use it
+    /// share, so the rule belongs here and not at each call site.
     public var displayLine: String {
-        if let artist, !artist.isEmpty { return "\(artist) — \(title)" }
+        let title = DisplayName.title(title)
+        if let artist = DisplayName.artist(artist) { return "\(artist) — \(title)" }
         return title
     }
 

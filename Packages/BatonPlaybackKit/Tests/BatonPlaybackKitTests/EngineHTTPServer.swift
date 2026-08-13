@@ -10,6 +10,9 @@ import Foundation
 /// - **`.stallAfter(bytes:)`**: sends a prefix, then holds the connection open sending
 ///   nothing until `releaseStall()` — a slow-but-open connection, the exact stall class
 ///   the watchdog exists for.
+/// - **`.truncateAfter(bytes:connections:)`**: sends a prefix and hangs up short of the
+///   length it promised — a connection dropped mid-track, which fails the *feeder* rather
+///   than the load, and so is the shape that walks the retry ladder.
 ///
 /// Plain BSD sockets on a background thread: no frameworks, no entitlements, and the
 /// blocking writes make throttling/stalling trivial to express.
@@ -18,6 +21,19 @@ final class EngineHTTPServer: @unchecked Sendable {
         case wholeFile
         case chunked
         case stallAfter(bytes: Int)
+        /// Promises `Content-Length` bytes, sends a prefix, then hangs up — a connection
+        /// dropped mid-track, which the client sees as a transport error rather than a
+        /// clean end. `connections` truncates only the first N of them (`.max` for every
+        /// one), so a test can express "fails once, then serves".
+        case truncateAfter(bytes: Int, connections: Int)
+        /// A stored file, served the way a static file server serves one: `Range` is
+        /// honoured with a 206 and a `Content-Range`. This is what a non-transcoded library
+        /// track actually is, and until the engine could seek by range no test needed it.
+        case rangeCapable(bytesPerSecond: Int)
+        /// The same file, from a server that ignores `Range` and answers 200 with the whole
+        /// body — legal, and what a transcoding endpoint does. The fallback path has to be
+        /// exercised too, or it only works in the case nobody worried about.
+        case ignoresRange(bytesPerSecond: Int)
     }
 
     private let payload: Data
@@ -30,6 +46,32 @@ final class EngineHTTPServer: @unchecked Sendable {
     private var stallReleased = false
     private var stopped = false
     private var connectionFDs: [Int32] = []
+    private var accepted = 0
+
+    /// How many connections the client has opened. The signal for "did that actually
+    /// re-fetch?" — a re-anchor after a device change is a fresh request, and without one
+    /// there is no way to tell a reload from a handler that quietly did nothing.
+    var acceptedConnections: Int {
+        lock.lock(); defer { lock.unlock() }
+        return accepted
+    }
+
+    private var rangeRequests: [Int] = []
+    /// The `Range` starts the client asked for, in order. What makes "did the seek re-fetch
+    /// the whole prefix, or ask for the bytes it wanted?" answerable rather than inferred.
+    var requestedRangeStarts: [Int] {
+        lock.lock(); defer { lock.unlock() }
+        return rangeRequests
+    }
+
+    private static func rangeStart(inRequestHead head: Data) -> Int? {
+        for line in String(decoding: head, as: UTF8.self).split(separator: "\r\n") {
+            guard line.lowercased().hasPrefix("range:") else { continue }
+            guard let equals = line.firstIndex(of: "="), let dash = line.lastIndex(of: "-") else { return nil }
+            return Int(line[line.index(after: equals) ..< dash].trimmingCharacters(in: .whitespaces))
+        }
+        return nil
+    }
 
     init(payload: Data, delivery: Delivery = .wholeFile, contentType: String = "audio/mpeg") throws {
         self.payload = payload
@@ -99,6 +141,7 @@ final class EngineHTTPServer: @unchecked Sendable {
         while !isStopped {
             let fd = accept(listenFD, nil, nil)
             guard fd >= 0 else { return }
+            lock.lock(); accepted += 1; let index = accepted; lock.unlock()
             // Writing to a socket the client has already closed raises SIGPIPE, whose
             // default disposition kills the process — the whole test runner, not the test.
             //
@@ -116,11 +159,11 @@ final class EngineHTTPServer: @unchecked Sendable {
             var noSigPipe: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             lock.lock(); connectionFDs.append(fd); lock.unlock()
-            Thread.detachNewThread { [weak self] in self?.serve(fd: fd) }
+            Thread.detachNewThread { [weak self] in self?.serve(fd: fd, index: index) }
         }
     }
 
-    private func serve(fd: Int32) {
+    private func serve(fd: Int32, index: Int) {
         defer {
             // Deregister under the lock BEFORE closing, so `stop()` can never touch a
             // descriptor that has been (or is being) closed and possibly reused.
@@ -171,6 +214,51 @@ final class EngineHTTPServer: @unchecked Sendable {
             }
             guard !isStopped else { return }
             sendAll(fd, payload.suffix(payload.count - prefix))
+        case .rangeCapable(let bytesPerSecond), .ignoresRange(let bytesPerSecond):
+            // `bytes=N-` only: the open-ended form is the only one the engine sends, and a
+            // server that answered a form nobody asks for would be testing fiction.
+            let requested = Self.rangeStart(inRequestHead: head)
+            let honours = { if case .rangeCapable = delivery { true } else { false } }()
+            lock.lock(); if let requested { rangeRequests.append(requested) }; lock.unlock()
+            if let start = requested, honours, start < payload.count {
+                let body = payload.suffix(from: start)
+                send(fd, "HTTP/1.1 206 Partial Content\r\nContent-Type: \(contentType)\r\n"
+                    + "Content-Range: bytes \(start)-\(payload.count - 1)/\(payload.count)\r\n"
+                    + "Content-Length: \(body.count)\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n")
+                sendThrottled(fd, Data(body), bytesPerSecond: bytesPerSecond)
+            } else {
+                send(fd, "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Length: \(payload.count)\r\n"
+                    + "Accept-Ranges: bytes\r\nConnection: close\r\n\r\n")
+                sendThrottled(fd, payload, bytesPerSecond: bytesPerSecond)
+            }
+        case .truncateAfter(let bytes, let connections):
+            send(fd, "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Length: \(payload.count)\r\nConnection: close\r\n\r\n")
+            if index <= connections {
+                sendAll(fd, payload.prefix(min(bytes, payload.count)))
+                // The `defer` closes the socket: a short body against a declared length,
+                // which URLSession reports as a transport failure.
+            } else {
+                sendAll(fd, payload)
+            }
+        }
+    }
+
+    /// Deliver at roughly a real network's pace.
+    ///
+    /// Not decoration: a local server hands over a whole track in milliseconds, so every
+    /// seek target is already spooled and the reload path — the one worth testing — never
+    /// runs. Throttling is what makes "the bytes have not arrived yet" reproducible.
+    private func sendThrottled(_ fd: Int32, _ data: Data, bytesPerSecond: Int) {
+        let slice = 16 * 1024
+        var offset = 0
+        while offset < data.count, !isStopped {
+            let end = min(offset + slice, data.count)
+            let sent = end - offset
+            sendAll(fd, Data(data[data.startIndex + offset ..< data.startIndex + end]))
+            offset = end
+            if bytesPerSecond > 0 {
+                Thread.sleep(forTimeInterval: Double(sent) / Double(bytesPerSecond))
+            }
         }
     }
 
