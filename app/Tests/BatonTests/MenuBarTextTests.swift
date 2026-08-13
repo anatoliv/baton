@@ -27,6 +27,12 @@ final class MenuBarTextTests: XCTestCase {
         XCTAssertNil(BatonMenuBarText.artist("  unknown  "))            // case- + space-insensitive
         XCTAssertNil(BatonMenuBarText.artist(""))
         XCTAssertNil(BatonMenuBarText.artist(nil))
+        // The spellings the menu bar's own rule missed before it was routed through
+        // `DisplayName`: it compared against the literal "Unknown" and nothing else, so a
+        // library tagged any other way still got a meaningless line here.
+        XCTAssertNil(BatonMenuBarText.artist("[unknown]"))
+        XCTAssertNil(BatonMenuBarText.artist("Unknown Artist"))
+        XCTAssertNil(BatonMenuBarText.artist("N/A"))
     }
 
     func testRealArtistIsKeptAndClipped() {

@@ -60,8 +60,15 @@ final class SpeechPlaybackEngine {
     /// Whether there's a last summary to Replay (server clips replay from cached audio — offline —
     /// and native ones re-run the built-in voice).
     var canReplay: Bool { replayData != nil || replayNativeText != nil }
-    /// Whether ∓10s seek applies right now (server audio only; the built-in voice can't seek).
-    var canSeek: Bool { isSpeaking && !currentIsNative && (duration ?? 0) > 0 }
+    /// Whether ∓10s seek applies right now.
+    ///
+    /// This used to be "server audio only; the built-in voice can't seek", which was true
+    /// while the native voice was `AVSpeechSynthesizer` speaking for itself. Now that it is
+    /// synthesized to buffers and played through the same graph, it has a duration and a
+    /// playhead like any clip, so it seeks too. The exception is the fallback path, where
+    /// synthesis produced nothing and the synthesizer is speaking directly — hence the
+    /// predicate is "is this rendering through our graph", not "is this native".
+    var canSeek: Bool { isSpeaking && isRenderedThroughGraph && (duration ?? 0) > 0 }
 
     /// What to actually play: synthesized audio from a self-hosted server (a temp WAV), or —
     /// when the server was unreachable — the raw text spoken by the built-in macOS voice.
@@ -77,14 +84,31 @@ final class SpeechPlaybackEngine {
         static func == (lhs: Alert, rhs: Alert) -> Bool { lhs.id == rhs.id }
     }
 
-    @ObservationIgnored private var player: AVAudioPlayer?
-    @ObservationIgnored private var delegate: PlayerDelegate?
+    /// Speech's own audio graph — the thing that makes a spoken summary follow the output
+    /// device the user picked. See `SpeechAudioPlayer` for why it is a separate engine rather
+    /// than the music one.
+    @ObservationIgnored private let audio = SpeechAudioPlayer()
+    /// Kept only for the fallback path below, where synthesis-to-buffers was not available and
+    /// the built-in voice has to speak for itself (unrouted, but audible).
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var synthDelegate: SynthDelegate?
-    /// Whether the active utterance is the native voice (synthesizer) vs a file (`AVAudioPlayer`),
-    /// so pause/resume routes to the right engine.
+    /// Whether the active utterance is the native voice vs a server clip. Still drives the
+    /// HUD's wording; it no longer decides which engine plays, because both now go through
+    /// `audio` whenever synthesis succeeded.
     @ObservationIgnored private var currentIsNative = false
-    /// Polls `AVAudioPlayer.currentTime` to publish `progress` for the HUD while a file plays.
+    /// Whether the active utterance is rendering through `audio` — true for every server clip,
+    /// and for the native voice whenever it could be synthesized to buffers. False only on the
+    /// fallback path, where `AVSpeechSynthesizer` is speaking for itself.
+    ///
+    /// This is the predicate pause/resume/seek route on. `currentIsNative` used to serve that
+    /// purpose, and it would now be wrong: a native utterance that rendered is seekable.
+    @ObservationIgnored private var isRenderedThroughGraph = false
+    /// Word boundaries for the native voice, stamped with when they are reached. Replayed
+    /// against the playhead so the HUD highlight tracks the audio rather than the synthesis.
+    @ObservationIgnored private var wordTimeline: [NativeSpeechRenderer.Word] = []
+    /// Invalidates an in-flight synthesis when the user cancels or moves on before it lands.
+    @ObservationIgnored private var renderGeneration = 0
+    /// Polls the playhead to publish `progress` (and the live word) for the HUD.
     @ObservationIgnored private var progressTask: Task<Void, Never>?
     /// Cached audio of the last server clip, so Replay works offline (no re-synthesis). Its display
     /// text rides in `replayText`. For a native summary, `replayNativeText` holds the words instead.
@@ -133,8 +157,8 @@ final class SpeechPlaybackEngine {
     /// Surfaced to the user as **Cancel** in the speaking HUD.
     func stop() {
         utteranceQueue.removeAll()
-        player?.stop()
-        player = nil
+        renderGeneration &+= 1   // abandon any synthesis still in flight
+        audio.unload()
         synthesizer.stopSpeaking(at: .immediate)
         if isSpeaking { endSession() }
     }
@@ -146,14 +170,14 @@ final class SpeechPlaybackEngine {
     /// when nothing is speaking or it's already paused.
     func pause() {
         guard isSpeaking, !isPaused else { return }
-        if currentIsNative { synthesizer.pauseSpeaking(at: .word) } else { player?.pause() }
+        if isRenderedThroughGraph { audio.pause() } else { synthesizer.pauseSpeaking(at: .word) }
         isPaused = true
     }
 
     /// Resume a paused utterance (HUD **Resume**).
     func resume() {
         guard isSpeaking, isPaused else { return }
-        if currentIsNative { synthesizer.continueSpeaking() } else { player?.play() }
+        if isRenderedThroughGraph { audio.resume() } else { synthesizer.continueSpeaking() }
         isPaused = false
     }
 
@@ -163,16 +187,18 @@ final class SpeechPlaybackEngine {
     /// Seek the current server clip by ±`seconds` (HUD ⏪/⏩). No-op for the built-in voice, which
     /// can't seek. Updates `progress` immediately so the bar tracks the jump.
     func seek(by seconds: Double) {
-        guard !currentIsNative, let player else { return }
-        seek(to: player.currentTime + seconds)
+        guard isRenderedThroughGraph else { return }
+        seek(to: audio.currentTime + seconds)
     }
 
-    /// Seek the current server clip to an absolute `time` (HUD scrubber drag). No-op for the
-    /// built-in voice. Updates `progress` immediately so the bar tracks the jump.
+    /// Seek the current clip to an absolute `time` (HUD scrubber drag). No-op on the fallback
+    /// path, where the synthesizer is speaking for itself and has no playhead. Updates
+    /// `progress` immediately so the bar tracks the jump.
     func seek(to time: Double) {
-        guard !currentIsNative, let player, player.duration > 0 else { return }
-        player.currentTime = min(max(time, 0), player.duration)
-        progress = min(max(player.currentTime / player.duration, 0), 1)
+        guard isRenderedThroughGraph, audio.duration > 0 else { return }
+        audio.seek(to: time)
+        progress = min(max(audio.currentTime / audio.duration, 0), 1)
+        publishSpokenWord(at: audio.currentTime)
     }
 
     /// Re-speak the last summary (HUD **Replay**). Reuses the cached audio for a server clip (works
@@ -210,19 +236,37 @@ final class SpeechPlaybackEngine {
         ducking?.endSpeechDuck()
     }
 
-    /// Publish 0…1 progress for the HUD while a file plays. Native speech has no duration, so it
-    /// leaves `progress` nil.
+    /// Publish 0…1 progress for the HUD, and the live word for the native voice.
+    ///
+    /// Both now come from the same place — the playhead of the clip actually rendering — which
+    /// is what lets the built-in voice have a progress bar at all. It used to have neither a
+    /// duration nor a position, because `AVSpeechSynthesizer` exposes neither.
     private func startProgressTracking() {
         stopProgressTracking()
-        guard let player, player.duration > 0 else { progress = nil; return }
+        guard audio.duration > 0 else { progress = nil; return }
         progress = 0
         progressTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                guard let self, let player = self.player, player.duration > 0 else { return }
-                self.progress = min(max(player.currentTime / player.duration, 0), 1)
-                try? await Task.sleep(for: .milliseconds(200))
+                guard let self, self.audio.duration > 0 else { return }
+                let now = self.audio.currentTime
+                self.progress = min(max(now / self.audio.duration, 0), 1)
+                self.publishSpokenWord(at: now)
+                try? await Task.sleep(for: .milliseconds(100))
             }
         }
+    }
+
+    /// The word the voice has reached, from the timeline captured during synthesis.
+    ///
+    /// The synthesizer's own `willSpeakRange` callbacks arrive while *rendering*, which is
+    /// much faster than realtime — publishing them as they arrived would run the highlight to
+    /// the end of the sentence before a word had been heard. Replaying them against the
+    /// playhead keeps the highlight on the word being spoken, and keeps it correct through a
+    /// pause or a seek, which the old live-callback version could not manage.
+    private func publishSpokenWord(at time: TimeInterval) {
+        guard !wordTimeline.isEmpty else { return }
+        let reached = wordTimeline.last { $0.time <= time }?.range
+        if reached != spokenRange { spokenRange = reached }
     }
 
     private func stopProgressTracking() {
@@ -276,37 +320,75 @@ final class SpeechPlaybackEngine {
 
     private func startData(_ data: Data) {
         synthesizer.stopSpeaking(at: .immediate) // mutual: never let native + file sound at once
+        wordTimeline = []
         do {
-            let player = try AVAudioPlayer(data: data)
-            let delegate = PlayerDelegate { [weak self] in self?.onUtteranceFinished() }
-            player.delegate = delegate
-            self.player = player
-            self.delegate = delegate
-            duration = player.duration
+            try audio.load(data: data)
+            audio.onFinish = { [weak self] in self?.onUtteranceFinished() }
+            isRenderedThroughGraph = true
+            duration = audio.duration
             replayData = data // cache for offline Replay; text set by caller (currentText)
             replayText = currentText
             replayNativeText = nil
-            player.play()
+            audio.play()
             startProgressTracking()
         } catch {
             speechLog.error("speech playback failed: \(error.localizedDescription)")
+            isRenderedThroughGraph = false
             onUtteranceFinished()
         }
     }
 
+    /// The built-in voice, synthesized to buffers and played through our own graph.
+    ///
+    /// This is the half of §3.5 that could not be fixed any other way: `AVSpeechSynthesizer`
+    /// has no output-device API, so as long as it spoke for itself the fallback voice came out
+    /// of the system default no matter where the user had pointed Baton. And it is the voice
+    /// that speaks precisely when the TTS server is unreachable — so routing that skipped it
+    /// would have failed in the situation it most needed to work.
     private func startNative(_ text: String) {
-        player?.stop() // mutual: stop any file playback before speaking natively
-        player = nil
-        stopProgressTracking() // native speech has no duration → no progress bar
+        audio.unload() // mutual: nothing else may be sounding
+        stopProgressTracking()
         duration = nil
         replayData = nil
         replayNativeText = text // cache for Replay (re-runs the built-in voice)
-        let utterance = AVSpeechUtterance(string: text)
+
         // Prefer an enhanced/premium voice for the current locale if one is installed. Use the
         // BCP-47 form ("en-US") — Locale.current.identifier is "en_US" (underscore), which the
         // voice initializer rejects, previously yielding nil.
-        utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier(.bcp47))
+        let voice = AVSpeechSynthesisVoice(language: Locale.current.identifier(.bcp47))
             ?? AVSpeechSynthesisVoice(language: "en-US")
+
+        renderGeneration &+= 1
+        let generation = renderGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let render = await NativeSpeechRenderer.render(text, voice: voice)
+            // Cancelled, or superseded by another utterance, while we were synthesizing.
+            guard generation == self.renderGeneration else { return }
+            guard let render else {
+                // Synthesis produced nothing. Speak it aloud unrouted rather than silently
+                // dropping the summary — a summary on the wrong speaker beats no summary.
+                speechLog.error("speech: native synthesis produced no audio — speaking unrouted")
+                self.speakDirectly(text, voice: voice)
+                return
+            }
+            self.wordTimeline = render.words
+            self.audio.adopt(render.pcm)
+            self.audio.onFinish = { [weak self] in self?.onUtteranceFinished() }
+            self.isRenderedThroughGraph = true
+            self.duration = self.audio.duration
+            self.audio.play()
+            self.startProgressTracking()
+        }
+    }
+
+    /// The fallback: let `AVSpeechSynthesizer` play it. Unrouted — it follows the system
+    /// output — and with no playhead, so no progress bar and no seek.
+    private func speakDirectly(_ text: String, voice: AVSpeechSynthesisVoice?) {
+        isRenderedThroughGraph = false
+        wordTimeline = []
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = voice
         let delegate = SynthDelegate(
             onFinish: { [weak self] in self?.onUtteranceFinished() },
             onWord: { [weak self] range in self?.spokenRange = range }
@@ -315,6 +397,20 @@ final class SpeechPlaybackEngine {
         synthDelegate = delegate
         synthesizer.speak(utterance)
     }
+
+    // MARK: - Routing
+
+    #if os(macOS)
+    /// Send spoken summaries to `deviceID` (nil follows the system default).
+    ///
+    /// Called by the same picker that routes music, so the two stay together — which is the
+    /// whole point of the ticket. Remembered by the player, so a summary that starts *after*
+    /// the choice honours it too, not only one already speaking.
+    @discardableResult
+    func setOutputDevice(_ deviceID: AudioDeviceID?) -> Bool {
+        audio.setOutputDevice(deviceID)
+    }
+    #endif
 
     // MARK: - In-app banner (mode = "banner")
     func presentBanner(text: String, utterance: Utterance) {
@@ -369,16 +465,7 @@ private final class SynthDelegate: NSObject, AVSpeechSynthesizerDelegate {
     }
 }
 
-/// Bridges `AVAudioPlayer`'s completion callback to a closure. Not `@MainActor` (the delegate
-/// protocol isn't), but `AVAudioPlayer` invokes it on the main run loop; the closure hops
-/// back onto the main actor via the captured `@MainActor` engine method.
-private final class PlayerDelegate: NSObject, AVAudioPlayerDelegate {
-    let onFinish: @MainActor () -> Void
-    init(onFinish: @escaping @MainActor () -> Void) { self.onFinish = onFinish }
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        // AVAudioPlayer delivery isn't a documented main-thread contract; hop to the
-        // main actor rather than asserting isolation.
-        let onFinish = self.onFinish
-        Task { @MainActor in onFinish() }
-    }
-}
+// `PlayerDelegate` used to sit here, bridging `AVAudioPlayer`'s completion callback. Speech no
+// longer uses `AVAudioPlayer` at all: it has no output-device API, which is what kept spoken
+// summaries pinned to the system output while the picker moved the music. `SpeechAudioPlayer`
+// owns the completion path now, with the generation guard a scheduled-buffer callback needs.

@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -9,6 +10,9 @@ import XCTest
 final class ExternalDiscoveryTests: XCTestCase {
     override func setUp() {
         super.setUp()
+        // API keys moved to the Keychain, and a read migrates any legacy defaults value into
+        // it — so a test that sets one now writes to the real store unless it stands one in.
+        NavidromeKeychain.inMemoryStore = [:]
         for key in [ExternalDiscovery.enabledKey,
                     ExternalDiscovery.lastFMKeyKey,
                     ExternalDiscovery.youTubeKeyKey] {
@@ -17,6 +21,7 @@ final class ExternalDiscoveryTests: XCTestCase {
     }
 
     override func tearDown() {
+        NavidromeKeychain.inMemoryStore = nil
         for key in [ExternalDiscovery.enabledKey,
                     ExternalDiscovery.lastFMKeyKey,
                     ExternalDiscovery.youTubeKeyKey] {

@@ -60,7 +60,7 @@ final class EnginePauseSilenceTests: XCTestCase {
         defer { pipeline.shutdown(); server.stop() }
 
         engine.volumePercent = 100
-        engine.play([track("1", server)], atTime: 0, autoplay: true)
+        engine.play(track("1", server), atTime: 0, autoplay: true)
         try await waitUntilPlaying(engine)
 
         engine.pause()
@@ -86,7 +86,7 @@ final class EnginePauseSilenceTests: XCTestCase {
         defer { pipeline.shutdown(); server.stop() }
 
         engine.volumePercent = 100
-        engine.play([track("1", server)], atTime: 0, autoplay: true)
+        engine.play(track("1", server), atTime: 0, autoplay: true)
         try await waitUntilPlaying(engine)
         engine.pause()
         try await Task.sleep(for: .milliseconds(600))
@@ -109,12 +109,12 @@ final class EnginePauseSilenceTests: XCTestCase {
         defer { pipeline.shutdown(); server.stop() }
 
         engine.volumePercent = 100
-        engine.play([track("1", server)], atTime: 0, autoplay: true)
+        engine.play(track("1", server), atTime: 0, autoplay: true)
         try await waitUntilPlaying(engine)
         engine.stop()
         try await Task.sleep(for: .milliseconds(600))
 
-        engine.play([track("2", server)], atTime: 0, autoplay: true)
+        engine.play(track("2", server), atTime: 0, autoplay: true)
         try await waitUntilPlaying(engine)
 
         XCTAssertGreaterThan(

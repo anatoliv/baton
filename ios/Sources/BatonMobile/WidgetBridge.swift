@@ -93,8 +93,14 @@ enum WidgetBridge {
     @MainActor
     private static func write(song: NavidromeSong, isPlaying: Bool, artworkURL: URL?,
                               artworkFile: String?, defaults: UserDefaults?) {
+        // Cleaned here rather than in the widget: that target takes no package
+        // dependencies (sources only, see ios/project.yml), so `DisplayName` cannot reach
+        // it. The JSON contract is the boundary, so the boundary is where the placeholder
+        // rule is applied — a nil artist crossing it means "there is no artist", which is
+        // exactly what the widget already draws for.
         let snapshot = Snapshot(
-            title: song.title, artist: song.artist, songID: song.id,
+            title: DisplayName.title(song.title), artist: DisplayName.artist(song.artist),
+            songID: song.id,
             isPlaying: isPlaying, artworkURL: artworkURL,
             artworkFile: artworkFile, updatedAt: Date()
         )
@@ -121,7 +127,8 @@ enum WidgetBridge {
             return
         }
         let state = NowPlayingActivityAttributes.ContentState(
-            title: song.title, artist: song.artist, isPlaying: isPlaying,
+            title: DisplayName.title(song.title), artist: DisplayName.artist(song.artist),
+            isPlaying: isPlaying,
             artworkFile: artworkFile, elapsed: elapsed, duration: duration
         )
         // A Live Activity outlives the app that started it — that is the whole point of one

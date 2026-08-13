@@ -44,13 +44,13 @@ final class EngineTransportIntentTests: XCTestCase {
         defer { pipeline.shutdown(); server.stop() }
 
         engine.volumePercent = 100
-        engine.play([track("1", server)], atTime: 0, autoplay: true)
+        engine.play(track("1", server), atTime: 0, autoplay: true)
         try await waitUntilPlaying(engine)
 
         engine.pause()
         // Well inside the 280 ms the fade owes its pause.
         try await Task.sleep(for: .milliseconds(60))
-        engine.play([track("2", server)], atTime: 0, autoplay: true)
+        engine.play(track("2", server), atTime: 0, autoplay: true)
         try await waitUntilPlaying(engine)
 
         // Past where the old owed pause would have landed.
@@ -77,7 +77,7 @@ final class EngineTransportIntentTests: XCTestCase {
         defer { pipeline.shutdown(); server.stop() }
 
         engine.volumePercent = 100
-        engine.play([track("1", server)], atTime: 0, autoplay: true)
+        engine.play(track("1", server), atTime: 0, autoplay: true)
 
         // Immediately — the load has not landed yet.
         XCTAssertEqual(engine.state, .loading, "precondition: still loading")
@@ -98,7 +98,7 @@ final class EngineTransportIntentTests: XCTestCase {
         defer { pipeline.shutdown(); server.stop() }
 
         engine.volumePercent = 100
-        engine.play([track("1", server)], atTime: 0, autoplay: true)
+        engine.play(track("1", server), atTime: 0, autoplay: true)
         XCTAssertEqual(engine.state, .loading, "precondition: still loading")
 
         engine.pause()

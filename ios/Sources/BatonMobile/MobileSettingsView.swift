@@ -274,6 +274,15 @@ struct MobileSettingsView: View {
                     gapless and crossfade are skipped, so track changes are plain cuts. \
                     It applies straight away, to whatever is playing.
                     """)
+
+                // The iPhone half of Stage 6. iOS has no per-app energy API, so
+                // the comparable number is the app's own CPU time per second of audio —
+                // the mechanism behind the cost, since the engine decodes in-process where
+                // the system player hands the work off. Flip the switch above, play for the
+                // same stretch each way, and read this.
+                Section("Engine cost") {
+                    EngineCPUCostRow(model: model)
+                }
                 }
 
                 Section {
@@ -308,7 +317,16 @@ struct MobileSettingsView: View {
                     // here used to say "the one lookup", and said it for a while after it
                     // stopped being true.)
                     Toggle("Look Up Missing Lyrics", isOn: $lrclibEnabled)
-                    Toggle("Look Outside My Library", isOn: $externalDiscoveryEnabled)
+                    // The master switch keeps its place; which sources it may ask, and the
+                    // keys two of them need, live one level down — there was nowhere on the
+                    // phone to enter those at all, so the results sheet asked for a key that
+                    // could only be typed on a Mac.
+                    NavigationLink {
+                        MobileDiscoverySourcesView()
+                    } label: {
+                        LabeledContent("Look Outside My Library",
+                                       value: externalDiscoveryEnabled ? "On" : "Off")
+                    }
                     Picker("Appearance", selection: $appearanceRaw) {
                         ForEach(AppearanceSetting.allCases) { setting in
                             Text(setting.label).tag(setting.rawValue)

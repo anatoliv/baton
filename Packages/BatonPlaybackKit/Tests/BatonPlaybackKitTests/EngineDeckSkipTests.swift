@@ -14,41 +14,49 @@ import XCTest
 /// not, which is exactly the kind of asymmetry a test should hold in place.
 @MainActor
 final class EngineDeckSkipTests: XCTestCase {
-    /// The guard is a source-level invariant: both blend entry points must refuse while a
-    /// deck is attached. Asserted on the source because constructing a live AVPlayer queue
-    /// plus an engine deck in a unit test would prove less and break more.
-    func testBothBlendPathsRefuseWhileTheEngineDeckIsAttached() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // BatonPlaybackKitTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // BatonPlaybackKit
-            .appendingPathComponent("Sources/BatonPlaybackKit/StreamingPlaybackController.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+    /// The guard is a source-level invariant: both blend entry points must refuse while the
+    /// engine owns playback. Asserted on the source because constructing a live AVPlayer
+    /// queue plus an engine deck in a unit test would prove less and break more.
+    ///
+    /// Anchored through `SourceInvariant`, which matches `func <name>` and bounds the body
+    /// by its braces. The previous version pinned `"private func beginSkipBlend"` and cut
+    /// the body at the next `private func` — so making either function `internal`, or
+    /// giving it an attribute, would have reported a skip-blend regression that had not
+    /// happened.
+    func testBothBlendPathsRefuseWhileTheEngineOwnsPlayback() throws {
+        let source = try SourceInvariant.source("StreamingPlaybackController.swift")
 
-        func body(of function: String) throws -> String {
-            let start = try XCTUnwrap(source.range(of: function), "\(function) not found")
-            let rest = source[start.upperBound...]
-            // Up to the next function at the same indentation — enough to cover the guards.
-            let end = rest.range(of: "\n    private func ") ?? rest.range(of: "\n    public func ")
-            return String(end.map { rest[..<$0.lowerBound] } ?? rest)
-        }
-
-        let manualSkip = try body(of: "private func beginSkipBlend")
-        XCTAssertTrue(
-            manualSkip.contains("engineDeck == nil"),
-            "beginSkipBlend does not refuse on the engine deck — Next will advance the UI while the old track keeps playing"
+        let manualSkip = try SourceInvariant.functionBody(of: "beginSkipBlend", in: source)
+        // Ownership, not attachment. This used to pin the literal `engineDeck == nil`, and
+        // that predicate was broader than its own rationale: it disabled the blend for
+        // downloads too, from the moment a deck existed, on both apps. (Podcasts lost
+        // nothing — they have always had their own `isPodcastEpisode` guard.) The asymmetry
+        // with `maybeStartCrossfade`'s narrower `!engineOwnsPlayback` — asserted below,
+        // unchanged — was the tell that one of them was wrong.
+        SourceInvariant.assert(
+            manualSkip, contains: "!engineOwnsPlayback",
+            rule: "a manual skip refuses to blend while the engine owns playback, or Next advances the UI while the old track keeps playing",
+            within: "the body of `beginSkipBlend`"
+        )
+        // And the incoming half: a track that would route to the deck must not be blended
+        // into as an AVPlayer item, or the wrong renderer ends up playing it.
+        SourceInvariant.assert(
+            manualSkip, contains: "EngineDeckBridge.canPlay",
+            rule: "a manual skip checks whether the incoming track belongs on the deck",
+            within: "the body of `beginSkipBlend`"
         )
 
-        let autoCrossfade = try body(of: "private func maybeStartCrossfade")
-        XCTAssertTrue(
-            autoCrossfade.contains("!engineOwnsPlayback"),
-            "maybeStartCrossfade does not refuse on the engine deck"
+        let autoCrossfade = try SourceInvariant.functionBody(of: "maybeStartCrossfade", in: source)
+        SourceInvariant.assert(
+            autoCrossfade, contains: "!engineOwnsPlayback",
+            rule: "the automatic end-of-track crossfade refuses while the engine owns playback",
+            within: "the body of `maybeStartCrossfade`"
         )
     }
 
     /// Only one thing may publish the playhead at a time.
     ///
-    /// The AVPlayer periodic observer writes `currentTime` from
+    /// The AVPlayer periodic observer writes the playhead from
     /// `streamStartOffset + time.seconds`. It stays installed while the engine deck owns
     /// playback, and on a track change it can fire with a zeroed player clock while
     /// `streamStartOffset` still holds the *previous* track's offset — so it publishes the
@@ -59,33 +67,43 @@ final class EngineDeckSkipTests: XCTestCase {
     /// one value, and only one of them had been fixed. Asserted on the source because
     /// driving a real AVPlayer observer while an engine deck owns playback needs both
     /// engines live, which proves less and breaks more than reading the guard.
+    ///
+    /// **The anchor moved with the rule** (Stage 5b): the observer is now `AVPlayerDeck`'s,
+    /// it reports rather than publishes, and the ownership gate sits once on the callback
+    /// wiring instead of twice at the top of two observer bodies. Both halves are pinned
+    /// here — the gate, and the deck's own structural stand-down.
     @MainActor
     func testTheAVPlayerClockStandsDownWhileTheEngineOwnsPlayback() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/BatonPlaybackKit/StreamingPlaybackController.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-
-        // Bounded by structure. This was a `prefix(3000)` window and it failed on correct
-        // code the moment the guard above it grew a comment — the fourth time today a test
-        // written that way has cried wolf. A window sized by guesswork tests the guess.
-        let observer = try XCTUnwrap(source.range(of: "addPeriodicTimeObserver"),
-                                     "the periodic observer has moved or been renamed")
-        let rest = source[observer.upperBound...]
-        let closing = rest.range(of: "\n    }") ?? rest.range(of: "\n    private func ")
-        let body = String(closing.map { rest[..<$0.lowerBound] } ?? rest)
-
-        let guardRange = try XCTUnwrap(
-            body.range(of: "guard !self.engineOwnsPlayback else { return }"),
-            "the AVPlayer clock no longer stands down for the engine deck — the playhead will jump on every track change"
+        // The host half: every deck's clock callback is gated on whether that deck is the
+        // one that owns playback, so only one of them can ever reach the single clock body.
+        let wiring = try SourceInvariant.functionBody(
+            of: "wire", in: try SourceInvariant.source("StreamingPlaybackController.swift")
         )
-        let publish = try XCTUnwrap(body.range(of: "self.currentTime = playhead"),
-                                    "the observer no longer publishes the playhead")
-        XCTAssertTrue(
-            guardRange.upperBound < publish.lowerBound,
-            "the engine guard sits after the playhead is published, so the stale value is written anyway"
+        try SourceInvariant.assert(
+            wiring,
+            has: "engineOwnsPlayback == isEngine",
+            before: "handleClock",
+            rule: "a deck's clock only reaches the host while that deck owns playback, or the playhead has two publishers and jumps on every track change",
+            within: "the body of `wire`"
+        )
+
+        // The deck half: an emptied queue stands the observer down entirely. The engine
+        // taking a track calls `clear()`, so this is structural rather than a flag someone
+        // has to remember to check.
+        //
+        // Bounded by braces, not by a character count. This was a `prefix(3000)` window and
+        // it failed on correct code the moment the guard above it grew a comment — the
+        // fourth time in one day a test written that way had cried wolf. A window sized by
+        // guesswork tests the guess.
+        let observer = try SourceInvariant.closureBody(
+            after: "addPeriodicTimeObserver", in: try SourceInvariant.source("AVPlayerDeck.swift")
+        )
+        try SourceInvariant.assert(
+            observer,
+            has: "guard self.player.currentItem != nil else { return }",
+            before: "self.onClock?",
+            rule: "the AVPlayer clock stands down before reporting when it has no item, or it republishes a stale stream offset over the engine's playhead",
+            within: "the periodic time observer in `AVPlayerDeck`"
         )
     }
 
@@ -103,28 +121,27 @@ final class EngineDeckSkipTests: XCTestCase {
     /// "because you liked" shelves that were showing it too.
     @MainActor
     func testSimilarSongsNeverReturnsTheSeedItself() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/BatonPlaybackKit/MusicLibraryStore.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-
-        let start = try XCTUnwrap(source.range(of: "public func similarSongs(seedID: String)"),
-                                  "similarSongs has moved or been renamed")
-        let rest = source[start.upperBound...]
-        let end = try XCTUnwrap(rest.range(of: "\n    /// "), "could not bound the function body")
-        let body = String(rest[..<end.lowerBound])
+        let source = try SourceInvariant.source("MusicLibraryStore.swift")
+        // Anchored on the name alone. It used to pin `"public func similarSongs(seedID: String)"`
+        // — the visibility *and* the full parameter list — so adding a `limit:` argument
+        // would have reported a duplicate-seed regression instead of a signature change.
+        // The old bound was the next doc comment, which is a convention rather than a
+        // structure; this one is the closing brace.
+        let body = try SourceInvariant.functionBody(of: "similarSongs", in: source)
 
         // Every return path — demo, similar, and the random fallback — has to exclude it.
         let filters = body.components(separatedBy: "id != seedID").count - 1
         XCTAssertGreaterThanOrEqual(
             filters, 3,
-            """
-            a return path in similarSongs can hand back the seed. Whichever one it is, the \
-            radio queue it feeds will open with the same track twice and show the \
-            now-playing indicator on both rows.
-            """
+            SourceInvariant.Failure(
+                rule: """
+                every return path in `similarSongs` excludes the seed, or the radio queue it \
+                feeds opens with the same track twice and shows the now-playing indicator on \
+                both rows
+                """,
+                searched: "at least 3 occurrences of `id != seedID` in the body of `similarSongs`, and found \(filters)",
+                file: #filePath, line: #line
+            ).message
         )
     }
 
@@ -169,44 +186,59 @@ final class EngineDeckSkipTests: XCTestCase {
 @MainActor
 final class SkipBlendPlayheadTests: XCTestCase {
     private func controllerSource() throws -> String {
-        try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/BatonPlaybackKit/StreamingPlaybackController.swift"),
-                   encoding: .utf8)
+        try SourceInvariant.source("StreamingPlaybackController.swift")
     }
 
+    /// Bounded by braces, not by a character count. Three tests in one day were written with
+    /// `prefix(n)` windows and all three failed on correct code the moment a comment grew —
+    /// the guard was still there, just past the window.
+    ///
+    /// The anchor moved with the rule (Stage 5b): there is one clock body now, `handleClock`,
+    /// so the guard is asserted there rather than inside the AVPlayer observer. The deck
+    /// carries its own copy against its own ramp, pinned below.
     func testTheClockStandsDownDuringASkipBlend() throws {
-        let source = try controllerSource()
-        // Bounded by *structure*, not by a character count. Three tests today have been
-        // written with `prefix(n)` windows and all three failed on correct code the moment a
-        // comment grew — the guard was still there, just past the window. A window sized by
-        // guesswork tests the guess.
-        let observer = try XCTUnwrap(source.range(of: "addPeriodicTimeObserver"))
-        let rest = source[observer.upperBound...]
-        let closing = rest.range(of: "\n    }") ?? rest.range(of: "\n    private func ")
-        let body = String(closing.map { rest[..<$0.lowerBound] } ?? rest)
-
-        let guardRange = try XCTUnwrap(
-            body.range(of: "guard !self.isCrossfading else { return }"),
-            "the clock still publishes during a skip blend — the playhead will jump to the outgoing track's position"
+        let clock = try SourceInvariant.functionBody(of: "handleClock", in: try controllerSource())
+        try SourceInvariant.assert(
+            clock,
+            has: "guard !isCrossfading else { return }",
+            before: "currentTime = time",
+            rule: "the clock stands down before publishing during a skip blend, or the playhead jumps to the outgoing track's position",
+            within: "the body of `handleClock`"
         )
-        let publish = try XCTUnwrap(body.range(of: "self.currentTime = playhead"))
-        XCTAssertTrue(guardRange.upperBound < publish.lowerBound,
-                      "the guard sits after the playhead is published, so the stale value lands anyway")
+
+        let observer = try SourceInvariant.closureBody(
+            after: "addPeriodicTimeObserver", in: try SourceInvariant.source("AVPlayerDeck.swift")
+        )
+        try SourceInvariant.assert(
+            observer,
+            has: "guard !self.crossfadeRamp.isActive else { return }",
+            before: "self.onClock?",
+            rule: "the deck's own clock stands down while its ramp is running, or the outgoing player reports over the incoming track's zero",
+            within: "the periodic time observer in `AVPlayerDeck`"
+        )
     }
 
-    /// The offset the observer adds must be cleared by the advance, or the new track's clock
-    /// is read against the old track's starting point.
+    /// The offset the clock adds must be cleared when the blended-in player is promoted, or
+    /// the new track's clock is read against the old track's starting point.
+    ///
+    /// It used to be cleared in `beginSkipBlend`, at the top of the blend. It now happens in
+    /// `AVPlayerDeck.promoteCrossfade`, at the bottom — which is the moment the offset
+    /// actually stops applying, since until then the outgoing stream is still sounding.
     func testTheSkipClearsTheStreamOffset() throws {
-        let source = try controllerSource()
-        let start = try XCTUnwrap(source.range(of: "private func beginSkipBlend"))
-        let rest = source[start.upperBound...]
-        let end = try XCTUnwrap(rest.range(of: "\n    private func "))
-        let body = String(rest[..<end.lowerBound])
+        let promotion = try SourceInvariant.functionBody(
+            of: "promoteCrossfade", in: try SourceInvariant.source("AVPlayerDeck.swift")
+        )
+        SourceInvariant.assert(
+            promotion, contains: "streamStartOffset = 0",
+            rule: "promoting a blended-in player clears the stream offset, or a skip after an offset load re-adds the old offset to the new track's clock",
+            within: "the body of `promoteCrossfade`"
+        )
 
-        XCTAssertTrue(body.contains("streamStartOffset = 0"),
-                      "a skip after an offset load re-adds the old offset to the new track's clock")
-        XCTAssertTrue(body.contains("lastClockSample = nil"),
-                      "the listening accumulator carries the outgoing track's last position into the new one")
+        let body = try SourceInvariant.functionBody(of: "beginSkipBlend", in: try controllerSource())
+        SourceInvariant.assert(
+            body, contains: "lastClockSample = nil",
+            rule: "a skip resets the listening accumulator, or it carries the outgoing track's last position into the new one",
+            within: "the body of `beginSkipBlend`"
+        )
     }
 }

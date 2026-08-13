@@ -25,7 +25,7 @@ import BatonSubsonicModels
 /// here until it is mirrored. That is the whole reason the watch build is in the gate — the
 /// engine merge broke this target and nobody noticed, because the gate only built one app.
 @MainActor
-public final class EngineDeckBridge {
+public final class EngineDeckBridge: PlaybackDeck {
     public var onClock: (@MainActor (TimeInterval, TimeInterval, Bool) -> Void)?
     public var onEnded: (@MainActor () -> Void)?
     public var onFailure: (@MainActor (String) -> Void)?
@@ -49,8 +49,8 @@ public final class EngineDeckBridge {
     public func applyEQ(bands: [EQBand], enabled: Bool) {}
     public func startMetering(into snapshot: LevelSnapshot) {}
     public func stopMetering() {}
-    func suspendMetering() {}
-    func resumeMetering() {}
+    public func suspendMetering() {}
+    public func resumeMetering() {}
     public func setStallTimeout(_ seconds: Double) {}
 }
 

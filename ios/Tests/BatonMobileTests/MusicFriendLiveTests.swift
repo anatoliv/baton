@@ -37,6 +37,7 @@ final class MusicFriendLiveTests: XCTestCase {
               let base = json["base"], let key = json["key"]
         else { throw XCTSkip("live config unreadable") }
         try skipUnlessReachable(base)
+        try skipUnlessServing(base: base, key: key, model: json["model"] ?? "chat")
         return Live(base: base, key: key, model: json["model"] ?? "chat")
     }
 
@@ -53,6 +54,54 @@ final class MusicFriendLiveTests: XCTestCase {
         }.resume()
         _ = semaphore.wait(timeout: .now() + 8)
         try XCTSkipIf(!reachable, "live provider isn't answering — skipping rather than failing")
+    }
+
+    /// Answering the port is not the same as being able to serve, and only the second one
+    /// makes this suite measurable. The Mac learned that when a LAN box woke mid-gate: its
+    /// port answered while vLLM was still loading weights, the eval ran against a model
+    /// that could serve nothing, and `publish.sh` refused a release over an agent whose
+    /// code hadn't changed. `RemoteAgentLiveTests.skipUnlessServing` is the answer it
+    /// arrived at, and this is that check, ported — the two suites now agree on what
+    /// "not measurable" means.
+    ///
+    /// Without it these tests *failed* where the Mac's skipped, and they run first in
+    /// `scripts/test.sh`, so somebody else's downtime reddened the iPhone stage and stopped
+    /// a release that had nothing to do with it. Observed, not theorised.
+    ///
+    /// Any non-200 skips, including 401 — same as the Mac. A key that is genuinely wrong
+    /// therefore skips rather than failing loudly, which is the trade the Mac already made:
+    /// a wrong key and a model still loading are the same response at this layer, and a
+    /// gate that goes red at random teaches everyone to ignore red.
+    private func skipUnlessServing(base: String, key: String, model: String) throws {
+        guard let url = URL(string: base.hasSuffix("/") ? base + "chat/completions"
+                                                        : base + "/chat/completions")
+        else { throw XCTSkip("live base URL is not a URL: \(base)") }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30          // a model still loading is slow, not absent
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "messages": [["role": "user", "content": "hi"]],
+            "max_tokens": 1,
+        ])
+
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var serving = false
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let http = response as? HTTPURLResponse, http.statusCode == 200,
+               let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                serving = json["choices"] != nil
+            }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 35)
+
+        try XCTSkipIf(!serving,
+                      "live provider is up but not serving \(model) yet (still loading?) — "
+                      + "skipping rather than reddening the gate")
     }
 
     private func configured(_ live: Live) -> MobileModel {

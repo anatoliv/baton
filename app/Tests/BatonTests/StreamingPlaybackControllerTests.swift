@@ -511,6 +511,31 @@ final class StreamingPlaybackControllerTests: XCTestCase {
     ///
     /// The behaviour that actually regressed is "resume() did not reload the drained item",
     /// and that is observable with no timing at all.
+    ///
+    /// **It flaked anyway, and `state == .idle` was the reason** (2026-08-12, inside the
+    /// full gate; passed on the next run over the same tree, and passes in isolation).
+    /// `loadsBefore` was 1 and the counter was still 1 afterwards, so `.idle` had genuinely
+    /// been reached and `resume()` simply did not take the reload branch.
+    ///
+    /// The two are not the same observation, and the controller says so itself. `state`
+    /// becomes `.idle` inside `endOfQueue()`, synchronously in the end-of-track handler;
+    /// the branch `resume()` takes is decided by `player.currentItem == nil`, which is
+    /// AVQueuePlayer's own bookkeeping. `handleEnded` has the note, written for the gapless
+    /// path and true for this one: *"the end notification can fire before `currentItem`
+    /// flips"*. Waiting for the first and then reading the second, synchronously, is a race
+    /// whose window only opens under full-gate load.
+    ///
+    /// `TrackBoundary.isAtEnd` cannot rescue it either, though `endOfQueue()` does set
+    /// `currentTime = duration`: it requires `duration > 1`, and this tone is exactly 1.0 s
+    /// (`TransportTransitionsTests` pins `isAtEnd(currentTime: 1, duration: 1)` as false).
+    /// So the drained item is the *only* thing that can select the reload branch here —
+    /// which is correct, because a drained player is the regression this test is named for.
+    /// Lengthening the tone would make the precondition deterministic and quietly stop
+    /// testing that path, so the tone stays and the wait gets fixed instead.
+    ///
+    /// So: wait for the state the branch actually consults, and require it to be *stable*
+    /// rather than merely observed once. The assertion itself stays exact —
+    /// `loadsBefore + 1` is the regression this guards, and widening it would guard nothing.
     func testResumeAfterTrackEndReloadsTheDrainedItem() throws {
         let a = try makeToneFile(frequency: 440, seconds: 1.0, name: "resume-reload")
         defer { try? FileManager.default.removeItem(at: a) }
@@ -522,6 +547,26 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         let end = Date().addingTimeInterval(8)
         while c.state == .playing, Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         XCTAssertEqual(c.state, .idle, "track did not finish")
+
+        // Now the part the old version assumed: the player has actually let go of the item.
+        // Held across three consecutive turns, so a value sampled mid-transition cannot pass
+        // for a settled one.
+        var settled = 0
+        let drained = Date().addingTimeInterval(4)
+        while settled < 3, Date() < drained {
+            let isDrained = c.currentItemURLForTesting == nil
+                || TrackBoundary.isAtEnd(currentTime: c.currentTime, duration: c.duration)
+            settled = isDrained ? settled + 1 : 0
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        // A precondition, phrased as one. If this fails the player is still holding an item
+        // seconds after the controller called the track finished, which is a finding in its
+        // own right — and it is emphatically not "resume() is broken", which is what this
+        // test used to report when it lost the race.
+        XCTAssertGreaterThanOrEqual(
+            settled, 3,
+            "the player never settled into a drained state, so the reload branch this test exists to check was never reachable — this is a precondition failure, not a resume() regression"
+        )
 
         // The deterministic assertion: a drained player must be reloaded, not play()ed.
         let loadsBefore = c.loadCurrentCountForTesting

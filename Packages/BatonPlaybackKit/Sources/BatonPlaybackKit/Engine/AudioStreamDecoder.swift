@@ -85,12 +85,34 @@ final class AudioStreamDecoder {
     /// are stateful (bit reservoir), so decoding across a jump would smear garbage.
     private var pendingDiscontinuity = false
 
-    init() throws {
+    /// Formats whose frames carry their own headers, so a parser can pick them up from an
+    /// arbitrary byte offset with no file header in front of it.
+    ///
+    /// This is the whole precondition for seeking by HTTP range. MP3 and ADTS resynchronize
+    /// on the next frame sync word — it is how internet radio works at all. An MP4/M4A needs
+    /// its `moov`, and LPCM needs the WAVE header to know its rate and channel count, so
+    /// neither can start mid-file and both keep the fetch-from-zero path.
+    static func fileTypeHint(forSuffix suffix: String?) -> AudioFileTypeID? {
+        switch suffix?.lowercased() {
+        case "mp3": kAudioFileMP3Type
+        case "aac", "adts": kAudioFileAAC_ADTSType
+        default: nil
+        }
+    }
+
+    /// - Parameter fileTypeHint: what the bytes are, when the parser cannot work it out for
+    ///   itself. Zero keeps the old behaviour — sniff, as AVPlayer's path does — and is right
+    ///   whenever the stream starts at byte zero, because the header is the best evidence
+    ///   there is. It is *not* right for a stream that starts in the middle of a file: there
+    ///   is no header to find, and sniffing fails with `'typ?'`
+    ///   (`kAudioFileStreamError_UnsupportedFileType`), which is precisely the error a
+    ///   non-transcoded track reported on every seek.
+    init(fileTypeHint: AudioFileTypeID = 0) throws {
         var id: AudioFileStreamID?
         let status = AudioFileStreamOpen(
             Unmanaged.passUnretained(self).toOpaque(),
             propertyCallback, packetsCallback,
-            0, // no file-type hint: let the parser sniff, as AVPlayer's path does
+            fileTypeHint,
             &id
         )
         guard status == noErr, let id else { throw DecodeError.openFailed(status) }

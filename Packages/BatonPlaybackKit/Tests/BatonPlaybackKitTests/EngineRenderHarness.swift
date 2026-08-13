@@ -42,6 +42,19 @@ final class EngineRenderHarness {
 
     enum HarnessError: Error { case timeout, renderFailed }
 
+    /// `waitUntil` for a condition whose failure is not automatically the test's failure —
+    /// it reports whether the wait succeeded instead of throwing, so the caller can decide
+    /// between failing and skipping. (A live path that is known-broken should not be
+    /// indistinguishable from the same path regressing.)
+    func waitUntilOrTimeout(seconds: TimeInterval, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            guard Date() < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return true
+    }
+
     /// Render `seconds` of output as fast as the graph allows, returning channel 0.
     /// Call only once everything to be rendered is already scheduled (deterministic; a
     /// dry deck renders silence, which is exactly what gap assertions must be able to

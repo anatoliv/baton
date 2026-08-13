@@ -771,8 +771,15 @@ private struct BatonPlaybackPane: View {
     @AppStorage(MusicModel.experimentalEngineKey) private var experimentalEngine = false
     /// Looking past the owner's own server. Off, and stays off until asked.
     @AppStorage(ExternalDiscovery.enabledKey) private var externalDiscoveryEnabled = false
-    @AppStorage(ExternalDiscovery.lastFMKeyKey) private var lastFMDiscoveryKey = ""
-    @AppStorage(ExternalDiscovery.youTubeKeyKey) private var youTubeDiscoveryKey = ""
+    /// Keychain-backed rather than `@AppStorage`: these are credentials, and the store they
+    /// live in is not a defaults domain any more. Loaded when the pane appears.
+    @State private var lastFMDiscoveryKey = ""
+    @State private var youTubeDiscoveryKey = ""
+    /// Mirrored so the toggles redraw: the per-source switches live under keys computed at
+    /// runtime, which `@AppStorage` cannot observe.
+    @State private var discoverySourceEnabled: [String: Bool] = [:]
+    @State private var discoveryTests: [ExternalDiscovery.Source: ExternalDiscovery.TestResult] = [:]
+    @State private var discoveryTesting: Set<ExternalDiscovery.Source> = []
 
     /// Fixed width for the trailing value labels on the Sound sliders, so Pre-amp and
     /// Crossfade line up identically down the right edge.
@@ -796,7 +803,11 @@ private struct BatonPlaybackPane: View {
             resetSection
         }
         .formStyle(.grouped)
-        .onAppear { gaplessCacheBytes = player.gaplessCacheSizeBytes }
+        .onAppear {
+            gaplessCacheBytes = player.gaplessCacheSizeBytes
+            lastFMDiscoveryKey = ExternalDiscovery.key(for: .lastFM)
+            youTubeDiscoveryKey = ExternalDiscovery.key(for: .youTube)
+        }
         .confirmationDialog("Reset Playback settings to defaults?", isPresented: $showResetConfirm) {
             Button("Reset to Defaults", role: .destructive) { resetPlayback() }
             Button("Cancel", role: .cancel) {}
@@ -1087,14 +1098,11 @@ private struct BatonPlaybackPane: View {
 
             if externalDiscoveryEnabled {
                 Divider()
+                // Each source gets its own switch, which is a different question from whether
+                // it is configured: "I have a Last.fm key and don't want Last.fm results" had
+                // no way to be said, and neither had "don't consult MusicBrainz".
                 ForEach(ExternalDiscovery.sourceStatus(), id: \.source) { status in
-                    LabeledContent(status.source.label) {
-                        Label(status.detail,
-                              systemImage: status.isAvailable ? "checkmark.circle" : "moon.zzz")
-                            .foregroundStyle(status.isAvailable ? Color.secondary : Color.secondary)
-                            .labelStyle(.titleAndIcon)
-                            .font(.callout)
-                    }
+                    discoverySourceRow(status)
                 }
 
                 // Optional, and framed that way. A missing key switches a source off; it is
@@ -1102,13 +1110,52 @@ private struct BatonPlaybackPane: View {
                 TextField("Last.fm API key", text: $lastFMDiscoveryKey,
                           prompt: Text("Optional — adds track-by-track similarity"))
                     .textFieldStyle(.roundedBorder)
+                    .onChange(of: lastFMDiscoveryKey) { ExternalDiscovery.setKey($1, for: .lastFM) }
                 TextField("YouTube API key", text: $youTubeDiscoveryKey,
                           prompt: Text("Optional — adds results you can play straight away"))
                     .textFieldStyle(.roundedBorder)
+                    .onChange(of: youTubeDiscoveryKey) { ExternalDiscovery.setKey($1, for: .youTube) }
                 Text("MusicBrainz and ListenBrainz need no account and work as soon as this is "
-                     + "on. The other two stay off until you add a key.")
+                     + "on. The other two stay off until you add a key. **Test** asks each "
+                     + "service the question the feature asks, so a wrong key says so here "
+                     + "rather than by quietly missing from your results.")
                     .font(.callout).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// One source: its switch, what it is doing right now, and a test that asks it.
+    @ViewBuilder private func discoverySourceRow(_ status: ExternalDiscovery.SourceStatus) -> some View {
+        let source = status.source
+        LabeledContent {
+            HStack(spacing: 8) {
+                if discoveryTesting.contains(source) {
+                    ProgressView().controlSize(.small)
+                } else if let result = discoveryTests[source] {
+                    Label(result.message, systemImage: result.isReady ? "checkmark.circle" : "exclamationmark.circle")
+                        .foregroundStyle(result.isReady ? Color.green : Color.orange)
+                        .labelStyle(.titleAndIcon)
+                        .font(.callout)
+                } else {
+                    Text(status.detail).font(.callout).foregroundStyle(.secondary)
+                }
+                Button("Test") {
+                    Task {
+                        discoveryTesting.insert(source)
+                        defer { discoveryTesting.remove(source) }
+                        discoveryTests[source] = await ExternalDiscovery.test(source)
+                    }
+                }
+                .disabled(discoveryTesting.contains(source))
+            }
+        } label: {
+            Toggle(source.label, isOn: Binding(
+                get: { discoverySourceEnabled[source.rawValue] ?? ExternalDiscovery.isEnabled(source) },
+                set: {
+                    ExternalDiscovery.setEnabled($0, for: source)
+                    discoverySourceEnabled[source.rawValue] = $0
+                }
+            ))
         }
     }
 

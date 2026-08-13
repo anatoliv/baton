@@ -58,7 +58,9 @@ extension StreamingPlaybackController {
             // the ducked level (rather than only touching AVPlayer.volume) is what makes the
             // duck observable and crash-recoverable: a crash while ducked leaves the stored
             // level low, which `recoverStuckDuckFromPreviousSession()` puts back on relaunch.
-            setVolumeForFocus(target)
+            // Ramped rather than stepped — see `rampFocusVolume`. The persisted value still
+            // lands on `target` immediately, so nothing about recovery changes.
+            rampFocusVolume(from: previous, to: target, duration: Self.duckRampSeconds)
         }
         let token = AudioFocusToken(
             owner: owner, generation: generation, didSuspend: didSuspend,
@@ -76,6 +78,56 @@ extension StreamingPlaybackController {
     private func setVolumeForFocus(_ percent: Int) {
         volumePercent = max(0, min(percent, 100))
     }
+
+    /// Move the persisted volume `from` → `to` as a **ramp** rather than a step.
+    ///
+    /// Ducking under a spoken summary used to be two hard cuts: the music dropped to 20% the
+    /// instant speech started and snapped back the instant it ended. Two abrupt level changes a
+    /// few seconds apart is the same discontinuity `TransportFade` exists to avoid on pause, and
+    /// it is more noticeable here because the music is still playing through both of them.
+    ///
+    /// The trick is that the *persisted* value still steps, exactly as before — the crash
+    /// recovery in `recoverStuckDuckFromPreviousSession()` and the observability of the ducked
+    /// level both depend on it. `duckEnvelope` is then set to precisely cancel that step at the
+    /// moment it happens (`from / to`), so the audible level does not move at all, and is ramped
+    /// to 1 across `duration`. Effective level is `percent × envelope`, so the seam is silent
+    /// and the listener hears a single smooth slope.
+    ///
+    /// Restoring is given the longer ramp of the two. Music dropping away under a voice reads
+    /// as intentional even when it is quick; music swelling back is the moment that sounds
+    /// abrupt, and it is also the one the listener is waiting for.
+    private func rampFocusVolume(from: Int, to: Int, duration: Double) {
+        duckRampTask?.cancel()
+        setVolumeForFocus(to)
+        // Guard the degenerate cases rather than dividing by them: a duck to silence, or a
+        // "ramp" between equal levels, has nothing to interpolate.
+        guard from > 0, to > 0, from != to else {
+            duckEnvelope = 1
+            applyVolume()
+            return
+        }
+        let start = Float(from) / Float(to)   // cancels the step exactly
+        duckEnvelope = start
+        applyVolume()
+        duckRampTask = Task { @MainActor [weak self] in
+            let steps = 20
+            for i in 1 ... steps {
+                if Task.isCancelled { return }
+                try? await Task.sleep(for: .seconds(duration / Double(steps)))
+                if Task.isCancelled { return }
+                self?.duckEnvelope = Fade.multiplier(step: i, of: steps, start: start, target: 1)
+                self?.applyVolume()
+            }
+            if Task.isCancelled { return }
+            self?.duckEnvelope = 1
+            self?.applyVolume()
+        }
+    }
+
+    /// How long each direction takes. Short enough not to clip the first word of a summary,
+    /// long enough that neither edge reads as a cut.
+    private static let duckRampSeconds = 0.25
+    private static let restoreRampSeconds = 0.5
 
     /// Release audio focus held by `token`, resuming playback **only if** all hold: this is
     /// still the current holder, it actually suspended playback, and the user hasn't touched
@@ -102,7 +154,9 @@ extension StreamingPlaybackController {
             // volume/transport since (generation is unchanged, checked above). Route through
             // the focus setter so restoring doesn't itself count as user intervention.
             guard let previous = token.previousVolumePercent else { return false }
-            setVolumeForFocus(previous)
+            // The moment the listener is waiting for, so it gets the longer of the two ramps:
+            // the music swells back rather than snapping.
+            rampFocusVolume(from: volumePercent, to: previous, duration: Self.restoreRampSeconds)
             return true
         }
     }

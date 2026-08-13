@@ -53,6 +53,45 @@ final class DisplayNameTests: XCTestCase {
         XCTAssertFalse(DisplayName.isPlaceholder("Dido"))
     }
 
+    // MARK: displayLine — the property the agent-facing strings share
+
+    /// The regression this was written for.
+    ///
+    /// `displayLine` had its own emptiness check, and a placeholder is not empty: the MCP
+    /// `music_now_playing` payload answered "Paused: [unknown] — Clair de Lune" on 0.16.15,
+    /// months after the views stopped saying it. Four agent-facing strings read this one
+    /// property, so this test covers all of them.
+    func testDisplayLineDropsAPlaceholderArtistRatherThanPrintingIt() {
+        for placeholder in ["[unknown]", "Unknown", "unknown artist", "N/A", "  "] {
+            XCTAssertEqual(
+                NavidromeSong(id: "1", title: "Clair de Lune", artist: placeholder).displayLine,
+                "Clair de Lune",
+                "\(placeholder) must not reach an agent reply"
+            )
+        }
+        XCTAssertEqual(
+            NavidromeSong(id: "1", title: "Clair de Lune", artist: nil).displayLine,
+            "Clair de Lune"
+        )
+    }
+
+    func testDisplayLineKeepsARealArtist() {
+        XCTAssertEqual(
+            NavidromeSong(id: "1", title: "So What", artist: "Miles Davis").displayLine,
+            "Miles Davis — So What"
+        )
+    }
+
+    /// Same tidying as the screen gets: a line read aloud or sent to a chat should not
+    /// carry the fullwidth characters a downloader substituted for illegal filename ones.
+    func testDisplayLineTidiesTheDownloaderEscaping() {
+        XCTAssertEqual(
+            NavidromeSong(id: "1", title: "Chillout \u{FF5C} Mood #21",
+                          artist: "RIKO\u{FF0C} BRK").displayLine,
+            "RIKO, BRK — Chillout | Mood #21"
+        )
+    }
+
     // MARK: Filename escaping (real strings, taken from the live library)
 
     /// These are verbatim values from the library, not invented ones.

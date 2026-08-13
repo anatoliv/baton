@@ -14,28 +14,28 @@ final class StreamMimeHintTests: XCTestCase {
 
     func testOurStreamRequestGetsTheHint() {
         let stream = url("https://demo.example/rest/stream.view?id=123&format=mp3&u=x&t=y&s=z")
-        XCTAssertEqual(StreamingPlaybackController.mimeHint(for: stream), "audio/mpeg")
+        XCTAssertEqual(AVPlayerDeck.mimeHint(for: stream), "audio/mpeg")
     }
 
     /// The seek transform appends a timeOffset to the same URL — the hint must survive it.
     func testASeekOffsetURLKeepsTheHint() {
         let seeked = url("https://demo.example/rest/stream.view?id=123&format=mp3&timeOffset=93")
-        XCTAssertEqual(StreamingPlaybackController.mimeHint(for: seeked), "audio/mpeg")
+        XCTAssertEqual(AVPlayerDeck.mimeHint(for: seeked), "audio/mpeg")
     }
 
     /// A podcast enclosure is someone else's file in someone else's format. Guessing MP3
     /// for an AAC feed would break playback of that episode — never hint.
     func testAPodcastEnclosureGetsNoHint() {
-        XCTAssertNil(StreamingPlaybackController.mimeHint(for: url("https://cdn.podcast.example/ep/412.m4a")))
-        XCTAssertNil(StreamingPlaybackController.mimeHint(for: url("https://cdn.podcast.example/audio.mp3?token=abc")))
+        XCTAssertNil(AVPlayerDeck.mimeHint(for: url("https://cdn.podcast.example/ep/412.m4a")))
+        XCTAssertNil(AVPlayerDeck.mimeHint(for: url("https://cdn.podcast.example/audio.mp3?token=abc")))
     }
 
     /// `format=raw` asks for the original file — could be FLAC, Ogg, anything. No hint.
     func testARawFormatRequestGetsNoHint() {
-        XCTAssertNil(StreamingPlaybackController.mimeHint(for: url("https://demo.example/rest/stream.view?id=1&format=raw")))
+        XCTAssertNil(AVPlayerDeck.mimeHint(for: url("https://demo.example/rest/stream.view?id=1&format=raw")))
     }
 
     func testALocalFileGetsNoHint() {
-        XCTAssertNil(StreamingPlaybackController.mimeHint(for: URL(fileURLWithPath: "/tmp/x.flac")))
+        XCTAssertNil(AVPlayerDeck.mimeHint(for: URL(fileURLWithPath: "/tmp/x.flac")))
     }
 }

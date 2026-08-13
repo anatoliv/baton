@@ -10,22 +10,25 @@ import OSLog
 import BatonDSP
 import BatonSubsonicModels
 
-/// The **transport core** of the AVAudioEngine playback experiment: queue-of-tracks
-/// playback over `EngineAudioPipeline` + `TrackStreamSource`, with EQ and metering that
-/// apply to *streamed* audio — the thing `StreamingPlaybackController` structurally
-/// cannot do (see docs/audio-engine-rearchitecture.md).
+/// The **transport core** of the AVAudioEngine playback experiment: **one-track** playback
+/// over `EngineAudioPipeline` + `TrackStreamSource`, with EQ and metering that apply to
+/// *streamed* audio — the thing `StreamingPlaybackController` structurally cannot do (see
+/// docs/audio-engine-rearchitecture.md).
 ///
 /// Deliberately a **sibling, not a replacement**: `StreamingPlaybackController`'s 87
-/// public members are mostly queue/focus/persistence *policy*, and this type does not
-/// duplicate them. What lives here is exactly the engine-facing transport the old
-/// controller implements over AVPlayer — load/play/pause/stop, seek (including into a
-/// still-encoding transcode), gapless track boundaries, crossfade, buffering + stall
-/// recovery — implemented over scheduled PCM, and reusing the same pure decision types
-/// (`StreamSeek`, `Crossfade`, `TransportFade`, `PlaybackVolume`,
-/// `StreamingPlaybackController.onTrackEnd`) so the two engines cannot drift on policy.
+/// public members are queue/focus/persistence *policy*, and this type does not duplicate
+/// them. What lives here is exactly the engine-facing transport the old controller
+/// implements over AVPlayer — load/play/pause/stop, seek (including into a still-encoding
+/// transcode), buffering + stall recovery — implemented over scheduled PCM, and reusing
+/// the same pure decision types (`StreamSeek`, `TransportFade`, `PlaybackVolume`) so the
+/// two engines cannot drift on policy.
 ///
-/// The migration seam this implies is described in the design doc: policy stays in the
-/// existing controller; this becomes the deck it drives for library streams.
+/// **It holds one track, not a queue.** It used to carry a queue, `next()`/`previous()`, a
+/// gapless roll and a crossfade, and none of it could run: the only production caller
+/// (`EngineDeckBridge.load`) always passes a single track, and the host decides what plays
+/// next. That half was deleted in Stage 5 rather than fixed, taking both of the
+/// optimization plan's Appendix B latent bugs with it. The seam is the design doc's:
+/// policy stays in the existing controller; this is the deck it drives for library streams.
 @MainActor
 @Observable
 public final class EnginePlaybackController {
@@ -61,8 +64,18 @@ public final class EnginePlaybackController {
     }
 
     public private(set) var state: State = .idle
-    public private(set) var queue: [Track] = []
-    public private(set) var currentIndex = 0
+    /// The one track this engine is playing.
+    ///
+    /// This was a `queue: [Track]` plus a `currentIndex`, and the queue never had more than
+    /// one element in it. `EngineDeckBridge.load` — the only production entry point — calls
+    /// `play(track)` with exactly one track, because the **host** owns the queue: pressing
+    /// Next runs `StreamingPlaybackController.loadCurrent`, which is a fresh single-track
+    /// load, and `deck.onEnded` hands the end of a track back to the host's own
+    /// `advanceAfterEnd`. The engine's `next()`, `previous()`, gapless roll and crossfade
+    /// were therefore unreachable in production, and both of the plan's Appendix B latent
+    /// bugs lived in them. Deleted rather than fixed — see Stage 5 of
+    /// `docs/audio-engine-optimization-plan.md`.
+    public private(set) var nowPlaying: Track?
     public private(set) var currentTime: TimeInterval = 0
     public private(set) var duration: TimeInterval = 0
     /// True while the transport intends to play but the deck has run dry — the engine's
@@ -71,7 +84,6 @@ public final class EnginePlaybackController {
     public private(set) var isBuffering = false
 
     public var isPlaying: Bool { state == .playing }
-    public var nowPlaying: Track? { queue.indices.contains(currentIndex) ? queue[currentIndex] : nil }
 
     // MARK: - Settings (same semantics as the AVPlayer engine)
 
@@ -89,11 +101,11 @@ public final class EnginePlaybackController {
     /// fade / transport shaping when this engine runs as a deck behind
     /// `StreamingPlaybackController` (see `EngineDeckBridge`). 1 = no effect.
     public var externalEnvelope: Float = 1 { didSet { applyVolume() } }
-    /// Fired when the queue genuinely ends (no next track, no replay) — the deck-mode
-    /// hook a host controller uses to run its own advance policy.
+    /// Fired when the track genuinely ends — the deck-mode hook the host uses to run its
+    /// own advance policy (repeat, next, autoplay-radio, stop). That policy has always
+    /// lived on the host; this engine never had a say in it, which is why its own
+    /// `repeatMode` and `crossfadeSeconds` could be deleted without changing behaviour.
     @ObservationIgnored public var onPlaybackEnded: (@MainActor () -> Void)?
-    public var crossfadeSeconds: Double = 0
-    public var repeatMode: StreamingPlaybackController.RepeatMode = .off
     public var loudnessMode: StreamingPlaybackController.LoudnessMode = .off { didSet { applyDeckGain() } }
     public var loudnessPreampDB: Double = 0 { didSet { applyDeckGain() } }
     public var stallTimeoutSeconds: Double = StreamingPlaybackController.defaultStallTimeout
@@ -144,17 +156,43 @@ public final class EnginePlaybackController {
     @ObservationIgnored private let transportFade = TransportFade()
     @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var stallWatchdog: Task<Void, Never>?
-    @ObservationIgnored private var crossfadeTask: Task<Void, Never>?
-    @ObservationIgnored private var isCrossfading = false
 
+    /// Consecutive same-track retries. Cleared by *playing*, not by reaching `.playing` —
+    /// see `clockTick`.
     @ObservationIgnored private var sameTrackRetries = 0
-    @ObservationIgnored private var consecutiveFailures = 0
+    /// Retries for this track since it last played a long, healthy stretch. The floor the
+    /// consecutive counter can't provide: a stream that dies a little way into every
+    /// attempt resets `sameTrackRetries` legitimately each time (it did play), so without
+    /// this the ladder would still never reach `.error`.
+    @ObservationIgnored private var episodeRetries = 0
+
+    /// Rendered audio that counts as "this load worked", clearing the consecutive ladder.
+    /// Deliberately longer than the backoff sleeps (1–3 s), so a stream that fails as fast
+    /// as it recovers cannot ride the reset.
+    static let retryResetDwellSeconds: TimeInterval = 8
+    /// Rendered audio that ends a *failure episode* and clears the floor. Two minutes of
+    /// uninterrupted playback is a working stream; the occasional hiccup an evening apart
+    /// must not accumulate towards giving up, which is the §2.4 lesson that put the reset
+    /// there in the first place.
+    static let episodeResetDwellSeconds: TimeInterval = 120
+    /// Attempts per failure episode, whatever the consecutive counter says.
+    static let maxEpisodeRetries = 6
 
     #if DEBUG
+    var sameTrackRetriesForTesting: Int { sameTrackRetries }
+    var episodeRetriesForTesting: Int { episodeRetries }
     /// Test instrumentation, mirroring the old engine's boundary counters.
-    public private(set) var gaplessAdvanceCountForTesting = 0
     public private(set) var loadCountForTesting = 0
+    /// Re-anchors served from the spool. The distinction Stage 4 is about: a route change
+    /// should bump this and leave `loadCountForTesting` alone, because the alternative is a
+    /// fresh HTTP request for bytes already on disk.
+    public private(set) var refeedCountForTesting = 0
     public var activeDeckForTesting: EngineAudioPipeline.DeckID { activeDeck }
+    /// Feeder wake-ups that decoded nothing, and chunks actually pulled. Their ratio is the
+    /// duty cycle, and it is the only externally visible sign of it: the decode *work* is
+    /// unchanged by design, so a regression to polling would look identical everywhere else.
+    public private(set) var feederIdleWakeupsForTesting = 0
+    public private(set) var feederPullsForTesting = 0
     public var finishedSchedulingForTesting: Bool { finishedScheduling }
     var sourceForTesting: TrackStreamSource? { sources[activeDeck] }
     /// The URL the last `load` actually fetched — after any `timeOffset` rewrite. The only
@@ -168,25 +206,40 @@ public final class EnginePlaybackController {
         pipeline.onConfigurationChange = { [weak self] in
             // Output device changed under us: the graph restarted; re-anchor playback at
             // the current playhead. AVPlayer did this invisibly — here it costs a reload.
-            guard let self, let track = nowPlaying, isPlaying else { return }
-            let at = currentTime
-            load(track: track, startingAt: at, autoplay: true)
+            //
+            // Paused counts. This guarded on `isPlaying`, so a device change while paused
+            // re-anchored nothing: the engine had been stopped to re-point its output unit,
+            // dropping the scheduled buffers, and resume then had nothing to render. The
+            // playhead simply froze — and invisibly, because the deck's `aheadSeconds` was
+            // still stale-positive, so the dry-detection that would have raised `isBuffering`
+            // never fired.
+            //
+            // And it re-feeds from the spool rather than re-downloading: see
+            // `reanchorAfterGraphRestart`, which falls back to the network only when the
+            // bytes for this position genuinely are not held.
+            guard let self else { return }
+            reanchorAfterGraphRestart()
         }
         applyVolume()
     }
 
     // MARK: - Transport
 
-    /// `atTime` starts the first track part-way in — one load, via `timeOffset` when the
-    /// track supports it (deck-mode restore/seek lands in a single fetch). `autoplay:
-    /// false` loads paused — a restored queue must never start sounding on its own, and
-    /// a play-then-pause would (the pause lands while still `.loading` and no-ops).
-    public func play(_ tracks: [Track], startAt index: Int = 0, atTime: TimeInterval = 0,
-                     autoplay: Bool = true) {
-        guard !tracks.isEmpty else { return }
-        queue = tracks
-        currentIndex = max(0, min(index, tracks.count - 1))
-        guard let track = nowPlaying else { return }
+    /// `atTime` starts the track part-way in — one load, via `timeOffset` when the track
+    /// supports it (deck-mode restore/seek lands in a single fetch). `autoplay: false`
+    /// loads paused — a restored track must never start sounding on its own, and a
+    /// play-then-pause would (the pause lands while still `.loading` and no-ops).
+    ///
+    /// Takes one track, not an array. It only ever received one.
+    public func play(_ track: Track, atTime: TimeInterval = 0, autoplay: Bool = true) {
+        // Fresh intent from the host — a different track, or its own retry of this one
+        // (`retryCurrent` comes through here). Either way the previous failure episode is
+        // over, so both ladders start from zero. This is the only place the floor clears
+        // other than two minutes of healthy playback: `load` must not clear it, or the
+        // engine's own retries would keep resetting the counter that bounds them.
+        sameTrackRetries = 0
+        episodeRetries = 0
+        nowPlaying = track
         load(track: track, startingAt: max(0, atTime), autoplay: autoplay)
     }
 
@@ -251,32 +304,10 @@ public final class EnginePlaybackController {
         }
     }
 
-    public func next() {
-        guard !queue.isEmpty else { return }
-        let wasPlaying = state == .playing
-        switch StreamingPlaybackController.onManualNext(current: currentIndex, count: queue.count, repeatMode: repeatMode) {
-        case let .play(idx):
-            currentIndex = idx
-            if let track = nowPlaying { load(track: track, startingAt: 0, autoplay: wasPlaying) }
-        case .replay:
-            if let track = nowPlaying { load(track: track, startingAt: 0, autoplay: wasPlaying) }
-        case .stop:
-            stop()
-        }
-    }
-
-    public func previous() {
-        guard !queue.isEmpty else { return }
-        let wasPlaying = state == .playing
-        if StreamingPlaybackController.previousRestartsCurrent(
-            currentTime: currentTime, currentIndex: currentIndex, force: false
-        ) {
-            seek(to: 0)
-        } else {
-            currentIndex -= 1
-            if let track = nowPlaying { load(track: track, startingAt: 0, autoplay: wasPlaying) }
-        }
-    }
+    // `next()` and `previous()` used to live here. They navigated a queue that production
+    // never filled, and no caller outside this file ever invoked them — `EngineDeckBridge`
+    // does not even expose them. Transport Next reaches the deck as a fresh single-track
+    // `load`, which is the only path that ever ran.
 
     // MARK: - Seek
 
@@ -303,9 +334,91 @@ public final class EnginePlaybackController {
             case .direct:
                 await performInSpoolSeek(to: target, source: source, generation: generation)
             case .reload(let offset):
-                load(track: track, startingAt: offset, autoplay: state == .playing || state == .loading)
+                // Ask the outgoing source where that second lives in the file *before*
+                // `load` tears it down — it is the only thing that knows, and a moment
+                // later it will not exist. Nil means the parser could not map it, and the
+                // load falls back to fetching from zero.
+                let resumeByte = await source?.fileByteOffset(forSeconds: offset - streamStartOffset,
+                                                              trackDuration: track.duration)
+                guard generation == loadGeneration else { return }
+                load(track: track, startingAt: offset,
+                     autoplay: state == .playing || state == .loading, resumeByte: resumeByte)
             }
         }
+    }
+
+    // MARK: - Graph restart (device / rate change)
+
+    /// Re-anchor the current track after the graph restarted underneath us, reusing the
+    /// bytes we already have.
+    ///
+    /// This used to be a plain `load(...)`, which tears down both decks *and their sources*
+    /// — destroying the spool that already holds the audio — and then opens a fresh HTTP
+    /// request. On a cold Navidrome transcode that is seconds of silence, and for a stream
+    /// without `timeOffset` support (a raw mp3) the reload starts from byte zero and
+    /// decode-discards to the playhead, so a route change mid-song re-downloads the entire
+    /// prefix. On a phone this is an ordinary event: an AirPod in or out of an ear.
+    ///
+    /// The spool is still sitting there with the bytes. `StreamSeek.strategy` already knows
+    /// how to decide between "reposition in what we have" and "ask the server", and it is
+    /// the same decision a seek makes — so this asks it, and only falls back to the network
+    /// when the spool genuinely cannot reach the position.
+    func reanchorAfterGraphRestart() {
+        guard let track = nowPlaying else { return }
+        let wasPlaying = state == .playing || state == .loading
+        guard let source = sources[activeDeck] else {
+            // No live source (nothing loaded yet, or a previous failure tore it down) —
+            // the old behaviour is the only option left.
+            load(track: track, startingAt: currentTime, autoplay: wasPlaying)
+            return
+        }
+        let target = currentTime
+        let generation = bumpGeneration()
+        Task { [weak self] in
+            guard let self else { return }
+            let reachable = await source.reachableSeconds()
+            guard generation == loadGeneration else { return }
+            let ranges = reachable.map { [$0] } ?? []
+            switch StreamSeek.strategy(target: target, seekableRanges: ranges,
+                                       streamStartOffset: streamStartOffset) {
+            case .direct:
+                await refeedFromSpool(to: target, source: source, generation: generation)
+            case .reload(let offset):
+                load(track: track, startingAt: offset, autoplay: wasPlaying)
+            }
+        }
+    }
+
+    /// Rebuild the deck from the spool we already have, at `target`.
+    ///
+    /// Nearly `performInSpoolSeek`, with one difference that matters: the format is replayed
+    /// so the feeder calls `prepareDeck` again. A configuration change invalidates the
+    /// engine's node connections, and `prepareDeck` is the only thing that reconnects a
+    /// deck — a re-feed with `resuming: true` would schedule PCM into a disconnected node
+    /// and play nothing at all.
+    private func refeedFromSpool(to target: TimeInterval, source: TrackStreamSource, generation: Int) async {
+        let outcome = await source.seek(toSeconds: target - streamStartOffset)
+        guard generation == loadGeneration else { return }
+        guard outcome == .repositioned, let track = nowPlaying else {
+            if let track = nowPlaying {
+                load(track: track, startingAt: target, autoplay: state == .playing || state == .loading)
+            }
+            return
+        }
+        await source.replayFormat()
+        guard generation == loadGeneration else { return }
+        #if DEBUG
+        refeedCountForTesting += 1
+        #endif
+        feeders[activeDeck]?.cancel()
+        pipeline.stopDeck(activeDeck)
+        anchorFrames = 0
+        clockBase = target
+        currentTime = target
+        finishedScheduling = false
+        // `resuming: false` so the feeder consumes the replayed `.format` and re-prepares
+        // the deck. It also restores intent-to-play there, after the connection exists.
+        startFeeder(on: activeDeck, source: source, track: track, resuming: false, generation: generation)
     }
 
     private func performInSpoolSeek(to target: TimeInterval, source: TrackStreamSource?, generation: Int) async {
@@ -405,7 +518,13 @@ public final class EnginePlaybackController {
         return loadGeneration
     }
 
-    private func load(track: Track, startingAt offset: TimeInterval, autoplay: Bool) {
+    /// - Parameter resumeByte: the file byte the target time lives at, when a caller has
+    ///   been able to work it out from the *outgoing* source before this tore it down (see
+    ///   `seek`). Turns a seek on a non-transcoded track from "fetch the whole prefix and
+    ///   decode-discard it" into one ranged request. Nil keeps the old path, which is also
+    ///   the fallback for every case that cannot use a range.
+    private func load(track: Track, startingAt offset: TimeInterval, autoplay: Bool,
+                      resumeByte: Int64? = nil) {
         #if DEBUG
         loadCountForTesting += 1
         #endif
@@ -426,7 +545,6 @@ public final class EnginePlaybackController {
         // that was applied when it was silenced, and nothing else recomputes it until the
         // next volume event. Re-apply now, or the track loads and plays into a muted graph.
         applyVolume()
-        cancelCrossfade()
         cancelStallWatchdog()
         teardownDeck(activeDeck)
         teardownDeck(otherDeck)
@@ -434,10 +552,23 @@ public final class EnginePlaybackController {
         // Clamp like the old engine: an offset at/past the end fetches an empty stream.
         let clamped = max(0, min(offset, max(0, track.duration - 1)))
         let useTimeOffset = clamped >= StreamSeek.minimumOffset && track.supportsTimeOffset
+        // The third way to reach a position, for the streams that can use neither of the
+        // other two: ask the server for the bytes at that position. A track the server will
+        // not offset is a stored file, and a stored file is byte-range seekable — which is
+        // the same fact that made `format` get dropped from its URL in the first place.
+        //
+        // Only for formats whose frames carry their own headers: an MP4 needs its `moov` and
+        // LPCM needs the WAVE header, so neither can begin mid-file.
+        let hint = AudioStreamDecoder.fileTypeHint(forSuffix: track.song?.suffix)
+        let rangeByte: Int64? = (!useTimeOffset && clamped >= StreamSeek.minimumOffset && hint != nil)
+            ? resumeByte : nil
+
         // With `timeOffset` the stream's zero is the target (the old engine's
-        // `streamStartOffset`); without it we fetch from zero and decode-discard.
-        streamStartOffset = useTimeOffset ? clamped : 0
-        pendingLoadSkipSeconds = useTimeOffset ? 0 : clamped
+        // `streamStartOffset`). A ranged fetch is the same shape — its zero is the target
+        // too — so the playhead arithmetic below is shared rather than special-cased. Only
+        // the fetch-from-zero path still decode-discards.
+        streamStartOffset = (useTimeOffset || rangeByte != nil) ? clamped : 0
+        pendingLoadSkipSeconds = (useTimeOffset || rangeByte != nil) ? 0 : clamped
         anchorFrames = 0
         clockBase = clamped
         currentTime = clamped
@@ -455,7 +586,7 @@ public final class EnginePlaybackController {
         let deck = activeDeck
         Task { [weak self] in
             do {
-                try await source.start()
+                try await source.start(fromByte: rangeByte ?? 0, fileTypeHint: rangeByte != nil ? (hint ?? 0) : 0)
             } catch {
                 self?.handleLoadFailure("\(error)", generation: generation)
                 return
@@ -478,13 +609,13 @@ public final class EnginePlaybackController {
                     pause()
                     return
                 }
-                // A track that reaches playing is the end of whatever failure run
-                // preceded it. Neither counter reset on success — `consecutiveFailures`
-                // was never reset anywhere, its increment being the only write after
-                // init — so an evening of occasional hiccups walked the ladder up until
-                // the next real failure gave up immediately.
-                sameTrackRetries = 0
-                consecutiveFailures = 0
+                // Reaching `.playing` is *not* success, and clearing the retry ladder here
+                // is what made a bad stream loop forever: a stream whose parse fails
+                // milliseconds in still gets this far, so every cycle read load → playing →
+                // reset → fail → "retry 1", the counter never climbed, `.error` never
+                // arrived, and the host — which owns the skip — was never told. The reset
+                // now lives in `clockTick`, gated on audio actually rendering (§2.4's
+                // intent, which was that a track that *plays* ends a failure run).
                 state = .playing
                 applyDeckGain()
                 startClock()
@@ -511,6 +642,9 @@ public final class EnginePlaybackController {
         /// One-chunk lookahead: the previous buffer is scheduled only when the next
         /// arrives, so the *last* buffer is known and can carry the boundary callback.
         var pending: AVAudioPCMBuffer?
+        /// The `DecodeDutyCycle` hysteresis latch: true once this feeder has filled to the
+        /// high-water mark and is waiting for the buffer to drain before decoding again.
+        var toppedUp = false
 
         init(deck: EngineAudioPipeline.DeckID, generation: Int, source: TrackStreamSource) {
             self.deck = deck
@@ -540,22 +674,25 @@ public final class EnginePlaybackController {
         }
     }
 
+    /// Feed one track, then place the boundary callback and stop.
+    ///
+    /// This was a `while` loop, and the only thing that made it loop was `rollIntoGaplessNext`
+    /// starting the *next* track's source on the same deck. With the queue gone there is no
+    /// next track to roll into — the host loads it as a fresh track — so the loop had exactly
+    /// one iteration and is now written that way.
     private func runFeeder(_ context: FeederContext) async {
-        while !Task.isCancelled, context.generation == loadGeneration {
-            let endedCleanly: Bool
-            do {
-                endedCleanly = try await feedTrack(context)
-            } catch {
-                guard context.generation == loadGeneration else { return }
-                if let held = context.pending { pipeline.schedule(held, on: context.deck) }
-                context.pending = nil
-                handleLoadFailure("\(error)", generation: context.generation)
-                return
-            }
-            guard endedCleanly, context.generation == loadGeneration, !Task.isCancelled else { return }
-            scheduleBoundary(context)
-            guard await rollIntoGaplessNext(context) else { return }
+        let endedCleanly: Bool
+        do {
+            endedCleanly = try await feedTrack(context)
+        } catch {
+            guard context.generation == loadGeneration else { return }
+            if let held = context.pending { pipeline.schedule(held, on: context.deck) }
+            context.pending = nil
+            handleLoadFailure("\(error)", generation: context.generation)
+            return
         }
+        guard endedCleanly, context.generation == loadGeneration, !Task.isCancelled else { return }
+        scheduleBoundary(context)
     }
 
     /// Pull-and-schedule loop for one track's stream. Returns true at a clean end of
@@ -563,11 +700,24 @@ public final class EnginePlaybackController {
     private func feedTrack(_ context: FeederContext) async throws -> Bool {
         while !Task.isCancelled {
             guard context.generation == loadGeneration else { return false }
-            // Backpressure: hold the pull while enough audio is queued.
-            if pipeline.aheadSeconds(on: context.deck) > Self.highWaterSeconds {
-                try await Task.sleep(for: .milliseconds(200))
+            // Backpressure, with hysteresis: fill to the high-water mark, then stay away
+            // until the buffer has drained to the low-water mark, sleeping for as long as
+            // that will take rather than polling. See `DecodeDutyCycle` for why the second
+            // mark is the whole point and why the thinner buffer costs no resilience.
+            switch Self.dutyCycle.next(aheadSeconds: pipeline.aheadSeconds(on: context.deck),
+                                       toppedUp: &context.toppedUp) {
+            case .idle(let seconds):
+                #if DEBUG
+                feederIdleWakeupsForTesting += 1
+                #endif
+                try await Task.sleep(for: .seconds(seconds))
                 continue
+            case .decode:
+                break
             }
+            #if DEBUG
+            feederPullsForTesting += 1
+            #endif
             guard let chunk = try await context.source.nextChunk() else { return true }
             guard context.generation == loadGeneration else { return false }
             switch chunk {
@@ -598,199 +748,99 @@ public final class EnginePlaybackController {
         return false
     }
 
-    /// A track's stream ended cleanly: schedule the held final buffer carrying the
-    /// boundary callback (or fire it now if nothing is held).
     private func scheduleBoundary(_ context: FeederContext) {
         finishedScheduling = true
-        let endingIndex = currentIndex
         let generation = context.generation
         if let held = context.pending {
             context.pending = nil
-            // The boundary sits after the held final buffer — count it into the anchor,
-            // or the next track's clock starts one buffer (~0.4 s) early.
-            let boundaryFrames = scheduledFramesSnapshot(context.deck) + Int64(held.frameLength)
             pipeline.schedule(held, on: context.deck) { [weak self] in
-                self?.handleTrackAudioEnded(endingIndex: endingIndex,
-                                            boundaryFrames: boundaryFrames,
-                                            generation: generation)
+                self?.handleTrackAudioEnded(generation: generation)
             }
         } else {
-            handleTrackAudioEnded(endingIndex: endingIndex,
-                                  boundaryFrames: scheduledFramesSnapshot(context.deck),
-                                  generation: generation)
+            handleTrackAudioEnded(generation: generation)
         }
     }
 
-    /// Gapless continuation: start the next track's source and keep scheduling on the
-    /// same deck — no gap by construction. Returns false when there is no next track
-    /// (or crossfade owns the transition, or the feeder was superseded).
-    private func rollIntoGaplessNext(_ context: FeederContext) async -> Bool {
-        guard crossfadeSeconds < 0.05,
-              case let .play(nextIndex) = StreamingPlaybackController.onTrackEnd(
-                  current: currentIndex, count: queue.count, repeatMode: repeatMode
-              ),
-              queue.indices.contains(nextIndex) else { return false }
-        // `currentIndex` still names the ending track here (the boundary callback fires
-        // later, when the audio crosses); a same-index "next" is a replay, not a roll.
-        guard nextIndex != currentIndex else { return false }
-        let nextTrack = queue[nextIndex]
-        let nextSource = TrackStreamSource(url: nextTrack.url, headers: streamHeaders)
-        do {
-            try await nextSource.start()
-        } catch {
-            return false // the boundary callback closes out the queue instead
-        }
-        guard context.generation == loadGeneration, !Task.isCancelled else {
-            await nextSource.cancel()
-            return false
-        }
-        await retireSource(for: context.deck)
-        sources[context.deck] = nextSource
-        context.source = nextSource
-        context.expectFormatChunk = false
-        finishedScheduling = false // the next track is now streaming in
-        return true
-    }
+    // `rollIntoGaplessNext` used to sit here: it started the next track's source on the
+    // same deck so the audio crossed without a gap. It could only fire for a multi-track
+    // queue, which production never built. It also carried an Appendix B latent bug — it
+    // set `expectFormatChunk = false`, so a 44.1 → 48 kHz change at a boundary would have
+    // scheduled mismatched buffers into the node, raising an ObjC exception and corrupting
+    // the task allocator (the §1.1 crash class). Deleting the code removes the bug.
 
-    private static let highWaterSeconds: TimeInterval = 8
+    /// How the feeder duty-cycles: fill to 8 s of scheduled PCM, then let it drain to 4 s
+    /// before decoding again. The 8 s / 4 s pair is the one
+    /// `docs/audio-engine-rearchitecture.md` specified from the start; only the high-water
+    /// half had ever been built, so the feeder topped the buffer off in sips and woke five
+    /// times a second to do it.
+    private static let dutyCycle = DecodeDutyCycle()
 
     private func scheduledFramesSnapshot(_ deck: EngineAudioPipeline.DeckID) -> Int64 {
         Int64(pipeline.scheduledSeconds(on: deck) * max(trackSampleRate, 1))
     }
 
-    /// The audio actually crossed a track boundary (final buffer played). Reconcile the
-    /// logical state — the engine equivalent of `gaplessAdvanced(to:)`, minus the item
-    /// juggling it existed for.
-    private func handleTrackAudioEnded(endingIndex: Int, boundaryFrames: Int64, generation: Int) {
+    /// The audio actually reached the end of the track (final buffer played).
+    ///
+    /// This is the **production end-of-track path for every engine track**, which is why the
+    /// queue deletion had to rewrite it rather than delete it: the branch that advanced a
+    /// multi-track queue was dead, but the spurious-end guard around it and the
+    /// `onPlaybackEnded` hand-off underneath it are the live parts, and they stay exactly as
+    /// they were. What the host does next — repeat, next track, autoplay radio, stop — has
+    /// always been the host's decision, taken in `advanceAfterEnd`.
+    private func handleTrackAudioEnded(generation: Int) {
         guard generation == loadGeneration else { return } // flushed, not played
-        guard !isCrossfading else { return } // the ramp owns this transition
 
         // An end that arrives well short of the track's own duration is not an end.
         //
         // A dying transcode can close its response cleanly — ffmpeg exits, Navidrome closes
         // the chunked stream properly — and that is indistinguishable from a finished track
-        // to everything downstream: `markComplete` → `nextChunk` nil → boundary → advance.
-        // The queue jumps mid-song and nothing recovers. AVPlayer has been guarded against
+        // to everything downstream: `markComplete` → `nextChunk` nil → boundary → end.
+        // The track ends mid-song and nothing recovers. AVPlayer has been guarded against
         // exactly this since `StreamSeek` was written, with the same tolerance and the same
         // bounded budget; the engine never was, though the design doc said it had been.
         //
         // Re-request from the playhead instead, under a budget, so a genuinely short track
-        // or a repeatedly-failing stream still advances rather than looping forever.
-        let expected = queue.indices.contains(endingIndex) ? queue[endingIndex].duration : 0
-        if expected > 0,
+        // or a repeatedly-failing stream still ends rather than looping forever.
+        let expected = nowPlaying?.duration ?? 0
+        if let track = nowPlaying,
+           expected > 0,
            currentTime < expected - StreamSeek.spuriousEndTolerance,
-           spuriousEndRecoveries < StreamingPlaybackController.maxSpuriousEndRecoveries,
-           queue.indices.contains(endingIndex) {
+           spuriousEndRecoveries < StreamingPlaybackController.maxSpuriousEndRecoveries {
             spuriousEndRecoveries += 1
             let shortBy = expected - currentTime
             let attempt = spuriousEndRecoveries
             engineLog.notice(
                 "engine: stream ended \(shortBy, format: .fixed(precision: 1))s early — re-requesting from the playhead (attempt \(attempt))"
             )
-            load(track: queue[endingIndex], startingAt: currentTime, autoplay: state == .playing)
+            load(track: track, startingAt: currentTime, autoplay: state == .playing)
             return
         }
         spuriousEndRecoveries = 0
-        switch StreamingPlaybackController.onTrackEnd(current: endingIndex, count: queue.count, repeatMode: repeatMode) {
-        case let .play(nextIndex) where nextIndex != endingIndex && queue.indices.contains(nextIndex):
-            #if DEBUG
-            gaplessAdvanceCountForTesting += 1
-            #endif
-            currentIndex = nextIndex
-            anchorFrames = boundaryFrames
-            clockBase = 0
-            streamStartOffset = 0
-            currentTime = 0
-            duration = queue[nextIndex].duration
-            applyDeckGain()
-        case .replay, .play:
-            // `.play(same index)` is repeat-all on a single-track queue — a replay.
-            if let track = nowPlaying { load(track: track, startingAt: 0, autoplay: true) }
-        default:
-            state = .idle
-            currentTime = duration
-            stopClock()
-            onPlaybackEnded?()
-        }
+        state = .idle
+        currentTime = duration
+        stopClock()
+        onPlaybackEnded?()
     }
 
-    // MARK: - Crossfade
+    // MARK: - Crossfade — deleted
 
-    /// Clock-driven, like the old engine: entering the window starts the incoming track
-    /// on the idle deck and ramps the two deck volumes with the same `Crossfade.gains`
-    /// steps. Readiness is no longer a heuristic — the ramp starts once the incoming
-    /// deck has real audio scheduled (a fact), which is what 's readiness gate was
-    /// approximating from outside AVPlayer.
-    private func maybeStartCrossfade() {
-        guard crossfadeSeconds >= 0.05, state == .playing, !isCrossfading else { return }
-        guard Crossfade.inWindow(currentTime: currentTime, duration: duration, window: crossfadeSeconds) else { return }
-        guard case let .play(nextIndex) = StreamingPlaybackController.onTrackEnd(
-            current: currentIndex, count: queue.count, repeatMode: repeatMode
-        ), nextIndex != currentIndex, queue.indices.contains(nextIndex) else { return }
-
-        isCrossfading = true
-        let generation = loadGeneration
-        let incomingDeck = otherDeck
-        let incomingTrack = queue[nextIndex]
-        let outgoingDeck = activeDeck
-        let source = TrackStreamSource(url: incomingTrack.url, headers: streamHeaders)
-        sources[incomingDeck] = source
-        let seconds = crossfadeSeconds
-
-        crossfadeTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do { try await source.start() } catch {
-                isCrossfading = false
-                return
-            }
-            guard generation == loadGeneration else { return }
-            pipeline.setDeckVolume(incomingDeck, 0)
-            startFeeder(on: incomingDeck, source: source, track: incomingTrack,
-                        resuming: false, generation: generation)
-            // (The deck starts inside the feeder once prepared — see `load`.)
-            // Wait until the incoming deck holds real audio before fading — the engine's
-            // readiness gate, exact where the old one guessed.
-            while pipeline.aheadSeconds(on: incomingDeck) < 0.3 {
-                guard generation == loadGeneration, !Task.isCancelled else { return }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            let startOut = pipeline.deckVolume(outgoingDeck)
-            let targetIn = deckGain(for: incomingTrack)
-            let steps = 24
-            for i in 1 ... steps {
-                guard generation == loadGeneration, !Task.isCancelled else { return }
-                let g = Crossfade.gains(step: i, of: steps, startOut: startOut, targetIn: targetIn)
-                pipeline.setDeckVolume(outgoingDeck, g.out)
-                pipeline.setDeckVolume(incomingDeck, g.in)
-                try? await Task.sleep(for: .seconds(seconds / Double(steps)))
-            }
-            guard generation == loadGeneration, !Task.isCancelled else { return }
-            // Promote: the incoming deck is now the main deck; retire the outgoing one.
-            feeders[outgoingDeck]?.cancel()
-            await retireSource(for: outgoingDeck)
-            pipeline.stopDeck(outgoingDeck)
-            activeDeck = incomingDeck
-            currentIndex = nextIndex
-            anchorFrames = 0
-            clockBase = 0
-            streamStartOffset = 0
-            duration = incomingTrack.duration
-            isCrossfading = false
-        }
-    }
-
-    private func cancelCrossfade() {
-        crossfadeTask?.cancel()
-        crossfadeTask = nil
-        if isCrossfading {
-            isCrossfading = false
-            feeders[otherDeck]?.cancel()
-            pipeline.stopDeck(otherDeck)
-            Task { [source = sources[otherDeck]] in await source?.cancel() }
-            sources[otherDeck] = nil
-            pipeline.setDeckVolume(activeDeck, deckGain(for: nowPlaying))
-        }
-    }
+    // `maybeStartCrossfade` and `cancelCrossfade` used to sit here: a clock-driven ramp that
+    // started the next track on the idle deck and crossfaded the two deck volumes.
+    //
+    // It could never run. The ramp was gated on the *engine's* own `crossfadeSeconds`, and
+    // nothing in production ever assigned it — every `player.crossfadeSeconds = …` site (the
+    // menu command, Settings, the MCP tool, first-run personalization, the iPhone's settings)
+    // targets `StreamingPlaybackController`'s separate property of the same name, which
+    // drives the *host's* AVPlayer crossfade. So the `>= 0.05` guard never passed, and the
+    // second guard could not have passed either: it needed a multi-track queue.
+    //
+    // It also held the second Appendix B latent bug — `seek()` bumps the generation without
+    // cancelling a running ramp, whose guards then return without clearing `isCrossfading`,
+    // after which every boundary was refused and the deck's download leaked until the next
+    // load. Deleted as code rather than fixed, which is the point of Stage 5.
+    //
+    // Crossfade is not lost to users: the host's AVPlayer path still implements it, and
+    // `maybeStartCrossfade` there refuses only while the engine owns playback.
 
     // MARK: - Clock + stall
 
@@ -815,6 +865,17 @@ public final class EnginePlaybackController {
             let played = pipeline.playedFrames(on: activeDeck)
             currentTime = clockBase + Double(played - anchorFrames) / trackSampleRate
         }
+        // Audio rendered since this load began — `clockBase` is where the load started, and
+        // `currentTime` advances only on frames the deck actually played. Time the *stream*
+        // has been alive would be the wrong measure: a dead stream can sit at `.playing`
+        // indefinitely with nothing coming out.
+        let renderedThisLoad = currentTime - clockBase
+        if sameTrackRetries > 0, renderedThisLoad >= Self.retryResetDwellSeconds {
+            sameTrackRetries = 0
+        }
+        if episodeRetries > 0, renderedThisLoad >= Self.episodeResetDwellSeconds {
+            episodeRetries = 0
+        }
         // Buffering: intending to play, nothing left scheduled, and the track isn't
         // fully scheduled — the deck has genuinely run dry.
         let dry = pipeline.aheadSeconds(on: activeDeck) <= 0 && !finishedScheduling
@@ -822,7 +883,6 @@ public final class EnginePlaybackController {
             isBuffering = dry
             if dry { armStallWatchdog() } else { cancelStallWatchdog() }
         }
-        maybeStartCrossfade()
     }
 
     /// Same policy as the old engine's watchdog: a stall that outlives the timeout is
@@ -852,29 +912,42 @@ public final class EnginePlaybackController {
         guard generation == loadGeneration else { return }
         isBuffering = false
         cancelStallWatchdog()
-        if sameTrackRetries < StreamingPlaybackController.maxSameTrackRetries, let track = nowPlaying {
+        if sameTrackRetries < StreamingPlaybackController.maxSameTrackRetries,
+           episodeRetries < Self.maxEpisodeRetries,
+           let track = nowPlaying {
             sameTrackRetries += 1
+            episodeRetries += 1
             let resumeAt = currentTime
             let attempt = sameTrackRetries
             state = .loading
-            engineLog.error("engine: load failure (\(message, privacy: .public)) — retry \(attempt) at \(Int(resumeAt))s")
+            engineLog.error("engine: load failure (\(message, privacy: .public)) — retry \(attempt) of episode \(self.episodeRetries) at \(Int(resumeAt))s")
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(Double(attempt)))
-                guard let self, case .loading = state else { return }
+                guard let self else { return }
+                // A rung that decides not to climb used to do it in silence, and silence
+                // here looks exactly like a track that stopped for no reason: no retry, no
+                // `.error`, nothing for the host to act on. Say so.
+                guard case .loading = state else {
+                    engineLog.error("engine: retry \(attempt) abandoned — state moved to \("\(self.state)", privacy: .public) during the backoff")
+                    return
+                }
                 load(track: track, startingAt: resumeAt, autoplay: true)
-                sameTrackRetries = attempt // load() resets nothing; keep the ladder honest
             }
             return
         }
         sameTrackRetries = 0
+        // The end of the ladder was the one step with no log line, so a track that stopped
+        // here was indistinguishable from one whose failure never arrived — which is exactly
+        // the question that matters, because `.error` is what the host listens for.
+        engineLog.error("engine: giving up on this track (\(message, privacy: .public)) — reporting .error to the host")
         state = .error(message)
-        consecutiveFailures += 1
-        guard queue.count > 1, consecutiveFailures < queue.count else { return }
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1.5))
-            guard let self, case .error = state else { return }
-            next()
-        }
+        // The ladder ends here, at `.error`, which the bridge surfaces to the host through
+        // `onFailure`. There used to be a tail below this that waited 1.5 s and called
+        // `next()` — dead twice over: it was gated on `queue.count > 1`, and production
+        // never built a queue with more than one track in it. Its removal is also the
+        // direction §2.6 wants, which is that deck mode should have *one* retry ladder
+        // rather than the engine's and the host's multiplying into ~9 fetch cycles of dead
+        // air. The host's `handleLoadFailure` owns the skip.
     }
 
     // MARK: - Teardown
@@ -897,7 +970,6 @@ public final class EnginePlaybackController {
 
     private func teardownPlayback() {
         _ = bumpGeneration()
-        cancelCrossfade()
         cancelStallWatchdog()
         stopClock()
         teardownDeck(.a)

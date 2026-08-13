@@ -295,6 +295,46 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.17",
+            date: "August 2026",
+            highlight: "Find More Like This asks only the services you choose, and the audio engine loses a long list of bugs.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Find More Like This has a switch for each service now. A key used to be "
+                    + "the only way to turn one on, so having a Last.fm key and not wanting "
+                    + "Last.fm results was unsayable, and there was no way at all to leave "
+                    + "MusicBrainz out. On iPhone there was nowhere to enter a key, which left two "
+                    + "of the four sources permanently off. Keys have moved to the Keychain, "
+                    + "and a Test button says whether one works before you save it."),
+                HelpWhatsNewChange(.fixed,
+                    "The music friend was being told the artist was Optional(\"Debussy\"). "
+                    + "Every request carries a line about what is playing, and it passed the "
+                    + "artist through unwrapped, so the friend read the debugger\u{2019}s "
+                    + "spelling of the name, or nothing at all when a tag was missing. The "
+                    + "placeholder [unknown] was reaching the like, rate and similar-songs "
+                    + "replies the same way."),
+                HelpWhatsNewChange(.improved,
+                    "Music ducking under a spoken summary is a slope now. It used to drop "
+                    + "the instant the voice started and jump back the instant it finished, "
+                    + "and because the music keeps playing through both moments, you heard "
+                    + "each one."),
+                HelpWhatsNewChange(.improved,
+                    "Spoken summaries come out of the speaker you chose. The output picker "
+                    + "moved music and nothing else, so routing Baton to a kitchen speaker "
+                    + "and asking for a summary still played it out of the laptop."),
+                HelpWhatsNewChange(.fixed,
+                    "All of these need the experimental audio engine switched on in Settings, "
+                    + "Playback. Mute did nothing from any of the "
+                    + "four places that offer it. Changing the output device while paused "
+                    + "froze the playhead. The per-app output picker appeared for podcasts "
+                    + "and downloads, which it cannot route. A device change re-downloaded "
+                    + "audio already on disk. A dead stream could hang, or cost half a minute "
+                    + "of silence before the queue moved on. And seeking inside a track the "
+                    + "server does not transcode re-fetched it from the beginning, which on "
+                    + "an hour-long set made those tracks close to unplayable."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.16",
             date: "August 2026",
             highlight: "Help search works, lyrics turn up, and you can look past your own library.",

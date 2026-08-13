@@ -59,16 +59,34 @@ struct SongCardAffordanceTests {
         return calls
     }
 
-    /// The `struct … { … }` that contains a given call — from the preceding `struct` line
-    /// to the next one — so a card can be classified by what its owner knows about, not
-    /// merely by which fields the call happens to interpolate.
+    /// The type declaration that contains a given call — from the preceding one to the next
+    /// — so a card can be classified by what its owner knows about, not merely by which
+    /// fields the call happens to interpolate.
+    ///
+    /// Bounded on the declaration *keyword*, at any visibility. It used to terminate on the
+    /// literals `"\nstruct "` and `"\nprivate struct "`, so a `public struct` or a `final
+    /// class` beneath a card would have been swallowed into its neighbour's type text and
+    /// classified as part of it. Nothing had gone wrong yet; it is the same coupling to
+    /// incidental syntax that made two engine tests cry wolf, one target over.
+    private static let typeDeclarations = ["struct ", "class ", "enum ", "extension "]
+
     private func enclosingType(of call: String, in source: String) -> String {
         guard let callRange = source.range(of: call) else { return call }
         let before = source[..<callRange.lowerBound]
-        guard let structStart = before.range(of: "struct ", options: .backwards) else { return call }
-        let after = source[structStart.lowerBound...]
-        let nextStruct = after.range(of: "\nstruct ") ?? after.range(of: "\nprivate struct ")
-        return String(nextStruct.map { after[..<$0.lowerBound] } ?? after)
+        let start = Self.typeDeclarations
+            .compactMap { before.range(of: $0, options: .backwards)?.lowerBound }
+            .max()
+        guard let start else { return call }
+        let after = source[start...]
+        // The next declaration that begins a line, whatever modifiers precede it.
+        let next = after.indices.dropFirst().first { index in
+            guard after[after.index(before: index)] == "\n" else { return false }
+            let line = after[index...].prefix(while: { $0 != "\n" })
+            return Self.typeDeclarations.contains { keyword in
+                line.hasPrefix(keyword) || line.contains(" \(keyword)")
+            }
+        }
+        return String(next.map { after[..<$0] } ?? after)
     }
 
     @Test("Every song card offers the like control")
@@ -117,11 +135,26 @@ struct SongCardAffordanceTests {
             contentsOf: repoRoot.appendingPathComponent("app/Sources/Baton/Shell/Music/MusicMediaCard.swift"),
             encoding: .utf8
         )
-        let hover = try #require(card.range(of: ".overlay { hoverPlay }"))
-        let like = try #require(card.range(of: ".overlay(alignment: .bottomTrailing) { likeBadge }"))
+        // Anchored on `{ <identifier> }` — the brace is the structural part, the identifier
+        // is the rule. It used to pin `".overlay { hoverPlay }"` and
+        // `".overlay(alignment: .bottomTrailing) { likeBadge }"` in full, so giving the
+        // hover overlay an alignment, or wrapping either line, would have reported that the
+        // scrim swallows the heart's clicks — a claim about behaviour that a substring
+        // search is in no position to make.
+        let hover = try #require(
+            card.range(of: "{ hoverPlay }"),
+            "searched for `{ hoverPlay }` in MusicMediaCard.swift and did not find it — the hover overlay has been renamed or restructured, which this test cannot tell apart from its removal"
+        )
+        let like = try #require(
+            card.range(of: "{ likeBadge }"),
+            "searched for `{ likeBadge }` in MusicMediaCard.swift and did not find it — the like overlay has been renamed or restructured"
+        )
         #expect(
             like.lowerBound > hover.upperBound,
-            "the like badge is applied before hoverPlay, so the hover scrim swallows its clicks"
+            """
+            The like badge is applied before hoverPlay, so the hover scrim swallows its clicks.
+            Searched for `{ likeBadge }` after `{ hoverPlay }` in MusicMediaCard.swift and found it before.
+            """
         )
     }
 
@@ -137,9 +170,15 @@ struct SongCardAffordanceTests {
         // Scoped to `MusicMediaCard.artwork`. The file also holds `MusicSongThumb`, whose
         // own bottom-trailing heart is a *different* view over *different* artwork — a
         // whole-file count reads that as a collision and fails on correct code.
-        let start = try #require(card.range(of: "private var artwork: some View {"))
+        // `var artwork`, not `private var artwork: some View {` — the visibility and the
+        // opaque return type are decoration, and pinning them means a red gate the next time
+        // either changes. The bound stays a structural one.
+        let start = try #require(
+            card.range(of: "var artwork"),
+            "searched for `var artwork` in MusicMediaCard.swift and did not find it — it has been renamed, which this test cannot tell apart from a badge collision"
+        )
         let rest = card[start.upperBound...]
-        let end = rest.range(of: "\n    /// ") ?? rest.range(of: "\n    private var ")
+        let end = rest.range(of: "\n    /// ") ?? rest.range(of: "\n    private var ") ?? rest.range(of: "\n    var ")
         let artwork = String(end.map { rest[..<$0.lowerBound] } ?? rest)
 
         for corner in ["topLeading", "topTrailing", "bottomLeading", "bottomTrailing"] {

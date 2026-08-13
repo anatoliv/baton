@@ -97,20 +97,33 @@ final class EngineRestartAfterInterruptionTests: XCTestCase {
     /// engine bug found by ear in this project has been a rule spread across call sites and
     /// missed at one of them.
     func testMeteringIsTiedToTheOwnershipTransition() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/BatonPlaybackKit/StreamingPlaybackController.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try SourceInvariant.source("StreamingPlaybackController.swift")
 
-        let declaration = try XCTUnwrap(
-            source.range(of: "private var engineOwnsPlayback = false {"),
-            "engineOwnsPlayback no longer observes its own transitions — metering will run forever again"
+        // Anchored on the observer block, not on the decoration. The rule being pinned is
+        // that the metering switch lives on the property's own transition rather than at the
+        // five places that assign it — so the load-bearing part is that there *is* an
+        // observer block, and nothing else about the declaration.
+        //
+        // This is the test that started TBX-2879. It matched `"private var engineOwnsPlayback
+        // = false {"`, and making the property `public private(set)` so the UI could observe
+        // ownership (§3.1) turned it red with the message "metering will run forever again"
+        // — which was false; the observer had not moved by a line. It then also read
+        // `prefix(1800)` past the declaration, a window that would have silently swallowed
+        // the next function had it been a little larger, and dropped the guard out of view
+        // had a comment grown. `SourceInvariant.observerBlock` takes the braces instead, and
+        // fails outright if the observer is gone rather than adopting whatever follows.
+        let block = try SourceInvariant.observerBlock(of: "engineOwnsPlayback", in: source)
+
+        SourceInvariant.assert(
+            block, contains: "resumeMetering()",
+            rule: "taking ownership resumes metering, or the now-playing bars are dead",
+            within: "the `engineOwnsPlayback` observer block"
         )
-        let block = String(source[declaration.upperBound...].prefix(1800))
-        XCTAssertTrue(block.contains("resumeMetering()"),
-                      "taking ownership does not resume metering, so the bars will be dead")
-        XCTAssertTrue(block.contains("suspendMetering()"),
-                      "losing ownership does not suspend metering, so the tap analyses silence forever")
+        SourceInvariant.assert(
+            block, contains: "suspendMetering()",
+            rule: "losing ownership suspends metering, or the render tap analyses silence for the life of the process",
+            within: "the `engineOwnsPlayback` observer block"
+        )
     }
 
 }

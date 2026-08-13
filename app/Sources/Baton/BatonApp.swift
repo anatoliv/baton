@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 import UserNotifications
 
@@ -54,7 +55,14 @@ struct BatonApp: App {
         // Start Sparkle's background update scheduler at launch — not lazily from the
         // Settings UI — so a user who just plays music still receives automatic checks.
         // Gated on a genuinely-live channel so a placeholder-key dev build stays dormant.
-        if UpdateChannel.isConfiguredFromBundle {
+        //
+        // Never under XCTest. The unit tests are app-hosted, so this `init` runs inside the
+        // test host — which meant every `scripts/test.sh` run started a live updater pointed
+        // at the public appcast, on the same machine that publishes to it. A test host that
+        // can download and install a release is a test host that can end its own process
+        // mid-run, and `BatonEnvironment` already exists to keep tests off exactly this kind
+        // of real-world side effect (system Now Playing, real defaults, the network).
+        if UpdateChannel.isConfiguredFromBundle, !BatonEnvironment.current.isTesting {
             MainActor.assumeIsolated { _ = SparkleUpdater.shared }
         }
     }

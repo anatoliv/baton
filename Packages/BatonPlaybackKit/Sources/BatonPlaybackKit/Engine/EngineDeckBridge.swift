@@ -25,7 +25,7 @@ import BatonSubsonicModels
 /// live on this path is the prize: EQ on streams, real tap metering, in-spool seeks, and
 /// `timeOffset` seeks into a cold transcode — all inside the engine.
 @MainActor
-public final class EngineDeckBridge {
+public final class EngineDeckBridge: PlaybackDeck {
     public let engine: EnginePlaybackController
     private let pipeline: EngineAudioPipeline
 
@@ -75,7 +75,7 @@ public final class EngineDeckBridge {
         // Retire any tick in flight *before* the engine's state changes under it.
         stopClock()
         clockGeneration &+= 1
-        engine.play([track], atTime: offset, autoplay: autoplay)
+        engine.play(track, atTime: offset, autoplay: autoplay)
         startClock()
     }
 
@@ -177,9 +177,9 @@ public final class EngineDeckBridge {
     /// silence, for the entire life of the process and regardless of whether the engine was
     /// playing anything at all. `AudioLevelMonitor` idles carefully all the way off; this
     /// undercut that a layer below, where nobody was looking.
-    func suspendMetering() { engine.stopMetering() }
+    public func suspendMetering() { engine.stopMetering() }
 
-    func resumeMetering() {
+    public func resumeMetering() {
         guard let meteringSnapshot else { return }
         engine.startMetering(into: meteringSnapshot)
     }

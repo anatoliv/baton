@@ -110,6 +110,13 @@ public final class EngineAudioPipeline {
             }
         }
 
+        #if os(macOS)
+        // Before `prepare()`: `maximumFramesToRender` is refused once the unit is
+        // initialised, and the device should be running at the chosen size before the
+        // I/O proc starts rather than being changed underneath it.
+        adoptRenderQuantum()
+        #endif
+
         engine.prepare()
         try engine.start()
     }
@@ -163,7 +170,13 @@ public final class EngineAudioPipeline {
             if wasRunning { try? engine.start() }
             return false
         }
+        // The engine is stopped and pointed at the new device: the moment to give the old
+        // device its buffer size back and ask the new one for ours.
+        adoptRenderQuantum()
         if wasRunning { try? engine.start() }
+        // The stop above discarded whatever the decks had scheduled; say so before anyone
+        // reads `aheadSeconds` again. Both stop paths need this, so both call it.
+        if wasRunning { forgetSchedulingAcrossEngineStop() }
         onConfigurationChange?()   // re-anchor playback at the playhead
         return true
     }
@@ -173,6 +186,81 @@ public final class EngineAudioPipeline {
         guard case .device = outputMode else { return nil }
         let id = engine.outputNode.auAudioUnit.deviceID
         return id == 0 ? nil : id
+    }
+
+    // MARK: - Render quantum
+    //
+    // The render quantum was left at whatever the device happened to be using — 512 frames
+    // on this hardware, so the I/O proc woke about 86 times a second from app launch to
+    // quit. Wake-up frequency weighs heavily in the energy-impact index, which is the number
+    // the engine's adoption rests on, and this was the largest untouched lever on the
+    // *playing* half of that gap.
+    //
+    // Two things make this delicate enough to be worth spelling out.
+    //
+    // **The property is the device's, not ours.** Unlike `setOutputDevice`, which is
+    // per-app by design and deliberately leaves every other app alone, the buffer frame size
+    // is shared by every client of that output. So the policy here is a borrower's: raise a
+    // device that is running smaller than we want, never shrink one another app has already
+    // raised, and put the original back on the way out.
+    //
+    // **The ceiling is the device's to state.** The built-in output tops out at 1024 frames,
+    // so asking for the 4096 that the plan assumed would simply fail and forfeit the whole
+    // optimisation. The target is clamped to the advertised range, which is why this reads
+    // as "ask for a lot, take what is offered" rather than a constant.
+
+    /// What we would like, before the device gets a say. Deliberately above any current
+    /// hardware ceiling: the clamp decides, and a device that allows more should give more.
+    private static let preferredRenderFrames: UInt32 = 4096
+
+    /// The device we raised and the value it had before, so it can be handed back exactly.
+    private var borrowedBufferSize: (device: AudioDeviceID, original: UInt32)?
+
+    /// Raise the current output device's render quantum, remembering what to restore.
+    ///
+    /// Call with the engine stopped: `maximumFramesToRender` is rejected once the unit is
+    /// initialised, and changing the device's buffer size under a live I/O proc is a glitch
+    /// nobody asked for.
+    private func adoptRenderQuantum() {
+        guard case .device = outputMode else { return }
+        let device = engine.outputNode.auAudioUnit.deviceID
+        guard device != 0 else { return }
+
+        // Switched devices? Give the previous one back first.
+        if let borrowed = borrowedBufferSize, borrowed.device != device { releaseRenderQuantum() }
+
+        guard let range = AudioOutputDevices.bufferFrameSizeRange(of: device),
+              let current = AudioOutputDevices.bufferFrameSize(of: device)
+        else { return }
+        let target = min(max(Self.preferredRenderFrames, range.lowerBound), range.upperBound)
+
+        // Already at or above what we want — someone else asked for it, and shrinking their
+        // buffer to "our" number would be exactly the rudeness this whole comment is about.
+        guard target > current else { return }
+
+        // The unit must be willing to render a slice this large before the device starts
+        // handing it one. Settable only while uninitialised, hence the stopped-engine rule.
+        let unit = engine.outputNode.auAudioUnit
+        if unit.maximumFramesToRender < target { unit.maximumFramesToRender = target }
+
+        guard AudioOutputDevices.setBufferFrameSize(target, on: device) else {
+            engineLog.notice("engine: device \(device) refused a \(target)-frame quantum; leaving it at \(current)")
+            return
+        }
+        if borrowedBufferSize == nil { borrowedBufferSize = (device, current) }
+        engineLog.notice("engine: render quantum \(current) → \(target) frames on device \(device)")
+    }
+
+    /// Hand the device back the buffer size it had. A setting that outlives the app that
+    /// wanted it is a bug in someone else's audio.
+    private func releaseRenderQuantum() {
+        guard let borrowed = borrowedBufferSize else { return }
+        borrowedBufferSize = nil
+        // Only if nothing has since raised it further — that would be another app's ask, and
+        // restoring "our" original over it would be the shrink this policy forbids.
+        if let now = AudioOutputDevices.bufferFrameSize(of: borrowed.device), now > borrowed.original {
+            AudioOutputDevices.setBufferFrameSize(borrowed.original, on: borrowed.device)
+        }
     }
 
     #endif
@@ -197,6 +285,16 @@ public final class EngineAudioPipeline {
     #if DEBUG
     /// Stop the engine the way an interruption does, so the crash hole above can be tested.
     public func stopEngineForTesting() { engine.stop() }
+    /// The other half, so a test can drive the *whole* stop-and-restart a device change
+    /// performs (`setOutputDevice` stops, re-points and starts) rather than only its first
+    /// half. What survives that restart is the open question under §2.5.
+    public func startEngineForTesting() throws { try engine.start() }
+    /// Drive the whole device-change path (stop, restart, forget what was scheduled) without
+    /// a device to change — the offline pipeline never receives the system notification.
+    public func simulateConfigurationChangeForTesting() {
+        engine.stop()
+        handleConfigurationChange()
+    }
     public var isEngineRunningForTesting: Bool { engine.isRunning }
     #endif
 
@@ -209,12 +307,42 @@ public final class EngineAudioPipeline {
         // restart rather than an absent one, which no `isRunning` check downstream can
         // distinguish from success. `play()` now refuses on a stopped engine, so this can
         // no longer crash; it is logged because a silent no-audio is its own bug report.
+        #if os(macOS)
+        // The system may have moved us to a different device, which has its own ceiling and
+        // its own original value — and the engine is stopped right now, which is when this
+        // can be changed safely.
+        adoptRenderQuantum()
+        #endif
         do {
             try engine.start()
         } catch {
             engineLog.error("engine: restart after configuration change failed: \(error.localizedDescription, privacy: .public)")
         }
+        forgetSchedulingAcrossEngineStop()
         onConfigurationChange?()
+    }
+
+    /// After the engine has been stopped underneath the decks, nothing that was scheduled on
+    /// them is still there — so the bookkeeping must say so.
+    ///
+    /// This was §2.5's deliberately-unfinished half, held back because the correct line
+    /// depended on a fact nobody had established: does `engine.stop()` discard buffers
+    /// already scheduled on a player node? Measured both ways in `EngineStopFlushTests` and
+    /// the answer is yes — offline, the audio is simply gone after a restart, and on a real
+    /// device the buffer's completion handler never fires at all, which is stronger than it
+    /// sounds: a four-second buffer that had played 0.4 s neither completed at the stop nor
+    /// any time in the following five and a half seconds. It was dropped, not consumed.
+    ///
+    /// Leaving `scheduledFrames` behind made `aheadSeconds` stale-positive, so `clockTick`'s
+    /// dry-detection read "there is audio queued" and never raised `isBuffering` — a stall
+    /// invisible to the one thing that exists to notice stalls. The same measurement also
+    /// showed why it stayed invisible: a starved player node's clock keeps advancing, so the
+    /// playhead moves convincingly over silence.
+    private func forgetSchedulingAcrossEngineStop() {
+        for deck in [DeckID.a, .b] {
+            decks[deck]?.scheduledFrames = 0
+            decks[deck]?.lastKnownPlayedFrames = 0
+        }
     }
 
     private func node(_ deck: DeckID) -> AVAudioPlayerNode { deck == .a ? deckA : deckB }
@@ -470,6 +598,9 @@ public final class EngineAudioPipeline {
         deckA.stop()
         deckB.stop()
         engine.stop()
+        #if os(macOS)
+        releaseRenderQuantum()
+        #endif
     }
 }
 

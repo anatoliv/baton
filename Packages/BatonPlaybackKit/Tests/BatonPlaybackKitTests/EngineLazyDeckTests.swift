@@ -126,24 +126,29 @@ final class EngineLazyDeckTests: XCTestCase {
     /// pinning rather than trusting: the ordering is load-bearing only on the platform the
     /// gate cannot run.
     func testRoutabilityIsDecidedBeforeTheDeckIsBuilt() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // BatonPlaybackKitTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // BatonPlaybackKit
-            .appendingPathComponent("Sources/BatonPlaybackKit/StreamingPlaybackController.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try SourceInvariant.source("StreamingPlaybackController.swift")
 
-        let canPlay = try XCTUnwrap(
-            source.range(of: "EngineDeckBridge.canPlay(songID: song.id, url: engineURL)"),
-            "the routing site's canPlay check has moved or been renamed"
-        )
-        let resolve = try XCTUnwrap(
-            source.range(of: "let deck = resolveEngineDeck()"),
-            "the routing site no longer resolves the deck lazily"
-        )
-        XCTAssertTrue(
-            canPlay.upperBound < resolve.lowerBound,
-            "the deck is resolved before routability is known — on iOS that activates the audio session to play a podcast"
+        // Anchored on the two calls, not on their arguments. This pinned
+        // `"EngineDeckBridge.canPlay(songID: song.id, url: engineURL)"` and
+        // `"let deck = resolveEngineDeck()"` — the full argument list and the local
+        // variable's name and binding — so renaming `engineURL`, or making `deck` a `var`,
+        // would have reported that the phone builds an audio engine to play a podcast. The
+        // order is the rule; the spelling of a local is not.
+        //
+        // Bounded to `loadCurrent` rather than searched file-wide, which the looser anchors
+        // could not be: `EngineDeckBridge.canPlay` also appears in `beginSkipBlend` several
+        // hundred lines earlier, and `resolveEngineDeck()` first appears at its own
+        // declaration, ~1400 lines before the routing site. A whole-file search would
+        // compare two calls that have nothing to do with each other and fail on correct
+        // code — the exact fault this ticket is about, reintroduced by the fix for it.
+        let routing = try SourceInvariant.functionBody(of: "loadCurrent", in: source)
+
+        try SourceInvariant.assert(
+            routing,
+            has: "EngineDeckBridge.canPlay",
+            before: "resolveEngineDeck()",
+            rule: "routability is settled before the deck is resolved, or the phone builds an audio engine — and activates the audio session — to discover the track was a podcast",
+            within: "the body of `loadCurrent`"
         )
     }
 }

@@ -27,7 +27,7 @@ final class EngineStreamedMeteringTests: XCTestCase {
         let track = EnginePlaybackController.Track(
             id: "mp3", url: server.url, duration: 68, supportsTimeOffset: false
         )
-        harness.controller.play([track])
+        harness.controller.play(track)
         try await harness.waitUntil(timeout: 20) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 2.0
         }
@@ -55,7 +55,7 @@ final class EngineStreamedMeteringTests: XCTestCase {
             let track = EnginePlaybackController.Track(
                 id: "tone", url: server.url, duration: 3, supportsTimeOffset: false
             )
-            harness.controller.play([track])
+            harness.controller.play(track)
             try await harness.waitUntil(timeout: 15) {
                 harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 1.5
             }

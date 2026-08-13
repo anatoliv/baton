@@ -234,6 +234,28 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.43",
+            date: "August 2026",
+            highlight: "You can add a discovery key on the phone at last, and pick which services get asked.",
+            changes: [
+                .init(.added, "Find More Like This has a switch for each service, and somewhere to put a key. The key field only ever existed on the Mac, so the two sources that need an account could never be switched on from the phone at all, while the results sheet went on listing them as available. A key was also the only way to turn a source on, so having a Last.fm key and not wanting Last.fm results was unsayable, and there was no way at all to leave MusicBrainz out. Keys live in the Keychain now, and a Test button says whether one works before you save it."),
+                .init(.fixed, "The music friend was being told the artist was Optional(\u{201C}Debussy\u{201D}). Every request carries a line about what is playing, and it passed the artist through unwrapped, so the friend read the debugger\u{2019}s spelling of the name, or nothing at all when a tag was missing. The placeholder [unknown] was reaching the like, rate and similar-songs replies the same way."),
+                .init(.fixed, "All of these need the experimental audio engine switched on in Settings, Advanced. Mute did nothing. A route change while paused froze the playhead, so unplugging headphones and carrying on left the track stuck. A route change also threw away audio already on the phone and fetched it again. A dead stream could hang, or cost half a minute of silence before the queue moved on. And seeking inside a track your server does not transcode re-fetched it from the beginning, which on a long set made those tracks close to unplayable."),
+            ]
+        ),
+        ReleaseNote(
+            version: "0.3.42",
+            date: "August 2026",
+            highlight: "The player fits the screen, and lyrics actually turn up.",
+            changes: [
+                .init(.fixed, "The full-screen player pushed its bottom row past the edge of the screen \u{2014} on a smaller iPhone the star rating sat under the home indicator, or below it. The stack now shares its spare room top and bottom instead of pooling it in one place, and keeps a proper margin under the last control. Checked on the smallest iPhone and at the large accessibility text sizes."),
+                .init(.improved, "Lyrics turn up far more often. A track tagged \u{201C}Wearing My Shoes (Louis Bailar\u{2019}s radio Chillout)\u{201D} by \u{201C}Aura feat. Dani Senior\u{201D} is filed under a slightly different remix name by just \u{201C}Aura\u{201D}, and an exact match cannot survive that. Baton now searches as well, and accepts a match only when the track length agrees \u{2014} so the right words scroll against the right song, or none do. Songs played from an album or the queue were never looked up at all before."),
+                .init(.added, "Find More Like This, on any track. \u{201C}More like this\u{201D} has always meant the music you already have; this asks the public catalogues what else is out there and hands you a link. The music friend can do it too. Off until you turn it on in Settings: it sends the artist and title and nothing else, and two of its four sources need no account."),
+                .init(.improved, "Unsubscribing from a podcast now travels between your iPhone and your Mac. It used to be handed straight back by whichever device still had the show."),
+                .init(.fixed, "The Downloads row in Library counted the things you had saved for later rather than the things you had downloaded."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.41",
             date: "August 2026",
             highlight: "No more \u{201C}Unknown\u{201D} under the title.",

@@ -21,6 +21,14 @@ import XCTest
 /// It prints a scorecard and every failing case, so the output is the report.
 @MainActor
 final class RemoteAgentConversationEval: XCTestCase {
+    /// Belt and braces for TBX-2848: this is the test the runner died under, so arm the
+    /// exit diagnostic here too rather than trusting the bundle's principal class to have
+    /// been instantiated. Idempotent.
+    override class func setUp() {
+        super.setUp()
+        RunnerExitDiagnostic.arm()
+    }
+
     // MARK: What a message should lead to
 
     enum Expectation {
