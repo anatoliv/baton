@@ -188,7 +188,7 @@ struct MusicTranscriptView: View {
             // instrumental — also not a fault. "Failed" only when something actually broke.
             Text(title(for: failure))
                 .font(.headline)
-            Text(failure.message)
+            Text(detail(for: failure))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -209,6 +209,16 @@ struct MusicTranscriptView: View {
     private func title(for failure: TranscriptStore.Failure) -> String {
         if failure.isEmptyOfSpeech { return "No speech in this track" }
         return failure.isUnavailable ? "Transcription unavailable" : "Transcription failed"
+    }
+
+    /// Send someone somewhere useful. A song with no speech in it is not a dead end: the
+    /// words they are after are lyrics, and Baton has a panel for those.
+    private func detail(for failure: TranscriptStore.Failure) -> String {
+        guard failure.isEmptyOfSpeech, !TranscriptionCoordinator.isOfferedAutomatically(for: song) else {
+            return failure.message
+        }
+        return failure.message + " Songs are sung rather than spoken, so a recogniser finds "
+            + "little to work with — the Lyrics panel is what you want here."
     }
 
     private var offer: some View {

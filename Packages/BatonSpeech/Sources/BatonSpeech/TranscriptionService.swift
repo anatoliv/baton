@@ -258,6 +258,24 @@ public enum TranscriptionService {
 
     // MARK: - Response parsing (pure)
 
+    /// Whether what came back is too little of the track to be a transcript of it.
+    ///
+    /// Voice-activity detection throws away everything that isn't speech, which is right, and
+    /// over a song it throws away nearly all of it. What survives is a fragment: measured on
+    /// "Riders on the Storm", one segment of 1.7 seconds out of 7 minutes 15 — four tenths of
+    /// one per cent of the track — reading "Do this as we're born", which is a mangled line of
+    /// the lyric. Showing that as *the transcript* claims the track said one wrong sentence
+    /// and nothing else.
+    ///
+    /// A tenth of the running time is far below anything spoken-word: talk covers most of its
+    /// duration, and even an interview full of pauses stays well above this. Only applied to
+    /// tracks over a minute, so a short clip is never judged on a ratio.
+    public static func isTooSparse(_ segments: [Transcript.Segment], duration: Double?) -> Bool {
+        guard let duration, duration > 60 else { return false }
+        let covered = segments.reduce(0.0) { $0 + max(0, $1.end - $1.start) }
+        return covered / duration < 0.10
+    }
+
     /// Whether a transcript is the recognizer looping rather than reporting speech.
     ///
     /// Belt to VAD's braces: a server without voice-activity detection, or one whose VAD
@@ -319,6 +337,11 @@ public enum TranscriptionService {
                       let start = raw["start"] as? Double else { return nil }
                 let end = (raw["end"] as? Double) ?? start
                 return Transcript.Segment(start: start, end: max(end, start), text: text)
+            }
+            if isTooSparse(segments, duration: duration) {
+                throw TranscribeError(
+                    message: "No speech was found in this track.", isEmptyOfSpeech: true
+                )
             }
             if isDegenerate(segments) {
                 throw TranscribeError(
