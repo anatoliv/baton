@@ -295,6 +295,25 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.19",
+            date: "August 2026",
+            highlight: "Summaries work on iPhone too, and the transcript guide is findable by its own name.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "iPhone can summarize an episode now. The sheet could show a summary but "
+                    + "gave you no way to make one, so on the phone it was a feature you could "
+                    + "only ever look at."),
+                HelpWhatsNewChange(.improved,
+                    "The transcript guide is called Transcripts and summaries. It was filed "
+                    + "under Reading what was said, which is a fine sentence and a poor label: "
+                    + "the word transcript appeared nowhere in the heading, so scanning the "
+                    + "contents for it found nothing."),
+                HelpWhatsNewChange(.improved,
+                    "The Transcription setting on iPhone has a Learn more link, and the guide "
+                    + "now gives both settings paths rather than only the Mac's."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.18",
             date: "August 2026",
             highlight: "Podcasts can be read as well as heard: a timed transcript, tappable to jump anywhere, and a summary with chapter marks.",

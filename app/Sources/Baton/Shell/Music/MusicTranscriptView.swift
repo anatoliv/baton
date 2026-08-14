@@ -12,10 +12,6 @@ import SwiftUI
 /// See `specs/track-transcription.md`.
 struct MusicTranscriptView: View {
     @Environment(MusicModel.self) private var model
-    /// The summarizing model's settings live on the remote-control service, the same place the
-    /// music friend reads them from. Optional because the service is only built once the app
-    /// has one; without it, Summarize simply isn't offered.
-    @Environment(RemoteControlService.self) private var remote: RemoteControlService?
     let song: NavidromeSong
     /// Injected for previews/snapshots — skips the store and the network.
     var previewTranscript: Transcript?
@@ -78,6 +74,9 @@ struct MusicTranscriptView: View {
                         TranscriptSummaryView(summary: summary, showsBody: $showsSummary) { seconds in
                             seek(to: seconds)
                         }
+                        Divider().padding(.horizontal, 20)
+                    } else {
+                        summarizeRow
                         Divider().padding(.horizontal, 20)
                     }
                     MusicLyricLines(
@@ -147,10 +146,6 @@ struct MusicTranscriptView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 12) {
-                if transcript.summary == nil, remote != nil {
-                    Button("Summarize") { Task { await summarize() } }
-                        .buttonStyle(.borderedProminent)
-                }
                 Button("Transcribe again") { Task { await transcribe() } }
                     .buttonStyle(.bordered)
                 Spacer()
@@ -165,26 +160,55 @@ struct MusicTranscriptView: View {
         .padding(20)
     }
 
+    /// Offered at the TOP of the pane, not the foot. A 48-minute episode is several hundred
+    /// lines, and the follow-the-playhead scroll pulls you back to the middle of them, so a
+    /// button below the last line is one nobody reaches.
+    private var summarizeRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { Task { await summarize() } } label: {
+                Label("Summarize this episode", systemImage: "text.append")
+                    .font(.callout.weight(.medium))
+            }
+            .buttonStyle(.borderedProminent)
+            Text("An overview plus timestamped sections you can click to jump to. Uses the model from Settings → Remote.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func problem(_ failure: TranscriptStore.Failure) -> some View {
         VStack(spacing: 8) {
-            Image(systemName: failure.isUnavailable ? "wifi.slash" : "exclamationmark.triangle")
+            Image(systemName: symbol(for: failure))
                 .font(.title)
                 .foregroundStyle(.secondary)
-            // "Unavailable" rather than "failed" when the host simply isn't there. On a laptop
-            // away from home that is the ordinary case, and it must not read like a fault.
-            Text(failure.isUnavailable ? "Transcription unavailable" : "Transcription failed")
+            // Three outcomes, three sentences. "Unavailable" when the host isn't there, which
+            // away from home is ordinary. "No speech" when the recognizer ran and found an
+            // instrumental — also not a fault. "Failed" only when something actually broke.
+            Text(title(for: failure))
                 .font(.headline)
             Text(failure.message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
-            Button("Try again") { Task { await transcribe() } }
+            Button(failure.isEmptyOfSpeech ? "Try anyway" : "Try again") { Task { await transcribe() } }
                 .buttonStyle(.bordered)
                 .padding(.top, 4)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func symbol(for failure: TranscriptStore.Failure) -> String {
+        if failure.isEmptyOfSpeech { return "waveform.slash" }
+        return failure.isUnavailable ? "wifi.slash" : "exclamationmark.triangle"
+    }
+
+    private func title(for failure: TranscriptStore.Failure) -> String {
+        if failure.isEmptyOfSpeech { return "No speech in this track" }
+        return failure.isUnavailable ? "Transcription unavailable" : "Transcription failed"
     }
 
     private var offer: some View {
@@ -221,9 +245,14 @@ struct MusicTranscriptView: View {
         await coordinator.transcribe(song: song, client: try? NavidromeConfig.makeClient())
     }
 
+    /// Reads the summarizing model straight from its store, the way the MCP tool does.
+    ///
+    /// It used to take `RemoteControlService` from the environment — which the main window
+    /// never injects (only Settings, Music Friend and Spoken Summaries do), so the button it
+    /// gated was unreachable in the one place it existed. Nothing in a test could see that:
+    /// an absent environment object is a nil optional, not a failure.
     private func summarize() async {
-        guard let remote else { return }
-        await coordinator.summarize(trackID: song.id, config: remote.settings.naturalLanguage)
+        await coordinator.summarize(trackID: song.id, config: RemoteControlSettings().naturalLanguage)
     }
 }
 

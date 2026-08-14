@@ -20,11 +20,16 @@ public enum TranscriptionService {
         /// this and "failed" for everything else — an off-network phone is the normal case,
         /// not a fault, and it must not read like one.
         public let isUnreachable: Bool
+        /// True when the recognizer ran fine and simply found nothing worth transcribing —
+        /// an instrumental track, silence, crowd noise. Not a fault, and the UI must not
+        /// dress it as one.
+        public let isEmptyOfSpeech: Bool
         public var errorDescription: String? { message }
 
-        public init(message: String, isUnreachable: Bool = false) {
+        public init(message: String, isUnreachable: Bool = false, isEmptyOfSpeech: Bool = false) {
             self.message = message
             self.isUnreachable = isUnreachable
+            self.isEmptyOfSpeech = isEmptyOfSpeech
         }
     }
 
@@ -54,6 +59,12 @@ public enum TranscriptionService {
             // only, and text without timings cannot highlight, cannot seek, and cannot be
             // chunked on real boundaries — three of the four things this feature is for.
             ("response_format", "verbose_json"),
+            // Voice-activity detection, and the reason it is not optional: over music or
+            // silence Whisper does not fall silent, it *invents*. A track with no speech in
+            // it came back as the word "Yeah" repeated down the whole pane. Measured against
+            // 45 s of non-speech audio: without this, two hallucinated segments; with it,
+            // zero. Servers that don't know the field ignore it (WhisperX 200s either way).
+            ("vad_filter", "true"),
         ]
         if let language, !language.isEmpty { fields.append(("language", language)) }
 
@@ -247,6 +258,31 @@ public enum TranscriptionService {
 
     // MARK: - Response parsing (pure)
 
+    /// Whether a transcript is the recognizer looping rather than reporting speech.
+    ///
+    /// Belt to VAD's braces: a server without voice-activity detection, or one whose VAD
+    /// lets a little through, returns the same line over and over. Ten segments that are
+    /// almost all the same short string is not a transcript of anything, and showing it as
+    /// one is worse than saying nothing was found — it looks like the feature works and
+    /// like the track said "Yeah" four hundred times.
+    ///
+    /// Deliberately conservative: real speech repeats too ("Yeah." "Yeah." "Right.") so this
+    /// only fires when nearly every segment is identical AND the repeated line is short.
+    public static func isDegenerate(_ segments: [Transcript.Segment]) -> Bool {
+        guard segments.count >= 10 else { return false }
+        let normalized = segments.map {
+            $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?…"))
+        }
+        let unique = Set(normalized)
+        guard let commonest = unique.max(by: { a, b in
+            normalized.filter { $0 == a }.count < normalized.filter { $0 == b }.count
+        }) else { return false }
+        let share = Double(normalized.filter { $0 == commonest }.count) / Double(normalized.count)
+        // A long repeated line is more likely a real refrain than a decoding loop.
+        return share >= 0.8 && commonest.count <= 40
+    }
+
     /// Find the segment array, whichever shape the server used.
     ///
     /// OpenAI's `verbose_json` puts it at the top level. WhisperX nests it a level deeper as
@@ -284,6 +320,11 @@ public enum TranscriptionService {
                 let end = (raw["end"] as? Double) ?? start
                 return Transcript.Segment(start: start, end: max(end, start), text: text)
             }
+            if isDegenerate(segments) {
+                throw TranscribeError(
+                    message: "No speech was found in this track.", isEmptyOfSpeech: true
+                )
+            }
             if !segments.isEmpty {
                 return Transcript(
                     trackID: trackID,
@@ -298,7 +339,9 @@ public enum TranscriptionService {
 
         let text = (root["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !text.isEmpty else {
-            throw TranscribeError(message: "The transcription came back empty.")
+            throw TranscribeError(
+                message: "No speech was found in this track.", isEmptyOfSpeech: true
+            )
         }
         return Transcript(
             trackID: trackID,

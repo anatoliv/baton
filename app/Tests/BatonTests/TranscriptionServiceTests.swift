@@ -167,7 +167,9 @@ final class TranscriptionServiceTests: XCTestCase {
 
     func testEmptyTranscriptionThrowsRatherThanReturningNothing() {
         let data = Data(#"{"text":"   ","segments":[]}"#.utf8)
-        XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "ep-4", fallbackModel: "whisper-1"))
+        XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "ep-4", fallbackModel: "whisper-1")) { error in
+            XCTAssertEqual((error as? TranscriptionService.TranscribeError)?.isEmptyOfSpeech, true)
+        }
     }
 
     func testNonJSONResponseThrows() {
@@ -235,6 +237,77 @@ final class TranscriptionServiceTests: XCTestCase {
         XCTAssertTrue(transcript.synced)
         XCTAssertEqual(transcript.segments.map(\.text), ["first"])
         XCTAssertNotEqual(transcript.segments.first?.text, "all of it as one lump")
+    }
+
+    // MARK: - Whisper hallucinating over music
+
+    /// The exact failure a user hit on "Riders on the Storm": a music track came back as the
+    /// word "Yeah" repeated down the whole pane. Whisper does not fall silent over non-speech,
+    /// it invents, and a wall of one word looks like the feature working.
+    func testAWallOfOneRepeatedWordIsReportedAsNoSpeech() {
+        let segments = (0 ..< 40).map { i in
+            Transcript.Segment(start: Double(i) * 3, end: Double(i) * 3 + 3, text: "Yeah")
+        }
+        XCTAssertTrue(TranscriptionService.isDegenerate(segments))
+    }
+
+    func testTheRepetitionGuardSurfacesAsNoSpeechRatherThanAnError() {
+        let segs = (0 ..< 40).map {
+            #"{"start":\#(Double($0) * 3),"end":\#(Double($0) * 3 + 3),"text":" Yeah"}"#
+        }.joined(separator: ",")
+        let data = Data(#"{"language":"en","text":"Yeah","segments":[\#(segs)]}"#.utf8)
+
+        XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "x", fallbackModel: "m")) { error in
+            let e = error as? TranscriptionService.TranscribeError
+            XCTAssertEqual(e?.isEmptyOfSpeech, true, "an instrumental is not a failure")
+            XCTAssertFalse(e?.isUnreachable == true)
+            XCTAssertTrue(e?.message.contains("No speech") == true, "got: \(e?.message ?? "nil")")
+        }
+    }
+
+    /// Deliberately conservative. Real speech repeats, and a conversation of short agreements
+    /// must still transcribe.
+    func testGenuineSpeechThatRepeatsIsNotMistakenForALoop() {
+        var segments = (0 ..< 30).map { i in
+            Transcript.Segment(start: Double(i), end: Double(i) + 1, text: "Line \(i) with real content.")
+        }
+        segments.append(contentsOf: (0 ..< 6).map { i in
+            Transcript.Segment(start: Double(40 + i), end: Double(41 + i), text: "Yeah")
+        })
+        XCTAssertFalse(TranscriptionService.isDegenerate(segments))
+    }
+
+    func testAShortTranscriptIsNeverJudgedDegenerate() {
+        let segments = (0 ..< 6).map { i in
+            Transcript.Segment(start: Double(i), end: Double(i) + 1, text: "Yeah")
+        }
+        XCTAssertFalse(TranscriptionService.isDegenerate(segments), "too little to conclude anything")
+    }
+
+    /// A repeated *long* line is far likelier a real refrain than a decoding loop.
+    func testALongRepeatedLineIsLeftAlone() {
+        let line = "And that is the whole point of running your own storage at home, really."
+        let segments = (0 ..< 40).map { i in
+            Transcript.Segment(start: Double(i), end: Double(i) + 1, text: line)
+        }
+        XCTAssertFalse(TranscriptionService.isDegenerate(segments))
+    }
+
+    func testEmptyTextIsReportedAsNoSpeechNotAsAFailure() {
+        let data = Data(#"{"text":"   ","segments":[]}"#.utf8)
+        XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "x", fallbackModel: "m")) { error in
+            XCTAssertEqual((error as? TranscriptionService.TranscribeError)?.isEmptyOfSpeech, true)
+        }
+    }
+
+    /// VAD is what stops the model inventing words over an instrumental in the first place.
+    func testTheRequestAsksTheServerToSkipNonSpeechAudio() {
+        let body = TranscriptionService.multipartBody(
+            fields: [("model", "m"), ("response_format", "verbose_json"), ("vad_filter", "true")],
+            fileName: "a.mp3", fileData: Data("x".utf8), boundary: "B"
+        )
+        let text = String(decoding: body, as: UTF8.self)
+        XCTAssertTrue(text.contains("name=\"vad_filter\"\r\n\r\ntrue"))
     }
 
     // MARK: - Model list shapes

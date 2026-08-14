@@ -100,7 +100,11 @@ final class TranscriptionCoordinator {
             coordinatorLog.info("transcribed a track into \(transcript.segments.count) segments")
             return transcript
         } catch let error as TranscriptionService.TranscribeError {
-            store.finishWork(on: song.id, failure: .init(message: error.message, isUnavailable: error.isUnreachable))
+            store.finishWork(on: song.id, failure: .init(
+                message: error.message,
+                isUnavailable: error.isUnreachable,
+                isEmptyOfSpeech: error.isEmptyOfSpeech
+            ))
         } catch let error as TranscriptionAudioSource.ResolveError {
             store.finishWork(on: song.id, failure: .init(message: error.message))
         } catch {
