@@ -49,10 +49,14 @@ public final class TranscriptStore {
     public struct Failure: Equatable, Sendable {
         public var message: String
         public var isUnavailable: Bool
+        /// The recognizer ran and found no speech — an instrumental, silence. Neither a
+        /// failure nor an absence of setup, so it gets its own copy.
+        public var isEmptyOfSpeech: Bool
 
-        public init(message: String, isUnavailable: Bool = false) {
+        public init(message: String, isUnavailable: Bool = false, isEmptyOfSpeech: Bool = false) {
             self.message = message
             self.isUnavailable = isUnavailable
+            self.isEmptyOfSpeech = isEmptyOfSpeech
         }
     }
 

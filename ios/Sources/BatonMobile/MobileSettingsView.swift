@@ -92,8 +92,13 @@ struct MobileSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             }
-            Text("Reads a podcast episode aloud back to you as text, with every line tappable to seek. The audio is uploaded to this server, so it stays off until you set one.")
-                .font(.footnote).foregroundStyle(.secondary)
+            SettingsFooter(
+                text: "Reads a podcast episode back to you as text, with every line tappable to "
+                    + "seek, and can summarize it into timestamped sections. The audio is uploaded "
+                    + "to the server above, so it stays off until you set one.",
+                topic: SettingsHelpTopic.transcription,
+                onOpenHelp: { showsHelp = true }
+            )
         }
     }
 

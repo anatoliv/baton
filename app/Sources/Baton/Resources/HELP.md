@@ -46,7 +46,7 @@ in [`docs/`](docs/).
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Webhook actions](#webhook-actions)
 - [Speaking summaries aloud](#speaking-summaries-aloud)
-- [Reading what was said](#reading-what-was-said)
+- [Transcripts and summaries](#transcripts-and-summaries)
 - [Letting an agent control your music](#letting-an-agent-control-your-music)
 - [The music friend](#the-music-friend)
 - [Controlling Baton from Telegram or Discord](#controlling-baton-from-telegram-or-discord)
@@ -1171,7 +1171,7 @@ won't reload it mid-task — and Baton must be running for the call to land.
 
 ---
 
-## Reading what was said
+## Transcripts and summaries
 
 Spoken audio is the one thing in a library you cannot skim. Baton can turn a podcast episode
 into a transcript with a timestamp on every line, so you can read along, find the part you
@@ -1187,10 +1187,11 @@ server switched off.
 
 ### Setting it up
 
-Transcription is off by default, because it uploads audio to a server. In
-**Settings → Speech → Transcription**, switch on **Transcribe spoken tracks** and give Baton
-the address of an OpenAI-compatible transcription endpoint, the same shape the Kokoro and
-Chatterbox hosts above use. `faster-whisper` behind its OpenAI-compatible server is the usual
+Transcription is off by default, because it uploads audio to a server. Switch on
+**Transcribe spoken tracks** and give Baton the address of an OpenAI-compatible transcription
+endpoint, the same shape the Kokoro and Chatterbox hosts above use. On the Mac that lives in
+**Settings → Speech → Transcription**; on iPhone it is **Settings → Transcription**, near the
+bottom of the list. `faster-whisper` behind its OpenAI-compatible server is the usual
 choice. The refresh button next to the field asks the host what models it has, which is the
 quickest way to find out whether the address is right before you wait on an hour of audio.
 
@@ -1205,8 +1206,10 @@ tapping it seeks there. It works by summarizing the episode ten minutes at a tim
 summarizing those summaries, which is what lets a model with a small context handle an hour of
 speech.
 
-Summarizing uses the model configured in **Settings → Remote**, the same one the music friend
-talks to. If that model is not on your own network, Baton refuses and says so: a transcript is
+**Summarize** sits under the transcript itself: at the foot of the panel on the Mac, and at the
+top of the sheet on iPhone. It uses the model configured for the music friend (**Settings →
+Remote** on the Mac, **Settings → Music Friend** on iPhone), so set one up there first or the
+button will tell you there is nothing to summarize with. If that model is not on your own network, Baton refuses and says so: a transcript is
 everything that was said in something you listened to, and that is not the kind of thing to
 send to a hosted API on the strength of a setting you made for something else. Point it at a
 model on your LAN and the question does not arise.

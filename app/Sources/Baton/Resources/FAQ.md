@@ -84,9 +84,9 @@ own Mac can't drive it without the token. See
 Yes, if you run a transcription server. Baton sends the episode's audio to a Whisper server on
 your own network and gets back a transcript with a timestamp on every line, so you can read
 along and tap any line to jump there. It can also write a summary with timestamped chapter
-marks. Both are off until you set a host in **Settings → Speech → Transcription**, and neither ever
-happens on its own. Transcribing an episode is a minute or two of work on a GPU, so Baton
-waits for you to ask. See [Reading what was said](HELP.md#reading-what-was-said).
+marks. Both are off until you set a host: **Settings → Speech → Transcription** on the Mac,
+**Settings → Transcription** on iPhone. Neither ever happens on its own. Transcribing an episode is a minute or two of work on a GPU, so Baton
+waits for you to ask. See [Transcripts and summaries](HELP.md#transcripts-and-summaries).
 
 **Where does the audio go when I transcribe something?**
 To the server you configured, and nowhere else. There is no hosted transcription service behind

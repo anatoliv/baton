@@ -70,6 +70,12 @@ struct TranscriptSheet: View {
                     if let summary = transcript.summary, !summary.isEmpty {
                         summaryBlock(summary)
                         Divider()
+                    } else {
+                        // The phone could read a transcript but never make a summary: the
+                        // block above only ever *rendered* one. Without this there was no
+                        // way to produce it at all on iOS.
+                        summarizeRow
+                        Divider()
                     }
                     ForEach(Array(transcript.segments.enumerated()), id: \.offset) { index, segment in
                         Text(segment.text)
@@ -115,6 +121,33 @@ struct TranscriptSheet: View {
         }
     }
 
+    /// Offered only when there is no summary yet. Summarizing costs several model calls, so
+    /// it waits to be asked, exactly as transcribing does.
+    @ViewBuilder
+    private var summarizeRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                Task { await summarize() }
+            } label: {
+                Label("Summarize this episode", systemImage: "text.append")
+                    .font(.callout.weight(.medium))
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!model.agentConfig.isConfigured)
+
+            Text(model.agentConfig.isConfigured
+                ? "An overview plus timestamped sections you can tap to jump to."
+                : "Set up the music friend's model in Settings first — summarizing uses it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func summarize() async {
+        await coordinator.summarize(trackID: song.id, config: model.agentConfig.naturalLanguageConfig)
+    }
+
     /// A seek is a deliberate move to a place, so following resumes: the playhead is now
     /// exactly where the reader pointed.
     private func seek(to seconds: Double) {
@@ -157,15 +190,22 @@ struct TranscriptSheet: View {
         // Off the home network is the *ordinary* case on a phone, so an unreachable host says
         // "unavailable" and offers to retry. It is not a fault and must not read as one.
         ContentUnavailableView {
-            Label(
-                failure.isUnavailable ? "Transcription unavailable" : "Transcription failed",
-                systemImage: failure.isUnavailable ? "wifi.slash" : "exclamationmark.triangle"
-            )
+            Label(title(for: failure), systemImage: symbol(for: failure))
         } description: {
             Text(failure.message)
         } actions: {
-            Button("Try again") { Task { await transcribe() } }
+            Button(failure.isEmptyOfSpeech ? "Try anyway" : "Try again") { Task { await transcribe() } }
         }
+    }
+
+    private func symbol(for failure: TranscriptStore.Failure) -> String {
+        if failure.isEmptyOfSpeech { return "waveform.slash" }
+        return failure.isUnavailable ? "wifi.slash" : "exclamationmark.triangle"
+    }
+
+    private func title(for failure: TranscriptStore.Failure) -> String {
+        if failure.isEmptyOfSpeech { return "No speech in this track" }
+        return failure.isUnavailable ? "Transcription unavailable" : "Transcription failed"
     }
 
     private var offer: some View {

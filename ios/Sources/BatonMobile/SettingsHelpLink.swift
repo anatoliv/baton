@@ -53,9 +53,11 @@ enum SettingsHelpTopic {
     static let musicFriend = "letting-an-agent-control-your-music"
     static let privacy = "privacy-and-security"
     static let gettingConnected = "getting-connected"
+    static let transcription = "transcripts-and-summaries"
 
     static let all: [String] = [
         equalizer, soundQuality, queue, scrobbling,
         downloads, musicFriend, privacy, gettingConnected,
+        transcription,
     ]
 }
