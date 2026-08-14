@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.16.17"
-    CURRENT_PROJECT_VERSION: "76"
+    MARKETING_VERSION: "0.16.18"
+    CURRENT_PROJECT_VERSION: "77"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -118,6 +118,7 @@ targets:
       # Push-to-talk, shared with the phone rather than written twice. The only
       # platform difference is the audio session, which macOS does not have.
       - path: ../Shared/VoiceInput.swift
+      - path: ../Shared/TranscriptionCoordinator.swift
       - path: ../Shared/MixBackdrop.swift
       - path: ../Shared/NowPlayingBars.swift
       - path: ../Shared/ContentStateView.swift

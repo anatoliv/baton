@@ -66,7 +66,8 @@ your password isn't sent in the clear on each request.
 **Does Baton phone home?**
 Not by default. Baton talks only to the music server you point it at, plus the scrobbling
 services (ListenBrainz and Last.fm) if you turn them on, its own update feed for checking for
-new versions, and any text-to-speech server you set up for spoken summaries. It has no catalog
+new versions, and any speech servers you set up yourself: text-to-speech for spoken summaries,
+and transcription for reading a podcast episode. Those are machines you run and point Baton at. It has no catalog
 server of its own to call. The one opt-in exception is crash reporting: if you turn on **Send
 crash & error reports** (Settings, About, Diagnostics, off by default), Baton sends crash and
 error data to its developer via Sentry to help fix bugs. It never sends your music, library,
@@ -78,6 +79,21 @@ reachable from your network, and every request must carry a secret token that Ba
 generates. Both are required: an app on another machine can't reach it, and a program on your
 own Mac can't drive it without the token. See
 [how it's secured](HELP.md#letting-an-agent-control-your-music).
+
+**Can Baton tell me what a podcast episode said?**
+Yes, if you run a transcription server. Baton sends the episode's audio to a Whisper server on
+your own network and gets back a transcript with a timestamp on every line, so you can read
+along and tap any line to jump there. It can also write a summary with timestamped chapter
+marks. Both are off until you set a host in **Settings → Speech → Transcription**, and neither ever
+happens on its own. Transcribing an episode is a minute or two of work on a GPU, so Baton
+waits for you to ask. See [Reading what was said](HELP.md#reading-what-was-said).
+
+**Where does the audio go when I transcribe something?**
+To the server you configured, and nowhere else. There is no hosted transcription service behind
+this and no default address to fall back on, so with nothing set up the feature simply isn't
+available. Summaries are stricter still: Baton refuses to send a transcript to a summarizing
+model that isn't on your own network, because a transcript is the full content of what you were
+listening to.
 
 ## Agent control
 

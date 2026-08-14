@@ -74,6 +74,7 @@ targets:
       # can't drift apart release by release.
       - path: ../Shared/MixArt.xcassets
       - path: ../Shared/VoiceInput.swift
+      - path: ../Shared/TranscriptionCoordinator.swift
       - path: ../Shared/MixBackdrop.swift
       - path: ../Shared/NowPlayingBars.swift
       - path: ../Shared/ContentStateView.swift

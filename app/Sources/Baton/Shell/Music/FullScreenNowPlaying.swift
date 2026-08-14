@@ -32,7 +32,9 @@ struct FullScreenNowPlaying: View {
     /// Real waveform for the scrubber — only available for downloaded tracks.
     @State private var waveform: [Float]?
 
-    enum SidePanel: String, CaseIterable { case queue = "Up Next", lyrics = "Lyrics", related = "Related" }
+    enum SidePanel: String, CaseIterable {
+        case queue = "Up Next", lyrics = "Lyrics", transcript = "Transcript", related = "Related"
+    }
 
     private var player: StreamingPlaybackController {
         model.music
@@ -423,6 +425,12 @@ struct FullScreenNowPlaying: View {
                 case .lyrics:
                     if let song = player.nowPlaying {
                         MusicLyricsView(song: song)
+                    } else {
+                        nothingPlaying
+                    }
+                case .transcript:
+                    if let song = player.nowPlaying {
+                        MusicTranscriptView(song: song)
                     } else {
                         nothingPlaying
                     }

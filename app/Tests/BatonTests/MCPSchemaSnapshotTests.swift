@@ -54,6 +54,9 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         // The outward-facing twin of `music_similar_songs`: same question, asked of the
         // public catalogues instead of the library.
         "music_discover_external",
+        // Spoken content: what was said, and where. Both windowed — an hour of speech
+        // would otherwise spend most of an agent's context on one episode.
+        "music_transcript", "music_summarize_track",
     ]
 
     func testPublishedToolNamesExactlyMatchTheSnapshot() {
