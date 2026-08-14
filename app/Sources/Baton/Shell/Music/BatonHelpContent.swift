@@ -295,10 +295,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
-            version: "0.16.19",
+            version: "0.16.20",
             date: "August 2026",
-            highlight: "Summaries work on iPhone too, and the transcript guide is findable by its own name.",
+            highlight: "A song no longer transcribes to a wrong sentence, summaries work on iPhone, and the transcript guide is findable by its own name.",
             changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Transcribing a song used to produce nonsense. Speech recognition does not "
+                    + "go quiet over music, it invents: one track came back as the word Yeah "
+                    + "repeated down the whole panel. Baton now asks the recogniser to skip "
+                    + "everything that is not speech, and refuses to show a result that covers "
+                    + "almost none of the track \u{2014} Riders on the Storm produced a single "
+                    + "1.7-second fragment of a seven-minute song, reading as a garbled line of "
+                    + "the lyric. It says there is no speech in the track instead, and points "
+                    + "you at the Lyrics panel, which is what you wanted for a song."),
                 HelpWhatsNewChange(.added,
                     "iPhone can summarize an episode now. The sheet could show a summary but "
                     + "gave you no way to make one, so on the phone it was a feature you could "

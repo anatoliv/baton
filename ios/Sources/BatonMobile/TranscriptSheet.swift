@@ -192,7 +192,7 @@ struct TranscriptSheet: View {
         ContentUnavailableView {
             Label(title(for: failure), systemImage: symbol(for: failure))
         } description: {
-            Text(failure.message)
+            Text(detail(for: failure))
         } actions: {
             Button(failure.isEmptyOfSpeech ? "Try anyway" : "Try again") { Task { await transcribe() } }
         }
@@ -206,6 +206,16 @@ struct TranscriptSheet: View {
     private func title(for failure: TranscriptStore.Failure) -> String {
         if failure.isEmptyOfSpeech { return "No speech in this track" }
         return failure.isUnavailable ? "Transcription unavailable" : "Transcription failed"
+    }
+
+    /// A song with no speech in it is not a dead end — the words are lyrics, and there is a
+    /// sheet for those.
+    private func detail(for failure: TranscriptStore.Failure) -> String {
+        guard failure.isEmptyOfSpeech, !TranscriptionCoordinator.isOfferedAutomatically(for: song) else {
+            return failure.message
+        }
+        return failure.message + " Songs are sung rather than spoken, so a recogniser finds "
+            + "little to work with — try Lyrics instead."
     }
 
     private var offer: some View {

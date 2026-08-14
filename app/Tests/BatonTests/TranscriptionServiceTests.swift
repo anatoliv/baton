@@ -310,6 +310,53 @@ final class TranscriptionServiceTests: XCTestCase {
         XCTAssertTrue(text.contains("name=\"vad_filter\"\r\n\r\ntrue"))
     }
 
+    // MARK: - Too little of the track to be a transcript of it
+
+    /// The real artifact from "Riders on the Storm", read off disk: one segment of 1.7 s out
+    /// of 7:15, reading "Do this as we're born" — a mangled line of the lyric. VAD did its
+    /// job on the instrumental; what survived is a fragment, and showing it claims the track
+    /// said one wrong sentence and nothing else.
+    func testAFragmentOfASongIsNotATranscriptOfIt() {
+        let segments = [Transcript.Segment(start: 55.6, end: 57.3, text: "Do this as we're born.")]
+        XCTAssertTrue(TranscriptionService.isTooSparse(segments, duration: 434.73))
+    }
+
+    func testTheSparsenessGuardSurfacesAsNoSpeech() {
+        let data = Data(#"""
+        {"language":"en","duration":434.73,
+         "segments":[{"start":55.6,"end":57.3,"text":" Do this as we're born."}]}
+        """#.utf8)
+        XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "x", fallbackModel: "m")) { error in
+            XCTAssertEqual((error as? TranscriptionService.TranscribeError)?.isEmptyOfSpeech, true)
+        }
+    }
+
+    /// Spoken word covers most of its running time, so the guard must not touch it. A 48-minute
+    /// episode with 40 minutes of speech is 83% covered.
+    func testAnOrdinaryEpisodeIsNeverJudgedTooSparse() {
+        let segments = (0 ..< 400).map { i in
+            Transcript.Segment(start: Double(i) * 7.2, end: Double(i) * 7.2 + 6.0, text: "talking")
+        }
+        XCTAssertFalse(TranscriptionService.isTooSparse(segments, duration: 2880))
+    }
+
+    /// Even an interview full of pauses stays far above a tenth.
+    func testASparseButRealConversationSurvives() {
+        // 20 minutes, speech in half of it.
+        let segments = (0 ..< 60).map { i in
+            Transcript.Segment(start: Double(i) * 20, end: Double(i) * 20 + 10, text: "a real answer")
+        }
+        XCTAssertFalse(TranscriptionService.isTooSparse(segments, duration: 1200))
+    }
+
+    func testShortClipsAreNotJudgedOnARatio() {
+        let segments = [Transcript.Segment(start: 0, end: 1, text: "hi")]
+        XCTAssertFalse(TranscriptionService.isTooSparse(segments, duration: 45),
+                       "under a minute there is not enough to conclude anything")
+        XCTAssertFalse(TranscriptionService.isTooSparse(segments, duration: nil),
+                       "no duration, no ratio")
+    }
+
     // MARK: - Model list shapes
 
     func testReadsBothModelListShapes() {
