@@ -69,22 +69,43 @@ struct MusicLyricsView: View {
 
 /// The lyric lines themselves — eager `VStack` (renderable in snapshots) with the
 /// current synced line highlighted karaoke-style.
+///
+/// Shared with the transcript pane, which is the same shape of timed text. `onSelectLine` is
+/// what the transcript adds: tapping a line seeks to it. Lyrics pass nil, because a lyric line
+/// carries the server's idea of a timing rather than a measured one, and seeking to it would
+/// be a guess dressed up as a control.
 struct MusicLyricLines: View {
     let lyrics: NavidromeLyrics
     let currentLine: Int?
+    var onSelectLine: ((Int) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
-                Text(line.text.isEmpty ? " " : line.text)
-                    .font(.title3.weight(index == currentLine ? .bold : .regular))
-                    .foregroundStyle(color(index))
-                    .id(index)
-                    .animation(.easeInOut(duration: 0.25), value: currentLine)
+            ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, item in
+                lineView(index, item)
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func lineView(_ index: Int, _ item: NavidromeLyrics.Line) -> some View {
+        let text = Text(item.text.isEmpty ? " " : item.text)
+            .font(.title3.weight(index == currentLine ? .bold : .regular))
+            .foregroundStyle(color(index))
+        if let onSelectLine {
+            Button { onSelectLine(index) } label: {
+                text.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .id(index)
+            .animation(.easeInOut(duration: 0.25), value: currentLine)
+        } else {
+            text
+                .id(index)
+                .animation(.easeInOut(duration: 0.25), value: currentLine)
+        }
     }
 
     private func color(_ index: Int) -> Color {

@@ -46,6 +46,7 @@ in [`docs/`](docs/).
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Webhook actions](#webhook-actions)
 - [Speaking summaries aloud](#speaking-summaries-aloud)
+- [Reading what was said](#reading-what-was-said)
 - [Letting an agent control your music](#letting-an-agent-control-your-music)
 - [The music friend](#the-music-friend)
 - [Controlling Baton from Telegram or Discord](#controlling-baton-from-telegram-or-discord)
@@ -1170,6 +1171,64 @@ won't reload it mid-task — and Baton must be running for the call to land.
 
 ---
 
+## Reading what was said
+
+Spoken audio is the one thing in a library you cannot skim. Baton can turn a podcast episode
+into a transcript with a timestamp on every line, so you can read along, find the part you
+half remember, and jump straight to it.
+
+Open the full-screen player and pick the **Transcript** panel (on iPhone, the
+`text.viewfinder` button under the artwork). Press **Transcribe** and Baton sends the episode's
+audio to a Whisper server you run, then keeps what comes back. The current line highlights and
+scrolls as the episode plays, exactly as synced lyrics do, and tapping any line seeks to it.
+
+Once a transcript exists it lives on disk, so opening it later costs nothing and works with the
+server switched off.
+
+### Setting it up
+
+Transcription is off by default, because it uploads audio to a server. In
+**Settings → Speech → Transcription**, switch on **Transcribe spoken tracks** and give Baton
+the address of an OpenAI-compatible transcription endpoint, the same shape the Kokoro and
+Chatterbox hosts above use. `faster-whisper` behind its OpenAI-compatible server is the usual
+choice. The refresh button next to the field asks the host what models it has, which is the
+quickest way to find out whether the address is right before you wait on an hour of audio.
+
+If you run more than one model, put its id in **Model**. Leave it alone and Baton asks for
+`whisper-1`, which is what most of these servers answer to.
+
+### Summaries and chapter marks
+
+**Summarize** turns a transcript into a short overview plus a list of timestamped sections.
+The sections are the useful half: each one names what that stretch of the episode is about, and
+tapping it seeks there. It works by summarizing the episode ten minutes at a time and then
+summarizing those summaries, which is what lets a model with a small context handle an hour of
+speech.
+
+Summarizing uses the model configured in **Settings → Remote**, the same one the music friend
+talks to. If that model is not on your own network, Baton refuses and says so: a transcript is
+everything that was said in something you listened to, and that is not the kind of thing to
+send to a hosted API on the strength of a setting you made for something else. Point it at a
+model on your LAN and the question does not arise.
+
+### What it does not do
+
+Baton never transcribes on its own. There is no background pass over your library and no
+transcription when you subscribe to a feed. One episode is a minute or two of work on a GPU,
+so a library of them would be hours. The button is offered for podcast episodes; music keeps
+its lyrics, which come from your server or LRCLIB and cost nothing.
+
+If the transcription server cannot be reached, the panel says **unavailable** rather than
+showing an error. Away from home that is simply the normal state of affairs, and a phone on
+cellular should not be told something is broken when it isn't.
+
+Agents get at all of this too. `music_transcript` reads a window of the transcript and
+`music_summarize_track` reads the summary, so you can ask your assistant what an episode said
+about something without playing it back yourself. Both take a start and end time, so an agent
+reads the part it needs instead of the whole hour.
+
+---
+
 ## Letting an agent control your music
 
 This is the part that makes Baton different from every other Subsonic player: software can
@@ -1265,7 +1324,7 @@ background even with every window closed.
 
 ### What an agent can do
 
-The control server exposes **38 music operations**. They're the same actions Baton's own
+The control server exposes **40 music operations**. They're the same actions Baton's own
 interface uses, so anything an agent does is something you could have done by hand. Here's the
 full catalog.
 

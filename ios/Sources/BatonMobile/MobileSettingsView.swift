@@ -73,6 +73,30 @@ struct MobileSettingsView: View {
         return on.isEmpty ? "Server only" : on.joined(separator: ", ")
     }
 
+    /// The phone half of the transcription setting. Without it the feature could never be
+    /// switched on here, since the host lives in `UserDefaults` and there is nothing else on
+    /// iOS that writes it.
+    @ViewBuilder
+    private var transcriptionSection: some View {
+        Section("Transcription") {
+            Toggle("Transcribe spoken tracks", isOn: Binding(
+                get: { SpeechConfig.transcriptionEnabled },
+                set: { SpeechConfig.transcriptionEnabled = $0 }
+            ))
+            LabeledContent("Whisper host") {
+                TextField("http://host:port", text: Binding(
+                    get: { SpeechConfig.whisperBaseURL },
+                    set: { SpeechConfig.whisperBaseURL = $0.trimmingCharacters(in: .whitespaces) }
+                ))
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            }
+            Text("Reads a podcast episode aloud back to you as text, with every line tappable to seek. The audio is uploaded to this server, so it stays off until you set one.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -284,6 +308,8 @@ struct MobileSettingsView: View {
                     EngineCPUCostRow(model: model)
                 }
                 }
+
+                transcriptionSection
 
                 Section {
                     Toggle("Gapless playback", isOn: Binding(

@@ -18,6 +18,11 @@ struct BatonSpeechPane: View {
     @State private var alertNotification = SpeechConfig.alertWithNotification
     @State private var alertBanner = SpeechConfig.alertWithBanner
     @State private var allowAutoPlay = SpeechConfig.allowAutoPlay
+    @State private var transcriptionEnabled = SpeechConfig.transcriptionEnabled
+    @State private var whisperHost = SpeechConfig.whisperBaseURL
+    @State private var whisperModel = SpeechConfig.whisperModel
+    @State private var whisperStatus: String?
+    @State private var whisperTesting = false
 
     /// The map rendered as ordered, editable rows (a `[String: String]` dict has no order).
     @State private var rows: [VoiceRow] = []
@@ -41,6 +46,7 @@ struct BatonSpeechPane: View {
     var body: some View {
         Form {
             hostsSection
+            transcriptionSection
             deliverySection
             mapSection
             resetSection
@@ -141,6 +147,64 @@ struct BatonSpeechPane: View {
                 .onChange(of: fallbackEnabled) { _, on in SpeechConfig.fallbackEnabled = on }
             Text("If a server is unreachable, speak the summary with the built-in macOS voice (`AVSpeechSynthesizer`) so it's never silently dropped.")
                 .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The ASR host, kept apart from the TTS hosts above rather than squeezed into their row:
+    /// those carry voice loading and an engine enum that means nothing here, and transcription
+    /// has its own switch because it ships audio off the device rather than fetching some back.
+    private var transcriptionSection: some View {
+        Section("Transcription") {
+            Toggle("Transcribe spoken tracks", isOn: $transcriptionEnabled)
+                .onChange(of: transcriptionEnabled) { _, on in SpeechConfig.transcriptionEnabled = on }
+            Text("Send a podcast episode to a self-hosted Whisper and read what was said, with every line seekable. Off by default: this uploads the audio to the server below.")
+                .font(.callout).foregroundStyle(.secondary)
+
+            LabeledContent("Whisper host") {
+                HStack(spacing: 8) {
+                    TextField(text: $whisperHost, prompt: Text("http://host:port")) { EmptyView() }
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 200)
+                        .onChange(of: whisperHost) { _, value in
+                            SpeechConfig.whisperBaseURL = value.trimmingCharacters(in: .whitespaces)
+                        }
+                    Button { Task { await testTranscriptionHost() } } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Test this connection")
+                    .disabled(whisperTesting)
+                }
+            }
+            LabeledContent("Model") {
+                TextField(text: $whisperModel, prompt: Text("whisper-1")) { EmptyView() }
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 200)
+                    .onChange(of: whisperModel) { _, value in
+                        SpeechConfig.whisperModel = value.trimmingCharacters(in: .whitespaces)
+                    }
+            }
+            if let whisperStatus {
+                Text(whisperStatus).font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Prove the address before anyone waits on an hour of audio to discover it was wrong.
+    private func testTranscriptionHost() async {
+        whisperTesting = true
+        defer { whisperTesting = false }
+        do {
+            let models = try await TranscriptionService.availableModels()
+            whisperStatus = models.isEmpty
+                ? "Connected, but the host listed no models."
+                : "Connected. Models: " + models.prefix(6).joined(separator: ", ")
+        } catch let error as TranscriptionService.TranscribeError {
+            whisperStatus = error.message
+        } catch {
+            whisperStatus = error.localizedDescription
         }
     }
 

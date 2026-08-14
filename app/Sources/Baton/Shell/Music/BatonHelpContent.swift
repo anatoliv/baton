@@ -295,6 +295,39 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.18",
+            date: "August 2026",
+            highlight: "Podcasts can be read as well as heard: a timed transcript, tappable to jump anywhere, and a summary with chapter marks.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "A Transcript panel in the full-screen player, and a transcript button on "
+                    + "iPhone. Send a podcast episode to a Whisper server you run and Baton "
+                    + "keeps what comes back: every line carries a timestamp, the current one "
+                    + "highlights and scrolls as the episode plays, and tapping any line jumps "
+                    + "there. An hour of talk was the one thing in a library you could not skim."),
+                HelpWhatsNewChange(.added,
+                    "Summarize writes an overview plus timestamped sections that work as "
+                    + "chapter marks, each one tappable. It summarizes the episode ten minutes "
+                    + "at a time and then summarizes those, which is what lets a model with a "
+                    + "small context handle a long episode at all."),
+                HelpWhatsNewChange(.added,
+                    "Two new agent tools, music_transcript and music_summarize_track, so you "
+                    + "can ask what an episode said about something without listening to it "
+                    + "again. Both take a start and end time, so an agent reads the part it "
+                    + "needs instead of the whole hour."),
+                HelpWhatsNewChange(.improved,
+                    "Transcription stays off until you set a host in Settings, Speech, and "
+                    + "it never runs on its own. There is no background pass over your "
+                    + "library and nothing when you subscribe to a feed. Summarizing "
+                    + "refuses a model that is not on your own network, because a "
+                    + "transcript is everything that was said in something you listened to."),
+                HelpWhatsNewChange(.improved,
+                    "When the transcription server cannot be reached, the panel says "
+                    + "unavailable rather than showing an error. On a phone away from home "
+                    + "that is the ordinary state of affairs, not a fault."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.17",
             date: "August 2026",
             highlight: "Find More Like This asks only the services you choose, and the audio engine loses a long list of bugs.",

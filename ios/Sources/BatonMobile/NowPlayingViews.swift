@@ -197,6 +197,7 @@ struct FullPlayerView: View {
     /// the 4 Hz clock updates mid-drag.
     @State private var scrubTime: TimeInterval?
     @State private var showsLyrics = false
+    @State private var showsTranscript = false
     @State private var showsRelated = false
     @State private var showsQueue = false
     @AppStorage("baton.player.showsRemaining") private var showsRemainingTime = false
@@ -333,6 +334,11 @@ struct FullPlayerView: View {
             .sheet(isPresented: $showsLyrics) {
                 if let song = model.music.nowPlaying {
                     LyricsSheet(song: song, model: model)
+                }
+            }
+            .sheet(isPresented: $showsTranscript) {
+                if let song = model.music.nowPlaying {
+                    TranscriptSheet(song: song, model: model)
                 }
             }
         }
@@ -630,6 +636,16 @@ struct FullPlayerView: View {
             }
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Lyrics")
+
+            // Only for spoken-word audio. A transcribe button on every song would invite
+            // someone to spend a GPU-hour discovering a synth record has no words in it.
+            if TranscriptionCoordinator.isOfferedAutomatically(for: song) {
+                Button { showsTranscript = true } label: {
+                    Image(systemName: "text.viewfinder").foregroundStyle(.white.opacity(0.6))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Transcript")
+            }
 
             // The Mac's player has three panels — Up Next, Lyrics, Related. The phone had
             // the first two. The similarity data was already being fetched here, but only

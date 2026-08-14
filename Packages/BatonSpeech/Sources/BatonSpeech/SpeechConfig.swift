@@ -1,9 +1,11 @@
 import Foundation
 
-/// Configuration for Baton's spoken-summary feature (the `speak_summary` MCP tool):
-/// where the TTS services live, how task categories map to voices, and how a summary is
-/// delivered. Third leaf of the  module-boundary split (after BatonDSP + BatonSubsonicModels):
-/// the TTS config + synthesis layer, extracted so it has no dependency on the app. The playback
+/// Configuration for Baton's self-hosted speech services: the TTS side (`speak_summary` — where
+/// the voices live, how task categories map to them, how a summary is delivered) and the ASR side
+/// (track transcription — where Whisper lives and whether it may be used at all).
+///
+/// Third leaf of the  module-boundary split (after BatonDSP + BatonSubsonicModels): the
+/// speech config + service layer, extracted so it has no dependency on the app. The playback
 /// engine + notifier stay in the app (they tie into MusicModel); this is the pure part.
 ///
 /// Mirrors `NavidromeConfig`'s shape — a caseless `enum` over `UserDefaults` (injectable
@@ -14,6 +16,9 @@ public enum SpeechConfig {
     // MARK: - Keys
     static let kokoroHostKey = "tonebox.speech.kokoroBaseURL"
     static let chatterboxHostKey = "tonebox.speech.chatterboxBaseURL"
+    static let whisperHostKey = "tonebox.speech.whisperBaseURL"
+    static let whisperModelKey = "tonebox.speech.whisperModel"
+    static let transcriptionEnabledKey = "tonebox.speech.transcriptionEnabled"
     static let voiceMapKey = "tonebox.speech.voiceMap"
     static let fallbackEnabledKey = "tonebox.speech.fallbackEnabled"
     static let allowAutoPlayKey = "tonebox.speech.allowAutoPlay"
@@ -56,6 +61,46 @@ public enum SpeechConfig {
         case .kokoro: return kokoroBaseURL
         case .chatterbox: return chatterboxBaseURL
         }
+    }
+
+    // MARK: - Transcription (ASR)
+
+    /// Where the self-hosted Whisper lives. Same localhost-placeholder rule as the TTS hosts:
+    /// the real LAN address is set at runtime, never committed (the publish guard blocks
+    /// `192.168.*`).
+    public static var whisperBaseURL: String {
+        get { defaults.string(forKey: whisperHostKey) ?? "http://127.0.0.1:8001" }
+        set { defaults.set(newValue, forKey: whisperHostKey) }
+    }
+
+    /// Model id sent with each transcription request. Servers differ — `faster-whisper`
+    /// deployments commonly answer to `whisper-1` for OpenAI compatibility, but a host may
+    /// expose `large-v3` directly, so this is a setting rather than a constant.
+    public static var whisperModel: String {
+        get {
+            let stored = defaults.string(forKey: whisperModelKey) ?? ""
+            return stored.isEmpty ? "whisper-1" : stored
+        }
+        set { defaults.set(newValue, forKey: whisperModelKey) }
+    }
+
+    /// Whether Baton may transcribe at all. **Off by default**, and deliberately not inferred
+    /// from "a host happens to be set": transcription ships audio off the device to a server,
+    /// which is a different promise from playing it, and the person makes that call once,
+    /// explicitly.
+    public static var transcriptionEnabled: Bool {
+        get { defaults.object(forKey: transcriptionEnabledKey) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: transcriptionEnabledKey) }
+    }
+
+    /// True when transcription is switched on *and* pointed somewhere real. The UI asks this
+    /// rather than the two flags separately, so an enabled-but-unconfigured state can't offer
+    /// a button that always fails.
+    public static var isTranscriptionConfigured: Bool {
+        guard transcriptionEnabled else { return false }
+        let host = whisperBaseURL.trimmingCharacters(in: .whitespaces)
+        guard let comps = URLComponents(string: host), comps.host != nil else { return false }
+        return true
     }
 
     /// When a self-hosted TTS host is unreachable, fall back to the built-in macOS voice
@@ -178,9 +223,12 @@ public enum SpeechConfig {
         defaults.removeObject(forKey: announceImmediatelyKey)
         defaults.removeObject(forKey: alertNotificationKey)
         defaults.removeObject(forKey: alertBannerKey)
+        defaults.removeObject(forKey: transcriptionEnabledKey)
+        defaults.removeObject(forKey: whisperModelKey)
         if includeHosts {
             defaults.removeObject(forKey: kokoroHostKey)
             defaults.removeObject(forKey: chatterboxHostKey)
+            defaults.removeObject(forKey: whisperHostKey)
         }
     }
 
