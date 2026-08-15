@@ -161,3 +161,108 @@ final class RadioTests: XCTestCase {
         XCTAssertNil(station.streamURL)
     }
 }
+
+/// The rule that a station and the library queue are one pair of speakers, not two.
+///
+/// Both halves used to be written per-app: the Mac wired the duck, the media-key routing and
+/// "a track start ends the broadcast"; the phone wired only the duck, and would play a station
+/// and a library track at the same time. `InternetRadioStore.bind(to:)` plus the transport's own
+/// `stopOnAirStation()` are now the single copy, so these tests exercise what both apps run.
+@MainActor
+final class RadioLibraryExclusionTests: XCTestCase {
+    private let suiteName = "io.tonebox.tests.radioexclusion"
+    private lazy var suite: UserDefaults = {
+        let store = UserDefaults(suiteName: suiteName)!
+        store.removePersistentDomain(forName: suiteName)
+        return store
+    }()
+
+    private func makeController() -> StreamingPlaybackController {
+        StreamingPlaybackController(
+            streamURLProvider: { _ in URL(string: "file:///dev/null")! },
+            defaults: suite,
+            systemNowPlaying: false
+        )
+    }
+
+    private func song(_ id: String) -> NavidromeSong {
+        NavidromeSong(id: id, title: "Song \(id)", artist: "Artist", album: nil, duration: nil, coverArtID: nil)
+    }
+
+    /// Never resolves — the point is the station being *on air*, not audio arriving.
+    private func station(_ id: String = "s1") -> NavidromeRadioStation {
+        NavidromeRadioStation(id: id, name: "Station \(id)", streamUrl: "https://stream.invalid/\(id).mp3")
+    }
+
+    private func bound() -> (StreamingPlaybackController, InternetRadioStore) {
+        let controller = makeController()
+        let radio = InternetRadioStore()
+        radio.bind(to: controller)
+        return (controller, radio)
+    }
+
+    func testTuningAStationSuspendsTheLibrary() {
+        let (c, radio) = bound()
+        c.play([song("a")])
+        XCTAssertEqual(c.state, .playing)
+        radio.play(station())
+        XCTAssertEqual(c.state, .paused, "the library must give the output up to the station")
+        XCTAssertNotNil(radio.onAirStation)
+    }
+
+    /// The half the phone was missing: a library track starting must end the broadcast,
+    /// not play over it.
+    func testStartingALibraryTrackTakesTheOutputBack() {
+        let (c, radio) = bound()
+        radio.play(station())
+        XCTAssertNotNil(radio.onAirStation)
+        c.play([song("a")])
+        XCTAssertNil(radio.onAirStation, "a library track start must leave the station off air")
+        XCTAssertEqual(c.state, .playing)
+    }
+
+    /// Resuming mid-track never reaches the track-start path, and the phone's mini player
+    /// (like `music_resume` over MCP) is not radio-aware — so the rule has to hold here too.
+    func testResumingTheLibraryTakesTheOutputBack() {
+        let (c, radio) = bound()
+        c.play([song("a")])
+        radio.play(station())
+        XCTAssertEqual(c.state, .paused)
+        c.resume()
+        XCTAssertNil(radio.onAirStation)
+        XCTAssertEqual(c.state, .playing)
+    }
+
+    /// A media key during a broadcast drives the *station*. Without the binding the phone
+    /// resumed the library underneath the stream — two things playing from one button.
+    func testMediaKeyPlayDrivesTheStationWhileOnAir() {
+        let (c, radio) = bound()
+        c.play([song("a")])
+        radio.play(station())
+        XCTAssertEqual(c.state, .paused)
+        c.handleRemotePlay()
+        XCTAssertNotNil(radio.onAirStation, "the play key belongs to the station while it holds the output")
+        XCTAssertEqual(c.state, .paused, "the library must not resume under the stream")
+    }
+
+    /// And a next key walks the station list rather than the queue.
+    func testMediaKeyNextWalksStationsWhileOnAir() {
+        let (c, radio) = bound()
+        c.play([song("a"), song("b")])
+        radio.orderedStations = [station("s1"), station("s2")]
+        radio.play(station("s1"))
+        c.handleRemoteNext()
+        XCTAssertEqual(radio.onAirStation?.id, "s2")
+        XCTAssertEqual(c.nowPlaying?.id, "a", "the queue must not advance while a station is on air")
+    }
+
+    /// With nothing on air the transport is untouched by any of this.
+    func testNoStationLeavesTheLibraryAlone() {
+        let (c, radio) = bound()
+        c.play([song("a")])
+        c.pause()
+        XCTAssertNil(radio.onAirStation)
+        c.handleRemotePlay()
+        XCTAssertEqual(c.state, .playing)
+    }
+}

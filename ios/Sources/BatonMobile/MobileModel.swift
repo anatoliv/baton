@@ -305,8 +305,11 @@ final class MobileModel {
             return radioBans.filtered(await musicLibrary.similarSongs(seedID: song.id))
         }
 
-        // A station ducks the library player rather than fighting it for the output.
-        radio.duckController = controller
+        // A station ducks the library player rather than fighting it for the output — and
+        // gives that output back the moment a library track starts. Both halves live in
+        // `bind(to:)`, because the phone used to wire only the first one and would play a
+        // station and a track at the same time.
+        radio.bind(to: controller)
         pins.loadIfNeeded()
     }
 

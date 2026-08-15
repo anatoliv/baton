@@ -26,7 +26,9 @@ extension StreamingPlaybackController {
                 self?.pause()
                 self?.fadeMultiplier = 1
                 self?.applyVolume()
-                self?.onSleepFire?() // also stop internet radio (separate engine)
+                // A sleep timer means "stop the music", and a station on the air is the
+                // music — the library pause can't reach its engine.
+                self?.stopOnAirStation()
             }
             self.sleepTimerEndsAt = nil
         }

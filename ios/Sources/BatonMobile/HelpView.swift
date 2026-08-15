@@ -234,6 +234,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.47",
+            date: "August 2026",
+            highlight: "A station and a track can no longer play at the same time.",
+            changes: [
+                .init(.fixed, "Tuning an internet-radio station stopped the music, but starting a track did not stop the station \u{2014} tap a song while one was on the air, or press play on the lock screen, and you heard both at once. A library track now takes the output back, as it always has on the Mac."),
+                .init(.improved, "The play and next keys on your headphones, lock screen and car drive the station while it holds the output, instead of resuming the queue underneath it. A sleep timer takes the station off the air along with the music."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.46",
             date: "August 2026",
             highlight: "Lyrics stop showing the file's own header, and the phone can pick its transcription model.",
