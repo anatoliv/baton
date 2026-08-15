@@ -1,4 +1,5 @@
 import XCTest
+import BatonPlaybackKit
 import BatonSubsonicKit
 @testable import Baton
 
@@ -126,5 +127,29 @@ final class SettingsTransferTests: XCTestCase {
         let asString = String(data: export.data, encoding: .utf8) ?? ""
         XCTAssertFalse(asString.contains("do-not-export"), "a preferences-only export must never contain a Keychain secret")
         XCTAssertEqual(export.secretCount, 0)
+    }
+
+    /// The two external-discovery API keys must travel with an accounts export.
+    ///
+    /// They were absent from `fixedSecretAccounts` while the *decision* to use those sources
+    /// synced happily through `PreferenceSync`, so a paired device arrived with Last.fm and
+    /// YouTube switched on and no credential to call them with — a source that reads as
+    /// enabled and silently answers nothing. Pin both directions: they export, and they are
+    /// importable (the import allow-list is derived from the same set, so a key that exports
+    /// but is refused on the way in would be worse than not carrying it).
+    func testDiscoveryAPIKeysTravelWithAnAccountsExport() throws {
+        NavidromeConfig.defaults = suite
+        NavidromeKeychain.setSecret("lastfm-discovery-key", account: ExternalDiscovery.lastFMKeyKey)
+        NavidromeKeychain.setSecret("youtube-discovery-key", account: ExternalDiscovery.youTubeKeyKey)
+
+        let export = try SettingsTransfer.makeExport(includeSecrets: true, passphrase: "pw", defaults: suite)
+        XCTAssertEqual(export.secretCount, 2)
+
+        NavidromeKeychain.inMemoryStore = [:]
+        let result = try SettingsTransfer.applyImport(export.data, passphrase: "pw", defaults: freshSuite())
+
+        XCTAssertEqual(NavidromeKeychain.secret(account: ExternalDiscovery.lastFMKeyKey), "lastfm-discovery-key")
+        XCTAssertEqual(NavidromeKeychain.secret(account: ExternalDiscovery.youTubeKeyKey), "youtube-discovery-key")
+        XCTAssertEqual(result.secretCount, 2)
     }
 }

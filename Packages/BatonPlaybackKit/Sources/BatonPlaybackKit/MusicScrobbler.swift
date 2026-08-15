@@ -77,6 +77,56 @@ public final class MusicScrobbler: ScrobbleDestination {
         return listen
     }
 
+    // MARK: - Is this token real?
+
+    /// What ListenBrainz says about the token currently in the field.
+    public enum TokenCheck: Equatable, Sendable {
+        case missing
+        case valid(user: String)
+        /// It answered and said no. A typo in the token lands here, not in `failed`.
+        case rejected
+        case failed(String)
+    }
+
+    /// Ask ListenBrainz whether the token works, rather than assuming it because it is
+    /// non-empty. Settings used to show a green "Scrobbling to ListenBrainz" for any string
+    /// at all, so a mistyped token looked exactly like a working one and the first sign of
+    /// trouble was listens never appearing on a profile nobody thinks to check.
+    ///
+    /// `validate-token` is the endpoint made for this: one GET, no listen submitted.
+    public func checkToken() async -> TokenCheck {
+        let token = token.trimmingCharacters(in: .whitespaces)
+        guard !token.isEmpty else { return .missing }
+
+        var request = URLRequest(url: Self.validateEndpoint)
+        request.setValue("Token \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 15
+        do {
+            let (data, response) = try await session.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // 401 is the documented refusal, but the service has also answered 200 with
+            // `valid: false`, so the body decides whenever it parses.
+            if let parsed = Self.readValidation(data) { return parsed }
+            if status == 401 || status == 403 { return .rejected }
+            return .failed("ListenBrainz answered with HTTP \(status).")
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    @ObservationIgnored static let validateEndpoint = URL(string: "https://api.listenbrainz.org/1/validate-token")!
+
+    /// The `validate-token` body, read the way the service actually answers it. Pure, so the
+    /// shape is testable without a live account. Returns nil when the body says nothing
+    /// useful, leaving the HTTP status to decide.
+    nonisolated static func readValidation(_ data: Data) -> TokenCheck? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard let valid = root["valid"] as? Bool else { return nil }
+        guard valid else { return .rejected }
+        let user = (root["user_name"] as? String) ?? ""
+        return .valid(user: user)
+    }
+
     private func post(listenType: String, scrobbles: [Scrobble]) async throws {
         let token = token.trimmingCharacters(in: .whitespaces)
         guard !token.isEmpty else { return }

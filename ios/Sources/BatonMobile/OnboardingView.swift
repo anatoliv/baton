@@ -269,7 +269,7 @@ struct OnboardingView: View {
             connect()
         } catch {
             isCheckingDemoServer = false
-            demoServerUnavailable = ServerStatus.describe(error)
+            demoServerUnavailable = ServiceStatus.describe(error)
         }
     }
 

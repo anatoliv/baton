@@ -143,6 +143,11 @@ private struct BatonServersPane: View {
     @State private var editing: EditTarget?
     @State private var pendingDelete: NavidromeServerEntry?
 
+    /// Whether each server is actually answering. Keyed by id rather than kept on the entry,
+    /// because it is not a property of the saved server — it is the result of a request that
+    /// just happened, and it goes stale the moment anything changes.
+    @State private var statuses: [UUID: ServiceStatus] = [:]
+
     /// Which server the edit sheet is editing — `.new` to add, `.existing` to edit.
     private enum EditTarget: Identifiable {
         case new
@@ -179,7 +184,13 @@ private struct BatonServersPane: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { reload() }
+        .onAppear {
+            reload()
+            // The list used to show an address, a username and a checkmark that meant
+            // "active" — nothing on the screen said whether any of it worked. That is the
+            // question people open this pane with, so it is asked without being asked for.
+            checkAll()
+        }
         .sheet(item: $editing) { target in
             switch target {
             case .new:
@@ -217,10 +228,12 @@ private struct BatonServersPane: View {
                 Text(subtitle(for: server)).font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
+            ServiceStatusBadge(status: statuses[server.id] ?? .unknown)
             Menu {
                 if !isActive {
                     Button("Make Active") { switchTo(server) }
                 }
+                Button("Check Connection") { Task { await check(server) } }
                 Button("Edit…") { editing = .existing(server) }
                 Divider()
                 Button("Remove…", role: .destructive) { pendingDelete = server }
@@ -239,8 +252,15 @@ private struct BatonServersPane: View {
 
     private func subtitle(for server: NavidromeServerEntry) -> String {
         let host = URL(string: server.urlString)?.host ?? server.urlString
-        if server.authMode == .apiKey { return host }
-        return server.username.isEmpty ? host : "\(server.username) · \(host)"
+        let who = server.authMode == .apiKey || server.username.isEmpty
+            ? host
+            : "\(server.username) · \(host)"
+        // A refusal and an unreachable host need different things from you, and a tooltip is
+        // not where someone will find that out. `.ok` says nothing extra: the tick said it.
+        switch statuses[server.id] {
+        case let .refused(why), let .unreachable(why): return "\(who) — \(why)"
+        default: return who
+        }
     }
 
     // MARK: Actions
@@ -248,6 +268,29 @@ private struct BatonServersPane: View {
     private func reload() {
         servers = NavidromeConfig.servers()
         activeID = NavidromeConfig.activeServerID()
+    }
+
+    /// One request per saved server, run together rather than in turn: a host that is down
+    /// takes the full timeout, and three of those in sequence is most of a minute of a pane
+    /// that looks stuck.
+    private func checkAll() {
+        for server in servers { Task { await check(server) } }
+    }
+
+    private func check(_ server: NavidromeServerEntry) async {
+        statuses[server.id] = .checking
+        let secret = NavidromeKeychain.secret(account: NavidromeConfig.keychainAccount(for: server.id)) ?? ""
+        statuses[server.id] = await ServiceStatus.probing {
+            let info = try await NavidromeConfig.verify(
+                urlString: server.urlString,
+                username: server.username,
+                secret: secret,
+                authMode: server.authMode
+            )
+            // Only claimed when the server actually advertised extensions, since that is the
+            // one thing the ping proves beyond "it answered".
+            return .ok(detail: info.extensions.isEmpty ? nil : "OpenSubsonic extensions available")
+        }
     }
 
     private func switchTo(_ server: NavidromeServerEntry) {
@@ -781,6 +824,14 @@ private struct BatonPlaybackPane: View {
     @State private var discoveryTests: [ExternalDiscovery.Source: ExternalDiscovery.TestResult] = [:]
     @State private var discoveryTesting: Set<ExternalDiscovery.Source> = []
 
+    /// Whether ListenBrainz accepts the token that is in the field. Checked, never inferred:
+    /// this pane used to show nothing at all, and the phone showed a green tick for any
+    /// non-empty string, so a mistyped token was indistinguishable from a working one until
+    /// someone thought to look at a profile page with no listens on it.
+    @State private var listenBrainzStatus: ServiceStatus = .unknown
+    /// And whether Last.fm still accepts the session Baton is holding. See `checkLastFM`.
+    @State private var lastFMStatus: ServiceStatus = .unknown
+
     /// Fixed width for the trailing value labels on the Sound sliders, so Pre-amp and
     /// Crossfade line up identically down the right edge.
     private let sliderValueWidth: CGFloat = 52
@@ -807,6 +858,9 @@ private struct BatonPlaybackPane: View {
             gaplessCacheBytes = player.gaplessCacheSizeBytes
             lastFMDiscoveryKey = ExternalDiscovery.key(for: .lastFM)
             youTubeDiscoveryKey = ExternalDiscovery.key(for: .youTube)
+            // Both are read-only calls with no listen submitted, so they can run on appear.
+            Task { await checkListenBrainz() }
+            Task { await checkLastFM() }
         }
         .confirmationDialog("Reset Playback settings to defaults?", isPresented: $showResetConfirm) {
             Button("Reset to Defaults", role: .destructive) { resetPlayback() }
@@ -1074,6 +1128,25 @@ private struct BatonPlaybackPane: View {
                 set: { model.musicScrobbler.token = $0 }
             ), prompt: Text("Paste your token to enable"))
                 .textFieldStyle(.roundedBorder)
+                // A tick belongs to the token that was checked, not to the field.
+                .onChange(of: model.musicScrobbler.token) { listenBrainzStatus = .unknown }
+                .onSubmit { Task { await checkListenBrainz() } }
+            LabeledContent("Connection") {
+                HStack(spacing: 10) {
+                    Button(listenBrainzStatus.isChecking ? "Checking…" : "Test") {
+                        Task { await checkListenBrainz() }
+                    }
+                    .disabled(listenBrainzStatus.isChecking)
+                    Label(listenBrainzStatus.label, systemImage: listenBrainzStatus.symbol)
+                        .foregroundStyle(listenBrainzStatus.tint)
+                        .labelStyle(.titleAndIcon)
+                        .font(.callout)
+                }
+            }
+            if let detail = listenBrainzStatus.detail {
+                Text(detail).font(.callout).foregroundStyle(listenBrainzStatus.tint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Text("Submits your listens to **ListenBrainz** (open, MusicBrainz-backed) once a track plays past halfway. Get a token from your [ListenBrainz profile](https://listenbrainz.org/profile/). This is on top of the play counts Baton already sends your Navidrome server. Leave blank to keep scrobbling local-only.")
                 .font(.callout).foregroundStyle(.secondary)
 
@@ -1159,6 +1232,37 @@ private struct BatonPlaybackPane: View {
         }
     }
 
+    /// Ask ListenBrainz whether the token works. The states are told apart because they need
+    /// different things: a refusal is a token to re-copy, a failure is a network to look at.
+    private func checkListenBrainz() async {
+        listenBrainzStatus = .checking
+        switch await model.musicScrobbler.checkToken() {
+        case .missing:
+            listenBrainzStatus = .notConfigured("No token yet")
+        case let .valid(user):
+            listenBrainzStatus = .ok(detail: user.isEmpty ? nil : "Scrobbling as \(user).")
+        case .rejected:
+            listenBrainzStatus = .refused("ListenBrainz didn't accept this token. Copy it again from your profile.")
+        case let .failed(why):
+            listenBrainzStatus = .unreachable(why)
+        }
+    }
+
+    /// Whether Last.fm still accepts the stored session. Read-only: `user.getInfo`, not a listen.
+    private func checkLastFM() async {
+        lastFMStatus = .checking
+        switch await model.musicLastFM.checkSession() {
+        case .missing:
+            lastFMStatus = .notConfigured("Not connected")
+        case let .valid(user):
+            lastFMStatus = .ok(detail: user.isEmpty ? nil : "Scrobbling as \(user).")
+        case .rejected:
+            lastFMStatus = .refused("Last.fm no longer accepts this session. Authorize it again.")
+        case let .failed(why):
+            lastFMStatus = .unreachable(why)
+        }
+    }
+
     /// Chooses who delivers Last.fm / ListenBrainz scrobbles, so plays aren't counted twice when
     /// the server already scrobbles them.
     @ViewBuilder private var scrobbleSourceControls: some View {
@@ -1178,9 +1282,25 @@ private struct BatonPlaybackPane: View {
         let lastfm = model.musicLastFM
         if lastfm.isConnected {
             HStack {
-                Label("Last.fm connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                // Not `isConnected` on its own: that only says a session key exists, which is
+                // a fact about the past. A session revoked from Last.fm's own settings leaves
+                // it in place while every scrobble is refused.
+                Label(lastFMStatus.label, systemImage: lastFMStatus.symbol)
+                    .foregroundStyle(lastFMStatus.tint)
+                Button {
+                    Task { await checkLastFM() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Check this connection")
+                .disabled(lastFMStatus.isChecking)
                 Spacer()
                 Button("Disconnect", role: .destructive) { lastfm.disconnect() }
+            }
+            if let detail = lastFMStatus.detail {
+                Text(detail).font(.callout).foregroundStyle(lastFMStatus.tint)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         } else {
             TextField("Last.fm API key", text: Binding(get: { lastfm.apiKey }, set: { lastfm.apiKey = $0 }))

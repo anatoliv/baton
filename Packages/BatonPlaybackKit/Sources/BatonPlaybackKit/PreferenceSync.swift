@@ -290,6 +290,39 @@ public final class PreferenceSync {
         return (try? JSONDecoder().decode([String: Entry].self, from: data)) ?? [:]
     }
 
+    // MARK: - Is the gateway there?
+
+    public enum GatewayCheck: Equatable, Sendable {
+        case ok(entries: Int)
+        /// It answered and refused the token.
+        case rejected
+        case failed(String)
+    }
+
+    /// Whether the gateway is reachable and accepts this token, asked without syncing
+    /// anything. A `GET` on the same route `fetch` uses, so a pass means the next real sync
+    /// will work rather than only that something answered on that port.
+    ///
+    /// Settings could only find this out by pressing **Sync now**, which is a write — so the
+    /// one way to check the address was to use it, and "Couldn't reach the gateway" arrived
+    /// after a round trip that may have pushed half a state.
+    public func check(gatewayURL: URL, token: String) async -> GatewayCheck {
+        var request = URLRequest(url: gatewayURL.appendingPathComponent("v1/state"))
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 15
+        do {
+            let (data, response) = try await session.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401 || status == 403 { return .rejected }
+            guard status == 200 else { return .failed("The gateway answered with HTTP \(status).") }
+            // `{}` is the correct answer from a gateway nobody has synced to yet.
+            let entries = (try? JSONDecoder().decode([String: Entry].self, from: data))?.count ?? 0
+            return .ok(entries: entries)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
     private func push(_ state: [String: Entry], gatewayURL: URL, token: String) async throws {
         var request = URLRequest(url: gatewayURL.appendingPathComponent("v1/state"))
         request.httpMethod = "PUT"

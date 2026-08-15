@@ -87,6 +87,9 @@ targets:
       - path: ../Shared/ArtworkCache.swift
       - path: ../Shared/BottomChrome.swift
       - path: ../Shared/MixCardSpec.swift
+      # One vocabulary for "is this service actually answering", so a green light means the
+      # same thing on both apps and on every screen that shows one.
+      - path: ../Shared/ServiceStatus.swift
       # Opt-in crash reporting and the visual design system (brand colour, WCAG contrast
       # math, artwork-palette extractor), shared verbatim. They used to be compiled out of
       # the *Mac* tree, so nothing about their location said "both apps read this".

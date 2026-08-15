@@ -14,7 +14,8 @@ private let settingsTransferLog = Logger(subsystem: "io.tonebox.baton", category
 ///   speech hosts + voice map, webhooks, the server *list*: names/URLs/usernames). No
 ///   secrets. Written as plain JSON, safe to store or email.
 /// - **With accounts** — the above plus every secret from the Keychain (each server's
-///   password/API key, Last.fm secret + session, ListenBrainz token). The whole file is
+///   password/API key, Last.fm secret + session, ListenBrainz token, the external-discovery
+///   keys for Last.fm and YouTube). The whole file is
 ///   then AES-GCM encrypted under a key derived from a user passphrase (PBKDF2-HMAC-SHA256),
 ///   so the secrets never sit in plaintext.
 ///
@@ -65,6 +66,14 @@ public enum SettingsTransfer {
         // shared-settings store it was just configured for — without it the transfer hands
         // over a gateway URL the receiving device has no way to authenticate to.
         "baton.agent.gatewayToken",
+        // The two external-discovery keys, for the same reason as the gateway token: the
+        // transfer already carries the *decision* to use Last.fm and YouTube as sources
+        // (`PreferenceSync` syncs the per-source switches), and carrying a switched-on
+        // source whose credential stays behind hands the receiving device a setting it
+        // cannot act on. They are secrets, so they travel here — in the encrypted,
+        // passphrase-gated half — rather than in the synced preferences blob.
+        ExternalDiscovery.lastFMKeyKey,
+        ExternalDiscovery.youTubeKeyKey,
         NavidromeKeychain.account,                      // legacy single-server "tonebox.navidromeSecret"
     ]
 

@@ -118,6 +118,25 @@ public final class TranscriptStore {
             indexStore.save(index)
             return nil
         }
+        // A stored transcript was written by whatever pipeline existed that day, and the
+        // rules for what counts as a transcript have since got stricter. Judge it on the way
+        // out, not only on the way in: the artifact that prompted this — one 1.7-second
+        // fragment of a seven-minute song — went on being served to the pane and to agents
+        // over MCP for as long as it sat on disk, because the guard that would have refused
+        // it only ever ran at parse time. Dropping it is safe; it can be made again.
+        guard !loaded.looksLikeNothingWasSaid else {
+            transcriptLog.info("dropped a stored transcript that today's rules reject")
+            // Drop the index entry and leave the file, exactly as the unreadable-file branch
+            // above does — and for a stronger reason here. This is the only copy of something
+            // that cost a GPU pass, and "today's rules reject it" is not the same claim as
+            // "it is worthless"; a long recording that really is mostly silence would read
+            // the same way. Re-transcribing writes back over the same hashed name, so nothing
+            // is destroyed to stop it being served.
+            index[trackID] = nil
+            transcribedIDs.remove(trackID)
+            indexStore.save(index)
+            return nil
+        }
         cache[trackID] = loaded
         return loaded
     }

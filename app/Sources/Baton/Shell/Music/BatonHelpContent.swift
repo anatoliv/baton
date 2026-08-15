@@ -295,6 +295,41 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.21",
+            date: "August 2026",
+            highlight: "Every service you can configure now tells you whether it is actually answering, and a song transcribes to its lyric again.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Settings now says whether each service is actually answering. The music "
+                    + "server, both speech hosts, the transcription host, ListenBrainz, "
+                    + "Last.fm and the shared-settings gateway are all checked when you open "
+                    + "the screen, and again whenever you ask. A green light always means a "
+                    + "request that just happened, never that a key is filled in. Editing an "
+                    + "address clears it, because it belonged to the address that was "
+                    + "checked."),
+                HelpWhatsNewChange(.fixed,
+                    "A refused password and a server that is not there now read differently. "
+                    + "They need different things from you: one is a credential to paste "
+                    + "again, the other is a network to go and look at. Reporting both as not "
+                    + "connected is how you spend an evening re-typing a password that was "
+                    + "always correct."),
+                HelpWhatsNewChange(.fixed,
+                    "Scrobbling to ListenBrainz used to show a green tick for anything at all "
+                    + "in the token field, so a token with a character missing looked exactly "
+                    + "like a working account. Baton now asks ListenBrainz. Last.fm is asked "
+                    + "too, which catches a session you revoked from their own settings page."),
+                HelpWhatsNewChange(.fixed,
+                    "Transcribing a song works again. The last release stopped asking the "
+                    + "recogniser to skip non-speech audio when the track was music, on the "
+                    + "theory that the filter was throwing the singing away. On one host that "
+                    + "turned a four-minute song into four hundred repetitions of the word I, "
+                    + "which Baton then correctly discarded, leaving a track full of vocals "
+                    + "reported as having no speech in it. The filter is back on. If songs "
+                    + "come out badly for you, the recogniser is the thing to change: WhisperX "
+                    + "reads sung vocals, plain faster-whisper mostly does not."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.20",
             date: "August 2026",
             highlight: "A song no longer transcribes to a wrong sentence, summaries work on iPhone, and the transcript guide is findable by its own name.",
