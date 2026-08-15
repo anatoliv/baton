@@ -18,6 +18,10 @@ struct SharedSettingsPane: View {
     @State private var status: String?
     @State private var isSyncing = false
 
+    /// Whether the gateway is there and takes this token — asked without writing anything.
+    /// Before this the only way to find out was to press **Sync now**, which is a write.
+    @State private var gatewayStatus: ServiceStatus = .unknown
+
     /// @State, not a stored `let`: a `View` struct is rebuilt on every render, and a sync
     /// object that quietly starts caching would then lose its cache constantly.
     @State private var sync = PreferenceSync(deviceName: Host.current().localizedName ?? "Mac")
@@ -31,6 +35,21 @@ struct SharedSettingsPane: View {
                 status = "Saved."
             }
             .disabled(token == (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? ""))
+
+            LabeledContent("Connection") {
+                HStack(spacing: 10) {
+                    Button(gatewayStatus.isChecking ? "Checking…" : "Test") { Task { await check() } }
+                        .disabled(gatewayStatus.isChecking || gatewayURL.isEmpty || token.isEmpty)
+                    Label(gatewayStatus.label, systemImage: gatewayStatus.symbol)
+                        .foregroundStyle(gatewayStatus.tint)
+                        .labelStyle(.titleAndIcon)
+                        .font(.callout)
+                }
+            }
+            if let detail = gatewayStatus.detail {
+                Text(detail).font(.callout).foregroundStyle(gatewayStatus.tint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack(spacing: 10) {
                 Button(isSyncing ? "Syncing…" : "Sync now") { Task { await runSync() } }
@@ -51,6 +70,34 @@ struct SharedSettingsPane: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { Task { await check() } }
+        // A green light belongs to the address and token that were checked, not to the
+        // fields. Editing either makes the old answer a claim about something else.
+        .onChange(of: gatewayURL) { gatewayStatus = .unknown }
+        .onChange(of: token) { gatewayStatus = .unknown }
+    }
+
+    private func check() async {
+        let trimmed = gatewayURL.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !token.isEmpty else {
+            gatewayStatus = .notConfigured("No gateway yet")
+            return
+        }
+        guard let url = URL(string: trimmed), url.host != nil else {
+            gatewayStatus = .unreachable("That doesn't look like a URL.")
+            return
+        }
+        gatewayStatus = .checking
+        switch await sync.check(gatewayURL: url, token: token) {
+        case let .ok(entries):
+            gatewayStatus = .ok(detail: entries == 0
+                ? "Reachable. Nothing shared yet — this would be the first device."
+                : "Reachable. \(entries) settings shared.")
+        case .rejected:
+            gatewayStatus = .refused("The gateway didn't accept this token.")
+        case let .failed(why):
+            gatewayStatus = .unreachable(why)
         }
     }
 

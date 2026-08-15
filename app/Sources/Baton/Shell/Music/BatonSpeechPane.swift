@@ -21,20 +21,17 @@ struct BatonSpeechPane: View {
     @State private var transcriptionEnabled = SpeechConfig.transcriptionEnabled
     @State private var whisperHost = SpeechConfig.whisperBaseURL
     @State private var whisperModel = SpeechConfig.whisperModel
-    @State private var whisperStatus: String?
-    @State private var whisperTesting = false
+    @State private var whisperStatus: ServiceStatus = .unknown
 
     /// The map rendered as ordered, editable rows (a `[String: String]` dict has no order).
     @State private var rows: [VoiceRow] = []
 
     /// Live voice ids fetched from each server, used to populate the per-row voice pickers.
     @State private var voices: [SpeechConfig.Engine: [String]] = [:]
-    @State private var loadState: [SpeechConfig.Engine: LoadState] = [:]
+    @State private var loadState: [SpeechConfig.Engine: ServiceStatus] = [:]
     @State private var previewing: VoiceRow.ID?
     @State private var statusMessage: String?
     @State private var showResetConfirm = false
-
-    private enum LoadState: Equatable { case idle, loading, ok(Int), failed(String) }
 
     struct VoiceRow: Identifiable, Equatable {
         let id = UUID()
@@ -56,6 +53,10 @@ struct BatonSpeechPane: View {
             loadRows()
             Task { await refreshVoices(.kokoro) }
             Task { await refreshVoices(.chatterbox) }
+            // The ASR host is checked on appear for the same reason the two above are: a
+            // saved address that was never contacted is a setting, not a working feature,
+            // and this pane is where someone comes to find that out.
+            Task { await testTranscriptionHost() }
         }
         .confirmationDialog("Reset Speech settings to defaults?", isPresented: $showResetConfirm) {
             Button("Reset to Defaults", role: .destructive) {
@@ -168,13 +169,19 @@ struct BatonSpeechPane: View {
                         .frame(minWidth: 200)
                         .onChange(of: whisperHost) { _, value in
                             SpeechConfig.whisperBaseURL = value.trimmingCharacters(in: .whitespaces)
+                            // The tick belongs to the address that was checked, not to the
+                            // field. Editing it makes the old answer a claim about somewhere
+                            // else, so it goes back to unchecked until someone checks.
+                            whisperStatus = .unknown
                         }
+                        .onSubmit { Task { await testTranscriptionHost() } }
+                    ServiceStatusBadge(status: whisperStatus)
                     Button { Task { await testTranscriptionHost() } } label: {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.borderless)
                     .help("Test this connection")
-                    .disabled(whisperTesting)
+                    .disabled(whisperStatus.isChecking)
                 }
             }
             LabeledContent("Model") {
@@ -186,25 +193,36 @@ struct BatonSpeechPane: View {
                         SpeechConfig.whisperModel = value.trimmingCharacters(in: .whitespaces)
                     }
             }
-            if let whisperStatus {
-                Text(whisperStatus).font(.callout).foregroundStyle(.secondary)
+            if let detail = whisperStatus.detail, case .ok = whisperStatus {
+                Text(detail).font(.callout).foregroundStyle(.secondary)
             }
+            failureRow(whisperStatus)
         }
     }
 
     /// Prove the address before anyone waits on an hour of audio to discover it was wrong.
     private func testTranscriptionHost() async {
-        whisperTesting = true
-        defer { whisperTesting = false }
+        let host = SpeechConfig.whisperBaseURL.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty else {
+            whisperStatus = .notConfigured("No host yet")
+            return
+        }
+        whisperStatus = .checking
         do {
             let models = try await TranscriptionService.availableModels()
-            whisperStatus = models.isEmpty
-                ? "Connected, but the host listed no models."
-                : "Connected. Models: " + models.prefix(6).joined(separator: ", ")
+            whisperStatus = .ok(
+                detail: models.isEmpty
+                    ? "Connected, but the host listed no models."
+                    : "Connected. Models: " + models.prefix(6).joined(separator: ", "),
+                badge: models.isEmpty ? nil : "\(models.count)"
+            )
         } catch let error as TranscriptionService.TranscribeError {
-            whisperStatus = error.message
+            // `isUnreachable` is the transport failure; anything else is a host that answered
+            // with something Baton couldn't use, which is still not a working transcription
+            // service and must not read as one.
+            whisperStatus = .unreachable(error.message)
         } catch {
-            whisperStatus = error.localizedDescription
+            whisperStatus = .unreachable(ServiceStatus.describe(error))
         }
     }
 
@@ -215,9 +233,12 @@ struct BatonSpeechPane: View {
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 200)
-                    .onChange(of: text.wrappedValue) { _, _ in commit() }
+                    .onChange(of: text.wrappedValue) { _, _ in
+                        commit()
+                        loadState[engine] = .unknown   // same rule as the ASR host below
+                    }
                     .onSubmit { commit(); Task { await refreshVoices(engine) } }
-                statusBadge(for: engine)
+                ServiceStatusBadge(status: loadState[engine] ?? .unknown)
                 Button {
                     commit()
                     Task { await refreshVoices(engine) }
@@ -226,7 +247,7 @@ struct BatonSpeechPane: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Test this connection")
-                .disabled(loadState[engine] == .loading)
+                .disabled(loadState[engine]?.isChecking == true)
             }
         } label: {
             VStack(alignment: .leading, spacing: 1) {
@@ -236,31 +257,26 @@ struct BatonSpeechPane: View {
         }
     }
 
-    @ViewBuilder
-    private func statusBadge(for engine: SpeechConfig.Engine) -> some View {
-        switch loadState[engine] ?? .idle {
-        case .idle:
-            Color.clear.frame(width: 16, height: 16)
-        case .loading:
-            ProgressView().controlSize(.small).frame(width: 16)
-        case let .ok(n):
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("\(n)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-            .help("Reachable — \(n) voices")
-        case .failed:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-        }
-    }
-
     /// Shows the actual failure reason inline (not just a tooltip) when a host is unreachable.
     @ViewBuilder
     private func errorRow(for engine: SpeechConfig.Engine) -> some View {
-        if case let .failed(msg) = loadState[engine] ?? .idle {
-            Label(msg, systemImage: "exclamationmark.triangle.fill")
+        failureRow(loadState[engine] ?? .unknown)
+    }
+
+    /// The one place a failed check turns into readable text, so all three hosts explain
+    /// themselves the same way instead of one of them only having a tooltip.
+    @ViewBuilder
+    private func failureRow(_ status: ServiceStatus) -> some View {
+        if case let .unreachable(why) = status {
+            Label(why, systemImage: status.symbol)
                 .font(.callout)
-                .foregroundStyle(.red)
+                .foregroundStyle(status.tint)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if case let .refused(why) = status {
+            Label(why, systemImage: status.symbol)
+                .font(.callout)
+                .foregroundStyle(status.tint)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -428,11 +444,11 @@ struct BatonSpeechPane: View {
     }
 
     private func refreshVoices(_ engine: SpeechConfig.Engine, retry: Bool = true) async {
-        loadState[engine] = .loading
+        loadState[engine] = .checking
         do {
             let list = try await SpeechService.listVoices(engine: engine)
             voices[engine] = list
-            loadState[engine] = .ok(list.count)
+            loadState[engine] = .ok(detail: "\(list.count) voices", badge: "\(list.count)")
         } catch {
             // The first LAN request after launch can fail with -1009 while macOS resolves the
             // Local Network privacy prompt; retry once before surfacing the error.
@@ -441,7 +457,7 @@ struct BatonSpeechPane: View {
                 await refreshVoices(engine, retry: false)
                 return
             }
-            loadState[engine] = .failed((error as? SpeechService.SynthError)?.message ?? error.localizedDescription)
+            loadState[engine] = .unreachable((error as? SpeechService.SynthError)?.message ?? error.localizedDescription)
         }
     }
 

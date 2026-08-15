@@ -357,6 +357,125 @@ final class TranscriptionServiceTests: XCTestCase {
                        "no duration, no ratio")
     }
 
+    // MARK: - A song is transcribable; the invention around it is not
+
+    /// The measured shape of "Riders on the Storm" from a pass with voice-activity detection
+    /// off: 168 segments, of which 27 are the lyric and the rest are two decoding loops on the
+    /// word "Yeah" — 12 segments over the instrumental break and 128 over the outro. Read off
+    /// the real response, not invented. Music is no longer *sent* that way, but a recognizer
+    /// loops over instrumental stretches with VAD on too, and this is the shape the stripper
+    /// has to survive.
+    private func ridersOnTheStormSegments() -> [Transcript.Segment] {
+        var segments: [Transcript.Segment] = []
+        var clock = 0.0
+        func add(_ text: String, _ span: Double = 2, times: Int = 1) {
+            for _ in 0 ..< times {
+                segments.append(Transcript.Segment(start: clock, end: clock + span, text: text))
+                clock += span
+            }
+        }
+        add("Transcribed by ESO, translated by \u{2014}", 30)
+        add("Riders on the Storm", 18)
+        add("Riders on the Storm", 4)
+        add("Into this house we\u{2019}re born", 6)
+        add("Into this world we\u{2019}re thrown", 4)
+        add("Like a dog without a bone", 4)
+        add("An actor out alone", 2)
+        add("Take him by the hand", 4, times: 4)     // sung four times, and meant
+        add("There\u{2019}s a killer on the road", 4)
+        add("Yeah", 2.5, times: 12)                  // the instrumental break
+        add("Girl you gotta love your man", 10)
+        add("Make him understand", 2)
+        add("Yeah", 2.2, times: 128)                 // the outro, and the rain
+        return segments
+    }
+
+    /// The threshold that matters. Both loops go; the fourfold real repeat stays.
+    func testASongsLyricSurvivesWhileTheDecodingLoopsAreRemoved() {
+        let kept = Transcript.strippingHallucinations(ridersOnTheStormSegments())
+        let lines = kept.map(\.text)
+
+        XCTAssertFalse(lines.contains("Yeah"), "140 segments of \"Yeah\" are a decoding loop, not a lyric")
+        XCTAssertEqual(lines.filter { $0 == "Take him by the hand" }.count, 4,
+                       "a line the song really does sing four times must survive")
+        XCTAssertTrue(lines.contains("Into this house we\u{2019}re born"),
+                      "the line VAD mangled into \"Do this as we\u{2019}re born\" is the one this is all for")
+        XCTAssertFalse(lines.contains { $0.contains("Transcribed by") },
+                       "subtitle boilerplate is not something the track said")
+    }
+
+    /// Four is a real repeat and six is a loop, and that is the whole reason for the number:
+    /// a threshold of four would throw away "Take him by the hand" to catch nothing extra.
+    func testAFourfoldRepeatIsKeptAndASixfoldOneIsNot() {
+        let four = (0 ..< 4).map { Transcript.Segment(start: Double($0), end: Double($0) + 1, text: "Take him by the hand") }
+        let six = (0 ..< 6).map { Transcript.Segment(start: Double($0), end: Double($0) + 1, text: "Yeah") }
+        XCTAssertEqual(Transcript.strippingHallucinations(four).count, 4)
+        XCTAssertEqual(Transcript.strippingHallucinations(six).count, 0)
+    }
+
+    /// A long repeated line is a refrain, not a loop, however often it comes round.
+    func testALongRepeatedLineIsNeverStripped() {
+        let line = "And that is the whole point of running your own storage at home, really."
+        let segments = (0 ..< 40).map { Transcript.Segment(start: Double($0), end: Double($0) + 1, text: line) }
+        XCTAssertEqual(Transcript.strippingHallucinations(segments).count, 40)
+    }
+
+    /// End to end: the song that prompted all of this now produces a transcript instead of a
+    /// refusal, and it is a quarter of the running time rather than four tenths of one per cent.
+    func testTheSongThatPromptedThisNowTranscribes() throws {
+        let segments = ridersOnTheStormSegments()
+        let body: [String: Any] = [
+            "language": "en",
+            "duration": 434.73,
+            "segments": segments.map { ["start": $0.start, "end": $0.end, "text": $0.text] },
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let transcript = try TranscriptionService.parse(data, trackID: "riders", fallbackModel: "m")
+
+        XCTAssertTrue(transcript.plainText.contains("Into this house"))
+        XCTAssertFalse(transcript.plainText.contains("Yeah"))
+        XCTAssertFalse(transcript.looksLikeNothingWasSaid)
+    }
+
+    /// The other measured artifact, and the reason voice-activity detection stays on for
+    /// music too. Ace of Base, "Donnie", 272 s and sung end to end, sent to
+    /// faster-whisper-large-v3-turbo *without* VAD: 132 segments, every one of them the single
+    /// word "I". The stripper is right to remove all of it and the pane is right to say no
+    /// speech was found — the mistake is upstream, in sending the request that way. Sung
+    /// vocals are where that recognizer falls apart; WhisperX reads the same file as fourteen
+    /// segments of real lyric.
+    func testTheMeasuredNoVADResponseForASungTrackIsNotATranscript() throws {
+        let segments = (0 ..< 132).map {
+            Transcript.Segment(start: Double($0) * 2, end: Double($0) * 2 + 2, text: "I")
+        }
+        XCTAssertTrue(Transcript.strippingHallucinations(segments).isEmpty,
+                      "132 segments of one word is a decoding loop, whatever the track")
+
+        let body: [String: Any] = [
+            "duration": 272.92,
+            "text": String(repeating: "I ", count: 132),
+            "segments": segments.map { ["start": $0.start, "end": $0.end, "text": $0.text] },
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "donnie", fallbackModel: "m")) { error in
+            XCTAssertEqual((error as? TranscriptionService.TranscribeError)?.isEmptyOfSpeech, true)
+        }
+    }
+
+    /// The trap in doing this at parse time: `text` still holds every invented word, so a
+    /// response stripped to nothing must report no speech rather than fall through to it.
+    func testATrackStrippedToNothingDoesNotFallBackToTheInventedText() throws {
+        let body: [String: Any] = [
+            "duration": 300.0,
+            "text": String(repeating: "Yeah. ", count: 40),
+            "segments": (0 ..< 40).map { ["start": Double($0) * 5, "end": Double($0) * 5 + 5, "text": "Yeah"] },
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "x", fallbackModel: "m")) { error in
+            XCTAssertEqual((error as? TranscriptionService.TranscribeError)?.isEmptyOfSpeech, true)
+        }
+    }
+
     // MARK: - Model list shapes
 
     func testReadsBothModelListShapes() {

@@ -1185,6 +1185,15 @@ scrolls as the episode plays, exactly as synced lyrics do, and tapping any line 
 Once a transcript exists it lives on disk, so opening it later costs nothing and works with the
 server switched off.
 
+Songs work too, though they are a harder problem than speech, and how well they work depends
+almost entirely on which recognizer you point Baton at. WhisperX reads sung vocals, so expect
+the verses and the chorus roughly right, rather than a match for the printed lyric. A plain
+faster-whisper server tends to give up on singing and return the same word over and over
+instead. Baton drops those runs rather than showing them to you, so a recognizer that cannot
+hear the singing reports no speech instead of reporting nonsense. If that happens on a track
+you know has words in it, the recognizer is the thing to change. And if a track really is an
+instrumental, the panel says there was no speech in it and points you at the Lyrics panel.
+
 ### Setting it up
 
 Transcription is off by default, because it uploads audio to a server. Switch on
@@ -1192,8 +1201,15 @@ Transcription is off by default, because it uploads audio to a server. Switch on
 endpoint, the same shape the Kokoro and Chatterbox hosts above use. On the Mac that lives in
 **Settings → Speech → Transcription**; on iPhone it is **Settings → Transcription**, near the
 bottom of the list. `faster-whisper` behind its OpenAI-compatible server is the usual
-choice. The refresh button next to the field asks the host what models it has, which is the
-quickest way to find out whether the address is right before you wait on an hour of audio.
+choice. Baton checks the address as soon as you open the screen and shows what it found: a
+tick and the number of models when the host answered, a warning and the reason when it did
+not. The refresh button next to the field asks again. Editing the address clears the tick,
+because it belonged to the address that was checked rather than to the field.
+
+Every service you can configure works this way now, on both apps: the music server, both
+speech hosts, the recognizer, ListenBrainz, Last.fm, the shared-settings gateway and each
+discovery source. A green light always means a request that just happened, never that a key
+is filled in.
 
 If you run more than one model, put its id in **Model**. Leave it alone and Baton asks for
 `whisper-1`, which is what most of these servers answer to.

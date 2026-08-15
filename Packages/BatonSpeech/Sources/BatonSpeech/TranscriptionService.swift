@@ -64,6 +64,17 @@ public enum TranscriptionService {
             // it came back as the word "Yeah" repeated down the whole pane. Measured against
             // 45 s of non-speech audio: without this, two hallucinated segments; with it,
             // zero. Servers that don't know the field ignore it (WhisperX 200s either way).
+            //
+            // Turning it *off for music* was tried, on the theory that VAD is what reduced
+            // "Riders on the Storm" to 1.7 seconds of misheard lyric, and it made things
+            // worse rather than better. Measured on Ace of Base, "Donnie", against
+            // faster-whisper-large-v3-turbo: with VAD, three garbled segments; without it,
+            // 132 segments every one of which was the single word "I", which
+            // `Transcript.strippingHallucinations` then correctly removed, leaving a track
+            // full of singing reported as having no speech in it. Sung vocals are simply
+            // where that recognizer falls apart, and no request field fixes that — WhisperX
+            // reads the same file as fourteen segments of real lyric. So the fix is the
+            // *host*, and this stays on for everything.
             ("vad_filter", "true"),
         ]
         if let language, !language.isEmpty { fields.append(("language", language)) }
@@ -260,45 +271,17 @@ public enum TranscriptionService {
 
     /// Whether what came back is too little of the track to be a transcript of it.
     ///
-    /// Voice-activity detection throws away everything that isn't speech, which is right, and
-    /// over a song it throws away nearly all of it. What survives is a fragment: measured on
-    /// "Riders on the Storm", one segment of 1.7 seconds out of 7 minutes 15 — four tenths of
-    /// one per cent of the track — reading "Do this as we're born", which is a mangled line of
-    /// the lyric. Showing that as *the transcript* claims the track said one wrong sentence
-    /// and nothing else.
-    ///
-    /// A tenth of the running time is far below anything spoken-word: talk covers most of its
-    /// duration, and even an interview full of pauses stays well above this. Only applied to
-    /// tracks over a minute, so a short clip is never judged on a ratio.
+    /// Kept here as the recognizer-facing name; the rule itself lives on `Transcript`, which
+    /// is the only place both the parser and the store can reach. See
+    /// `Transcript.isTooSparse`.
     public static func isTooSparse(_ segments: [Transcript.Segment], duration: Double?) -> Bool {
-        guard let duration, duration > 60 else { return false }
-        let covered = segments.reduce(0.0) { $0 + max(0, $1.end - $1.start) }
-        return covered / duration < 0.10
+        Transcript.isTooSparse(segments, duration: duration)
     }
 
     /// Whether a transcript is the recognizer looping rather than reporting speech.
-    ///
-    /// Belt to VAD's braces: a server without voice-activity detection, or one whose VAD
-    /// lets a little through, returns the same line over and over. Ten segments that are
-    /// almost all the same short string is not a transcript of anything, and showing it as
-    /// one is worse than saying nothing was found — it looks like the feature works and
-    /// like the track said "Yeah" four hundred times.
-    ///
-    /// Deliberately conservative: real speech repeats too ("Yeah." "Yeah." "Right.") so this
-    /// only fires when nearly every segment is identical AND the repeated line is short.
+    /// See `Transcript.isDegenerate`.
     public static func isDegenerate(_ segments: [Transcript.Segment]) -> Bool {
-        guard segments.count >= 10 else { return false }
-        let normalized = segments.map {
-            $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?…"))
-        }
-        let unique = Set(normalized)
-        guard let commonest = unique.max(by: { a, b in
-            normalized.filter { $0 == a }.count < normalized.filter { $0 == b }.count
-        }) else { return false }
-        let share = Double(normalized.filter { $0 == commonest }.count) / Double(normalized.count)
-        // A long repeated line is more likely a real refrain than a decoding loop.
-        return share >= 0.8 && commonest.count <= 40
+        Transcript.isDegenerate(segments)
     }
 
     /// Find the segment array, whichever shape the server used.
@@ -331,24 +314,27 @@ public enum TranscriptionService {
         let model = (root["model"] as? String) ?? fallbackModel
 
         if let rawSegments = segmentArray(in: root), !rawSegments.isEmpty {
-            let segments: [Transcript.Segment] = rawSegments.compactMap { raw in
+            let parsed: [Transcript.Segment] = rawSegments.compactMap { raw in
                 guard let text = (raw["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !text.isEmpty,
                       let start = raw["start"] as? Double else { return nil }
                 let end = (raw["end"] as? Double) ?? start
                 return Transcript.Segment(start: start, end: max(end, start), text: text)
             }
-            if isTooSparse(segments, duration: duration) {
-                throw TranscribeError(
-                    message: "No speech was found in this track.", isEmptyOfSpeech: true
-                )
-            }
-            if isDegenerate(segments) {
-                throw TranscribeError(
-                    message: "No speech was found in this track.", isEmptyOfSpeech: true
-                )
-            }
-            if !segments.isEmpty {
+            // Only when something actually parsed. A response whose segments carry no timings
+            // still falls through to the plain-text branch below, which is worth reading; a
+            // response that parsed and was then stripped to nothing is a track with no speech
+            // in it, and must not fall through to `text` — that field still holds every
+            // invented word.
+            if !parsed.isEmpty {
+                let segments = Transcript.strippingHallucinations(parsed)
+                guard !segments.isEmpty,
+                      !isTooSparse(segments, duration: duration),
+                      !isDegenerate(segments) else {
+                    throw TranscribeError(
+                        message: "No speech was found in this track.", isEmptyOfSpeech: true
+                    )
+                }
                 return Transcript(
                     trackID: trackID,
                     segments: segments.sorted { $0.start < $1.start },

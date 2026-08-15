@@ -103,6 +103,42 @@ public final class MusicLastFM: ScrobbleDestination {
         _ = try await call(params, post: true)
     }
 
+    // MARK: - Is this session still good?
+
+    /// What Last.fm says about the session key Baton is holding.
+    public enum SessionCheck: Equatable, Sendable {
+        case missing
+        case valid(user: String)
+        /// It answered and would not accept the session — revoked, or the app's key changed.
+        case rejected
+        case failed(String)
+    }
+
+    /// Ask Last.fm whether the stored session still works.
+    ///
+    /// `isConnected` is a better claim than ListenBrainz's was — a session key only exists
+    /// because someone completed the browser authorization — but it is still a fact about the
+    /// past. A session revoked from a Last.fm settings page leaves this app showing "Last.fm
+    /// connected" forever while every scrobble is refused, which is precisely the failure a
+    /// connection badge exists to catch.
+    ///
+    /// `user.getInfo` with the session key is read-only: no listen is submitted.
+    public func checkSession() async -> SessionCheck {
+        guard isConnected, !apiKey.isEmpty else { return .missing }
+        do {
+            let json = try await call(["method": "user.getInfo", "sk": sessionKey])
+            let user = (json["user"] as? [String: Any])?["name"] as? String ?? ""
+            return .valid(user: user)
+        } catch let ScrobbleError.service(message) {
+            // 9 is "Invalid session key — please re-authenticate", 4 is authentication failed,
+            // 26 is a suspended API key. All three mean re-connecting, not waiting.
+            let isCredential = ["Last.fm 9:", "Last.fm 4:", "Last.fm 26:"].contains { message.hasPrefix($0) }
+            return isCredential ? .rejected : .failed(message)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
     // MARK: - Request + signing
 
     /// The Last.fm `api_sig`: md5 of the params (sorted by name, concatenated as name+value)

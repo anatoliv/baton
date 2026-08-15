@@ -164,4 +164,37 @@ final class TranscriptStoreTests: XCTestCase {
         store.save(transcript())
         XCTAssertNil(store.failures["ep-1"])
     }
+
+    /// The real artifact, read off disk: one segment covering 1.7 s of a 434.7 s track, from a
+    /// pipeline that no longer exists. The guard that would refuse to *make* this only ever ran
+    /// at parse time, so it went on being served to the pane and to agents over MCP for as long
+    /// as it sat there. Judge a stored transcript on the way out too.
+    func testAStoredTranscriptTodaysRulesWouldRefuseIsDroppedOnRead() throws {
+        let bad = Transcript(
+            trackID: "riders",
+            segments: [.init(start: 55.6, end: 57.28, text: "Do this as we\u{2019}re born.")],
+            language: "en",
+            model: "faster-whisper-large-v3-turbo",
+            duration: 434.7335
+        )
+        TranscriptStore(directory: directory).save(bad)
+
+        let reopened = TranscriptStore(directory: directory)
+        XCTAssertNil(reopened.transcript(for: "riders"), "a fragment of a song is not a transcript of it")
+        XCTAssertFalse(reopened.hasTranscript(for: "riders"), "and the index must not keep claiming one")
+        XCTAssertFalse(reopened.transcribedIDs.contains("riders"))
+
+        // Dropped from the index, not deleted. "Today's rules reject it" is not the same
+        // claim as "it is worthless", and a transcript costs a GPU pass to make again.
+        let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertEqual(files.filter { $0.hasPrefix("transcript-") && $0.hasSuffix(".json") }.count, 1,
+                       "the artifact stays on disk; dropping the index entry is enough")
+    }
+
+    /// The other half of that: a good transcript is not thrown away for being old.
+    func testAnOrdinaryStoredTranscriptIsKept() {
+        TranscriptStore(directory: directory).save(transcript())
+        let reopened = TranscriptStore(directory: directory)
+        XCTAssertEqual(reopened.transcript(for: "ep-1")?.segments.count, 2)
+    }
 }

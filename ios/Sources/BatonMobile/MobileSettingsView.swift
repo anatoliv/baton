@@ -33,6 +33,8 @@ struct MobileSettingsView: View {
     @State private var showsHelp = false
     /// Whether the server is answering. Checked on appear, and on tap.
     @State private var serverStatus = ServerStatus()
+    /// Whether the recognizer host is answering. Same rule: checked, never assumed.
+    @State private var whisperStatus: ServiceStatus = .unknown
 
     /// Spells out everything the purge removes. Deleting someone's offline music quietly
     /// would be worse than not deleting it at all.
@@ -73,6 +75,29 @@ struct MobileSettingsView: View {
         return on.isEmpty ? "Server only" : on.joined(separator: ", ")
     }
 
+    /// Ask the recognizer host whether it is there. `availableModels` is one GET and tries
+    /// both routes, since WhisperX 404s the OpenAI model list while transcribing perfectly
+    /// well — reporting that as unreachable would send someone off to debug their network.
+    private func checkWhisper() async {
+        let host = SpeechConfig.whisperBaseURL.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty else {
+            whisperStatus = .notConfigured("No host yet")
+            return
+        }
+        whisperStatus = .checking
+        do {
+            let models = try await TranscriptionService.availableModels()
+            whisperStatus = .ok(
+                detail: models.isEmpty ? "Connected, but it listed no models." : models.prefix(3).joined(separator: ", "),
+                badge: models.isEmpty ? nil : "\(models.count)"
+            )
+        } catch let error as TranscriptionService.TranscribeError {
+            whisperStatus = .unreachable(error.message)
+        } catch {
+            whisperStatus = .unreachable(ServiceStatus.describe(error))
+        }
+    }
+
     /// The phone half of the transcription setting. Without it the feature could never be
     /// switched on here, since the host lives in `UserDefaults` and there is nothing else on
     /// iOS that writes it.
@@ -84,14 +109,25 @@ struct MobileSettingsView: View {
                 set: { SpeechConfig.transcriptionEnabled = $0 }
             ))
             LabeledContent("Whisper host") {
-                TextField("http://host:port", text: Binding(
-                    get: { SpeechConfig.whisperBaseURL },
-                    set: { SpeechConfig.whisperBaseURL = $0.trimmingCharacters(in: .whitespaces) }
-                ))
-                .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                HStack(spacing: 8) {
+                    TextField("http://host:port", text: Binding(
+                        get: { SpeechConfig.whisperBaseURL },
+                        set: {
+                            SpeechConfig.whisperBaseURL = $0.trimmingCharacters(in: .whitespaces)
+                            // The tick belongs to the address that was checked, not the field.
+                            whisperStatus = .unknown
+                        }
+                    ))
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onSubmit { Task { await checkWhisper() } }
+                }
             }
+            // The phone had no way at all to find out whether the host it was pointed at
+            // answers — the address just sat there, and the first sign of a wrong one was a
+            // podcast that never transcribed.
+            ServiceStatusRow(status: whisperStatus) { Task { await checkWhisper() } }
             SettingsFooter(
                 text: "Reads a podcast episode back to you as text, with every line tappable to "
                     + "seek, and can summarize it into timestamped sections. The audio is uploaded "
@@ -114,7 +150,7 @@ struct MobileSettingsView: View {
                         // people open Settings with. The address and username below say
                         // what Baton was configured with; only this says whether any of it
                         // currently works.
-                        ServerStatusRow(status: serverStatus) {
+                        ServiceStatusRow(status: serverStatus.state) {
                             Task { await serverStatus.check() }
                         }
                         // The comment above `credentialsUnlocked` has promised a biometric
@@ -496,6 +532,9 @@ struct MobileSettingsView: View {
                 // and a red "can't reach" badge over the bundled library would be a lie.
                 if !model.isDemoMode { await serverStatus.check() }
             }
+            // The recognizer host is checked on the same terms as the music server: a saved
+            // address that was never contacted is a setting, not a working feature.
+            .task(id: SpeechConfig.whisperBaseURL) { await checkWhisper() }
             .sheet(isPresented: $showsWhatsNew) { WhatsNewView() }
             .sheet(isPresented: $showsHelp) { HelpView() }
             .confirmationDialog(

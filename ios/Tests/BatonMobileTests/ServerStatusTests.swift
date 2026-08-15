@@ -17,56 +17,56 @@ final class ServerStatusTests: XCTestCase {
     func testSubsonicCredentialErrorsAreRefusedSignIns() {
         for code in [40, 41, 44, 50] {
             XCTAssertTrue(
-                ServerStatus.isAuthFailure(NavidromeError.subsonic(code: code, message: "nope")),
+                ServiceStatus.isAuthFailure(NavidromeError.subsonic(code: code, message: "nope")),
                 "Subsonic \(code) is an auth failure, not an unreachable server"
             )
         }
     }
 
     func testUnauthorizedIsARefusedSignIn() {
-        XCTAssertTrue(ServerStatus.isAuthFailure(NavidromeError.unauthorized))
-        XCTAssertTrue(ServerStatus.isAuthFailure(NavidromeError.http(status: 401)))
-        XCTAssertTrue(ServerStatus.isAuthFailure(NavidromeError.http(status: 403)))
+        XCTAssertTrue(ServiceStatus.isAuthFailure(NavidromeError.unauthorized))
+        XCTAssertTrue(ServiceStatus.isAuthFailure(NavidromeError.http(status: 401)))
+        XCTAssertTrue(ServiceStatus.isAuthFailure(NavidromeError.http(status: 403)))
     }
 
     /// A server that is down, or a certificate that isn't trusted, is not a password
     /// problem — telling someone their sign-in was refused would be actively misleading.
     func testTransportAndServerFaultsAreNotSignInProblems() {
-        XCTAssertFalse(ServerStatus.isAuthFailure(NavidromeError.transport("connection lost")))
-        XCTAssertFalse(ServerStatus.isAuthFailure(NavidromeError.http(status: 500)))
-        XCTAssertFalse(ServerStatus.isAuthFailure(NavidromeError.subsonic(code: 70, message: "not found")))
-        XCTAssertFalse(ServerStatus.isAuthFailure(URLError(.cannotFindHost)))
+        XCTAssertFalse(ServiceStatus.isAuthFailure(NavidromeError.transport("connection lost")))
+        XCTAssertFalse(ServiceStatus.isAuthFailure(NavidromeError.http(status: 500)))
+        XCTAssertFalse(ServiceStatus.isAuthFailure(NavidromeError.subsonic(code: 70, message: "not found")))
+        XCTAssertFalse(ServiceStatus.isAuthFailure(URLError(.cannotFindHost)))
     }
 
     // MARK: - Saying what actually went wrong
 
     func testCommonNetworkFailuresAreExplainedInPlainWords() {
-        XCTAssertEqual(ServerStatus.describe(URLError(.notConnectedToInternet)),
-                       "This iPhone has no internet connection.")
-        XCTAssertEqual(ServerStatus.describe(URLError(.timedOut)),
-                       "The server didn't answer in time.")
-        XCTAssertEqual(ServerStatus.describe(URLError(.cannotFindHost)),
+        XCTAssertEqual(ServiceStatus.describe(URLError(.notConnectedToInternet)),
+                       "There's no internet connection.")
+        XCTAssertEqual(ServiceStatus.describe(URLError(.timedOut)),
+                       "It didn't answer in time.")
+        XCTAssertEqual(ServiceStatus.describe(URLError(.cannotFindHost)),
                        "Nothing is answering at that address.")
     }
 
     func testATLSFailureSaysItIsTheCertificate() {
-        XCTAssertTrue(ServerStatus.describe(URLError(.secureConnectionFailed)).contains("certificate"))
+        XCTAssertTrue(ServiceStatus.describe(URLError(.secureConnectionFailed)).contains("certificate"))
     }
 
     func testAnHTTPFaultReportsItsStatus() {
-        XCTAssertTrue(ServerStatus.describe(NavidromeError.http(status: 502)).contains("502"))
+        XCTAssertTrue(ServiceStatus.describe(NavidromeError.http(status: 502)).contains("502"))
     }
 
     /// Unknown failures must still say *something* rather than an empty badge.
     func testAnUnrecognisedErrorStillProducesText() {
-        XCTAssertFalse(ServerStatus.describe(URLError(.unknown)).isEmpty)
+        XCTAssertFalse(ServiceStatus.describe(URLError(.unknown)).isEmpty)
     }
 
     // MARK: - What each state shows
 
     func testOnlyAVerifiedConnectionIsGreen() {
-        XCTAssertEqual(ServerStatus.State.connected(openSubsonic: true).tint, .green)
-        for state: ServerStatus.State in [.unknown, .checking, .rejected, .unreachable("x"), .offline] {
+        XCTAssertEqual(ServiceStatus.ok(detail: "OpenSubsonic extensions available").tint, .green)
+        for state: ServiceStatus in [.unknown, .checking, .notConfigured("No server yet"), .refused("x"), .unreachable("x"), .offline] {
             XCTAssertNotEqual(state.tint, .green, "\(state.label) must not read as connected")
         }
     }
@@ -74,15 +74,15 @@ final class ServerStatusTests: XCTestCase {
     /// Offline mode is a choice, not a fault — downloads still play, so a red warning
     /// would be telling someone something is broken when they turned it on themselves.
     func testOfflineModeIsNotReportedAsAFailure() {
-        let offline = ServerStatus.State.offline
+        let offline = ServiceStatus.offline
         XCTAssertEqual(offline.tint, .blue)
-        XCTAssertNotEqual(offline.label, ServerStatus.State.unreachable("x").label)
+        XCTAssertNotEqual(offline.label, ServiceStatus.unreachable("x").label)
         XCTAssertTrue(offline.detail?.contains("downloads") == true)
     }
 
     func testTheFailureStatesExplainThemselves() {
-        XCTAssertNotNil(ServerStatus.State.rejected.detail)
-        XCTAssertEqual(ServerStatus.State.unreachable("Nothing is answering.").detail,
+        XCTAssertNotNil(ServiceStatus.refused(ServiceStatus.refusedDetail).detail)
+        XCTAssertEqual(ServiceStatus.unreachable("Nothing is answering.").detail,
                        "Nothing is answering.")
     }
 

@@ -16,6 +16,15 @@ struct ScrobbleSettingsView: View {
     @State private var lastfmKey = ""
     @State private var lastfmSecret = ""
     @State private var awaitingLastfmAuth = false
+    /// Whether ListenBrainz accepts this token. It used to be a green tick for any non-empty
+    /// string, which made a typo look exactly like a working account — and the only place
+    /// that difference showed up was a profile page with no listens on it.
+    @State private var listenBrainzStatus: ServiceStatus = .unknown
+    /// And whether Last.fm still accepts the stored session. A session key only exists because
+    /// someone completed the browser authorization, which is a better claim than a pasted
+    /// token — but it is still a fact about the past, and one revoked from Last.fm's own
+    /// settings page leaves this screen saying "connected" while every scrobble is refused.
+    @State private var lastFMStatus: ServiceStatus = .unknown
 
     var body: some View {
         Form {
@@ -26,11 +35,7 @@ struct ScrobbleSettingsView: View {
                     .onSubmit(saveListenBrainz)
                 Button("Save token", action: saveListenBrainz)
                     .disabled(listenBrainzToken == model.listenBrainz.token)
-                if model.listenBrainz.isEnabled {
-                    Label("Scrobbling to ListenBrainz", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.footnote)
-                }
+                ServiceStatusRow(status: listenBrainzStatus) { Task { await checkListenBrainz() } }
             } header: {
                 Text("ListenBrainz")
             } footer: {
@@ -48,9 +53,7 @@ struct ScrobbleSettingsView: View {
                     .disabled(lastfmKey == model.lastfm.apiKey && lastfmSecret == model.lastfm.apiSecret)
 
                 if model.lastfm.isConnected {
-                    Label("Connected to Last.fm", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.footnote)
+                    ServiceStatusRow(status: lastFMStatus) { Task { await checkLastFM() } }
                     Button("Disconnect", role: .destructive) { model.lastfm.disconnect() }
                 } else {
                     // Two steps because Last.fm's flow is: get a token, have the user
@@ -96,10 +99,44 @@ struct ScrobbleSettingsView: View {
             lastfmKey = model.lastfm.apiKey
             lastfmSecret = model.lastfm.apiSecret
         }
+        .task { await checkListenBrainz() }
+        .task { await checkLastFM() }
     }
 
     private func saveListenBrainz() {
         model.listenBrainz.token = listenBrainzToken.trimmingCharacters(in: .whitespaces)
+        Task { await checkListenBrainz() }
+    }
+
+    /// One GET against `validate-token` — nothing is submitted, so this can run on appear
+    /// and after every save.
+    private func checkListenBrainz() async {
+        listenBrainzStatus = .checking
+        switch await model.listenBrainz.checkToken() {
+        case .missing:
+            listenBrainzStatus = .notConfigured("No token yet")
+        case let .valid(user):
+            listenBrainzStatus = .ok(detail: user.isEmpty ? "Scrobbling to ListenBrainz." : "Scrobbling as \(user).")
+        case .rejected:
+            listenBrainzStatus = .refused("ListenBrainz didn't accept this token. Copy it again from your profile.")
+        case let .failed(why):
+            listenBrainzStatus = .unreachable(why)
+        }
+    }
+
+    /// Read-only: `user.getInfo` with the session key, never a listen.
+    private func checkLastFM() async {
+        lastFMStatus = .checking
+        switch await model.lastfm.checkSession() {
+        case .missing:
+            lastFMStatus = .notConfigured("Not connected")
+        case let .valid(user):
+            lastFMStatus = .ok(detail: user.isEmpty ? "Connected to Last.fm." : "Scrobbling as \(user).")
+        case .rejected:
+            lastFMStatus = .refused("Last.fm no longer accepts this session. Authorize it again.")
+        case let .failed(why):
+            lastFMStatus = .unreachable(why)
+        }
     }
 
     private func saveLastfmCredentials() {

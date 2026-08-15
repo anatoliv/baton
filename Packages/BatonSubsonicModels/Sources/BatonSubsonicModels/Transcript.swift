@@ -110,6 +110,115 @@ public struct Transcript: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Credibility (pure)
+
+/// Whether what came back from the recognizer can honestly be shown as a transcript.
+///
+/// These live on the model rather than in `BatonSpeech` because two modules need them and
+/// neither may depend on the other: `BatonSpeech` applies them when it *parses* a response,
+/// and `BatonPlaybackKit` applies them when it *loads* one off disk — so an artifact written
+/// by an older, worse pipeline stops being served instead of outliving the fix that would
+/// have prevented it.
+extension Transcript {
+    /// Case- and punctuation-insensitive form of a line, so "Yeah." and "yeah" compare equal.
+    public static func normalized(_ text: String) -> String {
+        text.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?\u{2026}\u{2014}- "))
+    }
+
+    /// Six, not four, and the difference is not a guess. Measured on "Riders on the Storm":
+    /// the track sings "Take him by the hand" four times in a row and means it, while the two
+    /// decoding loops in the same response ran to 12 and 128 segments. A threshold of four
+    /// would have thrown away a real line to catch nothing extra.
+    static let loopRunLength = 6
+
+    /// A long repeated line is more likely a real refrain than a decoding loop.
+    static let repeatedLineLimit = 40
+
+    /// Lines a recognizer emits over music or silence because its training data was full of
+    /// subtitle files. Measured: the instrumental intro of "Riders on the Storm" came back as
+    /// "Transcribed by ESO, translated by —", which the track never said.
+    static let recognizerBoilerplate = [
+        "transcribed by", "subtitles by", "subtitled by", "amara.org",
+        "thanks for watching", "subscribe to",
+    ]
+
+    static func isBoilerplate(_ text: String) -> Bool {
+        let line = normalized(text)
+        return recognizerBoilerplate.contains { line.contains($0) }
+    }
+
+    /// Drop what the recognizer invented rather than heard, keeping everything else.
+    ///
+    /// This is the half that lets a *song* transcribe at all. Voice-activity detection was
+    /// the previous answer to hallucination, and over music it is far too blunt: on "Riders
+    /// on the Storm" it left 1.7 seconds of a 434-second track and mangled the one line it
+    /// kept ("Do this as we're born" for "Into this house we're born"). With it off the same
+    /// track returns the lyric correctly, plus two runs of the word "Yeah" — 12 segments over
+    /// the instrumental break and 128 over the outro — which is what this removes. What
+    /// survives is 27 segments of real words covering a quarter of the track.
+    ///
+    /// Removing the invention beats never generating it, because the two are not equivalent:
+    /// VAD also removes the singing.
+    public static func strippingHallucinations(_ segments: [Segment]) -> [Segment] {
+        var kept: [Segment] = []
+        var index = 0
+        while index < segments.count {
+            let line = normalized(segments[index].text)
+            var runEnd = index
+            while runEnd + 1 < segments.count, normalized(segments[runEnd + 1].text) == line {
+                runEnd += 1
+            }
+            let isLoop = (runEnd - index + 1) >= loopRunLength && line.count <= repeatedLineLimit
+            if !isLoop {
+                kept.append(contentsOf: segments[index ... runEnd].filter { !isBoilerplate($0.text) })
+            }
+            index = runEnd + 1
+        }
+        return kept
+    }
+
+    /// Whether what came back is too little of the track to be a transcript of it.
+    ///
+    /// A tenth of the running time is far below anything spoken-word: talk covers most of its
+    /// duration, and even an interview full of pauses stays well above this. Only applied to
+    /// tracks over a minute, so a short clip is never judged on a ratio.
+    public static func isTooSparse(_ segments: [Segment], duration: Double?) -> Bool {
+        guard let duration, duration > 60 else { return false }
+        let covered = segments.reduce(0.0) { $0 + max(0, $1.end - $1.start) }
+        return covered / duration < 0.10
+    }
+
+    /// Whether a transcript is the recognizer looping rather than reporting speech.
+    ///
+    /// Backstop to `strippingHallucinations`, which only catches *consecutive* repeats. A
+    /// response that alternates between two invented lines is still not a transcript.
+    /// Deliberately conservative: real speech repeats too ("Yeah." "Yeah." "Right."), so this
+    /// only fires when nearly every segment is identical AND the repeated line is short.
+    public static func isDegenerate(_ segments: [Segment]) -> Bool {
+        guard segments.count >= 10 else { return false }
+        let lines = segments.map { normalized($0.text) }
+        var counts: [String: Int] = [:]
+        for line in lines { counts[line, default: 0] += 1 }
+        guard let (commonest, count) = counts.max(by: { $0.value < $1.value }) else { return false }
+        let share = Double(count) / Double(lines.count)
+        return share >= 0.8 && commonest.count <= repeatedLineLimit
+    }
+
+    /// True when today's rules would refuse to produce this transcript at all.
+    ///
+    /// Read at *load* time, not just at parse time. A transcript already on disk was written
+    /// by whatever pipeline existed that day, and the one that prompted this — a single
+    /// 1.7-second fragment of a seven-minute song — went on being served to the pane and to
+    /// agents over MCP long after the code that made it was replaced.
+    public var looksLikeNothingWasSaid: Bool {
+        segments.isEmpty
+            || Transcript.isTooSparse(segments, duration: duration)
+            || Transcript.isDegenerate(segments)
+    }
+}
+
 /// A summary of a transcript: one overview plus timestamped sections.
 ///
 /// The sections are not scaffolding left over from chunking — they are the chapter marks,

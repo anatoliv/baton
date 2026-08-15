@@ -217,8 +217,8 @@ struct MusicTranscriptView: View {
         guard failure.isEmptyOfSpeech, !TranscriptionCoordinator.isOfferedAutomatically(for: song) else {
             return failure.message
         }
-        return failure.message + " Songs are sung rather than spoken, so a recogniser finds "
-            + "little to work with — the Lyrics panel is what you want here."
+        return failure.message + " If it's an instrumental there may be nothing there to "
+            + "find. For the words to a song, the Lyrics panel is the better place to look."
     }
 
     private var offer: some View {
