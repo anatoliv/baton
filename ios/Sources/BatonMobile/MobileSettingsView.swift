@@ -31,6 +31,9 @@ struct MobileSettingsView: View {
     @State private var showsWhatsNew = false
     /// A footer's "Learn more" opens Help at the topic it just requested.
     @State private var showsHelp = false
+    /// In-app, not a Safari bounce — App Review's 5.1.1 wants the policy readable
+    /// without leaving the app.
+    @State private var showsPrivacyPolicy = false
     /// Whether the server is answering. Checked on appear, and on tap.
     @State private var serverStatus = ServerStatus()
     /// Whether the recognizer host is answering. Same rule: checked, never assumed.
@@ -528,6 +531,9 @@ struct MobileSettingsView: View {
 
                 Section {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+                    Button { showsPrivacyPolicy = true } label: {
+                        Label("Privacy Policy", systemImage: "hand.raised")
+                    }
                 } footer: {
                     Text("Baton is open source and MIT-licensed — the source is free forever; the App Store build funds development.")
                 }
@@ -557,6 +563,10 @@ struct MobileSettingsView: View {
             .task(id: SpeechConfig.whisperBaseURL) { await checkWhisper() }
             .sheet(isPresented: $showsWhatsNew) { WhatsNewView() }
             .sheet(isPresented: $showsHelp) { HelpView() }
+            .sheet(isPresented: $showsPrivacyPolicy) {
+                SafariView(url: URL(string: "https://baton.tonebox.io/privacy.html")!)
+                    .ignoresSafeArea()
+            }
             .confirmationDialog(
                 "Disconnect from this server?",
                 isPresented: $showsDisconnectConfirm,
