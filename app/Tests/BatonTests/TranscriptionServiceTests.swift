@@ -152,6 +152,10 @@ final class TranscriptionServiceTests: XCTestCase {
         XCTAssertEqual(transcript.segments.count, 1)
         XCTAssertEqual(transcript.segments.first?.text, "just the words")
         XCTAssertEqual(transcript.model, "whisper-1")
+        // And so nothing can be the *current* line: this is what "good text, no highlighting"
+        // looks like from the parser's side, since the sheet keys the highlight and the
+        // tap-to-seek off exactly this.
+        XCTAssertNil(transcript.segmentIndex(at: 6), "no timings, so no line can be highlighted")
     }
 
     func testSegmentsAreSortedAndMalformedOnesDropped() throws {
@@ -474,6 +478,37 @@ final class TranscriptionServiceTests: XCTestCase {
         XCTAssertThrowsError(try TranscriptionService.parse(data, trackID: "x", fallbackModel: "m")) { error in
             XCTAssertEqual((error as? TranscriptionService.TranscribeError)?.isEmptyOfSpeech, true)
         }
+    }
+
+    // MARK: - Timed lines are what the highlight runs on
+
+    /// The nested shape WhisperX really returns, and the property the sheet keys off.
+    ///
+    /// Both "highlight the line that is playing" and "tap a line to seek there" are gated on
+    /// the same thing: `Transcript.synced`, through `segmentIndex(at:)`. A transcript that
+    /// parses into text but not into *timings* renders every line identically and ignores
+    /// taps, which reads as the feature being absent rather than the timings being absent.
+    ///
+    /// So this asserts the whole chain on the real thing: WhisperX's `segments.segments`
+    /// (which is not where OpenAI puts them), parsed, marked synced, and asked which line is
+    /// playing at a given moment.
+    func testWhisperXsNestedShapeYieldsTimedLinesTheSheetCanHighlight() throws {
+        let body: [String: Any] = [
+            "language": "en",
+            "segments": ["segments": [
+                ["start": 36.7, "end": 61.7, "text": "Riders on the storm"],
+                ["start": 64.1, "end": 66.5, "text": "There\u{2019}s a killer on the road."],
+                ["start": 68.6, "end": 71.2, "text": "His brain is squirming like a toad."],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let transcript = try TranscriptionService.parse(data, trackID: "riders", fallbackModel: "m")
+
+        XCTAssertTrue(transcript.synced, "without this the sheet has nothing to highlight and taps do nothing")
+        XCTAssertEqual(transcript.segments.count, 3)
+        XCTAssertEqual(transcript.segmentIndex(at: 65), 1, "the line playing at 65 s is the second one")
+        XCTAssertEqual(transcript.segmentIndex(at: 0), nil, "before the first line, nothing is highlighted")
+        XCTAssertEqual(transcript.segmentIndex(at: 300), 2, "past the end, the last line stays current")
     }
 
     // MARK: - Model list shapes

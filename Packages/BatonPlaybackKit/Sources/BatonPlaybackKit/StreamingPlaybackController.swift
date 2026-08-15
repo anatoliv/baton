@@ -187,9 +187,6 @@ public final class StreamingPlaybackController {
         playbackEvents.record(song: song, startedAt: currentTrackStartedAt,
                               listenedSeconds: listened, reason: reason)
     }
-    /// Fired when a fixed-time sleep timer elapses (after the fade-out). AppModel wires this to
-    /// also stop internet radio, which plays on a separate engine the library pause can't reach.
-    @ObservationIgnored public var onSleepFire: (@MainActor () -> Void)?
     /// Attaches/detaches the equalizer audio-mix on a freshly-loaded item (AppModel wires
     /// this to the EQ). Nil ⇒ no EQ.
     @ObservationIgnored public var configureAudioMix: (@MainActor (AVPlayerItem) -> Void)?
@@ -1068,9 +1065,25 @@ public final class StreamingPlaybackController {
     /// loads paused (no start), so the first `resume()` must fire them.
     private var startNotifiedForCurrentItem = false
 
+    /// Take the output back from an internet-radio station, if one is on the air.
+    ///
+    /// A station plays on its own engine, which none of the transport verbs here can reach —
+    /// pausing or loading the library player does nothing to it, so without this the two
+    /// simply overlap. Every entrance to library audio calls it for the same reason
+    /// `notifyTrackStarted` is one function: hang the rule off one entrance and you get what
+    /// this replaced, where the Mac stopped the station and the phone played both at once.
+    ///
+    /// A no-op until `InternetRadioStore.bind(to:)` connects the two, so a host without radio
+    /// (and every test that doesn't ask for it) is unaffected.
+    func stopOnAirStation() {
+        guard radioIsOnAir?() == true else { return }
+        radioRemote?.pause() // the radio's pause is "leave the air" — a live stream has no place to hold
+    }
+
     /// Notifies listeners a track began and arms its resume offset (podcasts). Call in place of
     /// `onTrackStarted?(song)` so every start path resumes + logs identically.
     private func notifyTrackStarted(_ song: NavidromeSong) {
+        stopOnAirStation() // a library track is now audible; a station can't share the speakers with it
         // Close out whatever was playing before this. Done here rather than at each exit
         // point because every path into a new track comes through here — a manual skip, a
         // natural end, a queue replacement — and hanging the bookkeeping off one of them
@@ -1204,6 +1217,10 @@ public final class StreamingPlaybackController {
 
     public func resume() {
         guard nowPlaying != nil else { return }
+        // Resuming mid-track doesn't start a track, so it misses `notifyTrackStarted` — and a
+        // play button that isn't radio-aware (the phone's mini player, `music_resume` over MCP)
+        // lands here while a station is on the air.
+        stopOnAirStation()
         bumpStateGeneration()
         resetFade() // in case we were paused mid sleep-timer fade
         // Parked at the end, or nothing left to resume: reload the current track from the

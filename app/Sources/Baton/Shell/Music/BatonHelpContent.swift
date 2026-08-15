@@ -295,6 +295,28 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.23",
+            date: "August 2026",
+            highlight: "A radio station and a track can no longer play at the same time \u{2014} on the phone they did, and on the Mac there was one way in.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "On the iPhone, tuning an internet-radio station stopped the music, but "
+                    + "starting a track did not stop the station: tap a song while one was on "
+                    + "the air and you heard both. The Mac has always ended the broadcast when "
+                    + "a track starts; the phone was never taught to."),
+                HelpWhatsNewChange(.fixed,
+                    "Resuming mid-track no longer comes up underneath a live stream. Pressing "
+                    + "play from anywhere that isn't radio-aware \u{2014} the phone's mini player, "
+                    + "a resume sent over the chat or MCP control surface \u{2014} used to restart "
+                    + "the library without the station noticing."),
+                HelpWhatsNewChange(.improved,
+                    "The phone now follows the Mac for the rest of it too: the play and next "
+                    + "keys on your headphones, lock screen and car drive the station while it "
+                    + "holds the output rather than the queue behind it, and a sleep timer "
+                    + "takes the station off the air along with the music."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.22",
             date: "August 2026",
             highlight: "Lyrics no longer open with a line out of the file's own header, and where that header set a timing offset it is finally used.",

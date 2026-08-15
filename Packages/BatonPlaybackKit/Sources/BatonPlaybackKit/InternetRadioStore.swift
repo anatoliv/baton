@@ -53,7 +53,7 @@ public final class InternetRadioStore {
     /// The raw-stream player for the on-air station (separate from the library transport).
     public let engine = RadioPlaybackEngine()
 
-    /// The library player to duck while a station is on the air — set by `MusicModel`.
+    /// The library player to duck while a station is on the air — set by `bind(to:)`.
     @ObservationIgnored public weak var duckController: StreamingPlaybackController?
 
     /// The order the Radio screen is currently showing (its filter + sort). The bottom bar's
@@ -109,6 +109,37 @@ public final class InternetRadioStore {
         engine.onError = { [weak self] message in
             self?.duckController?.postToast(message, symbol: "wifi.slash")
         }
+    }
+
+    /// Connect the station engine to the library transport — the whole relationship between
+    /// the two, in one call.
+    ///
+    /// A station and the library queue are two engines sharing one pair of speakers, so they
+    /// have to agree about who has them: the library ducks while a station is on the air, a
+    /// media key that arrives during a broadcast drives the station rather than resuming the
+    /// library underneath it, and a library track starting takes the output back.
+    ///
+    /// It lives here rather than in each app's composition root because it used to live in
+    /// both: the Mac wired all of it, the phone wired only the duck, and the phone would
+    /// happily play a station and a track at the same time.
+    public func bind(to controller: StreamingPlaybackController) {
+        duckController = controller
+        controller.radioIsOnAir = { [weak self] in self?.onAirStation != nil }
+        controller.radioRemote = .init(
+            play: { [weak self] in
+                guard let self, let station = onAirStation, !isPlaying(station) else { return }
+                play(station)
+            },
+            // A live stream has no "where we left off", so leaving the air is the honest
+            // reading of pause — and it is what the library takes the output back with.
+            pause: { [weak self] in self?.stop() },
+            toggle: { [weak self] in
+                guard let self, let station = onAirStation else { return }
+                toggle(station)
+            },
+            next: { [weak self] in self?.playAdjacent(1) },
+            previous: { [weak self] in self?.playAdjacent(-1) }
+        )
     }
 
     public var onAirStation: NavidromeRadioStation? { engine.currentStation }

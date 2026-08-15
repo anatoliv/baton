@@ -130,8 +130,9 @@ final class MusicModel {
         scrobbler.isPodcast = { [podcastProgress] song in
             MusicModel.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id)
         }
-        // Radio ducks the library transport while a station is on the air.
-        internetRadio.duckController = music
+        // Radio ducks the library transport while a station is on the air, routes the media
+        // keys while it holds the output, and gives it back when a library track starts.
+        internetRadio.bind(to: music)
         // A spoken summary ducks the library transport so it's audible over the music.
         speechDucker = ControllerSpeechDucker(controller: music)
         speech.ducking = speechDucker
@@ -155,17 +156,6 @@ final class MusicModel {
         // where the user left off. After wire() so track-start side effects are connected;
         // restoreQueue itself never auto-plays.
         music.restoreQueue()
-        // Route media-key / Now Playing commands to the radio when a station is on air, so a
-        // play/next key drives the radio instead of resuming the library player over the live
-        // stream (double audio).
-        music.radioIsOnAir = { [internetRadio] in internetRadio.onAirStation != nil }
-        music.radioRemote = .init(
-            play: { [internetRadio] in if let s = internetRadio.onAirStation, !internetRadio.isPlaying(s) { internetRadio.play(s) } },
-            pause: { [internetRadio] in internetRadio.stop() },
-            toggle: { [internetRadio] in if let s = internetRadio.onAirStation { internetRadio.toggle(s) } },
-            next: { [internetRadio] in internetRadio.playAdjacent(1) },
-            previous: { [internetRadio] in internetRadio.playAdjacent(-1) }
-        )
     }
 
     /// The active Navidrome server changed. Subsonic ids are per-server, so the transport queue,
@@ -226,11 +216,9 @@ final class MusicModel {
             musicRadioBans.filtered(await musicLibrary.similarSongs(seedID: song.id))
         }
         // Log every track start to history + ping "now playing" to the scrobblers.
-        // Starting a library track also stops any on-air internet-radio station so the two
-        // transports stay mutually exclusive — and the bottom bar reverts from the radio
-        // view back to the normal library player.
-        music.onTrackStarted = { [weak self, scrobbler, internetRadio, music] song in
-            internetRadio.stop()
+        // Stopping an on-air station is the transport's own rule now (`stopOnAirStation`),
+        // so both apps get it — this hook only has to do the bookkeeping.
+        music.onTrackStarted = { [weak self, scrobbler, music] song in
             scrobbler.nowPlaying(song)
             // Feed the now-playing bars. The live tap only works for file-based items —
             // HTTP-streamed items never invoke it (platform behaviour) — so streamed
@@ -293,8 +281,6 @@ final class MusicModel {
                 MusicDownloadStore.shared.delete(song.id)
             }
         }
-        // A fixed-time sleep timer stops internet radio too (it plays on a separate engine).
-        music.onSleepFire = { [internetRadio] in internetRadio.stop() }
         // Cross-device handoff: save the queue server-side whenever playback pauses, so
         // the iPhone can offer "continue where you left off" mid-track (and vice versa).
         music.onPause = { [queueHandoff] in
