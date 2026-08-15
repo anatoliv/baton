@@ -234,6 +234,17 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.44",
+            date: "August 2026",
+            highlight: "Settings now tells you whether each service is actually answering, rather than only what you typed into it.",
+            changes: [
+                .init(.added, "The transcription host is checked. The address just sat there before, with nothing on the phone able to say whether anything was listening at it, so the first sign of a wrong one was a podcast that never transcribed. It is asked when you open Settings and again whenever you tap the row."),
+                .init(.fixed, "Scrobbling showed a green tick for anything at all in the ListenBrainz token field. A token with a character missing looked exactly like a working account, and the only place the difference appeared was a profile page with no listens on it. Baton now asks ListenBrainz whether the token is real. Last.fm is asked too, which catches a session you revoked from their own settings page \u{2014} that used to go on reading as connected while every scrobble was refused."),
+                .init(.improved, "A refused password and a server that is not there now read differently, everywhere a connection is shown. They need different things from you: one is a credential to paste again, the other is a network to go and look at."),
+                .init(.fixed, "Transcribing a song works again. The last release stopped asking the recogniser to skip non-speech audio when the track was music, and on one recogniser that turned a four-minute song into hundreds of repetitions of the word I, which Baton then discarded, leaving a track full of vocals reported as having no speech in it."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.43",
             date: "August 2026",
             highlight: "You can add a discovery key on the phone at last, and pick which services get asked.",
