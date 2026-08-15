@@ -234,6 +234,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0",
+            date: "August 2026",
+            highlight: "Baton arrives on the App Store.",
+            changes: [
+                .init(.added, "This is the same app the TestFlight builds have been, now generally available. Version 1.0 marks the App Store debut, not a rewrite \u{2014} everything the 0.3 line learned is in here."),
+                .init(.added, "A privacy policy you can read from inside the app: Settings \u{2192} Privacy Policy. The short version has always been the whole app: no accounts, no analytics, nothing phones home, and every switch that could send data anywhere starts off."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.47",
             date: "August 2026",
             highlight: "A station and a track can no longer play at the same time.",
