@@ -234,6 +234,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.45",
+            date: "August 2026",
+            highlight: "Transcripts are reachable on every track, not only podcast episodes.",
+            changes: [
+                .init(.fixed, "The Transcript button on the player was hidden for anything that wasn't a podcast episode, so on the phone the feature simply did not exist for the music in your library, and there was no way to find out otherwise. It is shown for everything now, as the Mac's Transcript panel always has been. Nothing starts a transcription on its own, so the button was never the expensive part."),
+                .init(.improved, "The transcript sheet says what it is looking at before it offers. On a song it now reads that this isn't spoken-word audio and that you can still transcribe it, rather than offering to transcribe this episode."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.44",
             date: "August 2026",
             highlight: "Settings now tells you whether each service is actually answering, rather than only what you typed into it.",

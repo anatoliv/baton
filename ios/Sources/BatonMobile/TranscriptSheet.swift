@@ -218,17 +218,29 @@ struct TranscriptSheet: View {
             + "find. For the words to a song, try Lyrics instead."
     }
 
+    /// Says what this track is before offering to transcribe it, the same way the Mac's panel
+    /// does. The sheet is reachable from every track now, so "transcribe this episode" would
+    /// be wrong copy most of the time it is read.
     private var offer: some View {
-        ContentUnavailableView {
-            Label("No transcript yet", systemImage: "text.viewfinder")
+        let isSpokenWord = TranscriptionCoordinator.isOfferedAutomatically(for: song)
+        return ContentUnavailableView {
+            Label(isSpokenWord ? "No transcript yet" : "This isn't spoken-word audio",
+                  systemImage: "text.viewfinder")
         } description: {
-            Text(SpeechConfig.isTranscriptionConfigured
-                ? "Transcribe this episode to read along and jump to any moment."
-                : "Set a transcription host in Settings → Speech first.")
+            Text(transcriptionOfferDetail(isSpokenWord: isSpokenWord))
         } actions: {
             Button("Transcribe") { Task { await transcribe() } }
                 .disabled(!SpeechConfig.isTranscriptionConfigured)
         }
+    }
+
+    private func transcriptionOfferDetail(isSpokenWord: Bool) -> String {
+        guard SpeechConfig.isTranscriptionConfigured else {
+            return "Set a transcription host in Settings → Transcription first."
+        }
+        return isSpokenWord
+            ? "Transcribe this episode to read along and jump to any moment."
+            : "You can still transcribe it, but music usually has lyrics rather than speech."
     }
 
     // MARK: - Helpers

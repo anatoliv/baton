@@ -637,15 +637,18 @@ struct FullPlayerView: View {
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Lyrics")
 
-            // Only for spoken-word audio. A transcribe button on every song would invite
-            // someone to spend a GPU-hour discovering a synth record has no words in it.
-            if TranscriptionCoordinator.isOfferedAutomatically(for: song) {
-                Button { showsTranscript = true } label: {
-                    Image(systemName: "text.viewfinder").foregroundStyle(.white.opacity(0.6))
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel("Transcript")
+            // Shown for everything, as the Mac's Transcript panel always has been. Hiding it
+            // on anything that wasn't a podcast episode was meant to stop someone spending a
+            // GPU pass to learn that a synth record has no words in it — but nothing here
+            // starts a transcription on its own, so the cost was never in the button. What it
+            // actually did was make the feature unreachable on the phone for every song in
+            // the library, with no way to find out it existed. The sheet still says plainly
+            // that this isn't spoken-word audio before offering to do it anyway.
+            Button { showsTranscript = true } label: {
+                Image(systemName: "text.viewfinder").foregroundStyle(.white.opacity(0.6))
             }
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("Transcript")
 
             // The Mac's player has three panels — Up Next, Lyrics, Related. The phone had
             // the first two. The similarity data was already being fetched here, but only
