@@ -124,14 +124,34 @@ struct MobileSettingsView: View {
                     .onSubmit { Task { await checkWhisper() } }
                 }
             }
+            // Which model, and why the phone needs the field the Mac has always had.
+            //
+            // Without it this device asked every host for `whisper-1` — the OpenAI-compatible
+            // default — while the Mac asked the same host for the large turbo model it was
+            // configured with. A server that maps `whisper-1` onto whatever it loaded first
+            // then answers the phone with a smaller model, and the same episode transcribes
+            // visibly worse on iPhone than on the Mac for no reason anybody could see from
+            // this screen.
+            LabeledContent("Model") {
+                TextField("whisper-1", text: Binding(
+                    get: { SpeechConfig.whisperModel },
+                    set: { SpeechConfig.whisperModel = $0.trimmingCharacters(in: .whitespaces) }
+                ))
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            }
             // The phone had no way at all to find out whether the host it was pointed at
             // answers — the address just sat there, and the first sign of a wrong one was a
-            // podcast that never transcribed.
+            // podcast that never transcribed. The status row lists what the host has, which
+            // is also where the model name above is meant to come from.
             ServiceStatusRow(status: whisperStatus) { Task { await checkWhisper() } }
             SettingsFooter(
                 text: "Reads a podcast episode back to you as text, with every line tappable to "
                     + "seek, and can summarize it into timestamped sections. The audio is uploaded "
-                    + "to the server above, so it stays off until you set one.",
+                    + "to the server above, so it stays off until you set one. Songs work too, "
+                    + "though how well depends almost entirely on the recognizer: WhisperX reads "
+                    + "sung vocals, plain faster-whisper mostly does not.",
                 topic: SettingsHelpTopic.transcription,
                 onOpenHelp: { showsHelp = true }
             )

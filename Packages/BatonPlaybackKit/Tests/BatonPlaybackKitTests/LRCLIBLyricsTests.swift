@@ -20,14 +20,21 @@ final class LRCLIBLyricsTests: XCTestCase {
     }
 
     /// `[ar: …]`, `[length: …]` and friends are metadata. Rendering them as the first two
-    /// lines of a song is the classic LRC parsing bug.
+    /// lines of a song is the classic LRC parsing bug — and it is what a real sheet did, so
+    /// this is asserted on what callers actually get.
+    ///
+    /// `parseLRC` itself now carries the header one stage further on purpose: `[offset:]` is
+    /// a real timing correction and dropping it here threw it away with the rest. The header
+    /// is read and removed by `normalizingLRCMetadata()`, which `lyrics(synced:plain:)`
+    /// applies. See `LyricsMetadataTests`.
     func testMetadataTagsAreNotLyrics() throws {
-        let lines = try XCTUnwrap(LRCLIBLyrics.parseLRC("""
+        let lyrics = try XCTUnwrap(LRCLIBLyrics.lyrics(synced: """
         [ar:Some Artist]
         [length:03:21]
         [00:10.00]Actual words
-        """))
-        XCTAssertEqual(lines.map(\.text), ["Actual words"])
+        """, plain: nil))
+        XCTAssertEqual(lyrics.lines.map(\.text), ["Actual words"])
+        XCTAssertTrue(lyrics.synced)
     }
 
     func testPlainLyricsAreUsedWhenThereAreNoSyncedOnes() throws {

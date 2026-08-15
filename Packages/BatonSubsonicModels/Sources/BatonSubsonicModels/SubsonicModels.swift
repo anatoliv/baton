@@ -391,6 +391,65 @@ public struct NavidromeLyrics: Equatable, Sendable {
         self.synced = synced
         self.lines = lines
     }
+
+    // MARK: - LRC metadata
+
+    /// The tags an LRC file carries about itself rather than about the song.
+    ///
+    /// `[ar:]` artist, `[ti:]` title, `[al:]` album, `[au:]` author, `[by:]` transcriber,
+    /// `[re:]`/`[ve:]`/`[tool:]` the editor that wrote it, `[length:]` the running time, and
+    /// `[offset:]` a global timing shift in **milliseconds**.
+    private static let metadataKeys: Set<String> = [
+        "ar", "ti", "al", "au", "by", "re", "ve", "tool", "length", "offset", "id", "#",
+    ]
+
+    /// Splits `[key:value]` into its parts, or nil when the line is ordinary lyric text.
+    ///
+    /// Only a whole line counts. A lyric that happens to contain a bracket mid-sentence is
+    /// not metadata, and neither is `[Chorus]`, which has no colon and is a real thing people
+    /// write in lyric sheets.
+    public static func metadataTag(in text: String) -> (key: String, value: String)? {
+        let line = text.trimmingCharacters(in: .whitespaces)
+        guard line.hasPrefix("["), line.hasSuffix("]"), line.count > 2 else { return nil }
+        let inner = line.dropFirst().dropLast()
+        guard let colon = inner.firstIndex(of: ":") else { return nil }
+        let key = inner[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+        guard metadataKeys.contains(key) else { return nil }
+        return (key, inner[inner.index(after: colon)...].trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Drops the LRC header tags and applies `[offset:]` to any timings.
+    ///
+    /// Servers hand back whatever is embedded in the file. Navidrome's `getLyricsBySongId`
+    /// splits an LRC blob into lines and reports the header as lines like any other, so
+    /// "Riders on the Storm" opened with `[offset:-47682]` sitting above the first verse —
+    /// a piece of the file's plumbing presented as something the song says. LRCLIB's own
+    /// synced parser already skipped these; nothing did for plain lyrics or for a server's.
+    ///
+    /// The offset is in milliseconds and is signed the way LRC defines it: a *negative*
+    /// value means the words come earlier, so it is subtracted. Applied here rather than at
+    /// display time because a stripped-but-unapplied offset silently loses a real timing
+    /// correction — and this one was 47 seconds.
+    public func normalizingLRCMetadata() -> NavidromeLyrics {
+        var offset = 0.0
+        var kept: [Line] = []
+        for line in lines {
+            if let tag = Self.metadataTag(in: line.text) {
+                if tag.key == "offset", let milliseconds = Double(tag.value) {
+                    offset = milliseconds / 1000
+                }
+                continue
+            }
+            kept.append(line)
+        }
+        guard offset != 0 else { return NavidromeLyrics(synced: synced, lines: kept) }
+        return NavidromeLyrics(
+            synced: synced,
+            // Clamped at zero: a large negative offset can push the opening lines before the
+            // start of the track, and a line that wants to highlight at -3 s never highlights.
+            lines: kept.map { Line(start: $0.start.map { max(0, $0 - offset) }, text: $0.text) }
+        )
+    }
 }
 
 /// A search artist hit.

@@ -299,12 +299,19 @@ public enum LRCLIBLyrics {
 
     static func lyrics(synced: String?, plain: String?) -> NavidromeLyrics? {
         if let synced, !synced.isEmpty, let parsed = parseLRC(synced), !parsed.isEmpty {
-            return NavidromeLyrics(synced: true, lines: parsed)
+            // Normalized after parsing, not during: `parseLRC` passes the header through so
+            // `[offset:]` survives long enough to be applied, and this is where it is read
+            // and the header removed. A file that was *only* a header leaves nothing behind,
+            // so fall through to the plain lyrics rather than returning an empty sheet.
+            let lyrics = NavidromeLyrics(synced: true, lines: parsed).normalizingLRCMetadata()
+            if !lyrics.isEmpty { return lyrics }
         }
         if let plain, !plain.isEmpty {
             let lines = plain.split(separator: "\n", omittingEmptySubsequences: false)
                 .map { NavidromeLyrics.Line(text: String($0)) }
-            return NavidromeLyrics(synced: false, lines: lines)
+            // Plain lyrics were never filtered at all, so an LRC header pasted into the
+            // plain field was shown verbatim as the opening lines of the song.
+            return NavidromeLyrics(synced: false, lines: lines).normalizingLRCMetadata()
         }
         return nil
     }
@@ -325,8 +332,15 @@ public enum LRCLIBLyrics {
             }
             let stamp = String(text[text.index(after: text.startIndex) ..< close])
             let body = String(text[text.index(after: close)...]).trimmingCharacters(in: .whitespaces)
-            // `[ar: …]`, `[length: …]` and friends are metadata, not lines.
-            guard let seconds = seconds(fromLRCStamp: stamp) else { continue }
+            guard let seconds = seconds(fromLRCStamp: stamp) else {
+                // `[ar: …]`, `[length: …]` and friends are metadata, not lines. They are
+                // passed through rather than dropped here so `normalizingLRCMetadata()` can
+                // read `[offset:]` — dropping the header on the way past also discarded a
+                // real timing correction, which on one file was 47 seconds. Anything that
+                // is neither a stamp nor a known tag still disappears, as it always did.
+                if NavidromeLyrics.metadataTag(in: text) != nil { out.append(.init(text: text)) }
+                continue
+            }
             out.append(.init(start: seconds, text: body))
         }
         return out.isEmpty ? nil : out
