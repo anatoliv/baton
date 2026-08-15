@@ -234,6 +234,16 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.3.46",
+            date: "August 2026",
+            highlight: "Lyrics stop showing the file's own header, and the phone can pick its transcription model.",
+            changes: [
+                .init(.fixed, "A lyric sheet no longer opens with a line like [offset:-47682]. That is the header an LRC file carries about itself, and your server hands it over with everything else, so it was being shown as though the song said it. It is removed now \u{2014} and where it sets a timing offset, that offset is applied to the scroll-along instead of being thrown away with it. One file's was 47 seconds."),
+                .init(.added, "Settings, Transcription has a Model field. Without it the phone asked every host for whisper-1 while your Mac asked the same host for the model you actually configured, so a server that maps whisper-1 onto whatever it loaded first answered the phone with a smaller one, and the same episode came out visibly worse here than on the Mac."),
+                .init(.improved, "The transcription footer says what actually decides quality on a song: WhisperX reads sung vocals, plain faster-whisper mostly does not."),
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.45",
             date: "August 2026",
             highlight: "Transcripts are reachable on every track, not only podcast episodes.",

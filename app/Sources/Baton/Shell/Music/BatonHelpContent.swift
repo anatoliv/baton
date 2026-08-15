@@ -295,6 +295,25 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.22",
+            date: "August 2026",
+            highlight: "Lyrics no longer open with a line out of the file's own header, and where that header set a timing offset it is finally used.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "A lyric sheet could open with a line like [offset:-47682] above the first "
+                    + "verse. That is part of the header an LRC file carries about itself, "
+                    + "alongside the artist and the running time, and your server hands it "
+                    + "over with everything else, so Baton showed it as though the song said "
+                    + "it. The header is removed now. Section markers you actually wrote, like "
+                    + "[Chorus], are left alone."),
+                HelpWhatsNewChange(.improved,
+                    "Where that header sets a timing offset, the offset is now applied to the "
+                    + "scroll-along instead of being thrown away with the rest of the header. "
+                    + "On the file that prompted this it was 47 seconds, which is the "
+                    + "difference between lyrics that follow the song and lyrics that do not."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.21",
             date: "August 2026",
             highlight: "Every service you can configure now tells you whether it is actually answering, and a song transcribes to its lyric again.",

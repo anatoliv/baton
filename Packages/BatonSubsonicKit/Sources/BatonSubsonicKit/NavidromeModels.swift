@@ -393,10 +393,13 @@ public struct LyricsListWire: Decodable {
     /// The first (typically only) lyric set → domain, or nil if none.
     public func toDomain() -> NavidromeLyrics? {
         guard let first = structuredLyrics?.first, let lines = first.line, !lines.isEmpty else { return nil }
+        // The server reports whatever is embedded in the file, header and all: an LRC blob
+        // arrives split into lines, so `[offset:-47682]` came back as a line and was shown
+        // above the first verse. Strip the header here, where every server's lyrics pass.
         return NavidromeLyrics(
             synced: first.synced ?? false,
             lines: lines.map { NavidromeLyrics.Line(start: $0.start.map { Double($0) / 1000 }, text: $0.value ?? "") }
-        )
+        ).normalizingLRCMetadata()
     }
 }
 
