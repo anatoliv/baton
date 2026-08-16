@@ -9,7 +9,7 @@ import XCTest
 /// equals the proof key.
 final class DevicePairingTests: XCTestCase {
     private func invitation() -> DevicePairing.Invitation {
-        .make(host: "192.168.3.26", port: 54_321)
+        .make(host: "192.0.2.26", port: 54_321)
     }
 
     // MARK: - Round trip

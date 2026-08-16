@@ -33,3 +33,11 @@ ios/DemoSource/
 # Python bytecode from the demo-audio scripts
 __pycache__/
 *.pyc
+
+# Generated code-knowledge-graph output (86 MB and growing). Regenerated on demand by
+# graphify, so it is derived, not source. It was ignored only via .git/info/exclude,
+# which is local to one checkout and not version-controlled — a fresh clone anywhere
+# else had nothing stopping `git add -A` from committing the whole thing.
+graphify-out/
+graphify-out-*/
+.graphifyignore
