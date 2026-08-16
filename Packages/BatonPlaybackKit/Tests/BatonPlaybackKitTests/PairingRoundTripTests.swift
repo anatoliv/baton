@@ -30,7 +30,7 @@ final class PairingRoundTripTests: XCTestCase {
         defaults.set(true, forKey: "tonebox.navidrome.autoplay")
         defaults.set(2.5, forKey: "tonebox.navidrome.crossfade")
 
-        let invitation = DevicePairing.Invitation.make(host: "192.168.4.21", port: 51_000)
+        let invitation = DevicePairing.Invitation.make(host: "192.0.2.26", port: 51_000)
 
         // Mac side. Goes through DevicePairing.makePayload, which is the only supported
         // way to build one — see the encryption guard below for why that matters.
