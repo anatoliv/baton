@@ -249,6 +249,11 @@ for runtime, entries in devices.items():
 
   if [ -n "$WATCH_SIM" ]; then
     bold "==> Building Watch app"
+    # Generate the Watch project the same way the Mac and iPhone ones are generated
+    # above. The .xcodeproj is gitignored, so on a fresh clone it does not exist and
+    # this step failed with "watch/BatonWatch.xcodeproj does not exist" — invisible on
+    # a machine where an earlier run had left one behind.
+    ( cd watch && xcodegen generate >/dev/null )
     WATCH_LOG="$(mktemp -t baton-watch-build.XXXXXX).log"
     set +e
     xcodebuild build \

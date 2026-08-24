@@ -157,6 +157,20 @@ public final class EnginePlaybackController {
     @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var stallWatchdog: Task<Void, Never>?
 
+    /// The other half of stall detection: `isBuffering` covers a deck with no data, this
+    /// covers a deck with data that nothing is rendering. See `PlayheadStallDetector` for
+    /// why the two cannot be one check.
+    @ObservationIgnored private var playheadStall = PlayheadStallDetector()
+    /// Consecutive playhead recoveries with no healthy stretch of playback between them.
+    /// Bounded for the same reason the retry ladder is: a recovery that does not recover
+    /// has to escalate rather than loop.
+    @ObservationIgnored private var playheadRecoveries = 0
+    /// Restarting the I/O is cheap and re-anchors from the spool, so a couple of attempts
+    /// are worth making before falling through to the ladder that re-requests the stream.
+    static let maxPlayheadRecoveries = 3
+    /// The clock's own period, named because the stall detector accumulates in it.
+    static let clockInterval: TimeInterval = 0.25
+
     /// Consecutive same-track retries. Cleared by *playing*, not by reaching `.playing` —
     /// see `clockTick`.
     @ObservationIgnored private var sameTrackRetries = 0
@@ -574,6 +588,8 @@ public final class EnginePlaybackController {
         currentTime = clamped
         duration = track.duration
         finishedScheduling = false
+        // The deck timeline restarts here, so the next reading is a baseline, not a verdict.
+        playheadStall.reset()
         state = autoplay ? .loading : .paused
         isBuffering = autoplay
 
@@ -849,7 +865,7 @@ public final class EnginePlaybackController {
         clockTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 self?.clockTick()
-                try? await Task.sleep(for: .milliseconds(250))
+                try? await Task.sleep(for: .seconds(Self.clockInterval))
             }
         }
     }
@@ -876,13 +892,61 @@ public final class EnginePlaybackController {
         if episodeRetries > 0, renderedThisLoad >= Self.episodeResetDwellSeconds {
             episodeRetries = 0
         }
+        // Cleared by *playing*, on the same principle as the ladder above: a restart that
+        // bought a healthy stretch of audio worked, and the next stall is a new one.
+        if playheadRecoveries > 0, renderedThisLoad >= Self.retryResetDwellSeconds {
+            playheadRecoveries = 0
+        }
         // Buffering: intending to play, nothing left scheduled, and the track isn't
         // fully scheduled — the deck has genuinely run dry.
-        let dry = pipeline.aheadSeconds(on: activeDeck) <= 0 && !finishedScheduling
+        let ahead = pipeline.aheadSeconds(on: activeDeck)
+        let dry = ahead <= 0 && !finishedScheduling
         if dry != isBuffering {
             isBuffering = dry
             if dry { armStallWatchdog() } else { cancelStallWatchdog() }
         }
+
+        // The complementary failure, which the check above structurally cannot see: audio
+        // *is* queued and the playhead still is not moving. Every term in `dry` is about
+        // data, so a wedged AUHAL reads as perfectly healthy there — see
+        // `PlayheadStallDetector` for the overnight-sleep case that motivated this.
+        guard pipeline.isSelfDriven else { return }
+        if playheadStall.observe(playedFrames: pipeline.playedFrames(on: activeDeck),
+                                 hasQueuedAudio: ahead > 0,
+                                 intendsToPlay: state == .playing && !isBuffering,
+                                 elapsed: Self.clockInterval) {
+            recoverFromPlayheadStall()
+        }
+    }
+
+    /// Audio is queued, the transport intends to play, and nothing is rendering.
+    ///
+    /// The ladder mirrors `handleLoadFailure`'s shape rather than inventing a second one:
+    /// try the cheap local fix a bounded number of times, then hand over to the recovery
+    /// that re-requests the stream. Restarting the I/O and re-feeding from the spool costs
+    /// no network at all, which is why it goes first.
+    private func recoverFromPlayheadStall() {
+        playheadStall.reset()
+        guard playheadRecoveries < Self.maxPlayheadRecoveries else {
+            engineLog.error("engine: playhead still frozen after \(Self.maxPlayheadRecoveries) I/O restarts — falling through to the retry ladder")
+            playheadRecoveries = 0
+            handleLoadFailure("Playback stopped responding.", generation: loadGeneration)
+            return
+        }
+        playheadRecoveries += 1
+        let queued = Int(pipeline.aheadSeconds(on: activeDeck))
+        engineLog.error("engine: playhead frozen at \(Int(self.currentTime))s with \(queued)s queued — restarting I/O (attempt \(self.playheadRecoveries))")
+        guard pipeline.restartIO() else {
+            playheadRecoveries = 0
+            handleLoadFailure("Playback stopped responding.", generation: loadGeneration)
+            return
+        }
+        // `restartIO` zeroed the deck's played-frame count, and the re-anchor below is
+        // async (it asks the spool what it holds). Re-anchor the track clock *now* so the
+        // scrubber holds its position in between instead of reading `-anchorFrames`.
+        anchorFrames = 0
+        clockBase = currentTime
+        reanchorAfterGraphRestart()
     }
 
     /// Same policy as the old engine's watchdog: a stall that outlives the timeout is
@@ -976,6 +1040,8 @@ public final class EnginePlaybackController {
         teardownDeck(.b)
         isBuffering = false
         finishedScheduling = false
+        playheadStall.reset()
+        playheadRecoveries = 0
     }
 }
 

@@ -41,3 +41,13 @@ __pycache__/
 graphify-out/
 graphify-out-*/
 .graphifyignore
+
+# Store-art tooling (tools/storeart). The artwork IS committed, in both forms: the
+# PNG masters exactly as the image API returned them (out/*.png) and JPEG copies
+# (covers/*.jpg) for quick browsing and for build_library.py. That duplication is
+# deliberate — the same prompt yields a different picture every time, so these cannot
+# be regenerated and the committed copy is the only master there will ever be.
+# Regenerable things stay out: the contact sheet, and the 615 MB music library, which
+# lives outside the tree at ~/.baton-storeart. Captures land in shots/ and are uploaded
+# to App Store Connect, so they are kept too.
+tools/storeart/out/contact-sheet.jpg

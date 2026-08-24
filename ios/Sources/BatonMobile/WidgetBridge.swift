@@ -112,6 +112,28 @@ enum WidgetBridge {
 
     @MainActor private static var activity: Activity<NowPlayingActivityAttributes>?
 
+    // ActivityKit's `end` and `update` are nonisolated, while `activity` above is
+    // main-actor isolated. Handing that handle straight to a `Task` sends a main-actor
+    // value into the nonisolated domain, which Swift 6.3 rejects and 6.2 allowed.
+    //
+    // So send the id instead — a String, and Sendable — and look the handle up again on
+    // the other side. That is the same mechanism the orphan adoption below already
+    // relies on: `Activity.activities` is the source of truth for what is running, and
+    // it is readable from any isolation domain.
+    private nonisolated static func endActivity(id: String) async {
+        guard let activity = Activity<NowPlayingActivityAttributes>.activities
+            .first(where: { $0.id == id }) else { return }
+        await activity.end(nil, dismissalPolicy: .immediate)
+    }
+
+    private nonisolated static func updateActivity(
+        id: String, state: NowPlayingActivityAttributes.ContentState
+    ) async {
+        guard let activity = Activity<NowPlayingActivityAttributes>.activities
+            .first(where: { $0.id == id }) else { return }
+        await activity.update(ActivityContent(state: state, staleDate: nil))
+    }
+
     /// Starts/updates/ends the Lock Screen activity to mirror the player. Ending on
     /// nil keeps a stale island from outliving playback.
     @MainActor
@@ -121,7 +143,8 @@ enum WidgetBridge {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard let song else {
             if let running = activity {
-                Task { await running.end(nil, dismissalPolicy: .immediate) }
+                let id = running.id
+                Task { await endActivity(id: id) }
                 activity = nil
             }
             return
@@ -144,12 +167,14 @@ enum WidgetBridge {
             let alreadyRunning = Activity<NowPlayingActivityAttributes>.activities
             activity = alreadyRunning.first
             for orphan in alreadyRunning.dropFirst() {
-                Task { await orphan.end(nil, dismissalPolicy: .immediate) }
+                let id = orphan.id
+                Task { await endActivity(id: id) }
             }
         }
 
         if let running = activity {
-            Task { await running.update(ActivityContent(state: state, staleDate: nil)) }
+            let id = running.id
+            Task { await updateActivity(id: id, state: state) }
         } else {
             activity = try? Activity.request(
                 attributes: NowPlayingActivityAttributes(sourceLabel: sourceLabel),

@@ -147,8 +147,23 @@ enum ArtworkColorExtractor {
     }
 
     /// Loads a cover-art URL and extracts its palette (off the main thread).
+    ///
+    /// File URLs are read directly rather than through `URLSession`, which
+    /// does not serve `file://` from a data task — it fails, the palette
+    /// falls back to neutral, and the adaptive backdrop silently stays grey.
+    /// That is not a hypothetical: it is every track in the bundled demo
+    /// library (artwork is `Bundle.main.url(forResource:)`) and any locally
+    /// cached cover, so the headline color-from-artwork feature was dead for
+    /// the whole demo experience — including the one a reviewer sees.
     static func palette(from url: URL) async -> ArtworkPalette? {
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        let data: Data
+        if url.isFileURL {
+            guard let fileData = try? Data(contentsOf: url) else { return nil }
+            data = fileData
+        } else {
+            guard let (loaded, _) = try? await URLSession.shared.data(from: url) else { return nil }
+            data = loaded
+        }
         #if canImport(AppKit)
         guard let image = NSImage(data: data) else { return nil }
         #else

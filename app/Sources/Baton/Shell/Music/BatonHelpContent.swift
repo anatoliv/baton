@@ -295,6 +295,28 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.16.24",
+            date: "August 2026",
+            highlight: "Music that stopped after the Mac slept starts again on its own, instead of showing \u{201C}playing\u{201D} while nothing comes out.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Leaving Baton open overnight could leave it stuck: the transport said it "
+                    + "was playing, the track sat at 0:00, and there was no sound. Pressing "
+                    + "pause and play again did not help, and neither did skipping to another "
+                    + "track \u{2014} only quitting and reopening did. macOS switches off the audio "
+                    + "hardware when the Mac sleeps and does not always tell an app it has done "
+                    + "so, and Baton went on believing it was playing."),
+                HelpWhatsNewChange(.fixed,
+                    "Baton now watches the playhead rather than only the buffer ahead of it. "
+                    + "When audio is ready to play and the position stops moving, it restarts "
+                    + "its audio output and carries on from where it was, using the audio it "
+                    + "had already downloaded rather than fetching it again."),
+                HelpWhatsNewChange(.improved,
+                    "If that recovery cannot get sound flowing again, Baton now says so instead "
+                    + "of sitting silent. A stall it cannot fix is at least one you can see."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.23",
             date: "August 2026",
             highlight: "A radio station and a track can no longer play at the same time \u{2014} on the phone they did, and on the Mac there was one way in.",

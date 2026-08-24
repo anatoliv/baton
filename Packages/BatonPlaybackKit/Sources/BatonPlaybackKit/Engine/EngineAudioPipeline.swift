@@ -338,6 +338,46 @@ public final class EngineAudioPipeline {
     /// invisible to the one thing that exists to notice stalls. The same measurement also
     /// showed why it stayed invisible: a starved player node's clock keeps advancing, so the
     /// playhead moves convincingly over silence.
+    /// True when the engine drives its own I/O from an audio device.
+    ///
+    /// The only mode in which a playhead that stops moving means anything: manual
+    /// (offline) rendering advances the playhead only when a caller pulls frames, so a
+    /// still playhead is its resting state. See `PlayheadStallDetector`.
+    public var isSelfDriven: Bool {
+        if case .device = outputMode { return true }
+        return false
+    }
+
+    /// Force the I/O to restart, whatever the engine currently claims about `isRunning`.
+    ///
+    /// The `isRunning` guard in `play(_:)` recovers an engine that *stopped*. It cannot
+    /// recover one that is **wedged**: a stalled AUHAL goes on reporting `isRunning ==
+    /// true` while its I/O proc never cycles, so every conditional restart in this file is
+    /// a no-op against it and unconditional is the only move left. Measured on a wedged
+    /// 0.16.23: pause/resume did produce a fresh I/O thread, and it too rendered nothing.
+    ///
+    /// Stopping discards whatever the decks had scheduled — `EngineStopFlushTests` measured
+    /// that both ways — so the bookkeeping is cleared here and **the caller must re-anchor**.
+    /// Same contract as `setOutputDevice` and `handleConfigurationChange`, which is why all
+    /// three end the same way.
+    @discardableResult
+    public func restartIO() -> Bool {
+        guard case .device = outputMode else { return false }
+        engine.stop()
+        #if os(macOS)
+        // The engine is stopped, which is the only time this can be changed safely.
+        adoptRenderQuantum()
+        #endif
+        defer { forgetSchedulingAcrossEngineStop() }
+        do {
+            try engine.start()
+        } catch {
+            engineLog.error("engine: forced I/O restart failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        return true
+    }
+
     private func forgetSchedulingAcrossEngineStop() {
         for deck in [DeckID.a, .b] {
             decks[deck]?.scheduledFrames = 0
