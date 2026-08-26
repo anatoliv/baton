@@ -51,3 +51,10 @@ graphify-out-*/
 # lives outside the tree at ~/.baton-storeart. Captures land in shots/ and are uploaded
 # to App Store Connect, so they are kept too.
 tools/storeart/out/contact-sheet.jpg
+
+# AGENTS.md — a byte-identical copy of CLAUDE.md that agent tooling regenerates on its
+# own. It is the internal runbook (deploy host, notary profile, appcast host), so it must
+# not be committed here and must not reach the public mirror. Being untracked is not
+# enough on its own: publish-repo.sh rsyncs the WORKING TREE, so it is excluded there too
+# — and it blocked a release once by making the tree dirty, which publish.sh refuses.
+AGENTS.md
