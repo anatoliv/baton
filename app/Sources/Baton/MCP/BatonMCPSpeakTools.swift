@@ -44,6 +44,7 @@ enum BatonMCPSpeakTools {
                     "engine": ["type": "string", "description": "'kokoro' (default, fast presets) or 'chatterbox' (premium / cloned voice)."],
                     "mode": ["type": "string", "description": "'notify' (default), 'banner', or 'auto'."],
                     "session": ["type": "string", "description": "Short name for the calling agent/session (e.g. 'global-services'). Spoken before the summary when the speaker changes; sticky for this MCP connection. Max 40 chars."],
+                    "prepare": ["type": "string", "description": "Clean the text for the ear before speaking: 'terminal' (strip ANSI and shell prompts, keep the last command's output), 'browser' (drop web boilerplate), or 'generic'. Every option also removes anything shaped like a credential, shortens hashes and URLs, and announces code blocks rather than pronouncing them. Use 'terminal' when the text is command output."],
                 ],
                 "required": ["text"],
             ],
@@ -95,7 +96,24 @@ enum BatonMCPSpeakTools {
         // with the built-in macOS voice so a summary is never silently dropped.
         // What actually gets synthesized: the summary, led by the session name when
         // a different agent spoke last.
-        let spokenText = music.speechLabels.announce(text: text, label: sessionLabel)
+        // Optional cleaning, for callers handing over text scraped off a screen rather than an
+        // authored summary — the `baton-say` CLI, chiefly. Reuses the read-aloud pipeline rather
+        // than growing a second redactor: a shell script cannot be trusted to strip a token, and
+        // two implementations of that would drift.
+        let prepared: String
+        if let profileName = optionalString(args, "prepare") {
+            guard let profile = SpeakableText.SourceProfile(rawValue: profileName.lowercased()) else {
+                throw BatonMCPToolError(message: "Unknown prepare \"\(profileName)\" — use 'terminal', 'browser', or 'generic'.")
+            }
+            let chunks = SpeakableText.prepare(text, profile: profile)
+            guard !chunks.isEmpty else {
+                throw BatonMCPToolError(message: "Nothing speakable was left after cleaning that text.")
+            }
+            prepared = chunks.joined(separator: " ")
+        } else {
+            prepared = text
+        }
+        let spokenText = music.speechLabels.announce(text: prepared, label: sessionLabel)
         let utterance: SpeechPlaybackEngine.Utterance
         var engineUsed = voice.engine.rawValue
         do {
@@ -114,8 +132,12 @@ enum BatonMCPSpeakTools {
         // voice ("engine:voice", or nil when the system-voice fallback was used) so Replay reproduces
         // the same sound.
         let usedFallback = engineUsed.hasPrefix("system")
+        // `prepared`, never the raw `text`. When a caller asks for cleaning, the raw text is
+        // screen scrapings that may carry a credential — and this store persists to disk. A
+        // redactor that protects the speaker but writes the secret to UserDefaults protects
+        // nothing. Found by driving the real app; no unit test covered the history write here.
         music.nowPlayingSummaryID = music.speechHistory.record(
-            text: text,
+            text: prepared,
             voice: usedFallback ? nil : "\(voice.engine.rawValue):\(voice.voice)",
             engine: usedFallback ? "system" : voice.engine.rawValue,
             category: category,
@@ -179,7 +201,11 @@ enum BatonMCPSpeakTools {
 
     /// Write synthesized audio to a temp file so a later confirmation (banner tap / notification
     /// Play action) can play it instantly without re-synthesizing.
-    private static func writeTemp(_ data: Data) throws -> URL {
+    ///
+    /// Internal rather than private because read-aloud stages its chunks the same way, and a
+    /// second staging directory would need a second launch-time sweep to keep it from filling
+    /// up. One directory, one `sweepStaleTempFiles`.
+    static func writeTemp(_ data: Data) throws -> URL {
         let dir = tempDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("\(UUID().uuidString).wav")

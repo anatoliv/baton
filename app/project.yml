@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.16.25"
-    CURRENT_PROJECT_VERSION: "84"
+    MARKETING_VERSION: "0.17.0"
+    CURRENT_PROJECT_VERSION: "85"
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -173,6 +173,27 @@ targets:
         NSMicrophoneUsageDescription: "The microphone lets you talk to your music friend — hold to talk, ask for music."
         NSSpeechRecognitionUsageDescription: "Speech recognition turns what you say into a request for your music friend. On-device where available."
         NSHumanReadableCopyright: "by Tonebox"
+        # Read aloud, tier 0 (specs/read-aloud.md). A Services entry is the ONLY acquisition
+        # path that costs the user no permission at all: the frontmost app puts its selection
+        # on a pasteboard and the system hands it over, so Baton needs neither an Accessibility
+        # nor a Screen Recording grant to speak what you have highlighted. That is why the
+        # global hotkey ships unbound — this already works without one.
+        # NSSendTypes only, no NSReturnTypes: the service consumes text and gives none back.
+        NSServices:
+          - NSMenuItem:
+              default: Speak with Baton
+            NSMessage: speakSelection
+            NSPortName: Baton
+            NSSendTypes: [NSStringPboardType]
+            NSRequiredContext: {}
+          # The gist, rather than the whole thing. A second Services entry rather than a fourth
+          # keyboard chord: three chords is already the ceiling of what anyone will remember.
+          - NSMenuItem:
+              default: Summarize with Baton
+            NSMessage: summarizeSelection
+            NSPortName: Baton
+            NSSendTypes: [NSStringPboardType]
+            NSRequiredContext: {}
         NSHighResolutionCapable: true
         # The `baton://` scheme. The phone has claimed it since its widgets shipped and the
         # Mac never did — so a link that opened the player on an iPhone did nothing at all

@@ -32,6 +32,10 @@ struct BatonApp: App {
     /// Bridges menu-bar commands (Go / Find / Now Playing) into the main window's state.
     @State private var commandRouter = BatonCommandRouter()
 
+    /// Speaks text captured off the screen (Services entry, and later the hotkey). Retained for
+    /// the app's lifetime because it owns the in-flight synthesis task for a reading.
+    @State private var readAloud: ReadAloudCoordinator?
+
     /// Chat remote control (Telegram / Discord). Shares the MCP server's audio-focus
     /// registry and drives the same `BatonMCPToolCatalog`, so a chat message and an
     /// agent call take one code path. Dormant until configured in Settings → Remote.
@@ -105,6 +109,26 @@ struct BatonApp: App {
                     // phone's AppServicesHolder.
                     MacIntentServices.model = music
                     BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips
+                    // Read aloud (specs/read-aloud.md). The Services provider is the
+                    // zero-permission acquisition path — the system hands over another app's
+                    // selection, so this works on first launch with nothing granted and no
+                    // hotkey bound. Registering it is free; nothing runs until someone
+                    // chooses Speak with Baton.
+                    if readAloud == nil {
+                        let coordinator = ReadAloudCoordinator(music: music)
+                        ScreenTextReader.shared.onCapture = { [coordinator] capture in
+                            coordinator.read(capture)
+                        }
+                        NSApp.servicesProvider = ScreenTextReader.shared
+                        // The hotkey routes through the same capture path as the Services
+                        // entry, so both get identical source classification and cleaning.
+                        // `apply()` is a no-op while the key is unbound, which is the default.
+                        ReadAloudHotKey.shared.onSelection = { text in
+                            ScreenTextReader.shared.capture(text, from: NSWorkspace.shared.frontmostApplication)
+                        }
+                        ReadAloudHotKey.shared.apply()
+                        readAloud = coordinator
+                    }
                     if syncScheduler == nil {
                         let scheduler = PreferenceSyncScheduler(model: music)
                         scheduler.start()

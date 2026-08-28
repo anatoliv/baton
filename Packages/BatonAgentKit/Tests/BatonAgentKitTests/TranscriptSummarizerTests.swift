@@ -209,4 +209,41 @@ final class TranscriptSummarizerTests: XCTestCase {
         XCTAssertEqual(TranscriptSummarizer.timestamp(3600), "1:00:00")
         XCTAssertEqual(TranscriptSummarizer.timestamp(3725), "1:02:05")
     }
+
+    // MARK: - Plain-text windows (read aloud, Phase 12)
+
+    /// Screen text has no clock, so it cannot use the transcript windower. It must still honour
+    /// the same character ceiling, which exists so a long document survives a small context.
+    func testShortTextIsOneWindow() {
+        let text = "A short paragraph that comfortably fits inside the budget."
+        XCTAssertEqual(TranscriptSummarizer.textWindows(text), [text])
+    }
+
+    func testLongTextIsCutToTheCeiling() {
+        let paragraph = String(repeating: "This is a sentence of ordinary length. ", count: 400)
+        let windows = TranscriptSummarizer.textWindows(paragraph, maxCharacters: 1000)
+        XCTAssertGreaterThan(windows.count, 1)
+        for window in windows {
+            XCTAssertLessThanOrEqual(window.count, 1000, "a window must not exceed the model budget")
+        }
+    }
+
+    /// Nothing may be dropped on the floor: a summarizer that silently loses the last window
+    /// produces a confident summary of most of the document.
+    func testWindowingLosesNothing() {
+        let text = (1...200).map { "Line \($0) of the document." }.joined(separator: "\n")
+        let rejoined = TranscriptSummarizer.textWindows(text, maxCharacters: 500).joined(separator: "\n")
+        XCTAssertTrue(rejoined.contains("Line 1 of the document."))
+        XCTAssertTrue(rejoined.contains("Line 200 of the document."))
+    }
+
+    /// A single paragraph longer than the whole budget still has to be cut, or the ceiling is
+    /// a suggestion rather than a limit.
+    func testAParagraphLongerThanTheBudgetIsStillCut() {
+        let monolith = String(repeating: "x", count: 5000)
+        let windows = TranscriptSummarizer.textWindows(monolith, maxCharacters: 1000)
+        XCTAssertGreaterThan(windows.count, 1)
+        XCTAssertTrue(windows.allSatisfy { $0.count <= 1000 })
+        XCTAssertEqual(windows.joined().count, 5000, "cutting must not lose characters")
+    }
 }

@@ -33,6 +33,16 @@ struct BatonSpeechPane: View {
     @State private var statusMessage: String?
     @State private var showResetConfirm = false
 
+    // Read aloud (specs/read-aloud.md)
+    @State private var perSourceVoices = ReadAloudSettings.perSourceVoices
+    @State private var allowClipboardFallback = ReadAloudSettings.allowClipboardFallback
+    /// Re-read whenever the pane appears or the app comes forward, because the grant is changed
+    /// in System Settings — outside this app entirely — and a pane that still claims "granted"
+    /// after it was revoked is worse than one that never mentioned it.
+    @State private var accessibilityTrusted = SelectionReader.isTrusted
+    @State private var ocrEnabled = ReadAloudSettings.ocrEnabled
+    @State private var screenRecordingPermitted = ScreenTextOCR.isPermitted
+
     struct VoiceRow: Identifiable, Equatable {
         let id = UUID()
         var category: String
@@ -45,11 +55,17 @@ struct BatonSpeechPane: View {
             hostsSection
             transcriptionSection
             deliverySection
+            readAloudSection
             mapSection
             resetSection
         }
         .formStyle(.grouped)
         .onAppear {
+            // Make `browser` and `terminal` visible in the map below, so enabling per-source
+            // voices needs no typing.
+            ReadAloudSettings.seedVoiceCategoriesIfNeeded()
+            accessibilityTrusted = SelectionReader.isTrusted
+            screenRecordingPermitted = ScreenTextOCR.isPermitted
             loadRows()
             Task { await refreshVoices(.kokoro) }
             Task { await refreshVoices(.chatterbox) }
@@ -71,6 +87,81 @@ struct BatonSpeechPane: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Restores the default category → voice map, the fallback toggle, and delivery preferences. Your server addresses are kept.")
+        }
+    }
+
+    // MARK: - Read aloud
+
+    /// Speaking text from other apps — Chrome, a terminal, anything that vends a selection.
+    /// See `specs/read-aloud.md`; the shipped state is "works with no permission, no shortcut".
+    private var readAloudSection: some View {
+        Section("Read aloud") {
+            LabeledContent("Keyboard shortcut") {
+                ReadAloudHotKeyRecorder()
+            }
+            Text("Speaks whatever is selected in the app you are using. You do not need a shortcut: select text anywhere and choose Services → Speak with Baton, which needs no permission at all.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // The permission state, stated plainly rather than left to fail at use time.
+            LabeledContent("Accessibility") {
+                HStack(spacing: 8) {
+                    Text(accessibilityTrusted ? "Granted" : "Not granted")
+                        .foregroundStyle(accessibilityTrusted ? .secondary : .primary)
+                    if !accessibilityTrusted {
+                        Button("Open System Settings") {
+                            SelectionReader.requestTrust()
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                }
+            }
+            Text(accessibilityTrusted
+                 ? "The shortcut can read your selection from the app you are using. Services works with or without this."
+                 : "Without it the shortcut cannot read your selection. The Services menu item still works.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Use the clipboard when an app will not share its selection", isOn: $allowClipboardFallback)
+                .onChange(of: allowClipboardFallback) { _, v in ReadAloudSettings.allowClipboardFallback = v }
+            Text("Some apps, Chrome among them, do not hand over the selected text directly. Baton can copy it instead and put your clipboard back afterwards. Turn this off if you would rather it never touched the clipboard — the shortcut will then do nothing in those apps.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Use a different voice per app", isOn: $perSourceVoices)
+                .onChange(of: perSourceVoices) { _, v in ReadAloudSettings.perSourceVoices = v }
+            Text("Reads a browser and a terminal in different voices, so you can hear where the text came from. The voices are the \"browser\" and \"terminal\" rows below.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Read a window Baton cannot get text from", isOn: $ocrEnabled)
+                .onChange(of: ocrEnabled) { _, v in
+                    ReadAloudSettings.ocrEnabled = v
+                    ReadAloudHotKey.shared.apply()   // register or drop the Option chord now
+                    if v, !ScreenTextOCR.isPermitted { ScreenTextOCR.requestPermission() }
+                    screenRecordingPermitted = ScreenTextOCR.isPermitted
+                }
+            Text(ocrEnabled
+                 ? (screenRecordingPermitted
+                    ? "Hold Option with your shortcut to capture the window in front and read the words out of the picture: a PDF, an image, a page that shares nothing. Baton captures only when you press it, only that window, and never saves the picture."
+                    : "Needs Screen Recording, which has not been granted. Until it is, holding Option does nothing.")
+                 : "Off. Some things have no text to hand over at all, such as a PDF, an image, or a screen shared from another machine. Turning this on lets Option plus your shortcut photograph the front window and read what it can see. It needs Screen Recording, the largest thing Baton asks for.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if ocrEnabled, !screenRecordingPermitted {
+                Button("Open System Settings") {
+                    ScreenTextOCR.requestPermission()
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+
+            Text("Readings are not saved. They play once and do not appear in Spoken Summaries, and nothing watches your screen — Baton only ever reads what you ask it to, when you ask.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

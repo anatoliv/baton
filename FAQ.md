@@ -375,6 +375,42 @@ works. Self-hosted servers (Kokoro and Chatterbox) get you better and more varie
 voice cloning, and keep the audio on your own network. Setup is in
 [`docs/tts-speak-summary.md`](docs/tts-speak-summary.md).
 
+**Can Baton read things on my screen out loud?**
+Yes. Select text in any app and choose Services → Speak with Baton, or set a keyboard shortcut
+in Settings → Speech → Read aloud. Baton speaks it in the same voices it uses for summaries,
+and ducks your music underneath. It is good for an article you would rather hear than read, or
+for the tail of a long build. See
+[Reading what's on your screen](HELP.md#reading-whats-on-your-screen).
+
+**Does Baton watch my screen?**
+No, and it cannot. Baton has no idea what is on your screen until you select something and ask
+for it. There is no background monitoring and no polling — every reading happens because you
+started it. Readings are not saved either: one plays, and then it is gone.
+
+**Is Read aloud a screen reader?**
+Not in the accessibility sense, and it is not trying to be. VoiceOver reads interfaces, moving
+through buttons and menus, and it does that far better. Read aloud speaks a piece of content
+you have chosen.
+
+**Why does Read aloud need Accessibility permission, and can I avoid it?**
+You can avoid it entirely. Services → Speak with Baton needs no permission at all, because the
+system hands the text over. The permission is only for the *keyboard shortcut*, which has to
+ask the app you are in for what you have selected. Baton asks the first time you press the
+shortcut and explains why.
+
+**Why does my clipboard flicker when I use the shortcut in Chrome?**
+Because Chrome will not hand over the selected text the ordinary way, so Baton copies it,
+reads it, and puts your clipboard back — images and files included. It happens in a fraction
+of a second, though a clipboard manager may still notice. Terminals like Ghostty share their
+selection directly and need none of this. You can switch the fallback off in Settings → Speech
+→ Read aloud, at the cost of the shortcut doing nothing in a browser.
+
+**Will Baton read my API keys out loud?**
+It tries hard not to. Before anything is spoken, Baton strips things shaped like credentials —
+API keys, tokens, bearer headers, private key blocks — and says "a redacted token" instead.
+Terminal output is exactly where such things sit, which is why the check runs on every reading
+rather than only on some. Treat it as a good safety net rather than a guarantee.
+
 ## Your data
 
 **Where does Baton keep my listening history?**

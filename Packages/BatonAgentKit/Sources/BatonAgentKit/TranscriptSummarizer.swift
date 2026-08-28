@@ -231,6 +231,82 @@ public enum TranscriptSummarizer {
     /// One prompt in, one reply out. Deliberately not `RemoteAgent`'s loop: summarizing needs
     /// no tools, no memory, and no multi-turn browsing, and reusing the loop would drag all
     /// three into a job that is a single completion.
+    // MARK: - Plain text
+
+    /// Summarize plain text that has no timestamps — a web page, a terminal buffer, anything
+    /// read off the screen.
+    ///
+    /// Shares this type's guards, prompts and request path with the transcript summarizer
+    /// rather than growing a second one beside it. What it cannot share is the windowing:
+    /// `chunks(from:)` cuts on the clock, and screen text has no clock, so it cuts on characters
+    /// with the same ceiling that exists so a long document survives a small context.
+    public static func summarize(
+        text: String,
+        config: RemoteControlSettings.NaturalLanguageConfig,
+        consented: Bool = false,
+        maxCharacters: Int = defaultMaxCharacters,
+        session: URLSession = .shared
+    ) async throws -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw SummaryError(message: "There's nothing to summarize.")
+        }
+        guard config.isEnabled, !config.baseURL.isEmpty else {
+            throw SummaryError(message: "No summarizing model is configured. Set one up in Settings → Remote.")
+        }
+        guard isLocalEndpoint(config) || consented else {
+            throw SummaryError(
+                message: "Summarizing sends the text to \(config.baseURL), which isn't on your network. "
+                    + "Point the model at a host on your LAN, or agree to send it.",
+                needsConsent: true
+            )
+        }
+
+        let windows = textWindows(trimmed, maxCharacters: maxCharacters)
+        summarizerLog.info("summarizing \(windows.count) text window(s)")
+
+        // One window is the common case for a selection: summarize it directly rather than
+        // running a reduce pass over a single section, which would cost a second round trip to
+        // restate what the first one already said.
+        if windows.count == 1 {
+            return try await complete(system: Self.sectionSystemPrompt, user: windows[0], config: config, session: session)
+        }
+        var sections: [String] = []
+        for window in windows {
+            sections.append(try await complete(system: Self.sectionSystemPrompt, user: window, config: config, session: session))
+        }
+        return try await complete(
+            system: Self.sectionSystemPrompt,
+            user: "Summarize these notes into a few sentences:\n\n" + sections.joined(separator: "\n\n"),
+            config: config,
+            session: session
+        )
+    }
+
+    /// Cut plain text into model-sized windows, preferring paragraph then sentence boundaries so
+    /// a window does not begin mid-clause.
+    public static func textWindows(_ text: String, maxCharacters: Int = defaultMaxCharacters) -> [String] {
+        guard text.count > maxCharacters else { return [text] }
+        var windows: [String] = []
+        var current = ""
+        for paragraph in text.components(separatedBy: "\n") {
+            if current.count + paragraph.count + 1 > maxCharacters, !current.isEmpty {
+                windows.append(current)
+                current = paragraph
+            } else {
+                current = current.isEmpty ? paragraph : current + "\n" + paragraph
+            }
+            // A single paragraph longer than the ceiling still has to be cut.
+            while current.count > maxCharacters {
+                let cut = current.index(current.startIndex, offsetBy: maxCharacters)
+                windows.append(String(current[..<cut]))
+                current = String(current[cut...])
+            }
+        }
+        if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { windows.append(current) }
+        return windows
+    }
+
     private static func complete(
         system: String,
         user: String,

@@ -47,6 +47,7 @@ in [`docs/`](docs/).
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Webhook actions](#webhook-actions)
 - [Speaking summaries aloud](#speaking-summaries-aloud)
+- [Reading what's on your screen](#reading-whats-on-your-screen)
 - [Transcripts and summaries](#transcripts-and-summaries)
 - [Letting an agent control your music](#letting-an-agent-control-your-music)
 - [The music friend](#the-music-friend)
@@ -1362,6 +1363,106 @@ bare id like `af_nova`), or let the [voice map](#one-voice-per-agent-the-voice-m
 won't reload it mid-task — and Baton must be running for the call to land.
 
 ---
+
+## Reading what's on your screen
+
+Baton can read text out loud from wherever you're working: an article in Chrome, a wall of
+build output in a terminal, a changelog, a long email. You select the text, Baton speaks it in
+the same voice it uses for spoken summaries, and your music ducks underneath and comes back at
+the same level afterwards.
+
+**This is not a screen reader in the accessibility sense.** VoiceOver reads interfaces, and it
+does that far better than Baton ever will. This reads *content*, when you ask for it. If you
+need something to describe buttons and menus as you move through them, VoiceOver is the tool.
+
+**Nothing watches your screen.** Baton has no idea what is on it until you select something and
+ask. There is no background monitoring, no polling, no "read what changed" — every reading
+happens because you started it, at the moment you started it. That is a deliberate limit, not
+something waiting to be added later.
+
+**Readings are not saved.** A reading plays once and is gone. It does not appear in Spoken
+Summaries, which stays a record of what your agents told you.
+
+### Two ways to start a reading
+
+**Services, which needs no permission at all.** Select some text, then choose **Services →
+Speak with Baton** from the application menu (or right-click the selection). The system hands
+Baton the text; Baton doesn't reach into anything. Nothing to grant, nothing to set up.
+
+**A keyboard shortcut, which you choose.** Settings → Speech → Read aloud has a recorder: click
+it, press the combination you want. There is **no shortcut set out of the box**, so Baton can
+never collide with something you already use. The shortcut asks the app you're in for your
+selection, and macOS gates that behind **Accessibility** — Baton asks the first time you press
+it, and explains why.
+
+**Reading a whole pane, not just a selection.** Hold **Shift** with your shortcut and Baton
+reads the whole thing you're focused on rather than what you've highlighted — the entire
+scrollback of a terminal, say, when you'd rather not select it first. This one depends on the
+app being willing to hand over its contents, and browsers are not: in Chrome it does nothing,
+so select the part you want and use the plain shortcut there.
+
+**Reading something with no text at all.** A PDF, an image, a screen shared from another
+machine: there is nothing to hand over, so Baton can photograph the front window and read what
+it can see. This is off until you turn it on in Settings, because it needs Screen Recording,
+which is the largest thing Baton ever asks for. Once it is on, hold **Option** with your
+shortcut. Baton captures only when you press it, only the window in front, and the picture is
+never saved.
+
+**The gist instead of the whole thing.** For a long article, **Services → Summarize with
+Baton** speaks a few sentences rather than reading every one. This is the one part of Read
+aloud that needs a model configured (Settings → Remote); without one it says so rather than
+doing nothing. The text is cleaned and stripped of anything credential-shaped before it reaches
+the model, not just before it reaches the speaker.
+
+### Why some apps need the clipboard
+
+Apps differ in how willing they are to hand over your selection, and browsers are the awkward
+case. A terminal like Ghostty hands it straight over. **Chrome does not** — it exposes page
+text in a way the ordinary route can't read, so for Chrome and most other browsers Baton falls
+back to copying the selection, reading it, and putting your clipboard back the way it was.
+
+That fallback is on by default because otherwise the shortcut would simply do nothing in a
+browser, which is where most reading happens. Two honest caveats:
+
+- Your clipboard is replaced for a fraction of a second. Baton restores everything it found,
+  including images and files, but a clipboard manager watching in the background may still
+  record the intermediate value.
+- You can switch it off in Settings → Speech → Read aloud. The shortcut will then do nothing
+  in apps that won't share their selection, and Services will still work everywhere.
+
+### What Baton does to the text before speaking it
+
+Read aloud is mostly about *not* reading things to you. Before a word is spoken, Baton:
+
+- **Removes anything that looks like a credential.** API keys, tokens, bearer headers and
+  private keys are replaced with "a redacted token" rather than spoken. Terminals have secrets
+  on screen more often than anyone likes to admit.
+- **Cleans up terminal output.** Colour codes and cursor commands disappear, the prompt is
+  dropped but the command you typed is kept, and if your selection spans several commands only
+  the last one's output is read — that's almost always the one you selected it for.
+- **Skips what can't be listened to.** A commit hash becomes "a forty-character hash", a UUID
+  becomes "a UUID", a link becomes "a link to example.com", and a block of code is announced as
+  "Swift code block, twelve lines" instead of having its punctuation pronounced.
+- **Trims web furniture.** Navigation, cookie banners and "back to top" lines are dropped.
+
+### While it's reading
+
+The speaking window shows the whole reading and highlights the sentence being spoken, scrolling
+along as it goes. Pause, resume and stop work throughout, and skipping back ten seconds works
+within the current sentence. There's no scrubber for a reading: Baton speaks a document as a
+run of sentences rather than one long clip, which is what lets it start talking about a second
+after you ask instead of after the whole thing has been prepared.
+
+If your text-to-speech server is unreachable, a reading falls back to the built-in macOS voice
+rather than failing, exactly as spoken summaries do.
+
+### A different voice per app
+
+Off by default. Turn on **Use a different voice per app** in Settings → Speech → Read aloud and
+a browser and a terminal read in different voices, so you can tell where the text came from
+without looking. The two voices are the `browser` and `terminal` rows in the voice map on the
+same screen, and you can change them like any other.
+
 
 ## Transcripts and summaries
 

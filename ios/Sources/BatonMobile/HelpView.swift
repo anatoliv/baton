@@ -234,6 +234,16 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0.1",
+            date: "August 2026",
+            highlight: "Your music friend's setup arrives with everything else when you set this phone up from a Mac.",
+            changes: [
+                .init(.fixed, "The music friend's provider, model and API base URL never actually crossed between a Mac and this phone. Both devices reported a successful sync while storing that setting under different names, so each kept its own copy and neither ever saw the other's. They share it now."),
+                .init(.fixed, "Scanning the pairing code from a Mac brings the music friend's API key with it, alongside the server passwords, ListenBrainz and Last.fm tokens and discovery keys it already carried. Setting the phone up should leave you with nothing to paste."),
+                .init(.improved, "More settings keep themselves in step with your Mac: whether to look up missing lyrics, which service you scrobble to, and the streaming quality you chose for Wi-Fi and for cellular."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.0",
             date: "August 2026",
             highlight: "Baton arrives on the App Store.",

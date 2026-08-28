@@ -315,6 +315,42 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.0",
+            date: "August 2026",
+            highlight: "Baton can read what's on your screen out loud \u{2014} an article in Chrome, the tail of a long build \u{2014} in the same voices it uses for spoken summaries.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Select text anywhere and choose Services \u{2192} Speak with Baton, and it "
+                    + "reads it aloud. Your music ducks underneath and comes back at the level it "
+                    + "was. There is nothing to set up and nothing to grant: the system hands the "
+                    + "text over."),
+                HelpWhatsNewChange(.added,
+                    "A keyboard shortcut for the same thing, in Settings \u{2192} Speech \u{2192} "
+                    + "Read aloud. Deliberately not set out of the box, so Baton cannot take a "
+                    + "combination you already use \u{2014} click the recorder and press what you "
+                    + "want. It asks for Accessibility the first time you use it, and explains why."),
+                HelpWhatsNewChange(.added,
+                    "Anything shaped like a credential \u{2014} API keys, tokens, bearer headers, "
+                    + "private keys \u{2014} is removed before a word is spoken. Terminal output is "
+                    + "exactly where such things sit, so the check runs on every reading."),
+                HelpWhatsNewChange(.added,
+                    "Text is cleaned up for the ear first. Colour codes and shell prompts go, but "
+                    + "the command you typed stays; a commit hash becomes \u{201C}a forty-character "
+                    + "hash\u{201D}; a block of code is announced rather than having its punctuation "
+                    + "read out; and web navigation and cookie banners are dropped. If a selection "
+                    + "spans several commands, only the last one's output is read."),
+                HelpWhatsNewChange(.added,
+                    "The speaking window follows a reading sentence by sentence, scrolling as it "
+                    + "goes, and pause, resume and stop work throughout. Readings are never saved: "
+                    + "one plays and it is gone, and Spoken Summaries stays a record of what your "
+                    + "agents told you."),
+                HelpWhatsNewChange(.added,
+                    "Optionally, a different voice per app, so a browser and a terminal sound "
+                    + "different and you can tell where the text came from without looking. Off "
+                    + "until you turn it on."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.16.25",
             date: "August 2026",
             highlight: "Your music friend's setup now follows you between this Mac and your iPhone, instead of quietly staying behind.",

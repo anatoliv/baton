@@ -118,16 +118,37 @@ final class SpeechPlaybackEngine {
     /// Pending utterances behind the one currently playing — drained FIFO so two rapid summaries
     /// play in order instead of interrupting each other. Each carries its source text (when known)
     /// for the HUD label.
-    @ObservationIgnored private var utteranceQueue: [(utterance: Utterance, text: String?)] = []
+    /// `documentRange` is set only for reading chunks: where this utterance sits in the whole
+    /// reading, so the HUD highlight advances when the utterance *starts* rather than when it
+    /// was enqueued — which is up to `lookahead` sentences earlier.
+    @ObservationIgnored private var utteranceQueue: [(utterance: Utterance, text: String?, documentRange: NSRange?)] = []
 
     /// Pending utterances behind the active one (test visibility for FIFO behaviour).
     var queuedCount: Int { utteranceQueue.count }
 
+    /// Set while a **reading** is playing — text captured off the screen, spoken as a queue of
+    /// sentences rather than as one summary. Carries the whole document and the range of the
+    /// sentence currently being spoken, so the HUD can show the reading entire and highlight
+    /// where it is, instead of showing one sentence at a time with no context.
+    ///
+    /// `nil` for ordinary spoken summaries, which are a single utterance and need none of this.
+    /// Cleared when the session drains, so the HUD cannot linger on a finished reading.
+    var reading: ReadingContext?
+
+    /// The whole reading, plus where in it the current utterance sits.
+    struct ReadingContext: Equatable {
+        /// Every chunk of the reading, joined — what the HUD renders.
+        var text: String
+        /// The range of `text` currently being spoken. Kokoro returns no word timings, so this
+        /// is a *sentence*, which is as fine as the server path can be. See specs/read-aloud.md.
+        var spokenRange: NSRange
+    }
+
     /// Play whichever kind of utterance a summary resolved to (server audio or native voice).
     /// Enqueues and plays in order; starting from idle ducks the music for the whole session.
     /// `text` (when known) labels the speaking HUD.
-    func play(_ utterance: Utterance, text: String? = nil) {
-        utteranceQueue.append((utterance, text))
+    func play(_ utterance: Utterance, text: String? = nil, documentRange: NSRange? = nil) {
+        utteranceQueue.append((utterance, text, documentRange))
         if !isSpeaking { startNextUtterance() }
     }
 
@@ -230,6 +251,7 @@ final class SpeechPlaybackEngine {
         isSpeaking = false
         isPaused = false
         currentText = nil
+        reading = nil
         progressTask?.cancel()
         progressTask = nil
         if duration != nil { progress = 1 }
@@ -286,6 +308,9 @@ final class SpeechPlaybackEngine {
         beginSessionIfIdle()
         isPaused = false
         let next = utteranceQueue.removeFirst()
+        // Advance the reading highlight now, as this utterance begins — not at enqueue time,
+        // which runs ahead of playback by however far the lookahead has rendered.
+        if let range = next.documentRange { reading?.spokenRange = range }
         spokenRange = nil
         progress = nil // don't inherit the previous utterance's progress (would jump-scroll the HUD)
         switch next.utterance {

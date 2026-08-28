@@ -1,0 +1,96 @@
+#!/bin/zsh
+# baton-say — speak a line through a running Baton.
+#
+# A thin JSON-RPC client for Baton's existing MCP server. There is no new server surface here:
+# BatonMCPServer already serves POST /mcp on 127.0.0.1 behind a bearer token, and the `prepare`
+# argument makes the *app* clean the text — stripping ANSI, shell prompts and anything shaped
+# like a credential — rather than trusting a shell script to do it.
+#
+#   baton-say "deploy finished"
+#   some-command 2>&1 | tail -20 | baton-say --stdin --category ops
+#
+# Options:
+#   --stdin              read the line from standard input instead of the arguments
+#   --category NAME      voice category (ops, deploy, alert, …)
+#   --session NAME       who is speaking, announced when the speaker changes
+#   --mode MODE          notify (default) | banner | auto
+#   --prepare PROFILE    terminal | browser | generic  (default: terminal for --stdin)
+#   --verbose            report failures instead of exiting quietly
+#
+# Exits 0 even when Baton is not running, unless --verbose. This is called from a shell prompt
+# hook: a tool that complains at every prompt because an app is closed is worse than no tool.
+
+emulate -L zsh
+setopt pipefail
+
+endpoint_file="$HOME/Library/Application Support/Baton/mcp.json"
+category=""; session="shell"; mode="notify"; prepare=""; verbose=0; use_stdin=0; text=""
+
+while (( $# )); do
+  case "$1" in
+    --stdin) use_stdin=1; shift ;;
+    --category) category="$2"; shift 2 ;;
+    --session) session="$2"; shift 2 ;;
+    --mode) mode="$2"; shift 2 ;;
+    --prepare) prepare="$2"; shift 2 ;;
+    --verbose) verbose=1; shift ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    *) text="${text:+$text }$1"; shift ;;
+  esac
+done
+
+fail() { (( verbose )) && print -u2 "baton-say: $1"; exit $(( verbose ? 1 : 0 )); }
+
+if (( use_stdin )); then
+  text="$(cat)"
+  [[ -z "$prepare" ]] && prepare="terminal"
+fi
+[[ -z "${text//[[:space:]]/}" ]] && fail "nothing to say"
+
+# Discover the endpoint. Never hardcode the port: the server scans upward from its default when
+# the port is busy, so a hardcoded 8787 works right up until the day it silently does not.
+[[ -r "$endpoint_file" ]] || fail "Baton does not appear to be running (no mcp.json)"
+
+command -v python3 >/dev/null 2>&1 || fail "python3 is required to build the request"
+
+BATON_SAY_TEXT="$text" BATON_SAY_CATEGORY="$category" BATON_SAY_SESSION="$session" \
+BATON_SAY_MODE="$mode" BATON_SAY_PREPARE="$prepare" BATON_SAY_ENDPOINT_FILE="$endpoint_file" \
+BATON_SAY_VERBOSE="$verbose" python3 -c '
+import json, os, sys, urllib.request, urllib.error
+
+verbose = os.environ["BATON_SAY_VERBOSE"] == "1"
+def die(msg):
+    if verbose:
+        print("baton-say: " + msg, file=sys.stderr)
+    sys.exit(1 if verbose else 0)
+
+try:
+    info = json.load(open(os.environ["BATON_SAY_ENDPOINT_FILE"]))
+    url, token = info["url"], info["token"]
+except Exception as e:
+    die("could not read the endpoint: %s" % e)
+
+args = {"text": os.environ["BATON_SAY_TEXT"], "mode": os.environ["BATON_SAY_MODE"]}
+for key, env in (("category", "BATON_SAY_CATEGORY"), ("session", "BATON_SAY_SESSION"), ("prepare", "BATON_SAY_PREPARE")):
+    if os.environ.get(env):
+        args[key] = os.environ[env]
+
+body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                   "params": {"name": "speak_summary", "arguments": args}}).encode()
+req = urllib.request.Request(url, data=body, headers={
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+    "Authorization": "Bearer " + token,
+})
+try:
+    # Hard ceiling. This runs from a shell prompt; it must never be the reason a prompt hangs.
+    with urllib.request.urlopen(req, timeout=3) as r:
+        payload = r.read().decode("utf-8", "replace")
+except urllib.error.URLError as e:
+    die("could not reach Baton: %s" % e)
+except Exception as e:
+    die("request failed: %s" % e)
+
+if verbose:
+    print(payload)
+'

@@ -45,6 +45,10 @@ struct SpeakingPlayerView: View {
     /// (the floating HUD), follow the live engine: the current utterance, then the last summary.
     private var text: String {
         if let idleText { return idleText }
+        // A reading is a queue of sentences, not one summary. Show the whole document so the
+        // transport and the auto-scroll mean something across it — otherwise the pane would
+        // flick through one sentence at a time with no sense of where you are.
+        if let reading = speech.reading { return reading.text }
         return speech.currentText ?? speech.lastSummaryText ?? ""
     }
 
@@ -57,7 +61,10 @@ struct SpeakingPlayerView: View {
             VStack(spacing: 10) {
                 // The scrubber renders its own elapsed / −remaining labels — server audio only, and
                 // only while this pane's summary is the one live (so it never controls another clip).
-                if isLive, let d = speech.duration {
+                // Hidden during a reading: `duration` belongs to the *current sentence*, so the
+                // scrubber would claim to span a document and in fact scrub one utterance. A
+                // scrubber that lies about its extent is worse than no scrubber.
+                if isLive, speech.reading == nil, let d = speech.duration {
                     MusicScrubber(currentTime: (speech.progress ?? 0) * d, duration: d, tint: accent) {
                         speech.seek(to: $0)
                     }
@@ -114,6 +121,14 @@ struct SpeakingPlayerView: View {
     /// The character index spoken so far — from the built-in voice's live word range, or (for server
     /// audio) estimated from playback progress.
     private var spokenCharIndex: Int {
+        // During a reading the position is the current sentence's place in the whole document,
+        // advanced by playback within that sentence — so the highlight moves smoothly rather
+        // than jumping a paragraph at a time. Estimating from overall progress (below) would be
+        // wrong here: `progress` is progress through one utterance, not through the reading.
+        if let reading = speech.reading {
+            let within = Double(reading.spokenRange.length) * (speech.progress ?? 0)
+            return reading.spokenRange.location + Int(within)
+        }
         if let r = speech.spokenRange { return r.location + r.length }
         if let p = speech.progress { return Int(p * Double(text.count)) }
         return 0
