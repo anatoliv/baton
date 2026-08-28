@@ -65,7 +65,7 @@ struct MusicFriendSettingsView: View {
         } header: {
             Text("Home server")
         } footer: {
-            Text("The address and token from your gateway's configuration.")
+            Text("The address and token from your gateway's configuration \u{2014} just the host and port, such as http://192.0.2.10:8788. Unlike the model provider below, this one does not want a /v1 on the end, and Baton will drop one if you paste it.")
         }
     }
 

@@ -29,6 +29,9 @@ struct SharedSettingsPane: View {
     var body: some View {
         Section("Shared settings") {
             TextField("Gateway URL", text: $gatewayURL, prompt: Text("https://baton.home.example"))
+            Text("Just the host and port \u{2014} the gateway listens on 8788 by default. A trailing /v1 is dropped if you paste one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             SecureField("Gateway token", text: $token)
             Button("Save token") {
                 NavidromeKeychain.setSecret(token, account: "baton.agent.gatewayToken")

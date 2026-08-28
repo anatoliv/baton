@@ -296,7 +296,7 @@ public final class PreferenceSync {
     // MARK: - Transport
 
     private func fetch(gatewayURL: URL, token: String) async throws -> [String: Entry] {
-        var request = URLRequest(url: gatewayURL.appendingPathComponent("v1/state"))
+        var request = URLRequest(url: GatewayAddress.root(gatewayURL).appendingPathComponent("v1/state"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -324,7 +324,7 @@ public final class PreferenceSync {
     /// one way to check the address was to use it, and "Couldn't reach the gateway" arrived
     /// after a round trip that may have pushed half a state.
     public func check(gatewayURL: URL, token: String) async -> GatewayCheck {
-        var request = URLRequest(url: gatewayURL.appendingPathComponent("v1/state"))
+        var request = URLRequest(url: GatewayAddress.root(gatewayURL).appendingPathComponent("v1/state"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 15
         do {
@@ -341,7 +341,7 @@ public final class PreferenceSync {
     }
 
     private func push(_ state: [String: Entry], gatewayURL: URL, token: String) async throws {
-        var request = URLRequest(url: gatewayURL.appendingPathComponent("v1/state"))
+        var request = URLRequest(url: GatewayAddress.root(gatewayURL).appendingPathComponent("v1/state"))
         request.httpMethod = "PUT"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

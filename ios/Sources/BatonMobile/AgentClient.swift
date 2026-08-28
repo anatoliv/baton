@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import BatonSubsonicModels
 import Foundation
 import OSLog
@@ -159,7 +160,8 @@ final class AgentClient {
             case .http(401, _), .http(403, _):
                 return .failed("The gateway rejected the token. Check Gateway token.")
             case .http(404, _):
-                return .failed("Reached the address, but it isn't a Baton gateway (no /v1/agent).")
+                return .failed("Something is running at that address, but it isn't a Baton gateway \u{2014} "
+                               + "nothing answered at /v1/agent. Check the port: the gateway listens on 8788 by default.")
             case .http(let code, let hint) where code > 0:
                 return .failed("The gateway answered HTTP \(code). \(hint)")
             default:
@@ -218,7 +220,7 @@ final class AgentClient {
     /// The gateway runs the loop itself (same RemoteAgent, server-side tools),
     /// so the phone posts one turn and renders the answer.
     private func askGateway(_ message: String, profile: Profile) async throws -> Reply {
-        var request = URLRequest(url: profile.baseURL.appendingPathComponent("v1/agent"))
+        var request = URLRequest(url: GatewayAddress.root(profile.baseURL).appendingPathComponent("v1/agent"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let key = NavidromeKeychain.secret(account: profile.keyAccount) {

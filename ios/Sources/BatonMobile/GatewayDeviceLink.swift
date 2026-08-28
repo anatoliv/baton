@@ -76,7 +76,7 @@ final class GatewayDeviceLink {
     private func poll(
         profile: AgentClient.Profile, token: String, session: URLSession
     ) async throws -> DeviceCommand? {
-        var request = URLRequest(url: profile.baseURL.appendingPathComponent("v1/device/poll"))
+        var request = URLRequest(url: GatewayAddress.root(profile.baseURL).appendingPathComponent("v1/device/poll"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
@@ -90,7 +90,7 @@ final class GatewayDeviceLink {
         id: String, text: String, isError: Bool,
         profile: AgentClient.Profile, token: String, session: URLSession
     ) async throws {
-        var request = URLRequest(url: profile.baseURL.appendingPathComponent("v1/device/result"))
+        var request = URLRequest(url: GatewayAddress.root(profile.baseURL).appendingPathComponent("v1/device/result"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

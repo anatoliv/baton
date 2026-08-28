@@ -315,6 +315,25 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.1",
+            date: "August 2026",
+            highlight: "A gateway address typed with a /v1 on the end now works instead of failing to connect.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Baton asks for two addresses on the same screen and they wanted opposite "
+                    + "shapes: the model provider needs a /v1 at the end, the home gateway needs "
+                    + "none. Copying the shape from one field to the other produced a doubled "
+                    + "/v1, a failed connection, and a message saying the address was not a "
+                    + "gateway \u{2014} which was true, and no help at all. A trailing /v1 is now "
+                    + "simply dropped, on both the Mac and the phone, and both screens say which "
+                    + "shape they want."),
+                HelpWhatsNewChange(.fixed,
+                    "The same address was used for shared settings between your Mac and your "
+                    + "phone, so the identical mistake could stop the equalizer, podcasts and "
+                    + "search history from travelling \u{2014} without ever saying so."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.0",
             date: "August 2026",
             highlight: "Baton can read what's on your screen out loud \u{2014} an article in Chrome, the tail of a long build \u{2014} in the same voices it uses for spoken summaries.",
