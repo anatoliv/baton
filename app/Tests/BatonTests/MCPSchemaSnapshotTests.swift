@@ -47,6 +47,8 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         "music_get_queue", "music_reorder_queue", "music_remove_from_queue", "music_play_next",
         "music_start_radio", "music_sleep_timer", "music_set_eq", "music_set_crossfade",
         "audio_suspend", "audio_resume", "speak_summary",
+        // Speaks a whole document an agent already has, rather than a one-line alert.
+        "read_aloud",
         // Library discovery. Search answers "is this in here"; these answer
         // "what IS in here", which is what a recommendation has to start from.
         "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",

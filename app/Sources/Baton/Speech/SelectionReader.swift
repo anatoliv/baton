@@ -37,10 +37,21 @@ enum SelectionReader {
         if let text = accessibilitySelection(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return .success(text)
         }
-        if ReadAloudSettings.allowClipboardFallback,
-           let text = clipboardSelection(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return .success(text)
+        guard ReadAloudSettings.allowClipboardFallback else {
+            readAloudLog.notice("selection: no AX text and the clipboard fallback is off")
+            return .failure(.noSelection)
         }
+        let copied = clipboardSelection()
+        if let copied, !copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .success(copied)
+        }
+        // Worth a line of its own. "The copy produced nothing" and "there was nothing selected"
+        // are the same outcome to the user and very different to whoever is debugging it: this
+        // is the branch that was silently failing for every browser selection while the log said
+        // only "nothing to read".
+        readAloudLog.notice(
+            "selection: no AX text, and the synthetic copy produced nothing in \(frontmostName(), privacy: .public)"
+        )
         return .failure(.noSelection)
     }
 
@@ -90,6 +101,13 @@ enum SelectionReader {
     }
 
     static var isTrusted: Bool { AXIsProcessTrusted() }
+
+    /// The frontmost application's name, for a log line that would otherwise not say which app
+    /// declined to hand anything over. Public in the log: an app name is not a secret, and
+    /// redacting it is what made the original report untraceable.
+    private static func frontmostName() -> String {
+        NSWorkspace.shared.frontmostApplication?.localizedName ?? "an unknown app"
+    }
 
     // MARK: - Accessibility
 
@@ -163,8 +181,29 @@ enum SelectionReader {
         pasteboard.writeObjects(items)
     }
 
+    /// Synthesize the Copy keystroke, and *only* that keystroke.
+    ///
+    /// **`.privateState` is the whole point of this function and the reason it has a comment.**
+    /// The obvious source, `.combinedSessionState`, merges the live hardware modifier state into
+    /// whatever it posts. This runs from a global hotkey handler, so at the instant it fires the
+    /// user is still physically holding the modifiers of that hotkey — Control and Command for a
+    /// ⌃⌘R binding. The target application therefore received **⌃⌘C**, which is not Copy, and the
+    /// pasteboard never moved. Setting `flags` on the event does not help: the merge happens
+    /// after, at the window server.
+    ///
+    /// The symptom was not a copy that looked wrong. It was `readSelection` returning
+    /// `.noSelection`, indistinguishable from an empty selection, and a beep — so the hotkey
+    /// appeared to do nothing at all in Chrome, which is the one application that has no other
+    /// route (its `AXWebArea` implements no `AXSelectedText`). A private source carries its own
+    /// modifier state, independent of the keyboard, so the event says exactly what it says.
+    /// The event-source state used for the synthetic copy. Named rather than written inline so a
+    /// test can pin it: reverting it to `.combinedSessionState` is a one-word change that breaks
+    /// every browser selection, raises no error, compiles cleanly and cannot be caught by any
+    /// other assertion — which is exactly how it shipped in 0.17.1.
+    static let copyEventSourceState: CGEventSourceStateID = .privateState
+
     private static func pressCommandC() {
-        let source = CGEventSource(stateID: .combinedSessionState)
+        let source = CGEventSource(stateID: copyEventSourceState)
         let c: CGKeyCode = 0x08   // kVK_ANSI_C
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: c, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: c, keyDown: false) else { return }

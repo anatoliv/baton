@@ -44,12 +44,21 @@ final class AgentClient {
     enum AgentError: Error, LocalizedError {
         case notConfigured
         case http(Int, String)
+        /// Nothing answered: refused, timed out, DNS failed, host asleep.
+        ///
+        /// Its own case rather than `.http(URLError.errorCode, …)`, which is what this used
+        /// to be. That produced "answered HTTP -1004" for a server that answered nothing at
+        /// all, and — worse — hid the failure from `shouldFallback`, whose ranges are HTTP
+        /// codes and can never match a negative one. The case the fallback exists for was the
+        /// one case it could not see.
+        case unreachable(String)
         case config(String)
 
         var errorDescription: String? {
             switch self {
             case .notConfigured: "Add an API key (or gateway) in Settings first."
             case .http(let code, let hint): "The model endpoint answered HTTP \(code). \(hint)"
+            case .unreachable(let detail): "Couldn't reach it: \(detail)"
             case .config(let detail): detail
             }
         }
@@ -159,6 +168,8 @@ final class AgentClient {
             switch error {
             case .http(401, _), .http(403, _):
                 return .failed("The gateway rejected the token. Check Gateway token.")
+            case .unreachable(let detail):
+                return .failed("Couldn't reach the gateway at that address. \(detail) The gateway listens on 8788 by default.")
             case .http(404, _):
                 return .failed("Something is running at that address, but it isn't a Baton gateway \u{2014} "
                                + "nothing answered at /v1/agent. Check the port: the gateway listens on 8788 by default.")
@@ -185,7 +196,7 @@ final class AgentClient {
         do {
             return try await runLoop(message, via: route)
         } catch let error as AgentError {
-            guard let fallback, route.dialect == .gateway, shouldFallback(on: error) else { throw error }
+            guard let fallback, route.dialect == .gateway, Self.shouldFallback(on: error) else { throw error }
             agentLog.warning("gateway failed (\(String(describing: error), privacy: .public)); hopping to direct API")
             let reply = try await runLoop(message, via: fallback)
             degradedToFallback = true
@@ -194,10 +205,29 @@ final class AgentClient {
     }
 
     /// Config errors (bad key, bad URL) fail identically twice — never hop on those.
-    private func shouldFallback(on error: AgentError) -> Bool {
+    static func shouldFallback(on error: AgentError) -> Bool {
         switch error {
-        case .http(let code, _): return code == 429 || (500 ... 599).contains(code)
-        case .notConfigured, .config: return false
+        case .unreachable:
+            // The case the on-screen copy actually promises.
+            return true
+        case .http(let code, _):
+            switch code {
+            case 401, 403:
+                // A rejected token is a configuration error the user has to fix. Silently
+                // hopping to a paid provider because their gateway token is wrong would be a
+                // worse outcome than failing, and it would hide the thing they need to see.
+                return false
+            case 404:
+                // Nothing answered at /v1/agent: whatever is at that address, it is not a
+                // gateway. That is precisely what a fallback is for.
+                return true
+            case 429:
+                return true
+            default:
+                return (500 ... 599).contains(code)
+            }
+        case .notConfigured, .config:
+            return false
         }
     }
 
@@ -234,7 +264,15 @@ final class AgentClient {
         ])
         try guardTransport(request)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError {
+            // Previously uncaught, which meant an asleep or moved home server threw a raw
+            // URLError straight past the fallback and out to the caller.
+            throw AgentError.unreachable(error.localizedDescription)
+        }
         guard let http = response as? HTTPURLResponse else { throw AgentError.http(0, "Non-HTTP response.") }
         guard (200 ... 299).contains(http.statusCode) else {
             let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
@@ -277,7 +315,7 @@ final class AgentClient {
                          toolCalls: outcome.toolCalls,
                          startedPlayback: outcome.toolsRun.contains(where: RemoteAgent.startsPlayback.contains))
         } catch let error as URLError {
-            throw AgentError.http(error.errorCode, "The model endpoint was unreachable.")
+            throw AgentError.unreachable(error.localizedDescription)
         } catch {
             throw AgentError.config(String(describing: error))
         }

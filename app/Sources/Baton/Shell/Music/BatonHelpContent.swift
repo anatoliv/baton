@@ -315,6 +315,30 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.2",
+            date: "August 2026",
+            highlight: "The read-aloud shortcut now works in a browser, and any reading can be saved as an audio file.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "The keyboard shortcut did nothing in Chrome. A browser does not hand over "
+                    + "its selection the way a terminal does, so Baton copies it instead \u{2014} "
+                    + "but it was sending the copy while you were still holding the shortcut's "
+                    + "own keys, so the browser saw a different keystroke and copied nothing. "
+                    + "Baton beeped and read nothing, which looked exactly like having nothing "
+                    + "selected. Fixed, and the shortcut now works wherever you can select text."),
+                HelpWhatsNewChange(.added,
+                    "File \u{2192} Save Reading as Audio\u{2026} keeps a reading as an audio file. "
+                    + "Read a long article at your desk and listen to it on a walk. Readings are "
+                    + "still never saved on their own: the only thing written is the file you "
+                    + "asked for, where you chose to put it."),
+                HelpWhatsNewChange(.added,
+                    "An agent can hand Baton a document to read. Pulling the article out of a web "
+                    + "page rather than the navigation and the cookie banner is work an agent "
+                    + "driving the browser has already done, so it passes Baton the text and "
+                    + "Baton reads it. No permission and nothing to switch on."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.1",
             date: "August 2026",
             highlight: "A gateway address typed with a /v1 on the end now works instead of failing to connect.",

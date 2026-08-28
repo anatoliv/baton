@@ -76,12 +76,26 @@ final class ScreenTextReader: NSObject {
     /// Classify the source, record the capture, and hand it on. Shared by every tier, so the
     /// hotkey path (Phase 5) arrives here too and gets identical treatment.
     func capture(_ raw: String, from application: NSRunningApplication?, gist: Bool = false) {
-        let capture = Capture(
-            text: raw,
-            profile: Self.profile(forBundleID: application?.bundleIdentifier),
+        capture(
+            raw,
             sourceName: application?.localizedName,
+            profile: Self.profile(forBundleID: application?.bundleIdentifier),
             gist: gist
         )
+    }
+
+    /// The same capture, for a caller that has no running application to classify.
+    ///
+    /// The `read_aloud` MCP tool arrives here: an agent handing over text it extracted from a
+    /// page it is driving knows where the text came from, but there is no frontmost app to ask —
+    /// Baton is not the one looking at it. So the profile and the name come in as arguments and
+    /// everything after this point is identical, which is the whole point of routing the tool
+    /// through here rather than letting it call the coordinator directly.
+    func capture(_ raw: String,
+                 sourceName: String?,
+                 profile: SpeakableText.SourceProfile,
+                 gist: Bool = false) {
+        let capture = Capture(text: raw, profile: profile, sourceName: sourceName, gist: gist)
         lastCapture = capture
         onCapture?(capture)
     }

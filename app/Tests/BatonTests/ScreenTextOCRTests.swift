@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Baton
 
@@ -56,5 +57,76 @@ final class ScreenTextOCRTests: XCTestCase {
 
     func testNothingRecognisedIsAnEmptyDocument() {
         XCTAssertEqual(ScreenTextOCR.assemble([ScreenTextOCR.Piece]()), "")
+    }
+
+    // MARK: - Against real Vision output
+
+    /// Renders text into an image and runs it through the actual recogniser.
+    ///
+    /// The tests above pin the ordering with synthetic boxes, which is the part most likely to
+    /// be silently wrong. This one closes the other half: that `recognize(_:)` drives Vision
+    /// correctly and hands its observations to the assembler in a shape that survives. It needs
+    /// no Screen Recording grant, because the pixels come from us rather than from the screen —
+    /// so the only thing left unverified afterwards is the capture itself.
+    private func image(_ lines: [(text: String, size: CGFloat)], width: CGFloat = 900) throws -> CGImage {
+        let padding: CGFloat = 40
+        let height = lines.reduce(padding * 2) { $0 + $1.size * 1.8 }
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+
+        var y = height - padding
+        for line in lines {
+            y -= line.size * 1.8
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: line.size),
+                .foregroundColor: NSColor.black,
+            ]
+            NSAttributedString(string: line.text, attributes: attributes)
+                .draw(at: NSPoint(x: padding, y: y))
+        }
+        image.unlockFocus()
+
+        var rect = NSRect(x: 0, y: 0, width: width, height: height)
+        return try XCTUnwrap(image.cgImage(forProposedRect: &rect, context: nil, hints: nil))
+    }
+
+    /// The whole point: a rendered document comes back top to bottom, not upside down.
+    func testRealVisionOutputComesBackInReadingOrder() throws {
+        let rendered = try image([
+            ("Deployment notes", 40),
+            ("The migration applied cleanly.", 28),
+            ("Traffic has been shifted over.", 28),
+            ("Error rates are flat.", 28),
+        ])
+
+        switch ScreenTextOCR.recognize(rendered) {
+        case let .success(text):
+            let lines = text.split(separator: "\n").map(String.init)
+            // Vision is not perfect on synthetic renders, so assert on order and on the words
+            // that carry the meaning rather than on an exact transcript.
+            let joined = lines.joined(separator: " ").lowercased()
+            XCTAssertTrue(joined.contains("deployment"), "got: \(text)")
+            XCTAssertTrue(joined.contains("migration"), "got: \(text)")
+
+            let headingAt = joined.range(of: "deployment").map { joined.distance(from: joined.startIndex, to: $0.lowerBound) }
+            let bodyAt = joined.range(of: "migration").map { joined.distance(from: joined.startIndex, to: $0.lowerBound) }
+            XCTAssertNotNil(headingAt); XCTAssertNotNil(bodyAt)
+            XCTAssertLessThan(headingAt ?? .max, bodyAt ?? 0,
+                              "the heading must be read before the body, not after it: \(text)")
+        case let .failure(error):
+            throw XCTSkip("Vision returned nothing on this machine: \(error)")
+        }
+    }
+
+    /// A blank image is "no text", not a crash and not an empty success.
+    func testABlankImageReportsNoText() throws {
+        let blank = try image([("", 20)])
+        if case let .failure(error) = ScreenTextOCR.recognize(blank) {
+            XCTAssertEqual(error, .noText)
+        } else {
+            XCTFail("a blank image should report noText")
+        }
     }
 }

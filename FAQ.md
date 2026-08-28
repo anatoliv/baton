@@ -239,7 +239,34 @@ around first** as well, or one message becomes one command decided blind. You do
 steps: [Turning it on, on the Mac](HELP.md#turning-it-on-on-the-mac).
 
 On iPhone it has a pane to itself, **Settings → Music Friend**, and the **Friend** tab shows
-up once a provider is set.
+up once a connection test has passed.
+
+**There's no Friend tab on my iPhone.**
+It appears once a connection test has passed, not merely once you have filled the fields in.
+Open **Settings → Music Friend**, check **Answers come from** matches how you actually want to
+answer, and press **Test connection**. A pass makes the tab appear. Baton waits for one real
+request to succeed because a key with a typo in it is still a key, and a tab that opens on
+"configure me first" is a promise it cannot keep.
+
+**Can Home server point at my own LLM?**
+No, and this is the most common way to get stuck. **Home server** means a **Baton gateway** —
+the small `baton-gateway` service you run at home — and Baton asks it for `/v1/agent`, which
+only the gateway answers. Ollama, vLLM, LiteLLM and the rest speak a model API, not that one,
+so they will always fail this test however well they are running. To use a model on your own
+machine, choose **Model provider** and point its base URL there, or run the gateway and give
+it `BATON_LLM_BASE_URL`.
+
+**Which address needs a /v1 on the end?**
+The **model provider** does, because `/chat/completions` hangs off it. The **home server**
+does not: give it the bare host and port, such as `http://192.0.2.10:8788`. They sit next to
+each other and want opposite shapes, which is easy to miss, so Baton drops a trailing `/v1`
+from the home server address if you paste one.
+
+**What does the fallback actually do?**
+If your home server cannot be reached, or turns out not to be a gateway, the friend quietly
+uses the model provider below instead, so a machine that is asleep does not take it down. It
+does **not** make the Friend tab appear — that gate tests the route you chose. If you have no
+gateway, test as **Model provider**.
 
 **I set a key and it still says it can't answer.**
 The **Understand plain English** toggle is almost certainly still off. A key with the toggle
@@ -385,7 +412,7 @@ for the tail of a long build. See
 **Does Baton watch my screen?**
 No, and it cannot. Baton has no idea what is on your screen until you select something and ask
 for it. There is no background monitoring and no polling — every reading happens because you
-started it. Readings are not saved either: one plays, and then it is gone.
+started it. Readings are not saved either: one plays, and then it is gone. The one exception is the one you ask for by name, with File → Save Reading as Audio…, which writes a single file wherever you point it and nowhere else.
 
 **Is Read aloud a screen reader?**
 Not in the accessibility sense, and it is not trying to be. VoiceOver reads interfaces, moving

@@ -99,10 +99,13 @@ Baton writes, at startup (after it binds a port):
 
 ## 3. The MCP tool catalog
 
-**39 tools** ship as of 0.13.1 (`BatonMCPToolCatalog.definitions()`, dispatch in
-`BatonMCPToolCatalog.run(...)`): 37 `music_*` — the control tools, the agent-native
-`music_build_mix`, the 10 gap-fillers (§3.4) and the 6 library-discovery tools (§3.5) —
-plus the two `audio_*` focus tools (§4) and `speak_summary`.
+**44 tools** ship as of 0.17.1 (`BatonMCPToolCatalog.definitions()`, dispatch in
+`BatonMCPToolCatalog.run(...)`): 40 `music_*` — the control tools, the agent-native
+`music_build_mix`, the 10 gap-fillers (§3.4), the 6 library-discovery tools (§3.5) and the
+two transcript tools — plus the two `audio_*` focus tools (§4), `speak_summary`, and
+`read_aloud` (§3.6). Counted from `MCPSchemaSnapshotTests.expectedNames`, which is the one
+list a new tool cannot be added without touching; the two figures here had drifted apart
+from each other and from the catalog before that count was taken from the test.
 
 `MCPSchemaSnapshotTests` pins the exact published name set, and
 `AgentDocumentationTests` fails when a shipped tool is missing from `HELP.md` or the
@@ -248,6 +251,34 @@ selection math lives in a pure, unit-tested `MixBuilder`
 ```
 A target length and genre/mood hint are also parsed out of `prompt`, so
 `{prompt:"40 minute mellow jazz"}` works with no other args.
+
+### 3.6 Reading a document aloud (shipped)
+
+#### `read_aloud`
+An agent hands over text it already has and Baton reads it, on the user's speakers, with
+the music ducked and the reading HUD showing the sentence being spoken
+(`BatonMCPReadTools` → `ScreenTextReader.capture` → `ReadAloudCoordinator`).
+```jsonc
+// input
+{ "properties": {
+    "text":   {"type":"string","description":"an article, a document, a scrollback — not a one-line alert"},
+    "source": {"type":"string","description":"'arstechnica.com', 'Ghostty' — labels the reading and picks the per-app voice"},
+    "kind":   {"type":"string","description":"'browser' | 'terminal' | 'generic' (default)"},
+    "gist":   {"type":"boolean","description":"summarize first and read the summary"} },
+  "required":["text"] }
+```
+**Why a tool rather than Baton reading Chrome itself.** Extracting the article rather than
+the navigation and the cookie banner needs `execute javascript`, which only works after the
+user ticks View → Developer → "Allow JavaScript from Apple Events" by hand and raises an
+Automation prompt for Chrome. A per-machine hidden toggle can never be a default path, so
+the extraction happens where the knowledge already is — in the agent driving the browser —
+and Baton keeps the part it is good at. Zero permissions, no AppleScript. (TBX-3829, which
+this closes in place of the AppleScript tier.)
+
+It routes through the same `capture` entry as the Services menu and the hotkey, so the text
+is redacted and normalized identically; an entry point, not a second pipeline. Distinct from
+`speak_summary`, which is for a sentence or two and owns the notification/banner delivery
+modes: this one takes up to 200,000 characters and always speaks immediately.
 
 ---
 
@@ -634,8 +665,9 @@ Settings.
 
 - **One universal surface:** MCP over Streamable HTTP, `127.0.0.1`, bearer token,
   discoverable via `mcp.json`, multi-client, with SSE notifications.
-- **Complete tool catalog:** 40 tools — 37 `music_*` (control + `music_build_mix` + 10
-  gap-fillers + 6 discovery) + `audio_suspend` / `audio_resume` + `speak_summary`.
+- **Complete tool catalog:** 44 tools — 40 `music_*` (control + `music_build_mix` + 10
+  gap-fillers + 6 discovery + 2 transcript) + `audio_suspend` / `audio_resume` +
+  `speak_summary` + `read_aloud`.
 - **Live state:** 5 resources (`baton://now-playing`, `baton://queue`,
   `baton://library/playlists`, `baton://library/liked`, `baton://history/recent`) with
   `resources/updated` notifications.

@@ -87,7 +87,13 @@ final class ReadAloudHotKey {
         let id = EventHotKeyID(signature: Self.signature, id: 2)
         let status = RegisterEventHotKey(binding.keyCode, binding.modifiers | UInt32(shiftKey), id,
                                          GetApplicationEventTarget(), 0, &ref)
-        if status == noErr { wholeTextHotKeyRef = ref }
+        guard status == noErr else {
+            // Swallowing this made a chord that never registered look exactly like a chord that
+            // was never pressed, which is the shape of failure that costs an hour.
+            readAloudLog.error("could not register Shift + the read-aloud hotkey (status \(status)) — another app may own it")
+            return
+        }
+        wholeTextHotKeyRef = ref
     }
 
     /// Option + the chosen shortcut reads the pixels. Only while OCR is switched on, and only
@@ -98,7 +104,11 @@ final class ReadAloudHotKey {
         let id = EventHotKeyID(signature: Self.signature, id: 3)
         let status = RegisterEventHotKey(binding.keyCode, binding.modifiers | UInt32(optionKey), id,
                                          GetApplicationEventTarget(), 0, &ref)
-        if status == noErr { ocrHotKeyRef = ref }
+        guard status == noErr else {
+            readAloudLog.error("could not register Option + the read-aloud hotkey (status \(status)) — another app may own it")
+            return
+        }
+        ocrHotKeyRef = ref
     }
 
     private func installHandlerIfNeeded() {
@@ -160,7 +170,12 @@ final class ReadAloudHotKey {
         case .failure(.noSelection):
             // Nothing selected is an ordinary outcome, not an error worth a dialog. The one
             // thing it must not do is speak the previous selection.
-            readAloudLog.notice("read-aloud hotkey pressed with nothing to read (mode: \(String(describing: mode)))")
+            // `privacy: .public` is load-bearing: os_log redacts an interpolated value by
+            // default, so this line used to read "mode: <private>" — the one log whose whole job
+            // is to say which of the three chords fired, saying nothing.
+            readAloudLog.notice(
+                "read-aloud hotkey pressed with nothing to read (mode: \(String(describing: mode), privacy: .public))"
+            )
             NSSound.beep()
         }
     }

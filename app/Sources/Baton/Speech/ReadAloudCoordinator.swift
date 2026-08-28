@@ -4,7 +4,9 @@ import BatonPlaybackKit
 import BatonSpeech
 import Foundation
 import NaturalLanguage
+import Observation
 import OSLog
+import UniformTypeIdentifiers
 
 /// Turns a captured selection into speech: prepare, synthesize with lookahead, enqueue.
 ///
@@ -18,14 +20,21 @@ import OSLog
 /// with no word timings — could never highlight anything finer than "the whole document". Chunking
 /// at sentences fixes all three: first audio lands in about a second, stopping is immediate, and
 /// one sentence per utterance is the read-along granularity the server path can actually support.
+///
+/// `@Observable` so the "Save Reading" affordances can appear the moment there is something to
+/// save and vanish when there isn't, rather than being permanently enabled and explaining itself
+/// in an alert after the fact.
+@Observable
 @MainActor
 final class ReadAloudCoordinator {
 
     private let music: MusicModel
+    @ObservationIgnored
     private var task: Task<Void, Never>?
 
     /// Injectable so tests can exercise the pipeline without a TTS host on the LAN. Production
     /// wiring is `SpeechService.synthesize`, unchanged.
+    @ObservationIgnored
     var synthesize: (String, SpeechConfig.Voice) async throws -> Data = { text, voice in
         try await SpeechService.synthesize(text: text, voice: voice)
     }
@@ -43,8 +52,37 @@ final class ReadAloudCoordinator {
     /// persisted, by decision, so this dies with the reading.
     private(set) var fullText: String?
 
+    /// Everything an export needs to render the last reading again.
+    ///
+    /// The chunks here are the *prepared* ones — normalized and through the redactor — so an
+    /// export cannot reintroduce something the speaker was protected from. In memory only, and
+    /// replaced wholesale when the next reading starts: this is not a store, and nothing here
+    /// outlives the process.
+    struct Exportable: Equatable {
+        let chunks: [String]
+        let voice: SpeechConfig.Voice
+        let sourceName: String?
+        let startedAt: Date
+    }
+
+    /// The last reading that was started, exportable until another one replaces it.
+    ///
+    /// Deliberately **not** cleared by `stop()`. Stopping a reading part-way is a normal thing to
+    /// do — you have heard enough — and it should not also throw away the ability to keep the
+    /// article you were listening to.
+    private(set) var exportable: Exportable?
+
+    /// The live coordinator, for the menu item and the HUD button that offer to save a reading.
+    ///
+    /// A lookup, not a second owner: `BatonApp` holds the instance for the app's lifetime and this
+    /// is weak, matching how `ScreenTextReader.shared` and `ReadAloudHotKey.shared` are reached
+    /// from the same feature.
+    @ObservationIgnored
+    private(set) static weak var current: ReadAloudCoordinator?
+
     init(music: MusicModel) {
         self.music = music
+        Self.current = self
     }
 
     // MARK: - Reading
@@ -56,7 +94,7 @@ final class ReadAloudCoordinator {
             readGist(capture)
             return
         }
-        speak(prepared: capture.text, profile: capture.profile)
+        speak(prepared: capture.text, profile: capture.profile, sourceName: capture.sourceName)
     }
 
     /// Summarize first, then speak the summary.
@@ -77,7 +115,7 @@ final class ReadAloudCoordinator {
                     config: RemoteControlSettings().naturalLanguage
                 )
                 guard !Task.isCancelled else { return }
-                self.speak(prepared: summary, profile: .generic)
+                self.speak(prepared: summary, profile: .generic, sourceName: capture.sourceName)
             } catch {
                 self.isReading = false
                 let message = (error as? TranscriptSummarizer.SummaryError)?.message ?? error.localizedDescription
@@ -91,15 +129,21 @@ final class ReadAloudCoordinator {
     /// a model that is not configured is *not measurable*, not broken — but the person who just
     /// chose "Summarize with Baton" and heard nothing needs to be told which.
     private static func explain(_ message: String) {
+        report(title: "Baton can't summarize that yet", message: message)
+    }
+
+    /// One alert for every "this didn't happen, and here is why" in read aloud, so a failed
+    /// summary and a failed export are told the same way.
+    private static func report(title: String, message: String) {
         let alert = NSAlert()
-        alert.messageText = "Baton can't summarize that yet"
+        alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
 
-    private func speak(prepared raw: String, profile: SpeakableText.SourceProfile) {
+    private func speak(prepared raw: String, profile: SpeakableText.SourceProfile, sourceName: String?) {
         let chunks = SpeakableText.prepare(raw, profile: profile)
         guard !chunks.isEmpty else {
             readAloudLog.notice("nothing speakable in the selection after normalization")
@@ -114,6 +158,9 @@ final class ReadAloudCoordinator {
         music.speech.reading = .init(text: document, spokenRange: ranges[0])
 
         let voice = resolvedVoice(for: profile, text: document)
+        // Recorded before a single chunk is synthesized, so a reading stopped after one sentence
+        // is still exportable in full — the export re-renders from the text, not from the audio.
+        exportable = Exportable(chunks: chunks, voice: voice, sourceName: sourceName, startedAt: Date())
         task = Task { [weak self] in
             await self?.speak(chunks, ranges: ranges, voice: voice)
             self?.isReading = false
@@ -190,6 +237,67 @@ final class ReadAloudCoordinator {
                 hostIsDown = true
                 readAloudLog.notice("TTS host unreachable — reading continues in the built-in voice")
                 music.speech.play(.native(chunk), text: chunk, documentRange: range)
+            }
+        }
+    }
+
+    // MARK: - Saving a reading
+
+    /// Whether there is a reading to save. Drives the menu item and the HUD button.
+    var canExport: Bool { exportable != nil }
+
+    @ObservationIgnored
+    private var exportTask: Task<Void, Never>?
+
+    /// Ask where to keep the last reading, then render it there as one M4A.
+    ///
+    /// **A save panel rather than a folder, deliberately.** Readings are not persisted
+    /// (`specs/read-aloud.md`, decision 1), and a fixed export folder would be indistinguishable
+    /// from the persistence this feature promised not to do. Choosing a destination each time is
+    /// what makes an export a per-item exception the person performs rather than a store the app
+    /// keeps — and it is why nothing about this changes for anyone who never uses it.
+    func saveLastReading() {
+        guard let reading = exportable else {
+            Self.report(title: "Nothing to save yet", message: "Read something aloud first, then save it.")
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.mpeg4Audio]
+        panel.nameFieldStringValue = ReadAloudExport.suggestedName(
+            sourceName: reading.sourceName, startedAt: reading.startedAt
+        )
+        panel.title = "Save Reading"
+        panel.message = "Baton reads it again to make the file, so this takes a moment."
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        // A second save replaces the first rather than racing it into the same synthesizer.
+        exportTask?.cancel()
+        exportTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.exportTask = nil }
+            self.music.music.postToast("Saving the reading…", symbol: "waveform", seconds: 4)
+            do {
+                try await ReadAloudExport.write(
+                    chunks: reading.chunks,
+                    voice: reading.voice,
+                    to: destination,
+                    synthesize: self.synthesize
+                ) { fraction in
+                    guard fraction < 1 else { return }
+                    self.music.music.postToast(
+                        "Saving the reading… \(Int(fraction * 100))%", symbol: "waveform", seconds: 4
+                    )
+                }
+                self.music.music.postToast("Reading saved to \(destination.lastPathComponent)", seconds: 3)
+            } catch is CancellationError {
+                readAloudLog.notice("export cancelled")
+            } catch {
+                Self.report(
+                    title: "Baton couldn't save that reading",
+                    message: error.localizedDescription
+                )
             }
         }
     }

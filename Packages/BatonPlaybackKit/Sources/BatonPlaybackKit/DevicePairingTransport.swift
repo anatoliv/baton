@@ -218,13 +218,62 @@ public enum PairingClient {
             })
         }
 
-        let payload: Data? = await withCheckedContinuation { continuation in
-            nonisolated(unsafe) var resumed = false
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 4 * 1024 * 1024) { data, _, _, _ in
-                if !resumed { resumed = true; continuation.resume(returning: data) }
-            }
-        }
+        let payload = await receiveAll(connection)
         guard let payload, !payload.isEmpty else { throw Failure.empty }
         return payload
+    }
+
+    /// Read until the sender closes, accumulating every segment.
+    ///
+    /// This used to be a single `receive(minimumIncompleteLength: 1, …)`, which resumes as soon
+    /// as **one byte** has arrived — so it returned whatever happened to be in the first TCP
+    /// segment and discarded the rest. The host sends the whole payload and then closes
+    /// (`send(… completion: .contentProcessed { connection.cancel() })`), so anything larger
+    /// than a segment arrived truncated, failed to parse as JSON, and surfaced as "This file
+    /// isn't a Baton settings backup" — an error about the payload's *shape*, for what was
+    /// really a short read.
+    ///
+    /// It is size-dependent, which is why it can look intermittent: a small settings export
+    /// fits in one segment and pairs fine, and the same code fails once the export grows.
+    /// `timeout` is not optional politeness. Reading until close means a peer that connects and
+    /// then says nothing would otherwise hang pairing forever — the previous single-read version
+    /// could not hang that way, so adding the loop without a deadline would trade a truncated
+    /// payload for a stuck screen, which is worse.
+    static func receiveAll(_ connection: NWConnection,
+                           cap: Int = 4 * 1024 * 1024,
+                           timeout: TimeInterval = 20) async -> Data? {
+        await withCheckedContinuation { continuation in
+            nonisolated(unsafe) var accumulated = Data()
+            nonisolated(unsafe) var resumed = false
+
+            @Sendable func finish(_ value: Data?) {
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: value)
+            }
+
+            let deadline = DispatchQueue.global()
+            deadline.asyncAfter(deadline: .now() + timeout) {
+                // Whatever arrived is better than nothing: if it is complete it parses, and if
+                // it is not, the format check reports that honestly rather than hanging.
+                finish(accumulated.isEmpty ? nil : accumulated)
+                connection.cancel()
+            }
+
+            @Sendable func readMore() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
+                    if let data, !data.isEmpty { accumulated.append(data) }
+                    if error != nil || isComplete {
+                        finish(accumulated.isEmpty ? nil : accumulated)
+                    } else if accumulated.count >= cap {
+                        // A pairing payload is settings, not media. Something is wrong.
+                        finish(accumulated)
+                    } else {
+                        readMore()
+                    }
+                }
+            }
+            readMore()
+        }
     }
 }

@@ -289,4 +289,85 @@ final class ReadAloudCoordinatorTests: XCTestCase {
         XCTAssertTrue(requested.allSatisfy { !$0.contains("first selection") },
                       "the replaced reading should not still be synthesizing: \(requested)")
     }
+
+    // MARK: - What a save has to work from
+
+    /// Stopping a reading part-way must not also throw away the ability to save it.
+    ///
+    /// This is the whole reason the export re-synthesizes from text rather than joining the
+    /// played audio: you can stop after one sentence and still keep the whole article. If
+    /// `stop()` ever starts clearing `exportable`, "save that thing I was listening to" quietly
+    /// stops working for the case it is most wanted in.
+    func testAStoppedReadingIsStillSaveable() async {
+        let music = MusicModel()
+        let c = makeCoordinator(music) { _, _ in }
+
+        // Sentences long enough to survive chunking: below `minChunkCharacters` they merge, and
+        // the point here is that the *later* ones are kept, not how many chunks they make.
+        c.read(.init(text: "The first sentence is long enough to stand on its own here. "
+                         + "The second sentence is also comfortably long enough to stand alone. "
+                         + "And the third one closes the reading with room to spare.",
+                     profile: .generic, sourceName: "Google Chrome"))
+        c.stop()
+        await settle()
+
+        let exportable = c.exportable
+        XCTAssertNotNil(exportable)
+        XCTAssertTrue(c.canExport)
+        XCTAssertEqual(exportable?.sourceName, "Google Chrome")
+
+        let joined = (exportable?.chunks ?? []).joined(separator: " ")
+        XCTAssertTrue(joined.contains("third one closes the reading"),
+                      "a save must hold the whole reading, not only the part that was spoken")
+    }
+
+    /// What a save would render is the **prepared** text, so a credential cannot reach an
+    /// exported file even though the file outlives the reading.
+    ///
+    /// The redactor already protects the speaker. What this pins is that the export works from
+    /// the same side of it — the reason the ticket could ship the Mac half without the audio
+    /// needing a redactor of its own. Assembled at runtime so the literal never appears in
+    /// source; `publish-repo.sh`'s secret scan cannot tell a fixture from the real thing.
+    func testWhatWouldBeSavedIsAlreadyRedacted() async {
+        let music = MusicModel()
+        let c = makeCoordinator(music) { _, _ in }
+        let token = "ghp" + "_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"
+
+        c.read(.init(text: "Here is the token \(token) and here is a following sentence.",
+                     profile: .terminal, sourceName: "Ghostty"))
+        await settle()
+
+        let joined = (c.exportable?.chunks ?? []).joined(separator: " ")
+        XCTAssertFalse(joined.isEmpty, "the reading produced nothing to save")
+        XCTAssertFalse(joined.contains(token), "an export would have carried the token into a file")
+    }
+
+    /// Nothing to save is the state at launch, and it is what the menu item reads.
+    func testNothingIsSaveableBeforeAnyReading() {
+        let c = makeCoordinator(MusicModel()) { _, _ in }
+        XCTAssertFalse(c.canExport)
+        XCTAssertNil(c.exportable)
+    }
+}
+
+/// The synthetic-copy regression from 0.17.1, pinned.
+///
+/// This is a one-assertion test about a constant, which normally earns nothing. It earns its
+/// place here because the bug it guards is invisible to every other kind of check: with
+/// `.combinedSessionState` the code compiles, runs, raises no error, and reports the same
+/// `.noSelection` as an empty selection — while the hotkey silently stops working in every
+/// browser, which is the one source with no alternative route to its selection.
+///
+/// The behaviour itself cannot be tested here. It needs a real hotkey held down by a real hand
+/// in front of a real browser, which is how it was found and is stated as such rather than
+/// dressed up in a test that would pass either way.
+@MainActor
+final class SelectionCopyEventSourceTests: XCTestCase {
+    func testTheSyntheticCopyUsesAPrivateEventSource() {
+        XCTAssertEqual(
+            SelectionReader.copyEventSourceState, .privateState,
+            "a shared event-source state merges the modifiers the user is still holding for the "
+                + "hotkey, so the target app receives ⌃⌘C rather than ⌘C and copies nothing"
+        )
+    }
 }

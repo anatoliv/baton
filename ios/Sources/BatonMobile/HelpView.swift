@@ -234,6 +234,37 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0.4",
+            date: "August 2026",
+            highlight: "Setting this phone up from a Mac works again \u{2014} scanning the code no longer stops with \u{201C}this file isn't a Baton settings backup\u{201D}.",
+            changes: [
+                .init(.fixed, "The phone was reading only the first part of what your Mac sent and throwing the rest away, so the settings arrived cut in half and could not be read. The message blamed the file, which sent you looking in the wrong place \u{2014} nothing was wrong with your Mac's settings."),
+                .init(.fixed, "It got worse as more of your settings learned to travel: a small set fitted in one piece and worked, and everything since did not. If pairing used to work and then stopped, this is why."),
+                .init(.improved, "Pairing now gives up after twenty seconds rather than waiting forever if the Mac goes quiet part-way through."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.0.3",
+            date: "August 2026",
+            highlight: "When your home server is asleep or unreachable, the music friend now really does fall back to your model provider, as this screen has always said it would.",
+            changes: [
+                .init(.fixed, "It didn't. A home server that was refused, timed out or simply switched off produced an error that never reached the part of Baton that decides to fall back, so the music friend stopped working entirely while a perfectly good model provider sat configured right below it."),
+                .init(.fixed, "Nor did it fall back when something was answering at the address but was not a Baton gateway \u{2014} the one case where the address is plainly wrong and the provider is plainly the answer."),
+                .init(.improved, "A server that answers nothing no longer reports itself as \u{201C}HTTP -1004\u{201D}. It says it could not be reached, and Test connection names the port the gateway actually uses."),
+                .init(.improved, "A rejected gateway token still refuses rather than falling back, deliberately. Quietly moving your conversation to a paid provider because a token is wrong would hide the one thing you need to fix."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.0.2",
+            date: "August 2026",
+            highlight: "A home server address typed with a /v1 on the end now connects instead of failing.",
+            changes: [
+                .init(.fixed, "Baton asks for two addresses on the Music Friend screen and they wanted opposite shapes: the model provider needs a /v1 at the end, the home server needs none. Copying the shape from one to the other produced a doubled /v1 and a failed connection, with a message saying the address was not a gateway \u{2014} true, and no help at all. A trailing /v1 is now simply dropped, and the screen says which shape it wants."),
+                .init(.fixed, "The same address carries shared settings between this phone and your Mac, so the identical mistake could quietly stop the equalizer, podcasts and search history from travelling."),
+                .init(.improved, "When something is listening at the address but is not a Baton gateway, the message now says so and names the port the gateway actually uses, instead of leaving you to guess."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.0.1",
             date: "August 2026",
             highlight: "Your music friend's setup arrives with everything else when you set this phone up from a Mac.",

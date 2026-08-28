@@ -142,7 +142,12 @@ if grep -rq "isAgentEnabled" app/Sources/Baton/Remote/ 2>/dev/null; then
         echo "    (needs ~/.baton-live-agent.json — see RemoteAgentLiveTests)" >&2
     else
         SCORE="$(perl -0ne 'if (/"correct"\s*:\s*(\d+)/) { print $1 }' "$EVAL_STAMP")"
-        echo "    conversation eval: ${SCORE:-?}/109 on this version"
+        # Read the total from the stamp rather than hardcoding it. The literal used to be
+        # 109 while the eval had grown to 116 cases, so 0.17.2 reported "111/109" — a
+        # fraction above 1, which reads as a broken measurement rather than as the 95.7%
+        # it actually was. A denominator that drifts silently is worse than no denominator.
+        TOTAL="$(perl -0ne 'if (/"total"\s*:\s*(\d+)/) { print $1 }' "$EVAL_STAMP")"
+        echo "    conversation eval: ${SCORE:-?}/${TOTAL:-?} on this version"
     fi
 fi
 

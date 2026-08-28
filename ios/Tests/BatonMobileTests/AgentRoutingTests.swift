@@ -117,4 +117,51 @@ final class AgentRoutingTests: XCTestCase {
 
         XCTAssertEqual(AgentClient.makePrimaryProfile(config)?.dialect, .direct)
     }
+
+    // MARK: - Falling back to the model provider
+
+    /// The Music Friend screen promises "Baton falls back to the model provider below if the
+    /// server can't be reached." It did not, in either way a home server actually fails, and
+    /// the second of those was invisible: a transport failure was modelled as
+    /// `.http(URLError.errorCode, …)`, whose code is negative and could never match an HTTP
+    /// range. The case the fallback exists for was the one case it could not see.
+
+    /// The literal promise on the screen.
+    func testAnUnreachableGatewayFallsBack() {
+        XCTAssertTrue(AgentClient.shouldFallback(on: .unreachable("Could not connect to the server.")))
+    }
+
+    /// Something is listening, but it is not a gateway — exactly what a fallback is for.
+    func testA404FallsBack() {
+        XCTAssertTrue(AgentClient.shouldFallback(on: .http(404, "no /v1/agent")))
+    }
+
+    func testOverloadedAndBrokenGatewaysFallBack() {
+        XCTAssertTrue(AgentClient.shouldFallback(on: .http(429, "rate limited")))
+        for code in [500, 502, 503, 599] {
+            XCTAssertTrue(AgentClient.shouldFallback(on: .http(code, "server error")), "HTTP \(code)")
+        }
+    }
+
+    /// A rejected token must NOT hop. It is a configuration error the user has to fix, and
+    /// silently moving their conversation to a paid provider because the gateway token is
+    /// wrong is a worse outcome than failing — it hides the very thing they need to see.
+    func testARejectedTokenDoesNotFallBack() {
+        XCTAssertFalse(AgentClient.shouldFallback(on: .http(401, "unauthorized")))
+        XCTAssertFalse(AgentClient.shouldFallback(on: .http(403, "forbidden")))
+    }
+
+    /// Config errors fail identically twice, so hopping only doubles the wait.
+    func testConfigErrorsDoNotFallBack() {
+        XCTAssertFalse(AgentClient.shouldFallback(on: .notConfigured))
+        XCTAssertFalse(AgentClient.shouldFallback(on: .config("bad URL")))
+    }
+
+    /// A transport failure is not an HTTP answer, and must not read like one. This is what
+    /// produced "answered HTTP -1004" for a server that answered nothing at all.
+    func testUnreachableReadsAsUnreachableRatherThanAnHTTPCode() {
+        let described = AgentClient.AgentError.unreachable("Could not connect to the server.").errorDescription ?? ""
+        XCTAssertTrue(described.contains("Couldn't reach it"), "got: \(described)")
+        XCTAssertFalse(described.contains("HTTP"), "a refused connection is not an HTTP answer: \(described)")
+    }
 }

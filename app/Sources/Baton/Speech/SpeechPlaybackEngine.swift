@@ -377,11 +377,9 @@ final class SpeechPlaybackEngine {
         replayData = nil
         replayNativeText = text // cache for Replay (re-runs the built-in voice)
 
-        // Prefer an enhanced/premium voice for the current locale if one is installed. Use the
-        // BCP-47 form ("en-US") — Locale.current.identifier is "en_US" (underscore), which the
-        // voice initializer rejects, previously yielding nil.
-        let voice = AVSpeechSynthesisVoice(language: Locale.current.identifier(.bcp47))
-            ?? AVSpeechSynthesisVoice(language: "en-US")
+        // Prefer an enhanced/premium voice for the current locale if one is installed.
+        // Shared with `ReadAloudExport` so an exported reading is read by the voice you heard.
+        let voice = NativeSpeechRenderer.systemVoice
 
         renderGeneration &+= 1
         let generation = renderGeneration

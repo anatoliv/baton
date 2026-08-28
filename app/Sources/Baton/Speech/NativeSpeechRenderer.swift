@@ -36,6 +36,19 @@ enum NativeSpeechRenderer {
         let words: [Word]
     }
 
+    /// The built-in voice to use when nothing more specific was chosen.
+    ///
+    /// One definition, because there are now two callers — the engine speaking a fallback
+    /// utterance and `ReadAloudExport` rendering one into a file — and a second copy would mean
+    /// an exported reading could be read by a different voice than the one you heard.
+    ///
+    /// Uses the BCP-47 form ("en-US"): `Locale.current.identifier` is "en_US" with an underscore,
+    /// which the voice initializer rejects, and it previously yielded nil here.
+    static var systemVoice: AVSpeechSynthesisVoice? {
+        AVSpeechSynthesisVoice(language: Locale.current.identifier(.bcp47))
+            ?? AVSpeechSynthesisVoice(language: "en-US")
+    }
+
     /// Synthesize `text` to a single buffer, or nil when the system produced nothing.
     ///
     /// Nil is a real outcome, not a theoretical one — a missing voice, an empty string, or a

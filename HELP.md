@@ -277,10 +277,16 @@ there never will be. Those settings go through a small service you run yourself,
 | Radio bans | How far into a podcast episode you are |
 | Podcast subscriptions | Every API key and password |
 | Search and filter history | The "look outside my library" switch |
-| The music friend's provider, model and base URL | |
-| Look up missing lyrics, scrobbling target | |
+| Streaming quality, for Wi-Fi and for cellular | Your speech and transcription servers |
+| Look up missing lyrics, scrobbling target | The experimental audio engine |
+| Which discovery sources are switched on | Ducking and stall timeouts |
+| The music friend: where answers come from, provider, model, base URL, and whether it speaks replies aloud | Appearance, and whether the screen stays awake |
+| The friend's own switches: understand plain English, let it look around first, remember what you tell it | The play queue and your local play history |
 
-Two of those deserve a word. **Secrets never travel through sync** — keys live in the
+Three of those deserve a word. **Your speech and transcription servers stay put** because
+they are addresses of machines rather than choices about listening: the phone is rarely on the
+same network as the Whisper box, and inheriting an address it cannot reach would look like a
+broken setting. **Secrets never travel through sync** — keys live in the
 Keychain, and putting them in a synced JSON file would be a downgrade in handling. They move
 by pairing instead, encrypted, which is the one place they belong. So the friend's provider,
 model and base URL keep themselves in step continuously; the key itself arrives once, when you
@@ -1376,18 +1382,20 @@ does that far better than Baton ever will. This reads *content*, when you ask fo
 need something to describe buttons and menus as you move through them, VoiceOver is the tool.
 
 **Nothing watches your screen.** Baton has no idea what is on it until you select something and
-ask. There is no background monitoring, no polling, no "read what changed" — every reading
-happens because you started it, at the moment you started it. That is a deliberate limit, not
-something waiting to be added later.
+ask. Nothing runs in the background looking for things to read: every reading happens because
+you started it, at the moment you started it. That is a deliberate limit rather than a feature
+still to come.
 
 **Readings are not saved.** A reading plays once and is gone. It does not appear in Spoken
-Summaries, which stays a record of what your agents told you.
+Summaries, which stays a record of what your agents told you. If you want to keep a particular
+one, you can ask for it: see *Keeping a reading* below.
 
-### Two ways to start a reading
+### Ways to start a reading
 
 **Services, which needs no permission at all.** Select some text, then choose **Services →
 Speak with Baton** from the application menu (or right-click the selection). The system hands
-Baton the text; Baton doesn't reach into anything. Nothing to grant, nothing to set up.
+Baton the text; Baton doesn't reach into anything, so there is nothing to grant and nothing
+to set up.
 
 **A keyboard shortcut, which you choose.** Settings → Speech → Read aloud has a recorder: click
 it, press the combination you want. There is **no shortcut set out of the box**, so Baton can
@@ -1407,6 +1415,13 @@ it can see. This is off until you turn it on in Settings, because it needs Scree
 which is the largest thing Baton ever asks for. Once it is on, hold **Option** with your
 shortcut. Baton captures only when you press it, only the window in front, and the picture is
 never saved.
+
+**An agent hands it over.** Baton's `read_aloud` tool takes text an agent already has and
+reads it, which is the tidy answer for a web page. Getting the *article* out of a page rather
+than the navigation and the cookie banner is real work, and an agent driving the browser has
+already done it. So it passes Baton the text, and Baton does the part it is good at. Nothing
+to switch on and no permission involved, since the text arrives over the connection Baton's
+other tools already use.
 
 **The gist instead of the whole thing.** For a long article, **Services → Summarize with
 Baton** speaks a few sentences rather than reading every one. This is the one part of Read
@@ -1462,6 +1477,25 @@ Off by default. Turn on **Use a different voice per app** in Settings → Speech
 a browser and a terminal read in different voices, so you can tell where the text came from
 without looking. The two voices are the `browser` and `terminal` rows in the voice map on the
 same screen, and you can change them like any other.
+
+### Keeping a reading
+
+Read a long article at your desk, keep the audio, listen to it on a walk. **File → Save Reading
+as Audio…** (⇧⌘S) turns the last thing Baton read into a single M4A file.
+
+Nothing about this changes if you never use it. Readings still play once and disappear; the
+only thing ever written is the file you asked for, in the place you chose for it. Baton asks
+where to put it every time on purpose, because a folder that quietly filled up with everything
+you had ever listened to would be the very thing the paragraph above promises not to do.
+
+Because nothing was kept, Baton reads the article again to make the file, so a long one takes
+a moment. The saving happens in the background and you can carry on. Two things follow from
+it: the file is made from the same cleaned text you heard, so a credential it removed cannot
+reappear in the audio, and if your text-to-speech server is unreachable the file is made in the
+built-in voice, exactly as a live reading would be.
+
+The item stays available until you read something else, so stopping a reading half way through
+and then saving it still gives you the whole thing.
 
 
 ## Transcripts and summaries
@@ -1780,7 +1814,9 @@ meant, then does it with your library and your player. "Something calmer", "what
 "play the live version instead" — it has the same hands you do.
 
 Open it on the Mac from **Go › Music Friend**, or press **⌘⇧F**. On iPhone it is the
-**Friend** tab, which appears once you have set a model provider.
+**Friend** tab, which appears once a connection test has passed. Setting a provider is not
+enough on its own: a key with a typo in it is still a key, so Baton waits until it has seen
+one real request succeed before offering you a tab that promises to answer.
 
 It is one friend, not three. The window on the Mac, the tab on the phone, and the chat
 bridges below all run the same conversation, so what it has learned about you in one place
@@ -1822,8 +1858,42 @@ near the bottom.
 Then **Go › Music Friend**, or **⌘⇧F**. If the window still says it has nothing to answer
 with, step 2 is the one that was missed — a key with the toggle off does nothing.
 
-On iPhone the same settings have a pane of their own, **Settings → Music Friend**, and the
-**Friend** tab appears once a provider is set.
+### Turning it on, on the iPhone
+
+The same settings have a pane of their own: **Settings → Music Friend**. The **Friend** tab
+is not there until a connection test passes, so if you cannot find it, that is why rather
+than anything being broken.
+
+**Answers come from** picks where the thinking happens, and the two choices want very
+different things:
+
+**Model provider** talks to a model directly from the phone. Choose the provider, paste the
+key, name the model, and press **Test connection**. The test asks the model to resolve a real
+request and checks it picked the matching tool, so a pass means the next thing you say will
+work rather than merely that something answered. When it passes, the Friend tab appears.
+
+**Home server** sends the question to a **Baton gateway** running on a machine at home, so
+your key stays there instead of on your phone. This is the one people get wrong, so it is
+worth being blunt: a gateway is `baton-gateway`, the small service described under
+[Shared settings](#shared-settings-between-your-devices). **It is not a model endpoint.**
+Pointing Home server at Ollama, vLLM, LiteLLM or anything else that speaks an LLM API will
+not work, however well that thing runs, because Baton asks it for `/v1/agent` and only the
+gateway answers there. If you want to use a model on your own machine, that is Model
+provider, or `BATON_LLM_BASE_URL` on the gateway itself.
+
+The two addresses on this screen also want opposite shapes, which is easy to miss because
+they sit one above the other:
+
+| Field | Address |
+|---|---|
+| **Home server** | The bare host and port, `http://192.0.2.10:8788`. The gateway listens on **8788** by default. A trailing `/v1` is dropped if you paste one. |
+| **Model provider** | The API root **including** `/v1`, because that is where `/chat/completions` hangs off. |
+
+**About the fallback.** The panel says Baton falls back to the model provider if the home
+server cannot be reached, and it does — a home server that is asleep or has moved will not
+take the friend down with it. What the fallback does *not* do is make the Friend tab appear:
+that gate tests the route you actually chose. If you picked Home server and have no gateway,
+test as **Model provider** instead.
 
 **Talk to it if you'd rather.** The composer has a microphone: click it and speak, click it
 again to stop and send what you said. The first time, macOS asks for permission to use the

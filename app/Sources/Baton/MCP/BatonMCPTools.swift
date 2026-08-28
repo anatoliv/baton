@@ -343,6 +343,7 @@ enum BatonMCPToolCatalog {
                 required: []
             ),
             BatonMCPSpeakTools.definition(),
+            BatonMCPReadTools.definition(),
         ] + BatonMCPTranscriptTools.definitions())
     }
 
@@ -394,6 +395,8 @@ enum BatonMCPToolCatalog {
         // The only tool here that reaches past the owner's own server.
         "music_discover_external",
         "speak_summary",
+        // Reaches the TTS host to speak, and the summarizing model too when `gist` is set.
+        "read_aloud",
         // Both reach the self-hosted recognizer / summarizing model on the LAN.
         "music_transcript", "music_summarize_track",
     ]
@@ -466,6 +469,7 @@ enum BatonMCPToolCatalog {
             case "music_random": text = try await musicRandom(arguments)
             case "music_artist_info": text = try await musicArtistInfo(arguments)
             case "speak_summary": text = try await BatonMCPSpeakTools.run(arguments, music, sessionID: sessionID)
+            case "read_aloud": text = try BatonMCPReadTools.run(arguments)
             case "music_transcript": text = try BatonMCPTranscriptTools.transcript(arguments, music)
             case "music_summarize_track":
                 // Read from the same store the remote-control service does, rather than

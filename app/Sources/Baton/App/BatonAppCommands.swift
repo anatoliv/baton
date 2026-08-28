@@ -26,6 +26,19 @@ struct BatonAppCommands: Commands {
         // a second one that shares one transport — confusing. Suppress it. (menu review #1)
         CommandGroup(replacing: .newItem) {}
 
+        // File → Save Reading as Audio…, the export for read aloud. The File menu
+        // rather than the speaking HUD, because the HUD is dismissed the moment a reading ends
+        // and this is most often wanted just after one. It stays available until the next
+        // reading replaces it; the panel decides where the file goes, since readings themselves
+        // are never saved (`specs/read-aloud.md`, decision 1).
+        CommandGroup(replacing: .saveItem) {
+            Button("Save Reading as Audio…") {
+                ReadAloudCoordinator.current?.saveLastReading()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+            .disabled(ReadAloudCoordinator.current?.canExport != true)
+        }
+
         // Standard Settings/Preferences slot (⌘,) → the unified Settings window.
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
