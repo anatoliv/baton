@@ -19,6 +19,7 @@ in [`docs/`](docs/).
 - [What Baton is, and what it isn't](#what-baton-is-and-what-it-isnt)
 - [Getting connected](#getting-connected)
 - [Baton on iPhone](#baton-on-iphone)
+- [Shared settings between your devices](#shared-settings-between-your-devices)
 - [Using more than one server](#using-more-than-one-server)
 - [Finding your way around](#finding-your-way-around)
 - [Browsing by folder](#browsing-by-folder)
@@ -138,7 +139,83 @@ part of setting up any music app, so there are three ways round it. All of them 
 Your likes, ratings, playlists and play counts don't need any of this — they live on your
 Navidrome server, and both apps read and write them as the same user, so they are already
 the same on every device. What travels here is the things Navidrome has nowhere to keep:
-your equalizer curve, crossfade, radio bans, and your music friend's setup.
+your equalizer curve, crossfade, radio bans, your music friend's whole setup, and — because
+pairing encrypts everything it sends — your server passwords, your scrobbling tokens and your
+API keys. You sign in nowhere and paste nothing.
+
+All three of these are a one-time transfer, though. To keep those settings in step from then
+on, see [Shared settings between your devices](#shared-settings-between-your-devices).
+
+### Where the Mac says "right-click"
+
+Everything below describes the Mac, where a right-click opens the menu of things you can do
+to a song, an album, an artist, a playlist or a station. **On iPhone, touch and hold instead.**
+The menu that appears is the same one: Play, Play Next, Add to Queue, Add to Playlist, Like,
+Rate, Download, Start Radio, Go to Album, Go to Artist, and the radio bans.
+
+### Widgets, the lock screen, and Live Activities
+
+Baton puts what's playing where you actually glance.
+
+- **Home screen.** Add the **Now Playing** widget in the usual way — touch and hold the home
+  screen, tap **+**, search for Baton. It comes in the three home-screen sizes.
+- **Lock screen and StandBy.** The same widget also comes in the three accessory shapes:
+  rectangular, circular and inline. Add it from the lock screen's own **Customize** screen.
+  This is the one that matters most for a music app, because it's the surface you look at
+  without unlocking anything.
+- **A Live Activity while music plays.** Start something and a compact now-playing line
+  appears on the lock screen with a progress bar that runs on its own — no unlocking, no
+  opening the app. It's deliberately quiet: one muted icon, the title, and the artist a step
+  down. It's telling you something you already know, so it shouldn't shout.
+
+The widget draws artwork it already has on disk rather than fetching it, because a widget's
+network access is throttled and the cover would simply never appear.
+
+### Siri and Shortcuts
+
+Baton answers Siri, and the same actions are building blocks in the Shortcuts app.
+
+Say **"Play something in Baton"** or **"Play music in Baton"** and Siri asks what you'd like,
+then searches your library and plays the results. **"Resume Baton"** picks up where you left
+off. Siri can't yet take the album name in the same breath — that needs a kind of parameter
+Apple only allows for fixed lists, so it asks rather than guessing.
+
+In the **Shortcuts** app, search for Baton and you'll find: **Play music**, **Pause music**,
+**Play or pause**, **Next track**, **Previous track**, **Like the current track**, and **Play
+songs matching**. Use them in an automation the way you'd use any others — start a playlist
+when you arrive somewhere, pause when a focus mode begins.
+
+These run the same command surface the music friend and the app's own buttons use, so Siri
+and the friend can never drift apart.
+
+### How much data it uses
+
+**Settings → Sound** has two quality settings, one for each kind of connection: **Wi-Fi
+Quality** and **Cellular Quality**. Each takes **Original**, **High (320 kbps)**, **Medium
+(192 kbps)** or **Low (128 kbps)**.
+
+**Original** means no cap: the server sends the file as it is, which for a FLAC library is
+the whole point of owning the files. That's also the setting most likely to matter on a
+metered plan, which is why the two are separate — leave Wi-Fi on Original and put cellular on
+Medium, and the phone does the right thing without you thinking about it.
+
+Anything you've downloaded ignores both settings. It's already on the phone at whatever
+quality it arrived.
+
+### Face ID on your keys
+
+The music friend's API key is money, and a phone in someone else's hand is already unlocked.
+So on **Settings → Music Friend** the key and the gateway token stay masked until Face ID or
+Touch ID passes.
+
+Two things about it are deliberate. It falls back to your passcode, so a wet thumb or a mask
+never locks you out of your own settings. And a phone with nothing enrolled is simply allowed
+through, because there's no way to prove anything and refusing would lock someone out of a key
+with no route back.
+
+It is **not** an app-wide lock. Baton is a music player, and asking for your face every time
+you come back to skip a track would be the worst feature in the app. It guards secrets and
+nothing else.
 
 ### Making the phone yours
 
@@ -173,6 +250,96 @@ Baton is actually for in a way four bundled tracks cannot.
 
 Connect your own server whenever you like from **Settings → Connect to Navidrome**, and
 either demo gives way to it.
+
+---
+
+## Shared settings between your devices
+
+The three routes above are a *one-time* transfer: they carry your setup across once, and
+after that the two devices drift apart. Change the equalizer on the Mac and the phone still
+has the old curve. Shared settings is the ongoing version, and it is optional. Leave it
+alone and both apps work exactly as they always have.
+
+Your likes, ratings, playlists and play counts were never the problem: they live on your
+Navidrome server, keyed to your user, and both apps read and write them as you. The problem
+is everything Navidrome has nowhere to put, because there is no client-preference API and
+there never will be. Those settings go through a small service you run yourself, called the
+**gateway**, which is the one place both devices already sign in to.
+
+### What travels, and what stays put
+
+| Travels | Stays on the device |
+|---|---|
+| Equalizer: on/off, preset, band gains | Download folder and downloaded files |
+| Crossfade, gapless, autoplay, repeat | Offline mode |
+| Loudness mode and pre-amp | Demo mode |
+| Radio bans | How far into a podcast episode you are |
+| Podcast subscriptions | Every API key and password |
+| Search and filter history | The "look outside my library" switch |
+| The music friend's provider, model and base URL | |
+| Look up missing lyrics, scrobbling target | |
+
+Two of those deserve a word. **Secrets never travel through sync** — keys live in the
+Keychain, and putting them in a synced JSON file would be a downgrade in handling. They move
+by pairing instead, encrypted, which is the one place they belong. So the friend's provider,
+model and base URL keep themselves in step continuously; the key itself arrives once, when you
+pair.
+
+And the master switch for looking outside your library stays put on purpose: that one is
+consent, and a phone should not inherit a decision the Mac made to start talking to strangers.
+
+A full setting-by-setting account of what crosses and what doesn't is in
+[`docs/settings-parity-mac-vs-iphone.html`](docs/settings-parity-mac-vs-iphone.html).
+
+### Running a gateway
+
+The gateway is a small Swift service in this repository, under `gateway/`. It runs on macOS
+and on Linux, and it wants to live somewhere always on — the same box as Navidrome is the
+obvious home. It needs a token you invent (both devices present it) and your Navidrome
+sign-in, and it refuses to start without them:
+
+```sh
+export BATON_GATEWAY_TOKEN="a-long-random-string-you-make-up"
+export NAVIDROME_URL="https://music.example.com"
+export NAVIDROME_USER="you" NAVIDROME_PASSWORD="…"
+swift run -c release baton-gateway          # listens on :8788
+```
+
+Full configuration, including running it under systemd or Docker and pointing its state file
+at a mounted volume, is in [`gateway/README.md`](gateway/README.md).
+
+Settings are kept in a plain JSON file on disk rather than in memory, because a restart is
+routine and losing your settings to a bounced container would be worse than never syncing
+them.
+
+### Turning it on
+
+**On the Mac**, open **Settings → Remote → Shared settings**. Paste the gateway's address
+and token, click **Save token**, then **Test**. A pass tells you how many settings are
+already shared, or that nothing is there yet and this would be the first device. After that
+the Mac syncs on its own: at launch, whenever you switch back to the app, and on a slow
+heartbeat while a window is left open. **Sync now** is there for when you don't want to wait.
+
+**On the iPhone**, open **Settings → Music Friend** and set **Answers come from** to **Home
+server**. The **Home server** section appears with the same two fields: the address and the
+token from your gateway's configuration.
+
+The green light on both means a request that just happened, not that the fields are filled
+in — and editing either field clears it, because the old answer belonged to a different
+address.
+
+### When two devices disagree
+
+Settled per setting, not per device. Each setting carries when it changed and which device
+changed it, and the newest one wins — so two devices changing *different* things never clobber
+each other, and the loser of a real race is one setting rather than everything you touched
+that day.
+
+Lists are the exception, because "newest wins" is the wrong rule for them: a search made on
+the quieter device would vanish the moment the other one synced. Search history, filter
+history and podcast subscriptions are **merged** instead. Subscriptions merge per show, so
+unsubscribing on one device survives meeting a device that still had the show, and
+resubscribing later survives the tombstone.
 
 ---
 
@@ -288,8 +455,8 @@ and under "Recent Searches" on the phone. The albums and artists you opened from
 appear under "Recently Opened" — often the faster route back, since what you actually
 wanted was the record, not the words you used to find it.
 
-Both are shared between your Mac and your phone once shared settings are set up (Settings →
-Remote). They're **merged, not overwritten**: a search made on one device is added to what
+Both are shared between your Mac and your phone once
+[shared settings](#shared-settings-between-your-devices) are set up (Settings → Remote). They're **merged, not overwritten**: a search made on one device is added to what
 the other already had, rather than replacing it, so nothing you looked for disappears
 because the other device synced more recently.
 
@@ -482,8 +649,8 @@ How it works:
 - **Your shows follow you.** Subscribe on the Mac and the show appears on your iPhone, and
   the other way round. Unsubscribing travels too: drop a show on one device and it goes on
   the other, rather than being handed back the next time they talk. This rides the same
-  device sync as your other settings, so it needs the gateway set up — see
-  [Getting your Mac's setup onto your phone](#getting-your-macs-setup-onto-your-phone).
+  device sync as your other settings, so it needs a gateway set up — see
+  [Shared settings between your devices](#shared-settings-between-your-devices).
   Where you are in an episode is still per-device.
 - **Downloading.** For shows you follow by RSS, episodes play right away with no download
   step, and a show's menu can grab the **latest 5**, **latest 10**, or **all** episodes at
@@ -596,9 +763,27 @@ moving. They still mark the row; they just hold still.
 
 Open the full-screen player for big artwork, a soft backdrop tinted from the album art, and
 a **waveform scrubber** for tracks you've downloaded. Along the side are panels for the
-**Queue**, **Lyrics** (synced karaoke-style when your server provides timed lyrics, plain
-text otherwise), and **Related** tracks. Press **Space** to play or pause, and **Escape** to
-leave full-screen.
+**Queue**, **Lyrics**, and **Related** tracks. Press **Space** to play or pause, and
+**Escape** to leave full-screen.
+
+### Lyrics
+
+The **Lyrics** panel shows words for whatever is playing. When they arrive with timings they
+scroll karaoke-style and you can tap or click a line to jump to it; without timings you get
+plain text.
+
+Where they come from is worth knowing, because it explains an empty panel. Navidrome only
+serves lyrics that are **embedded in your files**, and most libraries have very few of those,
+so for most people this panel starts out blank no matter what is playing.
+
+Turn on **Look up missing lyrics** — **Settings → About** on the Mac, **Settings → Sound** on
+iPhone — and Baton asks [LRCLIB](https://lrclib.net), a free and open lyrics database, for
+anything your server doesn't have. It sends the track's title, artist and length, and nothing
+else: not your library, not your history, not who you are. Lyrics embedded in your own files
+always win, so turning this on never overwrites what you already have.
+
+Podcast episodes don't use this. They get [transcripts](#transcripts-and-summaries) instead,
+which are a different thing built a different way.
 
 ### The floating mini-player
 
@@ -880,7 +1065,14 @@ Most of these come from the **Playback** menu, which is available anywhere in th
 | Collapse or expand the player bar | Command, Control, J |
 | Open the mini-player | Command, Option, M |
 | Open the equalizer | Option, Command, E |
+| Open the music friend | Command, Shift, F |
 | Open Settings | Command, comma |
+
+**Get Info** (Command, I, or **Get Info** in a row's right-click menu) opens a sheet on the
+track itself: codec, bitrate, bit depth, sample rate, channels and file size, alongside how
+many times you've played it and when you last did. If the track is downloaded, it shows you
+where on disk it is. Every field is read straight from your server's own metadata — nothing
+is guessed, and a blank field means your library doesn't carry that tag.
 
 And for moving around your library:
 
@@ -1499,8 +1691,38 @@ directly and answer immediately, without asking a model anything. That keeps the
 things instant and free; the model is for the requests that actually need thinking about.
 
 **You have to bring the brain.** Baton ships no key and talks to no model provider until you
-set one up in **Settings, Remote** — point it at Anthropic, at OpenAI, or at something
-running on your own machine. Until then the friend has nothing to answer with.
+set one up — point it at Anthropic, at OpenAI, or at something running on your own machine.
+Until then the friend has nothing to answer with.
+
+### Turning it on, on the Mac
+
+The setting lives in **Settings, Remote**, which is also where the Telegram and Discord
+bridges are. That pane is about everything that answers you in words, not just the chat
+apps, so the friend's brain is configured there too — in the **Natural language** section
+near the bottom.
+
+1. **Settings → Remote**, and scroll past Telegram, Discord, Linking and Devices to
+   **Natural language**.
+2. Turn on **Understand plain English**. Leave **Enable remote control** at the top of the
+   pane alone unless you want Telegram or Discord as well — the friend window doesn't need
+   it.
+3. Pick a **Provider**: *Anthropic* or *OpenAI-compatible*. Choosing one fills in a matching
+   model and base URL, so the only thing left is the key.
+4. Paste your **API key** and click **Save** beside the field. It saves on the button, not
+   as you type, and it goes to your login Keychain rather than a preferences file.
+5. Optionally change **Model** or **API base URL**. This is where a model on your own
+   machine goes: point the base URL at it and nothing leaves the house.
+6. Click **Test**. It sends one real request the way a message would, so a pass means the
+   next thing you say will work — not just that something answered.
+7. Turn on **Let it look around first**. Without it, one message becomes one command decided
+   blind: ask for "lazy music" and you get "nothing matched" even with a shelf of things
+   tagged *chill*. **Remember what you tell it** sits underneath and needs it on.
+
+Then **Go › Music Friend**, or **⌘⇧F**. If the window still says it has nothing to answer
+with, step 2 is the one that was missed — a key with the toggle off does nothing.
+
+On iPhone the same settings have a pane of their own, **Settings → Music Friend**, and the
+**Friend** tab appears once a provider is set.
 
 **Talk to it if you'd rather.** The composer has a microphone: click it and speak, click it
 again to stop and send what you said. The first time, macOS asks for permission to use the
@@ -1834,9 +2056,12 @@ endpoint address, and the access token, with a button to copy each. See
 
 Telegram and Discord bot tokens, the link code and the list of chats you've authorized (each
 revocable), an optional restriction to particular Discord channels, and the model provider
-and natural-language settings the music friend runs on. See [Controlling Baton from Telegram
-or Discord](#controlling-baton-from-telegram-or-discord) and
-[The music friend](#the-music-friend).
+and natural-language settings the music friend runs on, plus **Shared settings** — the
+gateway that keeps your preferences in step with your iPhone. Setting the friend's model
+provider up is step-by-step in [Turning it on, on the Mac](#turning-it-on-on-the-mac); the
+chat bridges are in [Controlling Baton from Telegram or
+Discord](#controlling-baton-from-telegram-or-discord); the gateway is in [Shared settings
+between your devices](#shared-settings-between-your-devices).
 
 ### Friend Log
 
@@ -1852,6 +2077,9 @@ Baton's version, its license (MIT), and a link to the website, plus two small se
   and a **Check for Updates Now** button. See [Updates](#updates).
 - **Diagnostics**: the opt-in **Send crash & error reports** toggle, off by default. See
   [Privacy and security](#privacy-and-security).
+- **Lyrics**: **Look up missing lyrics**, which asks LRCLIB for words your server doesn't
+  carry. See [Lyrics](#lyrics). (It lives here rather than under Playback, which is not where
+  you would look for it — worth knowing.)
 
 Each of the Playback, Equalizer, and Speech panes has its own **Reset to Defaults** button,
 and each is careful to keep your credentials and servers when it resets.
@@ -1880,8 +2108,8 @@ Still on the roadmap, called out here so the docs stay honest:
   casting needs protocol support Baton doesn't bundle yet.
 - **Sonic-analysis mixes**, built from the actual sound of your music (tempo, energy, key),
   not just your play history.
-- **Crossfeed and other DSP**, and a **lyrics fallback** (like LRCLIB) for when your server
-  has no lyrics of its own.
+- **Crossfeed and other DSP**. (The lyrics fallback that used to sit on this list has
+  shipped — see [Lyrics](#lyrics).)
 
 The full roadmap is in [`docs/05-roadmap-new-features.md`](docs/05-roadmap-new-features.md).
 

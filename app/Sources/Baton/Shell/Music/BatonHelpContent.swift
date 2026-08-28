@@ -227,14 +227,34 @@ extension HelpTour {
                     title: "You bring the brain",
                     body: """
                     Baton ships no API key and contacts no model provider until \
-                    you set one up in **Settings, Remote** — Anthropic, OpenAI, \
-                    or a model running on your own machine. Until then the \
-                    window will say it has nothing to answer with.
+                    you set one up — Anthropic, OpenAI, or a model running on \
+                    your own machine. Until then the window will say it has \
+                    nothing to answer with.
 
                     That's also the answer to what it costs: whatever your \
                     provider charges. Baton adds nothing on top, and a local \
                     model costs nothing at all.
                     """
+                ),
+                HelpTourStep(
+                    symbol: "slider.horizontal.3",
+                    title: "Setting it up",
+                    body: """
+                    It lives in **Settings, Remote** — the same pane as the \
+                    Telegram and Discord bridges, because they all run on the \
+                    same brain — in the **Natural language** section below \
+                    them.
+
+                    1. Turn on **Understand plain English**. Leave *Enable remote control* at the top of the pane alone; that one is only for the chat apps.
+                    2. Pick a **Provider**. It fills in a matching model and base URL for you.
+                    3. Paste your **API key** and click **Save** beside the field. It saves on the button, not as you type.
+                    4. Click **Test**. It sends one real request, so a pass means the next thing you say will work.
+                    5. Turn on **Let it look around first**, or one message becomes one command decided blind.
+
+                    A model on your own machine goes in **API base URL**, and \
+                    then nothing leaves the Mac.
+                    """,
+                    settings: .remote
                 ),
                 HelpTourStep(
                     symbol: "bolt",
@@ -294,6 +314,33 @@ extension HelpWhatsNewRelease {
     /// enforced it. `WhatsNewFreshnessTests` now fails when the newest entry falls behind
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
+        HelpWhatsNewRelease(
+            version: "0.16.25",
+            date: "August 2026",
+            highlight: "Your music friend's setup now follows you between this Mac and your iPhone, instead of quietly staying behind.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "The music friend's provider, model and API base URL never actually "
+                    + "crossed between a Mac and a phone. Both devices reported a successful "
+                    + "sync while storing that setting under different names, so each one kept "
+                    + "its own copy and neither ever saw the other's. They now share it."),
+                HelpWhatsNewChange(.fixed,
+                    "Pairing a phone carries the music friend's API key along with everything "
+                    + "else it already carried \u{2014} your server passwords, your ListenBrainz "
+                    + "and Last.fm tokens, your discovery keys. Scanning the code should leave "
+                    + "you with nothing to paste."),
+                HelpWhatsNewChange(.improved,
+                    "More of your settings keep themselves in step: whether to look up missing "
+                    + "lyrics, which service you scrobble to, and the streaming quality you "
+                    + "chose for Wi-Fi and for cellular."),
+                HelpWhatsNewChange(.improved,
+                    "Help explains how to turn the music friend on, step by step, and the "
+                    + "window no longer sends you to a Settings pane that does not exist. "
+                    + "Shared settings, the gateway that carries them, the iPhone widgets and "
+                    + "Live Activity, Siri and Shortcuts, and lyrics are all written up for "
+                    + "the first time."),
+            ]
+        ),
         HelpWhatsNewRelease(
             version: "0.16.24",
             date: "August 2026",

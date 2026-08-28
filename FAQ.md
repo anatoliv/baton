@@ -225,9 +225,25 @@ same name in Help.
 
 **Do I need an API key, and what does it cost?**
 You need one, and Baton doesn't include it. Baton ships no key and contacts no model provider
-until you set one up in **Settings, Remote** — Anthropic, OpenAI, or a model running on your
-own machine. What it costs is whatever that provider charges you; Baton adds nothing and takes
-nothing. Point it at a local model and it costs nothing at all.
+until you set one up — Anthropic, OpenAI, or a model running on your own machine. What it
+costs is whatever that provider charges you; Baton adds nothing and takes nothing. Point it at
+a local model and it costs nothing at all.
+
+**How do I turn it on, on the Mac?**
+It lives in **Settings → Remote**, in the **Natural language** section below Telegram,
+Discord, Linking and Devices. That pane looks like it's only about the chat bridges, which is
+why it's easy to miss: turn on **Understand plain English**, pick a **Provider**, paste the
+**API key** and press **Save** beside the field, then press **Test**. Turn on **Let it look
+around first** as well, or one message becomes one command decided blind. You don't need
+**Enable remote control** at the top of the pane — that's Telegram and Discord only. Full
+steps: [Turning it on, on the Mac](HELP.md#turning-it-on-on-the-mac).
+
+On iPhone it has a pane to itself, **Settings → Music Friend**, and the **Friend** tab shows
+up once a provider is set.
+
+**I set a key and it still says it can't answer.**
+The **Understand plain English** toggle is almost certainly still off. A key with the toggle
+off does nothing, on either platform.
 
 Plain commands are free either way. "Pause", "next", "louder" and their like are understood
 directly, without asking a model anything.
@@ -299,6 +315,31 @@ That's Baton adapting to your artwork. The full-screen backdrop and the player's
 colors are drawn from the current track's cover art, and fall back to Baton orange when
 there's no usable color. It's purely cosmetic. See
 [Adaptive artwork colors](HELP.md#adaptive-artwork-colors).
+
+**Does Baton have widgets, or work on the lock screen?**
+On iPhone, yes. The **Now Playing** widget comes in the three home-screen sizes and the three
+lock-screen and StandBy shapes, and while music is playing a Live Activity shows what's on
+with a progress bar that runs by itself — no unlocking. On the Mac, the current track appears
+in the macOS Now Playing widget in Control Center like any other player. See
+[Widgets, the lock screen, and Live Activities](HELP.md#widgets-the-lock-screen-and-live-activities).
+
+**Can I use Siri or the Shortcuts app?**
+On iPhone. "Play something in Baton" and "Resume Baton" work out loud, and the Shortcuts app
+has Play, Pause, Play or pause, Next, Previous, Like the current track, and Play songs
+matching to build automations from. Siri can't take the album name in the same sentence yet —
+it asks instead. See [Siri and Shortcuts](HELP.md#siri-and-shortcuts).
+
+**Can I limit what Baton uses on cellular data?**
+Yes, and separately from Wi-Fi. **Settings → Sound** on iPhone has **Wi-Fi Quality** and
+**Cellular Quality**, each set to Original, High (320 kbps), Medium (192 kbps) or Low
+(128 kbps). Leave Wi-Fi on Original for your FLACs and put cellular on Medium, and the phone
+sorts itself out. Downloads ignore both — they're already on the phone.
+
+**Why does my iPhone ask for Face ID in Settings?**
+Only in front of the music friend's API key and gateway token, because a key against a paid
+provider is money and an unlocked phone in someone else's hand is already past the front door.
+It falls back to your passcode, and a phone with nothing enrolled is let straight through. It
+is not an app-wide lock — you'll never be asked just to skip a track.
 
 **Can I cast to speakers?**
 AirPlay works today, from the AirPlay picker in the now-playing bar. Chromecast, Sonos, and
@@ -400,7 +441,8 @@ the same everywhere.
 Yes, by two different routes. **Radio stations** live on your server alongside your music, so
 they're simply the same on every device with nothing to set up. **Podcast subscriptions**
 can't work that way — Navidrome has no podcast API, so Baton follows RSS feeds itself — and
-they travel with your other settings through the gateway instead.
+they travel with your other settings through a gateway instead (see
+[shared settings](#what-are-shared-settings-and-do-i-need-a-gateway) below).
 
 Both directions work, including removals: unsubscribe from a show on the Mac and it goes on
 the phone too, rather than reappearing next time the two talk. Baton records *when* you
@@ -408,3 +450,41 @@ subscribed or unsubscribed to each show, so a device that has been switched off 
 can't undo something you deleted yesterday.
 
 How far you are into an episode is still per-device.
+
+## What are shared settings, and do I need a gateway?
+
+You don't need one. Baton works exactly as it always has without it, on both devices. Shared
+settings is the optional upgrade that keeps your preferences in step *after* the one-time
+transfer above, so changing the equalizer on the Mac changes it on the phone too.
+
+It needs a **gateway**: a small service you run yourself, included in this repository under
+`gateway/`. It runs on macOS and Linux, and the natural place for it is whatever box already
+runs Navidrome. Point both devices at its address with a token you invent, and they keep each
+other current. The Mac does it at launch, when you switch back to it, and on a slow
+heartbeat; the phone does the same. Setup is in
+[Shared settings between your devices](HELP.md#shared-settings-between-your-devices), and the
+gateway's own options are in [`gateway/README.md`](gateway/README.md).
+
+**What actually travels?**
+The equalizer, crossfade, gapless, autoplay, repeat, loudness, radio bans, podcast
+subscriptions, your search history, and the music friend's provider, model and base URL. What
+stays on the device is anything that describes *that device* rather than you: the download
+folder, offline mode, demo mode, and how far into an episode you are.
+
+**Does my API key travel?**
+Not through shared settings — keys live in the Keychain and never enter the shared file. The
+*pairing code* is what moves secrets, and it moves all of them: your server passwords, your
+ListenBrainz and Last.fm tokens, your discovery keys, the gateway token and the music friend's
+API key, every one of them encrypted. Pair a phone and you should not have to paste anything.
+The switch that lets Baton look outside your library stays per-device though — that one is
+consent, and a phone shouldn't inherit it.
+
+**What happens if I change the same thing on both devices?**
+The newer change wins, one setting at a time rather than one device at a time, so two devices
+changing different things never overwrite each other. Lists work differently: search history
+and podcast subscriptions are merged rather than replaced, so nothing disappears because the
+other device synced more recently.
+
+**Where are my settings actually stored?**
+In a plain JSON file on the machine running the gateway, which you can open and read. It's
+written to disk rather than held in memory, so restarting the gateway doesn't lose anything.

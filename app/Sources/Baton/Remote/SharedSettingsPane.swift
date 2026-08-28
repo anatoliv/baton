@@ -60,12 +60,13 @@ struct SharedSettingsPane: View {
             }
 
             Text("""
-            Carries your equalizer, crossfade, loudness, radio bans, search history and \
-            music-friend settings between this Mac and your iPhone. Your likes, ratings, \
-            playlists and \
+            Carries your equalizer, crossfade, loudness, radio bans, podcast \
+            subscriptions, search history and the music friend's provider and model \
+            between this Mac and your iPhone. Your likes, ratings, playlists and \
             play counts already sync — those live on your Navidrome server. Downloads, \
             offline mode and this Mac's own paths stay where they are, because they \
-            describe a device rather than you.
+            describe a device rather than you. API keys never travel through here; \
+            pairing carries those, encrypted.
             """)
             .font(.callout)
             .foregroundStyle(.secondary)

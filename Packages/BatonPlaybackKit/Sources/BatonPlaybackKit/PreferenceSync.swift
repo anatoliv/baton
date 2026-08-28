@@ -52,6 +52,23 @@ public final class PreferenceSync {
         "baton.agent.model",
         "baton.agent.baseURL",
         "baton.agent.speakReplies",
+        // The Mac's half of the friend's setup. It wrote `baton.remote.nl.*` and read
+        // nothing else, so for as long as sync has existed the four keys above were carried
+        // between devices that could not both participate: the phone wrote them, the Mac
+        // ignored them, and each end reported a successful sync. The Mac now writes the
+        // shared spelling (see `RemoteControlSettings.Keys`), and these three are the
+        // settings it has that the phone does not.
+        "baton.remote.nl.enabled",
+        "baton.remote.nl.agentEnabled",
+        "baton.remote.nl.remembersOwner",
+        // Settings that are plainly about you rather than about a device, and were simply
+        // never added. Deciding twice that you want lyrics looked up is the annoyance this
+        // list exists to prevent.
+        "baton.lyrics.lrclib",
+        "tonebox.music.scrobbleExternalSource",
+        "tonebox.navidrome.gaplessWifiOnly",
+        "baton.stream.quality.wifi",
+        "baton.stream.quality.cellular",
         // Which podcasts you subscribe to. The episode cache stays local — it is derived
         // data each device refetches, and syncing it would ship staleness around.
         //

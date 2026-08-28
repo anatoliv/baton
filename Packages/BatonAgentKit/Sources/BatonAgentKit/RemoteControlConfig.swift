@@ -237,6 +237,8 @@ public final class RemoteControlSettings {
         self.defaults = store
         self.secrets = secretStore
 
+        FriendConfigMigration.run(defaults: store, secrets: secretStore)
+
         isEnabled = store.bool(forKey: Keys.enabled)
 
         // Read through the *local* bindings: `self` isn't fully initialized yet.
@@ -338,18 +340,103 @@ public final class RemoteControlSettings {
         String(format: "%06d", Int.random(in: 0..<1_000_000))
     }
 
+    // MARK: Key names, for the migration and its tests
+
+    // `Keys` stays private — these are the four the migration touches, and the only reason
+    // anything outside this type needs to name a storage key.
+    static var migrationProviderKey: String { Keys.nlProvider }
+    static var migrationModelKey: String { Keys.nlModel }
+    static var migrationBaseURLKey: String { Keys.nlBaseURL }
+    static var migrationAPIKeyAccount: String { Keys.nlAPIKey }
+    static var migrationLegacyProviderKey: String { Keys.Legacy.nlProvider }
+    static var migrationLegacyModelKey: String { Keys.Legacy.nlModel }
+    static var migrationLegacyBaseURLKey: String { Keys.Legacy.nlBaseURL }
+    static var migrationLegacyAPIKeyAccount: String { Keys.Legacy.nlAPIKey }
+
+    /// Where the friend's configuration lives.
+    ///
+    /// **The `baton.agent.*` names are shared with the iPhone on purpose.** They were the
+    /// phone's spelling first, and `PreferenceSync.syncedKeys` has carried them since sync
+    /// existed — but the Mac wrote `baton.remote.nl.*` and read nothing else, so it was
+    /// absent from a contract it appeared to be part of. Sync moved four keys nobody on this
+    /// side wrote, pairing copied four keys the phone would never read, and both ends
+    /// reported success. Nothing failed to compile and nothing failed at runtime; the setting
+    /// simply never arrived.
+    ///
+    /// Adopting the phone's names rather than adding a mapping keeps one spelling in the
+    /// system. `FriendConfigMigration` carries an existing Mac's values over, once.
+    ///
+    /// Note this is *not* the rename `LegacyKeyMigration` warns against. That hazard is
+    /// renaming a key already in the sync contract, which strands devices on older builds
+    /// mid-upgrade. Here the destination names are the contract, and the source names were
+    /// never in it: an un-updated Mac keeps behaving exactly as it does today.
     private enum Keys {
         public static let enabled = "baton.remote.enabled"
         public static let nlEnabled = "baton.remote.nl.enabled"
-        public static let nlProvider = "baton.remote.nl.provider"
-        public static let nlModel = "baton.remote.nl.model"
-        public static let nlBaseURL = "baton.remote.nl.baseURL"
+        public static let nlProvider = "baton.agent.provider"
+        public static let nlModel = "baton.agent.model"
+        public static let nlBaseURL = "baton.agent.baseURL"
         public static let nlAgentEnabled = "baton.remote.nl.agentEnabled"
         public static let nlRemembers = "baton.remote.nl.remembersOwner"
-        public static let nlAPIKey = "baton.remote.nl.apiKey"
+        public static let nlAPIKey = "baton.agent.apiKey"
+
+        /// The names this Mac used before the two apps agreed. Read once by
+        /// `FriendConfigMigration`, then never again.
+        enum Legacy {
+            static let nlProvider = "baton.remote.nl.provider"
+            static let nlModel = "baton.remote.nl.model"
+            static let nlBaseURL = "baton.remote.nl.baseURL"
+            static let nlAPIKey = "baton.remote.nl.apiKey"
+        }
 
         static func platformEnabled(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).enabled" }
         static func allowedSenders(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).allowedSenders" }
         static func allowedChannels(_ p: RemotePlatform) -> String { "baton.remote.\(p.rawValue).allowedChannels" }
+    }
+}
+
+// MARK: - Migration
+
+/// Moves this Mac's music-friend configuration onto the key names it shares with the iPhone.
+///
+/// Runs from `RemoteControlSettings.init`, before anything is read, so no call site has to
+/// remember it and a fresh install pays one `bool` lookup.
+///
+/// **Copies, never moves.** The old keys and the old Keychain item are left exactly where
+/// they are, so rolling back to a previous build finds its settings intact. The cost is a
+/// duplicated API key in the Keychain, which is the cheaper of the two mistakes: stranding
+/// someone's key to save a slot is not a trade worth making.
+///
+/// **Never overwrites.** A device that already has a `baton.agent.*` value got it from the
+/// phone, from a pairing transfer, or from a previous run of this migration — all three are
+/// newer than whatever `baton.remote.nl.*` still holds.
+@MainActor
+enum FriendConfigMigration {
+    /// Marks it done, so deliberately clearing a setting doesn't get it copied back next launch.
+    static let completedKey = "baton.migration.friendConfig.v1"
+
+    static func run(defaults: UserDefaults, secrets: any SecretStore) {
+        guard !defaults.bool(forKey: completedKey) else { return }
+        defer { defaults.set(true, forKey: completedKey) }
+
+        let pairs = [
+            (RemoteControlSettings.migrationLegacyProviderKey, RemoteControlSettings.migrationProviderKey),
+            (RemoteControlSettings.migrationLegacyModelKey, RemoteControlSettings.migrationModelKey),
+            (RemoteControlSettings.migrationLegacyBaseURLKey, RemoteControlSettings.migrationBaseURLKey),
+        ]
+        for (old, new) in pairs {
+            guard defaults.object(forKey: new) == nil,
+                  let value = defaults.object(forKey: old) else { continue }
+            defaults.set(value, forKey: new)
+        }
+
+        // The key is a Keychain item rather than a default, so it moves through `SecretStore`.
+        // Guarded the same way: an existing new-account secret wins.
+        let oldAccount = RemoteControlSettings.migrationLegacyAPIKeyAccount
+        let newAccount = RemoteControlSettings.migrationAPIKeyAccount
+        if (secrets.secret(for: newAccount) ?? "").isEmpty,
+           let existing = secrets.secret(for: oldAccount), !existing.isEmpty {
+            secrets.setSecret(existing, for: newAccount)
+        }
     }
 }

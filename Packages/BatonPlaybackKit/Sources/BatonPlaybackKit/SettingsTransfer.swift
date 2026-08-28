@@ -66,6 +66,12 @@ public enum SettingsTransfer {
         // shared-settings store it was just configured for — without it the transfer hands
         // over a gateway URL the receiving device has no way to authenticate to.
         "baton.agent.gatewayToken",
+        // The music friend's model-provider key. It was the one credential a paired phone
+        // still had to be given by hand, which made the transfer look broken at exactly the
+        // moment it had just carried eight other secrets successfully. Both apps name this
+        // account `baton.agent.apiKey` since the key names were unified, so it needs no
+        // mapping — that mismatch is the likeliest reason it was left out to begin with.
+        "baton.agent.apiKey",
         // The two external-discovery keys, for the same reason as the gateway token: the
         // transfer already carries the *decision* to use Last.fm and YouTube as sources
         // (`PreferenceSync` syncs the per-source switches), and carrying a switched-on

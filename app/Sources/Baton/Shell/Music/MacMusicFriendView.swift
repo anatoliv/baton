@@ -135,7 +135,7 @@ struct MacMusicFriendView: View {
                     .padding(.top, 4)
             }
             if !isConfigured {
-                Label("Set a model provider in Settings → Remote Control before it can answer.",
+                Label("Settings → Remote, under Natural language: turn on “Understand plain English” and set a model provider. Until then it has nothing to answer with.",
                       systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(Color.warningTint)
