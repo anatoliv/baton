@@ -103,7 +103,9 @@ final class SpeakingHUDPresenter {
         // when the HUD is showing an ordinary summary, so the summary path is unchanged.
         ReadAloudCoordinator.current?.stop()
         speech.cancel() // stop any audio now (silent close)
-        speech.dismissBanner() // close the in-app banner for this summary at the same time
+        // Every waiting summary, not just the one showing: × on the card plainly means "close
+        // all of this", and leaving the next banner to pop up behind it would be a surprise.
+        speech.dismissAllBanners()
         panel?.orderOut(nil)
     }
 

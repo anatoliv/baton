@@ -33,8 +33,8 @@ enum BatonMCPSpeakTools {
             can see who is talking, and remembers it for the rest of this MCP connection — send \
             it on your first call and later calls inherit it. It is never read aloud, so it \
             costs no listening time and does not need to be short enough to say. It also \
-            picks the voice: each session speaks in one of the user's five favourites, chosen \
-            from the name, so agents are told apart by ear as well as on screen.
+            picks the voice: the user maps agent names to voices in Settings, and anything \
+            unmapped gets a distinct one, so agents are told apart by ear as well as on screen.
             """,
             "inputSchema": [
                 "type": "object",

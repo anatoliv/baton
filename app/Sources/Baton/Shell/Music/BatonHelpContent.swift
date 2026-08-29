@@ -315,6 +315,52 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.5",
+            date: "August 2026",
+            highlight: "Agent voices are a list you write, not a pool of five.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Settings, Speech, Agent voices is now a list you add to, as long as you "
+                    + "like: a label, a voice, and a button to hear it. 0.17.4 gave you five "
+                    + "slots and worked out which one each agent got from its name, which could "
+                    + "not keep the promise that mattered — five names land on five different "
+                    + "slots only about one time in twenty, so projects shared a voice and the "
+                    + "remedy was to go and override it. Saying which voice you want is simpler "
+                    + "than a rule that has to be corrected."),
+                HelpWhatsNewChange(.added,
+                    "Add one Baton has heard fills in the label from the agents that have "
+                    + "already spoken, so you never have to guess the exact spelling one sends."),
+                HelpWhatsNewChange(.improved,
+                    "Anything not in the list speaks in a voice from outside it, the same one "
+                    + "every time. A project you named never shares its sound with one you "
+                    + "did not, and an unnamed one is still recognisable before you add it."),
+                HelpWhatsNewChange(.fixed,
+                    "Agent voices sits near the top of the Speech settings now. It was below "
+                    + "the delivery and read-aloud settings, where it took three scrolls and a "
+                    + "good guess to find."),
+                HelpWhatsNewChange(.added,
+                    "Stop half way through an article and Baton keeps your place. File "
+                    + "\u{2192} Resume Reading carries on from the sentence you had reached. It "
+                    + "holds up to five unfinished readings for seven days, and what it holds is "
+                    + "the cleaned text you actually heard, so anything that looked like a "
+                    + "password or a key was already gone. Finish an article and its entry goes; "
+                    + "you can forget the lot whenever you like, from that menu or from Settings."),
+                HelpWhatsNewChange(.fixed,
+                    "When several agents spoke at once, only the last one left a message you "
+                    + "could act on. Each new summary replaced the one waiting, so summaries "
+                    + "quietly disappeared without ever being seen or heard \u{2014} and the "
+                    + "agent that sent one was told it had been shown. They now take turns, and "
+                    + "the speaking window says how many are still waiting."),
+                HelpWhatsNewChange(.added,
+                    "A reading you save as an audio file is offered to your other devices, if "
+                    + "you run the home gateway. Nothing changes if you do not."),
+                HelpWhatsNewChange(.fixed,
+                    "Running Baton's own tests no longer speaks out loud. The test app is Baton, "
+                    + "so a test run used to talk over whatever you were doing, which sounded "
+                    + "exactly like Baton itself going wrong."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.4",
             date: "August 2026",
             highlight: "Every agent gets its own voice.",

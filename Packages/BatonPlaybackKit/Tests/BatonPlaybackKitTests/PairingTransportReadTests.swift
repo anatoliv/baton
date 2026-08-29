@@ -49,9 +49,18 @@ final class PairingTransportReadTests: XCTestCase {
     /// the suite reports a fact about the harness rather than about the code.
     ///
     /// Muting them by asserting something weaker would be worse: it would look like coverage of
-    /// the exact bug that shipped. The semantics are pinned by
-    /// `testATruncatedPayloadIsWhatBrokeTheFormatCheck` below, and the real proof is pairing a
-    /// phone with a Mac — which is what this bug needed in the first place.
+    /// the exact bug that shipped.
+    ///
+    /// **What changed since, and it is most of the gap.** The bug was pure framing, and framing
+    /// only misbehaves when a payload arrives in more than one piece — which is precisely what
+    /// this harness could not arrange. `PairingClient.Accumulator` now holds that decision apart
+    /// from the socket, so `PairingAccumulatorTests` arranges it by hand: 300 KB in 1 KB pieces,
+    /// one byte at a time, a single piece, a peer that closes having sent nothing, an error
+    /// mid-stream, and the cap. Those six run.
+    ///
+    /// So what stays skipped here is narrower than it was: whether `NWConnection` delivers the
+    /// bytes at all, rather than whether they are reassembled. The real proof is still pairing a
+    /// phone with a Mac, which is what this bug needed in the first place.
     private func skipUnlessNetworkHarnessWorks() throws {
         throw XCTSkip("NWConnection loopback harness does not come up in this test process; "
                       + "verify by pairing a real phone with a real Mac")

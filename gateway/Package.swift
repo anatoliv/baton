@@ -11,11 +11,17 @@ let package = Package(
         .package(path: "../Packages/BatonMCPProtocol"),
     ],
     targets: [
+        // The gateway's testable logic. Split out of the executable because a target with
+        // top-level code in `main.swift` cannot be imported by a test target cleanly, so
+        // everything worth asserting on lived somewhere no test could reach it.
+        .target(name: "BatonGatewayCore"),
         .executableTarget(
             name: "baton-gateway",
             dependencies: [
+                "BatonGatewayCore",
                 "BatonAgentKit", "BatonSubsonicKit", "BatonSubsonicModels", "BatonMCPProtocol",
             ]
-        )
+        ),
+        .testTarget(name: "BatonGatewayCoreTests", dependencies: ["BatonGatewayCore"]),
     ]
 )

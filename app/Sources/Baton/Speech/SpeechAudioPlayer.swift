@@ -92,6 +92,24 @@ final class SpeechAudioPlayer {
 
     private(set) var duration: TimeInterval = 0
 
+    /// Silences this graph's output without changing anything else about it.
+    ///
+    /// **Set by the test bundle, and only by it.** A gate's test host *is* Baton — same audio
+    /// stack, same voices — so a suite exercising speech talks through the speakers of whoever
+    /// is using the machine, over the top of the real app. The logs for 2026-08-28 show exactly
+    /// that: two Baton processes speaking within seconds of each other, one of them a test host.
+    /// To a listener it is indistinguishable from the app misbehaving, and it was a candidate
+    /// explanation for a bug report about summaries overlapping.
+    ///
+    /// It mutes the **mixer**, deliberately, rather than skipping playback. The graph still runs,
+    /// buffers still schedule, `isSpeaking` still transitions and the warm-up still measures — so
+    /// every speech suite asserts exactly what it asserted before. Only the volume changes. A
+    /// version that returned early instead would have quietly stopped testing the thing.
+    ///
+    /// Sibling of the Dock fix in `RunnerExitDiagnosticBootstrap`: the same problem through a
+    /// different sense.
+    nonisolated(unsafe) static var isMuted = false
+
     init() {
         engine.attach(node)
     }
@@ -134,6 +152,9 @@ final class SpeechAudioPlayer {
         // rarely agree on sample rate or channel count, and the mixer is what reconciles
         // them with the device — but only if it is told the input format.
         engine.connect(node, to: engine.mainMixerNode, format: pcm.format)
+        // Applied on every connect rather than once at init: the mixer is reconfigured per clip,
+        // and a mute that only held for the first utterance would be worse than none at all.
+        engine.mainMixerNode.outputVolume = Self.isMuted ? 0 : 1
     }
 
     enum SpeechAudioError: Error { case emptyClip }

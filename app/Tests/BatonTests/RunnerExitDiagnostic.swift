@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import Baton
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -16,6 +17,39 @@ final class RunnerExitDiagnosticBootstrap: NSObject {
     override init() {
         super.init()
         RunnerExitDiagnostic.arm()
+        Self.hideTheTestHostFromTheDockAndMenuBar()
+        // And silence it. The host is Baton, so a speech suite otherwise talks through the
+        // speakers of whoever is using this machine, over the top of the real app — which is
+        // indistinguishable, by ear, from the app itself misbehaving.
+        SpeechAudioPlayer.isMuted = true
+    }
+
+    /// Take the test host out of the Dock and the menu bar for the duration of the run.
+    ///
+    /// **This is the fix for the runner deaths the diagnostic above kept catching.** The host
+    /// *is* Baton, a menu-bar app, so a gate run put a second Baton icon in the menu bar and a
+    /// second entry in the Dock, right next to the real one. Quitting "the extra Baton" is an
+    /// entirely reasonable thing for a person to do at their own machine, and it killed the run.
+    /// The diagnostic named the caller four times over: a menu-bar click three times and an
+    /// Apple Event quit once, each blaming whichever test happened to be in flight. Every one of
+    /// those tests passed in isolation, which is exactly how a gate teaches people to distrust it.
+    ///
+    /// `.accessory` hides the icon and the menu bar without hiding windows, so tests that build
+    /// UI still work. It applies only to the unit-test bundle: `BatonUITests` is a separate
+    /// scheme that launches the app as its own process and never loads this bundle, so the
+    /// UI-tested app still looks like the real thing.
+    ///
+    /// A gate that a passer-by can end by an ordinary action is not a gate.
+    private static func hideTheTestHostFromTheDockAndMenuBar() {
+        #if canImport(AppKit)
+        let hide: () -> Void = {
+            // Not `NSApp`: at bundle-load time the shared application may not be assigned yet,
+            // and `NSApplication.shared` creates it if needed rather than returning nil.
+            // The Bool result is whether the policy changed; nothing useful to do with it here.
+            _ = NSApplication.shared.setActivationPolicy(.accessory)
+        }
+        if Thread.isMainThread { hide() } else { DispatchQueue.main.async(execute: hide) }
+        #endif
     }
 }
 

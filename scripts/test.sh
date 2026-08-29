@@ -279,6 +279,33 @@ else
   bold "==> Skipping iPhone and Watch checks (SKIP_IOS set)"
 fi
 
+# --- The gateway ------------------------------------------------------------------
+#
+# The fourth thing this repo ships, and until now the only one nothing built. That is
+# precisely the hole the Watch app fell through twice — it silently stopped compiling and
+# nobody noticed, because no gate touched it — and the Watch is *parked*, while the gateway
+# is load-bearing for phone sync. It also shares `Packages/`, so a change there can break it
+# exactly the way the audio-engine merge broke the iPhone.
+#
+# Fast: a SwiftPM build and its unit tests, no simulator. Skipped with the iPhone and Watch
+# under SKIP_IOS, since that flag means "the quick local loop".
+if [ -z "${SKIP_IOS:-}" ]; then
+  bold "==> Gateway build + tests"
+  GATEWAY_LOG="$(mktemp -t baton-gateway.XXXXXX).log"
+  set +e
+  ( cd gateway && swift test ) >"$GATEWAY_LOG" 2>&1
+  gateway_status=$?
+  set -e
+  if [ "$gateway_status" -eq 0 ]; then
+    green "  gateway builds and its tests pass — $(grep -oE 'Executed [0-9]+ tests' "$GATEWAY_LOG" | tail -1)"
+  else
+    red "✗ GATEWAY FAILED — the home gateway no longer builds or its tests fail"
+    grep -E 'error:|failed' "$GATEWAY_LOG" | sed 's/^/    /' | head -20 >&2 || true
+    red "  Full log: $GATEWAY_LOG"
+    exit "$gateway_status"
+  fi
+fi
+
 bold "==> Running tests ($SCHEME)"
 # Sibling of the log, so the two are findable together and a fresh mktemp name each run
 # means xcodebuild never refuses an existing bundle path.
@@ -420,6 +447,23 @@ if [ "$status" -eq 0 ] && [ -n "$bundle_summary" ] && [ "${bundle_total:-0}" = "
   red "  xcodebuild exited 0 but the result bundle records no tests at all — trusting the bundle"
   empty_run=1
   status=1
+fi
+
+# An externally-terminated run is not a test failure, and must not be reported as one.
+#
+# `RunnerExitDiagnostic` prints this marker when the host process leaves while a test is still
+# running, with a backtrace naming the caller. Four times so far it has named a menu-bar click
+# or an Apple Event quit — a person closing what looked like a spare copy of Baton. The run then
+# failed pointing at whichever test was in flight, which passed in isolation every time, and the
+# blame landed on innocent code. The host now hides itself from the Dock and menu bar during a
+# run (see `RunnerExitDiagnosticBootstrap`), so this should be rare; when it still happens, say
+# what happened rather than naming a test. (TBX-3862)
+if [ "$status" -ne 0 ] && grep -q "BATON-DIAG: the test host is exiting while" "$LOG" 2>/dev/null; then
+  red "✗ RUN INTERRUPTED — the test host was terminated from outside while a test was running."
+  red "  This is not a test failure and the test named below is not implicated."
+  grep -A2 "BATON-DIAG: the test host is exiting while" "$LOG" | sed 's/^/    /' >&2
+  red "  Full log: $LOG"
+  exit "$status"
 fi
 
 if [ "$status" -eq 0 ]; then

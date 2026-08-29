@@ -37,6 +37,25 @@ struct BatonAppCommands: Commands {
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
             .disabled(ReadAloudCoordinator.current?.canExport != true)
+
+            // Resume an article you stopped part-way. A menu rather than the Later
+            // tab: that tab's items are server entities that play through the music controller,
+            // and a reading is neither. See `UnfinishedReadings`.
+            Menu("Resume Reading") {
+                let unfinished = ReadAloudCoordinator.current?.unfinished
+                let entries = unfinished?.entries ?? []
+                if entries.isEmpty {
+                    Text("Nothing to resume")
+                } else {
+                    ForEach(entries) { entry in
+                        Button(entry.menuTitle) {
+                            ReadAloudCoordinator.current?.resume(entry)
+                        }
+                    }
+                    Divider()
+                    Button("Forget Saved Readings") { unfinished?.clear() }
+                }
+            }
         }
 
         // Standard Settings/Preferences slot (⌘,) → the unified Settings window.

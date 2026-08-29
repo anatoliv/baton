@@ -110,7 +110,7 @@ curl -s -X POST localhost:8004/v1/audio/speech -H 'Content-Type: application/jso
 | `voice` | | Explicit voice, overrides the session voice **and** `category`. `"engine:voice"` (e.g. `kokoro:af_bella`, `chatterbox:Emily.wav`) or a bare id. |
 | `engine` | | `kokoro` (default, fast presets) or `chatterbox` (premium / cloned). |
 | `mode` | | `notify` (default — macOS notification + Play), `banner` (in-app banner + Play), `auto` (speak immediately). |
-| `session` | | Short name for the calling agent (e.g. a repo name, max 40 chars). **Shown** above the transcript in the speaking HUD and the Spoken Summaries pane, never synthesized, so several agents running at once are distinguishable at a glance and none of them costs listening time. **Sticky per MCP connection**: send it on the first call and later calls inherit it; send a new value to re-label from then on. Recorded in speech history. Never part of the `maxSummaryChars` budget. |
+| `session` | | Short name for the calling agent (e.g. a repo name, max 40 chars). **Shown** above the transcript in the speaking HUD and the Spoken Summaries pane, never synthesized. Also selects the voice: it is matched (case- and whitespace-insensitively) against the user's **Agent voices** list in Settings, and anything unmatched gets a stable voice from outside that list. **Sticky per MCP connection** when the client keeps one; a stateless caller may send it on every call and it is honoured either way. Recorded in speech history. Never part of the `maxSummaryChars` budget. |
 
 Example:
 ```json

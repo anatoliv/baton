@@ -19,7 +19,15 @@ struct BatonSpeechPane: View {
     @State private var alertBanner = SpeechConfig.alertWithBanner
     @State private var allowAutoPlay = SpeechConfig.allowAutoPlay
     @State private var bluetoothWarmup = SpeechConfig.bluetoothWarmup
-    @State private var favourites = SpeechConfig.favouriteVoices()
+    @State private var voiceRows: [SessionVoiceRow] = []
+
+    /// A row of the agent-voice list, with a stable id so SwiftUI can bind to it while the
+    /// label is being typed.
+    struct SessionVoiceRow: Identifiable, Equatable {
+        var id = UUID()
+        var label: String
+        var voice: String
+    }
     @State private var transcriptionEnabled = SpeechConfig.transcriptionEnabled
     @State private var whisperHost = SpeechConfig.whisperBaseURL
     @State private var whisperModel = SpeechConfig.whisperModel
@@ -43,6 +51,8 @@ struct BatonSpeechPane: View {
     /// after it was revoked is worse than one that never mentioned it.
     @State private var accessibilityTrusted = SelectionReader.isTrusted
     @State private var ocrEnabled = ReadAloudSettings.ocrEnabled
+    /// How many unfinished readings are held, for the line that tells the user so.
+    @State private var unfinishedCount = ReadAloudCoordinator.current?.unfinished.entries.count ?? 0
     @State private var screenRecordingPermitted = ScreenTextOCR.isPermitted
 
     struct VoiceRow: Identifiable, Equatable {
@@ -59,11 +69,15 @@ struct BatonSpeechPane: View {
             // Read aloud is a different feature and sits below them rather than between —
             // it is 300 lines of permissions and toggles, and having it in the middle put
             // the voice settings somewhere nobody scrolled to.
+            // Agent voices sits second, directly under the servers that supply them.
+            // It was below Delivery and Transcription and could not be found: three separate
+            // times the answer to "where is it?" was "keep scrolling". A setting people open
+            // the pane to change belongs where the pane opens.
             hostsSection
-            transcriptionSection
+            voicesSection
             deliverySection
-            favouritesSection
             mapSection
+            transcriptionSection
             readAloudSection
             resetSection
         }
@@ -74,7 +88,12 @@ struct BatonSpeechPane: View {
             ReadAloudSettings.seedVoiceCategoriesIfNeeded()
             accessibilityTrusted = SelectionReader.isTrusted
             screenRecordingPermitted = ScreenTextOCR.isPermitted
+            // Re-read on appear, not only at init: the count changes while the pane is closed,
+            // and a stale "3 saved" next to a button that clears nothing reads as a lie.
+            unfinishedCount = ReadAloudCoordinator.current?.unfinished.entries.count ?? 0
             loadRows()
+            SpeechConfig.migrateLegacySessionVoicesIfNeeded()
+            loadVoiceRows()
         }
         // Keep the service badges true for as long as the window is open.
         //
@@ -110,7 +129,7 @@ struct BatonSpeechPane: View {
                 alertBanner = SpeechConfig.alertWithBanner
                 allowAutoPlay = SpeechConfig.allowAutoPlay
                 bluetoothWarmup = SpeechConfig.bluetoothWarmup
-                favourites = SpeechConfig.favouriteVoices()
+                loadVoiceRows()
                 loadRows()
             }
             Button("Cancel", role: .cancel) {}
@@ -156,6 +175,24 @@ struct BatonSpeechPane: View {
             Toggle("Use the clipboard when an app will not share its selection", isOn: $allowClipboardFallback)
                 .onChange(of: allowClipboardFallback) { _, v in ReadAloudSettings.allowClipboardFallback = v }
             Text("Some apps, Chrome among them, do not hand over the selected text directly. Baton can copy it instead and put your clipboard back afterwards. Turn this off if you would rather it never touched the clipboard — the shortcut will then do nothing in those apps.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // What "readings are not saved" now means, exactly, and a way to act on it. The
+            // promise narrowed when resume shipped; saying so here, next to the other
+            // read-aloud settings, is part of the deal rather than an afterthought.
+            HStack(alignment: .firstTextBaseline) {
+                Text("Unfinished readings")
+                Spacer()
+                Button("Forget Them Now") {
+                    ReadAloudCoordinator.current?.unfinished.clear()
+                    unfinishedCount = 0
+                }
+                .disabled(unfinishedCount == 0)
+            }
+            Text(unfinishedCount == 0
+                 ? "Stop part-way through an article and Baton keeps your place so you can carry on from File → Resume Reading. Nothing is kept right now. Up to \(UnfinishedReadings.maximumEntries) readings are held, for \(Int(UnfinishedReadings.retention / 86_400)) days, and only the cleaned text you actually heard."
+                 : "\(unfinishedCount) saved, resumable from File → Resume Reading. Up to \(UnfinishedReadings.maximumEntries) are held, for \(Int(UnfinishedReadings.retention / 86_400)) days, and only the cleaned text you actually heard — anything that looked like a password or a key was removed before it was spoken, so it was never written here either.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -439,20 +476,19 @@ struct BatonSpeechPane: View {
 
     // MARK: - Category → voice map
 
-    /// The voice ids among the favourites that belong to `engine`, in pool order.
-    private func favouriteIDs(for engine: SpeechConfig.Engine) -> [String] {
-        favourites.compactMap { spec in
-            let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+    /// Voices the list already uses, for `engine`, so a picker can offer them first.
+    private func listedVoiceIDs(for engine: SpeechConfig.Engine) -> [String] {
+        voiceRows.compactMap { row in
+            let parts = row.voice.split(separator: ":", maxSplits: 1).map(String.init)
             if parts.count == 2 {
                 return SpeechConfig.Engine(rawValue: parts[0].lowercased()) == engine ? parts[1] : nil
             }
-            return engine == .kokoro ? spec : nil
+            return engine == .kokoro ? row.voice : nil
         }
     }
 
-    /// Session names Baton has actually heard from, newest first, so the pool can show who
-    /// lands where. Taken from spoken-summary history rather than a list to maintain: the
-    /// agents that have spoken are exactly the ones worth showing.
+    /// Session names Baton has actually heard from, newest first. Used only to offer one-tap
+    /// additions: the agents that have spoken are exactly the ones worth a row.
     private var knownSessions: [String] {
         var seen = Set<String>()
         var out: [String] = []
@@ -465,138 +501,103 @@ struct BatonSpeechPane: View {
         return out
     }
 
-    /// Which heard-from sessions land on each slot. More than one on a slot is a collision,
-    /// which the design allows and this makes visible: five names into five slots avoid each
-    /// other only about 4% of the time, so the answer is to see it and pin, not to hope.
-    private func sessions(inSlot slot: Int) -> [String] {
-        knownSessions.filter {
-            SpeechConfig.sessionVoices()[$0] == nil && SpeechConfig.favouriteSlot(for: $0) == slot
-        }
+    /// Heard-from sessions with no row yet.
+    private var unlistedSessions: [String] {
+        let listed = Set(voiceRows.map { SpeechConfig.voiceKey($0.label) })
+        return knownSessions.filter { !listed.contains(SpeechConfig.voiceKey($0)) }
     }
 
-    private var favouritesSection: some View {
-        Section("Favourite voices") {
-            ForEach(Array(favourites.enumerated()), id: \.offset) { index, spec in
-                favouriteRow(index: index, spec: spec)
+    private var voicesSection: some View {
+        Section("Agent voices") {
+            if !voiceRows.isEmpty {
+                HStack(spacing: 12) {
+                    Text("Agent").frame(width: categoryWidth, alignment: .leading)
+                    Text("Voice").frame(width: voiceWidth, alignment: .leading)
+                    Spacer(minLength: 0)
+                }
+                .font(.caption).foregroundStyle(.secondary)
+
+                ForEach($voiceRows) { $row in voiceRow($row) }
+                    .onDelete { voiceRows.remove(atOffsets: $0); persistVoiceRows() }
+                    .onMove { from, to in voiceRows.move(fromOffsets: from, toOffset: to); persistVoiceRows() }
             }
 
-            // One row per agent Baton has actually heard from, each able to override its
-            // voice. Without this the pool is take-it-or-leave-it: names land where the hash
-            // puts them, and the only remedy the design has for two projects sharing a voice
-            // would be unreachable. The docs promise pinning, so it has to exist here.
-            if !knownSessions.isEmpty {
-                Divider()
-                Text("Agents Baton has heard from")
-                    .font(.caption).foregroundStyle(.secondary)
-                ForEach(knownSessions, id: \.self) { name in
-                    sessionRow(name)
+            HStack(spacing: 12) {
+                Button {
+                    voiceRows.append(.init(label: "", voice: defaultVoiceSpec))
+                    persistVoiceRows()
+                } label: {
+                    Label("Add Agent", systemImage: "plus")
+                }
+
+                // One tap for an agent Baton has already heard from, so the common case needs
+                // no typing and no guessing at the exact spelling the agent sends.
+                if !unlistedSessions.isEmpty {
+                    Menu("Add one Baton has heard") {
+                        ForEach(unlistedSessions, id: \.self) { name in
+                            Button(name) {
+                                voiceRows.append(.init(label: name, voice: defaultVoiceSpec))
+                                persistVoiceRows()
+                            }
+                        }
+                    }
+                    .fixedSize()
                 }
             }
 
-            Text("Each agent that sends a `session` name speaks in one of these, chosen from the name itself, so a project sounds the same every time and on any Mac. An explicit `voice` in the tool call still wins. Two projects can land on the same voice, which is normal with five of them; pin one to a different voice to separate them.")
+            Text("An agent that sends a `session` name speaks in the voice you give it here. The label is matched loosely — case and surrounding spaces do not matter — and it can be anything you like, not only a repo name. Anything **not** in this list speaks in a voice from outside it, the same one every time, so a named project never shares its sound with an unnamed one. An explicit `voice` in the tool call still wins over all of it.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
 
-    /// One agent, and the voice it speaks in. "Automatic" is the hashed slot; anything else
-    /// pins it. Pinning is the answer to a collision, so it lives right under the pool that
-    /// caused one rather than in a separate screen.
-    private func sessionRow(_ name: String) -> some View {
-        let pinnedSpec = SpeechConfig.sessionVoices()[name]
-        let auto = SpeechConfig.favouriteVoices()[SpeechConfig.favouriteSlot(for: name)]
-        let shared = sessions(inSlot: SpeechConfig.favouriteSlot(for: name)).count > 1
-
-        return HStack(spacing: 12) {
-            Text(name)
-                .font(.callout)
-                .lineLimit(1)
-                .frame(width: categoryWidth, alignment: .leading)
-
-            Picker(selection: Binding(
-                get: { pinnedSpec ?? "" },
-                set: { choice in
-                    var map = SpeechConfig.sessionVoices()
-                    if choice.isEmpty { map.removeValue(forKey: name) } else { map[name] = choice }
-                    SpeechConfig.setSessionVoices(map)
-                    favourites = SpeechConfig.favouriteVoices()   // redraw the "who is here" labels
-                }
-            )) {
-                Text("Automatic (\(voiceID(of: auto)))").tag("")
-                Divider()
-                ForEach(favourites, id: \.self) { Text(voiceID(of: $0)).tag($0) }
-            } label: { EmptyView() }
+    private func voiceRow(_ row: Binding<SessionVoiceRow>) -> some View {
+        HStack(spacing: 12) {
+            TextField(text: row.label, prompt: Text("project or label")) { EmptyView() }
                 .labelsHidden()
-                .fixedSize()
-                .frame(width: voiceWidth, alignment: .leading)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: categoryWidth)
+                .onSubmit { persistVoiceRows() }
 
-            if pinnedSpec == nil, shared {
-                Text("shares a voice")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .help("Pick a different voice here to tell them apart.")
-            }
-
-            Spacer(minLength: 8)
-        }
-    }
-
-    private func favouriteRow(index: Int, spec: String) -> some View {
-        let here = sessions(inSlot: index)
-        return HStack(spacing: 12) {
-            Text("\(index + 1)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.tertiary)
-                .frame(width: 14, alignment: .trailing)
-
-            // Same offline rule as the category rows below: with no server reachable there is
-            // no list to choose from, and a picker of one item is a dead control. Typing an id
-            // still works, so the pane stays usable with the TTS hosts down.
+            // Same offline rule as the category rows: with no server reachable there is no
+            // list to choose from, and a picker of one item is a dead control.
             if allVoiceSpecs.isEmpty {
-                TextField(text: Binding(
-                    get: { favourites.indices.contains(index) ? favourites[index] : "" },
-                    set: { newValue in
-                        guard favourites.indices.contains(index) else { return }
-                        favourites[index] = newValue
-                        SpeechConfig.setFavouriteVoices(favourites)
-                    }
-                ), prompt: Text("engine:voice")) { EmptyView() }
+                TextField(text: row.voice, prompt: Text("engine:voice")) { EmptyView() }
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .frame(width: voiceWidth)
+                    .onSubmit { persistVoiceRows() }
             } else {
-                Picker(selection: Binding(
-                    get: { favourites.indices.contains(index) ? favourites[index] : "" },
-                    set: { newValue in
-                        guard favourites.indices.contains(index) else { return }
-                        favourites[index] = newValue
-                        SpeechConfig.setFavouriteVoices(favourites)
+                Picker(selection: row.voice) {
+                    if !allVoiceSpecs.contains(row.wrappedValue.voice) {
+                        Text(voiceID(of: row.wrappedValue.voice)).tag(row.wrappedValue.voice)
                     }
-                )) {
                     ForEach(allVoiceSpecs, id: \.self) { Text(voiceID(of: $0)).tag($0) }
-                    if !allVoiceSpecs.contains(spec) { Text(voiceID(of: spec)).tag(spec) }
                 } label: { EmptyView() }
                     .labelsHidden()
                     .fixedSize()
                     .frame(width: voiceWidth, alignment: .leading)
+                    .onChange(of: row.wrappedValue.voice) { _, _ in persistVoiceRows() }
             }
 
-            if here.isEmpty {
-                Text("unused").font(.caption).foregroundStyle(.tertiary)
-            } else {
-                Text(here.joined(separator: ", "))
-                    .font(.caption)
-                    .foregroundStyle(here.count > 1 ? .orange : .secondary)
-                    .help(here.count > 1
-                          ? "These share a voice. Pin one to tell them apart."
-                          : "Speaks in this voice")
+            // A duplicate label is silently ignored by the matcher (first row wins), so say so
+            // rather than letting a row sit there looking effective.
+            if isDuplicate(row.wrappedValue) {
+                Text("duplicate").font(.caption).foregroundStyle(.orange)
+                    .help("Another row already claims this label. The first one wins.")
             }
 
             Spacer(minLength: 8)
 
             Button {
-                preview(VoiceRow(category: "", engine: engineOf(spec), voice: voiceID(of: spec)))
+                preview(VoiceRow(category: row.wrappedValue.label,
+                                 engine: engineOf(row.wrappedValue.voice),
+                                 voice: voiceID(of: row.wrappedValue.voice)))
             } label: {
-                Image(systemName: "play.circle").imageScale(.large)
+                if previewing != nil {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "play.circle").imageScale(.large)
+                }
             }
             .buttonStyle(.borderless)
             .help("Preview this voice")
@@ -604,9 +605,32 @@ struct BatonSpeechPane: View {
         }
     }
 
+    private func isDuplicate(_ row: SessionVoiceRow) -> Bool {
+        let key = SpeechConfig.voiceKey(row.label)
+        guard !key.isEmpty else { return false }
+        guard let first = voiceRows.first(where: { SpeechConfig.voiceKey($0.label) == key }) else { return false }
+        return first.id != row.id
+    }
+
+    private func loadVoiceRows() {
+        voiceRows = SpeechConfig.sessionVoiceList().map {
+            SessionVoiceRow(id: $0.id, label: $0.label, voice: $0.voice)
+        }
+    }
+
+    private func persistVoiceRows() {
+        SpeechConfig.setSessionVoiceList(voiceRows.map {
+            SpeechConfig.SessionVoice(id: $0.id, label: $0.label, voice: $0.voice)
+        })
+    }
+
     /// Every voice both servers offered, as `engine:voice` specs.
     private var allVoiceSpecs: [String] {
         (voices[.kokoro] ?? []).map { "kokoro:\($0)" } + (voices[.chatterbox] ?? []).map { "chatterbox:\($0)" }
+    }
+
+    private var defaultVoiceSpec: String {
+        allVoiceSpecs.first ?? "kokoro:af_heart"
     }
 
     private func voiceID(of spec: String) -> String {
@@ -743,9 +767,9 @@ struct BatonSpeechPane: View {
                 }
                 // Favourites first. Kokoro alone ships 54 voices, and the handful you actually
                 // use are otherwise scattered through an alphabetical wall of them.
-                let favourites = favouriteIDs(for: row.wrappedValue.engine).filter(list.contains)
+                let favourites = listedVoiceIDs(for: row.wrappedValue.engine).filter(list.contains)
                 if !favourites.isEmpty {
-                    Section("Favourites") {
+                    Section("In use") {
                         ForEach(favourites, id: \.self) { Text($0).tag($0) }
                     }
                     Section("All voices") {

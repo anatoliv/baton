@@ -349,6 +349,111 @@ final class ReadAloudCoordinatorTests: XCTestCase {
         XCTAssertNil(c.exportable)
     }
 
+    // MARK: - Resuming where you left off
+
+    /// A temp-directory store, so a test never touches the user's real saved readings.
+    private func scratchStore() throws -> (UnfinishedReadings, URL) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("baton-coord-unfinished-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return (UnfinishedReadings(directory: dir), dir)
+    }
+
+    /// Stopping part-way through records where the *engine* got to, not where the coordinator
+    /// had synthesized to.
+    ///
+    /// Those differ by the lookahead: the loop renders two chunks ahead of what is being spoken,
+    /// so saving the enqueued position would silently skip a sentence or two on every resume.
+    /// The test advances the engine's reported range by hand and asserts the saved index follows
+    /// that rather than the synthesis.
+    func testStoppingSavesWhereTheEngineGotToNotWhereSynthesisGotTo() async throws {
+        let (store, dir) = try scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let music = MusicModel()
+        let c = ReadAloudCoordinator(music: music, unfinished: store)
+        // Slow but successful, so the reading is still in progress when stop() lands — which is
+        // the situation this is about. (A 1-byte "clip" fails to load in the engine and makes no
+        // sound; what matters here is that the loop keeps running.)
+        c.synthesize = { _, _ in
+            try await Task.sleep(for: .milliseconds(80))
+            return Data([0x00])
+        }
+
+        let sentences = (1...6).map { "This is sentence number \($0), long enough to be its own chunk." }
+        c.read(.init(text: sentences.joined(separator: " "), profile: .generic, sourceName: "Google Chrome"))
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertTrue(c.isReading, "the reading ended before the test could stop it")
+
+        // The document the HUD is showing, and where each chunk sits in it.
+        let chunks = try XCTUnwrap(c.exportable?.chunks)
+        let (document, ranges) = ReadAloudCoordinator.layout(chunks)
+        XCTAssertGreaterThan(ranges.count, 3, "need several chunks for this to mean anything")
+
+        // Pretend the engine has started speaking the third chunk.
+        music.speech.reading = .init(text: document, spokenRange: ranges[2])
+        c.stop()
+
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertEqual(store.entries.first?.resumeIndex, 2)
+        XCTAssertEqual(store.entries.first?.sourceName, "Google Chrome")
+        XCTAssertEqual(store.entries.first?.chunks, chunks, "the whole reading has to be kept, not the tail")
+    }
+
+    /// Resuming speaks the remainder, and does not start the article over.
+    func testResumeStartsFromTheSavedPositionRatherThanTheBeginning() async throws {
+        let (store, dir) = try scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let music = MusicModel()
+        var requested: [String] = []
+        let c = ReadAloudCoordinator(music: music, unfinished: store)
+        c.synthesize = { text, _ in
+            requested.append(text)
+            throw StubFailure()
+        }
+
+        let chunks = (1...5).map { "This is sentence number \($0), long enough to be its own chunk." }
+        store.record(id: UUID(), chunks: chunks, resumeIndex: 3,
+                     sourceName: "Ghostty", startedAt: Date())
+        let entry = try XCTUnwrap(store.entries.first)
+
+        c.resume(entry)
+        await settle()
+
+        let spoken = requested.joined(separator: " ")
+        XCTAssertFalse(spoken.contains("sentence number 1"), "resume started the article over: \(requested)")
+        XCTAssertTrue(spoken.contains("sentence number 4"), "resume did not reach the saved position")
+    }
+
+    /// Resuming keeps the entry's identity, so finishing an article you resumed removes it
+    /// instead of leaving the original behind at its old position forever.
+    func testResumingKeepsTheSameEntryRatherThanForkingANewOne() async throws {
+        let (store, dir) = try scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let music = MusicModel()
+        let c = ReadAloudCoordinator(music: music, unfinished: store)
+        c.synthesize = { _, _ in
+            try await Task.sleep(for: .milliseconds(80))
+            return Data([0x00])
+        }
+
+        let chunks = (1...6).map { "This is sentence number \($0), long enough to be its own chunk." }
+        let id = UUID()
+        store.record(id: id, chunks: chunks, resumeIndex: 2, sourceName: "Ghostty", startedAt: Date())
+
+        c.resume(try XCTUnwrap(store.entries.first))
+        try? await Task.sleep(for: .milliseconds(120))
+        let resumedChunks = try XCTUnwrap(c.exportable?.chunks)
+        let (document, ranges) = ReadAloudCoordinator.layout(resumedChunks)
+        music.speech.reading = .init(text: document, spokenRange: ranges[min(1, ranges.count - 1)])
+        c.stop()
+
+        XCTAssertEqual(store.entries.count, 1, "resuming forked a second entry for the same article")
+        XCTAssertEqual(store.entries.first?.id, id)
+    }
+
     // MARK: - Stopping means stopping
 
     /// Stopping mid-reading must end the *production* of sentences, not just empty the queue.

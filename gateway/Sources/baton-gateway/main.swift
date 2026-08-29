@@ -2,6 +2,7 @@ import BatonAgentKit
 import BatonMCPProtocol
 import BatonSubsonicKit
 import BatonSubsonicModels
+import BatonGatewayCore
 import Foundation
 
 // The Baton agent gateway: the music friend's home-server brain
@@ -68,10 +69,68 @@ let stateFileURL: URL = {
     return directory.appendingPathComponent("baton-state.json")
 }()
 
+/// Where files parked for another device live. Beside the state file, so one mounted
+/// volume covers everything the gateway persists.
+let filesDirectory: URL = stateFileURL.deletingLastPathComponent()
+    .appendingPathComponent("files", isDirectory: true)
+let fileStore = FileStore(directory: filesDirectory)
+
 FileHandle.standardOutput.write(Data("baton-gateway listening on :\(port) → \(serverURL.host() ?? "?")\n".utf8))
 
 try DefaultTransport().serve(port: port) { request in
     await handle(request)
+} upload: { request, staged in
+    await handleUpload(request, staged)
+}
+
+// MARK: - Files
+
+extension JSONEncoder {
+    /// ISO-8601 dates on the wire. The default is a float since 2001, which is unreadable in a
+    /// log and a trap for any client that is not Foundation.
+    static var gatewayISO8601: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+}
+
+/// Publish a body the transport has already streamed to disk.
+///
+/// Authenticated here rather than in the transport, and that ordering is deliberate: the body is
+/// written to a staging file *before* the token is checked, so an unauthenticated caller can make
+/// the gateway write up to one file's worth of bytes. The alternative — parsing and checking auth
+/// mid-stream — puts credential handling inside the framing code, which is worse. What keeps it
+/// safe is that the staging file is deleted on every path out of here, so nothing accumulates.
+@MainActor @Sendable
+func handleUpload(_ request: StreamingUpload.Request, _ staged: URL) async -> Data {
+    func fail(_ status: String, _ message: String) -> Data {
+        try? FileManager.default.removeItem(at: staged)
+        return httpResponse(status: status, body: #"{"error":"\#(message)"}"#)
+    }
+    guard BatonMCPAuth.constantTimeEquals(request.header("authorization")?
+        .replacingOccurrences(of: "Bearer ", with: "") ?? "", token) else {
+        return fail("401 Unauthorized", "bad token")
+    }
+    let id = String(request.path.dropFirst("/v1/files/".count))
+    do {
+        let meta = try fileStore.commit(
+            staged: staged,
+            id: id,
+            name: request.header("x-baton-name") ?? "file",
+            contentType: request.header("content-type") ?? "application/octet-stream",
+            sha256: request.header("x-baton-sha256"),
+            origin: request.header("x-baton-origin")
+        )
+        let data = (try? JSONEncoder.gatewayISO8601.encode(meta)) ?? Data("{}".utf8)
+        return httpResponse(status: "201 Created", body: String(data: data, encoding: .utf8) ?? "{}")
+    } catch FileStore.StoreError.badID {
+        return fail("400 Bad Request", "bad file id")
+    } catch let FileStore.StoreError.tooLarge(limit) {
+        return fail("413 Payload Too Large", "at most \(limit) bytes")
+    } catch {
+        return fail("500 Internal Server Error", "could not store the file")
+    }
 }
 
 // MARK: - Routing
@@ -112,6 +171,40 @@ func handle(_ request: HTTPRequestMessage) async -> Data {
             return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
         } catch {
             return httpResponse(status: "500 Internal Server Error", body: #"{"error":"could not persist state"}"#)
+        }
+    }
+    // Files parked for another device. A Mac exports a reading and puts it here; the
+    // phone collects it. Nothing here knows what a reading is — podcast audio and downloaded
+    // tracks want the same road, and a second transport per file type is how a household ends up
+    // with three half-working ones.
+    //
+    // The PUT is absent from this switch on purpose: an upload never reaches `handle`, because
+    // its body is streamed to disk by the transport before any of this runs. See `handleUpload`.
+    if request.method == "GET", request.path == "/v1/files" {
+        let listing = fileStore.list()
+        let data = (try? JSONEncoder.gatewayISO8601.encode(listing)) ?? Data("[]".utf8)
+        return httpResponse(status: "200 OK", body: String(data: data, encoding: .utf8) ?? "[]")
+    }
+    if request.path.hasPrefix("/v1/files/") {
+        let id = String(request.path.dropFirst("/v1/files/".count))
+        switch request.method {
+        case "GET":
+            guard let meta = fileStore.metadata(id: id), let url = fileStore.blobURL(id: id),
+                  let payload = try? Data(contentsOf: url) else {
+                return httpResponse(status: "404 Not Found", body: #"{"error":"no such file"}"#)
+            }
+            // The digest travels in a header so the receiver can verify what it just downloaded.
+            // The gateway never checks it: end-to-end beats hop-by-hop, and it means a store
+            // nobody fully trusts still cannot hand over bad bytes without being caught.
+            var headers = ["X-Baton-Name": meta.name]
+            if let sha = meta.sha256 { headers["X-Baton-SHA256"] = sha }
+            return httpResponse(status: "200 OK", contentType: meta.contentType,
+                                payload: payload, extraHeaders: headers)
+        case "DELETE":
+            fileStore.remove(id: id)
+            return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
+        default:
+            return httpResponse(status: "405 Method Not Allowed", body: #"{"error":"GET or DELETE"}"#)
         }
     }
     if request.method == "GET", request.path == "/v1/device/poll" {

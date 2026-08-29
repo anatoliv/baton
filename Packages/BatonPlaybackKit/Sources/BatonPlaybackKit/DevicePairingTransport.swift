@@ -239,11 +239,50 @@ public enum PairingClient {
     /// then says nothing would otherwise hang pairing forever — the previous single-read version
     /// could not hang that way, so adding the loop without a deadline would trade a truncated
     /// payload for a stuck screen, which is worse.
+    /// The accumulation decision, separated from the socket that delivers the bytes.
+    ///
+    /// **Why this is a type and not three lines inside the closure below.** The short read that
+    /// broke pairing was a framing bug, and framing bugs are only visible when a payload arrives
+    /// in more than one piece — which is precisely what a test could not arrange, because the
+    /// `NWConnection` loopback harness would not come up in the test process. Three tests were
+    /// parked as skipped for that reason and never ran again.
+    ///
+    /// Pulling the decision out of the socket makes the property testable by handing it `Data`:
+    /// split anywhere, one byte at a time, cap exceeded, peer closing early. The same shape the
+    /// gateway's `StreamingUpload` uses, arrived at for the same reason.
+    struct Accumulator {
+        enum Step: Equatable {
+            case needMore
+            /// Stop; this is what the caller should return. Nil means nothing usable arrived.
+            case finished(Data?)
+        }
+
+        private(set) var accumulated = Data()
+        let cap: Int
+
+        init(cap: Int = 4 * 1024 * 1024) { self.cap = cap }
+
+        /// One delivery from the connection. `isComplete` is the peer closing, `failed` an error.
+        mutating func consume(_ data: Data?, isComplete: Bool, failed: Bool) -> Step {
+            if let data, !data.isEmpty { accumulated.append(data) }
+            if failed || isComplete {
+                // Whatever arrived is better than nothing: if it is complete it parses, and if it
+                // is not, the format check reports that honestly rather than hanging.
+                return .finished(accumulated.isEmpty ? nil : accumulated)
+            }
+            if accumulated.count >= cap {
+                // A pairing payload is settings, not media. Something is wrong.
+                return .finished(accumulated)
+            }
+            return .needMore
+        }
+    }
+
     static func receiveAll(_ connection: NWConnection,
                            cap: Int = 4 * 1024 * 1024,
                            timeout: TimeInterval = 20) async -> Data? {
         await withCheckedContinuation { continuation in
-            nonisolated(unsafe) var accumulated = Data()
+            nonisolated(unsafe) var sink = Accumulator(cap: cap)
             nonisolated(unsafe) var resumed = false
 
             @Sendable func finish(_ value: Data?) {
@@ -254,22 +293,16 @@ public enum PairingClient {
 
             let deadline = DispatchQueue.global()
             deadline.asyncAfter(deadline: .now() + timeout) {
-                // Whatever arrived is better than nothing: if it is complete it parses, and if
-                // it is not, the format check reports that honestly rather than hanging.
-                finish(accumulated.isEmpty ? nil : accumulated)
+                let sofar = sink.accumulated
+                finish(sofar.isEmpty ? nil : sofar)
                 connection.cancel()
             }
 
             @Sendable func readMore() {
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
-                    if let data, !data.isEmpty { accumulated.append(data) }
-                    if error != nil || isComplete {
-                        finish(accumulated.isEmpty ? nil : accumulated)
-                    } else if accumulated.count >= cap {
-                        // A pairing payload is settings, not media. Something is wrong.
-                        finish(accumulated)
-                    } else {
-                        readMore()
+                    switch sink.consume(data, isComplete: isComplete, failed: error != nil) {
+                    case .needMore: readMore()
+                    case let .finished(payload): finish(payload)
                     }
                 }
             }

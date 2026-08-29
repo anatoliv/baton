@@ -67,8 +67,30 @@ final class SpeechPlaybackEngine {
 
     /// The label kept for the lingering card after speaking ends — `lastSummaryText`'s counterpart.
     private(set) var lastSessionLabel: String?
-    /// A summary waiting for in-app confirmation (mode = "banner"): the text + what to play.
-    private(set) var pendingAlert: Alert?
+    /// Summaries waiting for in-app confirmation (mode = "banner"), oldest first.
+    ///
+    /// **A queue, not a slot.** It was one `Alert?`, so a second summary arriving before the
+    /// first was answered overwrote it and that summary was never seen or heard by anyone —
+    /// silently, with the tool having already reported `banner_shown`. Several agents speaking
+    /// at once is the normal case this feature was built for, so the losing case was the
+    /// designed-for case.
+    private(set) var pendingAlerts: [Alert] = []
+
+    /// The banner on screen: the oldest one still waiting. The UI shows one at a time, which is
+    /// right — a stack of banners is worse than a queue behind one — but they now take turns
+    /// instead of replacing each other.
+    var pendingAlert: Alert? { pendingAlerts.first }
+
+    /// How many spoken things are waiting: utterances queued behind the one playing, plus
+    /// summaries still waiting to be confirmed. Zero while nothing is pending, which is what the
+    /// UI keys off — an indicator that says "0 waiting" on every ordinary summary is noise.
+    ///
+    /// A reading is deliberately excluded. Its queue is *sentences of one document*, so counting
+    /// them would report "23 waiting" for a single article and mean something entirely different
+    /// to the person reading it than "23 summaries are waiting".
+    var waitingCount: Int {
+        (reading == nil ? utteranceQueue.count : 0) + max(0, pendingAlerts.count - 1)
+    }
 
     /// Whether there's a last summary to Replay (server clips replay from cached audio — offline —
     /// and native ones re-run the built-in voice).
@@ -462,12 +484,12 @@ final class SpeechPlaybackEngine {
 
     // MARK: - In-app banner (mode = "banner")
     func presentBanner(text: String, utterance: Utterance, sessionLabel: String? = nil) {
-        pendingAlert = Alert(text: text, utterance: utterance, sessionLabel: sessionLabel)
+        pendingAlerts.append(Alert(text: text, utterance: utterance, sessionLabel: sessionLabel))
     }
 
     func confirmBanner() {
-        guard let alert = pendingAlert else { return }
-        pendingAlert = nil
+        guard !pendingAlerts.isEmpty else { return }
+        let alert = pendingAlerts.removeFirst()
         // When a summary is *also* auto-played (the user's delivery does both), the immediate play
         // consumes and deletes the temp clip — so the banner's own `.file(url)` no longer exists and
         // Play would silently do nothing. Fall back to the cached audio in that case. (SPEECH)
@@ -483,7 +505,15 @@ final class SpeechPlaybackEngine {
         }
     }
 
-    func dismissBanner() { pendingAlert = nil }
+    /// Dismiss the banner on screen. The next one waiting takes its place rather than being
+    /// discarded with it: dismissing one summary is not a decision about the others.
+    func dismissBanner() {
+        if !pendingAlerts.isEmpty { pendingAlerts.removeFirst() }
+    }
+
+    /// Dismiss every waiting summary at once — the × on the HUD, where "close this" plainly means
+    /// all of it rather than "show me the next one".
+    func dismissAllBanners() { pendingAlerts.removeAll() }
 }
 
 /// Bridges `AVSpeechSynthesizer`'s finish + per-word callbacks to closures (native fallback path).

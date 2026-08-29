@@ -397,12 +397,13 @@ agents never talk over each other, because Baton queues them and plays them in o
 The name is also kept in Spoken Summaries, so you can see who said what after the fact.
 
 **Can each agent have its own voice?**
-Yes, and it needs no setup. Baton keeps five favourite voices, and any agent that sends a
-`session` name gets one of them, chosen from the name, so a project sounds the same every
-time and on any Mac. With a few agents running you can tell who finished without looking.
-Two projects can end up sharing a voice, which is normal with five of each; Settings shows
-you when it happens and lets you pin one to a different voice. Edit the pool in
-**Settings → Speech → Favourite voices**.
+Yes. In **Settings → Speech → Agent voices** you keep a list of label-and-voice pairs, as
+long as you like. The label is normally the `session` name the agent sends, usually its
+repo, and it is matched loosely so case and stray spaces do not matter. There is a play
+button on each row to hear the voice. **Add one Baton has heard** fills in the label from
+the agents that have already spoken. Anything not in the list speaks in a voice from
+outside it, the same one every time, so a project you named never sounds like one you
+did not.
 
 **The first word gets cut off on my Bluetooth speaker.**
 That's the speaker waking up. Bluetooth powers its radio down when nothing is playing
@@ -428,7 +429,7 @@ for the tail of a long build. See
 **Does Baton watch my screen?**
 No, and it cannot. Baton has no idea what is on your screen until you select something and ask
 for it. There is no background monitoring and no polling — every reading happens because you
-started it. Readings are not saved either: one plays, and then it is gone. The exception is a reading you ask to keep, with File → Save Reading as Audio…, which writes a single file wherever you point it and nowhere else.
+started it. Readings are not saved either: one plays, and then it is gone. Two exceptions, both things you ask for. File → Save Reading as Audio… writes a single file wherever you point it and nowhere else. And if you stop half way through an article, Baton keeps your place so File → Resume Reading can carry on: up to five of those, for seven days, holding the cleaned text you heard rather than the raw selection. Settings → Speech → Read aloud says how many are being held and forgets them on request.
 
 **Is Read aloud a screen reader?**
 Not in the accessibility sense, and it is not trying to be. VoiceOver reads interfaces, moving

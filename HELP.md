@@ -1176,30 +1176,27 @@ Earlier versions read the name aloud whenever the speaker changed. Showing it wo
 out better: it's there on every summary rather than only the ones that switched
 agents, and you get the summary a beat sooner.
 
-### One voice per agent (favourites)
+### One voice per agent
 
-Baton keeps a pool of **five favourite voices**, and every agent that sends a `session` name
-speaks in one of them. Which one is worked out from the name itself, so a project sounds the
-same today, tomorrow, and on your other Mac, and Baton has nothing to remember or lose.
+Give each agent its own voice and you know who finished without looking at anything. The
+name above the transcript tells you once you look; the voice tells you before you do.
 
-That is the point of the feature: with several agents running you know who finished without
-looking at anything. The name above the transcript tells you once you look; the voice tells
-you before you do.
+In **Settings → Speech → Agent voices** you keep a list. Each row is a label and a voice,
+with a button to hear it. Add as many as you like:
 
-Two things worth knowing:
+- The **label** is normally what the agent sends as its `session` name, usually the repo it
+  is working in. It is matched loosely, so case and stray spaces do not matter, and it is
+  free text: "night build" works as well as a repo name.
+- **Add one Baton has heard** fills the label in for you from the agents that have already
+  spoken, so you do not have to guess the exact spelling.
 
-- **Two projects can land on the same voice.** With five projects and five voices that is
-  normal rather than a fault: names land where they land, and five of them avoid each other
-  only about one time in twenty. Settings shows which sessions share a voice, and you fix it
-  by pinning one of them to a different voice.
-- **The pool doubles as your shortlist.** The five appear at the top of every voice picker,
-  above the full list from your servers, which matters when Kokoro alone offers 54 of them.
+Anything **not** in the list speaks in a voice from outside it. That is the useful half of
+the rule: a project you named never shares its sound with one you did not. Unlisted agents
+still sound the same every time, worked out from the name, so you can learn to recognise one
+before you get round to adding it.
 
-Edit the pool in **Settings → Speech → Favourite voices**. Each row shows which of your agents
-speaks in it, and has a Preview button.
-
-An explicit `voice` in the tool call still beats all of this, and the category map below still
-applies to anything with no session name.
+An explicit `voice` in the tool call beats all of this, and the category map below still
+applies to summaries with no agent name at all.
 
 ### One voice per category (the voice map)
 
@@ -1433,8 +1430,9 @@ you started it, at the moment you started it. That is a deliberate limit rather 
 still to come.
 
 **Readings are not saved.** A reading plays once and is gone. It does not appear in Spoken
-Summaries, which stays a record of what your agents told you. If you want to keep one, you can
-ask for it: see *Keeping a reading* below.
+Summaries, which stays a record of what your agents told you. Two things you can ask for are the
+exceptions, and both are below: keeping one as an audio file, and picking up an article you
+stopped part-way.
 
 ### Ways to start a reading
 
@@ -1542,6 +1540,21 @@ live reading would.
 
 The reading stays available until you read something else, so stopping one half way through and
 then saving it still gives you the whole thing.
+
+### Picking up where you left off
+
+Stop half way through a long article and Baton keeps your place. **File → Resume Reading** lists
+what you were in the middle of and carries on from the sentence you had reached, not from the top.
+
+This is the one place Baton keeps the text of a reading, so it is worth being exact about what
+that means. It holds up to five unfinished readings for seven days, and what it holds is the
+cleaned text you actually heard: anything shaped like a password or a key was removed before a
+word was spoken, so it was never written down either. Finish an article and its entry goes. You
+can also forget the lot at any time, from the same menu or from Settings → Speech → Read aloud,
+which shows how many are being held.
+
+It stays on this Mac. Where you got to in an article is like where you got to in a podcast, so it
+does not travel to your iPhone.
 
 
 ## Transcripts and summaries

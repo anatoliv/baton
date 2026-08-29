@@ -64,12 +64,43 @@ struct SpeakingPlayerView: View {
         return speech.currentSessionLabel ?? speech.lastSessionLabel
     }
 
+    /// "2 more waiting" — the count of spoken things queued behind this one.
+    ///
+    /// Deliberately a count and not a list. Several agents talking at once is the case this
+    /// exists for, and what a listener needs to know is "is this nearly over" rather than the
+    /// text of things they have not heard yet. It is also, usefully, the only way to *see* that
+    /// the queue is working: before this, a summary that was queued and one that was silently
+    /// dropped looked exactly the same from outside.
+    private func waitingIndicator(_ count: Int) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "clock")
+                .font(.caption2)
+            Text(count == 1 ? "1 more waiting" : "\(count) more waiting")
+                .font(.caption)
+            Spacer()
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 2)
+        .padding(.bottom, 6)
+        .accessibilityElement(children: .combine)
+        // Announced rather than left as decoration: it changes while the user is listening
+        // rather than looking, which is exactly when VoiceOver users need it most.
+        .accessibilityLabel(count == 1 ? "One more summary waiting"
+                                       : "\(count) more summaries waiting")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Who is speaking, above the transcript. Displayed only — nothing here is ever
             // synthesized, which is the whole point: a name you can see costs no listening time.
             if let sessionLabel, !sessionLabel.isEmpty {
                 sessionHeader(sessionLabel)
+            }
+
+            // How many more are waiting to be spoken. Silent at zero, which is the ordinary
+            // case: a "0 waiting" chip on every single summary would be pure noise.
+            if speech.waitingCount > 0 {
+                waitingIndicator(speech.waitingCount)
             }
 
             // Transcript greedily fills all the space above the controls — no dead gap above the bar.

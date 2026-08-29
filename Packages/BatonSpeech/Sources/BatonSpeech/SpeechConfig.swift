@@ -27,8 +27,10 @@ public enum SpeechConfig {
     static let alertBannerKey = "tonebox.speech.alertBanner"
     static let bluetoothWarmupKey = "tonebox.speech.bluetoothWarmup"
     static let engineLingerKey = "tonebox.speech.engineLinger"
-    static let favouriteVoicesKey = "tonebox.speech.favouriteVoices"
-    static let sessionVoicesKey = "tonebox.speech.sessionVoices"
+    static let favouriteVoicesKey = "tonebox.speech.favouriteVoices"        // 0.17.4 only
+    /// Public so the migration test can plant a 0.17.4 pin map to migrate from.
+    public static let legacySessionVoicesKey = "tonebox.speech.sessionVoices"   // 0.17.4 only
+    static let sessionVoicesKey = "tonebox.speech.sessionVoiceList"
     /// Maximum characters accepted by speak_summary — a summary, not an essay. Beyond this
     /// the tool errors rather than reading a 50 KB blob aloud.
     public static let maxSummaryChars = 2000
@@ -244,88 +246,117 @@ public enum SpeechConfig {
         "es": "kokoro:ef_dora",          // Spanish female
     ]
 
-    // MARK: - Favourite voices, and one per session
+    // MARK: - A voice per agent
 
-    /// How many favourites the pool holds. Five is enough to tell a handful of agents apart
-    /// and few enough to stay recognisable: past about this many, "which voice was that?" is
-    /// a harder question than the one the voices were meant to answer.
-    public static let favouriteVoiceCount = 5
+    /// One row of the voice list: a label you type, and the voice it speaks in.
+    ///
+    /// The label is normally a project name — whatever the agent sends as `session` — but it
+    /// is free text, so "night build" or "the noisy one" work just as well. Order is the
+    /// user's; matching does not depend on it.
+    public struct SessionVoice: Codable, Equatable, Identifiable, Sendable {
+        public var id: UUID
+        public var label: String
+        /// An `"engine:voice"` spec, the same shape the category map stores.
+        public var voice: String
 
-    /// The starting pool. Deliberately spread across timbres rather than picked for beauty —
-    /// two similar female voices are worse than one, because the whole job is telling them
-    /// apart in one word heard from another room.
-    static let defaultFavouriteVoices: [String] = [
-        "kokoro:af_bella",    // clear US female
-        "kokoro:am_michael",  // steady US male
-        "kokoro:af_nova",     // bright US female
-        "kokoro:am_fenrir",   // deeper US male
-        "kokoro:bf_emma",     // UK female
+        public init(id: UUID = UUID(), label: String, voice: String) {
+            self.id = id
+            self.label = label
+            self.voice = voice
+        }
+    }
+
+    /// Voices that unlisted agents draw from.
+    ///
+    /// Any voice the list already uses is removed from this before choosing, which is what
+    /// makes "some other voice" true: a project you named never shares its sound with one you
+    /// did not. Kept deliberately varied — the whole job is telling one from another in a
+    /// single word heard from across a room.
+    public static let unlistedVoicePool: [String] = [
+        "kokoro:af_heart", "kokoro:am_michael", "kokoro:af_nova", "kokoro:am_fenrir",
+        "kokoro:bf_emma", "kokoro:am_puck", "kokoro:af_sky", "kokoro:bm_george",
     ]
 
-    /// The pool sessions draw from, always exactly `favouriteVoiceCount` long: a short stored
-    /// list is padded from the defaults rather than trusted, so a half-written setting can
-    /// never make `assignedVoice(for:)` index out of bounds.
-    public static func favouriteVoices() -> [String] {
-        let stored = (defaults.array(forKey: favouriteVoicesKey) as? [String]) ?? []
-        var pool = stored.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        if pool.count < favouriteVoiceCount {
-            pool += defaultFavouriteVoices[pool.count ..< favouriteVoiceCount]
+    public static func sessionVoiceList() -> [SessionVoice] {
+        guard let data = defaults.data(forKey: sessionVoicesKey),
+              let list = try? JSONDecoder().decode([SessionVoice].self, from: data)
+        else { return [] }
+        return list
+    }
+
+    public static func setSessionVoiceList(_ list: [SessionVoice]) {
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        defaults.set(data, forKey: sessionVoicesKey)
+    }
+
+    /// Trimmed and case-folded, so "Baton", " baton " and "baton" are one project. Anything
+    /// that normalises to nothing is not a label at all.
+    public static func voiceKey(_ label: String) -> String {
+        label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// The voice a session speaks in: its own row if it has one, otherwise a voice from
+    /// outside the list.
+    ///
+    /// The unlisted case is **stable**, not arbitrary. "Some other voice" chosen freshly each
+    /// launch would make an unlisted project sound different every time, so the voice would
+    /// say "not one of your named ones" instead of "this one again" — and the second is what
+    /// makes it worth hearing at all. Derived from the name, so there is no state to keep.
+    ///
+    /// Returns nil when there is nothing to go on, and the category map decides instead.
+    public static func assignedVoice(for session: String) -> String? {
+        let key = voiceKey(session)
+        guard !key.isEmpty else { return nil }
+
+        let list = sessionVoiceList()
+        if let match = list.first(where: { voiceKey($0.label) == key }),
+           !match.voice.trimmingCharacters(in: .whitespaces).isEmpty {
+            return match.voice
         }
-        return Array(pool.prefix(favouriteVoiceCount))
+
+        let taken = Set(list.map { $0.voice.lowercased() })
+        let available = unlistedVoicePool.filter { !taken.contains($0.lowercased()) }
+        guard !available.isEmpty else { return nil }
+        return available[stableSlot(for: key, count: available.count)]
     }
 
-    public static func setFavouriteVoices(_ voices: [String]) {
-        defaults.set(Array(voices.prefix(favouriteVoiceCount)), forKey: favouriteVoicesKey)
-    }
-
-    /// Session label → an explicit voice spec, for breaking a collision by hand.
-    public static func sessionVoices() -> [String: String] {
-        (defaults.dictionary(forKey: sessionVoicesKey) as? [String: String]) ?? [:]
-    }
-
-    public static func setSessionVoices(_ map: [String: String]) {
-        defaults.set(map, forKey: sessionVoicesKey)
-    }
-
-    /// Which favourite a session lands on: **stable**, derived from the name alone.
+    /// A stable bucket for a name, in `0 ..< count`.
     ///
-    /// Handing voices out in arrival order would be simpler and worse — a project would sound
-    /// different from run to run, so the voice would tell you "a different agent" rather than
-    /// "which agent", and the second is the whole point. Deriving it from the name means no
-    /// state to keep, nothing to migrate, and the same voice on another machine.
-    ///
-    /// **The hash must be our own.** Swift's `Hasher` is seeded randomly per process, so
+    /// **The hash has to be our own.** Swift's `Hasher` is seeded randomly per process, so
     /// `"baton".hashValue` differs between launches: using it would have produced a voice that
     /// looked stable within one run and silently reshuffled on every restart. This is FNV-1a
-    /// over the UTF-8 bytes, which is small and the same everywhere forever.
+    /// over the UTF-8 bytes, the same everywhere forever.
     ///
-    /// **The fold before the modulo is not decoration.** `hash % 5` only ever looks at the low
-    /// bits, and measured over twenty realistic project names it never produced slot 0 at all:
-    /// one of the five voices was dead. Folding the high half down first spreads them across
-    /// all five.
-    ///
-    /// What this deliberately does *not* promise is that your projects avoid each other. Five
-    /// names into five slots land all-distinct only about 4% of the time, so sharing is the
-    /// normal case for any hash, not a flaw in this one. That is what pinning is for, and the
-    /// Speech pane shows which sessions share a voice so it is visible rather than something
-    /// you work out by ear.
-    public static func favouriteSlot(for session: String) -> Int {
+    /// **The fold before the modulo is not decoration.** A bare `hash % n` only ever looks at
+    /// the low bits, and measured over twenty realistic names it never produced bucket 0 — one
+    /// voice in the pool was unreachable and nothing would have reported it.
+    static func stableSlot(for key: String, count: Int) -> Int {
+        guard count > 0 else { return 0 }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in session.lowercased().utf8 {
+        for byte in key.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x100_0000_01b3
         }
         hash ^= hash >> 32
-        return Int(hash % UInt64(favouriteVoiceCount))
+        return Int(hash % UInt64(count))
     }
 
-    /// The voice a session speaks in: a hand-pinned override if it has one, else its
-    /// stable slot in the pool.
-    public static func assignedVoice(for session: String) -> String? {
-        let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let pinned = sessionVoices()[trimmed], !pinned.isEmpty { return pinned }
-        return favouriteVoices()[favouriteSlot(for: trimmed)]
+    /// Carry anyone on the shipped 0.17.4 model over: its pins were a `[label: voice]` map,
+    /// which is exactly a list with the order lost. Runs once; the old key is cleared so a
+    /// later edit of the list is never overwritten by it.
+    public static func migrateLegacySessionVoicesIfNeeded() {
+        guard let legacy = defaults.dictionary(forKey: legacySessionVoicesKey) as? [String: String],
+              !legacy.isEmpty
+        else { return }
+        var list = sessionVoiceList()
+        let known = Set(list.map { voiceKey($0.label) })
+        for (label, voice) in legacy.sorted(by: { $0.key < $1.key })
+        where !known.contains(voiceKey(label)) {
+            list.append(SessionVoice(label: label, voice: voice))
+        }
+        setSessionVoiceList(list)
+        defaults.removeObject(forKey: legacySessionVoicesKey)
+        defaults.removeObject(forKey: favouriteVoicesKey)
     }
 
     public static func voiceMap() -> [String: String] {
@@ -356,6 +387,7 @@ public enum SpeechConfig {
         defaults.removeObject(forKey: bluetoothWarmupKey)
         defaults.removeObject(forKey: engineLingerKey)
         defaults.removeObject(forKey: favouriteVoicesKey)
+        defaults.removeObject(forKey: legacySessionVoicesKey)
         defaults.removeObject(forKey: sessionVoicesKey)
         if includeHosts {
             defaults.removeObject(forKey: kokoroHostKey)

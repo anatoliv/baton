@@ -2,171 +2,207 @@ import Foundation
 import Testing
 @testable import Baton
 
-/// One voice per agent, drawn from a pool of favourites.
+/// One voice per agent, from a list you write.
 ///
 /// The feature exists because several agents speak through Baton at once and the ear is the
-/// only channel free while you are working in another app. A name shown above the transcript
-/// tells you who spoke *once you look*; a voice tells you before you do.
-@Suite("Session voices")
+/// only channel free while you work in another app. A name above the transcript tells you who
+/// spoke once you look; a voice tells you before you do.
+///
+/// This replaced a fixed pool of five that assigned voices by hashing the name. That design
+/// could not keep its central promise: five names into five slots avoid each other only about
+/// 4% of the time, so in practice three of the user's projects shared one voice. A list you
+/// write has no such failure mode — you said which voice, so that is the voice.
+@Suite("Agent voices")
 @MainActor
 struct SpeechSessionVoiceTests {
 
+    @discardableResult
     private func isolatedDefaults() -> UserDefaults {
         let d = UserDefaults(suiteName: "baton.tests.voices.\(UUID().uuidString)")!
         SpeechConfig.defaults = d
         return d
     }
 
-    // MARK: - Stability
+    private func list(_ pairs: [(String, String)]) {
+        SpeechConfig.setSessionVoiceList(pairs.map { .init(label: $0.0, voice: $0.1) })
+    }
 
-    /// The load-bearing promise: "alpha" sounds like alpha tomorrow, and on the other Mac.
-    ///
-    /// This is not a tautology dressed as a test. The obvious implementation — Swift's own
-    /// `hashValue` — would pass every same-process assertion and break this promise on every
-    /// relaunch, because `Hasher` is seeded randomly per process. Hard-coding the expected
-    /// slots is what makes that failure visible: change the hash and this test says so.
-    @Test("A name always lands on the same slot, in this process and any other")
-    func slotsAreStableAcrossProcesses() {
-        _ = isolatedDefaults()
-        // Recorded from the FNV-1a implementation. If these change, the voice every project
-        // speaks in has just been reshuffled — which is a user-visible change, not a detail.
-        #expect(SpeechConfig.favouriteSlot(for: "alpha") == SpeechConfig.favouriteSlot(for: "alpha"))
-        #expect(SpeechConfig.favouriteSlot(for: "bravo") == SpeechConfig.favouriteSlot(for: "bravo"))
+    // MARK: - Matching
 
-        // Every slot is a real index into the pool, for any name at all.
-        for name in ["alpha", "bravo", "charlie", "delta", "", "ünïcodé", String(repeating: "x", count: 500)] {
-            let slot = SpeechConfig.favouriteSlot(for: name)
-            #expect(slot >= 0 && slot < SpeechConfig.favouriteVoiceCount, "slot \(slot) out of range for \(name)")
+    @Test("A listed agent speaks in the voice it was given")
+    func listedAgentUsesItsVoice() {
+        isolatedDefaults()
+        list([("alpha", "kokoro:af_bella"), ("bravo", "chatterbox:Emily.wav")])
+        #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_bella")
+        #expect(SpeechConfig.assignedVoice(for: "bravo") == "chatterbox:Emily.wav")
+    }
+
+    /// Agents send whatever they send. A label that only matched an exact byte sequence would
+    /// fail the first time someone typed a capital, and fail *silently* — the agent would just
+    /// sound like an unlisted one, which is a working state rather than an error.
+    @Test("Case and surrounding whitespace don't stop a match")
+    func matchingIsForgiving() {
+        isolatedDefaults()
+        list([("Alpha", "kokoro:af_bella")])
+        #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_bella")
+        #expect(SpeechConfig.assignedVoice(for: "  ALPHA  ") == "kokoro:af_bella")
+    }
+
+    @Test("The first row wins when two claim the same label")
+    func firstDuplicateWins() {
+        isolatedDefaults()
+        list([("alpha", "kokoro:af_bella"), ("alpha", "kokoro:am_michael")])
+        #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_bella")
+    }
+
+    @Test("A row with no voice is not a match")
+    func emptyVoiceFallsThrough() {
+        isolatedDefaults()
+        list([("alpha", "")])
+        let voice = SpeechConfig.assignedVoice(for: "alpha")
+        #expect(voice != "")
+        #expect(voice != nil, "it should fall through to the unlisted pool, not to nothing")
+    }
+
+    // MARK: - Everyone else
+
+    /// The promise that makes the list worth writing: a project you named never sounds like
+    /// one you did not.
+    @Test("An unlisted agent never borrows a listed agent's voice")
+    func unlistedStaysOutOfTheList() {
+        isolatedDefaults()
+        let taken = Array(SpeechConfig.unlistedVoicePool.prefix(3))
+        list(taken.enumerated().map { ("listed-\($0.offset)", $0.element) })
+
+        for name in ["charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india"] {
+            let voice = SpeechConfig.assignedVoice(for: name)
+            #expect(voice != nil)
+            #expect(!taken.contains(voice ?? ""), "\(name) borrowed \(voice ?? "") from the list")
         }
     }
 
-    @Test("Case and surrounding whitespace don't change the voice")
-    func slotIgnoresCase() {
-        _ = isolatedDefaults()
-        #expect(SpeechConfig.favouriteSlot(for: "Alpha") == SpeechConfig.favouriteSlot(for: "alpha"))
-        #expect(SpeechConfig.assignedVoice(for: "  alpha  ") == SpeechConfig.assignedVoice(for: "alpha"))
+    /// "Some other voice" must not mean "a different one each time". An unlisted project that
+    /// changed voice on every launch would tell you only that it is unlisted, when the useful
+    /// thing is recognising it as the same one again.
+    @Test("An unlisted agent sounds the same every time")
+    func unlistedIsStable() {
+        isolatedDefaults()
+        list([("alpha", "kokoro:af_bella")])
+        let first = SpeechConfig.assignedVoice(for: "charlie")
+        #expect(first != nil)
+        for _ in 0 ..< 5 {
+            #expect(SpeechConfig.assignedVoice(for: "charlie") == first)
+        }
     }
 
-    /// Every voice in the pool must be reachable.
-    ///
-    /// Written after the first version used `hash % 5`, which only ever looks at the low bits:
-    /// across twenty realistic project names it never returned slot 0, so one of the five
-    /// voices could never be assigned to anything and the pool was effectively four. Nothing
-    /// else would have reported that — the feature works, it just quietly wastes a voice.
-    ///
-    /// Note what is *not* asserted: that a given set of names avoids each other. Five names in
-    /// five slots are all-distinct only ~4% of the time, so demanding it would be demanding
-    /// something no hash can give. Sharing is handled by pinning, not by hoping.
-    @Test("Every slot in the pool is reachable")
-    func everySlotIsReachable() {
-        _ = isolatedDefaults()
-        // Generic fixtures on purpose: this file is mirrored to a public repo, and the
-        // real project and host names are nobody else's business. Twenty of them, which is
-        // enough that a dead slot shows up rather than hiding behind a small sample.
-        let names = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf",
-                     "hotel", "india", "juliett", "kilo", "lima", "mike", "november",
-                     "oscar", "papa", "quebec", "romeo", "sierra", "tango"]
-        let used = Set(names.map { SpeechConfig.favouriteSlot(for: $0) })
-        #expect(used.count == SpeechConfig.favouriteVoiceCount,
-                "unreachable slots: \(Set(0 ..< SpeechConfig.favouriteVoiceCount).subtracting(used))")
+    /// The bucketing has to reach every voice it is offered. An earlier version used a bare
+    /// `hash % n`, which only looks at the low bits: measured across twenty names it never
+    /// produced bucket 0, so one voice was unreachable and nothing reported it.
+    @Test("Every voice in the unlisted pool is reachable")
+    func everyUnlistedVoiceIsReachable() {
+        isolatedDefaults()
+        let names = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+                     "india", "juliett", "kilo", "lima", "mike", "november", "oscar", "papa",
+                     "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
+                     "xray", "yankee", "zulu"]
+        let used = Set(names.compactMap { SpeechConfig.assignedVoice(for: $0) })
+        #expect(used.count == SpeechConfig.unlistedVoicePool.count,
+                "unreachable: \(Set(SpeechConfig.unlistedVoicePool).subtracting(used))")
     }
 
-    // MARK: - The pool
+    @Test("With every pool voice claimed, the category map decides instead of nothing")
+    func exhaustedPoolFallsThroughToTheMap() {
+        isolatedDefaults()
+        list(SpeechConfig.unlistedVoicePool.enumerated().map { ("listed-\($0.offset)", $0.element) })
+        #expect(SpeechConfig.assignedVoice(for: "charlie") == nil)
 
-    @Test("The pool is always full, even when the stored list is short or junk")
-    func poolIsPaddedNotTrusted() {
-        _ = isolatedDefaults()
-        // A half-written setting must not be able to crash the speak path: `assignedVoice`
-        // indexes straight into this array.
-        SpeechConfig.setFavouriteVoices(["kokoro:af_bella"])
-        #expect(SpeechConfig.favouriteVoices().count == SpeechConfig.favouriteVoiceCount)
-
-        SpeechConfig.setFavouriteVoices(["", "  ", "kokoro:am_michael"])
-        let pool = SpeechConfig.favouriteVoices()
-        #expect(pool.count == SpeechConfig.favouriteVoiceCount)
-        #expect(pool.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
-
-        SpeechConfig.setFavouriteVoices(Array(repeating: "kokoro:af_nova", count: 40))
-        #expect(SpeechConfig.favouriteVoices().count == SpeechConfig.favouriteVoiceCount)
-
-        // And every slot still resolves to something speakable.
-        #expect(SpeechConfig.assignedVoice(for: "any-name-at-all") != nil)
+        // nil means "no opinion", so resolve falls through to the category map, not to silence.
+        let v = SpeechConfig.resolve(
+            category: "alert", explicitVoice: nil, engineOverride: nil, session: "charlie")
+        #expect(v.voice == "af_nova", "the alert row of the default map")
     }
 
-    @Test("Editing the pool changes what a session sounds like")
-    func poolEditsReachTheSession() {
-        _ = isolatedDefaults()
-        let slot = SpeechConfig.favouriteSlot(for: "alpha")
-        var pool = SpeechConfig.favouriteVoices()
-        pool[slot] = "chatterbox:Emily.wav"
-        SpeechConfig.setFavouriteVoices(pool)
-        #expect(SpeechConfig.assignedVoice(for: "alpha") == "chatterbox:Emily.wav")
+    @Test("A blank session name is no session at all")
+    func blankSessionIsIgnored() {
+        isolatedDefaults()
+        #expect(SpeechConfig.assignedVoice(for: "   ") == nil)
     }
 
     // MARK: - Resolution order
 
-    @Test("An explicit voice still outranks the session")
+    @Test("An explicit voice still outranks the list")
     func explicitVoiceWins() {
-        _ = isolatedDefaults()
+        isolatedDefaults()
+        list([("alpha", "kokoro:af_bella")])
         let v = SpeechConfig.resolve(
             category: "ops", explicitVoice: "kokoro:af_sky", engineOverride: nil, session: "alpha")
         #expect(v.voice == "af_sky")
     }
 
-    /// The ordering decision worth locking, because it is the one that could be argued the
-    /// other way: two agents both reporting a deploy is exactly when you need them separated,
-    /// and category-wins would give them the same voice at that moment.
-    @Test("The session outranks the category map")
+    /// The ordering worth locking, because it could be argued the other way: two agents both
+    /// reporting a deploy is exactly when you need them apart, and category-wins would give
+    /// them the same voice at that moment.
+    @Test("The agent outranks the category map")
     func sessionBeatsCategory() {
-        _ = isolatedDefaults()
-        let withSession = SpeechConfig.resolve(
+        isolatedDefaults()
+        list([("alpha", "chatterbox:Emily.wav")])
+        let withAgent = SpeechConfig.resolve(
             category: "ops", explicitVoice: nil, engineOverride: nil, session: "alpha")
-        let withoutSession = SpeechConfig.resolve(
+        #expect(withAgent.engine == .chatterbox)
+        #expect(withAgent.voice == "Emily.wav")
+
+        let without = SpeechConfig.resolve(
             category: "ops", explicitVoice: nil, engineOverride: nil, session: nil)
-        // "engine:voice" → the voice half, which is what `resolve` hands back.
-        let assigned = SpeechConfig.assignedVoice(for: "alpha")!
-        let expected = assigned.split(separator: ":", maxSplits: 1).map(String.init).last!
-        #expect(withSession.voice == expected)
-        #expect(withoutSession.voice == "am_fenrir", "the ops row of the default map")
+        #expect(without.voice == "am_fenrir", "the ops row of the default map")
     }
 
-    @Test("With no session at all, the category map still decides")
-    func categoryStillWorks() {
-        _ = isolatedDefaults()
-        let v = SpeechConfig.resolve(category: "alert", explicitVoice: nil, engineOverride: nil)
-        #expect(v.voice == "af_nova")
-    }
-
-    @Test("A blank session name is no session, not an empty one")
-    func blankSessionIsIgnored() {
-        _ = isolatedDefaults()
-        #expect(SpeechConfig.assignedVoice(for: "   ") == nil)
-        let v = SpeechConfig.resolve(
-            category: "alert", explicitVoice: nil, engineOverride: nil, session: "  ")
-        #expect(v.voice == "af_nova", "falls through to the category map")
-    }
-
-    // MARK: - Pinning
-
-    @Test("A pinned voice beats the hashed slot, which is how a collision gets broken")
-    func pinnedOverrideWins() {
-        _ = isolatedDefaults()
-        SpeechConfig.setSessionVoices(["alpha": "chatterbox:Emily.wav"])
-        #expect(SpeechConfig.assignedVoice(for: "alpha") == "chatterbox:Emily.wav")
-        #expect(SpeechConfig.assignedVoice(for: "charlie") != "chatterbox:Emily.wav",
-                "pinning one session must not move the others")
-
-        let v = SpeechConfig.resolve(
-            category: "ops", explicitVoice: nil, engineOverride: nil, session: "alpha")
-        #expect(v.engine == .chatterbox)
-        #expect(v.voice == "Emily.wav")
-    }
-
-    @Test("An engine override still forces the engine on a session voice")
-    func engineOverrideAppliesToSessionVoices() {
-        _ = isolatedDefaults()
+    @Test("An engine override still forces the engine")
+    func engineOverrideApplies() {
+        isolatedDefaults()
+        list([("alpha", "kokoro:af_bella")])
         let v = SpeechConfig.resolve(
             category: nil, explicitVoice: nil, engineOverride: .chatterbox, session: "alpha")
         #expect(v.engine == .chatterbox)
+    }
+
+    // MARK: - Storage and migration
+
+    @Test("The list survives a round trip, order intact")
+    func listRoundTrips() {
+        isolatedDefaults()
+        list([("alpha", "kokoro:af_bella"), ("bravo", "kokoro:am_michael")])
+        let read = SpeechConfig.sessionVoiceList()
+        #expect(read.map(\.label) == ["alpha", "bravo"])
+        #expect(read.map(\.voice) == ["kokoro:af_bella", "kokoro:am_michael"])
+    }
+
+    /// 0.17.4 shipped pins as a `[label: voice]` dictionary — a list with the order lost.
+    /// Anyone who set one up in that release must not have to do it again.
+    @Test("Pins from 0.17.4 are carried over, once")
+    func legacyPinsMigrate() {
+        let defaults = isolatedDefaults()
+        defaults.set(["alpha": "kokoro:af_bella", "bravo": "kokoro:am_michael"],
+                     forKey: SpeechConfig.legacySessionVoicesKey)
+
+        SpeechConfig.migrateLegacySessionVoicesIfNeeded()
+        #expect(SpeechConfig.sessionVoiceList().count == 2)
+        #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_bella")
+
+        // A second run must be a no-op, or a later edit would be undone by a stale key.
+        SpeechConfig.setSessionVoiceList([.init(label: "alpha", voice: "kokoro:af_sky")])
+        SpeechConfig.migrateLegacySessionVoicesIfNeeded()
+        #expect(SpeechConfig.sessionVoiceList().count == 1)
+        #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_sky")
+    }
+
+    @Test("Migration keeps a row you already wrote for the same label")
+    func migrationDoesNotClobber() {
+        let defaults = isolatedDefaults()
+        SpeechConfig.setSessionVoiceList([.init(label: "alpha", voice: "kokoro:af_sky")])
+        defaults.set(["alpha": "kokoro:af_bella"], forKey: SpeechConfig.legacySessionVoicesKey)
+
+        SpeechConfig.migrateLegacySessionVoicesIfNeeded()
+        #expect(SpeechConfig.sessionVoiceList().count == 1)
+        #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_sky")
     }
 }

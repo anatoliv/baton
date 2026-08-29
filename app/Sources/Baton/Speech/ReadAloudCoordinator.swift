@@ -65,6 +65,22 @@ final class ReadAloudCoordinator {
         let startedAt: Date
     }
 
+    /// Unfinished readings, for "pick up where I left off".
+    ///
+    /// Injectable, and that is not decoration: the default store writes to Application Support,
+    /// so a test constructing a coordinator without this would quietly read and write the user's
+    /// real saved readings.
+    let unfinished: UnfinishedReadings
+
+    /// Identity of the reading in progress, so its saved position can be updated or removed
+    /// without a second reading clobbering it.
+    @ObservationIgnored private var currentReadingID: UUID?
+    /// Where each chunk lands in the HUD document, so the engine's `spokenRange` can be mapped
+    /// back to a chunk index when the reading stops. Cheaper and more honest than tracking
+    /// "enqueued" — the coordinator runs two chunks ahead of what is actually being spoken, and
+    /// resuming from the enqueued position would silently skip whatever was still in the queue.
+    @ObservationIgnored private var currentRanges: [NSRange] = []
+
     /// The last reading that was started, exportable until another one replaces it.
     ///
     /// Deliberately **not** cleared by `stop()`. Stopping a reading part-way is a normal thing to
@@ -80,9 +96,13 @@ final class ReadAloudCoordinator {
     @ObservationIgnored
     private(set) static weak var current: ReadAloudCoordinator?
 
-    init(music: MusicModel) {
+    init(music: MusicModel, unfinished: UnfinishedReadings = UnfinishedReadings()) {
         self.music = music
+        self.unfinished = unfinished
         Self.current = self
+        // Load at launch so the Resume menu is populated the first time it is opened, and so an
+        // expired entry is pruned on start rather than lingering until something else writes.
+        unfinished.loadIfNeeded()
     }
 
     // MARK: - Reading
@@ -158,13 +178,64 @@ final class ReadAloudCoordinator {
         music.speech.reading = .init(text: document, spokenRange: ranges[0])
 
         let voice = resolvedVoice(for: profile, text: document)
+        let startedAt = Date()
         // Recorded before a single chunk is synthesized, so a reading stopped after one sentence
         // is still exportable in full — the export re-renders from the text, not from the audio.
-        exportable = Exportable(chunks: chunks, voice: voice, sourceName: sourceName, startedAt: Date())
+        exportable = Exportable(chunks: chunks, voice: voice, sourceName: sourceName, startedAt: startedAt)
+        let id = resumingID ?? UUID()
+        resumingID = nil
+        currentReadingID = id
+        currentRanges = ranges
         task = Task { [weak self] in
-            await self?.speak(chunks, ranges: ranges, voice: voice)
-            self?.isReading = false
+            let completed = await self?.speak(chunks, ranges: ranges, voice: voice) ?? false
+            guard let self else { return }
+            self.isReading = false
+            // Cancelled means `stop()` ran, and it has already saved the position.
+            guard !Task.isCancelled else { return }
+            if completed {
+                // Ran to the end: nothing to come back to, so drop any saved position rather
+                // than leaving a finished article in the Resume menu.
+                self.unfinished.remove(id: id)
+            } else {
+                // Ended early — the TTS host failed with the fallback switched off. Keep the
+                // place. Removing here was the first version of this code and it was wrong in a
+                // way that only bites when something else has already gone wrong: you lose the
+                // article *because* synthesis broke.
+                self.recordPosition(id: id)
+            }
         }
+    }
+
+    /// Set while a resumed reading is being started, so it keeps the identity of the entry it
+    /// came from instead of forking a second one every time you resume the same article.
+    @ObservationIgnored private var resumingID: UUID?
+
+    // MARK: - Resuming
+
+    /// Start an unfinished reading again from where it stopped.
+    ///
+    /// The stored chunks are re-spoken from `resumeIndex`, not re-prepared: they are already
+    /// normalized and already through the redactor, and re-running preparation on them could
+    /// only change what you hear relative to what you heard before the interruption.
+    func resume(_ entry: UnfinishedReadings.Entry) {
+        stop()
+        let remaining = Array(entry.chunks.dropFirst(entry.resumeIndex))
+        guard !remaining.isEmpty else {
+            unfinished.remove(id: entry.id)
+            return
+        }
+        resumingID = entry.id
+        // `prepare` is idempotent on already-prepared text, and going back through it keeps this
+        // path identical to every other reading rather than a second way in.
+        speak(prepared: remaining.joined(separator: " "), profile: .generic, sourceName: entry.sourceName)
+    }
+
+    /// How far the *engine* has actually got, as a chunk index. Derived from the range it is
+    /// speaking rather than from what has been enqueued, because those differ by the lookahead.
+    private func spokenChunkIndex() -> Int {
+        guard let spoken = music.speech.reading?.spokenRange else { return 0 }
+        guard let index = currentRanges.firstIndex(where: { $0.location == spoken.location }) else { return 0 }
+        return index
     }
 
     /// Join the chunks into the document the HUD renders, and record where each one lands in it.
@@ -190,6 +261,11 @@ final class ReadAloudCoordinator {
     /// playing; stopping only the engine leaves this loop happily rendering more chunks into a
     /// queue the user has just emptied.
     func stop() {
+        // Save before anything is cleared: `music.speech.reading` is the only record of where the
+        // engine got to, and the lines below deliberately drop it.
+        if isReading, let id = currentReadingID { recordPosition(id: id) }
+        currentReadingID = nil
+        currentRanges = []
         task?.cancel()
         task = nil
         if isReading { music.speech.stop() }
@@ -218,22 +294,25 @@ final class ReadAloudCoordinator {
     /// and `SpeechService` already retries once inside each attempt.
     private let failuresBeforeFallback = 2
 
-    private func speak(_ chunks: [String], ranges: [NSRange], voice: SpeechConfig.Voice) async {
+    /// Returns whether the whole reading was spoken. False means it ended early, which today
+    /// means the TTS host failed with the fallback off.
+    @discardableResult
+    private func speak(_ chunks: [String], ranges: [NSRange], voice: SpeechConfig.Voice) async -> Bool {
         // Counted, not latched on the first failure. Reset by any success, so one bad chunk in
         // the middle of a long reading costs that sentence rather than every sentence after it.
         var consecutiveFailures = 0
         var hostIsDown = false
 
         for (index, chunk) in chunks.enumerated() {
-            if Task.isCancelled { return }
+            if Task.isCancelled { return false }
             let range = ranges[index]
 
             // Stay `lookahead` ahead of playback rather than rendering everything up front.
             while music.speech.queuedCount >= lookahead {
-                if Task.isCancelled { return }
+                if Task.isCancelled { return false }
                 try? await Task.sleep(for: .milliseconds(120))
             }
-            if Task.isCancelled { return }
+            if Task.isCancelled { return false }
 
             if hostIsDown {
                 music.speech.play(.native(chunk), text: chunk, documentRange: range)
@@ -241,7 +320,7 @@ final class ReadAloudCoordinator {
             }
             do {
                 let audio = try await synthesize(chunk, voice)
-                if Task.isCancelled { return }
+                if Task.isCancelled { return false }
                 let url = try BatonMCPSpeakTools.writeTemp(audio)
                 consecutiveFailures = 0
                 music.speech.play(.file(url), text: chunk, documentRange: range)
@@ -253,7 +332,7 @@ final class ReadAloudCoordinator {
                 let reason = (error as? SpeechService.SynthError)?.message ?? error.localizedDescription
                 guard SpeechConfig.fallbackEnabled else {
                     readAloudLog.error("synthesis failed and fallback is off — stopping the reading: \(reason, privacy: .public)")
-                    return
+                    return false
                 }
                 if consecutiveFailures >= failuresBeforeFallback {
                     hostIsDown = true
@@ -264,6 +343,14 @@ final class ReadAloudCoordinator {
                 music.speech.play(.native(chunk), text: chunk, documentRange: range)
             }
         }
+        return true
+    }
+
+    /// Save where this reading got to, so it can be resumed.
+    private func recordPosition(id: UUID) {
+        guard let reading = exportable else { return }
+        unfinished.record(id: id, chunks: reading.chunks, resumeIndex: spokenChunkIndex(),
+                          sourceName: reading.sourceName, startedAt: reading.startedAt)
     }
 
     // MARK: - Saving a reading
@@ -316,6 +403,7 @@ final class ReadAloudCoordinator {
                     )
                 }
                 self.music.music.postToast("Reading saved to \(destination.lastPathComponent)", seconds: 3)
+                await self.offerToSendToTheGateway(destination)
             } catch is CancellationError {
                 readAloudLog.notice("export cancelled")
             } catch {
@@ -324,6 +412,37 @@ final class ReadAloudCoordinator {
                     message: error.localizedDescription
                 )
             }
+        }
+    }
+
+    /// Park the exported file on the home gateway, so the phone can collect it.
+    ///
+    /// Silent when no gateway is configured, which is the common case: someone who exports a
+    /// reading to keep it on this Mac should not be told about a feature they have not set up.
+    /// Failures are a toast rather than an alert for the same reason — the file they asked for is
+    /// already saved, and this is a bonus on top of it.
+    private func offerToSendToTheGateway(_ fileURL: URL) async {
+        let raw = (UserDefaults.standard.string(forKey: "baton.agent.gatewayURL") ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        let secret = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, !secret.isEmpty, let url = URL(string: raw), url.host != nil else { return }
+
+        let files = GatewayFiles(gatewayURL: url, token: secret)
+        do {
+            let sent = try await files.upload(
+                fileURL,
+                name: fileURL.lastPathComponent,
+                contentType: "audio/mp4",
+                origin: Host.current().localizedName ?? "Mac"
+            )
+            readAloudLog.notice("reading uploaded to the gateway (\(sent.size) bytes)")
+            music.music.postToast("Sent to your other devices", symbol: "iphone", seconds: 3)
+        } catch {
+            // Named, not swallowed: "it did not reach the gateway" and "the gateway refused it"
+            // are different problems, and the log line is where the difference survives.
+            readAloudLog.error("could not send the reading to the gateway: \(error.localizedDescription, privacy: .public)")
+            music.music.postToast("Saved, but not sent to your other devices", symbol: "exclamationmark.triangle", seconds: 4)
         }
     }
 
