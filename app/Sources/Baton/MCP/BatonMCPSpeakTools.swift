@@ -29,11 +29,12 @@ enum BatonMCPSpeakTools {
             unreachable, Baton falls back to the built-in macOS voice (unless disabled in \
             Settings). Keep summaries short. \
             When several agents run at once, pass `session` with a short name for THIS agent \
-            (e.g. the repo you're working in). Baton speaks it before the summary so the user \
-            knows who is talking, and remembers it for the rest of this MCP connection — send \
-            it on your first call and later calls inherit it. It is only spoken when the \
-            speaker changed since the last summary, so a run of updates from one agent isn't \
-            prefixed every time.
+            (e.g. the repo you're working in). Baton shows it above the transcript so the user \
+            can see who is talking, and remembers it for the rest of this MCP connection — send \
+            it on your first call and later calls inherit it. It is never read aloud, so it \
+            costs no listening time and does not need to be short enough to say. It also \
+            picks the voice: each session speaks in one of the user's five favourites, chosen \
+            from the name, so agents are told apart by ear as well as on screen.
             """,
             "inputSchema": [
                 "type": "object",
@@ -62,12 +63,19 @@ enum BatonMCPSpeakTools {
         guard text.count <= SpeechConfig.maxSummaryChars else {
             throw BatonMCPToolError(message: "Summary is too long (\(text.count) chars; max \(SpeechConfig.maxSummaryChars)). Keep it to a sentence or two.")
         }
-        // Declare-then-resolve: an explicit `session` updates this connection's
-        // label, otherwise we reuse whatever it declared earlier. Note the length
-        // check above ran on `text` alone — the spoken prefix is Baton's addition
-        // and must not count against the agent's summary budget.
+        // Declare-then-resolve: an explicit `session` updates this connection's label,
+        // otherwise we reuse whatever it declared earlier.
+        //
+        // The label on *this* call wins outright, and that ordering is the whole fix for
+        // stateless clients. Stickiness is keyed by the MCP session id the server mints at
+        // `initialize`, so a client that posts a bare `tools/call` — which is exactly what
+        // the bundled `baton-say` does — has no id, and both `declare` and `label` drop the
+        // name on the floor. Its `session` argument was accepted and silently discarded.
+        // Remembering a label needs a connection to remember it against; honouring one
+        // handed over in the call does not.
         music.speechLabels.declare(optionalString(args, "session"), forSession: sessionID)
-        let sessionLabel = music.speechLabels.label(forSession: sessionID)
+        let sessionLabel = SpeechSessionLabels.normalize(optionalString(args, "session"))
+            ?? music.speechLabels.label(forSession: sessionID)
         let category = optionalString(args, "category")
         let explicitVoice = optionalString(args, "voice")
         let engineOverride = optionalString(args, "engine")
@@ -89,13 +97,16 @@ enum BatonMCPSpeakTools {
         )
 
         let voice = SpeechConfig.resolve(
-            category: category, explicitVoice: explicitVoice, engineOverride: engineOverride
+            category: category, explicitVoice: explicitVoice, engineOverride: engineOverride,
+            session: sessionLabel
         )
 
         // Try the self-hosted server; if it's unreachable and fallback is on, speak the text
         // with the built-in macOS voice so a summary is never silently dropped.
-        // What actually gets synthesized: the summary, led by the session name when
-        // a different agent spoke last.
+        // What gets synthesized is the summary and nothing else. The session name is *shown*
+        // above the transcript (`sessionLabel` below), never spoken: it was a prefix on the
+        // synthesized text until the HUD could display it, and reading a name aloud before a
+        // sentence costs listening time on every speaker change to say what a glance says free.
         // Optional cleaning, for callers handing over text scraped off a screen rather than an
         // authored summary — the `baton-say` CLI, chiefly. Reuses the read-aloud pipeline rather
         // than growing a second redactor: a shell script cannot be trusted to strip a token, and
@@ -113,7 +124,7 @@ enum BatonMCPSpeakTools {
         } else {
             prepared = text
         }
-        let spokenText = music.speechLabels.announce(text: prepared, label: sessionLabel)
+        let spokenText = prepared
         let utterance: SpeechPlaybackEngine.Utterance
         var engineUsed = voice.engine.rawValue
         do {
@@ -149,11 +160,11 @@ enum BatonMCPSpeakTools {
         var delivered: [String] = []
         var bannerShown = false
         if plan.speakNow {
-            music.speech.play(utterance, text: spokenText)
+            music.speech.play(utterance, text: spokenText, sessionLabel: sessionLabel)
             delivered.append("speaking")
         }
         if plan.banner {
-            music.speech.presentBanner(text: spokenText, utterance: utterance)
+            music.speech.presentBanner(text: spokenText, utterance: utterance, sessionLabel: sessionLabel)
             bannerShown = true
             delivered.append("banner_shown")
         }

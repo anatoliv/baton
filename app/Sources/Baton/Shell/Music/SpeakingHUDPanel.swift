@@ -92,6 +92,16 @@ final class SpeakingHUDPresenter {
         userClosed = true
         autoCloseTask?.cancel()
         autoCloseTask = nil
+        // Stop the *source* before the sink. A spoken summary is one utterance, so cancelling the
+        // engine ends it; a reading is a queue with a producer still running behind it, and
+        // emptying the queue alone leaves `ReadAloudCoordinator` rendering the next sentence
+        // straight back into it. That re-set `isSpeaking`, which cleared `userClosed` in
+        // `syncVisibility()` and re-opened this window — so closing a long reading dismissed one
+        // sentence and the article carried on, for as long as you kept pressing ×.
+        //
+        // The coordinator's own `stop()` documents that both halves are required. This is a no-op
+        // when the HUD is showing an ordinary summary, so the summary path is unchanged.
+        ReadAloudCoordinator.current?.stop()
         speech.cancel() // stop any audio now (silent close)
         speech.dismissBanner() // close the in-app banner for this summary at the same time
         panel?.orderOut(nil)

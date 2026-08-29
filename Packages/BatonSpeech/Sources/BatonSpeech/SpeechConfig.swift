@@ -27,6 +27,8 @@ public enum SpeechConfig {
     static let alertBannerKey = "tonebox.speech.alertBanner"
     static let bluetoothWarmupKey = "tonebox.speech.bluetoothWarmup"
     static let engineLingerKey = "tonebox.speech.engineLinger"
+    static let favouriteVoicesKey = "tonebox.speech.favouriteVoices"
+    static let sessionVoicesKey = "tonebox.speech.sessionVoices"
     /// Maximum characters accepted by speak_summary — a summary, not an essay. Beyond this
     /// the tool errors rather than reading a 50 KB blob aloud.
     public static let maxSummaryChars = 2000
@@ -242,6 +244,90 @@ public enum SpeechConfig {
         "es": "kokoro:ef_dora",          // Spanish female
     ]
 
+    // MARK: - Favourite voices, and one per session
+
+    /// How many favourites the pool holds. Five is enough to tell a handful of agents apart
+    /// and few enough to stay recognisable: past about this many, "which voice was that?" is
+    /// a harder question than the one the voices were meant to answer.
+    public static let favouriteVoiceCount = 5
+
+    /// The starting pool. Deliberately spread across timbres rather than picked for beauty —
+    /// two similar female voices are worse than one, because the whole job is telling them
+    /// apart in one word heard from another room.
+    static let defaultFavouriteVoices: [String] = [
+        "kokoro:af_bella",    // clear US female
+        "kokoro:am_michael",  // steady US male
+        "kokoro:af_nova",     // bright US female
+        "kokoro:am_fenrir",   // deeper US male
+        "kokoro:bf_emma",     // UK female
+    ]
+
+    /// The pool sessions draw from, always exactly `favouriteVoiceCount` long: a short stored
+    /// list is padded from the defaults rather than trusted, so a half-written setting can
+    /// never make `assignedVoice(for:)` index out of bounds.
+    public static func favouriteVoices() -> [String] {
+        let stored = (defaults.array(forKey: favouriteVoicesKey) as? [String]) ?? []
+        var pool = stored.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if pool.count < favouriteVoiceCount {
+            pool += defaultFavouriteVoices[pool.count ..< favouriteVoiceCount]
+        }
+        return Array(pool.prefix(favouriteVoiceCount))
+    }
+
+    public static func setFavouriteVoices(_ voices: [String]) {
+        defaults.set(Array(voices.prefix(favouriteVoiceCount)), forKey: favouriteVoicesKey)
+    }
+
+    /// Session label → an explicit voice spec, for breaking a collision by hand.
+    public static func sessionVoices() -> [String: String] {
+        (defaults.dictionary(forKey: sessionVoicesKey) as? [String: String]) ?? [:]
+    }
+
+    public static func setSessionVoices(_ map: [String: String]) {
+        defaults.set(map, forKey: sessionVoicesKey)
+    }
+
+    /// Which favourite a session lands on: **stable**, derived from the name alone.
+    ///
+    /// Handing voices out in arrival order would be simpler and worse — a project would sound
+    /// different from run to run, so the voice would tell you "a different agent" rather than
+    /// "which agent", and the second is the whole point. Deriving it from the name means no
+    /// state to keep, nothing to migrate, and the same voice on another machine.
+    ///
+    /// **The hash must be our own.** Swift's `Hasher` is seeded randomly per process, so
+    /// `"baton".hashValue` differs between launches: using it would have produced a voice that
+    /// looked stable within one run and silently reshuffled on every restart. This is FNV-1a
+    /// over the UTF-8 bytes, which is small and the same everywhere forever.
+    ///
+    /// **The fold before the modulo is not decoration.** `hash % 5` only ever looks at the low
+    /// bits, and measured over twenty realistic project names it never produced slot 0 at all:
+    /// one of the five voices was dead. Folding the high half down first spreads them across
+    /// all five.
+    ///
+    /// What this deliberately does *not* promise is that your projects avoid each other. Five
+    /// names into five slots land all-distinct only about 4% of the time, so sharing is the
+    /// normal case for any hash, not a flaw in this one. That is what pinning is for, and the
+    /// Speech pane shows which sessions share a voice so it is visible rather than something
+    /// you work out by ear.
+    public static func favouriteSlot(for session: String) -> Int {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in session.lowercased().utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100_0000_01b3
+        }
+        hash ^= hash >> 32
+        return Int(hash % UInt64(favouriteVoiceCount))
+    }
+
+    /// The voice a session speaks in: a hand-pinned override if it has one, else its
+    /// stable slot in the pool.
+    public static func assignedVoice(for session: String) -> String? {
+        let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let pinned = sessionVoices()[trimmed], !pinned.isEmpty { return pinned }
+        return favouriteVoices()[favouriteSlot(for: trimmed)]
+    }
+
     public static func voiceMap() -> [String: String] {
         if let data = defaults.data(forKey: voiceMapKey),
            let map = try? JSONDecoder().decode([String: String].self, from: data),
@@ -269,6 +355,8 @@ public enum SpeechConfig {
         defaults.removeObject(forKey: whisperModelKey)
         defaults.removeObject(forKey: bluetoothWarmupKey)
         defaults.removeObject(forKey: engineLingerKey)
+        defaults.removeObject(forKey: favouriteVoicesKey)
+        defaults.removeObject(forKey: sessionVoicesKey)
         if includeHosts {
             defaults.removeObject(forKey: kokoroHostKey)
             defaults.removeObject(forKey: chatterboxHostKey)
@@ -277,12 +365,37 @@ public enum SpeechConfig {
     }
 
     // MARK: - Resolution
-    /// Resolve a request to a concrete `Voice`. Precedence: an explicit `voice` wins; else the
-    /// `category` is looked up in the map (falling back to "default"); an `engineOverride`
-    /// (from the tool's `engine` arg) then forces the engine regardless.
-    public static func resolve(category: String?, explicitVoice: String?, engineOverride: Engine?) -> Voice {
+    /// Resolve a request to a concrete `Voice`.
+    ///
+    /// Precedence, most specific first:
+    ///
+    /// 1. An explicit `voice` argument. The agent asked for one by name; nothing overrides that.
+    /// 2. The **session's** voice, so two agents running at once are told apart by ear rather
+    ///    than by reading a name off a window. A pinned override first, else its stable slot
+    ///    in the favourites pool (`assignedVoice(for:)`).
+    /// 3. The `category` map, falling back to its "default" row.
+    ///
+    /// Session beats category deliberately, and it is the one ordering choice here worth
+    /// arguing about. Category says what *kind* of thing is being said; session says *who* is
+    /// saying it. With several agents running, two of them reporting a deploy is the case you
+    /// most need to separate, and a category-wins order gives them the same voice at exactly
+    /// that moment. An agent that genuinely wants a specific sound per message still has
+    /// `voice`, which outranks both.
+    ///
+    /// An `engineOverride` (the tool's `engine` arg) then forces the engine regardless.
+    public static func resolve(
+        category: String?,
+        explicitVoice: String?,
+        engineOverride: Engine?,
+        session: String? = nil
+    ) -> Voice {
         if let explicitVoice, !explicitVoice.isEmpty {
             var v = parse(explicitVoice, fallbackEngine: engineOverride ?? .kokoro)
+            if let engineOverride { v.engine = engineOverride }
+            return v
+        }
+        if let session, let assigned = assignedVoice(for: session), !assigned.isEmpty {
+            var v = parse(assigned, fallbackEngine: engineOverride ?? .kokoro)
             if let engineOverride { v.engine = engineOverride }
             return v
         }

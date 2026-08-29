@@ -1,7 +1,7 @@
 import Foundation
 
 /// Remembers which agent is talking, per MCP connection, so a spoken summary can
-/// announce its source.
+/// say where it came from.
 ///
 /// Several agents run at once here (a Cursor window per repo, Claude Code, a
 /// background drain), and `SpeechPlaybackEngine` queues utterances FIFO so they
@@ -9,15 +9,18 @@ import Foundation
 /// four agents speaking you can hear *that* something finished without knowing
 /// *whose* work it was.
 ///
-/// So `speak_summary` accepts a short `session` label. Two decisions make it
-/// pleasant rather than grating:
+/// So `speak_summary` accepts a short `session` label, remembered **stickily**
+/// against the MCP session id the server minted at `initialize`: an agent passes
+/// it once and every later summary on that connection inherits it, so after the
+/// first call it can't forget.
 ///
-/// 1. **Sticky.** The label is remembered against the MCP session id the server
-///    minted at `initialize`, so an agent passes it once and every later summary
-///    on that connection inherits it. After the first call the agent can't forget.
-/// 2. **Only spoken when the speaker changes.** Hearing "Global services" before
-///    each of six consecutive updates from the same agent is noise. The prefix is
-///    added when the label differs from whoever spoke last.
+/// **The label is shown, not spoken.** It used to be prefixed into the synthesized
+/// text whenever the speaker changed, which meant it was absent from exactly the
+/// summaries where you were already oriented and present on the ones where a name
+/// cost you a second of listening. The speaking HUD now carries it above the
+/// transcript (`SpeechPlaybackEngine.currentSessionLabel`), where it is there for
+/// every summary and free to read. Telling agents apart *by ear* is a separate
+/// job, and belongs to per-session voices rather than to a spoken name.
 ///
 /// Labels are per-run state, not settings: they die with the process, which is
 /// correct because MCP session ids do too.
@@ -25,8 +28,6 @@ import Foundation
 final class SpeechSessionLabels {
     /// MCP session id → the label that connection last declared.
     private var labels: [String: String] = [:]
-    /// Label of the most recent summary actually spoken, for change detection.
-    private(set) var lastSpokenLabel: String?
 
     /// Cap on a label, in characters. A session name is an identifier, not a
     /// sentence — and it's spoken aloud before every handoff between agents.
@@ -69,29 +70,4 @@ final class SpeechSessionLabels {
         labels.removeValue(forKey: sessionID)
     }
 
-    /// Builds the text to synthesize, prefixing the label only when the speaker
-    /// has changed since the last summary. Marks it as the last speaker.
-    ///
-    /// `text` is returned unchanged when there's no label or the same agent spoke
-    /// last, so the common case (one agent, a run of updates) is unaffected.
-    func announce(text: String, label: String?) -> String {
-        defer { lastSpokenLabel = label ?? lastSpokenLabel }
-        guard let label, label != lastSpokenLabel else { return text }
-        return Self.prefixed(label: label, text: text)
-    }
-
-    /// Pure joiner, exposed for tests. Uses an em-dash-free separator that TTS
-    /// engines reliably read as a pause.
-    static func prefixed(label: String, text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A period after the label makes every engine pause; a colon or dash is
-        // read inconsistently (sometimes silently, sometimes spoken).
-        let separator = label.hasSuffix(".") ? " " : ". "
-        return label + separator + trimmed
-    }
-
-    /// Test seam: pretend `label` spoke last.
-    func setLastSpokenLabelForTesting(_ label: String?) {
-        lastSpokenLabel = label
-    }
 }

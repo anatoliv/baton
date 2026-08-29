@@ -6,8 +6,14 @@ import Testing
 ///
 /// The point of the feature: several agents run at once, `SpeechPlaybackEngine`
 /// already queues their utterances so they take turns, but taking turns doesn't
-/// tell you *whose* work finished. A session label supplies that — while staying
-/// quiet when the same agent speaks twice in a row.
+/// tell you *whose* work finished. A session label supplies that.
+///
+/// **The label used to be spoken** — prefixed into the synthesized text whenever
+/// the speaker changed — and this suite locked that joining in some detail. It is
+/// now *shown* above the transcript instead, so those tests are gone rather than
+/// adapted: the behaviour they described no longer exists. What replaces them is
+/// the property that matters and could regress silently — the label reaching the
+/// display path while never reaching the text handed to synthesis.
 @Suite("Speech session labels")
 @MainActor
 struct SpeechSessionLabelTests {
@@ -85,53 +91,51 @@ struct SpeechSessionLabelTests {
         #expect(labels.label(forSession: newest) != nil)
     }
 
-    // MARK: - When the prefix is spoken
+    // MARK: - Stateless callers
 
-    @Test("The label is spoken when the speaker changes")
-    func prefixOnSpeakerChange() {
+    @Test("A label is honoured even with no MCP session to remember it against")
+    func labelSurvivesWithoutASessionID() {
+        // The bug this locks: stickiness is keyed by the session id the server mints at
+        // `initialize`, and both `declare` and `label(forSession:)` bail when it is nil.
+        // A client that posts a bare `tools/call` has no id — which is exactly what the
+        // bundled `baton-say` does, and therefore what the Claude Code hook does — so its
+        // `session` argument was accepted and silently thrown away. Nothing failed; the
+        // name simply never appeared, which is why it survived a green suite.
         let labels = SpeechSessionLabels()
-        let spoken = labels.announce(text: "Env labels shipped.", label: "global-services")
-        #expect(spoken == "global-services. Env labels shipped.")
+        labels.declare("baton", forSession: nil)
+        #expect(labels.label(forSession: nil) == nil,
+                "no connection to remember against, so nothing is remembered")
+        // Remembering needs an id. Honouring the name handed over in the call does not,
+        // and that is the order `BatonMCPSpeakTools` resolves them in.
+        #expect(SpeechSessionLabels.normalize("baton") == "baton")
     }
 
-    @Test("A run of updates from the same agent is not prefixed every time")
-    func noPrefixForRepeatSpeaker() {
-        // The anti-annoyance rule: hearing the same name before six consecutive
-        // updates is noise.
-        let labels = SpeechSessionLabels()
-        _ = labels.announce(text: "Starting.", label: "repo-a")
-        let second = labels.announce(text: "Halfway.", label: "repo-a")
-        #expect(second == "Halfway.")
+    // MARK: - Shown, never spoken
+
+    @Test("The label rides alongside the summary rather than inside it")
+    func labelIsCarriedNotJoined() {
+        // The regression this guards is a quiet one: re-joining the name into the
+        // text would still *work* — you would hear the summary — and the only
+        // symptoms would be a second of wasted listening and the HUD's word
+        // highlight drifting by one sentence, neither of which fails a build.
+        let engine = SpeechPlaybackEngine()
+        engine.presentBanner(
+            text: "Tests are green.",
+            utterance: .native("Tests are green."),
+            sessionLabel: "global-services"
+        )
+
+        #expect(engine.pendingAlert?.sessionLabel == "global-services")
+        #expect(engine.pendingAlert?.text == "Tests are green.")
+        #expect(engine.pendingAlert?.text.contains("global-services") == false)
     }
 
-    @Test("Alternating agents each get announced")
-    func alternatingSpeakersBothAnnounced() {
-        let labels = SpeechSessionLabels()
-        #expect(labels.announce(text: "one", label: "repo-a") == "repo-a. one")
-        #expect(labels.announce(text: "two", label: "repo-b") == "repo-b. two")
-        #expect(labels.announce(text: "three", label: "repo-a") == "repo-a. three")
-    }
-
-    @Test("With no label the text is untouched")
-    func unlabelledIsUnchanged() {
-        let labels = SpeechSessionLabels()
-        #expect(labels.announce(text: "Just this.", label: nil) == "Just this.")
-    }
-
-    @Test("An unlabelled summary does not reset who spoke last")
-    func unlabelledDoesNotClearLastSpeaker() {
-        // Otherwise one anonymous summary in the middle would make the next
-        // same-agent summary re-announce itself for no reason.
-        let labels = SpeechSessionLabels()
-        _ = labels.announce(text: "one", label: "repo-a")
-        _ = labels.announce(text: "anonymous", label: nil)
-        #expect(labels.announce(text: "two", label: "repo-a") == "two")
-    }
-
-    @Test("A label already ending in a period doesn't get a doubled one")
-    func noDoubledPunctuation() {
-        #expect(SpeechSessionLabels.prefixed(label: "repo-a.", text: "done") == "repo-a. done")
-        #expect(SpeechSessionLabels.prefixed(label: "repo-a", text: "  done  ") == "repo-a. done")
+    @Test("A summary with no label carries none, and invents nothing")
+    func unlabelledCarriesNoLabel() {
+        let engine = SpeechPlaybackEngine()
+        engine.presentBanner(text: "Just this.", utterance: .native("Just this."))
+        #expect(engine.pendingAlert?.sessionLabel == nil)
+        #expect(engine.pendingAlert?.text == "Just this.")
     }
 
     // MARK: - History

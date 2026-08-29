@@ -19,6 +19,7 @@ struct BatonSpeechPane: View {
     @State private var alertBanner = SpeechConfig.alertWithBanner
     @State private var allowAutoPlay = SpeechConfig.allowAutoPlay
     @State private var bluetoothWarmup = SpeechConfig.bluetoothWarmup
+    @State private var favourites = SpeechConfig.favouriteVoices()
     @State private var transcriptionEnabled = SpeechConfig.transcriptionEnabled
     @State private var whisperHost = SpeechConfig.whisperBaseURL
     @State private var whisperModel = SpeechConfig.whisperModel
@@ -53,11 +54,17 @@ struct BatonSpeechPane: View {
 
     var body: some View {
         Form {
+            // Order follows the speak_summary story: where the voices come from, how a
+            // summary reaches you, which voice each agent gets, then the category map.
+            // Read aloud is a different feature and sits below them rather than between —
+            // it is 300 lines of permissions and toggles, and having it in the middle put
+            // the voice settings somewhere nobody scrolled to.
             hostsSection
             transcriptionSection
             deliverySection
-            readAloudSection
+            favouritesSection
             mapSection
+            readAloudSection
             resetSection
         }
         .formStyle(.grouped)
@@ -68,12 +75,31 @@ struct BatonSpeechPane: View {
             accessibilityTrusted = SelectionReader.isTrusted
             screenRecordingPermitted = ScreenTextOCR.isPermitted
             loadRows()
-            Task { await refreshVoices(.kokoro) }
-            Task { await refreshVoices(.chatterbox) }
-            // The ASR host is checked on appear for the same reason the two above are: a
-            // saved address that was never contacted is a setting, not a working feature,
-            // and this pane is where someone comes to find that out.
-            Task { await testTranscriptionHost() }
+        }
+        // Keep the service badges true for as long as the window is open.
+        //
+        // They used to be probed once, in `onAppear`. That is right for the first paint and
+        // wrong for every moment after it: a host that came up while Settings was open went
+        // on reading "unreachable" until you pressed Refresh, so the pane reported the state
+        // of the LAN at the instant you opened it and looked like the state now. Worse, that
+        // is exactly backwards from what you are usually doing here — you open this pane
+        // *because* you are bringing a server up.
+        //
+        // `.task` starts on appear and is cancelled on disappear, so nothing polls a window
+        // that is closed. The re-checks are silent (see `refreshVoices`), so a badge changes
+        // only when the answer does.
+        .task {
+            await probeServices(silent: false)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.servicePollInterval)
+                guard !Task.isCancelled else { return }
+                await probeServices(silent: true)
+            }
+        }
+        // Coming back to Baton is the other moment the answer is likely to have changed —
+        // you went away, started the server, and came back to look.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await probeServices(silent: true) }
         }
         .confirmationDialog("Reset Speech settings to defaults?", isPresented: $showResetConfirm) {
             Button("Reset to Defaults", role: .destructive) {
@@ -84,6 +110,7 @@ struct BatonSpeechPane: View {
                 alertBanner = SpeechConfig.alertWithBanner
                 allowAutoPlay = SpeechConfig.allowAutoPlay
                 bluetoothWarmup = SpeechConfig.bluetoothWarmup
+                favourites = SpeechConfig.favouriteVoices()
                 loadRows()
             }
             Button("Cancel", role: .cancel) {}
@@ -312,13 +339,30 @@ struct BatonSpeechPane: View {
     }
 
     /// Prove the address before anyone waits on an hour of audio to discover it was wrong.
-    private func testTranscriptionHost() async {
+    /// How often the open pane re-checks the hosts. Three small LAN requests; frequent
+    /// enough that bringing a server up feels immediate, slow enough to be invisible.
+    private static let servicePollInterval: Duration = .seconds(10)
+
+    /// Re-probe both TTS hosts and the ASR host together, concurrently — they are independent,
+    /// and a slow or timing-out one must not delay the others' badges.
+    private func probeServices(silent: Bool) async {
+        // Debug level, so it costs nothing in a normal run and is there when someone asks
+        // "is it actually re-checking?" — the question that is otherwise unanswerable about
+        // a poll whose whole job is to change nothing most of the time.
+        speechLog.debug("speech settings: probing services (silent: \(silent, privacy: .public))")
+        async let kokoro: Void = refreshVoices(.kokoro, silent: silent)
+        async let chatterbox: Void = refreshVoices(.chatterbox, silent: silent)
+        async let whisper: Void = testTranscriptionHost(silent: silent)
+        _ = await (kokoro, chatterbox, whisper)
+    }
+
+    private func testTranscriptionHost(silent: Bool = false) async {
         let host = SpeechConfig.whisperBaseURL.trimmingCharacters(in: .whitespaces)
         guard !host.isEmpty else {
             whisperStatus = .notConfigured("No host yet")
             return
         }
-        whisperStatus = .checking
+        if !silent { whisperStatus = .checking }
         do {
             let models = try await TranscriptionService.availableModels()
             whisperStatus = .ok(
@@ -394,6 +438,187 @@ struct BatonSpeechPane: View {
     }
 
     // MARK: - Category → voice map
+
+    /// The voice ids among the favourites that belong to `engine`, in pool order.
+    private func favouriteIDs(for engine: SpeechConfig.Engine) -> [String] {
+        favourites.compactMap { spec in
+            let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                return SpeechConfig.Engine(rawValue: parts[0].lowercased()) == engine ? parts[1] : nil
+            }
+            return engine == .kokoro ? spec : nil
+        }
+    }
+
+    /// Session names Baton has actually heard from, newest first, so the pool can show who
+    /// lands where. Taken from spoken-summary history rather than a list to maintain: the
+    /// agents that have spoken are exactly the ones worth showing.
+    private var knownSessions: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for entry in model.speechHistory.entries {
+            guard let label = entry.sessionLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !label.isEmpty, seen.insert(label.lowercased()).inserted
+            else { continue }
+            out.append(label)
+        }
+        return out
+    }
+
+    /// Which heard-from sessions land on each slot. More than one on a slot is a collision,
+    /// which the design allows and this makes visible: five names into five slots avoid each
+    /// other only about 4% of the time, so the answer is to see it and pin, not to hope.
+    private func sessions(inSlot slot: Int) -> [String] {
+        knownSessions.filter {
+            SpeechConfig.sessionVoices()[$0] == nil && SpeechConfig.favouriteSlot(for: $0) == slot
+        }
+    }
+
+    private var favouritesSection: some View {
+        Section("Favourite voices") {
+            ForEach(Array(favourites.enumerated()), id: \.offset) { index, spec in
+                favouriteRow(index: index, spec: spec)
+            }
+
+            // One row per agent Baton has actually heard from, each able to override its
+            // voice. Without this the pool is take-it-or-leave-it: names land where the hash
+            // puts them, and the only remedy the design has for two projects sharing a voice
+            // would be unreachable. The docs promise pinning, so it has to exist here.
+            if !knownSessions.isEmpty {
+                Divider()
+                Text("Agents Baton has heard from")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(knownSessions, id: \.self) { name in
+                    sessionRow(name)
+                }
+            }
+
+            Text("Each agent that sends a `session` name speaks in one of these, chosen from the name itself, so a project sounds the same every time and on any Mac. An explicit `voice` in the tool call still wins. Two projects can land on the same voice, which is normal with five of them; pin one to a different voice to separate them.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    /// One agent, and the voice it speaks in. "Automatic" is the hashed slot; anything else
+    /// pins it. Pinning is the answer to a collision, so it lives right under the pool that
+    /// caused one rather than in a separate screen.
+    private func sessionRow(_ name: String) -> some View {
+        let pinnedSpec = SpeechConfig.sessionVoices()[name]
+        let auto = SpeechConfig.favouriteVoices()[SpeechConfig.favouriteSlot(for: name)]
+        let shared = sessions(inSlot: SpeechConfig.favouriteSlot(for: name)).count > 1
+
+        return HStack(spacing: 12) {
+            Text(name)
+                .font(.callout)
+                .lineLimit(1)
+                .frame(width: categoryWidth, alignment: .leading)
+
+            Picker(selection: Binding(
+                get: { pinnedSpec ?? "" },
+                set: { choice in
+                    var map = SpeechConfig.sessionVoices()
+                    if choice.isEmpty { map.removeValue(forKey: name) } else { map[name] = choice }
+                    SpeechConfig.setSessionVoices(map)
+                    favourites = SpeechConfig.favouriteVoices()   // redraw the "who is here" labels
+                }
+            )) {
+                Text("Automatic (\(voiceID(of: auto)))").tag("")
+                Divider()
+                ForEach(favourites, id: \.self) { Text(voiceID(of: $0)).tag($0) }
+            } label: { EmptyView() }
+                .labelsHidden()
+                .fixedSize()
+                .frame(width: voiceWidth, alignment: .leading)
+
+            if pinnedSpec == nil, shared {
+                Text("shares a voice")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .help("Pick a different voice here to tell them apart.")
+            }
+
+            Spacer(minLength: 8)
+        }
+    }
+
+    private func favouriteRow(index: Int, spec: String) -> some View {
+        let here = sessions(inSlot: index)
+        return HStack(spacing: 12) {
+            Text("\(index + 1)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.tertiary)
+                .frame(width: 14, alignment: .trailing)
+
+            // Same offline rule as the category rows below: with no server reachable there is
+            // no list to choose from, and a picker of one item is a dead control. Typing an id
+            // still works, so the pane stays usable with the TTS hosts down.
+            if allVoiceSpecs.isEmpty {
+                TextField(text: Binding(
+                    get: { favourites.indices.contains(index) ? favourites[index] : "" },
+                    set: { newValue in
+                        guard favourites.indices.contains(index) else { return }
+                        favourites[index] = newValue
+                        SpeechConfig.setFavouriteVoices(favourites)
+                    }
+                ), prompt: Text("engine:voice")) { EmptyView() }
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: voiceWidth)
+            } else {
+                Picker(selection: Binding(
+                    get: { favourites.indices.contains(index) ? favourites[index] : "" },
+                    set: { newValue in
+                        guard favourites.indices.contains(index) else { return }
+                        favourites[index] = newValue
+                        SpeechConfig.setFavouriteVoices(favourites)
+                    }
+                )) {
+                    ForEach(allVoiceSpecs, id: \.self) { Text(voiceID(of: $0)).tag($0) }
+                    if !allVoiceSpecs.contains(spec) { Text(voiceID(of: spec)).tag(spec) }
+                } label: { EmptyView() }
+                    .labelsHidden()
+                    .fixedSize()
+                    .frame(width: voiceWidth, alignment: .leading)
+            }
+
+            if here.isEmpty {
+                Text("unused").font(.caption).foregroundStyle(.tertiary)
+            } else {
+                Text(here.joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(here.count > 1 ? .orange : .secondary)
+                    .help(here.count > 1
+                          ? "These share a voice. Pin one to tell them apart."
+                          : "Speaks in this voice")
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                preview(VoiceRow(category: "", engine: engineOf(spec), voice: voiceID(of: spec)))
+            } label: {
+                Image(systemName: "play.circle").imageScale(.large)
+            }
+            .buttonStyle(.borderless)
+            .help("Preview this voice")
+            .disabled(previewing != nil)
+        }
+    }
+
+    /// Every voice both servers offered, as `engine:voice` specs.
+    private var allVoiceSpecs: [String] {
+        (voices[.kokoro] ?? []).map { "kokoro:\($0)" } + (voices[.chatterbox] ?? []).map { "chatterbox:\($0)" }
+    }
+
+    private func voiceID(of spec: String) -> String {
+        let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+        return parts.count == 2 ? parts[1] : spec
+    }
+
+    private func engineOf(_ spec: String) -> SpeechConfig.Engine {
+        let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+        if parts.count == 2, let e = SpeechConfig.Engine(rawValue: parts[0].lowercased()) { return e }
+        return .kokoro
+    }
 
     private var mapSection: some View {
         Section("Voices") {
@@ -516,7 +741,19 @@ struct BatonSpeechPane: View {
                 if !list.contains(row.wrappedValue.voice) {
                     Text(row.wrappedValue.voice).tag(row.wrappedValue.voice)
                 }
-                ForEach(list, id: \.self) { Text($0).tag($0) }
+                // Favourites first. Kokoro alone ships 54 voices, and the handful you actually
+                // use are otherwise scattered through an alphabetical wall of them.
+                let favourites = favouriteIDs(for: row.wrappedValue.engine).filter(list.contains)
+                if !favourites.isEmpty {
+                    Section("Favourites") {
+                        ForEach(favourites, id: \.self) { Text($0).tag($0) }
+                    }
+                    Section("All voices") {
+                        ForEach(list.filter { !favourites.contains($0) }, id: \.self) { Text($0).tag($0) }
+                    }
+                } else {
+                    ForEach(list, id: \.self) { Text($0).tag($0) }
+                }
             } label: { EmptyView() }
                 .labelsHidden()
                 .fixedSize()
@@ -554,8 +791,13 @@ struct BatonSpeechPane: View {
         SpeechConfig.setVoiceMap(map)
     }
 
-    private func refreshVoices(_ engine: SpeechConfig.Engine, retry: Bool = true) async {
-        loadState[engine] = .checking
+    /// `silent` suppresses the "checking" state. A poll that flashed the badge every few
+    /// seconds would be worse than the stale badge it replaced: the pane would look busy
+    /// permanently, and the one state you actually care about — did it change? — would be
+    /// hidden inside a strobe. Pressing Refresh by hand still shows the spinner, because
+    /// there you asked and want to see it working.
+    private func refreshVoices(_ engine: SpeechConfig.Engine, retry: Bool = true, silent: Bool = false) async {
+        if !silent { loadState[engine] = .checking }
         do {
             let list = try await SpeechService.listVoices(engine: engine)
             voices[engine] = list
@@ -565,7 +807,7 @@ struct BatonSpeechPane: View {
             // Local Network privacy prompt; retry once before surfacing the error.
             if retry {
                 try? await Task.sleep(nanoseconds: 800_000_000)
-                await refreshVoices(engine, retry: false)
+                await refreshVoices(engine, retry: false, silent: silent)
                 return
             }
             loadState[engine] = .unreachable((error as? SpeechService.SynthError)?.message ?? error.localizedDescription)

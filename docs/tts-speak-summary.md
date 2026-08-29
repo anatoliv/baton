@@ -107,10 +107,10 @@ curl -s -X POST localhost:8004/v1/audio/speech -H 'Content-Type: application/jso
 |---|---|---|
 | `text` | ✅ | The summary to speak (a sentence or two). |
 | `category` | | Task category → voice via the map (e.g. `ops`, `deploy`, `research`, `alert`, `es`). Falls back to `default`. |
-| `voice` | | Explicit voice, overrides `category`. `"engine:voice"` (e.g. `kokoro:af_bella`, `chatterbox:Emily.wav`) or a bare id. |
+| `voice` | | Explicit voice, overrides the session voice **and** `category`. `"engine:voice"` (e.g. `kokoro:af_bella`, `chatterbox:Emily.wav`) or a bare id. |
 | `engine` | | `kokoro` (default, fast presets) or `chatterbox` (premium / cloned). |
 | `mode` | | `notify` (default — macOS notification + Play), `banner` (in-app banner + Play), `auto` (speak immediately). |
-| `session` | | Short name for the calling agent (e.g. a repo name, max 40 chars). Spoken before the summary **when the speaker changed**, so several agents running at once are distinguishable. **Sticky per MCP connection**: send it on the first call and later calls inherit it; send a new value to re-label from then on. Recorded in speech history. Excluded from the `maxSummaryChars` budget. |
+| `session` | | Short name for the calling agent (e.g. a repo name, max 40 chars). **Shown** above the transcript in the speaking HUD and the Spoken Summaries pane, never synthesized, so several agents running at once are distinguishable at a glance and none of them costs listening time. **Sticky per MCP connection**: send it on the first call and later calls inherit it; send a new value to re-label from then on. Recorded in speech history. Never part of the `maxSummaryChars` budget. |
 
 Example:
 ```json

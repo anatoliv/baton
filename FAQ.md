@@ -378,15 +378,6 @@ and Previous, plus ways to open the main window or the mini-player. It keeps Bat
 control server) running in the background even when every window is closed.
 
 **Can Baton speak things out loud?**
-**With several agents running, how do I tell which one is speaking?**
-Each agent passes a short `session` name when it speaks, normally the repo it's
-working in, and Baton says that name before the summary. It's remembered per
-connection, so the agent only sends it once, and it can change the name later if it
-moves to a different area. Baton only says the name when the speaker changed, so one
-agent posting six updates in a row doesn't repeat itself. Lines from different agents
-never talk over each other, because Baton queues them and plays them in order. The
-name is also kept in Spoken Summaries, so you can see who said what after the fact.
-
 Yes, and it's one of the two big agent features. Through the `speak_summary` tool, an agent can
 have Baton say a short result aloud in a natural voice, so you hear "deploy finished, all
 green" instead of watching a screen. It's especially handy with several agents running at
@@ -395,6 +386,31 @@ can follow a whole multi-agent run by ear. Baton speaks through self-hosted text
 servers you configure (Kokoro for fast preset voices, Chatterbox for cloning), and falls back
 to the built-in macOS voice if none are set up. See
 [Speaking summaries aloud](HELP.md#speaking-summaries-aloud).
+
+**With several agents running, how do I tell which one is speaking?**
+Each agent passes a short `session` name when it speaks, normally the repo it's
+working in, and Baton shows that name at the top of the summary window, above the
+transcript. It's remembered per connection, so the agent only sends it once, and it
+can change the name later if it moves to a different area. The name is shown rather
+than spoken, so you hear the summary itself and nothing else. Lines from different
+agents never talk over each other, because Baton queues them and plays them in order.
+The name is also kept in Spoken Summaries, so you can see who said what after the fact.
+
+**Can each agent have its own voice?**
+Yes, and it needs no setup. Baton keeps five favourite voices, and any agent that sends a
+`session` name gets one of them, chosen from the name, so a project sounds the same every
+time and on any Mac. With a few agents running you can tell who finished without looking.
+Two projects can end up sharing a voice, which is normal with five of each; Settings shows
+you when it happens and lets you pin one to a different voice. Edit the pool in
+**Settings → Speech → Favourite voices**.
+
+**The first word gets cut off on my Bluetooth speaker.**
+That's the speaker waking up. Bluetooth powers its radio down when nothing is playing
+and takes a moment to come back, and that moment eats the start of the line. Baton
+holds a little silence first to let it wake, and only over Bluetooth, so wired and
+built-in speakers are never delayed. If you still lose the beginning, raise
+**Settings → Speech → Delivery → Bluetooth head start** from its default of 0.7
+seconds. Speakers differ by more than double, so some need a second or more.
 
 **Do I need to run text-to-speech servers for spoken summaries?**
 No. If you haven't set any up, Baton uses the built-in macOS voice, so `speak_summary` still
@@ -412,7 +428,7 @@ for the tail of a long build. See
 **Does Baton watch my screen?**
 No, and it cannot. Baton has no idea what is on your screen until you select something and ask
 for it. There is no background monitoring and no polling — every reading happens because you
-started it. Readings are not saved either: one plays, and then it is gone. The one exception is the one you ask for by name, with File → Save Reading as Audio…, which writes a single file wherever you point it and nowhere else.
+started it. Readings are not saved either: one plays, and then it is gone. The exception is a reading you ask to keep, with File → Save Reading as Audio…, which writes a single file wherever you point it and nowhere else.
 
 **Is Read aloud a screen reader?**
 Not in the accessibility sense, and it is not trying to be. VoiceOver reads interfaces, moving

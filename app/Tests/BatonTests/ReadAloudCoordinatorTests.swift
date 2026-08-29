@@ -349,6 +349,50 @@ final class ReadAloudCoordinatorTests: XCTestCase {
         XCTAssertNil(c.exportable)
     }
 
+    // MARK: - Stopping means stopping
+
+    /// Stopping mid-reading must end the *production* of sentences, not just empty the queue.
+    ///
+    /// This is the bug behind "I closed the reading window and the next one opened to continue".
+    /// The HUD's × cancelled the engine, which is the whole story for a spoken summary but only
+    /// half of it for a reading: the coordinator's loop rendered the next sentence straight back
+    /// into the queue that had just been emptied, `isSpeaking` went true again, and the window
+    /// re-opened. Closing it dismissed one sentence and the article carried on.
+    ///
+    /// The assertion is that no further synthesis is requested after `stop()`. A test that only
+    /// checked the queue was empty would have passed throughout the bug.
+    func testStopEndsSynthesisRatherThanJustEmptyingTheQueue() async {
+        let music = MusicModel()
+        var requested: [String] = []
+        let c = ReadAloudCoordinator(music: music)
+        c.synthesize = { text, _ in
+            requested.append(text)
+            try await Task.sleep(for: .milliseconds(60))
+            return Data([0x00])
+        }
+
+        c.read(.init(
+            text: "The first sentence is long enough to be its own chunk here. "
+                + "The second sentence is also long enough to stand by itself. "
+                + "A third sentence, and a fourth that should never be requested at all. "
+                + "This fifth one should certainly never reach the host either, not once.",
+            profile: .generic, sourceName: nil
+        ))
+        // Let it get going, then stop the way the window's × now does.
+        try? await Task.sleep(for: .milliseconds(80))
+        let atStop = requested.count
+        c.stop()
+        await settle()
+
+        XCTAssertFalse(c.isReading)
+        XCTAssertNil(music.speech.reading, "the HUD would still have a document to show")
+        XCTAssertLessThanOrEqual(
+            requested.count, atStop + 1,
+            "synthesis continued after stop — the loop kept feeding sentences into a queue the "
+                + "user had just emptied, which is what re-opened the window: \(requested)"
+        )
+    }
+
     // MARK: - One bad chunk must not cost the rest of the reading
 
     /// A single synthesis failure mid-reading must not stop Baton asking the host.

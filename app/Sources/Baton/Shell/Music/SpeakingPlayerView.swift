@@ -26,6 +26,10 @@ struct SpeakingPlayerView: View {
     /// entry is the one playing. Drives Pause/scrubber/word-highlight vs. the idle Play button. When
     /// nil (the HUD), it follows `speech.isSpeaking`, since the HUD always shows the live utterance.
     var live: Bool? = nil
+    /// Idle-state session label, alongside `idleText` — the Spoken Summaries window passes the
+    /// selected entry's label so the header names the row you are looking at, not whoever spoke
+    /// most recently. When nil the pane follows the engine, which is the floating HUD's behavior.
+    var idleSessionLabel: String? = nil
 
     /// An explicit idle-state play action + its glyph, supplied by the host.
     struct IdlePlay {
@@ -52,8 +56,22 @@ struct SpeakingPlayerView: View {
         return speech.currentText ?? speech.lastSummaryText ?? ""
     }
 
+    /// Who this summary came from. Follows `idleText`'s rule: an explicit host value wins, so the
+    /// history window's header matches its selected row; otherwise the live utterance's label,
+    /// then the one the lingering card is still showing.
+    private var sessionLabel: String? {
+        if idleText != nil { return idleSessionLabel }
+        return speech.currentSessionLabel ?? speech.lastSessionLabel
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            // Who is speaking, above the transcript. Displayed only — nothing here is ever
+            // synthesized, which is the whole point: a name you can see costs no listening time.
+            if let sessionLabel, !sessionLabel.isEmpty {
+                sessionHeader(sessionLabel)
+            }
+
             // Transcript greedily fills all the space above the controls — no dead gap above the bar.
             transcript.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
@@ -73,6 +91,29 @@ struct SpeakingPlayerView: View {
             }
             .padding(.top, 10)
         }
+    }
+
+    // MARK: Session header (who this came from — shown, never spoken)
+
+    /// A quiet caption and a hairline. Deliberately understated: it is orientation, not content,
+    /// and it sits in a card whose whole job is the sentence below it. Inset to match the
+    /// transcript's own padding, and to clear the hosts' top-corner controls.
+    private func sessionHeader(_ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Divider().opacity(0.5)
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 8)
+        // One element for VoiceOver, phrased as the relationship rather than the bare name:
+        // "baton" alone reads as a stray word before the summary.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Summary from \(label)")
     }
 
     // MARK: Transcript (fills the space, auto-scrolls to the spoken sentence)

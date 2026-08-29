@@ -315,6 +315,45 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.4",
+            date: "August 2026",
+            highlight: "Every agent gets its own voice.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Closing the window during a long reading dismissed one sentence and the "
+                    + "article carried on, opening the window again for the next one. Baton reads "
+                    + "a document sentence by sentence, and closing the window stopped the "
+                    + "sentence you could hear without stopping the ones being prepared behind "
+                    + "it. Closing now ends the whole reading, which is what it looked like it "
+                    + "was doing."),
+                HelpWhatsNewChange(.improved,
+                    "The name of the agent that sent a summary now appears at the top of the "
+                    + "summary window instead of being read out before it. It used to be spoken "
+                    + "only when the speaker changed, so it was missing from the summaries where "
+                    + "you were already oriented and present on the ones where a name cost you a "
+                    + "second of listening. Showing it puts it on every summary and gets you to "
+                    + "the words sooner."),
+                HelpWhatsNewChange(.added,
+                    "Baton keeps five favourite voices, and every agent that sends a session "
+                    + "name speaks in one of them. Which one comes from the name itself, so a "
+                    + "project sounds the same today, tomorrow, and on your other Mac. With a "
+                    + "few agents running you know who finished without looking at anything. "
+                    + "Two projects can land on the same voice, which is ordinary with five of "
+                    + "each; Settings shows you when it happens and you pin one to a different "
+                    + "voice. The five also sit at the top of every voice picker, which helps "
+                    + "when one server offers fifty-four of them. Settings, Speech, Favourite "
+                    + "voices."),
+                HelpWhatsNewChange(.fixed,
+                    "The speech server badges in Settings told you the truth once and then "
+                    + "stopped. They were checked when the window opened and never again, so a "
+                    + "server you started afterwards went on reading unreachable until you "
+                    + "pressed Refresh. That is backwards from what you are usually doing on "
+                    + "that screen, which is bringing a server up. They now keep themselves "
+                    + "current while the window is open, and re-check the moment you come back "
+                    + "to Baton."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.3",
             date: "August 2026",
             highlight: "A long reading stays in the voice it started in.",
@@ -322,12 +361,19 @@ extension HelpWhatsNewRelease {
                 HelpWhatsNewChange(.fixed,
                     "Reading a long article could change voice part-way through and stay changed. "
                     + "Baton prepares each sentence a little ahead of the one being spoken, so "
-                    + "between sentences it sits idle \u{2014} long enough that a speech server "
-                    + "may close the connection. The next sentence then failed instantly, and "
+                    + "between sentences it sits idle, sometimes long enough that a speech "
+                    + "server closes the connection. The next sentence then failed instantly, and "
                     + "one failure was enough to hand the rest of the article to the built-in "
                     + "macOS voice. Short readings never paused long enough to hit it, which is "
                     + "why it only showed up on the long ones. Baton now retries, and only gives "
                     + "up on a server that fails twice in a row."),
+                HelpWhatsNewChange(.fixed,
+                    "The first word of a summary went missing on a Bluetooth speaker. A Bluetooth "
+                    + "speaker powers its radio down when nothing is playing and takes a moment "
+                    + "to wake, and that moment landed on the start of the line. Baton now holds "
+                    + "a little silence first, and only over Bluetooth, so wired and built-in "
+                    + "output are never delayed. Speakers vary a lot, so the wait is adjustable "
+                    + "in Settings under Speech."),
             ]
         ),
         HelpWhatsNewRelease(
@@ -337,8 +383,8 @@ extension HelpWhatsNewRelease {
             changes: [
                 HelpWhatsNewChange(.fixed,
                     "The keyboard shortcut did nothing in Chrome. A browser does not hand over "
-                    + "its selection the way a terminal does, so Baton copies it instead \u{2014} "
-                    + "but it was sending the copy while you were still holding the shortcut's "
+                    + "its selection the way a terminal does, so Baton copies it instead. But "
+                    + "it was sending the copy while you were still holding the shortcut's "
                     + "own keys, so the browser saw a different keystroke and copied nothing. "
                     + "Baton beeped and read nothing, which looked exactly like having nothing "
                     + "selected. Fixed, and the shortcut now works wherever you can select text."),
@@ -351,7 +397,7 @@ extension HelpWhatsNewRelease {
                     "An agent can hand Baton a document to read. Pulling the article out of a web "
                     + "page rather than the navigation and the cookie banner is work an agent "
                     + "driving the browser has already done, so it passes Baton the text and "
-                    + "Baton reads it. No permission and nothing to switch on."),
+                    + "Baton reads it. You do not need to grant anything or switch anything on."),
             ]
         ),
         HelpWhatsNewRelease(

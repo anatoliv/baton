@@ -54,6 +54,19 @@ final class SpeechPlaybackEngine {
     /// The summary text kept for the HUD to display *after* speaking ends (so the card can linger
     /// for Replay). Unlike `currentText`, it isn't cleared when the session ends.
     private(set) var lastSummaryText: String?
+
+    /// Which agent the live utterance came from — shown above the transcript so several agents
+    /// speaking in turn are told apart on sight.
+    ///
+    /// **Never spoken.** It used to be: `SpeechSessionLabels.announce` prefixed it into the
+    /// synthesized text on a speaker change. Showing it is strictly better — it is there on
+    /// *every* summary rather than only the ones that changed speaker, it costs no listening
+    /// time, and it keeps the transcript equal to the audio, which the word-highlight depends
+    /// on (it maps character offsets onto the text it renders).
+    private(set) var currentSessionLabel: String?
+
+    /// The label kept for the lingering card after speaking ends — `lastSummaryText`'s counterpart.
+    private(set) var lastSessionLabel: String?
     /// A summary waiting for in-app confirmation (mode = "banner"): the text + what to play.
     private(set) var pendingAlert: Alert?
 
@@ -81,6 +94,8 @@ final class SpeechPlaybackEngine {
         let id = UUID()
         let text: String
         let utterance: Utterance
+        /// Which agent it came from — displayed, never spoken. See `currentSessionLabel`.
+        var sessionLabel: String?
         static func == (lhs: Alert, rhs: Alert) -> Bool { lhs.id == rhs.id }
     }
 
@@ -121,7 +136,7 @@ final class SpeechPlaybackEngine {
     /// `documentRange` is set only for reading chunks: where this utterance sits in the whole
     /// reading, so the HUD highlight advances when the utterance *starts* rather than when it
     /// was enqueued — which is up to `lookahead` sentences earlier.
-    @ObservationIgnored private var utteranceQueue: [(utterance: Utterance, text: String?, documentRange: NSRange?)] = []
+    @ObservationIgnored private var utteranceQueue: [(utterance: Utterance, text: String?, documentRange: NSRange?, sessionLabel: String?)] = []
 
     /// Pending utterances behind the active one (test visibility for FIFO behaviour).
     var queuedCount: Int { utteranceQueue.count }
@@ -146,9 +161,15 @@ final class SpeechPlaybackEngine {
 
     /// Play whichever kind of utterance a summary resolved to (server audio or native voice).
     /// Enqueues and plays in order; starting from idle ducks the music for the whole session.
-    /// `text` (when known) labels the speaking HUD.
-    func play(_ utterance: Utterance, text: String? = nil, documentRange: NSRange? = nil) {
-        utteranceQueue.append((utterance, text, documentRange))
+    /// `text` (when known) labels the speaking HUD; `sessionLabel` names the agent it came
+    /// from, shown above the transcript and deliberately never spoken.
+    func play(
+        _ utterance: Utterance,
+        text: String? = nil,
+        documentRange: NSRange? = nil,
+        sessionLabel: String? = nil
+    ) {
+        utteranceQueue.append((utterance, text, documentRange, sessionLabel))
         if !isSpeaking { startNextUtterance() }
     }
 
@@ -157,6 +178,7 @@ final class SpeechPlaybackEngine {
     func play(data: Data) {
         utteranceQueue.removeAll()
         currentText = nil
+        currentSessionLabel = nil
         currentIsNative = false
         isPaused = false
         beginSessionIfIdle()
@@ -164,8 +186,8 @@ final class SpeechPlaybackEngine {
     }
 
     /// Play audio previously written to a temp file. Routed through the queue like any utterance.
-    func play(fileURL: URL, text: String? = nil) {
-        play(.file(fileURL), text: text)
+    func play(fileURL: URL, text: String? = nil, sessionLabel: String? = nil) {
+        play(.file(fileURL), text: text, sessionLabel: sessionLabel)
     }
 
     /// Speak `text` with the built-in macOS voice — the offline fallback when a self-hosted
@@ -251,6 +273,7 @@ final class SpeechPlaybackEngine {
         isSpeaking = false
         isPaused = false
         currentText = nil
+        currentSessionLabel = nil
         reading = nil
         progressTask?.cancel()
         progressTask = nil
@@ -313,6 +336,8 @@ final class SpeechPlaybackEngine {
         if let range = next.documentRange { reading?.spokenRange = range }
         spokenRange = nil
         progress = nil // don't inherit the previous utterance's progress (would jump-scroll the HUD)
+        currentSessionLabel = next.sessionLabel
+        lastSessionLabel = next.sessionLabel
         switch next.utterance {
         case let .file(url):
             currentIsNative = false
@@ -436,8 +461,8 @@ final class SpeechPlaybackEngine {
     #endif
 
     // MARK: - In-app banner (mode = "banner")
-    func presentBanner(text: String, utterance: Utterance) {
-        pendingAlert = Alert(text: text, utterance: utterance)
+    func presentBanner(text: String, utterance: Utterance, sessionLabel: String? = nil) {
+        pendingAlert = Alert(text: text, utterance: utterance, sessionLabel: sessionLabel)
     }
 
     func confirmBanner() {

@@ -97,7 +97,7 @@ enum SpeechSummaryReplay {
         } else {
             utterance = .native(entry.text)
         }
-        engine.play(utterance, text: entry.text)
+        engine.play(utterance, text: entry.text, sessionLabel: entry.sessionLabel)
     }
 
     /// `"engine:voice"` → a `SpeechConfig.Voice`; `nil`/unparseable → `nil` (system voice).

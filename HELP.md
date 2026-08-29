@@ -1161,18 +1161,47 @@ The agent calls `speak_summary` with a few inputs:
 - **`engine`**: `kokoro` (fast preset voices, the default) or `chatterbox` (premium and
   cloned voices).
 - **`session`**: a short name for the agent itself, usually the repo it's working in.
-  Baton says it before the summary so you know who is talking. It's remembered for
-  the rest of that agent's connection, so the agent sends it once and later lines
-  inherit it, and it can send a new name later to re-label itself. Baton only says
-  the name when the speaker has **changed** since the last line, so a run of updates
-  from one agent isn't prefixed every time.
+  Baton shows it at the top of the summary window, above the transcript, so a glance
+  tells you who is talking. It's remembered for the rest of that agent's connection,
+  so the agent sends it once and later lines inherit it, and it can send a new name
+  later to re-label itself. The name is never read aloud, so it costs you no
+  listening time and doesn't have to be short enough to say comfortably.
 - **`mode`**: how the line reaches you (see below).
 
-Two agents running at once will therefore sound like: "global-services. Env labels
-shipped." then "product-id. OCR queue drained." Lines never overlap either, because
-Baton queues them and plays them in order.
+So with two agents running you hear only the summaries themselves, "Env labels
+shipped." then "OCR queue drained.", while the window tells you which one each came
+from. Lines never overlap either, because Baton queues them and plays them in order.
 
-### One voice per agent (the voice map)
+Earlier versions read the name aloud whenever the speaker changed. Showing it works
+out better: it's there on every summary rather than only the ones that switched
+agents, and you get the summary a beat sooner.
+
+### One voice per agent (favourites)
+
+Baton keeps a pool of **five favourite voices**, and every agent that sends a `session` name
+speaks in one of them. Which one is worked out from the name itself, so a project sounds the
+same today, tomorrow, and on your other Mac, and Baton has nothing to remember or lose.
+
+That is the point of the feature: with several agents running you know who finished without
+looking at anything. The name above the transcript tells you once you look; the voice tells
+you before you do.
+
+Two things worth knowing:
+
+- **Two projects can land on the same voice.** With five projects and five voices that is
+  normal rather than a fault: names land where they land, and five of them avoid each other
+  only about one time in twenty. Settings shows which sessions share a voice, and you fix it
+  by pinning one of them to a different voice.
+- **The pool doubles as your shortlist.** The five appear at the top of every voice picker,
+  above the full list from your servers, which matters when Kokoro alone offers 54 of them.
+
+Edit the pool in **Settings → Speech → Favourite voices**. Each row shows which of your agents
+speaks in it, and has a Preview button.
+
+An explicit `voice` in the tool call still beats all of this, and the category map below still
+applies to anything with no session name.
+
+### One voice per category (the voice map)
 
 The category-to-voice map is where the multi-agent magic lives. Baton ships with a starter
 map you can edit, add to, and preview in Settings:
@@ -1200,6 +1229,23 @@ The `mode` input decides how a spoken line is delivered:
   speaks the line. Good when you're heads-down elsewhere.
 - **`banner`**: an in-app banner with a Play button.
 - **`auto`**: Baton just speaks it, right away.
+
+### Bluetooth speakers and the missing first word
+
+A Bluetooth speaker powers its radio down when nothing is playing, and takes a moment
+to come back when something does. That moment lands on the start of the summary, so
+the first word or two goes missing and you hear "...finished, all green".
+
+Baton holds a moment of silence before speaking to let the link wake up first. It does
+this **only** over Bluetooth: on the built-in speakers, or anything wired, there is
+nothing to wake and nothing is delayed. It also keeps its audio running for a short
+while after a summary, so a burst of them pays the wake-up once instead of every time.
+
+The wait is **Settings → Speech → Delivery → Bluetooth head start**, 0.7 seconds by
+default. Speakers vary by more than double, so if you still lose the beginning, raise
+it. Baton measures what your speaker actually took and writes it to the system log, so
+you can set the slider from that rather than by guessing: look for "bluetooth link woke
+in" in Console.
 
 ### The voices themselves
 
@@ -1387,8 +1433,8 @@ you started it, at the moment you started it. That is a deliberate limit rather 
 still to come.
 
 **Readings are not saved.** A reading plays once and is gone. It does not appear in Spoken
-Summaries, which stays a record of what your agents told you. If you want to keep a particular
-one, you can ask for it: see *Keeping a reading* below.
+Summaries, which stays a record of what your agents told you. If you want to keep one, you can
+ask for it: see *Keeping a reading* below.
 
 ### Ways to start a reading
 
@@ -1417,10 +1463,10 @@ shortcut. Baton captures only when you press it, only the window in front, and t
 never saved.
 
 **An agent hands it over.** Baton's `read_aloud` tool takes text an agent already has and
-reads it, which is the tidy answer for a web page. Getting the *article* out of a page rather
-than the navigation and the cookie banner is real work, and an agent driving the browser has
-already done it. So it passes Baton the text, and Baton does the part it is good at. Nothing
-to switch on and no permission involved, since the text arrives over the connection Baton's
+reads it, which is the practical answer for a web page. Pulling the *article* out of a page,
+rather than the navigation and the cookie banner, is real work, and an agent driving the
+browser has already done it. It passes Baton the text and Baton reads it. You do not need to
+switch anything on or grant anything, because the text arrives over the connection Baton's
 other tools already use.
 
 **The gist instead of the whole thing.** For a long article, **Services → Summarize with
@@ -1480,22 +1526,22 @@ same screen, and you can change them like any other.
 
 ### Keeping a reading
 
-Read a long article at your desk, keep the audio, listen to it on a walk. **File → Save Reading
-as Audio…** (⇧⌘S) turns the last thing Baton read into a single M4A file.
+**File → Save Reading as Audio…** (⇧⌘S) turns the last thing Baton read into a single M4A
+file. Read a long article at your desk and listen to it on a walk.
 
-Nothing about this changes if you never use it. Readings still play once and disappear; the
-only thing ever written is the file you asked for, in the place you chose for it. Baton asks
-where to put it every time on purpose, because a folder that quietly filled up with everything
-you had ever listened to would be the very thing the paragraph above promises not to do.
+Nothing changes if you never use it. Readings still play once and disappear, and the only thing
+ever written is the file you asked for, in the place you chose for it. Baton asks where to put
+it every time on purpose: a folder that quietly filled up with everything you had ever listened
+to is exactly the persistence this feature promises not to do.
 
-Because nothing was kept, Baton reads the article again to make the file, so a long one takes
-a moment. The saving happens in the background and you can carry on. Two things follow from
-it: the file is made from the same cleaned text you heard, so a credential it removed cannot
-reappear in the audio, and if your text-to-speech server is unreachable the file is made in the
-built-in voice, exactly as a live reading would be.
+Because nothing was kept, Baton reads the article again to make the file, so a long one takes a
+moment. It happens in the background and you can carry on. The file comes from the same cleaned
+text you heard, so a credential Baton removed cannot reappear in the audio. If your
+text-to-speech server is unreachable, Baton makes the file in the built-in voice, exactly as a
+live reading would.
 
-The item stays available until you read something else, so stopping a reading half way through
-and then saving it still gives you the whole thing.
+The reading stays available until you read something else, so stopping one half way through and
+then saving it still gives you the whole thing.
 
 
 ## Transcripts and summaries

@@ -184,7 +184,10 @@ struct SpeechHistoryView: View {
                             model.replaySpokenSummary(entry)
                         },
                         // Live controls only when the engine is actually playing *this* entry.
-                        live: model.speech.isSpeaking && entry.id == model.nowPlayingSummaryID
+                        live: model.speech.isSpeaking && entry.id == model.nowPlayingSummaryID,
+                        // The selected row's own speaker, not whoever spoke most recently —
+                        // browsing history must not be narrated by the live engine's state.
+                        idleSessionLabel: entry.sessionLabel
                     )
                     .padding(16)
                     .speakingCardSurface(cornerRadius: 16)
