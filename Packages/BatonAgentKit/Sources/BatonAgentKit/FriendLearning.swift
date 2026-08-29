@@ -1,5 +1,5 @@
+import BatonSubsonicKit
 import Foundation
-import OSLog
 
 /// What the music friend has learned from being told it was wrong.
 ///

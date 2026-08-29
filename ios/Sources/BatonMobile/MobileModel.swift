@@ -49,6 +49,15 @@ final class MobileModel {
     }
     /// Internet radio (station list + raw-stream engine) and the local "keep this out of
     /// radio" list — both shared with the Mac.
+    /// Audio Baton made and kept: readings collected from the home gateway.
+    ///
+    /// The *same* `ClippingStore` the Mac uses, from BatonPlaybackKit. A clipping's id is its
+    /// file URL, which `MediaKind` calls `.localFile` and `resolveStreamURL` resolves directly,
+    /// so it plays through the ordinary player here exactly as it does there. That is why this
+    /// is not the "small bespoke surface" the card originally proposed: a second player path
+    /// would have to be maintained forever for content that needs none.
+    let clippings = ClippingStore()
+
     let radio = InternetRadioStore()
     let radioBans = MusicRadioBans()
     /// Albums and artists opened from search, so search has a memory.

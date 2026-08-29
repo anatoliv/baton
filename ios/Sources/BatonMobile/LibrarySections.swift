@@ -13,7 +13,7 @@ import Foundation
 /// everyone who ever touched Edit — which is how "nobody found the Folders screen"
 /// happens two releases from now.
 enum LibrarySection: String, CaseIterable, Identifiable {
-    case liked, playlists, artists, genres, history, downloads, podcasts, radio, folders
+    case liked, playlists, artists, genres, history, downloads, clippings, podcasts, radio, folders
 
     var id: String { rawValue }
 
@@ -25,6 +25,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         case .genres: "Genres"
         case .history: "History"
         case .downloads: "Downloads"
+        case .clippings: "Clippings"
         case .podcasts: "Podcasts"
         case .radio: "Radio"
         case .folders: "Folders"
@@ -39,6 +40,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         case .genres: "guitars"
         case .history: "clock.arrow.circlepath"
         case .downloads: "arrow.down.circle"
+        case .clippings: "waveform.circle"
         case .podcasts: "mic"
         case .radio: "dot.radiowaves.left.and.right"
         case .folders: "folder"

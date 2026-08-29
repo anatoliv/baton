@@ -1,3 +1,4 @@
+import BatonSubsonicModels
 import Foundation
 
 /// The line under a podcast episode: when it came out, and how much of it is left.

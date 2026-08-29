@@ -34,6 +34,7 @@ in [`docs/`](docs/).
 - [Podcasts](#podcasts)
 - [Internet radio](#internet-radio)
 - [Downloads and offline listening](#downloads-and-offline-listening)
+- [Clippings](#clippings)
 - [Playing music](#playing-music)
 - [Adaptive artwork colors](#adaptive-artwork-colors)
 - [The queue, shuffle, repeat, and autoplay](#the-queue-shuffle-repeat-and-autoplay)
@@ -741,6 +742,56 @@ folder or the format doesn't move or rename files you've already saved. See the
 
 ---
 
+## Clippings
+
+Clippings are audio Baton made for you and kept: right now, a reading saved from
+[read aloud](#read-aloud). After Baton reads something, **File → Keep Reading in Clippings**
+puts that audio here. They live in the **Clippings** item in the left rail, which carries a
+badge with how many you have.
+
+This is the sibling of **File → Save Reading as Audio…**, which writes the same audio to a
+folder you pick and then forgets about it. Keeping it in Clippings hands the file to Baton
+instead, which stores it, lists it, and plays it.
+
+A clipping is a real file on your Mac, so it needs no server and no network. It plays through
+the ordinary player, with the same transport, now-playing bar, queue, and scrubber as anything
+else. Double-click a row to play from there onwards. With nothing playing, the play button in
+the header starts the whole list.
+
+**You can search a clipping by what is said in it.** A saved reading keeps its words, so
+typing a phrase from the middle of an article finds it, both in the Clippings filter and in
+the main Search screen alongside your library results. Nothing else in Baton can be found this
+way: your server only ever knows a track's title.
+
+**Renaming and deleting.** Right-click a row to rename it, reveal the file in the Finder, or
+delete it. Deleting asks first, and says plainly that there is no other copy. A clipping is
+not a cached download with an original waiting on a server. It is the only copy, and deleting
+it cannot be undone.
+
+**If a file goes missing.** Move or delete a clipping's audio outside Baton and its row stays
+in the list, greyed out, saying the audio has gone. It is left out of playback rather than
+stalling silently when you press play, and you can delete the leftover entry from the same
+right-click menu.
+
+**What a clipping is not.** It isn't a library track, so the controls that only a server can
+answer are hidden on its rows: no rating, no like, no download, no radio. It is also left out
+of [scrobbling](#scrobbling), since a reading saved from a web page isn't something your
+listening history should carry.
+
+**On your iPhone.** If you run the home gateway, clippings you keep on the Mac travel to the
+phone, where they appear under Library → Clippings and play the same way. The phone collects
+them when you open that screen, and when you pull down to refresh. There is no background
+polling: it fetches when you look, which is both the moment you care about and a moment you
+chose.
+
+**Deleting a clipping on the phone asks which you mean.** Every device keeps its own copy of the
+file, so the two answers do different things. **Remove from this iPhone** deletes the phone's
+copy and remembers not to fetch it again; your Mac keeps its own. **Delete everywhere** also
+removes the shared copy from the gateway, so no device collects it again. Deleting on the Mac
+only ever affects the Mac.
+
+---
+
 ## Playing music
 
 ### The now-playing bar
@@ -1317,8 +1368,15 @@ docker compose up -d --build        # serves on port 8004
 ```
 
 It then answers at `http://<that-machine>:8004`. The first build takes a while (it downloads the
-voice model). To use a **cloned voice**, drop a 5–10 second `.wav` sample of the target voice
-into its voices folder; it shows up in Baton's voice list by filename (e.g. `Emily.wav`).
+voice model).
+
+If you changed the `ports:` line in that compose file, use the number on the **left** of the
+colon. Chatterbox always listens on 8004 inside its container, so the left number is the one
+you can reach and the right one is not. A common sign you have the wrong port is a reply from
+some other service, such as `Error: gzip is not supported by this browser`.
+
+To use a **cloned voice**, drop a 5–10 second `.wav` sample of the target voice into its
+voices folder; it shows up in Baton's voice list by filename (e.g. `Emily.wav`).
 
 > Chatterbox is the heavier engine — reach for it when you want the best quality or a custom
 > cloned voice, not for every routine "build finished" line.

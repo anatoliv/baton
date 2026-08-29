@@ -134,7 +134,10 @@ enum BatonMCPSpeakTools {
             guard SpeechConfig.fallbackEnabled else { throw BatonMCPToolError(message: error.message) }
             utterance = .native(spokenText)
             engineUsed = "system (fallback)"
-            speechLog.notice("TTS host unreachable — using system voice fallback")
+            // The reason, not a guess at it. "Host unreachable" is equally true of a sleeping
+            // server and of a refused Local Network grant, and those want opposite responses
+            //. `SynthError` already distinguishes them, so log what it said.
+            speechLog.notice("falling back to the system voice: \(error.message, privacy: .public)")
         } catch {
             throw BatonMCPToolError(message: error.localizedDescription)
         }

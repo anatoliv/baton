@@ -64,7 +64,7 @@ public enum FilterHistory {
     /// now scans the source for every `historyKey:` in use and fails if one is missing, because
     /// keeping a hand-written list in step with the call sites is precisely the thing people forget.
     public static let allKeys = [
-        "albums", "albumSongs", "artists", "artistSongs", "clientPodcastEpisodes",
+        "albums", "albumSongs", "artists", "artistSongs", "clientPodcastEpisodes", "clippings",
         "downloads", "folders", "history", "later", "liked", "mixSongs",
         "playlists", "playlistSongs", "podcasts", "radio", "search",
     ]

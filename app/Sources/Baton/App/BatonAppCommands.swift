@@ -38,6 +38,14 @@ struct BatonAppCommands: Commands {
             .keyboardShortcut("s", modifiers: [.command, .shift])
             .disabled(ReadAloudCoordinator.current?.canExport != true)
 
+            // Keeping it in Baton rather than exporting it to a folder. Same audio, different
+            // owner: this copy lives in Clippings, plays through the ordinary player, and is
+            // managed from there.
+            Button("Keep Reading in Clippings") {
+                ReadAloudCoordinator.current?.keepLastReadingAsClipping()
+            }
+            .disabled(ReadAloudCoordinator.current?.canExport != true)
+
             // Resume an article you stopped part-way. A menu rather than the Later
             // tab: that tab's items are server entities that play through the music controller,
             // and a reading is neither. See `UnfinishedReadings`.

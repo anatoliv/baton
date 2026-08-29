@@ -27,7 +27,7 @@ let streamingLog = Logger(subsystem: "io.tonebox.baton", category: "StreamingPla
 /// playback via `suspendForCapture()` / `resumeAfterCapture()`.
 @MainActor
 @Observable
-public final class StreamingPlaybackController {
+public final class StreamingPlaybackController: RemotePlayerContext {
     public enum State: Equatable {
         case idle
         case loading

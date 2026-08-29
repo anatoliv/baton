@@ -25,6 +25,9 @@ LOG="$(mktemp -t baton-test.XXXXXX).log"
 bold(){ printf '\033[1m%s\033[0m\n' "$*"; }
 red(){ printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green(){ printf '\033[32m%s\033[0m\n' "$*"; }
+# For a check that could not run, as distinct from one that failed. An unmeasurable
+# environment is not a broken feature, and it must not read like one.
+yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 
 # --- "Did this run prove anything?" — one definition, used by both suites -----
 #
@@ -303,6 +306,36 @@ if [ -z "${SKIP_IOS:-}" ]; then
     grep -E 'error:|failed' "$GATEWAY_LOG" | sed 's/^/    /' | head -20 >&2 || true
     red "  Full log: $GATEWAY_LOG"
     exit "$gateway_status"
+  fi
+
+  # The gateway is the one part of Baton meant to run on Linux, and until 2026-08-29 it could
+  # not: BatonAgentKit pulled in the whole AVFoundation audio engine for three read-only
+  # properties. Nothing noticed for a long time, because the only thing that ever built the
+  # gateway was this script, on macOS, where the Apple branch of every `#if` compiles fine.
+  #
+  # So building it for Linux is the check. It is not about Docker — it is the only way to
+  # assert that the agent layer has stayed free of Apple-only dependencies. Skipped when
+  # Docker is absent, because an unavailable builder is *not measurable* rather than broken:
+  # the same judgement the conversation eval makes about an unreachable model host.
+  if [ "${SKIP_LINUX_GATEWAY:-0}" != "1" ] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    bold "==> Gateway builds for Linux (agent-layer platform guard)"
+    LINUX_LOG="$(mktemp -t baton-gateway-linux.XXXXXX).log"
+    set +e
+    docker build -f gateway/deploy/Dockerfile -t baton-gateway:gate . >"$LINUX_LOG" 2>&1
+    linux_status=$?
+    set -e
+    if [ "$linux_status" -eq 0 ]; then
+      green "  gateway builds for Linux"
+    else
+      red "✗ GATEWAY NO LONGER BUILDS FOR LINUX"
+      red "  Something in BatonAgentKit (or below it) now needs an Apple-only framework."
+      red "  The usual cause is a new import that reaches BatonPlaybackKit; see RemotePlayerContext."
+      grep -E "error:|no such module" "$LINUX_LOG" | sed 's/^/    /' | head -15 >&2 || true
+      red "  Full log: $LINUX_LOG"
+      exit "$linux_status"
+    fi
+  else
+    yellow "  Linux gateway build skipped (no usable docker) — the agent layer's platform boundary is unverified"
   fi
 fi
 

@@ -20,7 +20,6 @@ final class RemoteAuthorizationTests: XCTestCase {
         let router = RemoteCommandRouter(
             player: music.music,
             tools: MCPToolSurface(music: music, focus: focus),
-            focus: focus,
             settings: settings
         )
         return (router, settings)
@@ -616,7 +615,6 @@ final class RemoteAuthorizationTests: XCTestCase {
         let service = RemoteControlService(
             player: music.music,
             tools: MCPToolSurface(music: music, focus: focus),
-            focus: focus,
             settings: RemoteControlSettings(
                 environment: .testing,
                 defaults: UserDefaults(suiteName: "baton.sink.tests.\(UUID().uuidString)")!,

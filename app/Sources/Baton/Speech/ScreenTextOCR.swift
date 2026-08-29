@@ -101,7 +101,8 @@ enum ScreenTextOCR {
             return Piece(text: candidate.string,
                          midY: o.boundingBox.midY,
                          minX: o.boundingBox.minX,
-                         height: o.boundingBox.height)
+                         height: o.boundingBox.height,
+                         maxX: o.boundingBox.maxX)
         })
     }
 
@@ -114,9 +115,95 @@ enum ScreenTextOCR {
         let midY: CGFloat
         let minX: CGFloat
         let height: CGFloat
+        /// The fragment's right edge. Needed only to find a **gutter** between columns, which is
+        /// a gap in horizontal coverage and therefore cannot be seen from left edges alone.
+        var maxX: CGFloat = 1
+
+        init(text: String, midY: CGFloat, minX: CGFloat, height: CGFloat, maxX: CGFloat? = nil) {
+            self.text = text
+            self.midY = midY
+            self.minX = minX
+            self.height = height
+            self.maxX = maxX ?? minX
+        }
     }
 
+    /// Turn positioned fragments into text in the order a person would read them.
+    ///
+    /// **Columns are handled before lines**, which is the whole subtlety. Grouping by vertical
+    /// position first and reading left to right is correct for one column and reads *across the
+    /// gutter* on two, producing fluent sentences assembled from alternating halves. That failure
+    /// sounds like a broken recogniser rather than a broken sort, so it is the kind that survives
+    /// (TBX-3830: a two-column page is exactly what "a PDF reads in the right order" means).
     static func assemble(_ pieces: [Piece]) -> String {
+        guard !pieces.isEmpty else { return "" }
+        return assembleBlock(pieces, depth: 0)
+    }
+
+    /// One region: split into columns if it has any, otherwise read it as lines.
+    private static func assembleBlock(_ pieces: [Piece], depth: Int) -> String {
+        // Two levels is enough for the layouts this tier meets (a page, then its columns), and a
+        // bound means a pathological page cannot recurse forever.
+        if depth < 2, let columns = splitIntoColumns(pieces) {
+            return columns.map { assembleBlock($0, depth: depth + 1) }.joined(separator: "\n")
+        }
+        return readAsLines(pieces)
+    }
+
+    /// Find a vertical gutter and split on it, or return nil when the region is a single column.
+    ///
+    /// Deliberately conservative. A false positive silently reorders a page that was already
+    /// correct, which is worse than a false negative that leaves it as it is today, so every one
+    /// of these guards has to hold.
+    private static func splitIntoColumns(_ pieces: [Piece]) -> [[Piece]]? {
+        guard pieces.count >= 6 else { return nil }
+
+        let left = pieces.map(\.minX).min() ?? 0
+        let right = pieces.map(\.maxX).max() ?? 1
+        let span = right - left
+        guard span > 0.2 else { return nil }
+
+        // Sweep left to right over the fragments' horizontal extents and find the widest band
+        // that no fragment covers.
+        let sorted = pieces.sorted { $0.minX < $1.minX }
+        var reach = sorted[0].maxX
+        var bestGap: (start: CGFloat, end: CGFloat) = (0, 0)
+        for piece in sorted.dropFirst() {
+            if piece.minX > reach, piece.minX - reach > bestGap.end - bestGap.start {
+                bestGap = (reach, piece.minX)
+            }
+            reach = max(reach, piece.maxX)
+        }
+
+        // A gutter is a real one only if it is wide relative to the page. Word spacing and
+        // paragraph indents are far narrower than this.
+        let width = bestGap.end - bestGap.start
+        guard width > span * 0.06 else { return nil }
+
+        let cut = (bestGap.start + bestGap.end) / 2
+        let leftColumn = pieces.filter { $0.maxX <= cut }
+        let rightColumn = pieces.filter { $0.maxX > cut }
+        guard leftColumn.count >= 3, rightColumn.count >= 3 else { return nil }
+
+        // The decisive test: columns run *alongside* each other. Two stacked blocks separated by
+        // a wide margin are not columns, and splitting them would reorder a correct page.
+        guard verticalOverlap(leftColumn, rightColumn) > 0.5 else { return nil }
+
+        return [leftColumn, rightColumn]
+    }
+
+    /// How much of the shorter block's vertical range is shared with the taller one, 0...1.
+    private static func verticalOverlap(_ a: [Piece], _ b: [Piece]) -> CGFloat {
+        guard let aLow = a.map(\.midY).min(), let aHigh = a.map(\.midY).max(),
+              let bLow = b.map(\.midY).min(), let bHigh = b.map(\.midY).max()
+        else { return 0 }
+        let shared = min(aHigh, bHigh) - max(aLow, bLow)
+        guard shared > 0 else { return 0 }
+        return shared / max(min(aHigh - aLow, bHigh - bLow), 0.0001)
+    }
+
+    /// Top to bottom, left to right within a line. Correct once a region is one column.
+    private static func readAsLines(_ pieces: [Piece]) -> String {
         guard !pieces.isEmpty else { return "" }
 
         // Two fragments belong to the same visual line when their vertical centres are within

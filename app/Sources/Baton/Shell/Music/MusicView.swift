@@ -219,7 +219,7 @@ struct MusicView: View {
     }
 
     enum MusicTab: String, CaseIterable, Identifiable {
-        case home, search, mixes, albums, artists, playlists, starred, later, history, podcasts, radio, downloads, folders
+        case home, search, mixes, albums, artists, playlists, starred, later, clippings, history, podcasts, radio, downloads, folders
         var id: String {
             rawValue
         }
@@ -234,6 +234,7 @@ struct MusicView: View {
             case .playlists: "Playlists"
             case .starred: "Liked"
             case .later: "Later"
+            case .clippings: "Clippings"
             case .history: "History"
             case .podcasts: "Podcasts"
             case .radio: "Radio"
@@ -252,6 +253,7 @@ struct MusicView: View {
             case .playlists: "music.note.list"
             case .starred: "heart"
             case .later: "bookmark"
+            case .clippings: "waveform.circle"
             case .history: "clock.arrow.circlepath"
             case .podcasts: "mic.fill"
             case .radio: "dot.radiowaves.left.and.right"
@@ -695,6 +697,8 @@ struct MusicView: View {
                 ? nil : model.podcastSubscriptions.channels.count
         case .later:
             model.pins.pins.isEmpty ? nil : model.pins.pins.count
+        case .clippings:
+            model.clippings.items.isEmpty ? nil : model.clippings.items.count
         // Folders are lazy-loaded on first visit; a count here would force the fetch
         // just to draw a number nobody asked for.
         case .folders: nil
@@ -731,6 +735,7 @@ struct MusicView: View {
         case .starred: starredTab
         case .history: MusicHistoryView()
         case .later: MusicPinnedView()
+        case .clippings: MusicClippingsView()
         case .podcasts: MusicPodcastsView()
         case .radio: MusicRadioView()
         case .downloads: MusicDownloadsView()

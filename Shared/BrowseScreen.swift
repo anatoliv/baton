@@ -16,7 +16,7 @@ import Foundation
 /// that gets written down and then believed.)
 public enum BrowseScreen: String, CaseIterable, Sendable {
     case album, artist, playlist, liked, genre, folder, history
-    case download, radio, podcast, clientPodcast, later, mix
+    case download, radio, podcast, clientPodcast, later, mix, clipping
 
     /// Grid ⇄ list. Named to match what the twelve literals already said, so no stored
     /// preference is orphaned by the move — a rename here is a silent reset for every user.

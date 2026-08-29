@@ -132,3 +132,49 @@ final class UnfinishedReadingsTests: XCTestCase {
         XCTAssertEqual(store.entries.first?.menuTitle, "Reading — 25% in")
     }
 }
+
+/// Resuming must carry on, not start again.
+///
+/// The store's own tests prove a position is *recorded*. This proves it is *used*. Those are
+/// different claims, and only the second one is what someone means by "resume worked" — a reading
+/// that restarts from the top still plays audio, still fills the HUD, and still clears the entry
+/// from the menu, so it passes every weaker check and every casual listen of a long article.
+@MainActor
+final class ResumeRemainderTests: XCTestCase {
+
+    private func entry(chunks: [String], resumeIndex: Int) -> UnfinishedReadings.Entry {
+        UnfinishedReadings.Entry(id: UUID(), chunks: chunks, resumeIndex: resumeIndex,
+                                 sourceName: "Google Chrome", startedAt: Date(), updatedAt: Date())
+    }
+
+    func testResumingSpeaksOnlyWhatIsLeft() throws {
+        let chunks = ["First sentence.", "Second sentence.", "Third sentence.", "Fourth sentence."]
+        let text = try XCTUnwrap(ReadAloudCoordinator.remainingText(of: entry(chunks: chunks, resumeIndex: 2)))
+
+        XCTAssertEqual(text, "Third sentence. Fourth sentence.")
+        XCTAssertFalse(text.contains("First sentence."),
+                       "the reading restarted from the top instead of resuming")
+        XCTAssertFalse(text.contains("Second sentence."),
+                       "the reading repeated a part that had already been heard")
+    }
+
+    /// Stopped before anything was spoken: the whole article is still to come.
+    func testResumingFromTheStartKeepsEverything() throws {
+        let chunks = ["One.", "Two."]
+        XCTAssertEqual(try XCTUnwrap(ReadAloudCoordinator.remainingText(of: entry(chunks: chunks, resumeIndex: 0))),
+                       "One. Two.")
+    }
+
+    /// Nothing left is not an empty reading. The caller forgets the entry instead of starting a
+    /// reading with no words in it, which would show a HUD that never says anything.
+    func testNothingLeftYieldsNoReading() {
+        XCTAssertNil(ReadAloudCoordinator.remainingText(of: entry(chunks: ["Only one."], resumeIndex: 1)))
+        XCTAssertNil(ReadAloudCoordinator.remainingText(of: entry(chunks: [], resumeIndex: 0)))
+    }
+
+    /// A stored index past the end (a shorter re-capture of the same article) must not crash or
+    /// wrap around to the beginning, which would replay the whole thing.
+    func testAnIndexPastTheEndIsNotAWrapAround() {
+        XCTAssertNil(ReadAloudCoordinator.remainingText(of: entry(chunks: ["A.", "B."], resumeIndex: 9)))
+    }
+}

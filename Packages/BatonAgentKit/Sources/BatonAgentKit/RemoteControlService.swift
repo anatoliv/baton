@@ -3,7 +3,6 @@
 #if canImport(AVFoundation)
 import Foundation
 import Observation
-import BatonPlaybackKit
 import BatonSubsonicKit
 import BatonSubsonicModels
 
@@ -22,10 +21,15 @@ public final class RemoteControlService {
     private var telegram: TelegramBridge?
     private var discord: DiscordBridge?
 
-    public init(player: StreamingPlaybackController, tools: RemoteToolSurface, focus: BatonAudioFocusRegistry, settings: RemoteControlSettings? = nil) {
+    /// - Note: `focus` (the audio-focus registry) used to be a parameter here. It was stored and
+    ///   never read — the ducking it governs is applied by the MCP tool surface, not by the
+    ///   router — and it was the last thing tying this package to the audio engine. Removed
+    ///   rather than hidden behind a protocol, because a protocol for something nothing calls
+    ///   is just the same dead weight with more ceremony.
+    public init(player: any RemotePlayerContext, tools: RemoteToolSurface, settings: RemoteControlSettings? = nil) {
         let settings = settings ?? RemoteControlSettings()
         self.settings = settings
-        router = RemoteCommandRouter(player: player, tools: tools, focus: focus, settings: settings)
+        router = RemoteCommandRouter(player: player, tools: tools, settings: settings)
         // The router can speak without being spoken to (an auto-picked choice
         // lands well after its reply), but only this owns the bridges.
         router.deliver = { [weak self] reply, platform, channelID in

@@ -32,7 +32,6 @@ final class AgentTextPlaceholderTests: XCTestCase {
         let router = RemoteCommandRouter(
             player: music.music,
             tools: MCPToolSurface(music: music, focus: focus),
-            focus: focus,
             settings: settings
         )
         return (router, music)

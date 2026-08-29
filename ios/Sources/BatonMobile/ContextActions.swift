@@ -33,7 +33,13 @@ struct SongContextMenu: ViewModifier {
 
                 // Everything below needs a server: rating, playlists and similarity are
                 // all server-side. In demo mode they'd fail silently, so they're absent.
-                if !model.isDemoMode {
+                //
+                // The demo-mode test was the right instinct keyed to the wrong thing: it asks
+                // whether the *library* has a server, when the question is whether *this row*
+                // has one. Clippings are local files in an otherwise perfectly
+                // normal library, so they slipped straight through it. `isLocalOnly` asks the
+                // item, and is the same predicate the Mac's rows use.
+                if !model.isDemoMode, !song.isLocalOnly {
                     Divider()
 
                     Button {

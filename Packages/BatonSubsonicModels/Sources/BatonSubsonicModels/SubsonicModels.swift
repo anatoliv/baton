@@ -40,6 +40,18 @@ public enum MediaKind: Hashable, Sendable {
     }
 }
 
+public extension NavidromeSong {
+    /// Whether this exists only as a file on this device, with nothing on a server behind it —
+    /// a clipping Baton made or a bundled demo track.
+    ///
+    /// The distinction matters because a row's actions are mostly *server* actions. Download,
+    /// rating, like, radio and "mark for removal" all address a library id the server knows; sent
+    /// a `file://` id they are, at best, a request that cannot succeed, and at worst a control
+    /// that appears to work and silently does nothing. Rows ask this rather than testing the id
+    /// themselves, so the answer is the same on every surface.
+    var isLocalOnly: Bool { MediaKind(id: id) == .localFile }
+}
+
 public struct NavidromeSong: Identifiable, Hashable, Codable, Sendable {
     public let id: String
     public let title: String

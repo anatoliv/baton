@@ -24,10 +24,6 @@ import Foundation
 /// `FriendFeedbackLog` (BatonAgentKit, which depends on this package) reads it too. Two
 /// copies of "how soon is too soon" would drift, and the two places that ask the question
 /// must agree or the friend's log and the play events disagree about the same skip.
-public enum QuickSkip {
-    public static let window: TimeInterval = 10
-}
-
 @MainActor
 @Observable
 public final class PlaybackEventLog {

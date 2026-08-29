@@ -17,6 +17,51 @@ public enum SpeechService {
         public init(message: String) { self.message = message }
     }
 
+    /// Turn a transport failure into a message that says what to *do* about it.
+    ///
+    /// **The case worth naming is `-1009` to a private address**. macOS returns
+    /// `NSURLErrorNotConnectedToInternet` when an app has been refused the **Local Network**
+    /// privacy grant, which reads as "there is no network" while every other request the app
+    /// makes keeps working, because those go to the internet. On 2026-08-29 that produced a
+    /// Mac where `curl` reached the same host from a shell in 15 ms and 235 of
+    /// Baton's own requests succeeded, while every LAN request failed and each summary quietly
+    /// fell back to the built-in voice. It was chased as a network fault, a sleeping host, and
+    /// a VPN before the grant was suspected.
+    ///
+    /// The generic wording is what made that expensive: "couldn't reach the host" is equally
+    /// true of a host that is asleep, and the two want completely different responses. A
+    /// symptom the app can recognise should be named by the app.
+    public static func transportMessage(_ error: Error, engine: String, base: String) -> String {
+        let generic = "Couldn't reach the \(engine) TTS service at \(base): \(error.localizedDescription)"
+        guard (error as? URLError)?.code == .notConnectedToInternet,
+              let host = URLComponents(string: base)?.host, isPrivateAddress(host)
+        else { return generic }
+
+        return "macOS is blocking Baton from reaching \(host), which is on your local network. "
+            + "This is the Local Network privacy setting, not a problem with the server: other "
+            + "requests keep working because they go out to the internet. Open System Settings → "
+            + "Privacy & Security → Local Network and switch Baton on. If it is already on, "
+            + "switch it off and on again, which is often needed after the app updates."
+    }
+
+    /// Whether a host is a literal address in one of the private IPv4 ranges, or a `.local`
+    /// name. Deliberately literal-only: a hostname that *resolves* to a private address would
+    /// need a lookup, and this runs on an error path where a second network call is the last
+    /// thing wanted. A missed case falls back to the generic message, which is merely less
+    /// helpful rather than wrong.
+    public static func isPrivateAddress(_ host: String) -> Bool {
+        if host.hasSuffix(".local") || host == "localhost" { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4, parts.allSatisfy({ (0 ... 255).contains($0) }) else { return false }
+        switch (parts[0], parts[1]) {
+        case (10, _): return true
+        case (192, 168): return true
+        case (172, 16 ... 31): return true
+        case (127, _): return true
+        default: return false
+        }
+    }
+
     public static func synthesize(text: String, voice: SpeechConfig.Voice, session: URLSession = .shared) async throws -> Data {
         let base = SpeechConfig.baseURL(for: voice.engine).trimmingCharacters(in: .whitespaces)
         guard var comps = URLComponents(string: base), comps.host != nil else {
@@ -51,7 +96,7 @@ public enum SpeechService {
         do {
             (data, response) = try await sendWithRetry(request, session: session)
         } catch {
-            throw SynthError(message: "Couldn't reach the \(voice.engine.rawValue) TTS service at \(base): \(error.localizedDescription)")
+            throw SynthError(message: transportMessage(error, engine: voice.engine.rawValue, base: base))
         }
         guard let http = response as? HTTPURLResponse else {
             throw SynthError(message: "Unexpected response from the TTS service.")
@@ -109,7 +154,7 @@ public enum SpeechService {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw SynthError(message: "Couldn't reach \(engine.rawValue) at \(base): \(error.localizedDescription)")
+            throw SynthError(message: transportMessage(error, engine: engine.rawValue, base: base))
         }
         guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
             throw SynthError(message: "Voices request failed for \(engine.rawValue).")

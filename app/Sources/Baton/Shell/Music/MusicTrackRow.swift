@@ -67,7 +67,7 @@ struct MusicTrackRow: View {
             songActionsMenu(song, model)
             songRadioMenuItem(song, model)
             Divider()
-            songRemovalMenuItem(showConfirm: $showRemoveConfirm)
+            songRemovalMenuItem(song, showConfirm: $showRemoveConfirm)
         }
         .songRemovalConfirm(song, model, isPresented: $showRemoveConfirm)
     }

@@ -17,6 +17,10 @@ import Foundation
 ///
 /// Using one shape for all three makes track lists look like spreadsheets and album
 /// totals look like timestamps, which is why the split is deliberate rather than historical.
+/// Moved here from BatonPlaybackKit so the agent layer can use it without depending on the
+/// audio engine. It is pure Foundation arithmetic and always was; living beside the player was
+/// an accident of where it was first needed. Its own comment already called it "the shared
+/// formatter", and a formatter two packages need belongs in the package both of them see.
 public enum PlayTime {
     /// A single track: `4:21`, or `1:04:30` once it passes an hour (live sets, DJ mixes,
     /// long podcast episodes — this library is full of all three).

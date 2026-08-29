@@ -50,6 +50,11 @@ final class MusicModel {
     let webhookActions = WebhookActionStore()
     /// Cross-type "save for later" pins (songs, albums, podcasts, radio…), surfaced in Later.
     let pins = PinStore()
+
+    /// Audio Baton made and kept — saved readings, and in time anything clipped out of what is
+    /// playing. Surfaced in Clippings, and played through the ordinary player: a clipping's id is
+    /// its file URL, which `MediaKind` already treats as `.localFile`.
+    let clippings = ClippingStore()
     /// One-off spoken task summaries (the `speak_summary` MCP tool) + in-app banner state.
     let speech = SpeechPlaybackEngine()
     /// Bounded, persisted history of spoken summaries, so any past one can be replayed. (Speech)

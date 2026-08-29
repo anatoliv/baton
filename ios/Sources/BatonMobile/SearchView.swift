@@ -285,7 +285,7 @@ struct SongRow: View {
             Spacer(minLength: 6)
             // Downloaded / liked / playing are the three states worth seeing at a
             // glance in a list; ratings live in the context menu where they're set.
-            if MusicDownloadStore.shared.isDownloaded(song.id) {
+            if !song.isLocalOnly, MusicDownloadStore.shared.isDownloaded(song.id) {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)

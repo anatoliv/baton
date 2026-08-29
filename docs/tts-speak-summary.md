@@ -48,9 +48,21 @@ engine and only disk was free, while the GPU box had idle Blackwell cards.
 | Service | Container | Port | Device | Image / build | Steady-state |
 |---|---|---|---|---|---|
 | **Kokoro** (54 preset voices, incl. Spanish; no cloning) | `tts-kokoro` | 8880 | **CPU** | `ghcr.io/remsky/kokoro-fastapi-cpu:latest` | ~0.17 s / short line |
-| **Chatterbox** (voice cloning from 5–10 s; beats ElevenLabs in blind tests) | `chatterbox-tts-server-cu128` | 8004 | **GPU 2** (~5.4 GB) | built from `devnen/Chatterbox-TTS-Server`, `docker-compose-cu128.yml` | ~0.23 s / short line |
+| **Chatterbox** (voice cloning from 5–10 s; beats ElevenLabs in blind tests) | `chatterbox-tts-server-cu128` | **8183** (container 8004) | **GPU 2** (~5.4 GB) | built from `devnen/Chatterbox-TTS-Server`, `docker-compose-cu128.yml` | ~0.23 s / short line |
 
 - Compose: `~/tts/docker-compose.yml` (Kokoro), `~/tts/Chatterbox-TTS-Server/docker-compose-cu128.yml` (Chatterbox).
+
+> **Chatterbox listens on 8004 inside its container; the host port is not 8004.**
+> Upstream publishes `8004:8004`, and that is still what a plain local install
+> gives you. Our GPU host does not: the compose file there maps `8183:8004`,
+> because host 8004 belongs to a llama.cpp engine and host 8006 is held for a
+> vLLM recipe. It was on 8006 from 2026-07-29 until 2026-08-29.
+>
+> This bit us: asking host 8004 for speech returns the llama.cpp web UI, which
+> answers a request without `Accept-Encoding: gzip` with
+> `Error: gzip is not supported by this browser`. That error means wrong port,
+> not broken service. Take the host port from the compose file, never from the
+> app's own port.
 - Both `restart: unless-stopped`; docker enabled at boot → **auto-return after a reboot**.
 - Chatterbox default model = `chatterbox-turbo` (English). API **requires both `model` and
   `voice`** fields; voices are `*.wav` names from `GET /v1/audio/voices` (e.g. `Emily.wav`).
@@ -74,8 +86,8 @@ docker compose -f docker-compose-cu128.yml up -d --build
 ### Health / smoke test (on the host)
 ```sh
 curl -s localhost:8880/health                       # Kokoro → 200
-curl -s localhost:8004/v1/audio/voices | head -c 200 # Chatterbox voices
-curl -s -X POST localhost:8004/v1/audio/speech -H 'Content-Type: application/json' \
+curl -s localhost:8183/v1/audio/voices | head -c 200 # Chatterbox voices (host port)
+curl -s -X POST localhost:8183/v1/audio/speech -H 'Content-Type: application/json' \
   -d '{"model":"chatterbox","voice":"Emily.wav","input":"hello","response_format":"wav"}' -o /tmp/t.wav
 ```
 
@@ -148,11 +160,13 @@ player off `MusicModel`), `NavidromeConfig` (UserDefaults config), `MusicToastOv
 
 Hosts + voice map live in the app's `UserDefaults` (suite `io.tonebox.baton`). **The real LAN
 host IP is never committed** — source defaults to `http://127.0.0.1:8880/8004` placeholders (the
-publish guard blocks `192.168.*`); set the real host at runtime:
+publish guard blocks `192.168.*`); set the real host at runtime. Those defaults
+are upstream's local ports and are correct for Chatterbox running on this Mac.
+They are deliberately not our GPU host's ports, which differ:
 
 ```sh
 defaults write io.tonebox.baton tonebox.speech.kokoroBaseURL     'http://gpu-host.local:8880'
-defaults write io.tonebox.baton tonebox.speech.chatterboxBaseURL 'http://gpu-host.local:8004'
+defaults write io.tonebox.baton tonebox.speech.chatterboxBaseURL 'http://gpu-host.local:8183'
 ```
 
 Default category → voice map (override by writing JSON to `tonebox.speech.voiceMap`):
@@ -229,7 +243,7 @@ call returns `-1009` once (Local Network init), then consistent.
 
 ## 8. Operations & future work
 
-- **Endpoints:** Kokoro `http://gpu-host.local:8880`, Chatterbox `http://gpu-host.local:8004` (both
+- **Endpoints:** Kokoro `http://gpu-host.local:8880`, Chatterbox `http://gpu-host.local:8183` (both
   `/v1/audio/speech`, `/v1/audio/voices`). MCP `http://127.0.0.1:8787/mcp` (bearer token).
 - **Restart:** `cd ~/tts && docker compose up -d`; `cd ~/tts/Chatterbox-TTS-Server && docker compose -f docker-compose-cu128.yml up -d`.
 - **Future:** move Kokoro to the always-on CPU host so presets survive when the GPU box is busy;

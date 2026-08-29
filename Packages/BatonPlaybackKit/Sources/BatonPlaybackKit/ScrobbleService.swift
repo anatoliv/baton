@@ -253,8 +253,24 @@ public final class ScrobbleService {
         return [listenBrainz, lastfm].filter(\.isActive)
     }
 
-    /// Only library tracks scrobble. Podcast episodes and radio never do.
+    /// Only library tracks scrobble. Podcast episodes, radio and local files never do.
+    ///
+    /// **The comment said this before the code did.** It excluded podcasts only, so anything
+    /// else that is not a library track went to Last.fm and ListenBrainz as though it were one.
+    /// That went unnoticed while the only such content was the bundled demo library; clippings
+    /// made it reachable in ordinary use, and a scrobble of "Google Chrome 09.15" by
+    /// the artist "Google Chrome" is not something a listening history can be asked to carry.
+    ///
+    /// Asking `MediaKind` is also the honest test: the id already says what a thing is, and
+    /// enumerating the exclusions one at a time is how the next kind gets missed too.
     private func isScrobblable(_ song: NavidromeSong) -> Bool {
-        !isPodcast(song)
+        Self.isScrobblableForTesting(song)
+    }
+
+    /// The same predicate, reachable without building a service. Exposed because the rule is
+    /// about *what may leave this machine*, and that deserves a test that does not depend on
+    /// standing up scrobble destinations.
+    public static func isScrobblableForTesting(_ song: NavidromeSong) -> Bool {
+        MediaKind(id: song.id) == .libraryTrack
     }
 }

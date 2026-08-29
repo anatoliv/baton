@@ -1,8 +1,10 @@
-// Apple-only: this file drives StreamingPlaybackController, which lives in BatonPlaybackKit.
+// Reads the player's live state through `RemotePlayerContext` (BatonSubsonicModels) rather than
+// through `StreamingPlaybackController` itself. It only ever needed three read-only properties,
+// and naming the concrete type pulled the whole audio engine into every consumer of this package
+// — which is what kept the gateway from building on Linux. See the protocol for the full story.
 // The gateway builds the same package on Linux for the agent loop alone.
 #if canImport(AVFoundation)
 import Foundation
-import BatonPlaybackKit
 import BatonSubsonicKit
 import BatonSubsonicModels
 
@@ -20,9 +22,8 @@ public final class RemoteCommandRouter {
     /// What this person has said the friend got wrong, fed back into its prompt.
     public var learning: FriendLearningStore?
 
-    private let player: StreamingPlaybackController
+    private let player: any RemotePlayerContext
     private let tools: RemoteToolSurface
-    private let focus: BatonAudioFocusRegistry
     private let settings: RemoteControlSettings
     /// Short per-chat memory, so "select one of them" has something to select
     /// from. In memory only, and never sent for typed commands — only the
@@ -97,15 +98,13 @@ public final class RemoteCommandRouter {
     }
 
     init(
-        player: StreamingPlaybackController,
+        player: any RemotePlayerContext,
         tools: RemoteToolSurface,
-        focus: BatonAudioFocusRegistry,
         settings: RemoteControlSettings,
         conversation: RemoteConversationLog = RemoteConversationLog()
     ) {
         self.player = player
         self.tools = tools
-        self.focus = focus
         self.settings = settings
         self.conversation = conversation
     }

@@ -52,6 +52,13 @@ struct MusicCollectionView: View {
     /// tab was showing still focuses once this Search view mounts). (menu review #2)
     @State private var honoredFocusToken = 0
 
+    /// The query that was last *submitted*, which is what clippings are matched against.
+    ///
+    /// Not `filterText`: in search mode the field is a server search that runs on return, so
+    /// typing must not make local results appear and disappear underneath the server ones that
+    /// are still for the previous query. Both halves answer the same question or neither does.
+    @State private var submittedQuery = ""
+
     /// Where the songs/albums/artists come from. Read via a direct property access
     /// (not a keypath subscript) so `@Observable` change tracking actually fires.
     enum ResultsSource { case starred, search }
@@ -234,14 +241,43 @@ struct MusicCollectionView: View {
     /// only used to show the "no matches" copy.
     private var query: String { filterText.trimmingCharacters(in: .whitespaces).lowercased() }
 
+    /// Clippings matching the submitted search, as songs.
+    ///
+    /// Searching what is *said* inside a clipping is the reason they are here. The server can
+    /// only match a title, so a saved reading is unfindable by any phrase in it — asking the
+    /// store as well is what makes "the article about notarization" a query that works.
+    ///
+    /// Present files only: a search result that stalls on play is worse than one that is absent.
+    private var clippingMatches: [NavidromeSong] {
+        guard searchMode, !submittedQuery.isEmpty else { return [] }
+        let needle = submittedQuery.lowercased()
+        return model.clippings.items
+            .filter(\.isPresent)
+            .filter {
+                $0.clipping.title.lowercased().contains(needle)
+                    || ($0.clipping.source?.lowercased().contains(needle) ?? false)
+                    || ($0.clipping.text?.lowercased().contains(needle) ?? false)
+            }
+            .map(\.asSong)
+    }
+
     /// Songs after (local-only, non-search) filter + sort.
     private var songs: [NavidromeSong] {
         var list = results.songs
+        // Clippings join the ordinary results rather than sitting in a section of their own: they
+        // play through the same player and sort by the same keys, so a separate box would be a
+        // second list to look in for no reason. The row hides the server-only controls (rating,
+        // download, radio) because those mean nothing here — see `NavidromeSong.isLocalOnly`.
+        if searchMode { list = clippingMatches + list }
         if !searchMode, !query.isEmpty {
             list = list.filter {
                 $0.title.lowercased().contains(query) || ($0.artist ?? "").lowercased().contains(query)
             }
         }
+        // These four narrow by server metadata a clipping has none of, so an active one drops
+        // every clipping. That is the honest outcome — asking for "4 stars and up" should not
+        // return something that cannot be rated — and it is why they are applied as written
+        // rather than exempting local files from them.
         if likedOnly { list = list.filter { library.isLiked($0) } }
         if ratingFilter.isActive { list = list.filter { ratingFilter.accepts(library.rating($0)) } }
         if let genreFilter {
@@ -362,7 +398,11 @@ struct MusicCollectionView: View {
                 filterPrompt: filterPrompt,
                 filterOnSubmit: searchMode ? {
                     let q = filterText.trimmingCharacters(in: .whitespaces)
-                    if !q.isEmpty { Task { await onSubmit?(q) } }
+                    if !q.isEmpty {
+                        submittedQuery = q
+                        model.clippings.loadIfNeeded()
+                        Task { await onSubmit?(q) }
+                    }
                 } : nil,
                 filterFocused: $filterFocused,
                 filterHistoryKey: searchMode ? "search" : "liked",
@@ -711,7 +751,9 @@ struct MusicCollectionView: View {
 
     private var songsView: some View {
         Group {
-            if results.songs.isEmpty {
+            // The merged set, not the server's: a query that only a clipping matches must show
+            // the clipping, not the "nothing searched yet" recents.
+            if results.songs.isEmpty, clippingMatches.isEmpty {
                 // Before anything is searched, offer what you opened last time — here and
                 // on the phone, since the list is shared. Falls back to the plain empty
                 // state when there's no history yet.
@@ -1035,6 +1077,10 @@ struct MusicLikedSongRow: View {
     private var downloads: MusicDownloadStore { .shared }
     private var isDownloaded: Bool { downloads.isDownloaded(song.id) }
     private var isDownloading: Bool { downloads.isDownloading(song.id) }
+    /// A clipping or a demo track: a file here, with no server behind it. The server-only
+    /// controls below are hidden rather than shown inert, since a rating control that accepts a
+    /// click and discards it is worse than no rating control.
+    private var isLocalOnly: Bool { song.isLocalOnly }
 
     private func downloadSong() {
         model.music.postToast("Downloading \(song.title)…", symbol: "arrow.down.circle")
@@ -1070,7 +1116,7 @@ struct MusicLikedSongRow: View {
                     .frame(width: 24, alignment: .trailing)
             }
 
-            MusicSongThumb(song: song, showLikeBadge: showLikeBadge, onPlay: onPlay)
+            MusicSongThumb(song: song, showLikeBadge: showLikeBadge && !isLocalOnly, onPlay: onPlay)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title)
@@ -1085,7 +1131,17 @@ struct MusicLikedSongRow: View {
 
             if hovering {
                 // Same actions + icons as the context menu (minus Play = the thumb).
-                MusicRowActions(actions: [
+                MusicRowActions(actions: isLocalOnly ? [
+                    MusicRowAction(title: "Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                        model.music.playNext([song])
+                    },
+                    MusicRowAction(title: "Add to Queue", systemImage: "text.append") {
+                        model.music.enqueue([song])
+                    },
+                    MusicRowAction(title: "Show in Finder", systemImage: "folder") {
+                        if let url = URL(string: song.id) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    },
+                ] : [
                     MusicRowAction(title: "Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
                         model.music.playNext([song])
                     },
@@ -1102,7 +1158,9 @@ struct MusicLikedSongRow: View {
                 ])
             }
 
-            DownloadStatusBadge(songID: song.id)
+            // A download badge on a file that *is* the only copy would be reporting a cache state
+            // that does not exist.
+            if !isLocalOnly { DownloadStatusBadge(songID: song.id) }
 
             if showMetadataColumns {
                 Text(song.genres.first ?? song.genre ?? "")
@@ -1122,7 +1180,13 @@ struct MusicLikedSongRow: View {
                 .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 .frame(width: 52, alignment: .trailing)
 
-            MusicRatingStars(song: song).frame(width: 110, alignment: .center)
+            // The slot is kept even when empty: this is a table, and a row that drops a column
+            // shifts every column after it out of line with the header.
+            if isLocalOnly {
+                Color.clear.frame(width: 110, height: 1)
+            } else {
+                MusicRatingStars(song: song).frame(width: 110, alignment: .center)
+            }
         }
         .padding(.vertical, 5).padding(.horizontal, 10)
         .background(
@@ -1147,6 +1211,11 @@ struct MusicLikedSongRow: View {
             songPlaybackMenuItems(song, model, router: router, onPlay: onPlay)
             Divider()
             songDownloadMenuItems(song, model)
+            if isLocalOnly, let url = URL(string: song.id) {
+                Button("Show in Finder", systemImage: "folder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
             songActionsMenu(song, model)
             songRadioMenuItem(song, model)
             if let onRemoveFromPlaylist {
@@ -1154,7 +1223,7 @@ struct MusicLikedSongRow: View {
                 Button("Remove from Playlist", systemImage: "minus.circle", role: .destructive, action: onRemoveFromPlaylist)
             }
             Divider()
-            songRemovalMenuItem(showConfirm: $showRemoveConfirm)
+            songRemovalMenuItem(song, showConfirm: $showRemoveConfirm)
         }
         .songRemovalConfirm(song, model, isPresented: $showRemoveConfirm)
     }
@@ -1241,7 +1310,7 @@ struct LikedSongGridCell: View {
             songActionsMenu(song, model)
             songRadioMenuItem(song, model)
             Divider()
-            songRemovalMenuItem(showConfirm: $showRemoveConfirm)
+            songRemovalMenuItem(song, showConfirm: $showRemoveConfirm)
         }
         .songRemovalConfirm(song, model, isPresented: $showRemoveConfirm)
     }

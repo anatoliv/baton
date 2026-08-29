@@ -315,6 +315,38 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.8",
+            date: "August 2026",
+            highlight: "Clippings: keep a reading as audio, and find it later by something it said.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Read something aloud, then choose File \u{2192} Keep Reading in Clippings. It "
+                    + "is kept in a Clippings screen alongside your music, plays through the "
+                    + "ordinary player, and works with no server and no network behind it."),
+                HelpWhatsNewChange(.added,
+                    "A clipping can be found by a phrase from the middle of it. The words are "
+                    + "kept with the audio, so searching for what was said works even when you "
+                    + "have forgotten what it was called. Nothing else in Baton can be found "
+                    + "that way, and clippings turn up in the main Search too."),
+                HelpWhatsNewChange(.added,
+                    "If you run the home gateway, a clipping you keep travels to your iPhone and "
+                    + "appears there under Library \u{2192} Clippings."),
+                HelpWhatsNewChange(.improved,
+                    "A clipping no longer offers a rating, a like, a download or radio. Every one "
+                    + "of those needs a server and a clipping has none, so they were controls "
+                    + "that could only ever look like they worked. Deleting one now says plainly "
+                    + "that there is no other copy."),
+                HelpWhatsNewChange(.fixed,
+                    "When your speech server cannot be reached because macOS is blocking Baton "
+                    + "from your local network, Baton now says so and points at the setting, "
+                    + "instead of blaming a server that is running perfectly well."),
+                HelpWhatsNewChange(.fixed,
+                    "Reading a two-column page aloud no longer reads straight across the gap "
+                    + "between the columns, which turned two paragraphs into one piece of "
+                    + "fluent nonsense."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.7",
             date: "August 2026",
             highlight: "Send Baton several things to read and it reads them all, one after another.",

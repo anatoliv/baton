@@ -107,7 +107,12 @@ final class ReadAloudCoordinator {
 
     // MARK: - Reading
 
-    /// Speak a capture. Replaces any reading already in progress.
+    /// Speak a capture, or queue it behind one already being read.
+    ///
+    /// The comment here said "replaces any reading already in progress" for a while after the
+    /// code stopped doing that. See `pending` for why it queues now, and note the
+    /// same drift is what hid a scrobbling bug in `ScrobbleService`: a doc comment describing
+    /// the intent while the code below it did something else.
     func read(_ capture: ScreenTextReader.Capture) {
         pending.append(capture)
         music.speech.pendingReadings = pending.count
@@ -245,15 +250,30 @@ final class ReadAloudCoordinator {
     /// explicit "this one, now", the same as it always was.
     func resume(_ entry: UnfinishedReadings.Entry) {
         stop()
-        let remaining = Array(entry.chunks.dropFirst(entry.resumeIndex))
-        guard !remaining.isEmpty else {
+        guard let remaining = Self.remainingText(of: entry) else {
             unfinished.remove(id: entry.id)
             return
         }
         resumingID = entry.id
         // `prepare` is idempotent on already-prepared text, and going back through it keeps this
         // path identical to every other reading rather than a second way in.
-        speak(prepared: remaining.joined(separator: " "), profile: .generic, sourceName: entry.sourceName)
+        speak(prepared: remaining, profile: .generic, sourceName: entry.sourceName)
+    }
+
+    /// What a resume should actually say: everything from `resumeIndex` on, and nothing before it.
+    ///
+    /// Split out so it can be asserted without driving synthesis. **A resume that silently
+    /// restarts from the top looks like success from the outside** — audio plays, the HUD fills,
+    /// the entry disappears from the menu — and would pass any test that only checks that
+    /// something was spoken. This is the one property of TBX-3832 worth pinning, and it is
+    /// exactly the one a human validating by ear could also miss on a long article.
+    ///
+    /// Nil when nothing is left, which is the caller's cue to forget the entry rather than
+    /// start a reading with no words in it.
+    static func remainingText(of entry: UnfinishedReadings.Entry) -> String? {
+        let remaining = entry.chunks.dropFirst(max(0, entry.resumeIndex))
+        guard !remaining.isEmpty else { return nil }
+        return remaining.joined(separator: " ")
     }
 
     /// How far the *engine* has actually got, as a chunk index. Derived from the range it is
@@ -399,9 +419,24 @@ final class ReadAloudCoordinator {
     /// from the persistence this feature promised not to do. Choosing a destination each time is
     /// what makes an export a per-item exception the person performs rather than a store the app
     /// keeps — and it is why nothing about this changes for anyone who never uses it.
-    func saveLastReading() {
+    func saveLastReading() { saveLastReading(toClippings: false) }
+
+    /// Keep the last reading in Baton, where it plays like anything else.
+    ///
+    /// Same synthesis as the file export — the difference is only where the audio lands. Kept in
+    /// Application Support rather than a folder the person picked, because this copy is Baton's
+    /// to manage: it appears in Clippings, plays through the ordinary player, and is deleted from
+    /// there rather than from the Finder.
+    func keepLastReadingAsClipping() { saveLastReading(toClippings: true) }
+
+    private func saveLastReading(toClippings: Bool) {
         guard let reading = exportable else {
             Self.report(title: "Nothing to save yet", message: "Read something aloud first, then save it.")
+            return
+        }
+
+        if toClippings {
+            keepAsClipping(reading)
             return
         }
 
@@ -446,13 +481,91 @@ final class ReadAloudCoordinator {
         }
     }
 
+    /// Render the reading and hand it to the clipping store.
+    ///
+    /// Written to a temp file first and then *moved* in, so the store never sees a half-rendered
+    /// file: `ClippingStore.adopt` renames, which is atomic within a filesystem. A failure leaves
+    /// the temp file, which the launch sweep clears, rather than an entry pointing at nothing.
+    private func keepAsClipping(_ reading: Exportable) {
+        exportTask?.cancel()
+        exportTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.exportTask = nil }
+            let staged = FileManager.default.temporaryDirectory
+                .appendingPathComponent("baton-clip-\(UUID().uuidString).m4a")
+            self.music.music.postToast("Keeping the reading…", symbol: "waveform", seconds: 4)
+            do {
+                try await ReadAloudExport.write(
+                    chunks: reading.chunks, voice: reading.voice, to: staged,
+                    synthesize: self.synthesize
+                ) { fraction in
+                    guard fraction < 1 else { return }
+                    self.music.music.postToast(
+                        "Keeping the reading… \(Int(fraction * 100))%", symbol: "waveform", seconds: 4
+                    )
+                }
+                let title = ReadAloudExport.suggestedName(
+                    sourceName: reading.sourceName, startedAt: reading.startedAt
+                ).replacingOccurrences(of: ".m4a", with: "")
+                // The text travels with it. That is what makes a clipping findable by what is
+                // said in it rather than only by the name it was given.
+                let item = try self.music.clippings.adopt(
+                    staged, title: title, sourceName: reading.sourceName,
+                    durationSeconds: nil, text: reading.chunks.joined(separator: " "),
+                    sha256: nil, now: Date()
+                )
+                self.music.music.postToast("Kept in Clippings", symbol: "waveform.circle", seconds: 3)
+
+                // Offer it to the gateway so the phone can collect it.
+                //
+                // This was missing, and the omission was backwards: exporting to a folder — the
+                // action that hands the file to *you* and forgets it — uploaded, while keeping it
+                // in Baton did not. Keeping is the one that means "I want this", and so the one
+                // whose result you would expect on your other devices.
+                //
+                // After adopting rather than before, and from the adopted URL rather than the
+                // staging path: the file has moved by then, and uploading the copy that no longer
+                // exists would fail silently on a path nobody watches.
+                // The title and source the Mac itself shows, so the phone's list reads the same.
+                // `title` is `suggestedName` minus its extension, so putting it back yields the
+                // exact name the export panel would have offered.
+                await self.offerToSendToTheGateway(
+                    item.url, quietly: true,
+                    name: "\(title).\(item.url.pathExtension.isEmpty ? "m4a" : item.url.pathExtension)",
+                    origin: reading.sourceName
+                )
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: staged)
+            } catch {
+                try? FileManager.default.removeItem(at: staged)
+                Self.report(title: "Baton couldn't keep that reading",
+                            message: error.localizedDescription)
+            }
+        }
+    }
+
     /// Park the exported file on the home gateway, so the phone can collect it.
     ///
     /// Silent when no gateway is configured, which is the common case: someone who exports a
     /// reading to keep it on this Mac should not be told about a feature they have not set up.
     /// Failures are a toast rather than an alert for the same reason — the file they asked for is
     /// already saved, and this is a bonus on top of it.
-    private func offerToSendToTheGateway(_ fileURL: URL) async {
+    /// - Parameter quietly: suppress the success toast. A clipping has already said "Kept in
+    ///   Clippings", and a second banner announcing it also went to the gateway is noise about
+    ///   plumbing. Failures are still surfaced, because "it is on this Mac but did not reach your
+    ///   other devices" is a different state from "it is saved", and silence would imply the
+    ///   stronger one.
+    /// - Parameters:
+    ///   - name: what the other device should call it. Defaults to the file's own name, which is
+    ///     right for an export (the save panel's name is meaningful) and **wrong for a clipping**,
+    ///     whose file on disk is named by a UUID. The phone derives its title from this, so
+    ///     passing the path's last component put `275a11c0-07ca-4e37…` on screen where the Mac
+    ///     showed "Ghostty 2026-08-29 15.17".
+    ///   - origin: where it came from. Defaults to this machine's name. For a clipping the
+    ///     meaningful answer is the *application* the reading was taken from, which is what the
+    ///     Mac shows as the subtitle; the machine is implicit when every device is yours.
+    private func offerToSendToTheGateway(_ fileURL: URL, quietly: Bool = false,
+                                         name: String? = nil, origin: String? = nil) async {
         let raw = (UserDefaults.standard.string(forKey: "baton.agent.gatewayURL") ?? "")
             .trimmingCharacters(in: .whitespaces)
         let secret = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
@@ -463,12 +576,20 @@ final class ReadAloudCoordinator {
         do {
             let sent = try await files.upload(
                 fileURL,
-                name: fileURL.lastPathComponent,
+                name: name ?? fileURL.lastPathComponent,
                 contentType: "audio/mp4",
-                origin: Host.current().localizedName ?? "Mac"
+                origin: origin ?? Host.current().localizedName ?? "Mac"
             )
             readAloudLog.notice("reading uploaded to the gateway (\(sent.size) bytes)")
-            music.music.postToast("Sent to your other devices", symbol: "iphone", seconds: 3)
+            // The digest is what the *other* device deduplicates on, so it is recorded only once
+            // the file has actually landed. A clipping that never uploaded has no digest, which
+            // is the honest state rather than a claim that it is elsewhere.
+            if let digest = sent.sha256, let match = music.clippings.items.first(where: { $0.url == fileURL }) {
+                music.clippings.setSHA256(id: match.id, to: digest)
+            }
+            if !quietly {
+                music.music.postToast("Sent to your other devices", symbol: "iphone", seconds: 3)
+            }
         } catch {
             // Named, not swallowed: "it did not reach the gateway" and "the gateway refused it"
             // are different problems, and the log line is where the difference survives.

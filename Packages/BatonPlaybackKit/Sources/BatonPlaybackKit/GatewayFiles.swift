@@ -116,8 +116,16 @@ public struct GatewayFiles: Sendable {
         try FileManager.default.moveItem(at: temporary, to: destination)
     }
 
+    /// Remove a file from the gateway.
+    ///
+    /// **A 404 is success.** The gateway evicts on its own after `FileStore.defaultMaximumAge`
+    /// (fourteen days), and another device may have deleted the same file first, so "it is not
+    /// there" is the outcome the caller asked for rather than a failure. Treating it as an error
+    /// meant an ordinary "delete everywhere" on anything older than a fortnight reported that the
+    /// shared copy had survived, which is both wrong and alarming.
     public func delete(id: String) async throws {
         let (data, response) = try await session.data(for: request("DELETE", "v1/files/\(id)"))
+        if let http = response as? HTTPURLResponse, http.statusCode == 404 { return }
         try Self.check(response, data)
     }
 
@@ -126,7 +134,7 @@ public struct GatewayFiles: Sendable {
     /// Streamed in 1 MB slices rather than `Data(contentsOf:)`, so hashing a large file costs a
     /// buffer instead of the whole file. The upload itself streams; hashing it into memory first
     /// would have given that back.
-    static func sha256(of url: URL) throws -> String {
+    public static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()

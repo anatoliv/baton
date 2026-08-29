@@ -1,5 +1,5 @@
 import XCTest
-@testable import BatonPlaybackKit
+@testable import BatonSubsonicModels
 
 /// The boundary is the whole point.
 ///

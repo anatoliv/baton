@@ -209,7 +209,19 @@ final class StreamSeekControllerTests: XCTestCase {
         // seek into a track the server was still encoding.
         c.setStreamStartOffsetForTesting(1800)
 
-        let deadline = Date().addingTimeInterval(8)
+        // Thirty seconds, not eight, and it still exits the moment the boundary is crossed — so
+        // patience costs a healthy build nothing. This flaked once inside the full gate on
+        // 2026-08-29 and passed three times out of three in isolation immediately after, which is
+        // the signature this repo already documents: a threshold set by the machine's mood rather
+        // than by the code.
+        //
+        // The load is not a mystery here. The gate gained a Linux Docker build of the gateway
+        // immediately before the Mac suite that same day, and a container build leaves the Docker
+        // VM busy well after it returns. This test has to play a real second of audio and observe
+        // a real engine cross a boundary, so it is exactly the kind of measurement that slips
+        // when the machine is busy — and the bug it guards (a previous track's timeOffset leaking
+        // across the boundary) shows up within a second or two when it is real.
+        let deadline = Date().addingTimeInterval(30)
         while c.currentIndex == 0, Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }

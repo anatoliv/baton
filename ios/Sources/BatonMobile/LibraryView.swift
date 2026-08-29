@@ -96,6 +96,11 @@ struct LibraryView: View {
                     // later and nothing downloaded advertised twelve downloads.
                     .badge(MusicDownloadStore.shared.downloadedIDs.count)
             }
+        case .clippings:
+            NavigationLink { ClippingsView(model: model) } label: {
+                Label("Clippings", systemImage: section.symbol)
+                    .badge(model.clippings.items.count)
+            }
         case .podcasts:
             NavigationLink { PodcastsInlineView(model: model) } label: {
                 Label("Podcasts", systemImage: section.symbol)

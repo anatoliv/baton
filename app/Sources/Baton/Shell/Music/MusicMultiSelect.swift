@@ -68,6 +68,30 @@ final class MusicMultiSelect {
 /// Task, empty-guard, and toast.
 @MainActor
 enum MusicBatchActions {
+    /// Drop the rows a *server* action cannot address: clippings and demo tracks, whose ids are
+    /// `file://` URLs no server has ever heard of (see `NavidromeSong.isLocalOnly`).
+    ///
+    /// Reachable since clippings started appearing in search results, where they can be selected
+    /// alongside library tracks. Sending their ids to `createPlaylist` or `download` builds a
+    /// playlist of entries that resolve to nothing, and the toast would report a success that did
+    /// not happen. Playing and queueing are exempt because those work perfectly well on a local
+    /// file; only the server round-trips are the problem.
+    static func serverAddressable(_ songs: [NavidromeSong], _ model: MusicModel,
+                                  action: String) -> [NavidromeSong] {
+        let usable = songs.filter { !$0.isLocalOnly }
+        let dropped = songs.count - usable.count
+        guard dropped > 0 else { return usable }
+        // Said out loud. A silently shorter playlist is the failure this exists to prevent.
+        let what = dropped == 1 ? "1 clipping" : "\(dropped) clippings"
+        if usable.isEmpty {
+            model.music.postToast("Nothing to \(action): \(what) only live on this Mac",
+                                  symbol: "exclamationmark.triangle")
+        } else {
+            model.music.postToast("Left out \(what): they only live on this Mac",
+                                  symbol: "exclamationmark.triangle")
+        }
+        return usable
+    }
     static func songs(ofAlbums albums: [NavidromeAlbum], _ model: MusicModel) async -> [NavidromeSong] {
         var all: [NavidromeSong] = []
         for album in albums { all += await model.musicLibrary.albumSongs(id: album.id) }
@@ -105,7 +129,7 @@ enum MusicBatchActions {
 
     static func download(_ model: MusicModel, gather: @escaping () async -> [NavidromeSong]) {
         Task {
-            let songs = await gather()
+            let songs = serverAddressable(await gather(), model, action: "download")
             guard !songs.isEmpty else { return }
             model.music.postToast("Downloading \(songs.count) song\(songs.count == 1 ? "" : "s")…", symbol: "arrow.down.circle")
             await MusicDownloadStore.shared.download(songs)
@@ -114,7 +138,7 @@ enum MusicBatchActions {
 
     static func save(_ model: MusicModel, name: String, gather: @escaping () async -> [NavidromeSong]) {
         Task {
-            let songs = await gather()
+            let songs = serverAddressable(await gather(), model, action: "save")
             guard !songs.isEmpty else { return }
             _ = await model.musicLibrary.createPlaylist(name: name, songIDs: songs.map(\.id))
             await model.musicLibrary.loadPlaylists()
@@ -126,7 +150,8 @@ enum MusicBatchActions {
         _ model: MusicModel, gather: @escaping () async -> [NavidromeSong], onDone: @escaping () -> Void = {}
     ) {
         Task {
-            let songs = await gather()
+            let songs = serverAddressable(await gather(), model, action: "mark for removal")
+            guard !songs.isEmpty else { onDone(); return }
             model.music.postToast("Marked \(songs.count) track\(songs.count == 1 ? "" : "s") for removal", symbol: "xmark.bin")
             for song in songs { await model.musicLibrary.markForRemoval(song) }
             onDone()
@@ -202,7 +227,7 @@ struct MusicBatchAddToPlaylistMenu: View {
 
     private func add(to playlist: NavidromePlaylist) {
         Task {
-            let songs = await gather()
+            let songs = MusicBatchActions.serverAddressable(await gather(), model, action: "add")
             guard !songs.isEmpty else { return }
             let added = await model.musicLibrary.addToPlaylist(id: playlist.id, songIDs: songs.map(\.id))
             if added == 0 {

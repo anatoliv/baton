@@ -1,5 +1,5 @@
+import BatonSubsonicKit
 import Foundation
-import OSLog
 import BatonSubsonicModels
 
 private let summarizerLog = Logger(subsystem: "io.tonebox.baton", category: "TranscriptSummary")

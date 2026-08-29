@@ -150,7 +150,7 @@ struct MusicPanelTrackRow: View {
                 }
             }
             Divider()
-            songRemovalMenuItem(showConfirm: $showRemoveConfirm)
+            songRemovalMenuItem(song, showConfirm: $showRemoveConfirm)
         }
         .songRemovalConfirm(song, model, isPresented: $showRemoveConfirm)
     }

@@ -1,6 +1,5 @@
 import XCTest
 @testable import BatonAgentKit
-import BatonPlaybackKit
 import BatonSubsonicKit
 import BatonSubsonicModels
 

@@ -1,6 +1,6 @@
-import BatonPlaybackKit
+import BatonSubsonicKit
+import BatonSubsonicModels
 import Foundation
-import OSLog
 
 /// One subsystem for the whole app, shared by the feedback log and the
 /// learning store so a failure in either reads the same in `log show`.

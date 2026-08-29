@@ -275,7 +275,12 @@ func songAddToPlaylistMenu(_ songs: [NavidromeSong], _ model: MusicModel) -> som
 @MainActor @ViewBuilder
 func songDownloadMenuItems(_ song: NavidromeSong, _ model: MusicModel) -> some View {
     let downloads = MusicDownloadStore.shared
-    if downloads.isDownloaded(song.id) {
+    if song.isLocalOnly {
+        // Nothing to offer: it is already a file here, and there is no server copy to fetch or
+        // to fall back on. "Remove Download" would be a delete wearing the word for a cache
+        // eviction — see `ClippingStore`, which is a separate store for exactly this reason.
+        EmptyView()
+    } else if downloads.isDownloaded(song.id) {
         Button("Remove Download", systemImage: "trash.slash") {
             downloads.delete(song.id)
             model.music.postToast("Removed download", symbol: "trash.slash")
@@ -300,9 +305,16 @@ func songActionsMenu(_ song: NavidromeSong, _ model: MusicModel) -> some View {
 /// The destructive "Mark for Removal" menu item — flips the caller's confirm flag so a
 /// tap always asks first. Pair with `.songRemovalConfirm` for the dialog + action.
 @MainActor @ViewBuilder
-func songRemovalMenuItem(showConfirm: Binding<Bool>) -> some View {
-    Button("Mark for Removal", systemImage: "xmark.bin", role: .destructive) {
-        showConfirm.wrappedValue = true
+func songRemovalMenuItem(_ song: NavidromeSong? = nil, showConfirm: Binding<Bool>) -> some View {
+    // "Mark for removal" unlikes and 1-stars on the *server*, for a later library cull. For a
+    // local-only file it addresses an id no server has, so it would report success having done
+    // nothing. Clippings are deleted from the Clippings view, where the wording says what it is.
+    if song?.isLocalOnly == true {
+        EmptyView()
+    } else {
+        Button("Mark for Removal", systemImage: "xmark.bin", role: .destructive) {
+            showConfirm.wrappedValue = true
+        }
     }
 }
 
@@ -310,7 +322,11 @@ func songRemovalMenuItem(showConfirm: Binding<Bool>) -> some View {
 /// radio/autoplay suggestions without removing it from the library.
 @MainActor @ViewBuilder
 func songRadioMenuItem(_ song: NavidromeSong, _ model: MusicModel) -> some View {
-    if model.musicRadioBans.isBanned(song.id) {
+    if song.isLocalOnly {
+        // Radio is built from the server's "similar songs" for a library id. A local file is not
+        // in that graph, so banning it from radio bans nothing.
+        EmptyView()
+    } else if model.musicRadioBans.isBanned(song.id) {
         Button("Allow in Radio", systemImage: "hand.thumbsup") { model.musicRadioBans.unban(song.id) }
     } else {
         Button("Don't Play in Radio", systemImage: "hand.thumbsdown") { model.musicRadioBans.ban(song.id) }

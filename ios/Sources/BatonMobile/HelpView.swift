@@ -234,6 +234,26 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0.6",
+            date: "August 2026",
+            highlight: "Deleting a clipping now asks whether you mean this phone or everywhere, and either way it stays deleted.",
+            changes: [
+                .init(.fixed, "A clipping you deleted came back the next time you opened the screen. The phone worked out what to collect by comparing what your gateway held against what it had, so deleting something made it look new again. It now remembers what you threw away."),
+                .init(.added, "Delete now offers two answers, because they are different things. Remove from this iPhone leaves the copy on your Mac alone. Delete Everywhere also removes the shared copy, so no device picks it up again."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.0.5",
+            date: "August 2026",
+            highlight: "Clippings: audio your Mac made, waiting on your phone.",
+            changes: [
+                .init(.added, "Read something aloud on your Mac, choose File \u{2192} Keep Reading in Clippings, and it turns up here under Library \u{2192} Clippings. It plays like any other track, and because it is a real file on the phone it needs no server and no network."),
+                .init(.added, "You can find a clipping by a phrase from the middle of it. The words are kept alongside the audio, so searching for what was said works even when you have forgotten what it was called. Nothing else in Baton can be found that way."),
+                .init(.added, "Clippings arrive when you open the screen, and when you pull down to refresh. There is no background polling: the phone fetches when you look, which is the moment you care about."),
+                .init(.improved, "A clipping no longer offers ratings, likes, downloads or radio. Those all need a server, and a clipping has none, so they were controls that could only ever look like they worked."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.0.4",
             date: "August 2026",
             highlight: "Setting this phone up from a Mac works again \u{2014} scanning the code no longer stops with \u{201C}this file isn't a Baton settings backup\u{201D}.",

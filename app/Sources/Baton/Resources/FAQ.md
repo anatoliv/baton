@@ -429,7 +429,7 @@ for the tail of a long build. See
 **Does Baton watch my screen?**
 No, and it cannot. Baton has no idea what is on your screen until you select something and ask
 for it. There is no background monitoring and no polling — every reading happens because you
-started it. Readings are not saved either: one plays, and then it is gone. Two exceptions, both things you ask for. File → Save Reading as Audio… writes a single file wherever you point it and nowhere else. And if you stop half way through an article, Baton keeps your place so File → Resume Reading can carry on: up to five of those, for seven days, holding the cleaned text you heard rather than the raw selection. Settings → Speech → Read aloud says how many are being held and forgets them on request.
+started it. Readings are not saved either: one plays, and then it is gone. Three exceptions, all of them things you ask for by name. File → Save Reading as Audio… writes a single file wherever you point it and nowhere else. File → Keep Reading in Clippings keeps that same audio inside Baton, where it appears in the Clippings list along with the words that were read, so you can find it later by a phrase from the middle of it; it stays until you delete it, and deleting it from that list removes the audio and the text together. And if you stop half way through an article, Baton keeps your place so File → Resume Reading can carry on: up to five of those, for seven days, holding the cleaned text you heard rather than the raw selection. Settings → Speech → Read aloud says how many are being held and forgets them on request. None of the three leaves your Mac.
 
 **Is Read aloud a screen reader?**
 Not in the accessibility sense, and it is not trying to be. VoiceOver reads interfaces, moving

@@ -155,7 +155,7 @@ struct BatonApp: App {
                         controlSocket = sock
                         // Chat bridges, sharing the server's focus registry. `apply()`
                         // is a no-op unless the user has configured a platform.
-                        let chat = RemoteControlService(player: music.music, tools: MCPToolSurface(music: music, focus: s.focus), focus: s.focus)
+                        let chat = RemoteControlService(player: music.music, tools: MCPToolSurface(music: music, focus: s.focus))
                         chat.apply()
                         remote = chat
                         // Route spoken-summary notifications ("Play" action) to the engine.
