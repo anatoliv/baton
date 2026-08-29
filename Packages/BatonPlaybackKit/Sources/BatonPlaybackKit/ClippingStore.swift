@@ -87,10 +87,12 @@ public final class ClippingStore {
     public private(set) var items: [Item] = []
 
     private let directory: URL
+    private let defaults: UserDefaults
     private var loaded = false
 
-    public init(directory: URL? = nil) {
+    public init(directory: URL? = nil, defaults: UserDefaults = .standard) {
         self.directory = directory ?? Self.defaultDirectory()
+        self.defaults = defaults
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }
 
@@ -161,6 +163,17 @@ public final class ClippingStore {
             try? FileManager.default.removeItem(at: destination)
             throw StoreError.couldNotStore(error.localizedDescription)
         }
+        // Keeping the same audio again is a deliberate act and must beat an older tombstone,
+        // exactly as a re-subscribe beats an unsubscribe. Without this, a clipping deleted
+        // everywhere last week could never be kept again: it would upload to the same digest and
+        // the next reconcile would delete it right back.
+        if let digest = sha256 {
+            var ledger = self.ledger
+            ledger.restore(digest, at: now)
+            ledger.setTitle(title, for: digest, at: now)
+            ledger.setSource(sourceName, for: digest, at: now)
+            self.ledger = ledger
+        }
         reload()
         clippingLog.notice("kept a clipping (\(title, privacy: .public))")
         return Item(clipping: clipping, url: destination)
@@ -171,10 +184,19 @@ public final class ClippingStore {
     /// Written after the fact rather than at `adopt` time because the digest is what the *other*
     /// device deduplicates on, and it only becomes meaningful once the file has actually reached
     /// the gateway. A clipping that was never uploaded has no digest, which is the honest state.
-    public func setSHA256(id: String, to digest: String) {
+    public func setSHA256(id: String, to digest: String, at now: Date = Date()) {
         guard var item = item(id: id) else { return }
         item.clipping.sha256 = digest
         try? JSONEncoder().encode(item.clipping).write(to: sidecarURL(id), options: .atomic)
+        // The ledger is keyed by digest, so a clipping cannot appear in it until it has one.
+        // This is the moment it does: state its title and source now, or the other device would
+        // collect the file and have nothing shared to compare against, leaving a later rename
+        // here with no earlier statement to beat.
+        var ledger = self.ledger
+        ledger.setTitle(item.clipping.title, for: digest, at: item.clipping.createdAt)
+        ledger.setSource(item.clipping.source, for: digest, at: item.clipping.createdAt)
+        ledger.restore(digest, at: now)
+        self.ledger = ledger
         reload()
     }
 
@@ -231,10 +253,21 @@ public final class ClippingStore {
         saveDismissed(entries)
     }
 
-    public func rename(id: String, to title: String) {
+    /// Rename a clipping, and say so in the shared ledger so the other device follows.
+    ///
+    /// The ledger write is what makes this travel. Without it the sidecar changes here and the
+    /// phone keeps the old title for ever, which is the defect this whole mechanism exists for
+    ///. A clipping that never reached the gateway has no digest and so nothing to
+    /// say — it is local by definition.
+    public func rename(id: String, to title: String, at now: Date = Date()) {
         guard var item = item(id: id) else { return }
         item.clipping.title = title
         try? JSONEncoder().encode(item.clipping).write(to: sidecarURL(id), options: .atomic)
+        if let digest = item.clipping.sha256 {
+            var ledger = self.ledger
+            ledger.setTitle(title, for: digest, at: now)
+            self.ledger = ledger
+        }
         reload()
     }
 
@@ -247,12 +280,100 @@ public final class ClippingStore {
     ///   the gateway does not download it again on its next refresh. Defaults to true because a
     ///   delete that undoes itself is not a delete; pass false only when the file is being removed
     ///   from the gateway as well and there is nothing left to come back.
-    public func remove(id: String, dismissing: Bool = true) {
+    /// - Parameters:
+    ///   - dismissing: also record the digest as unwanted **on this device**, so a collector does
+    ///     not download it again on its next refresh. Defaults to true because a delete that
+    ///     undoes itself is not a delete.
+    ///   - everywhere: also state in the shared ledger that this clipping is gone, so the other
+    ///     device deletes its copy too. The two flags are deliberately independent: "remove from
+    ///     this device" is local and must not reach the other one, and "delete everywhere" needs
+    ///     no local tombstone because the ledger already carries the stronger statement.
+    public func remove(id: String, dismissing: Bool = true, everywhere: Bool = false,
+                       at now: Date = Date()) {
         guard let item = item(id: id) else { return }
-        if dismissing, let digest = item.clipping.sha256 { dismiss(sha256: digest) }
+        if let digest = item.clipping.sha256 {
+            if everywhere {
+                var ledger = self.ledger
+                ledger.remove(digest, at: now)
+                self.ledger = ledger
+            } else if dismissing {
+                dismiss(sha256: digest)
+            }
+        }
         try? FileManager.default.removeItem(at: item.url)
         try? FileManager.default.removeItem(at: sidecarURL(id))
         reload()
+    }
+
+    // MARK: - The shared ledger
+
+    /// This device's copy of what every device agrees about clippings.
+    ///
+    /// Held in `UserDefaults` rather than beside the sidecars because that is what
+    /// `PreferenceSync` carries, and inventing a second transport for one file would mean two
+    /// things that can disagree about the same fact.
+    public var ledger: ClippingLedger {
+        get { ClippingLedger.decode(defaults.data(forKey: ClippingLedger.storageKey)) ?? .init() }
+        set { defaults.set(newValue.encoded(), forKey: ClippingLedger.storageKey) }
+    }
+
+    /// Seed the ledger from what is already on disk, once.
+    ///
+    /// **Stamped with each clipping's `createdAt`, not with now.** Seeding at "now" would make a
+    /// device that had been switched off for a week arrive claiming its stale titles were the
+    /// most recent word, silently reverting a rename made elsewhere. Backdating means any real
+    /// statement, from any device, beats the seed.
+    public func seedLedgerIfNeeded() {
+        guard !defaults.bool(forKey: Self.ledgerSeededKey) else { return }
+        loadIfNeeded()
+        var ledger = self.ledger
+        for item in items {
+            guard let digest = item.clipping.sha256 else { continue }   // never travelled
+            if ledger.record(for: digest) == nil {
+                ledger.setTitle(item.clipping.title, for: digest, at: item.clipping.createdAt)
+                ledger.setSource(item.clipping.source, for: digest, at: item.clipping.createdAt)
+            }
+        }
+        self.ledger = ledger
+        defaults.set(true, forKey: Self.ledgerSeededKey)
+    }
+
+    static let ledgerSeededKey = "tonebox.clippings.ledgerSeeded"
+
+    /// Bring local state into line with the shared ledger.
+    ///
+    /// Returns what changed, so a caller can say so rather than having things move under the
+    /// user with no explanation.
+    @discardableResult
+    public func reconcileWithLedger() -> (renamed: Int, deleted: Int) {
+        loadIfNeeded()
+        let ledger = self.ledger
+        var renamed = 0, deleted = 0
+
+        for item in items {
+            guard let digest = item.clipping.sha256,
+                  let record = ledger.record(for: digest) else { continue }
+
+            if record.removed {
+                // Deleted everywhere. No tombstone in `dismissedDigests`: that set means "not on
+                // this device", and the ledger already carries the stronger statement. Writing
+                // both would say the same thing twice in two places that can drift.
+                try? FileManager.default.removeItem(at: item.url)
+                try? FileManager.default.removeItem(at: sidecarURL(item.id))
+                deleted += 1
+                continue
+            }
+            var clipping = item.clipping
+            var changed = false
+            if let title = record.title, title != clipping.title { clipping.title = title; changed = true }
+            if record.sourceAt != nil, record.source != clipping.source { clipping.source = record.source; changed = true }
+            if changed {
+                try? JSONEncoder().encode(clipping).write(to: sidecarURL(item.id), options: .atomic)
+                renamed += 1
+            }
+        }
+        if renamed > 0 || deleted > 0 { reload() }
+        return (renamed, deleted)
     }
 
     // MARK: - Paths

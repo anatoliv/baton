@@ -246,6 +246,8 @@ final class MobileModel {
         // Stamp any synced setting the moment it changes, so a foreground sync has
         // something to push. Manual instrumentation had covered 3 of 16 keys.
         preferenceSync.startObservingChanges()
+        // Before the first sync, so this device's existing clippings are in the first merge.
+        clippings.seedLedgerIfNeeded()
 
         // Last.fm authorizes in a browser; the shared engine stays platform-neutral and
         // lets the host open the URL.
@@ -343,6 +345,10 @@ final class MobileModel {
         // the in-memory list can't see. Without this the Mac's searches only surface after
         // the next launch, which reads as "it doesn't sync".
         searchRecents.reload()
+
+        // Same reason as above, for clippings: the ledger lands in UserDefaults, and a rename or
+        // deletion made on the Mac only takes effect once the files here follow it.
+        clippings.reconcileWithLedger()
     }
 
     /// Point search history at the server now signed in. Entries hold Navidrome ids, so a

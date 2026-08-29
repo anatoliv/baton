@@ -206,7 +206,9 @@ struct ClippingsView: View {
             // `known`, and the next refresh downloads it straight back. See
             // `ClippingStore.dismissedDigests`.
             let known = Set(store.items.compactMap(\.clipping.sha256))
-            let dismissed = store.dismissedDigests
+            // Two different statements, deliberately kept apart: "not on this device" and
+            // "gone everywhere". Collection skips the union of both.
+            let dismissed = store.dismissedDigests.union(store.ledger.removedDigests)
             let wanted = remote.filter { file in
                 guard let digest = file.sha256 else { return false }
                 return !known.contains(digest) && !dismissed.contains(digest)
@@ -260,7 +262,11 @@ struct ClippingsView: View {
     /// than leaving both in place and calling it an error.
     private func deleteEverywhere(_ ids: [String]) async {
         let digests = ids.compactMap { store.item(id: $0)?.clipping.sha256 }
-        for id in ids { store.remove(id: id, dismissing: false) }
+        // `everywhere: true` writes the tombstone into the shared ledger, which is what actually
+        // reaches the Mac. The gateway delete below stops a device that has never
+        // seen the file collecting it afresh, but the ledger is the durable half: a gateway that
+        // is unreachable still leaves a statement every device will honour later.
+        for id in ids { store.remove(id: id, everywhere: true) }
 
         let raw = model.agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
         let token = model.agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)

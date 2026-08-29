@@ -92,7 +92,8 @@ public final class PreferenceSync {
     /// the same reasoning that made podcast feeds additive-only.
     public static let mergedKeys: Set<String> =
         Set(FilterHistory.allKeys.map(FilterHistory.storageKey))
-            .union([SearchRecents.storageKey, PodcastSubscriptionStore.ledgerKey])
+            .union([SearchRecents.storageKey, PodcastSubscriptionStore.ledgerKey,
+                    ClippingLedger.storageKey])
 
     /// Combine this device's list with the shared one. `nil` when there is nothing to say.
     static func mergedValue(key: String, local: Any?, remote: Any?) -> Any? {
@@ -104,6 +105,17 @@ public final class PreferenceSync {
                 PodcastSubscriptionLedger.decode(value as? Data) ?? .init()
             }
             let merged = PodcastSubscriptionLedger.merged(decode(local), decode(remote))
+            guard !merged.records.isEmpty else { return nil }
+            return merged.encoded()
+        }
+        // Clippings merge per *clipping* and per *field*: a device that renamed one and a
+        // device that deleted another must both be right afterwards, and a rename must not win
+        // an argument about whether something was deleted. See `ClippingLedger`.
+        if key == ClippingLedger.storageKey {
+            let decode = { (value: Any?) -> ClippingLedger in
+                ClippingLedger.decode(value as? Data) ?? .init()
+            }
+            let merged = ClippingLedger.merged(decode(local), decode(remote))
             guard !merged.records.isEmpty else { return nil }
             return merged.encoded()
         }

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OSLog
 import BatonPlaybackKit
 import BatonSubsonicKit
 
@@ -23,6 +24,8 @@ import BatonSubsonicKit
 ///
 /// Entirely inert when no gateway is configured, which is the common case: it re-checks
 /// each tick rather than giving up, so setting one up starts syncing without a relaunch.
+private let clippingSyncLog = Logger(subsystem: "io.tonebox.baton", category: "Clippings")
+
 @MainActor
 final class PreferenceSyncScheduler {
     /// Long enough that an all-day window is quiet, short enough that "I searched on my
@@ -40,6 +43,9 @@ final class PreferenceSyncScheduler {
 
     func start() {
         guard loop == nil else { return }
+        // Before the first sync, so the first merge has this device's existing clippings in it.
+        // Backdated to each clipping's own creation — see `seedLedgerIfNeeded`.
+        model.clippings.seedLedgerIfNeeded()
         loop = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 await self?.runIfConfigured()
@@ -87,5 +93,15 @@ final class PreferenceSyncScheduler {
         // Podcasts adopt their synced feeds when that screen appears, so only this one
         // needs waking here.
         model.searchRecents.reload()
+
+        // Clippings are the other half of a merge that has to reach disk: the ledger arrives in
+        // UserDefaults, but a rename or a deletion made on the phone only takes effect when the
+        // sidecars and files here are brought into line with it.
+        let changed = model.clippings.reconcileWithLedger()
+        if changed.renamed > 0 || changed.deleted > 0 {
+            clippingSyncLog.notice(
+                "clippings reconciled: \(changed.renamed, privacy: .public) renamed, \(changed.deleted, privacy: .public) deleted"
+            )
+        }
     }
 }

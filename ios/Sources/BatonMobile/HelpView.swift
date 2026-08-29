@@ -234,6 +234,17 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0.7",
+            date: "August 2026",
+            highlight: "Clippings now agree with your Mac about their names, and about what you deleted.",
+            changes: [
+                .init(.added, "Rename a clipping on your Mac and it is renamed here too. Delete it there and it goes from here as well, if that is the delete you chose."),
+                .init(.added, "Deleting here still asks whether you mean this iPhone or everywhere, and everywhere now really does mean everywhere rather than only this phone and the gateway."),
+                .init(.improved, "A deletion is remembered for six months, so a device that was switched off when it happened still catches up rather than quietly handing the clipping back."),
+                .init(.fixed, "Deleting a clipping your gateway had already cleared out no longer reports that the shared copy survived. It had not; the gateway simply removes files after a fortnight."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.0.6",
             date: "August 2026",
             highlight: "Deleting a clipping now asks whether you mean this phone or everywhere, and either way it stays deleted.",

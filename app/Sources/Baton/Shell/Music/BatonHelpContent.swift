@@ -315,6 +315,24 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.9",
+            date: "August 2026",
+            highlight: "Rename or delete a clipping here and your iPhone follows.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Renaming a clipping now changes its name on your iPhone too, and deleting "
+                    + "one can remove it from both. Until now each device kept its own idea of "
+                    + "what a clipping was called and whether it still existed."),
+                HelpWhatsNewChange(.added,
+                    "Deleting a clipping asks what you mean: remove it from this Mac and leave "
+                    + "whatever is on your iPhone, or delete it everywhere. A single Delete had "
+                    + "to guess, and either guess is wrong half the time."),
+                HelpWhatsNewChange(.improved,
+                    "A clipping you delete stays deleted, even on a device that was switched off "
+                    + "at the time and only catches up a week later."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.8",
             date: "August 2026",
             highlight: "Clippings: keep a reading as audio, and find it later by something it said.",

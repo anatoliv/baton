@@ -97,24 +97,37 @@ struct MusicClippingsView: View {
             Button("Cancel", role: .cancel) { renaming = nil }
             Button("Rename") {
                 if let renaming, !newTitle.trimmingCharacters(in: .whitespaces).isEmpty {
+                    // No `noteLocalChange` here on purpose. `PreferenceSync.startObservingChanges`
+                    // watches UserDefaults and stamps any synced key that moves, and its own note
+                    // says hand-placed calls had drifted to covering 3 of 16 keys — every setting
+                    // somebody forgot to instrument silently stopped syncing. The ledger lives in
+                    // UserDefaults, so the observer already has it.
                     store.rename(id: renaming.id, to: newTitle)
                 }
                 renaming = nil
             }
         }
-        // Confirmed, and worded as what it is. A clipping is not a cached copy of something on a
-        // server — it is the only copy, so "delete" here means the audio is gone for good.
-        .alert("Delete this clipping?", isPresented: .init(
+        // Two outcomes, in the same words the iPhone uses. A single "Delete" had to
+        // pick one of them silently, and either choice is wrong half the time: deleting only
+        // here leaves it on your phone for ever, and deleting everywhere destroys a copy you may
+        // have wanted to keep. Only the person knows which they mean.
+        .confirmationDialog("Delete this clipping?", isPresented: .init(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
-        )) {
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
-            Button("Delete", role: .destructive) {
+        ), titleVisibility: .visible) {
+            Button("Remove from This Mac", role: .destructive) {
                 if let pendingDelete { store.remove(id: pendingDelete.id) }
                 pendingDelete = nil
             }
+            Button("Delete Everywhere", role: .destructive) {
+                if let item = pendingDelete { deleteEverywhere(item) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
-            Text("There is no other copy. Baton made this audio and deleting it cannot be undone.")
+            Text("Baton made this audio and there is no other copy of it. Removing it here leaves "
+                 + "whatever is on your iPhone. Deleting everywhere also removes it from your "
+                 + "home gateway and from your other devices.")
         }
     }
 
@@ -177,6 +190,36 @@ struct MusicClippingsView: View {
             }.disabled(!item.isPresent)
             Divider()
             Button("Delete…", role: .destructive) { pendingDelete = item }
+        }
+    }
+
+    /// Delete here, state it in the shared ledger, and remove the shared copy.
+    ///
+    /// The ledger write is what reaches the other device; the gateway delete is what stops it
+    /// being collected afresh by a device that has never seen it. Both are needed, and the ledger
+    /// is the one that must not fail silently — a gateway that is unreachable still leaves a
+    /// tombstone that will be honoured the next time anything syncs.
+    private func deleteEverywhere(_ item: ClippingStore.Item) {
+        let digest = item.clipping.sha256
+        store.remove(id: item.id, everywhere: true)
+
+        guard let digest else { return }        // never travelled; nothing shared to remove
+        let raw = (UserDefaults.standard.string(forKey: "baton.agent.gatewayURL") ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return }
+
+        Task {
+            do {
+                try await GatewayFiles(gatewayURL: url, token: token).delete(id: digest)
+            } catch {
+                // Named rather than swallowed: the clipping is gone from this Mac either way,
+                // and the tombstone still travels, so this is "the shared copy outlived the
+                // request" rather than a failed delete.
+                model.music.postToast("Deleted here; the shared copy is still on the gateway",
+                                      symbol: "exclamationmark.triangle", seconds: 4)
+            }
         }
     }
 

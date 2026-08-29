@@ -335,3 +335,157 @@ final class ClippingDismissalTests: XCTestCase {
         XCTAssertEqual(reopened.items.first?.clipping.title, "Another")
     }
 }
+
+/// Applying the shared ledger to what is actually on disk.
+///
+/// The ledger tests prove the merge is right; these prove the store acts on it. Both halves are
+/// needed and neither implies the other: a correct merge nobody applies changes nothing, and an
+/// eager apply on a wrong merge deletes files.
+@MainActor
+final class ClippingReconcileTests: XCTestCase {
+
+    private var dir: URL!
+    private var suite: UserDefaults!
+    private var store: ClippingStore!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("baton-recon-\(UUID().uuidString)")
+        let name = "baton.reconcile.\(UUID().uuidString)"
+        suite = UserDefaults(suiteName: name)!
+        store = ClippingStore(directory: dir, defaults: suite)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func staged() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clip-\(UUID().uuidString).m4a")
+        try Data(repeating: 0x41, count: 256).write(to: url)
+        return url
+    }
+
+    /// A rename made on the other device lands here.
+    func testALedgerRenameIsAppliedLocally() throws {
+        let item = try store.adopt(try staged(), title: "Old name", sha256: "abc")
+
+        var ledger = store.ledger
+        ledger.setTitle("New name", for: "abc", at: Date())
+        store.ledger = ledger
+
+        let changed = store.reconcileWithLedger()
+        XCTAssertEqual(changed.renamed, 1)
+        XCTAssertEqual(store.item(id: item.id)?.clipping.title, "New name")
+    }
+
+    /// And it survives a reopen, or the rename would come back on next launch.
+    func testAnAppliedRenameIsPersisted() throws {
+        try store.adopt(try staged(), title: "Old name", sha256: "abc")
+        var ledger = store.ledger
+        ledger.setTitle("New name", for: "abc", at: Date())
+        store.ledger = ledger
+        store.reconcileWithLedger()
+
+        let reopened = ClippingStore(directory: dir, defaults: suite)
+        reopened.loadIfNeeded()
+        XCTAssertEqual(reopened.items.first?.clipping.title, "New name")
+    }
+
+    /// A deletion made on the other device removes the file here, audio and sidecar both.
+    func testALedgerDeletionRemovesTheLocalCopy() throws {
+        let item = try store.adopt(try staged(), title: "Doomed", sha256: "abc")
+        XCTAssertTrue(item.isPresent)
+
+        var ledger = store.ledger
+        ledger.remove("abc", at: Date())
+        store.ledger = ledger
+
+        let changed = store.reconcileWithLedger()
+        XCTAssertEqual(changed.deleted, 1)
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: item.url.path))
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0 != ClippingStore.dismissedFileName }
+        XCTAssertTrue(leftovers.isEmpty, "left behind: \(leftovers)")
+    }
+
+    /// A clipping that never reached the gateway has no digest and nothing shared to say about
+    /// it. Reconciling must leave it entirely alone rather than treat "absent from the ledger"
+    /// as "deleted elsewhere" — that would silently destroy every local-only clipping.
+    func testAClippingWithNoDigestIsUntouched() throws {
+        let item = try store.adopt(try staged(), title: "Local only")
+
+        var ledger = store.ledger
+        ledger.remove("something-else", at: Date())
+        store.ledger = ledger
+
+        let changed = store.reconcileWithLedger()
+        XCTAssertEqual(changed.deleted, 0)
+        XCTAssertEqual(store.item(id: item.id)?.clipping.title, "Local only")
+    }
+
+    /// Renaming here states it in the ledger, which is the only reason it travels.
+    func testRenamingWritesToTheLedger() throws {
+        let item = try store.adopt(try staged(), title: "Before", sha256: "abc")
+        store.rename(id: item.id, to: "After")
+        XCTAssertEqual(store.ledger.record(for: "abc")?.title, "After")
+    }
+
+    /// "Delete everywhere" states it; "remove from this device" deliberately does not, or one
+    /// device tidying up would destroy the other's copy.
+    func testOnlyDeleteEverywhereWritesATombstone() throws {
+        let a = try store.adopt(try staged(), title: "Local delete", sha256: "aaa")
+        let b = try store.adopt(try staged(), title: "Shared delete", sha256: "bbb")
+
+        store.remove(id: a.id)                          // this device only
+        store.remove(id: b.id, everywhere: true)        // everywhere
+
+        // A live record exists (adopt states it), and the point is that it is not a tombstone.
+        XCTAssertEqual(store.ledger.record(for: "aaa")?.removed, false,
+                       "a local removal leaked into the shared ledger and would delete the other device's copy")
+        XCTAssertEqual(store.ledger.record(for: "bbb")?.removed, true)
+        XCTAssertTrue(store.dismissedDigests.contains("aaa"))
+        XCTAssertFalse(store.dismissedDigests.contains("bbb"),
+                       "delete-everywhere also wrote a local tombstone, saying the same thing twice")
+    }
+
+    /// Keeping the same audio again after deleting it everywhere must revive it, or the next
+    /// reconcile deletes it straight back and it can never be kept again.
+    func testKeepingItAgainRevivesItInTheLedger() throws {
+        let first = try store.adopt(try staged(), title: "Round one", sha256: "abc")
+        store.remove(id: first.id, everywhere: true)
+        XCTAssertEqual(store.ledger.record(for: "abc")?.removed, true)
+
+        try store.adopt(try staged(), title: "Round two", sha256: "abc")
+        XCTAssertEqual(store.ledger.record(for: "abc")?.removed, false)
+
+        store.reconcileWithLedger()
+        XCTAssertEqual(store.items.count, 1, "the revived clipping was deleted by reconcile")
+    }
+
+    /// Seeding backdates to each clipping's own creation. Stamping "now" would let a device that
+    /// had been off for a week arrive claiming its stale titles were the latest word.
+    func testSeedingBackdatesToTheClippingsOwnDate() throws {
+        let long_ago = Date(timeIntervalSince1970: 1_000_000)
+        try store.adopt(try staged(), title: "Old", sha256: "abc", now: long_ago)
+
+        store.seedLedgerIfNeeded()
+        XCTAssertEqual(store.ledger.record(for: "abc")?.titleAt, long_ago)
+    }
+
+    /// A rename from elsewhere must beat the seed, which is the whole reason for backdating.
+    func testARemoteRenameBeatsTheSeed() throws {
+        let old = Date(timeIntervalSince1970: 1_000_000)
+        let item = try store.adopt(try staged(), title: "Seeded name", sha256: "abc", now: old)
+        store.seedLedgerIfNeeded()
+
+        var incoming = ClippingLedger()
+        incoming.setTitle("Renamed elsewhere", for: "abc", at: old.addingTimeInterval(3600))
+        store.ledger = ClippingLedger.merged(store.ledger, incoming)
+
+        store.reconcileWithLedger()
+        XCTAssertEqual(store.item(id: item.id)?.clipping.title, "Renamed elsewhere")
+    }
+}
