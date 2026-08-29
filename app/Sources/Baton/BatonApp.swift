@@ -92,6 +92,20 @@ struct BatonApp: App {
         }
     }
 
+    /// Whether the menu-bar icon is shown. False only under tests — see the scene below.
+    ///
+    /// A binding rather than a conditional scene because `SceneBuilder` would not type-check the
+    /// `if`, and `MenuBarExtra(isInserted:)` is the API built for this.
+    @State private var menuBarExtraInserted = !BatonApp.isRunningUnderTests
+
+    /// Whether this process is a test host rather than the app someone launched.
+    ///
+    /// XCTest sets `XCTestConfigurationFilePath` in the environment of the host it injects into,
+    /// which is the one signal available *before* any test runs — early enough to decide whether
+    /// a scene should exist at all.
+    static let isRunningUnderTests =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
     var body: some Scene {
         // Main player window. Reuses the chromeless pop-out view Tonebox ships, so the
         // mini player's "expand" deep-link (`openWindow(id: MusicWindowView.windowID)`)
@@ -260,7 +274,18 @@ struct BatonApp: App {
 
         // Always-available menu-bar controller — current track + compact transport,
         // reachable even when every window is closed. Binds to live player state.
-        MenuBarExtra {
+        //
+        // **Absent under tests, and that is not tidiness.** A gate's test host is this app, so it
+        // put a second Baton icon in the menu bar next to the real one, with a Quit item that
+        // ends the run. That killed four gate runs before it was understood, and the
+        // fix there — `.accessory` at bundle load — hides the Dock icon and the app menu but
+        // *not* a `MenuBarExtra`, which is a separate scene and is exactly what an accessory app
+        // still shows. A fifth run died the same way afterwards, and the diagnostic named this
+        // view in the backtrace.
+        //
+        // Removing the scene is the only thing that removes the icon. Nothing tests the menu bar
+        // extra itself; `BatonMenuBarContent` is covered directly where it matters.
+        MenuBarExtra(isInserted: $menuBarExtraInserted) {
             BatonMenuBarContent(model: music, router: commandRouter)
         } label: {
             BatonMenuBarLabel(model: music)

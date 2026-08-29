@@ -163,7 +163,15 @@ enum BatonMCPSpeakTools {
             music.speech.play(utterance, text: spokenText, sessionLabel: sessionLabel)
             delivered.append("speaking")
         }
-        if plan.banner {
+        // A banner asks "shall I play this?". There is nothing to ask once it has already been
+        // spoken, so a summary delivered to both surfaces does not also queue one.
+        //
+        // This overlap was always odd and was papered over rather than resolved: `confirmBanner`
+        // carries a workaround for it, because the immediate play consumes and deletes the temp
+        // clip, leaving the banner's own Play to do nothing. Harmless while banners were a single
+        // slot that overwrote itself; once they became a queue, every spoken summary left behind
+        // an unanswerable banner and they piled up with no way to drain.
+        if plan.banner, !plan.speakNow {
             music.speech.presentBanner(text: spokenText, utterance: utterance, sessionLabel: sessionLabel)
             bannerShown = true
             delivered.append("banner_shown")

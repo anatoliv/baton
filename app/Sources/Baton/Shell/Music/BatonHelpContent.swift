@@ -315,6 +315,23 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.6",
+            date: "August 2026",
+            highlight: "The \u{201C}more waiting\u{201D} count now goes down and disappears, instead of getting stuck.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "After several summaries had all been read out, the speaking window could sit "
+                    + "on \u{201C}7 more waiting\u{201D} with nothing playing and nothing left to "
+                    + "play. It was counting two different things as though they were one: "
+                    + "summaries queued to be spoken, and summaries waiting for you to press Play. "
+                    + "It now counts only what is still going to be spoken."),
+                HelpWhatsNewChange(.fixed,
+                    "A summary that Baton reads out immediately no longer also leaves a Play "
+                    + "button waiting for you. There was nothing left to agree to, so those piled "
+                    + "up with no way to clear them."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.5",
             date: "August 2026",
             highlight: "Agent voices are a list you write, not a pool of five.",

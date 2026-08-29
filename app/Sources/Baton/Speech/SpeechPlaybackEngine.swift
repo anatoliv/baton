@@ -81,16 +81,19 @@ final class SpeechPlaybackEngine {
     /// instead of replacing each other.
     var pendingAlert: Alert? { pendingAlerts.first }
 
-    /// How many spoken things are waiting: utterances queued behind the one playing, plus
-    /// summaries still waiting to be confirmed. Zero while nothing is pending, which is what the
-    /// UI keys off — an indicator that says "0 waiting" on every ordinary summary is noise.
+    /// How many utterances are queued behind the one being spoken.
     ///
-    /// A reading is deliberately excluded. Its queue is *sentences of one document*, so counting
-    /// them would report "23 waiting" for a single article and mean something entirely different
-    /// to the person reading it than "23 summaries are waiting".
-    var waitingCount: Int {
-        (reading == nil ? utteranceQueue.count : 0) + max(0, pendingAlerts.count - 1)
-    }
+    /// **Only things that will be spoken.** The first version of this also added the pending
+    /// banner queue, and that was wrong in a way a screenshot made obvious: with delivery routed
+    /// to speak *and* banner, every summary is spoken and also leaves a banner, so after the
+    /// audio had drained the label sat at "7 more waiting" with nothing playing and nothing about
+    /// to. A banner is not waiting to be spoken — it is waiting for a decision — and putting two
+    /// different queues behind one number made the label untrue.
+    ///
+    /// A reading is excluded for the same reason. Its queue is *sentences of one document*, so
+    /// counting them would report "23 more waiting" for a single article, which means something
+    /// entirely different to the person listening.
+    var waitingCount: Int { reading == nil ? utteranceQueue.count : 0 }
 
     /// Whether there's a last summary to Replay (server clips replay from cached audio — offline —
     /// and native ones re-run the built-in voice).

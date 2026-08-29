@@ -340,12 +340,28 @@ final class EngineLiveNavidromeTests: XCTestCase {
         // is proven, and a sleep between them so the feeder can actually schedule. A healthy
         // build takes the first slice and costs nothing.
         var inSpoolRMS: Double = 0
-        for _ in 0 ..< 10 {
+        var slices = 0
+        for _ in 0 ..< 24 {
+            slices += 1
             inSpoolRMS = EngineTestSignals.rms(try await harness.renderSeconds(0.25))
             if inSpoolRMS > 0.001 { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        XCTAssertGreaterThan(inSpoolRMS, 0.001, "no audio after the in-spool seek")
+        // Widened from 10 slices to 24 on 2026-08-29, after a third failure of the same shape
+        // during a release gate — again 5/5 in isolation, again a flat 0.0. The machine was
+        // running a Time Machine backup and a second Xcode build at the time, which is the
+        // condition this keeps failing under and never fails without.
+        //
+        // The failure message now says how long it actually waited, because "no audio" and "no
+        // audio within 3.5 seconds on a loaded machine" are different claims and only the second
+        // one is true. If this widening is not enough, do not widen it a fourth time: the test
+        // needs a signal that the node has *begun rendering* rather than a longer guess, and
+        // `aheadSeconds` is explicitly not that signal.
+        XCTAssertGreaterThan(
+            inSpoolRMS, 0.001,
+            "no audio after the in-spool seek, sampled \(slices) times over "
+                + "\(String(format: "%.1f", Double(slices) * 0.35))s"
+        )
 
         // Cold reload: aim past what has been spooled. If the whole file already arrived
         // (short track / fast encode), the far target is reachable and the reload path
