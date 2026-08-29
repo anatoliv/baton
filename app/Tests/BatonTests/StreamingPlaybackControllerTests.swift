@@ -249,6 +249,21 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         // differed was the audio — the stale item for "b" was still queued in the
         // AVQueuePlayer, so the OS sounded b while the app said c. Only the playing item's
         // asset can tell the two apart.
+        // The app's index advances a beat before the player swaps assets, and under load that
+        // beat stretches. Wait for the audio layer to leave "a" rather than asserting into the
+        // gap — a premature read reports the *previous* track, which is neither the bug this
+        // guards (sounding "b", the removed one) nor the correct outcome, so it fails for a
+        // reason that has nothing to do with the code. Observed on 2026-08-28 in a full gate
+        // running alongside another project's release build.
+        //
+        // This costs the test nothing: the loop is bounded, so a player that never swaps still
+        // fails, and a player sounding "b" leaves this loop immediately and fails on the
+        // assertions below exactly as it did before.
+        let swapDeadline = Date().addingTimeInterval(5)
+        while c.currentItemURLForTesting?.path == a.path, Date() < swapDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
         // Compared by path: a preloaded item carries a `?prefetch=1` marker on its URL, so
         // the whole URL is not equal even when the file is right.
         let sounding = c.currentItemURLForTesting?.path

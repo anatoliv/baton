@@ -203,10 +203,25 @@ final class ReadAloudCoordinator {
 
     // MARK: - The pipeline
 
+    /// Consecutive synthesis failures before a reading gives up on the host for good.
+    ///
+    /// Not one. A single failure used to latch the built-in voice for the rest of the reading,
+    /// and the most common cause of a single failure turned out to be entirely recoverable: the
+    /// TTS host closes idle keep-alive connections, so the first request after a gap — and a
+    /// reading is mostly gaps, since it renders only `lookahead` ahead of playback — dies on a
+    /// dead socket while the host is perfectly healthy. The audible result was a long article
+    /// that changed voice part-way through and stayed changed.
+    ///
+    /// Two rather than more, because the other half of the original reasoning still holds: a
+    /// genuinely unreachable host must not make every sentence wait out a connection timeout.
+    /// Two failures in a row is enough to tell "the box is gone" from "that socket was stale",
+    /// and `SpeechService` already retries once inside each attempt.
+    private let failuresBeforeFallback = 2
+
     private func speak(_ chunks: [String], ranges: [NSRange], voice: SpeechConfig.Voice) async {
-        // Once the host has failed, stop asking it. Retrying per chunk would add the connection
-        // timeout to every sentence, turning an unreachable host into a reading that stutters
-        // for minutes instead of simply speaking in the built-in voice.
+        // Counted, not latched on the first failure. Reset by any success, so one bad chunk in
+        // the middle of a long reading costs that sentence rather than every sentence after it.
+        var consecutiveFailures = 0
         var hostIsDown = false
 
         for (index, chunk) in chunks.enumerated() {
@@ -228,14 +243,24 @@ final class ReadAloudCoordinator {
                 let audio = try await synthesize(chunk, voice)
                 if Task.isCancelled { return }
                 let url = try BatonMCPSpeakTools.writeTemp(audio)
+                consecutiveFailures = 0
                 music.speech.play(.file(url), text: chunk, documentRange: range)
             } catch {
+                consecutiveFailures += 1
+                // The error, not a guess at it. This line used to say "TTS host unreachable"
+                // and discard `error` — asserting a cause it had not established, while the
+                // host was answering in 15 ms. The reason lives in the thrown `SynthError`.
+                let reason = (error as? SpeechService.SynthError)?.message ?? error.localizedDescription
                 guard SpeechConfig.fallbackEnabled else {
-                    readAloudLog.error("TTS host unreachable and fallback is off — stopping the reading")
+                    readAloudLog.error("synthesis failed and fallback is off — stopping the reading: \(reason, privacy: .public)")
                     return
                 }
-                hostIsDown = true
-                readAloudLog.notice("TTS host unreachable — reading continues in the built-in voice")
+                if consecutiveFailures >= failuresBeforeFallback {
+                    hostIsDown = true
+                    readAloudLog.notice("TTS host failed \(consecutiveFailures) times — the rest of this reading is in the built-in voice: \(reason, privacy: .public)")
+                } else {
+                    readAloudLog.notice("one chunk failed, still trying the host: \(reason, privacy: .public)")
+                }
                 music.speech.play(.native(chunk), text: chunk, documentRange: range)
             }
         }

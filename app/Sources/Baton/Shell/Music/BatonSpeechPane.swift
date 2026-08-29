@@ -18,6 +18,7 @@ struct BatonSpeechPane: View {
     @State private var alertNotification = SpeechConfig.alertWithNotification
     @State private var alertBanner = SpeechConfig.alertWithBanner
     @State private var allowAutoPlay = SpeechConfig.allowAutoPlay
+    @State private var bluetoothWarmup = SpeechConfig.bluetoothWarmup
     @State private var transcriptionEnabled = SpeechConfig.transcriptionEnabled
     @State private var whisperHost = SpeechConfig.whisperBaseURL
     @State private var whisperModel = SpeechConfig.whisperModel
@@ -82,6 +83,7 @@ struct BatonSpeechPane: View {
                 alertNotification = SpeechConfig.alertWithNotification
                 alertBanner = SpeechConfig.alertWithBanner
                 allowAutoPlay = SpeechConfig.allowAutoPlay
+                bluetoothWarmup = SpeechConfig.bluetoothWarmup
                 loadRows()
             }
             Button("Cancel", role: .cancel) {}
@@ -197,6 +199,24 @@ struct BatonSpeechPane: View {
             Toggle("Alert with an in-app banner", isOn: $alertBanner)
                 .onChange(of: alertBanner) { _, on in SpeechConfig.alertWithBanner = on; enforceReachable() }
             Text("Where summaries show up — pick either, both, or neither. A notification and a banner each carry a **Play** button; with **Announce immediately** they're a replayable record. If a waiting summary would have nowhere to go, a banner is kept on so it's never lost.")
+                .font(.callout).foregroundStyle(.secondary)
+
+            Divider()
+
+            // Bluetooth wake-up. Only meaningful over Bluetooth, so it says so rather than
+            // sitting there implying every summary is being delayed.
+            LabeledContent("Bluetooth head start") {
+                HStack {
+                    Slider(value: $bluetoothWarmup, in: 0 ... 3, step: 0.1)
+                        .frame(width: 200)
+                    Text(bluetoothWarmup == 0 ? "off" : String(format: "%.1fs", bluetoothWarmup))
+                        .monospacedDigit()
+                        .frame(width: 40, alignment: .leading)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: bluetoothWarmup) { _, seconds in SpeechConfig.bluetoothWarmup = seconds }
+            Text("A Bluetooth speaker sleeps when nothing is playing and takes a moment to wake, which otherwise eats the first word. Baton holds silence for this long before speaking, but **only** over Bluetooth — wired and built-in output are never delayed. Raise it if you still lose the start; the Console log reports how long your speaker actually took.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }

@@ -348,6 +348,78 @@ final class ReadAloudCoordinatorTests: XCTestCase {
         XCTAssertFalse(c.canExport)
         XCTAssertNil(c.exportable)
     }
+
+    // MARK: - One bad chunk must not cost the rest of the reading
+
+    /// A single synthesis failure mid-reading must not stop Baton asking the host.
+    ///
+    /// This is the bug a user heard as "the voice changes on longer selections". The TTS host
+    /// closes idle keep-alive connections, and a reading is mostly idle — it renders only two
+    /// chunks ahead of playback — so the first request after a gap dies on a dead socket while
+    /// the host is answering in 15 ms. One failure latched `hostIsDown`, and every remaining
+    /// sentence was spoken by the built-in macOS voice. Measured: a retry succeeds in 0.24 s.
+    ///
+    /// The assertion is that the host is asked for chunk three *after* chunk two failed. Under
+    /// the old latching behaviour that request was never made, so this fails on the exact
+    /// regression rather than on a proxy for it.
+    func testOneFailedChunkDoesNotStopBatonAskingTheHost() async {
+        SpeechConfig.fallbackEnabled = true    // the native voice stands in for the failed chunk
+        defer { SpeechConfig.fallbackEnabled = false }
+
+        let music = MusicModel()
+        var requested: [String] = []
+        let c = ReadAloudCoordinator(music: music)
+        c.synthesize = { text, _ in
+            requested.append(text)
+            // Fail only the second chunk, the way a stale socket does.
+            if requested.count == 2 { throw SpeechService.SynthError(message: "stale socket") }
+            return Data([0x00])
+        }
+
+        c.read(.init(
+            text: "The first sentence is long enough to be its own chunk here. "
+                + "The second sentence is also long enough to stand by itself. "
+                + "And the third sentence needs to be asked for after the failure.",
+            profile: .generic, sourceName: nil
+        ))
+        await settle()
+
+        XCTAssertGreaterThanOrEqual(
+            requested.count, 3,
+            "after one chunk failed Baton stopped asking the host — that is the latch that made "
+                + "a long reading change voice part-way and stay changed: \(requested)"
+        )
+    }
+
+    /// A host that is genuinely gone still gives up promptly rather than making every sentence
+    /// wait out its own timeout, which is what the original latch was right to avoid.
+    func testAHostThatKeepsFailingIsGivenUpOn() async {
+        SpeechConfig.fallbackEnabled = true
+        defer { SpeechConfig.fallbackEnabled = false }
+
+        let music = MusicModel()
+        var requested: [String] = []
+        let c = ReadAloudCoordinator(music: music)
+        c.synthesize = { text, _ in
+            requested.append(text)
+            throw SpeechService.SynthError(message: "host is gone")
+        }
+
+        c.read(.init(
+            text: "The first sentence is long enough to be its own chunk here. "
+                + "The second sentence is also long enough to stand by itself. "
+                + "And a third sentence, plus a fourth that should never be requested at all. "
+                + "This fifth one should certainly never reach the host either, not once.",
+            profile: .generic, sourceName: nil
+        ))
+        await settle()
+
+        XCTAssertEqual(
+            requested.count, 2,
+            "a dead host should be given up on after two consecutive failures, not asked for "
+                + "every sentence: \(requested)"
+        )
+    }
 }
 
 /// The synthetic-copy regression from 0.17.1, pinned.

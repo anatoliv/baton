@@ -79,6 +79,42 @@ public enum AudioOutputDevices {
         return status == noErr ? deviceID : 0
     }
 
+    // MARK: - Transport
+
+    /// How audio physically reaches this device — built-in, USB, HDMI, Bluetooth, AirPlay…
+    ///
+    /// A `UInt32` four-char code (`kAudioDeviceTransportType*`) rather than an enum of our
+    /// own, because the list is CoreAudio's to extend and a closed enum would silently
+    /// mis-file anything Apple adds later.
+    public static func transportType(of id: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(id, &address, 0, nil, &size, &transport)
+        return status == noErr ? transport : nil
+    }
+
+    /// True when audio to this device travels over Bluetooth.
+    ///
+    /// Worth knowing because a Bluetooth link goes to standby when nothing is playing and
+    /// takes a noticeable moment to wake — long enough to swallow the first word of a spoken
+    /// summary. Callers use this to pay that cost deliberately (see `SpeechAudioPlayer`)
+    /// rather than losing the start of the sentence to it.
+    ///
+    /// AirPlay has a comparable wake-up and is deliberately *not* included: it also carries a
+    /// large steady-state buffer of its own, so it wants a different remedy than this one.
+    /// Unreadable transport counts as false — a guess in the other direction would add a
+    /// delay to wired output, which is the case that has no problem to fix.
+    public static func isBluetooth(_ id: AudioDeviceID) -> Bool {
+        guard let transport = transportType(of: id) else { return false }
+        return transport == UInt32(kAudioDeviceTransportTypeBluetooth)
+            || transport == UInt32(kAudioDeviceTransportTypeBluetoothLE)
+    }
+
     /// A line for the UI when the wanted destination isn't in `outputs()` — an AirPlay
     /// speaker that macOS hasn't connected yet has no CoreAudio device to point at.
     public static let systemDefaultHint =

@@ -72,6 +72,24 @@ final class SpeechAudioPlayer {
 
     private var isPlayingSegment = false
 
+    /// True while a clip is parked mid-sentence by `pause()`, as opposed to finished.
+    ///
+    /// `isPlayingSegment` alone cannot tell those apart, and the linger below has to: a paused
+    /// clip still owns the node's schedule, so tearing the engine down under it would discard
+    /// the buffer and `resume()` would come back to silence.
+    private var isPausedMidClip = false
+
+    /// Frames of Bluetooth warm-up padding scheduled ahead of the current segment, so the
+    /// playhead can subtract them. The node's clock counts the pad; the listener should not.
+    private var prerollFrames: AVAudioFramePosition = 0
+
+    /// When the graph was last started, for measuring how long the output device actually took
+    /// to produce audio. Reported once per cold Bluetooth start (see `bluetoothWarmup`).
+    private var engineStartedAt: Date?
+
+    /// Holds the graph open for a short window after an utterance, on Bluetooth only.
+    private var lingerTask: Task<Void, Never>?
+
     private(set) var duration: TimeInterval = 0
 
     init() {
@@ -125,6 +143,9 @@ final class SpeechAudioPlayer {
     /// Start (or restart) playback from `startFrame`.
     func play() {
         guard let buffer else { return }
+        // Whether the graph was cold decides the warm-up: a link that is already streaming has
+        // nothing to wake. Read it *before* starting the engine, which is what makes it warm.
+        let wasCold = !engine.isRunning
         startEngineIfNeeded()
         guard engine.isRunning else { return }
 
@@ -137,6 +158,8 @@ final class SpeechAudioPlayer {
         guard let segment else { return }
 
         node.stop()
+        isPausedMidClip = false
+        prerollFrames = scheduleWarmUpIfNeeded(cold: wasCold, format: segment.format)
         node.scheduleBuffer(segment, at: nil, options: [], completionCallbackType: .dataPlayedBack) {
             [weak self] _ in
             Task { @MainActor in
@@ -152,6 +175,7 @@ final class SpeechAudioPlayer {
         guard isPlayingSegment else { return }
         node.pause()
         isPlayingSegment = false
+        isPausedMidClip = true
     }
 
     /// Resume after `pause()` without re-scheduling — the node keeps its position.
@@ -160,15 +184,24 @@ final class SpeechAudioPlayer {
         startEngineIfNeeded()
         node.play()
         isPlayingSegment = true
+        isPausedMidClip = false
     }
 
-    /// Stop and release the graph. Idempotent.
+    /// Stop the current clip. Idempotent.
+    ///
+    /// Note what this deliberately no longer does: tear the graph down on the spot. `adopt()`
+    /// calls `stop()` before *every* clip, so stopping the engine here would hand a Bluetooth
+    /// link back to standby between two consecutive summaries and re-pay the wake-up on each —
+    /// the exact cost the linger exists to avoid. The graph goes away when the linger expires,
+    /// and immediately on any other output, where there is nothing to amortise.
     func stop() {
         generation &+= 1   // any callback in flight is now stale
         node.stop()
         isPlayingSegment = false
+        isPausedMidClip = false
+        prerollFrames = 0
         startFrame = 0
-        if engine.isRunning { engine.stop() }
+        beginLinger()
     }
 
     /// Drop the clip entirely, so nothing can be resumed or replayed from it.
@@ -188,7 +221,10 @@ final class SpeechAudioPlayer {
         guard let render = node.lastRenderTime,
               let played = node.playerTime(forNodeTime: render)
         else { return Double(startFrame) / rate }
-        return Double(startFrame + played.sampleTime) / rate
+        // Any Bluetooth warm-up padding was scheduled on this same node, so the node's clock
+        // counts it. The listener is not hearing the summary yet, so the playhead must not.
+        let intoSegment = max(0, played.sampleTime - prerollFrames)
+        return Double(startFrame + intoSegment) / rate
     }
 
     /// Seek to an absolute position, re-scheduling from that frame.
@@ -204,6 +240,7 @@ final class SpeechAudioPlayer {
             generation &+= 1
             node.stop()
             isPlayingSegment = false
+            prerollFrames = 0
         }
     }
 
@@ -228,8 +265,14 @@ final class SpeechAudioPlayer {
 
         let resumeAt = isPlayingSegment ? currentTime : nil
         let wasRunning = engine.isRunning
+        // Re-pointing the unit needs the engine stopped, so a pending linger has to go — it
+        // would otherwise stop the graph again underneath the clip we are about to resume.
+        lingerTask?.cancel()
+        lingerTask = nil
         node.stop()
         isPlayingSegment = false
+        isPausedMidClip = false
+        prerollFrames = 0
         if wasRunning { engine.stop() }
         do {
             try unit.setDeviceID(target)
@@ -264,14 +307,18 @@ final class SpeechAudioPlayer {
 
     // MARK: - Engine lifecycle
 
-    /// Start the graph on demand. Nothing renders between summaries — that is the whole point
+    /// Start the graph on demand. Nothing renders between summaries — that is still the point
     /// of speech having its own engine rather than living on the music engine's permanent one.
+    /// The one exception is the Bluetooth linger below, which is bounded and opt-outable.
     private func startEngineIfNeeded() {
+        lingerTask?.cancel()
+        lingerTask = nil
         guard !engine.isRunning else { return }
         #if os(macOS)
         applyPinnedDeviceIfNeeded()
         #endif
         engine.prepare()
+        engineStartedAt = Date()
         do {
             try engine.start()
         } catch {
@@ -281,8 +328,124 @@ final class SpeechAudioPlayer {
 
     private func finishNaturally() {
         isPlayingSegment = false
+        isPausedMidClip = false
+        prerollFrames = 0
         startFrame = 0
+        beginLinger()
         onFinish?()
+    }
+
+    // MARK: - Bluetooth wake-up
+
+    #if os(macOS)
+    /// Whether speech is currently going out over Bluetooth — the engine's own device when it
+    /// has one pinned, otherwise whatever the system is using.
+    private var outputIsBluetooth: Bool {
+        var device = engine.outputNode.auAudioUnit.deviceID
+        if device == 0 { device = AudioOutputDevices.defaultOutputDeviceID() }
+        guard device != 0 else { return false }
+        return AudioOutputDevices.isBluetooth(device)
+    }
+    #else
+    private var outputIsBluetooth: Bool { false }
+    #endif
+
+    /// Queue near-silence ahead of the utterance when the link has to wake up first, and
+    /// report how long that took. Returns the frames scheduled, for the playhead to discount.
+    ///
+    /// This is scheduled on the same player node as the speech, which is what makes it a
+    /// *first-render* gate rather than a blind sleep: the node consumes nothing until the
+    /// device is actually rendering, so the padding is spent after audio starts flowing, not
+    /// during the silence before it. The duration on top is the floor for the part CoreAudio
+    /// cannot see — the speaker's amplifier unmuting.
+    private func scheduleWarmUpIfNeeded(cold: Bool, format: AVAudioFormat) -> AVAudioFramePosition {
+        guard cold, outputIsBluetooth else { return 0 }
+        let seconds = SpeechConfig.bluetoothWarmup
+        guard seconds > 0, let pad = Self.warmUpBuffer(format: format, seconds: seconds)
+        else { return 0 }
+
+        let startedAt = engineStartedAt
+        node.scheduleBuffer(pad, at: nil, options: [], completionCallbackType: .dataPlayedBack) { _ in
+            guard let startedAt else { return }
+            // The pad is only consumed once audio is flowing, so everything beyond its own
+            // length is what the link took to wake. This is the number to set the floor from.
+            let woke = String(format: "%.2f", max(0, Date().timeIntervalSince(startedAt) - seconds))
+            let held = String(format: "%.2f", seconds)
+            speechLog.info("""
+                speech: bluetooth link woke in \(woke, privacy: .public)s, held \
+                \(held, privacy: .public)s of warm-up — raise tonebox.speech.bluetoothWarmup \
+                if the first word is still clipped
+                """)
+        }
+        return AVAudioFramePosition(pad.frameLength)
+    }
+
+    /// A buffer of *near*-silence: noise at roughly −65 dBFS.
+    ///
+    /// Not digital silence, and that is the whole trick. Plenty of Bluetooth speakers decide
+    /// they are idle by looking for signal, so a run of exact zeros can fail to wake one at
+    /// all, or let it doze off again halfway through the padding — leaving the clipping
+    /// exactly where it was. This is inaudible, but it is signal.
+    /// Internal rather than private so the suite can assert the one property that matters and
+    /// cannot be heard from a test: that the pad is inaudible but *not* digitally silent.
+    static func warmUpBuffer(format: AVAudioFormat, seconds: TimeInterval) -> AVAudioPCMBuffer? {
+        // Rounded, not truncated: 0.7 × 22050 is 15434.999… in binary floating point, and
+        // `AVAudioFrameCount` would quietly take a frame off every pad whose length lands
+        // just under an integer.
+        let frames = AVAudioFrameCount(max(1, (seconds * format.sampleRate).rounded()))
+        guard let pad = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+        pad.frameLength = frames
+        let channels = Int(format.channelCount)
+        let peak: Float = 0.00056   // ≈ −65 dBFS
+
+        if let destination = pad.floatChannelData {
+            for channel in 0 ..< channels {
+                for frame in 0 ..< Int(frames) {
+                    destination[channel][frame] = .random(in: -peak ... peak)
+                }
+            }
+            return pad
+        }
+        if let destination = pad.int16ChannelData {
+            let scale = max(Int16(1), Int16(peak * Float(Int16.max)))
+            for channel in 0 ..< channels {
+                for frame in 0 ..< Int(frames) {
+                    destination[channel][frame] = .random(in: -scale ... scale)
+                }
+            }
+            return pad
+        }
+        // Some other sample layout: skip the padding rather than schedule a buffer of
+        // uninitialised memory at a speaker.
+        return nil
+    }
+
+    // MARK: - Engine linger
+
+    /// Hold the graph open briefly after a clip, so a burst of summaries wakes the link once.
+    ///
+    /// Bluetooth only. On built-in or wired output there is no wake-up to amortise, so the
+    /// engine stops immediately exactly as it always did, and the idle cost the header worries
+    /// about stays at zero for everyone who never plugs in a speaker.
+    private func beginLinger() {
+        lingerTask?.cancel()
+        lingerTask = nil
+        let seconds = outputIsBluetooth ? SpeechConfig.engineLinger : 0
+        guard seconds > 0, engine.isRunning else { teardownEngine(); return }
+        lingerTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.teardownEngine()
+        }
+    }
+
+    /// Actually stop the graph, unless something is still using it.
+    private func teardownEngine() {
+        lingerTask?.cancel()
+        lingerTask = nil
+        guard !isPlayingSegment, !isPausedMidClip else { return }
+        if engine.isRunning { engine.stop() }
+        engineStartedAt = nil
     }
 
     /// A view of `buffer` starting at `from`, because `scheduleBuffer` always plays a buffer

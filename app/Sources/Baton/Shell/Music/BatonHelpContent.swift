@@ -315,6 +315,22 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.3",
+            date: "August 2026",
+            highlight: "A long reading stays in the voice it started in.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Reading a long article could change voice part-way through and stay changed. "
+                    + "Baton prepares each sentence a little ahead of the one being spoken, so "
+                    + "between sentences it sits idle \u{2014} long enough that a speech server "
+                    + "may close the connection. The next sentence then failed instantly, and "
+                    + "one failure was enough to hand the rest of the article to the built-in "
+                    + "macOS voice. Short readings never paused long enough to hit it, which is "
+                    + "why it only showed up on the long ones. Baton now retries, and only gives "
+                    + "up on a server that fails twice in a row."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.2",
             date: "August 2026",
             highlight: "The read-aloud shortcut now works in a browser, and any reading can be saved as an audio file.",

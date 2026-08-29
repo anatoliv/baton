@@ -65,13 +65,25 @@ public enum SpeechService {
         return data
     }
 
-    /// One quick retry on connection-refused / lost / timeout — the self-hosted TTS host may
-    /// be waking up (a cold GPU box).
+    /// One quick retry on any transport failure — the self-hosted TTS host may be waking up
+    /// (a cold GPU box), or the connection may simply have gone stale.
+    ///
+    /// **Any `URLError`, not a list of three.** It used to retry only `.cannotConnectToHost`,
+    /// `.networkConnectionLost` and `.timedOut`, and a case outside that list is exactly what
+    /// broke long readings: the Kokoro host closes idle keep-alive connections, a reading leaves
+    /// the connection idle for as long as playback takes, and the next request dies instantly on
+    /// a dead socket. Measured on 2026-08-28 — two requests back to back succeed, one after 47
+    /// seconds of idle fails in 0.00s, and an immediate retry succeeds in 0.24s.
+    ///
+    /// Retrying a POST is normally unsafe, because the server may have acted on the first one.
+    /// It is safe *here* specifically: synthesis has no side effects, so the worst a duplicate
+    /// costs is a second of GPU time. That reasoning does not transfer to other POSTs in this
+    /// app, which is why the retry lives in this function rather than in a shared helper.
     private static func sendWithRetry(_ request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
         do {
             return try await session.data(for: request)
-        } catch let error as URLError where
-            error.code == .cannotConnectToHost || error.code == .networkConnectionLost || error.code == .timedOut {
+        } catch let error as URLError {
+            speechLog.notice("TTS request failed (\(error.code.rawValue, privacy: .public)) — retrying once")
             try? await Task.sleep(nanoseconds: 500_000_000)
             return try await session.data(for: request)
         }

@@ -25,6 +25,8 @@ public enum SpeechConfig {
     static let announceImmediatelyKey = "tonebox.speech.announceImmediately"
     static let alertNotificationKey = "tonebox.speech.alertNotification"
     static let alertBannerKey = "tonebox.speech.alertBanner"
+    static let bluetoothWarmupKey = "tonebox.speech.bluetoothWarmup"
+    static let engineLingerKey = "tonebox.speech.engineLinger"
     /// Maximum characters accepted by speak_summary — a summary, not an essay. Beyond this
     /// the tool errors rather than reading a 50 KB blob aloud.
     public static let maxSummaryChars = 2000
@@ -108,6 +110,46 @@ public enum SpeechConfig {
     public static var fallbackEnabled: Bool {
         get { defaults.object(forKey: fallbackEnabledKey) as? Bool ?? true }
         set { defaults.set(newValue, forKey: fallbackEnabledKey) }
+    }
+
+    // MARK: - Bluetooth wake-up
+
+    /// Seconds of near-silence held before an utterance when the output is **Bluetooth** and
+    /// the audio graph was cold.
+    ///
+    /// A Bluetooth link drops to standby with nothing playing, and takes a moment to come
+    /// back — which is otherwise spent eating the first word of the summary. The padding is
+    /// scheduled ahead of the speech on the same player node, so it is consumed only once the
+    /// device is genuinely rendering: this is "first render **plus** a floor", not a blind
+    /// sleep. The floor exists because CoreAudio reports a device as running before the
+    /// speaker's amplifier has unmuted, and that last part is invisible from the Mac.
+    ///
+    /// A setting rather than a constant because speakers differ by more than a factor of two.
+    /// Zero disables the padding. `speechLog` reports the measured wake-up after each cold
+    /// Bluetooth start, so this can be set from evidence instead of taste.
+    public static var bluetoothWarmup: TimeInterval {
+        get {
+            guard defaults.object(forKey: bluetoothWarmupKey) != nil else { return 0.7 }
+            return min(max(defaults.double(forKey: bluetoothWarmupKey), 0), 5)
+        }
+        set { defaults.set(min(max(newValue, 0), 5), forKey: bluetoothWarmupKey) }
+    }
+
+    /// Seconds to leave the speech graph running after an utterance ends, **Bluetooth only**.
+    ///
+    /// Speech has its own engine precisely so nothing renders between summaries, and on wired
+    /// or built-in output that stays true — there is no wake-up to amortise, so the linger is
+    /// not applied at all. Over Bluetooth the trade reverses: tearing the graph down returns
+    /// the link to standby, so a burst of summaries (a turn ending, then a permission prompt)
+    /// would pay the wake-up once each. Holding the graph for a short window pays it once.
+    ///
+    /// Zero restores the original always-teardown behaviour.
+    public static var engineLinger: TimeInterval {
+        get {
+            guard defaults.object(forKey: engineLingerKey) != nil else { return 25 }
+            return min(max(defaults.double(forKey: engineLingerKey), 0), 300)
+        }
+        set { defaults.set(min(max(newValue, 0), 300), forKey: engineLingerKey) }
     }
 
     /// Whether an agent may make speech play immediately (`mode:"auto"`) without a
@@ -225,6 +267,8 @@ public enum SpeechConfig {
         defaults.removeObject(forKey: alertBannerKey)
         defaults.removeObject(forKey: transcriptionEnabledKey)
         defaults.removeObject(forKey: whisperModelKey)
+        defaults.removeObject(forKey: bluetoothWarmupKey)
+        defaults.removeObject(forKey: engineLingerKey)
         if includeHosts {
             defaults.removeObject(forKey: kokoroHostKey)
             defaults.removeObject(forKey: chatterboxHostKey)
