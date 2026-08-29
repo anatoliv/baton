@@ -1460,6 +1460,10 @@ which is the largest thing Baton ever asks for. Once it is on, hold **Option** w
 shortcut. Baton captures only when you press it, only the window in front, and the picture is
 never saved.
 
+**Several readings queue.** Send Baton more than one thing to read and it reads them in turn
+rather than cancelling what it was doing. The speaking window says how many are still to come.
+To stop the lot, close that window.
+
 **An agent hands it over.** Baton's `read_aloud` tool takes text an agent already has and
 reads it, which is the practical answer for a web page. Pulling the *article* out of a page,
 rather than the navigation and the cookie banner, is real work, and an agent driving the

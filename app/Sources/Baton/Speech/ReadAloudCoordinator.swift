@@ -109,12 +109,35 @@ final class ReadAloudCoordinator {
 
     /// Speak a capture. Replaces any reading already in progress.
     func read(_ capture: ScreenTextReader.Capture) {
-        stop()
+        pending.append(capture)
+        music.speech.pendingReadings = pending.count
+        if !isReading { startNextReading() }
+    }
+
+    /// Readings waiting behind the one being spoken, oldest first.
+    ///
+    /// **This used to replace rather than queue**, and that was right while a person selecting
+    /// text was the only caller: you highlight a new paragraph because you want *that* one now.
+    /// The `read_aloud` MCP tool added a caller meaning the opposite — an agent handing
+    /// over three articles means "read me these three" — and got no signal that the first two had
+    /// been cancelled mid-sentence. It also sat beside a summary queue that holds everything,
+    /// which made the inconsistency plain: several summaries were all read, several articles were
+    /// not.
+    ///
+    /// "I want this one *now*" is still available, and is what stopping is for: `stop()` clears
+    /// the queue as well as the reading, so × on the window means all of it.
+    @ObservationIgnored private var pending: [ScreenTextReader.Capture] = []
+
+    /// Start the next queued reading, if any and if nothing is being read.
+    private func startNextReading() {
+        guard !isReading, !pending.isEmpty else { return }
+        let capture = pending.removeFirst()
+        music.speech.pendingReadings = pending.count
         if capture.gist {
             readGist(capture)
-            return
+        } else {
+            speak(prepared: capture.text, profile: capture.profile, sourceName: capture.sourceName)
         }
-        speak(prepared: capture.text, profile: capture.profile, sourceName: capture.sourceName)
     }
 
     /// Summarize first, then speak the summary.
@@ -196,6 +219,7 @@ final class ReadAloudCoordinator {
                 // Ran to the end: nothing to come back to, so drop any saved position rather
                 // than leaving a finished article in the Resume menu.
                 self.unfinished.remove(id: id)
+                self.startNextReading()
             } else {
                 // Ended early — the TTS host failed with the fallback switched off. Keep the
                 // place. Removing here was the first version of this code and it was wrong in a
@@ -217,6 +241,8 @@ final class ReadAloudCoordinator {
     /// The stored chunks are re-spoken from `resumeIndex`, not re-prepared: they are already
     /// normalized and already through the redactor, and re-running preparation on them could
     /// only change what you hear relative to what you heard before the interruption.
+    /// Resuming replaces rather than queues: choosing an article from the Resume menu is an
+    /// explicit "this one, now", the same as it always was.
     func resume(_ entry: UnfinishedReadings.Entry) {
         stop()
         let remaining = Array(entry.chunks.dropFirst(entry.resumeIndex))
@@ -266,6 +292,11 @@ final class ReadAloudCoordinator {
         if isReading, let id = currentReadingID { recordPosition(id: id) }
         currentReadingID = nil
         currentRanges = []
+        // Stopping means stopping, including what has not started. Leaving the queue would make
+        // × on the window dismiss one article and start the next, which is the shape of the bug
+        // that made closing the window feel broken in the first place.
+        pending.removeAll()
+        music.speech.pendingReadings = 0
         task?.cancel()
         task = nil
         if isReading { music.speech.stop() }

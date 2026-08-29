@@ -315,6 +315,18 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.7",
+            date: "August 2026",
+            highlight: "Send Baton several things to read and it reads them all, one after another.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "A new reading used to cancel whichever one was already going, so handing "
+                    + "Baton three articles read only the third. They now queue and are read in "
+                    + "turn, and the speaking window says how many are still to come. To stop "
+                    + "everything, close that window."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.6",
             date: "August 2026",
             highlight: "The \u{201C}more waiting\u{201D} count now goes down and disappears, instead of getting stuck.",

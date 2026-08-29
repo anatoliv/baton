@@ -81,6 +81,12 @@ final class SpeechPlaybackEngine {
     /// instead of replacing each other.
     var pendingAlert: Alert? { pendingAlerts.first }
 
+    /// Readings queued behind the one being read, set by `ReadAloudCoordinator`.
+    ///
+    /// Kept here rather than read off the coordinator so `waitingCount` stays one number computed
+    /// in one place. The view should not have to know which of two queues is the live one.
+    var pendingReadings = 0
+
     /// How many utterances are queued behind the one being spoken.
     ///
     /// **Only things that will be spoken.** The first version of this also added the pending
@@ -93,7 +99,10 @@ final class SpeechPlaybackEngine {
     /// A reading is excluded for the same reason. Its queue is *sentences of one document*, so
     /// counting them would report "23 more waiting" for a single article, which means something
     /// entirely different to the person listening.
-    var waitingCount: Int { reading == nil ? utteranceQueue.count : 0 }
+    /// While a reading is in progress this is **queued readings**, not queued sentences. Those
+    /// are the same queue to the engine and completely different things to a listener: "2 more
+    /// waiting" should mean two more articles, never twenty-three more sentences of this one.
+    var waitingCount: Int { reading == nil ? utteranceQueue.count : pendingReadings }
 
     /// Whether there's a last summary to Replay (server clips replay from cached audio — offline —
     /// and native ones re-run the built-in voice).

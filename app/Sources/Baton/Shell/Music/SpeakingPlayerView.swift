@@ -85,8 +85,13 @@ struct SpeakingPlayerView: View {
         .accessibilityElement(children: .combine)
         // Announced rather than left as decoration: it changes while the user is listening
         // rather than looking, which is exactly when VoiceOver users need it most.
-        .accessibilityLabel(count == 1 ? "One more summary waiting"
-                                       : "\(count) more summaries waiting")
+        // Named for what is actually queued: articles while reading one, summaries otherwise.
+        .accessibilityLabel({
+            let noun = speech.reading != nil
+                ? (count == 1 ? "reading" : "readings")
+                : (count == 1 ? "summary" : "summaries")
+            return count == 1 ? "One more \(noun) waiting" : "\(count) more \(noun) waiting"
+        }())
     }
 
     var body: some View {

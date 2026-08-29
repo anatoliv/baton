@@ -43,8 +43,9 @@ enum BatonMCPReadTools {
             `source` (the site, app or file name) — it labels the reading and, when the user \
             has per-app voices on, chooses the voice. `gist: true` summarizes first and reads \
             the summary, which needs a model configured in Baton's Remote settings. Reading \
-            starts immediately and returns straight away; it is not persisted anywhere, and \
-            starting a new one replaces whatever was being read.
+            starts immediately and returns straight away, and it is not persisted anywhere. \
+            Send several and they are read one after another in the order they arrived, so \
+            handing over three articles reads all three rather than only the last.
             """,
             "inputSchema": [
                 "type": "object",

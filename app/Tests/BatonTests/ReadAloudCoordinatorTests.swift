@@ -276,18 +276,60 @@ final class ReadAloudCoordinatorTests: XCTestCase {
         await settle()
     }
 
-    /// Starting a second reading replaces the first rather than interleaving with it.
-    func testASecondReadingReplacesTheFirst() async {
+    /// A second reading **queues** behind the first rather than cancelling it.
+    ///
+    /// This test asserted the opposite until 2026-08-29, and the old assertion was right for the
+    /// caller it was written for: while a person selecting text was the only way to start a
+    /// reading, highlighting a new paragraph meant "read *that* one now". The `read_aloud` MCP
+    /// tool added a caller meaning the opposite — three articles means read me three — and got no
+    /// signal that the first two had been cancelled mid-sentence.
+    ///
+    /// Changed deliberately rather than deleted, so the reversal is visible in the history.
+    func testASecondReadingQueuesBehindTheFirst() async {
         let music = MusicModel()
         var requested: [String] = []
-        let c = makeCoordinator(music) { text, _ in requested.append(text) }
+        let c = ReadAloudCoordinator(music: music)
+        c.synthesize = { text, _ in
+            requested.append(text)
+            try await Task.sleep(for: .milliseconds(60))
+            return Data([0x00])
+        }
 
-        c.read(.init(text: "The first selection, which is long enough to be a chunk.", profile: .generic, sourceName: nil))
-        c.read(.init(text: "The second selection, which is also long enough to be one.", profile: .generic, sourceName: nil))
+        c.read(.init(text: "The first selection, which is long enough to be a chunk.",
+                     profile: .generic, sourceName: nil))
+        c.read(.init(text: "The second selection, which is also long enough to be one.",
+                     profile: .generic, sourceName: nil))
+
+        XCTAssertEqual(music.speech.pendingReadings, 1, "the second reading should be waiting")
         await settle()
+        try? await Task.sleep(for: .milliseconds(400))
 
-        XCTAssertTrue(requested.allSatisfy { !$0.contains("first selection") },
-                      "the replaced reading should not still be synthesizing: \(requested)")
+        let spoken = requested.joined(separator: " ")
+        XCTAssertTrue(spoken.contains("first selection"), "the first reading was cancelled: \(requested)")
+        XCTAssertTrue(spoken.contains("second selection"), "the queued reading never started: \(requested)")
+    }
+
+    /// Stopping clears what has not started as well as what has. Leaving the queue would make ×
+    /// on the window dismiss one article and immediately start the next — the same shape as the
+    /// bug that made closing the window feel broken.
+    func testStoppingClearsQueuedReadingsToo() async {
+        let music = MusicModel()
+        let c = ReadAloudCoordinator(music: music)
+        c.synthesize = { _, _ in
+            try await Task.sleep(for: .milliseconds(60))
+            return Data([0x00])
+        }
+
+        c.read(.init(text: "The first selection, which is long enough to be a chunk.",
+                     profile: .generic, sourceName: nil))
+        c.read(.init(text: "The second selection, which is also long enough to be one.",
+                     profile: .generic, sourceName: nil))
+        XCTAssertEqual(music.speech.pendingReadings, 1)
+
+        c.stop()
+        XCTAssertEqual(music.speech.pendingReadings, 0, "a queued reading survived stop()")
+        XCTAssertFalse(c.isReading)
+        await settle()
     }
 
     // MARK: - What a save has to work from
