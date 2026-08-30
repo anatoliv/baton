@@ -315,6 +315,22 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.12",
+            date: "August 2026",
+            highlight: "Spoken summaries dim the music again, however quietly you were listening.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "A spoken summary now lowers the music whatever volume it was at. If you "
+                    + "were already listening at or below the level in Settings \u{2192} Playback "
+                    + "\u{2192} Duck to, nothing dimmed at all and every announcement talked over "
+                    + "music at full level."),
+                HelpWhatsNewChange(.improved,
+                    "Duck to still means what it says whenever it can. At a normal listening "
+                    + "level a 20% duck lands on 20% exactly as before; only when that would "
+                    + "not dim anything is the same figure applied to the level you are at."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.11",
             date: "August 2026",
             highlight: "Your iPhone now handles downloads the way this Mac already did.",

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import UIKit
 
 /// The iPhone app's composition root — a deliberately small sibling of the Mac app's
@@ -197,6 +198,16 @@ final class MobileModel {
     /// DEBUG-only, and driven by a launch argument no shipping build passes.
     static let resetArgument = "-baton.resetSession"
 
+    /// Puts one real clipping in the store at launch, so a UI test can long-press one.
+    ///
+    /// Needed because the interesting assertions about clippings are *positive* — "this menu
+    /// offers Delete Clipping…" — and a test with no clipping in it can only assert absence,
+    /// which passes just as happily when the feature is broken. Two releases shipped a menu
+    /// item nobody could see while a test asserting absence stayed green.
+    ///
+    /// DEBUG-only and driven by a launch argument no shipping build passes, like the reset above.
+    static let seedClippingArgument = "-baton.seedClipping"
+
     init() {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains(Self.resetArgument) {
@@ -248,6 +259,12 @@ final class MobileModel {
         preferenceSync.startObservingChanges()
         // Before the first sync, so this device's existing clippings are in the first merge.
         clippings.seedLedgerIfNeeded()
+
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(Self.seedClippingArgument) {
+            seedClippingForUITests()
+        }
+        #endif
 
         // Last.fm authorizes in a browser; the shared engine stays platform-neutral and
         // lets the host open the URL.
@@ -329,6 +346,56 @@ final class MobileModel {
         await musicLibrary.loadAlbums()
     }
 
+    #if DEBUG
+    /// Copies a bundled demo track into the clipping store, so the app has a real clipping to
+    /// long-press. Copied to a temporary file first because `adopt` moves what it is given, and
+    /// moving a file out of the app bundle would break the demo library for the rest of the run.
+    private func seedClippingForUITests() {
+        guard clippings.items.isEmpty,
+              let bundled = Bundle.main.url(forResource: "demo-1", withExtension: "m4a")
+        else { return }
+        let staged = FileManager.default.temporaryDirectory
+            .appendingPathComponent("seeded-clipping-\(UUID().uuidString).m4a")
+        do {
+            try FileManager.default.copyItem(at: bundled, to: staged)
+            try clippings.adopt(staged, title: "Deploy products", sourceName: "Ghostty")
+        } catch {
+            clippingsLog.error("could not seed a clipping: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+    #endif
+
+    /// Delete clippings on every device, and report how many the gateway kept.
+    ///
+    /// On the model rather than in a view because more than one surface offers this now — the
+    /// Clippings list and the player's long-press menu — and a delete that means "everywhere"
+    /// on one screen and something subtly different on another is the worst kind of drift.
+    ///
+    /// `everywhere: true` writes the tombstone into the shared ledger, which is what actually
+    /// reaches the Mac. The gateway delete stops a device that has never seen the
+    /// file collecting it afresh, but the ledger is the durable half: an unreachable gateway
+    /// still leaves a statement every device honours later. Hence the return value — the
+    /// caller can say the gateway kept a copy without implying nothing was deleted.
+    @discardableResult
+    func deleteClippingsEverywhere(_ ids: [String]) async -> Int {
+        let digests = ids.compactMap { clippings.item(id: $0)?.clipping.sha256 }
+        for id in ids { clippings.remove(id: id, everywhere: true) }
+
+        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
+        let token = agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return 0 }
+        let files = GatewayFiles(gatewayURL: url, token: token)
+
+        var failed = 0
+        for digest in digests {
+            do { try await files.delete(id: digest) } catch {
+                failed += 1
+                clippingsLog.error("could not delete \(digest, privacy: .public) from the gateway: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return failed
+    }
+
     /// Exchanges shared preferences with the gateway, if there is one.
     ///
     /// Best-effort by construction: a gateway that is down must never change how the app
@@ -348,7 +415,10 @@ final class MobileModel {
 
         // Same reason as above, for clippings: the ledger lands in UserDefaults, and a rename or
         // deletion made on the Mac only takes effect once the files here follow it.
-        clippings.reconcileWithLedger()
+        // The deleted ids leave the queue too, and stop playing if one of them is on the
+        // speakers. This is the route nobody would think to write: the delete happened on the
+        // Mac, so nothing on this phone was touched.
+        music.dropFromQueue(ids: Set(clippings.reconcileWithLedger().deleted))
     }
 
     /// Point search history at the server now signed in. Entries hold Navidrome ids, so a

@@ -110,9 +110,13 @@ final class PreferenceSyncScheduler {
         // UserDefaults, but a rename or a deletion made on the phone only takes effect when the
         // sidecars and files here are brought into line with it.
         let changed = model.clippings.reconcileWithLedger()
-        if changed.renamed > 0 || changed.deleted > 0 {
+        // Take what was deleted elsewhere out of the queue, and off the speakers if one of them
+        // is what is playing. Nobody has touched this Mac, so without it the audio carries on to
+        // the end of a file that no longer exists.
+        model.music.dropFromQueue(ids: Set(changed.deleted))
+        if changed.renamed > 0 || !changed.deleted.isEmpty {
             clippingSyncLog.notice(
-                "clippings reconciled: \(changed.renamed, privacy: .public) renamed, \(changed.deleted, privacy: .public) deleted"
+                "clippings reconciled: \(changed.renamed, privacy: .public) renamed, \(changed.deleted.count, privacy: .public) deleted"
             )
         }
     }

@@ -3,7 +3,9 @@ import BatonSubsonicModels
 import OSLog
 import SwiftUI
 
-private let clippingsLog = Logger(subsystem: "io.tonebox.baton", category: "Clippings")
+/// Not private: `MobileModel.deleteClippingsEverywhere` logs a gateway failure under the same
+/// category, and two loggers for one subject is how their messages drift apart.
+let clippingsLog = Logger(subsystem: "io.tonebox.baton", category: "Clippings")
 
 /// **Clippings** on the phone: audio the Mac made, collected from the home gateway.
 ///
@@ -93,30 +95,12 @@ struct ClippingsView: View {
                 }
             }
         }
-        // Two outcomes, because they are genuinely different and only you know which you mean.
-        // Removing it here leaves your Mac's copy alone; deleting everywhere takes the shared
-        // one too, and no device will collect it again. Offering a single "Delete" would have to
-        // pick one silently, and either choice is wrong half the time.
-        .confirmationDialog(
-            pendingDelete.count == 1 ? "Delete this clipping?" : "Delete \(pendingDelete.count) clippings?",
-            isPresented: .init(get: { !pendingDelete.isEmpty },
-                               set: { if !$0 { pendingDelete = [] } }),
-            titleVisibility: .visible
-        ) {
-            Button("Remove from this iPhone", role: .destructive) {
-                // Tombstoned, so it stays gone. Your Mac keeps its copy.
-                for id in pendingDelete { store.remove(id: id) }
-                pendingDelete = []
-            }
-            Button("Delete Everywhere", role: .destructive) {
-                let ids = pendingDelete
-                pendingDelete = []
-                Task { await deleteEverywhere(ids) }
-            }
-            Button("Cancel", role: .cancel) { pendingDelete = [] }
-        } message: {
-            Text("Removing it here leaves the copy on your Mac. Deleting everywhere also removes "
-                 + "it from your home gateway, so no device collects it again.")
+        // The wording, and the choice it offers, now live in one modifier: the player's
+        // long-press menu deletes a clipping too, and this dialog is the only thing telling
+        // someone that one of these buttons destroys the last copy.
+        .clippingDeleteConfirmation($pendingDelete, model: model) { message in
+            status = message
+            Task { await clearStatus() }
         }
         .overlay(alignment: .bottom) {
             if let status {
@@ -260,34 +244,6 @@ struct ClippingsView: View {
     /// The local copy goes first. If the gateway call fails, the clipping is still gone from this
     /// phone — which is what was asked for — and the failure says the shared copy survived rather
     /// than leaving both in place and calling it an error.
-    private func deleteEverywhere(_ ids: [String]) async {
-        let digests = ids.compactMap { store.item(id: $0)?.clipping.sha256 }
-        // `everywhere: true` writes the tombstone into the shared ledger, which is what actually
-        // reaches the Mac. The gateway delete below stops a device that has never
-        // seen the file collecting it afresh, but the ledger is the durable half: a gateway that
-        // is unreachable still leaves a statement every device will honour later.
-        for id in ids { store.remove(id: id, everywhere: true) }
-
-        let raw = model.agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        let token = model.agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return }
-        let files = GatewayFiles(gatewayURL: url, token: token)
-
-        var failed = 0
-        for digest in digests {
-            do { try await files.delete(id: digest) } catch {
-                failed += 1
-                clippingsLog.error("could not delete \(digest, privacy: .public) from the gateway: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-        if failed > 0 {
-            // Said plainly: without this it would look like a clean delete and then reappear on
-            // another device, which is the confusing outcome this whole dialog exists to avoid.
-            status = "Removed here, but \(Counted.phrase(failed, "clipping")) stayed on the gateway"
-            await clearStatus()
-        }
-    }
-
     private func clearStatus() async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         status = nil

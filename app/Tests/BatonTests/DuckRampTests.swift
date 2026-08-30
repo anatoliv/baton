@@ -30,6 +30,70 @@ final class DuckRampTests: XCTestCase {
         )
     }
 
+    // MARK: - Ducking someone who already listens quietly
+
+    /// Reported as "announcements stopped ducking the music". Measured on the machine that
+    /// reported it: player volume 20, duck level 20. The old rule ducked only when
+    /// `target < previous`, so 20-into-20 took the no-op branch — no dip, nothing to restore,
+    /// no error anywhere, and every announcement from then on silently undimmed.
+    ///
+    /// Not an edge case: the slider runs to 80, and anyone listening at or below their own duck
+    /// level is permanently in it.
+    ///
+    /// This asserts the **volume actually moved**, which is the thing `SpeechDuckingTests` cannot
+    /// see: it injects a fake ducker and proves the engine *asks*, never that anything answers.
+    func testDuckingAtTheDuckLevelStillDims() {
+        let c = makeController()
+        c.play([song("a")])
+        c.setVolume(percent: 20)
+
+        let token = c.acquireAudioFocusDuck(owner: "baton.speech", toPercent: 20)
+
+        XCTAssertTrue(token.didSuspend, "a duck that cannot dim is the bug, not a valid no-op")
+        XCTAssertLessThan(c.volumePercent, 20, "the music must audibly dip under the voice")
+        XCTAssertGreaterThan(c.volumePercent, 0, "ducking dims; silence is what pause mode is for")
+
+        _ = c.releaseAudioFocus(token)
+        XCTAssertEqual(c.volumePercent, 20, "and the exact prior level comes back")
+    }
+
+    /// Listening below the duck level is the same case one step further on, and the one that
+    /// makes a plain `min(target, previous)` fix insufficient.
+    func testDuckingBelowTheDuckLevelStillDims() {
+        let c = makeController()
+        c.play([song("a")])
+        c.setVolume(percent: 10)
+
+        let token = c.acquireAudioFocusDuck(owner: "baton.speech", toPercent: 20)
+
+        XCTAssertTrue(token.didSuspend)
+        XCTAssertLessThan(c.volumePercent, 10, "a duck must never leave the level where it was")
+        XCTAssertGreaterThan(c.volumePercent, 0)
+        _ = c.releaseAudioFocus(token)
+        XCTAssertEqual(c.volumePercent, 10)
+    }
+
+    /// The ordinary case must not move. "Duck to 20%" still means 20 whenever 20 can dim.
+    func testTheAbsoluteLevelIsUnchangedWhenItCanDim() {
+        XCTAssertEqual(StreamingPlaybackController.duckTarget(from: 100, requested: 20), 20)
+        XCTAssertEqual(StreamingPlaybackController.duckTarget(from: 80, requested: 20), 20)
+        XCTAssertEqual(StreamingPlaybackController.duckTarget(from: 21, requested: 20), 20)
+    }
+
+    /// Where it cannot dim, the same number is applied as a proportion of the present level.
+    func testItFallsBackToAProportionOfWhereTheVolumeActuallyIs() {
+        XCTAssertEqual(StreamingPlaybackController.duckTarget(from: 20, requested: 20), 4)
+        XCTAssertEqual(StreamingPlaybackController.duckTarget(from: 10, requested: 50), 5)
+        // Rounding must never land back on the level it started from.
+        XCTAssertEqual(StreamingPlaybackController.duckTarget(from: 1, requested: 80), 1 - 1 + 1)
+        XCTAssertLessThan(StreamingPlaybackController.duckTarget(from: 2, requested: 80), 2)
+    }
+
+    /// Nothing to dim, and nothing to get wrong.
+    func testSilenceIsLeftAlone() {
+        XCTAssertEqual(StreamingPlaybackController.duckTarget(from: 0, requested: 20), 0)
+    }
+
     /// The persisted level still lands immediately, ramp or no ramp.
     ///
     /// This is the part that must **not** change: a crash mid-duck leaves the stored level low,

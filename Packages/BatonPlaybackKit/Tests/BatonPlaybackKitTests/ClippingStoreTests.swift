@@ -63,6 +63,107 @@ final class ClippingStoreTests: XCTestCase {
         XCTAssertNil(item.asSong.coverArtID, "a server cover-art lookup for a local file is a bogus request")
     }
 
+    /// Two ids, both `String`, and the wrong one compiles.
+    ///
+    /// A player only ever has `asSong.id`, the file URL. `item(id:)` is keyed on the clipping's
+    /// own id. Asking `item(id: song.id)` therefore type-checks, runs, and answers "not a
+    /// clipping" for every clipping there has ever been — which is exactly how the player's
+    /// "Delete Clipping…" shipped in 1.0.9 as a menu item that could not appear.
+    ///
+    /// Asserted from both directions on purpose. The positive says the right lookup works; the
+    /// negative pins the trap in place, so a later change that quietly merges the two keys has to
+    /// come here and say so.
+    func testAPlayerIdFindsItsClippingAndTheClippingIdIsADifferentKey() throws {
+        let item = try store.adopt(try staged(), title: "Deploy products", sourceName: "Ghostty")
+        let song = item.asSong
+
+        XCTAssertEqual(store.item(forSongID: song.id)?.id, item.id,
+                       "the id the player carries must find the clipping it is playing")
+        XCTAssertNil(store.item(id: song.id),
+                     "a file URL is not a clipping id — this is the mistake, pinned")
+        XCTAssertEqual(store.item(id: item.id)?.id, item.id, "and the clipping id still works")
+    }
+
+    /// The other half of the same mistake, and the more expensive one: had the menu item been
+    /// visible while passing the song's id, it would have deleted nothing and looked like it had.
+    func testDeletingByThePlayersIdRemovesNothing() throws {
+        let item = try store.adopt(try staged(), title: "Deploy products")
+
+        store.remove(id: item.asSong.id)
+
+        XCTAssertEqual(store.items.count, 1, "a file URL is not what remove(id:) is keyed on")
+        store.remove(id: item.id)
+        XCTAssertTrue(store.items.isEmpty)
+    }
+
+    // MARK: - Collecting something the other device has already named
+
+    /// Reported: kept on the Mac, renamed straight away, and it arrived on the phone hours later
+    /// still under the old name.
+    ///
+    /// The collecting device does not *choose* the title it holds — it is derived from the
+    /// gateway's filename, fixed at upload, and therefore the one value guaranteed to be stale.
+    /// Stating it stamped `now` made it the newest word and last-write-wins did the rest.
+    func testCollectingSomethingAlreadyRenamedElsewhereKeepsTheNewName() throws {
+        let digest = "aa11"
+        var ledger = ClippingLedger()
+        ledger.setTitle("Ghostty 09.15", for: digest, at: Date(timeIntervalSince1970: 1_000))
+        ledger.setTitle("Deploy products", for: digest, at: Date(timeIntervalSince1970: 2_000))
+        store.ledger = ledger
+
+        // What collection actually passes: the gateway's filename, which still says the old name.
+        let item = try store.adopt(try staged(), title: "Ghostty 09.15",
+                                   sourceName: "Ghostty", sha256: digest)
+
+        XCTAssertEqual(item.clipping.title, "Deploy products",
+                       "the shared name is newer than anything this device knows")
+    }
+
+    /// The half that had not been noticed. A stale statement stamped `now` is newest
+    /// *everywhere*, so it travels back and undoes the rename at the other end too.
+    func testCollectingDoesNotPushTheStaleNameBackToTheOtherDevice() throws {
+        let digest = "bb22"
+        let renamedAt = Date(timeIntervalSince1970: 2_000)
+        var ledger = ClippingLedger()
+        ledger.setTitle("Deploy products", for: digest, at: renamedAt)
+        store.ledger = ledger
+
+        try store.adopt(try staged(), title: "Ghostty 09.15", sha256: digest)
+
+        let record = store.ledger.record(for: digest)
+        XCTAssertEqual(record?.title, "Deploy products", "the rename must survive being collected")
+        XCTAssertEqual(record?.titleAt, renamedAt,
+                       "and must not be re-stamped now, which would outrank a later rename elsewhere")
+    }
+
+    /// Nothing shared to go on, so the file's name is the best available and is stated normally.
+    func testCollectingSomethingNobodyHasNamedUsesTheNameItCameWith() throws {
+        let digest = "cc33"
+
+        let item = try store.adopt(try staged(), title: "Ghostty 09.15",
+                                   sourceName: "Ghostty", sha256: digest)
+
+        XCTAssertEqual(item.clipping.title, "Ghostty 09.15")
+        XCTAssertEqual(store.ledger.record(for: digest)?.title, "Ghostty 09.15",
+                       "with no earlier statement, this device's is the one to make")
+    }
+
+    /// Keeping the same audio again after deleting it everywhere must still revive it. The fix
+    /// stops `adopt` restating a *title*; it must not stop it beating a tombstone.
+    func testKeepingTheSameAudioAgainStillRevivesIt() throws {
+        let digest = "dd44"
+        var ledger = ClippingLedger()
+        ledger.setTitle("Deploy products", for: digest, at: Date(timeIntervalSince1970: 1_000))
+        ledger.remove(digest, at: Date(timeIntervalSince1970: 2_000))
+        store.ledger = ledger
+
+        try store.adopt(try staged(), title: "Ghostty 09.15", sha256: digest,
+                        now: Date(timeIntervalSince1970: 3_000))
+
+        XCTAssertEqual(store.ledger.record(for: digest)?.removed, false,
+                       "keeping it again is a deliberate act and must beat the tombstone")
+    }
+
     // MARK: - Adopting
 
     /// Moved, not copied. One copy means the two can never diverge, and a rename within a
@@ -403,7 +504,9 @@ final class ClippingReconcileTests: XCTestCase {
         store.ledger = ledger
 
         let changed = store.reconcileWithLedger()
-        XCTAssertEqual(changed.deleted, 1)
+        // The playable id, not a count: the caller has to take it out of the play queue, and
+        // once the file is gone there is no way to work out what it was.
+        XCTAssertEqual(changed.deleted, [item.asSong.id])
         XCTAssertTrue(store.items.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: item.url.path))
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path)
@@ -422,7 +525,7 @@ final class ClippingReconcileTests: XCTestCase {
         store.ledger = ledger
 
         let changed = store.reconcileWithLedger()
-        XCTAssertEqual(changed.deleted, 0)
+        XCTAssertTrue(changed.deleted.isEmpty)
         XCTAssertEqual(store.item(id: item.id)?.clipping.title, "Local only")
     }
 

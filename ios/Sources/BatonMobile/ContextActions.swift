@@ -19,6 +19,8 @@ struct SongContextMenu: ViewModifier {
     let model: MobileModel
     @State private var showsPlaylistPicker = false
     @State private var showsDiscovery = false
+    /// Ids awaiting the two-way delete question. Empty shows nothing.
+    @State private var pendingClippingDelete: [String] = []
 
     func body(content: Content) -> some View {
         content
@@ -139,7 +141,26 @@ struct SongContextMenu: ViewModifier {
                 // clipping it offered to fetch something no server has.
                 switch MusicDownloadStore.shared.offlineAction(for: song) {
                 case .unavailable:
-                    EmptyView()
+                    // A clipping is local-only, so neither download item applies — but it is
+                    // still a thing you might want gone, and this menu is where you are when
+                    // you want that. Without it the only route was the Clippings screen, which
+                    // is a tab away from the player you are looking at.
+                    //
+                    // Asks the store rather than reusing `isLocalOnly`: a bundled demo track is
+                    // local-only too, and offering to delete one would be offering to delete
+                    // part of the app.
+                    // `forSongID:`, not `item(id:)`. The player's id is the file URL and a
+                    // clipping's id is its own; both are Strings, so the wrong one compiles and
+                    // returns nil forever. That shipped in 1.0.9 as a menu item nobody could see.
+                    if let clipping = model.clippings.item(forSongID: song.id) {
+                        Button(role: .destructive) {
+                            // The clipping's own id, not the song's. Everything downstream —
+                            // `remove(id:)`, the ledger tombstone, the gateway digest — is keyed
+                            // that way, so handing it a file URL would delete nothing at all and
+                            // report success.
+                            pendingClippingDelete = [clipping.id]
+                        } label: { Label("Delete Clipping…", systemImage: "trash") }
+                    }
                 case .remove:
                     Button(role: .destructive) {
                         MusicDownloadStore.shared.delete(song.id)
@@ -157,6 +178,9 @@ struct SongContextMenu: ViewModifier {
             .sheet(isPresented: $showsDiscovery) {
                 MobileDiscoverySheet(song: song)
             }
+            // The same dialog the Clippings list uses, in the same words: one of these
+            // buttons destroys the only copy, and the wording is what says so.
+            .clippingDeleteConfirmation($pendingClippingDelete, model: model)
     }
 
     /// Seed a radio from this track — the shared similarity endpoint, same as the Mac's

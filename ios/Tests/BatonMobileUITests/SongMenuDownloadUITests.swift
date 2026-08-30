@@ -66,5 +66,12 @@ final class SongMenuDownloadUITests: XCTestCase {
                        "a file already on this device has nothing to download")
         XCTAssertFalse(app.buttons["Remove Download"].exists,
                        "and nothing to remove either — it is not a download, it is the only copy")
+
+        // The distinction the delete item has to make, and the reason it asks the clipping
+        // store rather than reusing `isLocalOnly`: a bundled demo track is local-only in
+        // exactly the same way, and offering to delete one would be offering to delete part
+        // of the app. A clipping gets "Delete Clipping…" here; this does not.
+        XCTAssertFalse(app.buttons["Delete Clipping…"].exists,
+                       "a demo track is local-only but is not a clipping")
     }
 }

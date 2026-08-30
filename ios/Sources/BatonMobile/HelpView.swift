@@ -234,6 +234,40 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0.12",
+            date: "August 2026",
+            highlight: "A clipping renamed on your Mac arrives here under its new name.",
+            changes: [
+                .init(.fixed, "Rename a clipping on your Mac before this iPhone has collected it, and it used to arrive under the old name. The name came from the file on your gateway, which was written when the clipping was made and never changed again."),
+                .init(.fixed, "That old name was also being sent back, so the rename could come undone on your Mac as well. A clipping already collected under the wrong name stays wrong until you rename it once; after that it sticks."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.0.11",
+            date: "August 2026",
+            highlight: "A clipping you delete stops playing, instead of finishing.",
+            changes: [
+                .init(.fixed, "Deleting a clipping while it was playing left it playing to the end and kept it in Up Next. The file was gone but the audio was already open, so it carried on. It now stops, or moves to the next clipping, and leaves the queue."),
+                .init(.fixed, "The same is true when the delete came from your Mac. A clipping deleted there now stops here at the next sync, rather than playing on with nobody having touched this iPhone."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.0.10",
+            date: "August 2026",
+            highlight: "Delete Clipping really is there this time.",
+            changes: [
+                .init(.fixed, "The delete added in 1.0.9 never appeared. It was looking the clipping up by the wrong one of its two names, so the menu decided nothing was ever a clipping. Press and hold a clipping now and you can delete it."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.0.9",
+            date: "August 2026",
+            highlight: "Delete a clipping from the player, without going to the Clippings screen.",
+            changes: [
+                .init(.added, "Press and hold a clipping while it is playing and you can delete it. It asks whether you mean this iPhone only or everywhere, the same question the Clippings screen asks, because removing it here leaves the copy on your Mac."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.0.8",
             date: "August 2026",
             highlight: "A track you have already downloaded now offers to remove the download.",

@@ -35,19 +35,42 @@ extension StreamingPlaybackController {
         return token
     }
 
+    /// The level to duck to, given where the volume actually is.
+    ///
+    /// "Duck to 20%" is an absolute level, and it silently does nothing to anyone listening at
+    /// or below it: the old rule only ducked when `target < previous`, so at volume 20 with a
+    /// duck of 20 the whole feature was a clean no-op — no dip, nothing to restore, no error
+    /// anywhere. That is not an edge case. The slider runs to 80, quiet listening is common, and
+    /// once you are under the line every announcement for ever is silently undimmed. It was
+    /// reported as "ducking stopped working", which is exactly what it looks like from outside.
+    ///
+    /// So the absolute level is honoured whenever it can dim, and when it cannot the same number
+    /// is applied as a **proportion** of the present level instead. At volume 100 a 20% duck
+    /// still lands on 20, unchanged; at volume 20 it lands on 4 rather than doing nothing.
+    ///
+    /// A floor of 1 rather than 0, because ducking means "dim but still audible" — silence is
+    /// what `pause` mode is for.
+    public static func duckTarget(from previous: Int, requested: Int) -> Int {
+        let absolute = max(0, min(requested, 100))
+        if absolute < previous { return absolute }
+        guard previous > 0 else { return previous }
+        let proportional = (Double(previous) * Double(absolute) / 100).rounded()
+        return max(1, min(previous - 1, Int(proportional)))
+    }
+
     /// Acquire audio focus by **ducking** the player volume for `owner` — lowering it to
     /// `toPercent` (0–100) instead of pausing, so an assistant can talk over quieted music.
     /// Records the pre-duck `volumePercent` on the token and restores it verbatim on release.
-    /// Only ducks when currently `.playing` *and* the target is actually lower than the
-    /// present level; otherwise returns a `didSuspend == false` no-op token (release is then
-    /// a clean no-op). Like the pause path, it doesn't bump the intervention counter, so a
-    /// user's subsequent volume/transport change still cancels the auto-restore.
+    /// Only ducks when currently `.playing`; otherwise returns a `didSuspend == false` no-op
+    /// token (release is then a clean no-op). Like the pause path, it doesn't bump the
+    /// intervention counter, so a user's subsequent volume/transport change still cancels the
+    /// auto-restore.
     @discardableResult
     public func acquireAudioFocusDuck(owner: String, toPercent: Int) -> AudioFocusToken {
         cancelCrossfade()
         let generation = stateGeneration
-        let target = max(0, min(toPercent, 100))
         let previous = volumePercent
+        let target = Self.duckTarget(from: previous, requested: toPercent)
         // Only a genuine downward duck counts as "suspended". Nothing playing, or a target
         // at/above the current level, leaves a clean no-op token.
         let didSuspend = state == .playing && target < previous

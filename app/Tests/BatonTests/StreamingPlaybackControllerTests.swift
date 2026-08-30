@@ -387,6 +387,71 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(c.nowPlaying?.id, "dup")
     }
 
+    // MARK: - Deleted content leaves the queue
+
+    /// Deleting a clipping unlinked its file and told the player nothing. On Darwin an open file
+    /// outlives its directory entry, so the audio played on to the end of something that no
+    /// longer existed, and the queue went on offering it until someone pressed play and got a
+    /// failure instead of a track.
+    func testDroppingThePlayingItemMovesToItsSuccessor() {
+        let c = makeController()
+        c.play([song("a"), song("gone"), song("b")], startAt: 1)
+        XCTAssertEqual(c.nowPlaying?.id, "gone")
+
+        c.dropFromQueue(ids: ["gone"])
+
+        XCTAssertEqual(c.queue.map(\.id), ["a", "b"], "the deleted item must not still be listed")
+        XCTAssertEqual(c.nowPlaying?.id, "b", "playback moves on rather than continuing a dead file")
+    }
+
+    /// The single-clipping case, which is the one that was reported: nothing else is queued, so
+    /// there is nothing to move on to and it must stop rather than carry on.
+    func testDroppingTheOnlyItemStops() {
+        let c = makeController()
+        c.play([song("gone")])
+        XCTAssertEqual(c.nowPlaying?.id, "gone")
+
+        c.dropFromQueue(ids: ["gone"])
+
+        XCTAssertTrue(c.queue.isEmpty)
+        XCTAssertNotEqual(c.state, .playing, "a deleted clipping must not keep playing")
+    }
+
+    /// Deleting something further down the queue must not disturb what is playing.
+    func testDroppingAQueuedItemLeavesThePlayingOneAlone() {
+        let c = makeController()
+        c.play([song("a"), song("b"), song("gone")], startAt: 1)
+
+        c.dropFromQueue(ids: ["gone"])
+
+        XCTAssertEqual(c.queue.map(\.id), ["a", "b"])
+        XCTAssertEqual(c.nowPlaying?.id, "b", "an unrelated deletion must not move playback")
+    }
+
+    /// Every copy goes. A queue can hold the same item twice, and leaving the second one would
+    /// mean the deleted clipping still played, just later — which is the bug wearing a delay.
+    func testDroppingRemovesEveryCopyOfTheDeletedItem() {
+        let c = makeController()
+        c.play([song("gone"), song("a"), song("gone")], startAt: 1)
+
+        c.dropFromQueue(ids: ["gone"])
+
+        XCTAssertEqual(c.queue.map(\.id), ["a"])
+        XCTAssertEqual(c.nowPlaying?.id, "a")
+    }
+
+    /// An id that is not queued must do nothing at all — deleting a clipping you were not
+    /// listening to should not disturb whatever is playing.
+    func testDroppingSomethingNotQueuedChangesNothing() {
+        let c = makeController()
+        c.play([song("a"), song("b")], startAt: 1)
+
+        c.dropFromQueue(ids: ["never-queued"])
+
+        XCTAssertEqual(c.queue.map(\.id), ["a", "b"])
+        XCTAssertEqual(c.nowPlaying?.id, "b")
+    }
+
     func testReorderingKeepsPositionWhenTheSameSongIsQueuedTwice() {
         let c = makeController()
         c.play([song("dup"), song("a"), song("dup"), song("b")], startAt: 2)

@@ -1499,6 +1499,27 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         persistQueue()
     }
 
+    /// Takes songs out of the queue by id, wherever they sit — including the one playing.
+    ///
+    /// For content that has been **deleted**, not merely skipped. Deleting a clipping unlinked
+    /// its file and told the player nothing, and on Darwin an open file outlives its directory
+    /// entry: the audio played happily to the end of something that no longer existed, and the
+    /// queue went on offering it until someone pressed play and got a failure instead.
+    ///
+    /// One method rather than the same three lines at four delete sites — the phone's menu, the
+    /// phone's list, the Mac's list, and the sync reconcile, which is the one nobody would think
+    /// to write because it happens with nobody touching the machine.
+    ///
+    /// Delegates to `removeFromQueue(at:)`, which already advances to the successor when the
+    /// current row goes, stops when the queue empties, and counts positions rather than
+    /// searching by id — a queue can legitimately hold the same song twice.
+    public func dropFromQueue(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        let offsets = IndexSet(queue.indices.filter { ids.contains(queue[$0].id) })
+        guard !offsets.isEmpty else { return }
+        removeFromQueue(at: offsets)
+    }
+
     /// Goes to the previous track (or restarts the current one at the start).
     ///
     /// - Parameter force: skip the restart-first rule and always step back a track.

@@ -121,6 +121,17 @@ public final class ClippingStore {
 
     public func item(id: String) -> Item? { items.first { $0.id == id } }
 
+    /// The clipping a **player** id refers to, which is not the same lookup as `item(id:)`.
+    ///
+    /// An `Item.id` is the clipping's own id; the id the player carries is `asSong.id`, the
+    /// file URL. Passing one to the other compiles perfectly and returns nil forever, which is
+    /// how the player's "Delete Clipping…" item shipped invisible: the menu asked whether the
+    /// playing song was a clipping, using the wrong key, and quietly decided it never was.
+    /// Both are `String`, so nothing but this method can keep them apart.
+    public func item(forSongID songID: String) -> Item? {
+        items.first { $0.asSong.id == songID }
+    }
+
     /// Total bytes on disk, for the view's "3 clippings, 24 MB" line.
     public var totalBytes: Int {
         items.reduce(0) { total, item in
@@ -152,7 +163,22 @@ public final class ClippingStore {
         } catch {
             throw StoreError.couldNotStore(error.localizedDescription)
         }
-        let clipping = Clipping(id: id, title: title, source: sourceName,
+        // When the shared ledger already names this audio, that name wins and this device says
+        // nothing about it.
+        //
+        // A device *collecting* a clipping has not chosen what it is called: the title it holds
+        // is derived from the gateway's filename, which was fixed at upload and is the one thing
+        // guaranteed to be stale. Stating it stamped `now` made it the newest word, so a clipping
+        // renamed on the Mac arrived here under its old name — and worse, that statement then
+        // travelled back and undid the rename at the other end.
+        //
+        // The seeding path already learned this and backdates to `createdAt`; `adopt` is the same
+        // situation reached by a different route. Collecting is exactly the position of a device
+        // that was switched off: it is learning about the clipping, not deciding anything about it.
+        let known = sha256.flatMap { ledger.record(for: $0) }
+        let effectiveTitle = known?.titleAt != nil ? (known?.title ?? title) : title
+        let effectiveSource = known?.sourceAt != nil ? known?.source : sourceName
+        let clipping = Clipping(id: id, title: effectiveTitle, source: effectiveSource,
                                 durationSeconds: durationSeconds, createdAt: now,
                                 text: text, sha256: sha256)
         do {
@@ -170,12 +196,15 @@ public final class ClippingStore {
         if let digest = sha256 {
             var ledger = self.ledger
             ledger.restore(digest, at: now)
-            ledger.setTitle(title, for: digest, at: now)
-            ledger.setSource(sourceName, for: digest, at: now)
+            // Only state a name nobody has stated before. Restating the one just read back would
+            // re-stamp it `now` and reintroduce the bug in a subtler form: the value would be
+            // right today and would outrank a rename made elsewhere a minute ago.
+            if known?.titleAt == nil { ledger.setTitle(title, for: digest, at: now) }
+            if known?.sourceAt == nil { ledger.setSource(sourceName, for: digest, at: now) }
             self.ledger = ledger
         }
         reload()
-        clippingLog.notice("kept a clipping (\(title, privacy: .public))")
+        clippingLog.notice("kept a clipping (\(effectiveTitle, privacy: .public))")
         return Item(clipping: clipping, url: destination)
     }
 
@@ -345,10 +374,15 @@ public final class ClippingStore {
     /// Returns what changed, so a caller can say so rather than having things move under the
     /// user with no explanation.
     @discardableResult
-    public func reconcileWithLedger() -> (renamed: Int, deleted: Int) {
+    /// `deleted` carries the **playable** ids of what went, not a count. The caller has to take
+    /// those out of the play queue, and once the files are gone there is no way to work out what
+    /// they were — a clipping deleted on the other device would otherwise keep playing here with
+    /// nobody having touched this machine.
+    public func reconcileWithLedger() -> (renamed: Int, deleted: [String]) {
         loadIfNeeded()
         let ledger = self.ledger
-        var renamed = 0, deleted = 0
+        var renamed = 0
+        var deleted: [String] = []
 
         for item in items {
             guard let digest = item.clipping.sha256,
@@ -358,9 +392,9 @@ public final class ClippingStore {
                 // Deleted everywhere. No tombstone in `dismissedDigests`: that set means "not on
                 // this device", and the ledger already carries the stronger statement. Writing
                 // both would say the same thing twice in two places that can drift.
+                deleted.append(item.asSong.id)
                 try? FileManager.default.removeItem(at: item.url)
                 try? FileManager.default.removeItem(at: sidecarURL(item.id))
-                deleted += 1
                 continue
             }
             var clipping = item.clipping
@@ -372,7 +406,7 @@ public final class ClippingStore {
                 renamed += 1
             }
         }
-        if renamed > 0 || deleted > 0 { reload() }
+        if renamed > 0 || !deleted.isEmpty { reload() }
         return (renamed, deleted)
     }
 

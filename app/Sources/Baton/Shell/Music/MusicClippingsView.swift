@@ -116,7 +116,14 @@ struct MusicClippingsView: View {
             set: { if !$0 { pendingDelete = nil } }
         ), titleVisibility: .visible) {
             Button("Remove from This Mac", role: .destructive) {
-                if let pendingDelete { store.remove(id: pendingDelete.id) }
+                if let pendingDelete {
+                    // Off the speakers and out of the queue before the file goes. Deleting told
+                    // the player nothing, and on Darwin an open file outlives its directory
+                    // entry, so a deleted clipping played on to the end of something that no
+                    // longer existed.
+                    model.music.dropFromQueue(ids: [pendingDelete.asSong.id])
+                    store.remove(id: pendingDelete.id)
+                }
                 pendingDelete = nil
             }
             Button("Delete Everywhere", role: .destructive) {
@@ -201,6 +208,7 @@ struct MusicClippingsView: View {
     /// tombstone that will be honoured the next time anything syncs.
     private func deleteEverywhere(_ item: ClippingStore.Item) {
         let digest = item.clipping.sha256
+        model.music.dropFromQueue(ids: [item.asSong.id])
         store.remove(id: item.id, everywhere: true)
 
         guard let digest else { return }        // never travelled; nothing shared to remove
