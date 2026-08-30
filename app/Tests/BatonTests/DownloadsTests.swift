@@ -138,6 +138,47 @@ final class DownloadsTests: XCTestCase {
         XCTAssertTrue(store.downloadedItems().isEmpty)
     }
 
+    // MARK: - What a row should offer about the offline copy
+
+    /// The bug: every menu on the phone said "Download", whatever the state, so a track you
+    /// already had invited you to fetch it again and offered no way to remove it.
+    func testADownloadedTrackOffersToRemoveItRatherThanFetchItAgain() {
+        let store = makeStore([(id: "a", name: "Air - Kelly Watch.mp3", bytes: 100)])
+        let song = NavidromeSong(id: "a", title: "Kelly Watch", artist: "Air", album: nil)
+
+        XCTAssertEqual(store.offlineAction(for: song), .remove)
+    }
+
+    func testATrackThatIsNotDownloadedOffersToDownloadIt() {
+        let store = makeStore([])
+        let song = NavidromeSong(id: "b", title: "Aerodynamic", artist: "Daft Punk", album: nil)
+
+        XCTAssertEqual(store.offlineAction(for: song), .download)
+    }
+
+    /// Removing puts the offer back, which is the half that would make a one-way toggle look
+    /// like it worked: deleting and then finding no way to get the track back offline again.
+    func testRemovingADownloadOffersToDownloadItAgain() {
+        let store = makeStore([(id: "a", name: "Air - Kelly Watch.mp3", bytes: 100)])
+        let song = NavidromeSong(id: "a", title: "Kelly Watch", artist: "Air", album: nil)
+
+        store.delete("a")
+
+        XCTAssertEqual(store.offlineAction(for: song), .download)
+    }
+
+    /// A clipping or a demo track is already a file here and no server holds a copy. Offering
+    /// "Download" is an action that cannot happen; offering "Remove Download" would be worse,
+    /// because it reads as evicting a cache and would actually delete the only copy.
+    func testAFileAlreadyOnThisDeviceOffersNeither() {
+        let store = makeStore([])
+        let clipping = NavidromeSong(id: "file:///tmp/deploy-products.m4a",
+                                     title: "Deploy products", artist: "Ghostty", album: nil)
+
+        XCTAssertTrue(clipping.isLocalOnly, "precondition: a file:// id is local-only")
+        XCTAssertEqual(store.offlineAction(for: clipping), .unavailable)
+    }
+
     // MARK: - Static helpers
 
     func testParseFilenameSplitsArtistAndTitle() {

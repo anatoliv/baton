@@ -234,6 +234,15 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0.8",
+            date: "August 2026",
+            highlight: "A track you have already downloaded now offers to remove the download.",
+            changes: [
+                .init(.added, "Press and hold a downloaded track and you can remove the download. Until now the menu only ever said Download, so there was no way to free the space again from the track itself."),
+                .init(.fixed, "A clipping no longer offers to download it. It is already a file on this iPhone and no server holds a copy, so the choice could never do anything. Removing it is done in Clippings, where the wording says what it actually does."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.0.7",
             date: "August 2026",
             highlight: "Clippings now agree with your Mac about their names, and about what you deleted.",

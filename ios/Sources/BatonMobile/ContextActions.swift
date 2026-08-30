@@ -133,9 +133,23 @@ struct SongContextMenu: ViewModifier {
                     } label: { Label("Mark for Removal", systemImage: "trash.slash") }
                 }
 
-                Button {
-                    Task { _ = await MusicDownloadStore.shared.download([song]) }
-                } label: { Label("Download", systemImage: "arrow.down.circle") }
+                // Download / Remove Download / nothing, decided by the shared rule the Mac
+                // reads too. This offered a bare "Download" on everything: on a track already
+                // downloaded it invited a re-download and gave no way to remove one, and on a
+                // clipping it offered to fetch something no server has.
+                switch MusicDownloadStore.shared.offlineAction(for: song) {
+                case .unavailable:
+                    EmptyView()
+                case .remove:
+                    Button(role: .destructive) {
+                        MusicDownloadStore.shared.delete(song.id)
+                    } label: { Label("Remove Download", systemImage: "trash.slash") }
+                case .download, .inProgress:
+                    Button {
+                        Task { _ = await MusicDownloadStore.shared.download([song]) }
+                    } label: { Label("Download", systemImage: "arrow.down.circle") }
+                        .disabled(MusicDownloadStore.shared.offlineAction(for: song) == .inProgress)
+                }
             }
             .sheet(isPresented: $showsPlaylistPicker) {
                 PlaylistPickerSheet(songIDs: [song.id], model: model)

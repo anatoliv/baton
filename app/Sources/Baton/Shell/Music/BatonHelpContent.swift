@@ -315,6 +315,17 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.11",
+            date: "August 2026",
+            highlight: "Your iPhone now handles downloads the way this Mac already did.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Nothing changes on the Mac in this release. The rule it uses for Download "
+                    + "and Remove Download now lives in the code both apps share, so Baton for "
+                    + "iPhone offers the same choices instead of only ever saying Download."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.10",
             date: "August 2026",
             highlight: "A setting you change on the Mac now reaches your iPhone, and stays changed.",

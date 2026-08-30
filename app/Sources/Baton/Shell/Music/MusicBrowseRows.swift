@@ -275,22 +275,20 @@ func songAddToPlaylistMenu(_ songs: [NavidromeSong], _ model: MusicModel) -> som
 @MainActor @ViewBuilder
 func songDownloadMenuItems(_ song: NavidromeSong, _ model: MusicModel) -> some View {
     let downloads = MusicDownloadStore.shared
-    if song.isLocalOnly {
-        // Nothing to offer: it is already a file here, and there is no server copy to fetch or
-        // to fall back on. "Remove Download" would be a delete wearing the word for a cache
-        // eviction — see `ClippingStore`, which is a separate store for exactly this reason.
+    switch downloads.offlineAction(for: song) {
+    case .unavailable:
         EmptyView()
-    } else if downloads.isDownloaded(song.id) {
+    case .remove:
         Button("Remove Download", systemImage: "trash.slash") {
             downloads.delete(song.id)
             model.music.postToast("Removed download", symbol: "trash.slash")
         }
-    } else {
+    case .download, .inProgress:
         Button("Download", systemImage: "arrow.down.circle") {
             model.music.postToast("Downloading \(song.title)…", symbol: "arrow.down.circle")
             Task { await downloads.download(song) }
         }
-        .disabled(downloads.isDownloading(song.id))
+        .disabled(downloads.offlineAction(for: song) == .inProgress)
     }
 }
 

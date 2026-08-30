@@ -264,6 +264,32 @@ public final class MusicDownloadStore {
     public func isDownloaded(_ songID: String) -> Bool { downloadedIDs.contains(songID) }
     public func isDownloading(_ songID: String) -> Bool { inFlight.contains(songID) }
 
+    /// What a song row should offer about its offline copy.
+    ///
+    /// The rule lives here rather than in either app's menu because there are two apps and
+    /// several surfaces per app, and a menu that says "Download" on something already
+    /// downloaded is exactly the kind of drift this codebase keeps paying for — nine Shuffle
+    /// call sites, twelve now-playing indicators. The Mac had this rule and the phone did
+    /// not, which is how the phone came to offer a download for a clipping.
+    public enum OfflineAction: Equatable, Sendable {
+        /// Offer nothing. The audio is already a file here and no server holds a copy, so
+        /// there is neither anything to fetch nor a download to evict. Deleting it would be
+        /// a delete wearing the word for a cache eviction — clippings live in `ClippingStore`
+        /// and are removed there, where the wording can say what it actually does.
+        case unavailable
+        case download
+        /// One is in flight. Distinct from `download` so a surface can show the item without
+        /// letting it be started twice, rather than hiding it and appearing to lose it.
+        case inProgress
+        case remove
+    }
+
+    public func offlineAction(for song: NavidromeSong) -> OfflineAction {
+        if song.isLocalOnly { return .unavailable }
+        if isDownloaded(song.id) { return .remove }
+        return isDownloading(song.id) ? .inProgress : .download
+    }
+
     // MARK: - Download
 
     /// Directory holding persisted resume data for interrupted downloads, so a blip at 95 % of a
