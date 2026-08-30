@@ -191,6 +191,10 @@ public final class PreferenceSync {
         }
     }
 
+    /// Whether this instance is stamping local changes. A host that syncs without observing
+    /// can neither push nor keep its own edits, and nothing about it looks wrong from outside.
+    public var isObservingChanges: Bool { observer != nil }
+
     public func stopObservingChanges() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
@@ -231,6 +235,29 @@ public final class PreferenceSync {
         }
     }
 
+    /// Whether this device has anything to say about a key, given what the shared store holds.
+    ///
+    /// Split out because it is the entire push rule and it is **silent in both directions**:
+    /// a device that can never push looks exactly like a device nobody changed a setting on,
+    /// which is how the Mac shipped for months without stamping anything at all.
+    ///
+    /// A key with no local timestamp is still pushed when the shared store has never heard of
+    /// it. Without that, a device only ever *pulls* until someone edits a setting on it — so a
+    /// Mac configured months ago would sit there holding an EQ curve the phone could never
+    /// see. It is stamped `.distantPast`, so any real edit on any device wins over it.
+    static func shouldPush(localStamp: Date?, remote: Entry?) -> Bool {
+        // Never seed over a shared value: this device has no record of choosing it, and the
+        // device that pushed it did.
+        guard let localStamp else { return remote == nil }
+        guard let remote else { return true }
+        return remote.updatedAt < localStamp
+    }
+
+    /// Whether the shared store's copy is newer than this device's own last word on a key.
+    static func shouldAdopt(remote: Entry, localStamp: Date?) -> Bool {
+        remote.updatedAt > (localStamp ?? .distantPast)
+    }
+
     /// Pulls remote settings, applies anything newer, and pushes anything newer here.
     ///
     /// Deliberately best-effort: every failure path leaves local settings untouched. A
@@ -247,8 +274,7 @@ public final class PreferenceSync {
 
             for (key, entry) in remote
             where Self.syncedKeys.contains(key) && !Self.mergedKeys.contains(key) {
-                let localAt = stamps[key] ?? .distantPast
-                guard entry.updatedAt > localAt else { continue }
+                guard Self.shouldAdopt(remote: entry, localStamp: stamps[key]) else { continue }
                 if let value = try? PropertyListSerialization.propertyList(
                     from: entry.value, options: [], format: nil
                 ) {
@@ -257,22 +283,15 @@ public final class PreferenceSync {
             }
 
             // Local → remote, for anything we changed more recently than they hold.
-            //
-            // A key with no local timestamp is still pushed when the shared store has never
-            // heard of it. Without that, a device only ever *pulls* until someone edits a
-            // setting on it — so a Mac configured months ago would sit there holding an EQ
-            // curve the phone could never see. Seeded with `.distantPast`, so any real edit
-            // on any device wins over it.
             for key in Self.syncedKeys where !Self.mergedKeys.contains(key) {
-                let localAt = stamps[key] ?? .distantPast
-                if stamps[key] == nil, remote[key] != nil { continue }   // never seed over a shared value
-                if let existing = remote[key], existing.updatedAt >= localAt { continue }
+                guard Self.shouldPush(localStamp: stamps[key], remote: remote[key]) else { continue }
                 guard let value = defaults.object(forKey: key),
                       let encoded = try? PropertyListSerialization.data(
                           fromPropertyList: value, format: .binary, options: 0
                       )
                 else { continue }
-                remote[key] = Entry(value: encoded, updatedAt: localAt, device: deviceName)
+                remote[key] = Entry(value: encoded, updatedAt: stamps[key] ?? .distantPast,
+                                    device: deviceName)
                 changed = true
             }
             // The list keys, unioned in both directions at once. Timestamps don't decide

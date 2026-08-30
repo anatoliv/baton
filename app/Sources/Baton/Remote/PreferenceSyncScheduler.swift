@@ -35,7 +35,9 @@ final class PreferenceSyncScheduler {
     private static let minimumInterval: TimeInterval = 60
 
     private let model: MusicModel
-    private let sync = PreferenceSync(deviceName: Host.current().localizedName ?? "Mac")
+    /// Not private so a test can ask whether it is observing. That it *is* observing is the
+    /// whole of TBX-3927, and it is invisible from anywhere else — see `start()`.
+    let sync = PreferenceSync(deviceName: Host.current().localizedName ?? "Mac")
     private var loop: Task<Void, Never>?
     private var activation: NSObjectProtocol?
 
@@ -43,6 +45,15 @@ final class PreferenceSyncScheduler {
 
     func start() {
         guard loop == nil else { return }
+        // Stamp any synced setting the moment it changes, as the phone has always done.
+        //
+        // Without this the Mac held no local timestamps at all, and both halves of the sync
+        // read that as "this device has never chosen anything": it could not push a setting
+        // the phone had ever written, and it adopted the phone's copy on every pull. So a
+        // change made here did not merely fail to travel — it was reverted, which is the
+        // half a user would report, and the code looked innocent because a device that never
+        // pushes is indistinguishable from a device nobody touched.
+        sync.startObservingChanges()
         // Before the first sync, so the first merge has this device's existing clippings in it.
         // Backdated to each clipping's own creation — see `seedLedgerIfNeeded`.
         model.clippings.seedLedgerIfNeeded()
@@ -60,6 +71,7 @@ final class PreferenceSyncScheduler {
     }
 
     func stop() {
+        sync.stopObservingChanges()
         loop?.cancel()
         loop = nil
         if let activation { NotificationCenter.default.removeObserver(activation) }

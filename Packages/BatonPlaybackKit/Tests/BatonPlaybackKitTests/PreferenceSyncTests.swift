@@ -175,6 +175,78 @@ final class PreferenceSyncTests: XCTestCase {
         XCTAssertTrue(stamps.isEmpty)
     }
 
+    // MARK: - What stamping is actually load-bearing for
+
+    /// The rule that made the Mac's missing observer invisible for months.
+    ///
+    /// A device with no local timestamps is indistinguishable, to this function, from a
+    /// device freshly installed: it has never recorded choosing anything, so it must not
+    /// overwrite a value some other device deliberately set. That is right. It is also
+    /// catastrophic for a host that never stamps *at all*, because it applies forever —
+    /// every edit made there is skipped, silently, on every sync.
+    func testADeviceThatNeverStampsCanNeverPushAKeyTheOtherDeviceHasWritten() {
+        let theirs = PreferenceSync.Entry(value: Data(), updatedAt: Date(), device: "iPhone")
+
+        XCTAssertFalse(PreferenceSync.shouldPush(localStamp: nil, remote: theirs),
+                       "with no stamp there is nothing to argue with, however recently the user edited it")
+    }
+
+    /// The half that is worse than not pushing, and the one a user would actually report.
+    ///
+    /// The same missing stamp makes every remote entry look newer, so the unstamped device
+    /// adopts the other's value on the next pull. The edit is not merely stranded: it is
+    /// reverted, and the setting appears to reset itself for no reason.
+    func testAndItAlsoLosesItsOwnEditOnTheNextPull() {
+        let theirs = PreferenceSync.Entry(value: Data(), updatedAt: Date(timeIntervalSince1970: 1_000),
+                                          device: "iPhone")
+
+        XCTAssertTrue(PreferenceSync.shouldAdopt(remote: theirs, localStamp: nil),
+                      "an unstamped device treats a 1970 value as newer than an edit made now")
+    }
+
+    /// The same device, once it stamps: both halves come right, which is what makes the fix
+    /// a matter of *observing* rather than of changing either rule.
+    func testAStampedEditBeatsAnOlderSharedValueAndSurvivesThePull() {
+        let older = PreferenceSync.Entry(value: Data(), updatedAt: Date(timeIntervalSince1970: 1_000),
+                                         device: "iPhone")
+        let mine = Date(timeIntervalSince1970: 2_000)
+
+        XCTAssertTrue(PreferenceSync.shouldPush(localStamp: mine, remote: older))
+        XCTAssertFalse(PreferenceSync.shouldAdopt(remote: older, localStamp: mine))
+    }
+
+    /// A genuine race, decided the way the class doc promises: last write wins per key.
+    func testTheOtherDevicesNewerWriteStillWins() {
+        let newer = PreferenceSync.Entry(value: Data(), updatedAt: Date(timeIntervalSince1970: 3_000),
+                                         device: "iPhone")
+        let mine = Date(timeIntervalSince1970: 2_000)
+
+        XCTAssertFalse(PreferenceSync.shouldPush(localStamp: mine, remote: newer))
+        XCTAssertTrue(PreferenceSync.shouldAdopt(remote: newer, localStamp: mine))
+    }
+
+    /// Seeding must survive the fix. A device configured long before sync existed holds real
+    /// values and no timestamps, and if those never pushed it would only ever pull.
+    func testAnUnstampedValueStillSeedsAStoreThatHasNeverHeardOfTheKey() {
+        XCTAssertTrue(PreferenceSync.shouldPush(localStamp: nil, remote: nil))
+    }
+
+    /// The card's stated risk about the fix: a host that starts observing for the first time
+    /// must not stamp all sixteen keys and push its own values over the other device's.
+    /// Observation snapshots on entry and stamps only what moves afterwards.
+    func testStartingToObserveStampsNothingByItself() {
+        defaults.set(4.0, forKey: "tonebox.navidrome.crossfade")
+        defaults.set("Rock", forKey: "tonebox.music.eq.preset")
+        let sync = makeSync(device: "Mac")
+
+        sync.startObservingChanges()
+        defer { sync.stopObservingChanges() }
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+
+        let stamps = defaults.dictionary(forKey: PreferenceSync.timestampsKey) as? [String: Date] ?? [:]
+        XCTAssertTrue(stamps.isEmpty, "existing values are not edits and must not stampede the shared store")
+    }
+
     // MARK: - Throttling
 
     /// Foreground fires for a glance at Control Center too, so the reconcile needs a floor.

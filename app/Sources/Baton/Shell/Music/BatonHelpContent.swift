@@ -315,6 +315,21 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.17.10",
+            date: "August 2026",
+            highlight: "A setting you change on the Mac now reaches your iPhone, and stays changed.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Settings changed on this Mac now travel to your iPhone. They never did: the "
+                    + "Mac was not recording when you changed something, so every change it made "
+                    + "looked to the sync like a setting nobody had touched."),
+                HelpWhatsNewChange(.fixed,
+                    "A setting changed here also stops reverting. The same missing record made "
+                    + "the iPhone's copy look newer than yours, so your crossfade or EQ could go "
+                    + "back to its old value a minute after you set it."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.17.9",
             date: "August 2026",
             highlight: "Rename or delete a clipping here and your iPhone follows.",

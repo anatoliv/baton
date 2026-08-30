@@ -1,5 +1,6 @@
 import XCTest
 @testable import Baton
+@testable import BatonPlaybackKit
 
 /// The Mac now syncs shared settings on its own.
 ///
@@ -45,6 +46,40 @@ final class PreferenceSyncSchedulerTests: XCTestCase {
         XCTAssertNil(PreferenceSyncScheduler.gateway(urlString: "https://baton.home.example",
                                                      token: "   "))
         XCTAssertNil(PreferenceSyncScheduler.gateway(urlString: nil, token: "s3cret"))
+    }
+
+    /// The Mac must stamp its own changes, and for months it did not.
+    ///
+    /// The phone started observing at model init; the Mac started nothing, so its timestamp
+    /// map stayed permanently empty. Both halves of `sync` read an empty map as "this device
+    /// has never chosen anything": it could not push any key the phone had written, and it
+    /// adopted the phone's copy on every pull, so a setting changed here reverted itself.
+    ///
+    /// Nothing else can catch this. There is no failure, no log line, and no difference in
+    /// the request — a device that silently never pushes looks exactly like a device nobody
+    /// changed a setting on, which is why it survived a release and a two-device matrix
+    /// being planned around it.
+    ///
+    /// Safe to drive `start()` here: it is `@MainActor` and this test never suspends, so the
+    /// heartbeat task cannot run before `stop()` cancels it and no request is made.
+    func testTheSchedulerStampsChangesMadeOnThisMac() {
+        let scheduler = PreferenceSyncScheduler(model: MusicModel())
+
+        scheduler.start()
+        defer { scheduler.stop() }
+
+        XCTAssertTrue(scheduler.sync.isObservingChanges,
+                      "an unobserving Mac can neither push its settings nor keep them")
+    }
+
+    /// Symmetry, so a stopped scheduler leaves nothing hanging on the notification centre.
+    func testStoppingAlsoStopsObserving() {
+        let scheduler = PreferenceSyncScheduler(model: MusicModel())
+        scheduler.start()
+
+        scheduler.stop()
+
+        XCTAssertFalse(scheduler.sync.isObservingChanges)
     }
 
     /// Someone typing a host with no scheme should not produce a URL that fails later at a
