@@ -18,7 +18,7 @@ private let lastfmLog = Logger(subsystem: "io.tonebox.baton", category: "LastFM"
 @MainActor
 @Observable
 public final class MusicLastFM: ScrobbleDestination {
-    public var apiKey: String { didSet { UserDefaults.standard.set(apiKey, forKey: Self.keyKey) } } // public identifier
+    public var apiKey: String { didSet { BatonStorage.defaults.set(apiKey, forKey: Self.keyKey) } } // public identifier
     public var apiSecret: String { didSet { NavidromeKeychain.setSecret(apiSecret, account: Self.secretKey) } } // Keychain
     public private(set) var sessionKey: String { didSet { NavidromeKeychain.setSecret(sessionKey, account: Self.sessionKeyKey) } } // Keychain
     /// The token from a `getToken` request, awaiting the user's browser authorization.
@@ -37,9 +37,22 @@ public final class MusicLastFM: ScrobbleDestination {
 
     public init(session: URLSession = .shared) {
         self.session = session
-        let d = UserDefaults.standard
+        let d = BatonStorage.defaults
         apiKey = d.string(forKey: Self.keyKey) ?? ""
         // Secret + session key from the Keychain (migrate-on-read handles existing installs).
+        apiSecret = NavidromeKeychain.secret(account: Self.secretKey) ?? ""
+        sessionKey = NavidromeKeychain.secret(account: Self.sessionKeyKey) ?? ""
+    }
+
+    /// Re-read the key, secret and session, for when storage changed underneath this object.
+    ///
+    /// Same reason as `MusicScrobbler.reload` and for the same event: a settings import
+    /// writes all three and this object read them at launch (TBX-5114, TBX-5123). It matters
+    /// most for `sessionKey`, because `isConnected` is derived from it — a stale empty one
+    /// makes `checkSession()` answer `.missing` without a request, so the import would report
+    /// "not connected" over a session it had just been handed.
+    public func reload() {
+        apiKey = BatonStorage.defaults.string(forKey: Self.keyKey) ?? ""
         apiSecret = NavidromeKeychain.secret(account: Self.secretKey) ?? ""
         sessionKey = NavidromeKeychain.secret(account: Self.sessionKeyKey) ?? ""
     }

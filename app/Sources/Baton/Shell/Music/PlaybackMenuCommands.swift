@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 
 /// App-level "Playback" menu — transport, volume, shuffle/repeat for the music
@@ -14,7 +15,7 @@ struct PlaybackMenuCommands: Commands {
 
     private var player: StreamingPlaybackController { model.music }
 
-    private var isBarMinimized: Bool { UserDefaults.standard.bool(forKey: "tonebox.music.barCollapsed") }
+    private var isBarMinimized: Bool { BatonStorage.defaults.bool(forKey: "tonebox.music.barCollapsed") }
 
     private var currentIsLiked: Bool {
         player.nowPlaying.map { model.musicLibrary.isLiked($0) } ?? false
@@ -128,7 +129,7 @@ struct PlaybackMenuCommands: Commands {
             Divider()
 
             Button(isBarMinimized ? "Expand Player Bar" : "Minimize Player Bar") {
-                UserDefaults.standard.set(!isBarMinimized, forKey: "tonebox.music.barCollapsed")
+                BatonStorage.defaults.set(!isBarMinimized, forKey: "tonebox.music.barCollapsed")
             }
             .keyboardShortcut("j", modifiers: [.command, .control])
 

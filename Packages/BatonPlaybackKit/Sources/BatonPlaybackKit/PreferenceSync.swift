@@ -1,3 +1,5 @@
+import BatonSubsonicKit
+import BatonSubsonicModels
 import Foundation
 import OSLog
 
@@ -51,6 +53,18 @@ public final class PreferenceSync {
         "baton.agent.provider",
         "baton.agent.model",
         "baton.agent.baseURL",
+        // The gateway's address, which sat outside this list while its four neighbours were
+        // in it. Nothing said why, and the asymmetry was doing real work: pairing carried
+        // the gateway URL (everything under `baton.` is in `SettingsTransfer`) and then
+        // ongoing sync never updated it, so moving the home server left every device except
+        // the one you edited pointing at an address that no longer answers. It is one
+        // server shared by all your devices, exactly like the four keys above it.
+        //
+        // The reason to hesitate — a LAN address one device can reach and another cannot —
+        // is not an argument for leaving it stale: a device that cannot reach the gateway
+        // fails either way, and with the value carried it starts working again the moment
+        // that device is back on the network.
+        "baton.agent.gatewayURL",
         "baton.agent.speakReplies",
         // The Mac's half of the friend's setup. It wrote `baton.remote.nl.*` and read
         // nothing else, so for as long as sync has existed the four keys above were carried
@@ -92,6 +106,11 @@ public final class PreferenceSync {
     /// the same reasoning that made podcast feeds additive-only.
     public static let mergedKeys: Set<String> =
         Set(FilterHistory.allKeys.map(FilterHistory.storageKey))
+            // What the music friend has been told and been corrected on. A merged key rather
+            // than a synced one because two devices each learning something between syncs is
+            // the normal case, and whole-document last-write-wins discards one side in
+            // silence.
+            .union([FriendLedger.storageKey])
             .union([SearchRecents.storageKey, PodcastSubscriptionStore.ledgerKey,
                     ClippingLedger.storageKey])
 
@@ -117,6 +136,18 @@ public final class PreferenceSync {
             }
             let merged = ClippingLedger.merged(decode(local), decode(remote))
             guard !merged.records.isEmpty else { return nil }
+            return merged.encoded()
+        }
+        // The friend's memory and corrections merge per *entry*, keyed on the text both
+        // devices already agree on — the numeric memory id is minted per device and means
+        // different things on each. Retirement crosses as a tombstone, because a deletion
+        // with no record is indistinguishable from never having heard of it. See `FriendLedger`.
+        if key == FriendLedger.storageKey {
+            let decode = { (value: Any?) -> FriendLedger in
+                FriendLedger.decode(value as? Data) ?? .init()
+            }
+            let merged = FriendLedger.merged(decode(local), decode(remote))
+            guard !merged.memories.isEmpty || !merged.corrections.isEmpty else { return nil }
             return merged.encoded()
         }
         if key == SearchRecents.storageKey {
@@ -158,7 +189,12 @@ public final class PreferenceSync {
 
     static let timestampsKey = "baton.sync.localTimestamps"
 
-    public init(defaults: UserDefaults = .standard, deviceName: String, session: URLSession = .shared) {
+    /// `defaults` defaults to `BatonStorage.defaults`, which is `.standard` in every normal run
+    /// and the throwaway suite in a probe launch. It is the same expression
+    /// `FriendLedgerStore.defaultDefaults()` resolves to, deliberately: the friend ledger travels
+    /// through this class, so if the two ever named different domains the whole feature would go
+    /// silently inert with every test still passing.
+    public init(defaults: UserDefaults = BatonStorage.defaults, deviceName: String, session: URLSession = .shared) {
         self.defaults = defaults
         self.deviceName = deviceName
         self.session = session

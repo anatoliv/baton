@@ -22,6 +22,11 @@ let package = Package(
                 "BatonAgentKit", "BatonSubsonicKit", "BatonSubsonicModels", "BatonMCPProtocol",
             ]
         ),
-        .testTarget(name: "BatonGatewayCoreTests", dependencies: ["BatonGatewayCore"]),
+        // `BatonSubsonicKit` is a *test-only* dependency of the core target's suite: the health
+        // probe is generic over "some async call", but the call it is actually in front of is
+        // `NavidromeClient.ping()`, retry and all. Asserting on a stand-in would have
+        // missed the retry doubling that turned a 60s timeout into a 120s wait.
+        .testTarget(name: "BatonGatewayCoreTests",
+                    dependencies: ["BatonGatewayCore", "BatonSubsonicKit"]),
     ]
 )

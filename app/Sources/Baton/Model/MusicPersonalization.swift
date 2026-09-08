@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 
 /// Derives sensible **playback defaults from your listen history** and applies them.
@@ -81,7 +82,7 @@ enum MusicPersonalization {
 
     /// Apply a recommendation to the live player (persists via each property's setter).
     @MainActor
-    static func apply(_ rec: Recommendation, to model: MusicModel, defaults: UserDefaults = .standard) {
+    static func apply(_ rec: Recommendation, to model: MusicModel, defaults: UserDefaults = BatonStorage.defaults) {
         let player = model.music
         player.gaplessEnabled = rec.gaplessEnabled
         player.crossfadeSeconds = rec.crossfadeSeconds
@@ -92,7 +93,7 @@ enum MusicPersonalization {
     /// First-run hook: personalize once when enough history exists. Safe to call on
     /// every launch — it no-ops until there's data, then applies a single time.
     @MainActor
-    static func applyFirstRunIfNeeded(_ model: MusicModel, defaults: UserDefaults = .standard) {
+    static func applyFirstRunIfNeeded(_ model: MusicModel, defaults: UserDefaults = BatonStorage.defaults) {
         guard !defaults.bool(forKey: appliedKey) else { return }
         guard let profile = analyze(model.musicHistory) else { return }
         apply(recommend(profile), to: model, defaults: defaults)
@@ -103,7 +104,7 @@ enum MusicPersonalization {
     /// returns the rationale to show, or nil when history is too thin.
     @MainActor
     @discardableResult
-    static func personalizeNow(_ model: MusicModel, defaults: UserDefaults = .standard) -> String? {
+    static func personalizeNow(_ model: MusicModel, defaults: UserDefaults = BatonStorage.defaults) -> String? {
         guard let profile = analyze(model.musicHistory) else { return nil }
         let rec = recommend(profile)
         apply(rec, to: model, defaults: defaults)

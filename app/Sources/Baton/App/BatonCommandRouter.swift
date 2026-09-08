@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 
 /// Bridges menu-bar commands — which live outside the SwiftUI view tree — into the main music
@@ -29,7 +30,8 @@ final class BatonCommandRouter {
 struct GoMenuCommands: Commands {
     let router: BatonCommandRouter
     /// Same key `MusicView` binds, so toggling here collapses/expands its rail.
-    @AppStorage("tonebox.music.railCollapsed") private var railCollapsed = false
+    @AppStorage("tonebox.music.railCollapsed", store: BatonStorage.defaults)
+    private var railCollapsed = false
 
     var body: some Commands {
         CommandMenu("Go") {

@@ -39,6 +39,15 @@ final class DurationVisualUITests: XCTestCase {
         try XCTSkipIf(!reachable, "demo.navidrome.org isn't answering — skipping the visual pass")
     }
 
+    /// Waits for an element to stop existing — "the screen I was on has gone".
+    ///
+    /// `waitForExistence` has no opposite in XCTest, and the absence of one is why this
+    /// test waited on the wrong thing for its most important step.
+    private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: element)
+        return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed
+    }
+
     private func capture(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name
@@ -51,35 +60,49 @@ final class DurationVisualUITests: XCTestCase {
         let useDemo = app.buttons["Use Navidrome's public demo server"]
         XCTAssertTrue(useDemo.waitForExistence(timeout: 30), "expected the first-run screen")
         useDemo.tap()
-        XCTAssertTrue(app.tabBars.buttons["Albums"].waitForExistence(timeout: 90),
+
+        // Signed in is the first-run screen *going away*, not a tab bar appearing.
+        //
+        // The tab bar exists behind the connect screen from the first frame, so
+        // `tabBars.buttons["Albums"].waitForExistence` returned instantly and the tap
+        // below landed on the connect screen's backdrop. The walk then carried on down
+        // Home, opened the empty "Most Played" mix, pressed its Play, and reported the
+        // mini player as missing — four screens of consequences from one false landmark.
+        XCTAssertTrue(waitForDisappearance(of: useDemo, timeout: 120),
+                      "signing in should dismiss the first-run screen")
+        XCTAssertTrue(app.tabBars.buttons["Albums"].waitForExistence(timeout: 30),
                       "signing in should get us into the app")
 
         // 1. Albums — list style carries play time in the subtitle.
         app.tabBars.buttons["Albums"].tap()
         XCTAssertTrue(app.staticTexts["Albums"].waitForExistence(timeout: 30))
         _ = app.scrollViews.firstMatch.waitForExistence(timeout: 20)
-        capture("albums-list-playtime")
 
-        // 2. Album detail — the numbered track listing.
+        // 2. Album detail — the numbered track listing. Generous, because this is a real
+        // library over a real connection: the rows arrive when the server sends them.
         let album = app.scrollViews.buttons.firstMatch
-        XCTAssertTrue(album.waitForExistence(timeout: 20))
+        XCTAssertTrue(album.waitForExistence(timeout: 60),
+                      "the demo server's albums must arrive")
+        capture("albums-list-playtime")
         album.tap()
         XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 30))
         capture("album-detail-track-durations")
 
         // 3. Queue — per-row time and the "left" footer.
         app.buttons["Play"].tap()
-        let mini = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
-        XCTAssertTrue(mini.waitForExistence(timeout: 30))
-        mini.tap()
-        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 15))
+        openFullPlayer(in: app, timeout: 30)
         let queue = app.buttons["Up Next"]
         XCTAssertTrue(queue.waitForExistence(timeout: 10))
         queue.tap()
         XCTAssertTrue(app.navigationBars["Up Next"].waitForExistence(timeout: 15))
         capture("queue-durations-and-remaining")
         app.buttons["Close"].tap()
-        if app.buttons["Done"].exists { app.buttons["Done"].tap() }
+        // Not optional, and not "Done". This used to be `if app.buttons["Done"].exists`,
+        // which stopped matching anything when the player's dismiss became a chevron —
+        // so the player sheet stayed up for the rest of the test and the two screens
+        // below were photographed through its backdrop. An optional dismissal cannot
+        // fail, which is precisely how it hid.
+        dismissFullPlayer(in: app)
 
         // 4. History — the cross-device record, which is the point of the scope control.
         app.tabBars.buttons["Library"].tap()

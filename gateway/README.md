@@ -38,12 +38,16 @@ Check it from another machine:
 
 ```sh
 curl -s http://gateway.example:8788/health
-# {"status":"ok"}          — up, and Navidrome answered
-# {"status":"navidrome-unreachable"}   — up, but it can't see your library
+# {"status":"ok", "navidrome":{"reachable":true,"probe":"answered","probe_ms":84, …}, …}
+# {"status":"navidrome-unreachable", "navidrome":{"probe":"timedOut","probe_ms":2005, …}, …}
 ```
 
 `/health` is the only route that doesn't need the token, which is what makes it usable as an
-uptime check.
+uptime check. It answers in **at most about two seconds**: the Navidrome ping behind it is held
+to a wall clock, so an unreachable library is reported promptly instead of after the transport's
+own two minutes of patience. Read `navidrome.summary` before acting on the headline —
+`navidrome-unreachable` covers both "nothing answered in 2s" and "the server rejected the ping",
+and the second of those can be a wrong password rather than a server that is down.
 
 ## Configuration
 

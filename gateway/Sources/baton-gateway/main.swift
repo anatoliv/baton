@@ -42,6 +42,41 @@ let port = UInt16(env["BATON_GATEWAY_PORT"] ?? "") ?? 8788
 let credentials = NavidromeCredentials(baseURL: serverURL, username: user, secret: password, authMode: .tokenSalt)
 let client = NavidromeClient(credentials: credentials)
 
+/// How long `/health` waits for Navidrome before answering anyway.
+///
+/// Two seconds, and the number is chosen against the measured healthy path: the whole route,
+/// ping included, answers in **100-400 ms** on the LAN. Two seconds is five to twenty times that,
+/// so a cold TLS handshake or a briefly busy server still reports `ok` — while sitting far inside
+/// the patience of anything that would poll this (curl's own default is no timeout at all, and
+/// uptime checkers give 10-30 s). It is also short enough that a person running `curl` learns
+/// something rather than reaching for Ctrl-C, which is the failure this card is about.
+let healthProbeTimeout: TimeInterval = 2
+
+/// A second client, for the health probe only, on a session that gives up quickly.
+///
+/// **Why not tighten the shared one.** `NavidromeClient` and its session defaults live in
+/// `Packages/BatonSubsonicKit`, which the Mac app and the iPhone app both compile — a session-level
+/// change there is a change to real playback and library browsing, which legitimately wait longer
+/// than a health check should. Even the gateway's own `client` above serves agent tool calls
+/// (search, playlists, radio) that want the ordinary timeouts. So the fast-fail is scoped to the
+/// one caller that needs it, and no shared code is touched.
+///
+/// The 1.5 s here is the *per-attempt* bound and is deliberately not the promise: `performJSON`
+/// retries an idempotent GET once after 300 ms, so the transport alone could still spend
+/// 1.5 + 0.3 + 1.5 s. `HealthProbe` holds the outer 2 s wall clock; this just makes the abandoned
+/// attempt give up rather than linger, and lets a single clean failure report its own error
+/// instead of hitting the deadline.
+let healthClient: NavidromeClient = {
+    let config = URLSessionConfiguration.default
+    config.timeoutIntervalForRequest = 1.5
+    config.timeoutIntervalForResource = 3
+    #if !os(Linux)
+    config.waitsForConnectivity = false  // swift-corelibs-foundation exposes this read-only
+    #endif
+    config.requestCachePolicy = .reloadIgnoringLocalCacheData
+    return NavidromeClient(credentials: credentials, session: URLSession(configuration: config))
+}()
+
 var llmConfig = RemoteControlSettings.NaturalLanguageConfig()
 llmConfig.isEnabled = true
 llmConfig.isAgentEnabled = true
@@ -52,6 +87,11 @@ llmConfig.apiKey = env["BATON_LLM_API_KEY"] ?? ""
 
 let deviceLink = DeviceLink()
 let surface = GatewayToolSurface(client: client, devices: deviceLink)
+
+/// When this process started, so `/health`'s counters mean something. They live in
+/// memory and a container restart zeroes them, so "0 polls" is only bad news alongside an uptime
+/// long enough for a poll to have happened.
+let startedAt = Date()
 
 /// Where shared preferences live.
 ///
@@ -135,11 +175,62 @@ func handleUpload(_ request: StreamingUpload.Request, _ staged: URL) async -> Da
 
 // MARK: - Routing
 
+/// Serve the request, then say so in one line.
+///
+/// Wrapping rather than logging inside each route: responses are built in a dozen places here,
+/// and a logger that has to be remembered at each one is a logger that will be forgotten at some
+/// of them — the same drift `PreferenceSync` records for its own hand-placed calls. The status is
+/// read back out of the response actually being returned, so what is logged is what was sent.
 @MainActor @Sendable
 func handle(_ request: HTTPRequestMessage) async -> Data {
+    let started = Date()
+    let response = await route(request)
+    if let line = RequestLog.line(
+        method: request.method,
+        path: request.path,
+        status: RequestLog.status(ofResponse: response),
+        userAgent: request.headers["user-agent"],
+        milliseconds: Int(Date().timeIntervalSince(started) * 1000)
+    ) {
+        // `FileHandle.standardOutput.write`, not `print`. Swift buffers stdout when it is a
+        // pipe rather than a terminal, and under Docker it is always a pipe — so `print` left
+        // every line sitting in the buffer and `docker logs` showed nothing at all. Deployed
+        // once that way and caught by looking at the running container, which no test could
+        // have told me. The startup line above already used this for the same reason.
+        FileHandle.standardOutput.write(Data((line + "\n").utf8))
+    }
+    return response
+}
+
+@MainActor @Sendable
+func route(_ request: HTTPRequestMessage) async -> Data {
     if request.method == "GET", request.path == "/health" {
-        let ok = (try? await client.ping()) != nil
-        return httpResponse(status: "200 OK", body: #"{"status":"\#(ok ? "ok" : "navidrome-unreachable")"}"#)
+        // Bounded, because it used to answer in two minutes. See `healthClient`.
+        //
+        // **Yes, an unauthenticated route makes an outbound call, and it stays that way.** The
+        // probe is the whole reason this route is worth polling: without it `/health` can only
+        // say "a process is listening", which the TCP connection already said. What it adds is
+        // the distinction between a gateway that is up and one that is up and *blind* — the
+        // state the whole of TBX-5068 was spent identifying by hand. What was unreasonable was
+        // the cost: an anonymous caller could park a request here for two minutes. One ping and
+        // at most two seconds is a fair price for the only signal the route carries, on a LAN
+        // service that is not exposed to the internet. If it ever is, the next step is a cached
+        // last-probe result with a short TTL rather than dropping the probe — a health check
+        // that has stopped checking anything is the failure mode, not the fix.
+        let navidrome = await HealthProbe.run(timeout: healthProbeTimeout) {
+            try await healthClient.ping()
+        }
+        // Device-poll counters ride along. The empty poll is dropped from the request
+        // log on purpose, and it is the *only* trace `awaitCommand` leaves — so without these,
+        // a gateway holding a poll open every 25 seconds and one nothing has touched in a week
+        // produce byte-identical logs. Read in one actor hop, so the numbers agree with the
+        // waiter list they came from.
+        let body = GatewayHealth.body(
+            navidrome: navidrome,
+            startedAt: startedAt,
+            polls: await deviceLink.pollStats
+        )
+        return httpResponse(status: "200 OK", body: body)
     }
     // Everything else is authenticated, constant-time.
     let presented = request.bearerToken ?? ""

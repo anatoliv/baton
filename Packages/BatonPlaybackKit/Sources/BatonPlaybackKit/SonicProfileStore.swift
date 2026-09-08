@@ -1,5 +1,6 @@
 #if !os(watchOS)
 import AVFoundation
+import BatonSubsonicKit
 import Foundation
 import BatonDSP
 
@@ -143,13 +144,7 @@ public actor SonicProfileStore {
     // MARK: - Persistence
 
     nonisolated static func defaultStoreURL() -> URL? {
-        guard let support = try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                         in: .userDomainMask,
-                                                         appropriateFor: nil, create: true)
-        else { return nil }
-        let directory = support.appendingPathComponent("Baton", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("sonic-profiles.json")
+        BatonStorage.supportDirectory().appendingPathComponent("sonic-profiles.json")
     }
 
     nonisolated static func load(from url: URL?) -> [String: SonicProfile] {

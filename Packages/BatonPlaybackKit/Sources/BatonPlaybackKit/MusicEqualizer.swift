@@ -106,15 +106,40 @@ public final class MusicEqualizer {
         let d = store
         isEnabled = d.bool(forKey: Self.enabledKey)
         preset = d.string(forKey: Self.presetKey) ?? "Flat"
-        // Prefer the parametric config; fall back to legacy gains-only storage; else default.
-        if let data = d.data(forKey: Self.bandsKey),
+        bands = Self.storedBands(in: d)
+        publish()
+    }
+
+    /// The bands as storage holds them, with both fallbacks.
+    ///
+    /// Prefer the parametric config; fall back to legacy gains-only storage; else default.
+    /// One reader so `init` and `reload()` cannot disagree about what an absent or damaged
+    /// config means — the fallbacks are the interesting part, and the reload path is the one
+    /// nobody exercises by hand.
+    private static func storedBands(in defaults: UserDefaults) -> [EQBand] {
+        if let data = defaults.data(forKey: Self.bandsKey),
            let stored = try? JSONDecoder().decode([EQBand].self, from: data), !stored.isEmpty {
-            bands = stored.map { $0.clamped() }
-        } else if let storedGains = d.array(forKey: Self.gainsKey) as? [Double], storedGains.count == 10 {
-            bands = zip(Self.frequencies, storedGains).map { EQBand(frequency: $0, q: Self.defaultQ, gainDB: $1).clamped() }
-        } else {
-            bands = Self.defaultBands()
+            return stored.map { $0.clamped() }
         }
+        if let storedGains = defaults.array(forKey: Self.gainsKey) as? [Double], storedGains.count == 10 {
+            return zip(Self.frequencies, storedGains)
+                .map { EQBand(frequency: $0, q: Self.defaultQ, gainDB: $1).clamped() }
+        }
+        return Self.defaultBands()
+    }
+
+    /// Re-read the EQ from storage, for when something wrote it underneath us.
+    ///
+    /// The case that matters is "Set up from a Mac" on the phone: the import writes the
+    /// Mac's EQ into the same defaults this object read once at launch, and without this the
+    /// sliders keep showing the phone's old curve until the app is next started.
+    /// The `didSet` on `isEnabled` writes the value straight back, which is a no-op, and
+    /// fires `onToggle` — which is wanted, since an import can flip the EQ on and the audio
+    /// tap has to be attached for it to do anything.
+    public func reload() {
+        isEnabled = defaults.bool(forKey: Self.enabledKey)
+        preset = defaults.string(forKey: Self.presetKey) ?? "Flat"
+        bands = Self.storedBands(in: defaults)
         publish()
     }
 

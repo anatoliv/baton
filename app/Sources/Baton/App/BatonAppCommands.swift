@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 
 /// Baton's app-menu customizations: a custom About panel, the Settings item, an enriched
@@ -79,7 +80,7 @@ struct BatonAppCommands: Commands {
         // live only in Settings, so common audio tweaks are one keystroke away. (menu review #5)
         CommandMenu("Audio") {
             Button("Equalizer…") {
-                UserDefaults.standard.set(
+                BatonStorage.defaults.set(
                     BatonSettingsCategory.equalizer.rawValue,
                     forKey: BatonSettingsView.selectionKey
                 )

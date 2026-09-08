@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 
 /// Removes every trace of a signed-in account from this device.
@@ -62,7 +63,7 @@ enum SessionPurge {
     /// constructed. `purge(_:keepDownloads:)` is the user-facing path and stops the player
     /// first; this one runs when there is no player yet.
     static func wipeStores() {
-        let defaults = UserDefaults.standard
+        let defaults = BatonStorage.defaults
         for key in defaultsKeys { defaults.removeObject(forKey: key) }
         for account in secretAccounts { NavidromeKeychain.setSecret("", account: account) }
         NavidromeConfig.clear()
@@ -124,7 +125,7 @@ enum SessionPurge {
         model.musicLibrary.resetForServerChange()
 
         for account in secretAccounts { NavidromeKeychain.deleteSecret(account: account) }
-        for key in defaultsKeys { UserDefaults.standard.removeObject(forKey: key) }
+        for key in defaultsKeys { BatonStorage.defaults.removeObject(forKey: key) }
 
         // The agent's readiness is derived from those keys; drop the cached verification so
         // the Friend tab can't outlive the configuration that earned it.

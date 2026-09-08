@@ -66,8 +66,16 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.17.12"
-    CURRENT_PROJECT_VERSION: "97"
+    MARKETING_VERSION: "0.18.0"
+    CURRENT_PROJECT_VERSION: "98"
+    # The 40-char lowercase-hex commit this build came from, baked into the app as
+    # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
+    # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
+    # a stale hardcoded default would be worse than none. scripts/publish.sh passes
+    # the real value on the command line (BATON_SOURCE_COMMIT=$(git rev-parse HEAD)),
+    # where it outranks this, and scripts/release-identity.sh refuses to package any
+    # bundle whose baked value is empty, abbreviated, uppercase or non-hex. (TBX-5101)
+    BATON_SOURCE_COMMIT: ""
     # Warnings-as-errors is deliberately OFF for the Wave-1 lift; re-enable once the
     # standalone build is green (the lifted code was warnings-clean in Tonebox).
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -165,6 +173,20 @@ targets:
         CFBundleDisplayName: Baton
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # The exact source revision this bundle was compiled from (TBX-5101).
+        #
+        # Version strings are not an identity: every commit carrying MARKETING_VERSION
+        # 0.17.12 builds an app that looks identical to every other, and a git tag is a
+        # movable pointer somebody typed — which is why the live 0.17.12 DMG could not be
+        # mapped to a revision at all. This key can be, and it survives the one trip that
+        # matters: it is inside the artifact users actually downloaded, so it can be read
+        # back out of a mounted DMG months later with PlistBuddy and no repo access.
+        #
+        # Empty in dev builds, and scripts/release-identity.sh refuses to package a
+        # distributable bundle whose value is missing, empty, still the unexpanded
+        # template, abbreviated, uppercase or non-hex. CrashReporting also folds it into
+        # the Sentry release name, so a crash names its source.
+        BatonSourceCommit: "$(BATON_SOURCE_COMMIT)"
         LSApplicationCategoryType: "public.app-category.music"
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         # Push-to-talk in the music friend window. Both strings are required before macOS

@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 import UIKit
 
@@ -25,6 +26,10 @@ struct BatonMobileApp: App {
     init() {
         // No-op unless the user opted in AND a DSN is baked into this build.
         CrashReporting.startIfEnabled()
+        // Tag every reported event with the revision this build was compiled from, so a
+        // crash names its own source. No-op when reporting is off or the build carries
+        // no usable commit — see MobileReleaseIdentity.
+        MobileReleaseIdentity.applyToCrashReportingScope()
         // The default URLCache is 512KB in memory — about four covers. Raised before the
         // first request goes out, or the setting arrives after the cache it was meant to
         // size.
@@ -52,6 +57,12 @@ struct BatonMobileApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView(model: model)
+                // Every `@AppStorage` below here reads the domain `BatonStorage` resolved: the
+                // app's own normally, a throwaway suite when launched with `-baton.defaultsSuite`.
+                // On the phone the container is already isolated per install, so this matters less
+                // than on the Mac — but the two apps share these views, and a rule that holds on
+                // one platform only is the kind that drifts.
+                .defaultAppStorage(BatonStorage.defaults)
                 // Setup is a gate, not a tab: with neither a server nor the demo
                 // there is nothing any other screen could show.
                 .fullScreenCover(isPresented: Binding(
@@ -71,7 +82,7 @@ struct BatonMobileApp: App {
                 // — a toggle that resets whenever the app restarts is a suggestion.
                 .onAppear {
                     UIApplication.shared.isIdleTimerDisabled =
-                        UserDefaults.standard.bool(forKey: "baton.display.keepAwake")
+                        BatonStorage.defaults.bool(forKey: "baton.display.keepAwake")
                 }
                 .onOpenURL { url in
                     Task { await route(url) }

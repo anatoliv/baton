@@ -234,6 +234,30 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.1",
+            date: "September 2026",
+            highlight: "The first update since Baton arrived on the App Store, carrying everything the TestFlight builds have had since launch.",
+            changes: [
+                .init(.improved, "Coming from the App Store, this update brings the whole of 1.0.1 through 1.0.13 with it: clippings that agree with your Mac about their names and their deletions, deleting a clipping from the player itself, removing a download from the track you are looking at, and settings you change on your Mac arriving here while the app is open. The cards below say what each one changed."),
+                .init(.added, "After three separate days on which you actually played something, Baton asks once whether you would rate it on the App Store. It waits twenty seconds into a track, so the question never lands on the tap that started the music, and it backs off if you stop or put your phone away."),
+                .init(.added, "It asks at most once per version, and never on a day you have not listened to anything. iOS allows any app three of these a year, so it is worth spending carefully."),
+                .init(.fixed, "Set up from a Mac now brings your music friend with it. Its settings were always being sent, but this app read them once when it started and never looked again, so the screen kept showing what was here before and you had to type it all in a second time. Your equalizer, your radio bans and your search history were arriving the same way and being ignored the same way."),
+                .init(.added, "Setting up from a Mac now tests what it just brought over, on the spot. It checks your music server, your music friend and your scrobbling accounts, tells you which answered, and leaves everything in place if one of them did not. Before, it said how many settings had arrived and left you to find the buttons that would tell you whether any of it worked."),
+                .init(.improved, "Because that test really runs, your music friend is ready the moment the setup finishes and its tab is simply there. The commonest reason it will not be is worth knowing: a model host on your home network cannot be reached from mobile data, and the check now says so instead of leaving you guessing."),
+                .init(.added, "What you have told your music friend to remember, and what it has learned from you correcting it, now travel with a setup too. Both of them live in files rather than in settings, so neither had ever been carried. Its log of past conversations stays on the device that had them."),
+                .init(.added, "You can now see what your music friend remembers about you. Open the Friend Log from the Music Friend screen and there is a list of the things you have told it, each one shown with the sentence you actually said, so you can judge what it took from your words. Swipe to forget one and it goes from your other devices too. Until now those memories were only ever read out to the friend, never shown to you."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.0.13",
+            date: "August 2026",
+            highlight: "Changes made on your Mac now arrive while Baton is open, not only when you come back to it.",
+            changes: [
+                .init(.fixed, "Baton checked for changes from your Mac when it launched and each time you came back to it, and at no other time. Left open, it never checked again, so a clipping renamed on your Mac kept its old name here for as long as you stayed in the app."),
+                .init(.improved, "It now checks every ten minutes while it is on screen, and stops when you leave. That is what your Mac has always done."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.0.12",
             date: "August 2026",
             highlight: "A clipping renamed on your Mac arrives here under its new name.",

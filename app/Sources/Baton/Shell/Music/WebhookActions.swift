@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 import Observation
 import OSLog
@@ -237,7 +238,7 @@ final class WebhookActionStore {
     }
 
     init(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = BatonStorage.defaults,
         secrets: any SecretStore = KeychainSecretStore(),
         send: @escaping (URLRequest) async throws -> Int = { request in
             let (_, response) = try await URLSession.shared.data(for: request)

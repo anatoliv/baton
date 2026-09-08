@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 
 /// Always-available status-bar controller for Baton. Lives in the menu bar so the
@@ -11,7 +12,8 @@ struct BatonMenuBarLabel: View {
     let model: MusicModel
 
     /// Opt-in: also show the current track/station title beside the glyph. Off by default.
-    @AppStorage(BatonMenuBarText.showTitleKey) private var showTitle = false
+    @AppStorage(BatonMenuBarText.showTitleKey, store: BatonStorage.defaults)
+    private var showTitle = false
 
     private var player: StreamingPlaybackController { model.music }
     /// True while the library player OR an on-air radio station is actively playing.
@@ -78,7 +80,8 @@ struct BatonMenuBarContent: View {
     let model: MusicModel
     /// Deep-links the Help window straight to the What's New panel (same key the Help
     /// menu uses), so the menu bar can reach it with no window open.
-    @AppStorage("baton.help.requestedTopic") private var helpTopic = ""
+    @AppStorage("baton.help.requestedTopic", store: BatonStorage.defaults)
+    private var helpTopic = ""
     /// Lets the now-playing header open the full-screen player (raises the intent `MusicView` consumes).
     let router: BatonCommandRouter
 

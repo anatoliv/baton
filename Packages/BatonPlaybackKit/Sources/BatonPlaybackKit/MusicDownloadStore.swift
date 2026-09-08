@@ -146,6 +146,10 @@ public final class MusicDownloadStore {
     }
 
     public static func defaultDirectory() -> URL {
+        // The one Baton directory that is not under `Application Support/Baton` — the cache is
+        // shared with Tonebox and predates the split. A probe launch still gets its own, so a
+        // throwaway device cannot write into the owner's downloaded music.
+        if BatonStorage.isProbe { return BatonStorage.supportSubdirectory("music-cache") }
         let base = (try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
         )) ?? FileManager.default.temporaryDirectory
@@ -153,17 +157,17 @@ public final class MusicDownloadStore {
     }
 
     public var isUsingCustomFolder: Bool {
-        UserDefaults.standard.string(forKey: Self.folderKey) != nil
+        BatonStorage.defaults.string(forKey: Self.folderKey) != nil
     }
 
     /// The filename template (persisted). Only affects **future** downloads.
     public var filenameTemplate: String {
-        get { UserDefaults.standard.string(forKey: Self.templateKey) ?? Self.defaultTemplate }
-        set { UserDefaults.standard.set(newValue, forKey: Self.templateKey) }
+        get { BatonStorage.defaults.string(forKey: Self.templateKey) ?? Self.defaultTemplate }
+        set { BatonStorage.defaults.set(newValue, forKey: Self.templateKey) }
     }
 
     public init() {
-        let stored = UserDefaults.standard.string(forKey: Self.folderKey)
+        let stored = BatonStorage.defaults.string(forKey: Self.folderKey)
         directory = stored.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? Self.defaultDirectory()
         ensureDirectoryAndRescan()
     }
@@ -172,13 +176,13 @@ public final class MusicDownloadStore {
     /// the "downloaded" set is re-scanned from the new folder + its manifest.
     public func setDownloadFolder(_ url: URL) {
         directory = url
-        UserDefaults.standard.set(url.path, forKey: Self.folderKey)
+        BatonStorage.defaults.set(url.path, forKey: Self.folderKey)
         ensureDirectoryAndRescan()
     }
 
     /// Revert to the default Application Support cache.
     public func resetDownloadFolder() {
-        UserDefaults.standard.removeObject(forKey: Self.folderKey)
+        BatonStorage.defaults.removeObject(forKey: Self.folderKey)
         directory = Self.defaultDirectory()
         ensureDirectoryAndRescan()
     }
@@ -562,8 +566,8 @@ public final class MusicDownloadStore {
     /// least-recently-played downloads until the total fits.
     public static let storageCapKey = "baton.downloads.storageCapBytes"
     public var storageCapBytes: Int64 {
-        get { Int64(UserDefaults.standard.integer(forKey: Self.storageCapKey)) }
-        set { UserDefaults.standard.set(Int(newValue), forKey: Self.storageCapKey) }
+        get { Int64(BatonStorage.defaults.integer(forKey: Self.storageCapKey)) }
+        set { BatonStorage.defaults.set(Int(newValue), forKey: Self.storageCapKey) }
     }
 
     /// Pure LRU planner: which ids to evict so `items` fits under `capBytes`, dropping the

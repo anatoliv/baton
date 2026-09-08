@@ -107,7 +107,7 @@ cache/state: **`MusicLibraryStore`** (`Model/MusicLibraryStore.swift`,
 
 ### Client surface (verified)
 - Auth: `.tokenSalt` (classic Subsonic `md5(password+salt)`) or `.apiKey`
-  (OpenSubsonic `apikeyauth`). API version advertised `1.16.1`, client id `tonebox`.
+  (OpenSubsonic `apiKeyAuthentication`). API version advertised `1.16.1`, client id `tonebox`.
 - Search/browse: `search3` (:142), `getAlbum` (:159), `getAlbumList2` (:222, by
   newest/frequent/recent/starred/highest/random/alphabetical), `getArtists` (:232),
   `getArtistAlbums` (:238), `getGenres` (:244), `getSongsByGenre` (:250),

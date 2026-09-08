@@ -1,4 +1,5 @@
 import AppKit
+import BatonSubsonicKit
 import Observation
 import SwiftUI
 
@@ -165,7 +166,7 @@ final class SpeakingHUDPresenter {
             guard let panel else { return }
             MainActor.assumeIsolated {
                 panel.invalidateShadow()
-                UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameDefaultsKey)
+                BatonStorage.defaults.set(NSStringFromRect(panel.frame), forKey: Self.frameDefaultsKey)
             }
         }
         moveObserver = NotificationCenter.default.addObserver(
@@ -188,7 +189,7 @@ final class SpeakingHUDPresenter {
     }
 
     private func savedFrame() -> NSRect? {
-        guard let s = UserDefaults.standard.string(forKey: Self.frameDefaultsKey) else { return nil }
+        guard let s = BatonStorage.defaults.string(forKey: Self.frameDefaultsKey) else { return nil }
         let r = NSRectFromString(s)
         return r.isEmpty ? nil : r
     }

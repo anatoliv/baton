@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import BatonSubsonicModels
 import Foundation
 import OSLog
@@ -38,7 +39,7 @@ private let lyricsLog = Logger(subsystem: "io.tonebox.baton", category: "Lyrics"
 public enum LRCLIBLyrics {
     public static let enabledKey = "baton.lyrics.lrclib"
 
-    public static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+    public static var isEnabled: Bool { BatonStorage.defaults.bool(forKey: enabledKey) }
 
     /// How far a search candidate's duration may sit from the playing track's and still be
     /// believed to be the same recording. Tags and lyrics databases round differently, and

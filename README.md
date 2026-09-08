@@ -72,6 +72,16 @@ Or download the DMG from [baton.tonebox.io](https://baton.tonebox.io), or build 
 macOS 15 (Sequoia) or later, Apple Silicon. The cask is marked `auto_updates`, so Baton keeps
 itself current through Sparkle rather than through `brew upgrade`.
 
+### On the iPhone
+
+Baton is on the App Store as [Baton Music](https://apps.apple.com/app/id6798304294). It
+connects to the same server and plays the same library, with offline downloads and the music
+friend, and it needs iOS 18 or later. It costs money where the Mac app doesn't, and that is
+what covers the Apple developer account the Mac build is signed with.
+
+The source is in [`ios/`](ios/) under the same MIT licence as the rest of the repo, so you can
+build it yourself instead.
+
 ### Build from source
 
 You'll need Xcode 26+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
@@ -121,6 +131,8 @@ live resources; and it writes a discovery file (endpoint URL and token) to
 
 - [HELP.md](HELP.md) is the full user guide.
 - [FAQ.md](FAQ.md) has quick answers.
+- [docs/opensubsonic.md](docs/opensubsonic.md) states the exact OpenSubsonic extensions and
+  response fields Baton supports.
 - [docs/](docs/) holds the vision, feature inventory, architecture, the integration and MCP
   design, and the roadmap.
 - Website lives in `website/`, icon and design in `design/`, the app in `app/`, site deploy in

@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 
 /// Light, dark, or whatever the system says.
@@ -41,7 +42,7 @@ public enum AppearanceSetting: String, CaseIterable, Identifiable, Sendable {
     public static let key = "baton.appearance"
 
     public static var current: AppearanceSetting {
-        AppearanceSetting(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .dark
+        AppearanceSetting(rawValue: BatonStorage.defaults.string(forKey: key) ?? "") ?? .dark
     }
 }
 

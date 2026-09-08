@@ -12,7 +12,7 @@ public enum FilterHistory {
 
     /// Backing store. Injectable so tests exercise the dedup/cap/remove logic without touching
     /// (and overwriting) the developer's real filter history.
-    public nonisolated(unsafe) static var defaults: UserDefaults = .standard
+    public nonisolated(unsafe) static var defaults: UserDefaults = BatonStorage.defaults
 
     /// Max entries kept per screen. Clamped to a sane range so a bad default can't make
     /// the list unbounded or empty.

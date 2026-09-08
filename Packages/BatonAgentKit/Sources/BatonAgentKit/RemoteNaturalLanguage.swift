@@ -165,16 +165,44 @@ public enum RemoteNaturalLanguage {
     }
 
     /// RFC-1918, loopback, and the names macOS treats as local.
+    ///
+    /// **The only copy of this rule.** The iPhone's agent client had its own, which omitted
+    /// `127.` — so the same address was private to the Mac and public to the phone, and the
+    /// phone refused `http://127.0.0.1:8799` as "a public host" while shipping
+    /// `http://127.0.0.1:8001` as its own default Whisper host. One rule in two
+    /// places is the drift this codebase names outright; there is now one place.
+    ///
+    /// `::1` is handled explicitly because a URL host for IPv6 arrives either bare or in
+    /// brackets depending on who parsed it, and neither form starts with `127.`.
     public static func isPrivate(_ host: String) -> Bool {
         let h = host.lowercased()
-        if h == "localhost" || h.hasSuffix(".local") || h.hasPrefix("127.") || h.hasPrefix("10.") { return true }
-        if h.hasPrefix("192.168.") { return true }
-        // 172.16.0.0 – 172.31.255.255
-        if h.hasPrefix("172.") {
-            let parts = h.split(separator: ".")
-            if parts.count > 1, let second = Int(parts[1]), (16...31).contains(second) { return true }
+
+        // Names first. These are names, not addresses, so no numeric reasoning applies.
+        if h == "::1" || h == "[::1]" { return true }
+        if h == "localhost" || h.hasSuffix(".local") { return true }
+
+        // Everything below is about IPv4 *addresses*, so insist on one before reading it as
+        // a number. `hasPrefix("127.")` alone also matches `127.example.com`, which is an
+        // ordinary registrable domain someone else can own and point wherever they like —
+        // and this predicate's whole job is deciding whether it is safe to send a key over
+        // plain HTTP. Found by the test that was written to prove the two copies agree
+        //; they agreed, and both were wrong about this.
+        let parts = h.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        var octets: [Int] = []
+        for part in parts {
+            guard !part.isEmpty, part.allSatisfy(\.isNumber), let value = Int(part),
+                  (0 ... 255).contains(value) else { return false }
+            octets.append(value)
         }
-        return false
+
+        switch (octets[0], octets[1]) {
+        case (127, _): return true                       // loopback, 127.0.0.0/8
+        case (10, _): return true                        // 10.0.0.0/8
+        case (192, 168): return true                     // 192.168.0.0/16
+        case (172, 16 ... 31): return true               // 172.16.0.0/12
+        default: return false
+        }
     }
 
     /// Not every provider answers an unusable key with a plain 401. LiteLLM —

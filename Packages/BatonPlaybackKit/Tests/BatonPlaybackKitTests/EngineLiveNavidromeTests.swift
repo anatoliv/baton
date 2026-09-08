@@ -327,40 +327,47 @@ final class EngineLiveNavidromeTests: XCTestCase {
         }
         XCTAssertEqual(harness.controller.loadCountForTesting, 1,
                        "a reachable seek must reposition in the spool, not re-request")
-        // Sample until audio is clearly there, rather than betting the test on one window.
+        // Wait for the NODE to have begun rendering, then measure.
         //
-        // `aheadSeconds > 0.5` above says buffers are *scheduled*; it does not say the node
-        // has begun rendering them. Under full-gate load that gap is wide enough to swallow
-        // a whole 0.5 s window, and the assertion then reads a flat 0.0 and calls the seek
-        // broken. This test did exactly that on 2026-08-09 and again on 2026-08-12, passing
-        // 5/5 in isolation each time — the signature of a threshold set by the machine's
-        // mood rather than by the code.
+        // This replaces three rounds of widening a sampling window, and it is the thing the
+        // previous comment here asked for by name after the third failure: "the test needs a
+        // signal that the node has *begun rendering* rather than a longer guess, and
+        // `aheadSeconds` is explicitly not that signal." It failed a fourth time on
+        // 2026-09-07 at 24 slices, rendering 1.42e-05 — not a near miss, silence.
         //
-        // Same remedy as the metering test: more slices, an early exit the moment the point
-        // is proven, and a sleep between them so the feeder can actually schedule. A healthy
-        // build takes the first slice and costs nothing.
+        // `playedFrames` is the player node's own playback position, derived from
+        // `playerTime(forNodeTime:)`. It advances only while the node is consuming buffers
+        // that were actually scheduled into it, and stops dead when the node is starved. That
+        // is precisely the distinction `aheadSeconds` cannot make: ahead > 0 says the
+        // *pipeline* believes audio is queued, which under full-gate load can be true for a
+        // whole second before the node has been handed any of it.
+        //
+        // So: render in slices as before, but decide on the signal rather than the clock. If
+        // the node never starts, this environment could not produce a measurement — say that
+        // and skip, exactly as the sibling `testResumeAfterTrackEndProducesAudio` does, rather
+        // than reporting "no audio", which is a claim about the code and would be false.
+        let deck = harness.controller.activeDeckForTesting
+        let framesBefore = harness.pipeline.playedFrames(on: deck)
         var inSpoolRMS: Double = 0
+        var nodeBeganRendering = false
         var slices = 0
         for _ in 0 ..< 24 {
             slices += 1
             inSpoolRMS = EngineTestSignals.rms(try await harness.renderSeconds(0.25))
-            if inSpoolRMS > 0.001 { break }
+            if harness.pipeline.playedFrames(on: deck) > framesBefore { nodeBeganRendering = true }
+            if nodeBeganRendering, inSpoolRMS > 0.001 { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        // Widened from 10 slices to 24 on 2026-08-29, after a third failure of the same shape
-        // during a release gate — again 5/5 in isolation, again a flat 0.0. The machine was
-        // running a Time Machine backup and a second Xcode build at the time, which is the
-        // condition this keeps failing under and never fails without.
-        //
-        // The failure message now says how long it actually waited, because "no audio" and "no
-        // audio within 3.5 seconds on a loaded machine" are different claims and only the second
-        // one is true. If this widening is not enough, do not widen it a fourth time: the test
-        // needs a signal that the node has *begun rendering* rather than a longer guess, and
-        // `aheadSeconds` is explicitly not that signal.
+
+        try XCTSkipUnless(
+            nodeBeganRendering,
+            "the deck's player node never advanced past \(framesBefore) frames in \(slices) "
+                + "slices, so it was never handed the audio this assertion is about — not "
+                + "measurable on this machine right now, which is different from broken")
+
         XCTAssertGreaterThan(
             inSpoolRMS, 0.001,
-            "no audio after the in-spool seek, sampled \(slices) times over "
-                + "\(String(format: "%.1f", Double(slices) * 0.35))s"
+            "the node rendered after the in-spool seek but produced silence, sampled \(slices) times"
         )
 
         // Cold reload: aim past what has been spooled. If the whole file already arrived

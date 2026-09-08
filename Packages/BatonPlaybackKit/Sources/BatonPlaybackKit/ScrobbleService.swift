@@ -85,7 +85,7 @@ public final class ScrobbleService {
         navidrome: ScrobbleDestination = NavidromeScrobbleDestination(),
         localArchive: LocalListenRecording? = nil,
         queue: ScrobbleQueue = ScrobbleQueue(),
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = BatonStorage.defaults,
         now: @escaping () -> Date = { Date() },
         monitorNetwork: Bool = !BatonEnvironment.current.isTesting,
         autoFlush: Bool = true

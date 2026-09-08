@@ -83,7 +83,7 @@ public final class SearchRecents {
     private let defaults: UserDefaults
     private var serverID: String
 
-    public init(defaults: UserDefaults = .standard, serverID: String? = nil) {
+    public init(defaults: UserDefaults = BatonStorage.defaults, serverID: String? = nil) {
         self.defaults = defaults
         self.serverID = serverID ?? Self.currentServerFingerprint(defaults: defaults) ?? Self.unscoped
         reload()
@@ -202,7 +202,7 @@ public final class SearchRecents {
     /// `server` is a defaulted parameter rather than a direct call so tests can supply one;
     /// default arguments are evaluated per call, so the lookup still happens at call time.
     public static func currentServerFingerprint(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = BatonStorage.defaults,
         server: NavidromeServerEntry? = NavidromeConfig.activeServer()
     ) -> String? {
         if let server, !server.urlString.isEmpty, !server.username.isEmpty {

@@ -33,6 +33,10 @@ struct MacTransferView: View {
     @State private var needsPassphrase = false
     @State private var passphrase = ""
     @State private var status: String?
+    /// The post-import connection checks. Held here so the sheet keeps one instance across
+    /// redraws rather than restarting its probes every time the view body runs.
+    @State private var check = ImportedSetupCheck()
+    @State private var checkSummary: String?
 
     var body: some View {
         Form {
@@ -71,10 +75,12 @@ struct MacTransferView: View {
         .navigationTitle("Set Up from a Mac")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showsScanner) {
-            PairingScannerView(model: model) {
+            PairingScannerView(model: model) { summary in
                 showsScanner = false
-                onImported()
-                dismiss()
+                // Same destination as the file import: the pairing payload IS a settings
+                // export, so it configures the same services and deserves the same proof
+                // that any of them answer.
+                checkSummary = summary
             }
         }
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.json, .data]) { result in
@@ -111,6 +117,35 @@ struct MacTransferView: View {
         } message: {
             if let status { Text(status) }
         }
+        // A successful import goes to the check sheet, not to an alert. The alert above is
+        // now only for a failure, where there is nothing to test.
+        .sheet(isPresented: Binding(
+            get: { checkSummary != nil },
+            set: { if !$0 { checkSummary = nil } }
+        )) {
+            if let checkSummary {
+                ImportedSetupCheckView(model: model, summary: checkSummary, check: check) {
+                    self.checkSummary = nil
+                    onImported()
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    /// What the import actually achieved, including the part that did not.
+    ///
+    /// A refused Keychain write used to be counted as applied, so the sheet could say
+    /// "Imported 8 settings and 1 secret" over a friend whose key was not stored — and then,
+    /// correctly, that there was nothing to test, because without the key it was not
+    /// configured. Two true sentences describing something false. If a secret did
+    /// not land, that is the first thing this says.
+    static func summary(for result: SettingsTransfer.ImportResult) -> String {
+        let base = "Imported \(Counted.phrase(result.preferenceCount, "setting")) "
+            + "and \(Counted.phrase(result.secretCount, "secret"))."
+        guard result.secretsRefused > 0 else { return base }
+        return base + " \(Counted.phrase(result.secretsRefused, "account")) could not be saved "
+            + "to the Keychain — you will need to enter those again."
     }
 
     /// Applies a Mac export: preferences and secrets land in the same UserDefaults and
@@ -119,13 +154,21 @@ struct MacTransferView: View {
         guard let data = importData else { return }
         do {
             let result = try SettingsTransfer.applyImport(data, passphrase: passphrase)
-            status = "Imported \(Counted.phrase(result.preferenceCount, "setting")) "
-                + "and \(Counted.phrase(result.secretCount, "secret"))."
             importData = nil
             self.passphrase = ""
-            model.musicLibrary.refreshConnection()
+            // Not just the library: the import wrote the music friend, the equalizer and the
+            // rest into storage that this app read once at launch. See
+            // `MobileModel.reloadAfterSettingsImport`.
+            //
+            // Ordering is load-bearing. The checks below read what is configured *now*, so
+            // they have to run after this or every one of them tests the values this phone
+            // had before the import and reports the answer as if it meant something.
+            model.reloadAfterSettingsImport()
             Task { await model.warmLibrary() }
-            onImported()
+            // Straight into the checks rather than an OK button. `onImported()` is deferred
+            // to the sheet's Done, so the caller does not dismiss the screen out from under
+            // the results.
+            checkSummary = Self.summary(for: result)
         } catch {
             status = "Import failed: \(error.localizedDescription)"
         }

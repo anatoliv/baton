@@ -15,8 +15,14 @@ public final class MusicRadioBans {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored public static let storageKey = "tonebox.music.radioBans"
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = BatonStorage.defaults) {
         self.defaults = defaults
+        ids = Set((defaults.array(forKey: Self.storageKey) as? [String]) ?? [])
+    }
+
+    /// Re-read the list, for when storage changed underneath this object — which on the
+    /// phone means "Set up from a Mac" landing after launch.
+    public func reload() {
         ids = Set((defaults.array(forKey: Self.storageKey) as? [String]) ?? [])
     }
 

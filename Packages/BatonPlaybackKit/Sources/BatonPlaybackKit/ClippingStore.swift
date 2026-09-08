@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import BatonSubsonicModels
 import Foundation
 import Observation
@@ -90,7 +91,7 @@ public final class ClippingStore {
     private let defaults: UserDefaults
     private var loaded = false
 
-    public init(directory: URL? = nil, defaults: UserDefaults = .standard) {
+    public init(directory: URL? = nil, defaults: UserDefaults = BatonStorage.defaults) {
         self.directory = directory ?? Self.defaultDirectory()
         self.defaults = defaults
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
@@ -430,10 +431,5 @@ public final class ClippingStore {
         directory.appendingPathComponent("\(id).json")
     }
 
-    private static func defaultDirectory() -> URL {
-        let base = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        )) ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("Baton/Clippings", isDirectory: true)
-    }
+    private static func defaultDirectory() -> URL { BatonStorage.supportSubdirectory("Clippings") }
 }

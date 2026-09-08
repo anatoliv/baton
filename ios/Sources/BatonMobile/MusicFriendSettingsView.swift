@@ -15,6 +15,9 @@ struct MusicFriendSettingsView: View {
 
     @State private var isTesting = false
     @State private var testResult: RemoteNaturalLanguage.TestOutcome?
+    /// The friend's answer in the vocabulary every other service uses, so this screen reads
+    /// like the others rather than like a special case.
+    @State private var liveStatus: ServiceStatus = .unknown
     /// Secrets stay masked until a biometric challenge passes. An API key against a paid
     /// model provider is money; leaving it readable to anyone holding an unlocked phone is
     /// the one thing on this screen worth a prompt.
@@ -102,6 +105,33 @@ struct MusicFriendSettingsView: View {
 
     private var testSection: some View {
         Section {
+            // Every other configurable service on this phone says whether it works without
+            // being asked — the server and Whisper on the Settings list, both scrobblers on
+            // theirs. The friend was the only one that made you find a button, which is
+            // exactly as informative as no badge at all if you do not know the button is
+            // there.
+            //
+            // **Not keyed on the fingerprint, and that was a real bug**. This was
+            // `.task(id: config.fingerprint)`, reasoning that the fingerprint is "the
+            // configuration that would need re-testing" — true, but every input to it
+            // (`apiKey`, `model`, `baseURL`, `gatewayURL`) is two-way bound to a field on
+            // *this screen*. So the fingerprint changed on every keystroke, the task
+            // restarted, and typing or pasting a 40-character key fired up to 40 real
+            // requests at a paid provider. Cost was the entire argument for keying, and the
+            // keying spent more than checking on appear ever would have.
+            //
+            // On appear, and only when there is something to learn: configured, and not
+            // already proven. That is one request per visit *while unverified* — which is
+            // precisely the state where the answer is worth paying for, and is bounded by
+            // the user opening a screen rather than by their typing speed. A verified
+            // configuration shows its badge and spends nothing; editing spends nothing until
+            // you ask.
+            ServiceStatusRow(status: liveStatus) { Task { await refreshStatus() } }
+                .task {
+                    guard config.isConfigured, !config.isReady else { return }
+                    await refreshStatus()
+                }
+
             Button {
                 runTest()
             } label: {
@@ -177,14 +207,45 @@ struct MusicFriendSettingsView: View {
         )
     }
 
+    /// One request, and the same one the button spends — so a green row here means exactly
+    /// what a green row means anywhere else in Settings: it was asked, just now, and it
+    /// answered. Never derived from a key being present.
+    private func refreshStatus() async {
+        guard config.isConfigured else {
+            liveStatus = .notConfigured("Not set up yet")
+            return
+        }
+        // A configuration that has already passed shows what it earned, without spending
+        // another request to re-learn it. This is not the derived-green `ServiceStatus`
+        // warns about: the fingerprint means a real request succeeded against exactly these
+        // values, and any edit clears it.
+        if config.isReady, case .unknown = liveStatus {
+            liveStatus = .ok(detail: "Tested and working.")
+            return
+        }
+        liveStatus = .checking
+        liveStatus = await model.agent.connectionStatus()
+    }
+
     private func runTest() {
         isTesting = true
         testResult = nil
+        liveStatus = .checking
         Task {
             // A test result belongs to the configuration that produced it, and the
             // client records that pairing itself — this view never marks anything ready.
             let outcome = await model.agent.runConnectionTest()
             testResult = outcome
+            // Keep the badge and the prose from disagreeing. Two surfaces describing one
+            // request, both fed from it, so there is no state where the row says "Connected"
+            // over a result that says otherwise.
+            liveStatus = {
+                switch outcome {
+                case let .ok(detail): .ok(detail: detail)
+                case let .failed(why):
+                    AgentClient.looksLikeACredentialProblem(why) ? .refused(why) : .unreachable(why)
+                }
+            }()
             isTesting = false
         }
     }

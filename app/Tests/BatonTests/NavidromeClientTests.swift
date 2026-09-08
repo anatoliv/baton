@@ -180,13 +180,19 @@ final class NavidromeClientTests: XCTestCase {
         NavidromeMockURLProtocol.handler = { request in
             let json = """
             {"subsonic-response":{"status":"ok","openSubsonicExtensions":[
-              {"name":"apikeyauth","versions":[1]},{"name":"songLyrics","versions":[1]}]}}
+              {"name":"apiKeyAuthentication","versions":[1]},{"name":"songLyrics","versions":[1]}]}}
             """
             return navidromeOK(json, request)
         }
         let client = NavidromeClient(credentials: creds(), session: mockSession())
         let exts = try await client.openSubsonicExtensions()
-        XCTAssertEqual(Set(exts), ["apikeyauth", "songLyrics"])
+        XCTAssertEqual(Set(exts), ["apiKeyAuthentication", "songLyrics"])
+    }
+
+    func testConnectInfoRecognizesCurrentAndLegacyAPIKeyExtensionNames() {
+        XCTAssertTrue(NavidromeConfig.ConnectInfo(extensions: ["apiKeyAuthentication"]).supportsAPIKey)
+        XCTAssertTrue(NavidromeConfig.ConnectInfo(extensions: ["apikeyauth"]).supportsAPIKey)
+        XCTAssertFalse(NavidromeConfig.ConnectInfo(extensions: ["songLyrics"]).supportsAPIKey)
     }
 
     // MARK: - Ratings + like state (full-player REQ-1,2)

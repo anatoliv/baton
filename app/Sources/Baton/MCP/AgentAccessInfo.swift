@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 
 /// The agent-facing connection facts the running MCP server advertises in its `mcp.json` discovery
@@ -31,10 +32,7 @@ struct AgentAccessInfo: Equatable {
     }
 
     /// The discovery directory agents look in — `~/Library/Application Support/Baton`.
-    static var discoveryDirectory: URL? {
-        try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-            .appendingPathComponent("Baton", isDirectory: true)
-    }
+    static var discoveryDirectory: URL? { BatonStorage.supportDirectory() }
 
     /// Load from the default discovery directory.
     static func loadCurrent() -> AgentAccessInfo? {

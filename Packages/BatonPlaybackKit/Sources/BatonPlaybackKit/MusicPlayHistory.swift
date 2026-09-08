@@ -48,12 +48,10 @@ public final class MusicPlayHistory: LocalListenRecording {
     /// archive grew.
     @ObservationIgnored private let historyURL: URL
 
-    public init(defaults: UserDefaults = .standard, clock: @escaping () -> Date = { Date() }, directory: URL? = nil) {
+    public init(defaults: UserDefaults = BatonStorage.defaults, clock: @escaping () -> Date = { Date() }, directory: URL? = nil) {
         self.defaults = defaults
         self.clock = clock
-        let dir = directory ?? (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ).appendingPathComponent("Baton", isDirectory: true)) ?? FileManager.default.temporaryDirectory
+        let dir = directory ?? BatonStorage.supportDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.historyURL = dir.appendingPathComponent("play-history.jsonl")
         isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true

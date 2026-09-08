@@ -38,10 +38,18 @@ settings:
     GENERATE_INFOPLIST_FILE: YES
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
-    CODE_SIGN_IDENTITY: "Apple Distribution: Anatoli Vishnyakov (Q8822GNL2H)"
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.0.12"
+    MARKETING_VERSION: "1.1"
     CURRENT_PROJECT_VERSION: "1"
+    # The 40-char lowercase-hex commit this build came from, baked into the app as the
+    # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
+    # a dev loop has no business claiming an identity, and a stale hardcoded default
+    # would be worse than none. ios/scripts/testflight.sh passes the real value on the
+    # xcodebuild command line (BATON_SOURCE_COMMIT=$(git rev-parse HEAD)), where it
+    # outranks this, and ios/scripts/release-guard.sh refuses to upload any archive
+    # whose baked value is missing, empty, unexpanded, abbreviated, uppercase or
+    # non-hex. (TBX-5102)
+    BATON_SOURCE_COMMIT: ""
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
   configs:
     Debug:
@@ -116,7 +124,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
         PRODUCT_NAME: Baton
-        PROVISIONING_PROFILE_SPECIFIER: "Baton App Store"
         # The bundle is "Baton"; the Swift module is named for the target so tests
         # can @testable import it without colliding with the Mac app's module.
         # The CarPlay scene delegate is referenced via $(PRODUCT_MODULE_NAME), so
@@ -135,6 +142,20 @@ targets:
         CFBundleDisplayName: Baton
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # The exact source revision this bundle was compiled from (TBX-5102).
+        #
+        # Version strings are not an identity. Every commit carrying MARKETING_VERSION
+        # 1.0 builds an app indistinguishable from every other, the build number is
+        # `date +%s` at upload time and is not derived from source at all, and a git tag
+        # is a movable pointer somebody typed. That is why the live App Store build —
+        # 1.0, build 1786816974, uploaded 2026-08-15, the only thing a buyer has ever
+        # downloaded — cannot be mapped to a revision, and never will be: it predates
+        # this key and nothing can be added to it after the fact.
+        #
+        # This key can be mapped, and it survives the trip that matters: it is inside
+        # the artifact users install, so it can be read back months later from an .ipa
+        # or a device with PlistBuddy and no repo access.
+        BatonSourceCommit: "$(BATON_SOURCE_COMMIT)"
         LSApplicationCategoryType: "public.app-category.music"
         # The one background mode a music player needs: keep the audio session
         # alive when the app leaves the foreground.
@@ -216,7 +237,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton.widgets
-        PROVISIONING_PROFILE_SPECIFIER: "Baton Widgets App Store"
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
     info:

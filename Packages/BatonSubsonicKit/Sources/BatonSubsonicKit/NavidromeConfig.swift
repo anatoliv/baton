@@ -57,7 +57,7 @@ public enum NavidromeConfig {
     /// The `UserDefaults` suite backing config. Overridable in tests so a temp
     /// suite can be used without clobbering the user's real config. Defaults to
     /// `.standard` (production behavior, unchanged for every existing call-site).
-    public nonisolated(unsafe) static var defaults: UserDefaults = .standard
+    public nonisolated(unsafe) static var defaults: UserDefaults = BatonStorage.defaults
 
     /// The Keychain account used for a server with the given id. The migrated
     /// legacy server keeps the historical account (`secretKey`) so its existing
@@ -319,8 +319,14 @@ public enum NavidromeConfig {
     /// OpenSubsonic extensions the server advertises (for the API-key path).
     public struct ConnectInfo: Equatable, Sendable {
         public var extensions: [String]
+
+        public init(extensions: [String]) {
+            self.extensions = extensions
+        }
+
         public var supportsAPIKey: Bool {
-            extensions.contains("apikeyauth")
+            extensions.contains("apiKeyAuthentication") ||
+                extensions.contains("apikeyauth") // pre-spec name used by older servers
         }
     }
 

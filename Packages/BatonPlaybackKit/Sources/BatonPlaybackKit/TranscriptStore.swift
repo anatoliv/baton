@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import CryptoKit
 import Foundation
 import Observation
@@ -224,12 +225,5 @@ public final class TranscriptStore {
         return "transcript-\(hex).json"
     }
 
-    private static func defaultDirectory() -> URL {
-        let base = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        )) ?? FileManager.default.temporaryDirectory
-        let dir = base.appendingPathComponent("Baton/Transcripts", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
+    private static func defaultDirectory() -> URL { BatonStorage.supportSubdirectory("Transcripts") }
 }

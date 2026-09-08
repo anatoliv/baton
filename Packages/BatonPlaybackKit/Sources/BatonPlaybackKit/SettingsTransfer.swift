@@ -17,7 +17,9 @@ private let settingsTransferLog = Logger(subsystem: "io.tonebox.baton", category
 ///   password/API key, Last.fm secret + session, ListenBrainz token, the external-discovery
 ///   keys for Last.fm and YouTube). The whole file is
 ///   then AES-GCM encrypted under a key derived from a user passphrase (PBKDF2-HMAC-SHA256),
-///   so the secrets never sit in plaintext.
+///   so the secrets never sit in plaintext. This shape also carries the **portable documents**
+///   — the music friend's memory and what it has learned — which live in files rather than in
+///   `UserDefaults` and are personal enough to belong on the encrypted side of the line.
 ///
 /// Deliberately NOT exported: transient/session state (the play queue, history, the offline
 /// scrobble queue), machine-local device state (pending output device), derived personalization,
@@ -82,6 +84,81 @@ public enum SettingsTransfer {
         ExternalDiscovery.youTubeKeyKey,
         NavidromeKeychain.account,                      // legacy single-server "tonebox.navidromeSecret"
     ]
+
+    // MARK: - Documents
+
+    /// Files under Application Support that hold the user's own content rather than a
+    /// preference, and travel with an export that carries secrets.
+    ///
+    /// WHY THIS EXISTS. Everything else here moves `UserDefaults` keys and Keychain
+    /// items, and the music friend's two most personal stores are neither: what you have told
+    /// it to remember, and what it learned from being told it was wrong, are both JSON files.
+    /// So a phone set up from a Mac arrived with a friend that had been told nothing and
+    /// learned nothing, while its settings came across perfectly — and the same gap meant a
+    /// correction made on one device never reached the other.
+    ///
+    /// **The friend's log is deliberately absent.** It is history, not a setting, and the
+    /// precedent in `excludedPreferenceKeys` is explicit about that distinction: the play
+    /// history and the scrobble queue are excluded there for exactly this reason. Carrying a
+    /// log of what was asked on another device would also be the one thing here that is
+    /// surprising to receive.
+    ///
+    /// Referred to by filename rather than by type on purpose. `SettingsTransfer` lives in
+    /// BatonPlaybackKit and these stores live in BatonAgentKit, which do not depend on each
+    /// other in either direction — and the alternative, a registry the composition root has to
+    /// populate, is a guard nobody invokes waiting to happen.
+    static let portableDocuments: [String] = [
+        "remote-memory.json",           // what you asked the friend to remember
+        "music-friend-learned.json",    // what it learned from being corrected
+    ]
+
+    /// `Application Support/Baton`, where both stores put their files.
+    ///
+    /// A throwaway directory under XCTest, never the real one — same rule as
+    /// `MusicEqualizer.defaultStore` and the in-memory Keychain. Without
+    /// this every existing `SettingsTransfer` test would read the developer's own friend
+    /// memory into a backup and, on import, write one back over it.
+    public static func documentsDirectory(environment: BatonEnvironment = .current) -> URL? {
+        if environment.isTesting {
+            return URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("io.tonebox.tests.documents.\(UUID().uuidString)",
+                                        isDirectory: true)
+        }
+        return BatonStorage.supportDirectory()
+    }
+
+    /// Each portable document that exists, as raw bytes.
+    static func readDocuments(in directory: URL?) -> [String: Data] {
+        guard let directory else { return [:] }
+        var found: [String: Data] = [:]
+        for name in portableDocuments {
+            if let data = try? Data(contentsOf: directory.appendingPathComponent(name)) {
+                found[name] = data
+            }
+        }
+        return found
+    }
+
+    /// Write incoming documents, allowlisted by name for the same reason the secrets are: a
+    /// tampered file must not be able to drop arbitrary content into Application Support.
+    /// Returns how many landed.
+    @discardableResult
+    static func writeDocuments(_ documents: [String: Data], to directory: URL?) -> Int {
+        guard let directory else { return 0 }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var written = 0
+        for (name, data) in documents where portableDocuments.contains(name) && !data.isEmpty {
+            do {
+                try data.write(to: directory.appendingPathComponent(name), options: .atomic)
+                written += 1
+            } catch {
+                // One unwritable file must not abort an import that has already applied
+                // preferences and secrets. Say so and carry on.
+                settingsTransferLog.error("Couldn't write \(name, privacy: .public) on import: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return written
+    }
 
     /// True for a Keychain account we are willing to *write* on import — the fixed accounts plus
     /// the per-server namespace. Guards against a tampered file injecting arbitrary Keychain items.
@@ -148,12 +225,17 @@ public enum SettingsTransfer {
         public let data: Data
         public let preferenceCount: Int
         public let secretCount: Int
+        public let documentCount: Int
         public let encrypted: Bool
     }
 
     /// Build a settings backup. `includeSecrets` requires a non-empty `passphrase`; the resulting
     /// file is then encrypted. Without secrets the file is plain JSON.
-    public static func makeExport(includeSecrets: Bool, passphrase: String?, defaults: UserDefaults = .standard) throws -> ExportResult {
+    /// `documentsIn` is the Application Support folder the portable documents are read from;
+    /// injectable so tests never touch the developer's real friend memory.
+    public static func makeExport(includeSecrets: Bool, passphrase: String?,
+                                  defaults: UserDefaults = BatonStorage.defaults,
+                                  documentsIn documentsDirectory: URL? = SettingsTransfer.documentsDirectory()) throws -> ExportResult {
         var preferences: [String: Any] = [:]
         for (key, value) in defaults.dictionaryRepresentation() where isExportablePreference(key) {
             preferences[key] = value
@@ -168,6 +250,7 @@ public enum SettingsTransfer {
         ]
 
         var secretCount = 0
+        var documentCount = 0
         if includeSecrets {
             guard let passphrase, !passphrase.isEmpty else { throw TransferError.passphraseRequired }
             var secrets: [String: String] = [:]
@@ -178,6 +261,16 @@ public enum SettingsTransfer {
             }
             envelope["secrets"] = secrets
             secretCount = secrets.count
+
+            // Documents ride with the secrets, and only with the secrets. They are not
+            // credentials, but they are the most personal thing here — what you have told
+            // the friend about yourself — and a preferences-only export is plain JSON that
+            // this file's own header calls "safe to store or email". Encrypting them is the
+            // safe direction, and pairing always sends secrets, so pairing always carries
+            // them.
+            let documents = readDocuments(in: documentsDirectory)
+            envelope["documents"] = documents.mapValues { $0.base64EncodedString() }
+            documentCount = documents.count
         }
 
         let inner = try PropertyListSerialization.data(fromPropertyList: envelope, format: .binary, options: 0)
@@ -204,16 +297,32 @@ public enum SettingsTransfer {
         }
 
         let data = try JSONSerialization.data(withJSONObject: outer, options: [.prettyPrinted, .sortedKeys])
-        settingsTransferLog.info("exported settings (\(preferences.count) prefs, \(secretCount) secrets, encrypted \(includeSecrets, privacy: .public))")
-        return ExportResult(data: data, preferenceCount: preferences.count, secretCount: secretCount, encrypted: includeSecrets)
+        settingsTransferLog.info("exported settings (\(preferences.count) prefs, \(secretCount) secrets, \(documentCount) documents, encrypted \(includeSecrets, privacy: .public))")
+        return ExportResult(data: data, preferenceCount: preferences.count, secretCount: secretCount,
+                            documentCount: documentCount, encrypted: includeSecrets)
     }
 
     // MARK: - Import
 
     public struct ImportResult {
         public let preferenceCount: Int
+        /// Secrets that are **in the Keychain now** — not secrets the file carried.
         public let secretCount: Int
+        /// Secrets the file carried that the Keychain refused. Non-zero means the import was
+        /// partial, and the caller must say so rather than reporting the ones that worked
+        ///.
+        public let secretsRefused: Int
+        public let documentCount: Int
         public let appVersion: String?
+
+        public init(preferenceCount: Int, secretCount: Int, secretsRefused: Int,
+                    documentCount: Int, appVersion: String?) {
+            self.preferenceCount = preferenceCount
+            self.secretCount = secretCount
+            self.secretsRefused = secretsRefused
+            self.documentCount = documentCount
+            self.appVersion = appVersion
+        }
     }
 
     /// Apply a settings backup. Preferences are written into `defaults`; secrets (if the backup is
@@ -223,7 +332,9 @@ public enum SettingsTransfer {
     /// Returns what was applied. Many settings are read once at launch, so the caller should prompt
     /// the user to relaunch Baton for everything to take effect.
     @discardableResult
-    public static func applyImport(_ fileData: Data, passphrase: String?, defaults: UserDefaults = .standard) throws -> ImportResult {
+    public static func applyImport(_ fileData: Data, passphrase: String?,
+                                   defaults: UserDefaults = BatonStorage.defaults,
+                                   documentsIn documentsDirectory: URL? = SettingsTransfer.documentsDirectory()) throws -> ImportResult {
         guard let outer = try? JSONSerialization.jsonObject(with: fileData) as? [String: Any],
               outer["format"] as? String == format
         else { throw TransferError.notABatonBackup }
@@ -264,15 +375,33 @@ public enum SettingsTransfer {
         }
 
         var appliedSecrets = 0
+        var refusedSecrets = 0
         if let secrets = envelope["secrets"] as? [String: String] {
             for (account, value) in secrets where isImportableSecretAccount(account) && !value.isEmpty {
-                NavidromeKeychain.setSecret(value, account: account)
-                appliedSecrets += 1
+                // Count what landed, not what was attempted. This used to increment
+                // unconditionally, so an import could report "1 secret" over a Keychain that
+                // had rejected the write — and the post-import check would then say there
+                // was nothing to test, because the friend was not configured without it.
+                // Both sentences true, the pair of them false.
+                if NavidromeKeychain.setSecret(value, account: account) {
+                    appliedSecrets += 1
+                } else {
+                    refusedSecrets += 1
+                    settingsTransferLog.error("Keychain refused \(account, privacy: .public) on import")
+                }
             }
         }
 
-        settingsTransferLog.info("imported settings (\(appliedPrefs) prefs, \(appliedSecrets) secrets)")
-        return ImportResult(preferenceCount: appliedPrefs, secretCount: appliedSecrets, appVersion: envelope["appVersion"] as? String)
+        var appliedDocuments = 0
+        if let documents = envelope["documents"] as? [String: String] {
+            let decoded = documents.compactMapValues { Data(base64Encoded: $0) }
+            appliedDocuments = writeDocuments(decoded, to: documentsDirectory)
+        }
+
+        settingsTransferLog.info("imported settings (\(appliedPrefs) prefs, \(appliedSecrets) secrets, \(refusedSecrets) refused, \(appliedDocuments) documents)")
+        return ImportResult(preferenceCount: appliedPrefs, secretCount: appliedSecrets,
+                            secretsRefused: refusedSecrets,
+                            documentCount: appliedDocuments, appVersion: envelope["appVersion"] as? String)
     }
 
     // MARK: - Crypto helpers

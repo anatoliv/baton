@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 
 /// HELP.md and FAQ.md, split into the topics both apps navigate by.
@@ -202,7 +203,7 @@ public enum HelpGuide {
     public static let requestedTopicKey = "baton.help.requestedTopic"
 
     /// Ask Help to open `slug` the next time it appears.
-    public static func requestTopic(_ slug: String, defaults: UserDefaults = .standard) {
+    public static func requestTopic(_ slug: String, defaults: UserDefaults = BatonStorage.defaults) {
         defaults.set(slug, forKey: requestedTopicKey)
     }
 }

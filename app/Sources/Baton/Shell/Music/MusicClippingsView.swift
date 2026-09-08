@@ -1,4 +1,5 @@
 import BatonPlaybackKit
+import BatonSubsonicKit
 import BatonSubsonicModels
 import SwiftUI
 
@@ -212,7 +213,7 @@ struct MusicClippingsView: View {
         store.remove(id: item.id, everywhere: true)
 
         guard let digest else { return }        // never travelled; nothing shared to remove
-        let raw = (UserDefaults.standard.string(forKey: "baton.agent.gatewayURL") ?? "")
+        let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "")
             .trimmingCharacters(in: .whitespaces)
         let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
             .trimmingCharacters(in: .whitespaces)

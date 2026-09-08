@@ -173,13 +173,7 @@ public final class FriendFeedbackLog {
     }
 
     private static func defaultURL() -> URL {
-        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                 in: .userDomainMask,
-                                                 appropriateFor: nil, create: true))
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let folder = base.appendingPathComponent("Baton", isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder.appendingPathComponent("music-friend-log.json")
+        BatonStorage.supportDirectory().appendingPathComponent("music-friend-log.json")
     }
 
     /// Newest first — the order anyone reading a log actually wants.

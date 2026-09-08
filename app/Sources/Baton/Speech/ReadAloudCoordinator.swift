@@ -2,6 +2,7 @@ import AppKit
 import BatonAgentKit
 import BatonPlaybackKit
 import BatonSpeech
+import BatonSubsonicKit
 import Foundation
 import NaturalLanguage
 import Observation
@@ -566,7 +567,7 @@ final class ReadAloudCoordinator {
     ///     Mac shows as the subtitle; the machine is implicit when every device is yours.
     private func offerToSendToTheGateway(_ fileURL: URL, quietly: Bool = false,
                                          name: String? = nil, origin: String? = nil) async {
-        let raw = (UserDefaults.standard.string(forKey: "baton.agent.gatewayURL") ?? "")
+        let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "")
             .trimmingCharacters(in: .whitespaces)
         let secret = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
             .trimmingCharacters(in: .whitespaces)

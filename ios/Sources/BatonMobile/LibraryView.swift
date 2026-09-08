@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 import BatonPlaybackKit
 
@@ -845,7 +846,7 @@ struct DownloadsView: View {
                 Toggle("Offline mode", isOn: $offlineMode)
                     .onChange(of: offlineMode) { _, on in
                         // The engine reads this key on every stream resolution; no restart needed.
-                        UserDefaults.standard.set(on, forKey: StreamingPlaybackController.offlineModeKey)
+                        BatonStorage.defaults.set(on, forKey: StreamingPlaybackController.offlineModeKey)
                     }
             } footer: {
                 Text("Offline mode plays only downloaded tracks and never streams.")

@@ -11,7 +11,11 @@ import UIKit
 /// was scanned rather than typed, which means there is no passphrase for anyone to forget.
 struct PairingScannerView: View {
     let model: MobileModel
-    var onLinked: () -> Void
+    /// Handed the one-line summary of what landed, so the presenter can run the connection
+    /// checks over it. The scanner deliberately does not run them itself: it owns a camera
+    /// session and dismisses on success, and a check that outlives its own screen is how a
+    /// result gets shown to nobody.
+    var onLinked: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var status: Status = .scanning
@@ -106,10 +110,13 @@ struct PairingScannerView: View {
                 payload,
                 passphrase: DevicePairing.payloadPassphrase(for: invitation)
             )
-            model.musicLibrary.refreshConnection()
+            // Not just the library: the import wrote the music friend, the equalizer and the
+            // rest into storage that this app read once at launch. See
+            // `MobileModel.reloadAfterSettingsImport`.
+            model.reloadAfterSettingsImport()
             status = .linked(preferences: result.preferenceCount, secrets: result.secretCount)
             try? await Task.sleep(for: .milliseconds(900))   // let the confirmation be read
-            onLinked()
+            onLinked(MacTransferView.summary(for: result))
             dismiss()
         } catch {
             status = .failed(error.localizedDescription)

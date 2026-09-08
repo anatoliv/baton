@@ -156,6 +156,41 @@ final class AgentClient {
         return outcome
     }
 
+    /// The connection test, in the vocabulary every other configurable service answers in.
+    ///
+    /// One mapping, two callers: the post-import checks and the Settings screens
+    ///. Copying it would let the two drift, and the interesting half is the bit
+    /// that is easy to get backwards — see below.
+    ///
+    /// Runs a real request, like `runConnectionTest` does, and therefore marks the config
+    /// verified on a pass. That is the point rather than a side effect: it is what makes the
+    /// Friend tab appear without anyone pressing anything.
+    func connectionStatus() async -> ServiceStatus {
+        guard config.isConfigured else { return .notConfigured("Not set up yet") }
+        switch await runConnectionTest() {
+        case let .ok(detail):
+            return .ok(detail: detail)
+        case let .failed(why):
+            // Unreachable unless the message actually says otherwise. Getting this backwards
+            // is the expensive direction: a Mac's model host is routinely a LAN address this
+            // phone cannot see from mobile data, and "your key was rejected" sends someone to
+            // replace a key that was never the problem.
+            return Self.looksLikeACredentialProblem(why) ? .refused(why) : .unreachable(why)
+        }
+    }
+
+    /// Whether a failure is about the credential rather than the reachability.
+    ///
+    /// `TestOutcome` carries prose, not a code, so this reads it. Deliberately narrow: a
+    /// false "credential" costs someone a pointless key rotation, a false "unreachable"
+    /// costs them one more look at the network.
+    static func looksLikeACredentialProblem(_ message: String) -> Bool {
+        let text = message.lowercased()
+        return text.contains("key") || text.contains("token")
+            || text.contains("unauthorized") || text.contains("rejected")
+            || text.contains("401") || text.contains("403")
+    }
+
     /// The gateway has no resolve-only endpoint, so the probe is a *read-only*
     /// question. It runs the whole path — reachability, token, model, tool dispatch —
     /// and the worst a wrong turn can do is look something up.
@@ -357,12 +392,14 @@ final class AgentClient {
         }
     }
 
-    /// localhost / .local / RFC-1918 — the hosts a self-hosted setup legitimately uses.
+    /// localhost / loopback / .local / RFC-1918 — the hosts a self-hosted setup legitimately
+    /// uses.
+    ///
+    /// Delegates rather than deciding. This used to be a second implementation that had
+    /// drifted from `RemoteNaturalLanguage.isPrivate` by one prefix — it lacked `127.`, so
+    /// the phone refused a loopback gateway as "a public host" while offering a loopback
+    /// Whisper host by default two screens away.
     nonisolated static func isPrivateHost(_ host: String) -> Bool {
-        if host == "localhost" || host.hasSuffix(".local") { return true }
-        if host.hasPrefix("10.") || host.hasPrefix("192.168.") { return true }
-        if host.hasPrefix("172."), let second = Int(host.split(separator: ".").dropFirst().first ?? ""),
-           (16 ... 31).contains(second) { return true }
-        return false
+        RemoteNaturalLanguage.isPrivate(host)
     }
 }

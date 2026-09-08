@@ -119,6 +119,11 @@ to it unchanged. Where the two differ, it's noted in the section itself. The mai
 differences: Settings is the last tab rather than a window you open with Command-comma,
 there's no menu-bar controller, and there's no window to keep in a corner of a screen.
 
+It's on the App Store as [Baton Music](https://apps.apple.com/app/id6798304294), and it needs
+iOS 18 or later. Unlike the Mac app it costs money, which is what covers the Apple developer
+account the Mac build is signed and notarized with. The source is in the repository under the
+same licence, so you can build and install it yourself instead.
+
 ### Getting your Mac's setup onto your phone
 
 Typing a server address, a username and a long password into a phone keyboard is the worst
@@ -2389,13 +2394,13 @@ from [baton.tonebox.io](https://baton.tonebox.io), and it updates itself from th
 
 ## What's next
 
-Recently landed in Baton: the **Podcasts** and **Internet radio** tabs, the **Downloads and
-offline** manager, the **parametric equalizer**, **multiple servers** and account switching,
-spoken summaries (**Speech**), and the agent-built **`music_build_mix`**.
+Recently landed in Baton: the **iPhone app** (see [Baton on iPhone](#baton-on-iphone)), the
+**Podcasts** and **Internet radio** tabs, the **Downloads and offline** manager, the
+**parametric equalizer**, **multiple servers** and account switching, spoken summaries
+(**Speech**), and the agent-built **`music_build_mix`**.
 
 Still on the roadmap, called out here so the docs stay honest:
 
-- **An iOS and iPadOS companion**, so you can listen away from the desk.
 - **Casting beyond AirPlay**: Chromecast, Sonos, and UPnP/DLNA. AirPlay works today; wider
   casting needs protocol support Baton doesn't bundle yet.
 - **Sonic-analysis mixes**, built from the actual sound of your music (tempo, energy, key),

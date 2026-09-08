@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 import OSLog
 
@@ -67,10 +68,7 @@ final class BatonControlSocket: @unchecked Sendable {
     init(focus: BatonAudioFocusRegistry, controller: StreamingPlaybackController, directory: URL? = nil) {
         self.focus = focus
         self.controller = controller
-        let dir = directory ?? FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first!
-            .appendingPathComponent("Baton", isDirectory: true)
+        let dir = directory ?? BatonStorage.supportDirectory()
         self.socketURL = Self.socketPath(in: dir)
     }
 

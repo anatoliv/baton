@@ -572,10 +572,9 @@ final class BatonMCPServer {
 
     private func discoveryDirectory() -> URL? {
         if let discoveryDirOverride { return discoveryDirOverride }
-        return FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("Baton", isDirectory: true)
+        // A probe launch advertises itself in its own directory, so it neither answers agents
+        // looking for the owner's Baton nor overwrites that app's access file.
+        return BatonStorage.supportDirectory()
     }
 
     // MARK: - Send helpers

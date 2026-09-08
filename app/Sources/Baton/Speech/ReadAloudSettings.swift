@@ -1,4 +1,5 @@
 import BatonSpeech
+import BatonSubsonicKit
 import Foundation
 
 /// User defaults for read-aloud.
@@ -13,7 +14,7 @@ enum ReadAloudSettings {
     /// Overridable so tests do not write to the real domain, matching `SpeechConfig.defaults`
     /// — including its `nonisolated(unsafe)`, since this is a test seam written once at setup
     /// rather than shared mutable state under contention.
-    nonisolated(unsafe) static var defaults: UserDefaults = .standard
+    nonisolated(unsafe) static var defaults: UserDefaults = BatonStorage.defaults
 
     // MARK: - Hotkey
 

@@ -37,7 +37,7 @@ public final class PodcastCapabilityStore {
 
     private let defaults: UserDefaults
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = BatonStorage.defaults) {
         self.defaults = defaults
     }
 

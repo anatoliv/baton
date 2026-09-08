@@ -1,5 +1,6 @@
 import BatonPlaybackKit
 import AppKit
+import BatonSubsonicKit
 import MarkdownUI
 import SwiftUI
 
@@ -16,7 +17,7 @@ import SwiftUI
 /// open the window.
 @MainActor
 func openBatonSettings(_ category: BatonSettingsCategory, using openWindow: OpenWindowAction) {
-    UserDefaults.standard.set(category.rawValue, forKey: BatonSettingsView.selectionKey)
+    BatonStorage.defaults.set(category.rawValue, forKey: BatonSettingsView.selectionKey)
     openWindow(id: BatonSettingsView.windowID)
     NSApp.activate(ignoringOtherApps: true)
 }
@@ -314,6 +315,33 @@ extension HelpWhatsNewRelease {
     /// enforced it. `WhatsNewFreshnessTests` now fails when the newest entry falls behind
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
+        HelpWhatsNewRelease(
+            version: "0.18.0",
+            date: "September 2026",
+            highlight: "Your music friend remembers across devices, and there is a screen for what it knows.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "What the friend remembers about you, and the corrections you have made to "
+                    + "it, now travel to Baton on iPhone and back. There is a screen for it too, "
+                    + "so you can read what it has learned and remove anything you would rather "
+                    + "it forgot."),
+                HelpWhatsNewChange(.added,
+                    "Setting up an iPhone from this Mac now tests every service it just "
+                    + "configured and tells you which ones answered, instead of leaving you to "
+                    + "find the buttons and press them one at a time."),
+                HelpWhatsNewChange(.fixed,
+                    "The app inside the download now carries its own notarization ticket. "
+                    + "Copying Baton out of the disk image and opening it on a Mac that is "
+                    + "offline could show a Gatekeeper warning before this."),
+                HelpWhatsNewChange(.fixed,
+                    "The close button in the full player works again. It was renamed in August "
+                    + "and nothing noticed."),
+                HelpWhatsNewChange(.improved,
+                    "Every release from now on carries the exact commit it was built from, "
+                    + "readable from the app itself. A crash report can name the source it came "
+                    + "from rather than a version number that several builds could share."),
+            ]
+        ),
         HelpWhatsNewRelease(
             version: "0.17.12",
             date: "August 2026",

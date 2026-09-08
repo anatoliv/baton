@@ -7,6 +7,14 @@ let package = Package(
     products: [.library(name: "BatonSpeech", targets: ["BatonSpeech"])],
     // The `Transcript` model lives in the leaf model package so `BatonPlaybackKit` can
     // store one without depending on this package, which has no watchOS build.
-    dependencies: [.package(path: "../BatonSubsonicModels")],
-    targets: [.target(name: "BatonSpeech", dependencies: ["BatonSubsonicModels"])]
+    // `BatonSubsonicKit` for `BatonStorage`, which is the single answer to "which
+    // preferences domain is this process using". `SpeechConfig.defaults` is a mutable static
+    // and the composition root could assign it instead — but a wiring step that can be
+    // forgotten is exactly how one store ends up in a different domain from the rest, which
+    // is the failure `BatonStorage` exists to make impossible.
+    dependencies: [
+        .package(path: "../BatonSubsonicModels"),
+        .package(path: "../BatonSubsonicKit"),
+    ],
+    targets: [.target(name: "BatonSpeech", dependencies: ["BatonSubsonicModels", "BatonSubsonicKit"])]
 )

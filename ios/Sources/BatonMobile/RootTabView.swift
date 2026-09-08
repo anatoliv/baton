@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import UIKit
 
@@ -8,6 +9,11 @@ struct RootTabView: View {
     @State private var showsFullPlayer = false
     @State private var showsWhatsNew = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.requestReview) private var requestReview
+    #if DEBUG
+    /// Mirrors the ask for `ReviewPromptUITests`; never present in a shipped build.
+    @State private var reviewAskFired = false
+    #endif
     /// Paints every screen with the now-playing cover's colors, the way the
     /// Mac's window does (`MusicView` — "whole-window color-from-artwork
     /// wash"). The phone previously did this only inside the full player, so
@@ -45,6 +51,42 @@ struct RootTabView: View {
                     .font(.system(size: 1))
                     .foregroundStyle(.clear)
                     .accessibilityIdentifier("debug.activeDeck")
+                    .allowsHitTesting(false)
+            }
+            // Whether the rating ask actually fired, for the same reason.
+            //
+            // The prompt itself is drawn by StoreKit out of process and is reachable from
+            // neither the app's element tree nor springboard's, so a UI test cannot see it
+            // — an attempt to match on its wording reported "no prompt" while attaching a
+            // screenshot with the prompt plainly on screen. What is worth proving is ours
+            // anyway: that the gate opened, the deferred re-check accepted the moment, and
+            // the ask was spent. Whether Apple then draws pixels is Apple's business.
+            .overlay(alignment: .topTrailing) {
+                Text(reviewAskFired ? "asked" : "not-asked")
+                    .font(.system(size: 1))
+                    .foregroundStyle(.clear)
+                    .accessibilityIdentifier("debug.reviewAsk")
+                    .allowsHitTesting(false)
+            }
+            // Which storage domains this process actually resolved, for the same reason as
+            // the two above: it is a question about the app's own plumbing that a UI test
+            // has no other way to ask.
+            //
+            // It exists because a caution went on the board saying that under XCUITest the
+            // app links XCTest, so `PreferenceSync` and the friend stores would land in
+            // *different* `UserDefaults` domains and a UI test could never see friend sync
+            // work — while reporting nothing wrong. That was read from the code and never
+            // run, and a claim like that gets believed until somebody contradicts it
+            //. This is how it gets contradicted or confirmed, by measurement.
+            //
+            // The handshake is a write through one side read back through the other, not a
+            // comparison of two objects: two `UserDefaults` instances over the same suite
+            // are separate objects, so identity would answer a different question.
+            .overlay(alignment: .bottomLeading) {
+                Text(StorageReport.line)
+                    .font(.system(size: 1))
+                    .foregroundStyle(.clear)
+                    .accessibilityIdentifier("debug.storageDomains")
                     .allowsHitTesting(false)
             }
             #endif
@@ -193,15 +235,21 @@ struct RootTabView: View {
                 // would otherwise notice their EQ is the one they set on the other device.
                 // Throttled, so a glance at Control Center doesn't cost a round trip.
                 Task { await model.syncPreferences() }
+                // And keep reconciling while we stay on screen. Foregrounding is the moment
+                // someone notices a stale setting; it is not the only moment one goes stale,
+                // and an app left open never saw another.
+                model.startSyncHeartbeat()
             case .background:
                 model.handoff.saveNow()
                 model.deviceLink.stop()
+                model.stopSyncHeartbeat()
             default:
                 break
             }
         }
         .onChange(of: model.music.isPlaying) { was, is_ in
             if was, !is_ { model.handoff.saveNow() }
+            if !was, is_ { askForAReviewIfEarned() }
             WidgetBridge.publish(
                 song: model.music.nowPlaying, isPlaying: is_,
                 artworkURL: model.music.nowPlaying.flatMap {
@@ -224,6 +272,42 @@ struct RootTabView: View {
             if let title = model.handoff.offer?.currentTitle {
                 Text("Another Baton saved a queue at “\(title)”.")
             }
+        }
+    }
+
+    /// Records that today counted as listening, and — on the day the gate finally opens —
+    /// asks for a rating a little after the music has settled.
+    ///
+    /// The delay is the point. Firing on the same runloop as the tap puts a modal over the
+    /// gesture that started the song, which reads as a punishment for pressing play. Twenty
+    /// seconds later the track is going, the user is listening, and the app is visibly doing
+    /// the thing they bought it for. If they moved on or stopped it in the meantime, the
+    /// moment wasn't good after all and the prompt stays unspent.
+    private func askForAReviewIfEarned() {
+        ReviewPrompt.recordListening()
+        guard ReviewPrompt.isEarned else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: ReviewPrompt.settleDelay)
+            // Live UIKit state, deliberately, and NOT this view's `scenePhase`.
+            //
+            // `@Environment` is stored in the `RootTabView` struct, so a Task closure
+            // captures it as it stood when the closure was made — which here is always
+            // `.active`, because that is the instant playback started. Backgrounding
+            // builds a *new* struct; this Task keeps the old one and the guard passes
+            // anyway. That fails on the most ordinary path a music app has: press play,
+            // pocket the phone. The prompt would be spent by `claimAsk()` and then fired
+            // into a backgrounded app that shows nothing, and because claiming precedes
+            // showing, the version's only prompt is gone for good.
+            //
+            // `requestReview` below is fine to hold: an environment *action* is a closure
+            // that stays valid, where `scenePhase` is *state* that has to be read fresh.
+            guard model.music.isPlaying,
+                  UIApplication.shared.applicationState == .active else { return }
+            guard ReviewPrompt.claimAsk() else { return }
+            requestReview()
+            #if DEBUG
+            reviewAskFired = true
+            #endif
         }
     }
 }

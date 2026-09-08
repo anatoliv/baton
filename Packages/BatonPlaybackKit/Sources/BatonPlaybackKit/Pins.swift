@@ -163,10 +163,5 @@ public final class PinStore {
         }
     }
 
-    private static func defaultDirectory() -> URL {
-        let base = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        )) ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("Baton", isDirectory: true)
-    }
+    private static func defaultDirectory() -> URL { BatonStorage.supportDirectory() }
 }

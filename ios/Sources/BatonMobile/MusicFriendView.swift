@@ -64,7 +64,7 @@ struct MusicFriendView: View {
                 }
                 inputBar
             }
-            .sheet(isPresented: $showsLog) { FriendLogView(log: model.friendLog, learning: model.friendLearning) }
+            .sheet(isPresented: $showsLog) { FriendLogView(log: model.friendLog, learning: model.friendLearning, memory: model.friendMemory) }
             .rootScreenHeader("Music Friend", subtitle: modelLine) {
                 // Absent rather than disabled when there is nothing to clear.
                 //
@@ -149,8 +149,22 @@ struct MusicFriendView: View {
                 .padding(.vertical, 4)
                 .lineLimit(1 ... 4)
                 .focused($inputFocused)
-                .submitLabel(.send)
-                .onSubmit(sendDraft)
+                // No `.submitLabel(.send)` and no `.onSubmit`, deliberately.
+                //
+                // This field is `axis: .vertical` with `lineLimit(1...4)`, and a vertical
+                // text field treats return as a **newline** — `onSubmit` never fires from
+                // the keyboard, so it was dead code. What `.submitLabel(.send)` did achieve
+                // was a second on-screen control captioned "Send" that does not send: the
+                // keyboard's return key, next to the button that actually works.
+                //
+                // It was not hypothetical. A UI test resolved `app.buttons["Send"]` to the
+                // return key, tapped it, and photographed the message still sitting in the
+                // composer with a newline under it — passing, having sent nothing. VoiceOver
+                // would read the same two controls the same way.
+                //
+                // A one-line composer that submits on return is a coherent design; so is a
+                // four-line one that does not. What is not coherent is the second while
+                // captioned as the first.
                 .disabled(model.voice.isListening)
                 // Demo mode hides this whole tab, so no simulator run against the demo
                 // library can render the composer — which is how two fixes to it shipped
@@ -174,6 +188,10 @@ struct MusicFriendView: View {
                 // An unlabelled symbol is "arrow up circle fill" to VoiceOver and nothing
                 // at all to a test.
                 .accessibilityLabel("Send")
+                // And an identifier, so the one control that sends can be found by name
+                // rather than by guessing at which "Send" sits above the keyboard. The test
+                // had to do exactly that while the return key shared the label.
+                .accessibilityIdentifier("FriendComposerSend")
             }
         }
         // A floating capsule, like the mini player and the tab bar below it.

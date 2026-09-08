@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 import Observation
 import CryptoKit
@@ -51,36 +52,113 @@ final class AgentConfig {
     /// Injectable so tests can exercise the verification rules without a Keychain.
     private let secrets: any SecretStore
 
-    init(defaults: UserDefaults = .standard, secrets: any SecretStore = KeychainSecretStore()) {
+    init(defaults: UserDefaults = BatonStorage.defaults, secrets: any SecretStore = KeychainSecretStore()) {
         self.defaults = defaults
         self.secrets = secrets
-        route = Route(rawValue: defaults.string(forKey: Keys.route) ?? "")
-            // Before this setting existed, having a gateway URL *was* the choice.
-            ?? ((defaults.string(forKey: Keys.gatewayURL)?.isEmpty == false) ? .gateway : .direct)
-        provider = RemoteControlSettings.LLMProvider(
-            rawValue: defaults.string(forKey: Keys.provider) ?? ""
-        ) ?? .anthropic
-        model = defaults.string(forKey: Keys.model) ?? "claude-haiku-4-5-20251001"
-        baseURL = defaults.string(forKey: Keys.baseURL) ?? RemoteControlSettings.LLMProvider.anthropic.defaultBaseURL
-        gatewayURL = defaults.string(forKey: Keys.gatewayURL) ?? ""
-        apiKey = secrets.secret(for: Keys.apiKeyAccount) ?? ""
-        gatewayToken = secrets.secret(for: Keys.gatewayTokenAccount) ?? ""
+        let stored = Self.read(defaults: defaults, secrets: secrets)
+        route = stored.route
+        provider = stored.provider
+        model = stored.model
+        baseURL = stored.baseURL
+        gatewayURL = stored.gatewayURL
+        apiKey = stored.apiKey
+        gatewayToken = stored.gatewayToken
+        verifiedFingerprint = stored.verifiedFingerprint
     }
+
+    /// Every stored field as storage currently holds it.
+    private struct Stored {
+        var route: Route
+        var provider: RemoteControlSettings.LLMProvider
+        var model: String
+        var baseURL: String
+        var gatewayURL: String
+        var apiKey: String
+        var gatewayToken: String
+        var verifiedFingerprint: String?
+    }
+
+    /// The one reader, used by `init` and by `reload()` alike.
+    ///
+    /// One copy rather than two, because two is how the launch path and the after-import
+    /// path quietly stop agreeing about what a missing `provider` falls back to — and the
+    /// after-import path is the one nobody exercises by hand.
+    private static func read(defaults: UserDefaults, secrets: any SecretStore) -> Stored {
+        Stored(
+            route: Route(rawValue: defaults.string(forKey: Keys.route) ?? "")
+                // Before this setting existed, having a gateway URL *was* the choice.
+                ?? ((defaults.string(forKey: Keys.gatewayURL)?.isEmpty == false) ? .gateway : .direct),
+            provider: RemoteControlSettings.LLMProvider(
+                rawValue: defaults.string(forKey: Keys.provider) ?? ""
+            ) ?? .anthropic,
+            model: defaults.string(forKey: Keys.model) ?? "claude-haiku-4-5-20251001",
+            baseURL: defaults.string(forKey: Keys.baseURL)
+                ?? RemoteControlSettings.LLMProvider.anthropic.defaultBaseURL,
+            gatewayURL: defaults.string(forKey: Keys.gatewayURL) ?? "",
+            apiKey: secrets.secret(for: Keys.apiKeyAccount) ?? "",
+            gatewayToken: secrets.secret(for: Keys.gatewayTokenAccount) ?? "",
+            verifiedFingerprint: defaults.string(forKey: Keys.verified)
+        )
+    }
+
+    /// Re-read everything, for when storage changed underneath this object.
+    ///
+    /// WHY THIS EXISTS. "Set up from a Mac" writes the Mac's whole configuration
+    /// into `UserDefaults` and the Keychain — provider, model, base URL, gateway URL, route,
+    /// and both secrets, all of which `SettingsTransfer` has always carried. But this object
+    /// is built once at launch and copies those values into stored properties, so an import
+    /// that lands afterwards changed storage and nothing else. The Music Friend screen went
+    /// on showing the phone's launch-time values, which reads exactly like a transfer that
+    /// dropped the music friend, and touching any field there wrote the stale value back
+    /// over what had just been imported.
+    ///
+    /// Deliberately does NOT mark anything verified. The Mac's base URL is very often a LAN
+    /// address the phone cannot reach on cellular, so "the Mac could talk to it" is not
+    /// evidence this phone can. The imported settings arrive filled in and one tap from a
+    /// test, which is the honest version of carrying them over.
+    func reload() {
+        let stored = Self.read(defaults: defaults, secrets: secrets)
+        isLoading = true
+        defer { isLoading = false }
+        route = stored.route
+        provider = stored.provider
+        model = stored.model
+        baseURL = stored.baseURL
+        gatewayURL = stored.gatewayURL
+        apiKey = stored.apiKey
+        gatewayToken = stored.gatewayToken
+        verifiedFingerprint = stored.verifiedFingerprint
+    }
+
+    /// True only while `reload()` is assigning. The `didSet`s below mean "the owner edited
+    /// this", and a load is not an edit: letting them run would write storage straight back
+    /// to itself and, far worse, discard a verification that is still perfectly valid when
+    /// the reload changed nothing.
+    private var isLoading = false
 
     // MARK: Stored settings
     //
     // Every one of these invalidates verification on write, because every one of
     // them can be the reason the next request fails.
 
-    var route: Route { didSet { persist(route.rawValue, Keys.route) } }
-    var provider: RemoteControlSettings.LLMProvider { didSet { persist(provider.rawValue, Keys.provider) } }
-    var model: String { didSet { persist(model, Keys.model) } }
-    var baseURL: String { didSet { persist(baseURL, Keys.baseURL) } }
-    var gatewayURL: String { didSet { persist(gatewayURL, Keys.gatewayURL) } }
+    // Each guards on the value actually changing, exactly as the two secrets below already
+    // did. Without it, re-writing a field with the value it already holds discards a
+    // perfectly good verification and hides the Friend tab — and a SwiftUI `TextField`
+    // binding writes on every edit, including the ones that change nothing. The existing
+    // `testRewritingTheSameKeyKeepsItReady` had settled this for the key and nowhere else.
+    var route: Route { didSet { guard route != oldValue else { return }; persist(route.rawValue, Keys.route) } }
+    var provider: RemoteControlSettings.LLMProvider {
+        didSet { guard provider != oldValue else { return }; persist(provider.rawValue, Keys.provider) }
+    }
+    var model: String { didSet { guard model != oldValue else { return }; persist(model, Keys.model) } }
+    var baseURL: String { didSet { guard baseURL != oldValue else { return }; persist(baseURL, Keys.baseURL) } }
+    var gatewayURL: String {
+        didSet { guard gatewayURL != oldValue else { return }; persist(gatewayURL, Keys.gatewayURL) }
+    }
 
     var apiKey: String {
         didSet {
-            guard apiKey != oldValue else { return }
+            guard !isLoading, apiKey != oldValue else { return }
             secrets.setSecret(apiKey, for: Keys.apiKeyAccount)
             invalidateVerification()
         }
@@ -88,13 +166,14 @@ final class AgentConfig {
 
     var gatewayToken: String {
         didSet {
-            guard gatewayToken != oldValue else { return }
+            guard !isLoading, gatewayToken != oldValue else { return }
             secrets.setSecret(gatewayToken, for: Keys.gatewayTokenAccount)
             invalidateVerification()
         }
     }
 
     private func persist(_ value: String, _ key: String) {
+        guard !isLoading else { return }
         defaults.set(value, forKey: key)
         invalidateVerification()
     }
@@ -118,7 +197,24 @@ final class AgentConfig {
 
     /// Configured *and* proven — the gate on the Friend tab. False the moment any
     /// field changes, so a tab that is showing has been tested as it stands.
-    var isReady: Bool { isConfigured && defaults.string(forKey: Keys.verified) == fingerprint }
+    /// The fingerprint a connection test last passed against, held in a **stored property**
+    /// rather than read from `UserDefaults` on demand.
+    ///
+    /// WHY IT IS STORED. `defaults` is a `private let`, which the Observation
+    /// macro does not instrument, so a computed `isReady` that read the key directly moved
+    /// without publishing anything. `markVerified()` would write to `UserDefaults`, `isReady`
+    /// would start returning true, and nothing would tell SwiftUI — so the Friend tab, whose
+    /// only condition is `isReady`, had no reason to appear until some unrelated change
+    /// happened to re-render the tab view. Worse on the import path, where
+    /// `reloadAfterSettingsImport()` invalidates *before* the probe runs, so the one
+    /// re-render that did happen was the one where the answer was still false.
+    ///
+    /// `UserDefaults` stays the persistence; this is the value anything observing reads.
+    private(set) var verifiedFingerprint: String?
+
+    /// Configured *and* proven — the gate on the Friend tab. False the moment any field
+    /// changes, so a tab that is showing has been tested as it stands.
+    var isReady: Bool { isConfigured && verifiedFingerprint == fingerprint }
 
     /// Identifies the exact configuration a test passed against. The key is included
     /// (hashed) because changing the key is exactly the change most likely to break
@@ -137,9 +233,18 @@ final class AgentConfig {
     }
 
     /// Called only by a test that actually passed.
-    func markVerified() { defaults.set(fingerprint, forKey: Keys.verified) }
+    func markVerified() {
+        let mark = fingerprint
+        defaults.set(mark, forKey: Keys.verified)
+        // The stored property second and unconditionally: this is the write anything
+        // observing actually sees, and the tab appearing depends on it.
+        verifiedFingerprint = mark
+    }
 
-    func invalidateVerification() { defaults.removeObject(forKey: Keys.verified) }
+    func invalidateVerification() {
+        defaults.removeObject(forKey: Keys.verified)
+        verifiedFingerprint = nil
+    }
 
     // MARK: Provider switching
 

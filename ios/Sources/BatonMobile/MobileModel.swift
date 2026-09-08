@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 import Observation
 import OSLog
@@ -346,6 +347,46 @@ final class MobileModel {
         await musicLibrary.loadAlbums()
     }
 
+    /// Everything this model cached at launch, re-read after a settings import.
+    ///
+    /// WHY THIS EXISTS. "Set up from a Mac" — both routes, the QR pairing and the
+    /// exported file — writes the Mac's settings into the same `UserDefaults` and Keychain
+    /// this app reads, and `SettingsTransfer` has always carried far more than the server:
+    /// the music friend's provider, model, base URL, gateway and both of its secrets, the
+    /// equalizer, the radio bans, the lot. What it could not do is make anything look again.
+    ///
+    /// The stores above copy their values into properties in `init`, once, at launch. So an
+    /// import landed correctly and changed nothing anybody could see, which reads exactly
+    /// like a transfer that dropped half of what it was given. Worse for the music friend:
+    /// the settings screen went on showing the launch-time values, so editing one field
+    /// wrote a stale value back over what had just arrived.
+    ///
+    /// **This is the seam. A store that caches at init joins it here**, and the rule for
+    /// whether it belongs is simple: if `SettingsTransfer` exports its key and this object
+    /// reads that key in `init`, it has to be in this list or the import is a lie about it.
+    ///
+    /// Note what is deliberately absent: nothing here marks the music friend verified. The
+    /// Mac's base URL is very often a LAN address this phone cannot reach on cellular, so
+    /// "it worked from the Mac" is not evidence about this device. The settings arrive
+    /// filled in and one tap from a test, which is as far as honesty goes.
+    func reloadAfterSettingsImport() {
+        agentConfig.reload()
+        equalizer.reload()
+        radioBans.reload()
+        searchRecents.reload()
+        // File-backed rather than UserDefaults-backed, and carried by the transfer's
+        // documents section. Same staleness rule as everything above it: the
+        // import replaced the file, and this object read it at launch.
+        friendMemory.reload()
+        friendLearning.reload()
+        // Both cache their credentials from the Keychain in `init`, so without these the
+        // post-import connection checks would validate the tokens this phone had BEFORE the
+        // import and report the answer with a straight face.
+        listenBrainz.reload()
+        lastfm.reload()
+        musicLibrary.refreshConnection()
+    }
+
     #if DEBUG
     /// Copies a bundled demo track into the clipping store, so the app has a real clipping to
     /// long-press. Copied to a temporary file first because `adopt` moves what it is given, and
@@ -396,6 +437,46 @@ final class MobileModel {
         return failed
     }
 
+    /// How often to reconcile while the app is on screen. The Mac's `PreferenceSyncScheduler`
+    /// uses the same interval for the same reason.
+    static let syncHeartbeat: TimeInterval = 600
+
+    @ObservationIgnored private var syncLoop: Task<Void, Never>?
+
+    /// Keep reconciling while the app is on screen, not only at the moment it arrives.
+    ///
+    /// The phone synced on launch and on every foreground transition, and nothing else. The Mac
+    /// has had a heartbeat since `PreferenceSyncScheduler` was written, for a reason recorded in
+    /// its own doc comment: a feature that only fires on a trigger nobody happens to pull is
+    /// indistinguishable from a broken one.
+    ///
+    /// It bites exactly where it was reported. Leave Baton open on the phone — which
+    /// is what you do while a clipping plays, or while testing — rename that clipping on the Mac,
+    /// and nothing arrives, because no transition happens to occur. The shared state was correct
+    /// the whole time; the phone simply never asked again.
+    ///
+    /// `syncIfDue`'s own floor still applies, so this cannot hammer the gateway, and it is inert
+    /// when none is configured.
+    func startSyncHeartbeat() {
+        guard syncLoop == nil else { return }
+        syncLoop = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.syncHeartbeat))
+                guard !Task.isCancelled else { return }
+                await self?.syncPreferences()
+            }
+        }
+    }
+
+    func stopSyncHeartbeat() {
+        syncLoop?.cancel()
+        syncLoop = nil
+    }
+
+    /// Whether the heartbeat is running. A sync that silently never fires is the whole of
+    /// TBX-4019, and nothing else about the app looks different when it doesn't.
+    var isSyncHeartbeatRunning: Bool { syncLoop != nil }
+
     /// Exchanges shared preferences with the gateway, if there is one.
     ///
     /// Best-effort by construction: a gateway that is down must never change how the app
@@ -419,6 +500,13 @@ final class MobileModel {
         // speakers. This is the route nobody would think to write: the delete happened on the
         // Mac, so nothing on this phone was touched.
         music.dropFromQueue(ids: Set(clippings.reconcileWithLedger().deleted))
+
+        // And the friend: memory and corrections merge per entry in the ledger, so the merged
+        // answer lands in UserDefaults and these two hold files. Without this a memory added
+        // on the Mac is in the shared ledger and invisible here until the next launch, which
+        // is the same shape as the two above.
+        friendMemory.adoptLedger()
+        friendLearning.adoptLedger()
     }
 
     /// Point search history at the server now signed in. Entries hold Navidrome ids, so a
@@ -448,6 +536,56 @@ final class MobileModel {
            let secret = args.string(forKey: "uitestSecret") {
             NavidromeConfig.save(urlString: url, username: user, secret: secret, authMode: .tokenSalt)
         }
+        // Stand in for a friend that somebody set up and tested, so the Friend tab — and
+        // everything behind it — is reachable from a test.
+        //
+        // Without this, `FriendMemoryUITests` skipped on any simulator that had not been set
+        // up by hand, which is every clean one, and a test that always skips is coverage in
+        // name only. Same category as `-uitestServer` above: it stands in for something a
+        // person did, and it is DEBUG-only. Whether the *verification itself* works is a
+        // different claim, proved against a real stub by `FriendVerificationEvidenceTests`.
+        //
+        // It has to fill the configuration in as well as mark it verified. `isReady` is
+        // `isConfigured && verified == fingerprint`, so `markVerified()` alone leaves the tab
+        // hidden on an unconfigured device — which is what the first version of this did, and
+        // the test caught it. The endpoint is deliberately unreachable: this makes the *tab*
+        // appear, and nothing here should be able to talk to a real provider by accident.
+        if args.bool(forKey: "uitestVerifiedAgent") {
+            if !agentConfig.isConfigured {
+                agentConfig.route = .direct
+                agentConfig.provider = .openAICompatible
+                agentConfig.baseURL = "http://127.0.0.1:1/v1"
+                agentConfig.model = "uitest"
+                agentConfig.apiKey = "uitest"
+            }
+            agentConfig.markVerified()
+        }
+
+        // Exactly three memories, so the screen that shows them can be looked at.
+        //
+        // "What it remembers" is otherwise unreachable from a test: memories are written by
+        // a model deciding to remember something mid-conversation, which needs a live
+        // provider and a turn that happens to go that way. Without this the only way to see
+        // the section was to hand-edit `remote-memory.json` inside a simulator container,
+        // and a screen that can only be reached that way is one nobody checks twice
+        //. Same shape and the same DEBUG-only rule as `-baton.seedClipping`.
+        //
+        // **It replaces rather than appends, and that is the whole point.** The first version
+        // seeded only when the store was empty, which made it a fixture that depended on
+        // whatever the last run left behind: the test forgets a memory as its final step, so
+        // it passed once and then failed on the same simulator ever after, looking for a
+        // memory its own previous run had deleted. A fixture that reads prior state is not a
+        // fixture. `-baton.resetSession` does not cover this, because `SessionPurge` never
+        // touches the friend's stores at all — which is its own defect.
+        if args.bool(forKey: "uitestSeedMemories") {
+            friendMemory.forgetEverything()
+            friendMemory.remember(kind: "preference", text: "No vocals while they are working",
+                                  quote: "no vocals while I'm working, please")
+            friendMemory.remember(kind: "fact", text: "The gothic playlists are their partner's",
+                                  quote: "the gothic playlists are my partner's, not mine")
+            friendMemory.remember(kind: "vocabulary", text: "\u{201C}My trance\u{201D} means the Classic Trance playlists",
+                                  quote: "when I say my trance I mean the Classic Trance ones")
+        }
         #endif
 
         if NavidromeConfig.isConfigured {
@@ -456,7 +594,7 @@ final class MobileModel {
             await warmLibrary()
             await verifyCredentials()
             await syncPreferences(force: true)
-        } else if UserDefaults.standard.bool(forKey: Self.demoModeKey), DemoLibrary.isAvailable {
+        } else if BatonStorage.defaults.bool(forKey: Self.demoModeKey), DemoLibrary.isAvailable {
             startDemo()
         } else {
             showsSetup = true
@@ -488,14 +626,14 @@ final class MobileModel {
     /// point (onboarding, settings, a relaunch) goes through the same switch.
     func startDemo() {
         DemoLibrary.activate(self)
-        UserDefaults.standard.set(true, forKey: Self.demoModeKey)
+        BatonStorage.defaults.set(true, forKey: Self.demoModeKey)
         phase = .demo
     }
 
     /// Ends the demo session — called when a real server is connected, so the two
     /// libraries never overlap.
     func endDemo() {
-        UserDefaults.standard.set(false, forKey: Self.demoModeKey)
+        BatonStorage.defaults.set(false, forKey: Self.demoModeKey)
         // Every sign-in path lands here, so it's the one place search history has to be
         // re-pointed at whichever server was just connected.
         refreshSearchScope()
@@ -562,7 +700,7 @@ final class MobileModel {
     }
 
     private func installExperimentalEngineIfEnabled(force: Bool = false) {
-        guard force || UserDefaults.standard.bool(forKey: Self.experimentalEngineKey) else { return }
+        guard force || BatonStorage.defaults.bool(forKey: Self.experimentalEngineKey) else { return }
         music.engineDeckProvider = { [weak self] in
             guard let self else { return nil }
             audioSession.activateForPlayback()

@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 
 /// Which Library rows show, and in what order.
@@ -59,7 +60,7 @@ final class LibraryLayout {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = BatonStorage.defaults) {
         self.defaults = defaults
         order = Self.resolve(saved: defaults.stringArray(forKey: Self.orderKey) ?? [])
         hidden = Set((defaults.stringArray(forKey: Self.hiddenKey) ?? [])

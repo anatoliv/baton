@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 #if canImport(Network)
 import Network
@@ -36,7 +37,7 @@ public enum StreamQuality: Int, CaseIterable, Sendable, Identifiable {
     /// Defaults chosen so nobody's Wi-Fi listening changes: original on Wi-Fi (today's
     /// behaviour), a sensible cap on cellular (a change, and the point of the feature).
     public static var wifi: StreamQuality {
-        StreamQuality(rawValue: UserDefaults.standard.integer(forKey: wifiKey)) ?? .original
+        StreamQuality(rawValue: BatonStorage.defaults.integer(forKey: wifiKey)) ?? .original
     }
 
     public static var cellular: StreamQuality {
@@ -44,8 +45,8 @@ public enum StreamQuality: Int, CaseIterable, Sendable, Identifiable {
         // unset cellular preference would mean "no cap", silently defeating the feature
         // for everyone who never opens Settings. Registering the default makes the
         // absent case mean `.high` instead.
-        guard UserDefaults.standard.object(forKey: cellularKey) != nil else { return .high }
-        return StreamQuality(rawValue: UserDefaults.standard.integer(forKey: cellularKey)) ?? .high
+        guard BatonStorage.defaults.object(forKey: cellularKey) != nil else { return .high }
+        return StreamQuality(rawValue: BatonStorage.defaults.integer(forKey: cellularKey)) ?? .high
     }
 }
 

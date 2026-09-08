@@ -235,12 +235,11 @@ final class FullWalkUITests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 15))
         play.tap()
 
-        let mini = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
+        let mini = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
         XCTAssertTrue(mini.waitForExistence(timeout: 15), "mini player must appear")
         note("Mini player", "appears once playback starts")
 
-        mini.tap()
-        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 10))
+        openFullPlayer(in: app, timeout: 10)
         note("Full player", "opens from the mini player")
 
         // Every transport control the Mac has, exercised rather than counted.
@@ -266,7 +265,7 @@ final class FullWalkUITests: XCTestCase {
         XCTAssertTrue(opened)
         capture("queue-sheet")
         app.buttons["Close"].tap()
-        app.buttons["Done"].tap()
+        dismissFullPlayer(in: app)
 
         // Closing the mini player is the Mac's xmark: it ends the session.
         if mini.waitForExistence(timeout: 5) {
@@ -335,10 +334,7 @@ final class FullWalkUITests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 15))
         play.tap()
 
-        let mini = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
-        XCTAssertTrue(mini.waitForExistence(timeout: 15))
-        mini.tap()
-        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 10))
+        openFullPlayer(in: app)
 
         let related = app.buttons["Related"]
         XCTAssertTrue(related.waitForExistence(timeout: 10), "the player must offer Related")
@@ -393,8 +389,10 @@ final class FullWalkUITests: XCTestCase {
             note("Settings → Equalizer", "GAP: no equalizer toggle")
             return XCTFail("no equalizer toggle")
         }
-        if (toggle.value as? String) == "0" { toggle.tap() }
+        guard turnOn(toggle, named: "Equalizer") else { return }
 
+        // Preset, Flat / Reset and Bands only exist while the equalizer is on, so every
+        // check below depends on the switch above having actually moved.
         let preset = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Preset'")).firstMatch
         XCTAssertTrue(preset.waitForExistence(timeout: 10))
         // The reported bug: this row rendered blank whenever the curve was hand-tuned.
@@ -404,9 +402,44 @@ final class FullWalkUITests: XCTestCase {
                 : "GAP: preset row is blank — '\(preset.label)'")
         XCTAssertFalse(preset.label.hasSuffix(", "), "the preset row must never be blank")
 
+        // Revealed, not just looked for. Turning the equalizer on adds three rows below the
+        // switch, which pushes these two off the bottom of the screen — and a row SwiftUI
+        // has not drawn genuinely does not exist, so an unscrolled `.exists` reported both
+        // of them as missing controls that have been there all along.
         note("Settings → Equalizer",
-             app.buttons["Flat / Reset"].exists ? "Flat / Reset present" : "MISSING: Flat / Reset")
+             reveal(app.buttons["Flat / Reset"]) ? "Flat / Reset present" : "MISSING: Flat / Reset")
         note("Settings → Equalizer",
-             app.buttons["Bands"].exists ? "Bands editor present" : "MISSING: Bands")
+             reveal(app.buttons["Bands"]) ? "Bands editor present" : "MISSING: Bands")
+    }
+
+    /// Turns a Settings switch on, and proves it moved.
+    ///
+    /// `XCUIElement.tap()` taps the *centre* of the element, and a SwiftUI `Toggle` in a
+    /// Form publishes one accessibility element spanning the whole row — so the tap lands
+    /// on the label, which does not toggle anything. The switch stayed off, the three rows
+    /// it gates never appeared, and the failure read as "the equalizer has no preset row"
+    /// rather than "nothing was ever switched on".
+    ///
+    /// So: hit the trailing edge where the switch actually is, then assert the value
+    /// changed. Without that assertion this fails one screen later, describing the wrong
+    /// thing — which is how it was read for a month.
+    private func turnOn(_ toggle: XCUIElement, named name: String) -> Bool {
+        if (toggle.value as? String) == "1" { return true }
+        // A coordinate is only meaningful once the row is on screen. `reveal` settles for
+        // `exists`, which SwiftUI reports for rows it has realised but scrolled past, and a
+        // normalized offset into an off-screen frame lands somewhere else entirely.
+        let screen = app.windows.firstMatch.frame
+        for _ in 0 ..< 12 where !screen.contains(CGPoint(x: toggle.frame.midX, y: toggle.frame.midY)) {
+            app.swipeUp()
+        }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let flipped = NSPredicate(format: "value == '1'")
+        let met = XCTWaiter.wait(for: [expectation(for: flipped, evaluatedWith: toggle)], timeout: 10)
+        guard met == .completed else {
+            note("Settings → \(name)", "GAP: the \(name) switch does not respond to a tap")
+            XCTFail("the \(name) switch must turn on when tapped")
+            return false
+        }
+        return true
     }
 }

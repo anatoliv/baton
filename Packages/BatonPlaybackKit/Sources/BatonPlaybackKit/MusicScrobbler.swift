@@ -31,6 +31,19 @@ public final class MusicScrobbler: ScrobbleDestination {
         token = NavidromeKeychain.secret(account: Self.tokenKey) ?? "" // Keychain, migrate-on-read
     }
 
+    /// Re-read the token, for when something wrote the Keychain underneath this object.
+    ///
+    /// "Set up from a Mac" does exactly that, and this object was built at launch (TBX-5114,
+    /// TBX-5123). Without it a post-import connection check validates the token this phone
+    /// had before the import and reports the answer with a straight face — which is worse
+    /// than not checking, because the check is believed.
+    ///
+    /// The `didSet` writes the value straight back to the Keychain it just came from, which
+    /// is a no-op.
+    public func reload() {
+        token = NavidromeKeychain.secret(account: Self.tokenKey) ?? ""
+    }
+
     /// The play position (seconds) at which a track counts as "listened" per the standard
     /// scrobble rule — half its length, or 4 minutes, whichever comes first. Pure for testing.
     public static func scrobbleThreshold(duration: TimeInterval) -> TimeInterval {

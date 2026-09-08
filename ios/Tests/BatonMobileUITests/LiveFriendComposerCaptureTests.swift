@@ -27,6 +27,11 @@ import XCTest
 final class LiveFriendComposerCaptureTests: XCTestCase {
     private var app: XCUIApplication!
 
+    /// The one message this test sends. Named because three separate checks have to agree
+    /// on it — what is typed, whether the composer still holds it, and which bubble is our
+    /// own — and they used to agree by three copies of the same string literal.
+    private static let question = "What genres am I in the mood for?"
+
     private func env(_ name: String) -> String {
         ProcessInfo.processInfo.environment[name] ?? ""
     }
@@ -74,6 +79,12 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         let friendTab = app.tabBars.buttons["Friend"]
         XCTAssertTrue(friendTab.waitForExistence(timeout: 30),
                       "the Friend tab must appear once the connection test passes")
+        // Hittable, not merely existing. The root tab bar stays in the accessibility
+        // hierarchy underneath a sheet, so `exists` is satisfied by a tab nobody can see
+        // and the tap lands on the modal instead — which is exactly how this test used to
+        // fail one step later, on the composer.
+        XCTAssertTrue(waitFor(timeout: 20) { friendTab.isHittable },
+                      "the Friend tab must be on screen, not just in the hierarchy")
         friendTab.tap()
 
         // By identifier across any element type, not `app.textFields[…]`: the composer is a
@@ -86,18 +97,40 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         // Keyboard up is the state both shipped bugs were in: the capsule sits directly
         // above it, and that is where a mismatched inset shows.
         composer.tap()
-        composer.typeText("What genres am I in the mood for?")
+        composer.typeText(Self.question)
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10),
                       "tapping the composer must raise the keyboard")
         XCTAssertTrue(composer.isHittable, "the composer must stay reachable above the keyboard")
         capture("composer-keyboard-up")
 
+        // Everything on screen before the send, so "a reply arrived" can mean a label that
+        // was not there before. The check this replaces counted static texts and passed at
+        // `> 1` — and the greeting is two of them, before a word is sent, with two hidden
+        // `debug.*` probes underneath. It returned true on its first poll on 2026-09-07 and
+        // the test went green having photographed an unsent message sitting in the composer.
+        let before = visibleLabels()
+
         // Send, and wait for the model to actually answer. A composer that looks right and
-        // cannot send is the same class of defect as the mix card nothing could tap.
-        app.buttons["Send"].firstMatch.tap()
-        if !app.buttons["Send"].firstMatch.exists { composer.typeText("\n") }
-        XCTAssertTrue(waitForReply(timeout: 180),
-                      "the model never answered — check the provider is awake before believing this")
+        // cannot send is the same class of defect as the mix card nothing could tap — so
+        // the send is checked as its own claim, before anything is read into an answer.
+        // Everything after an unsent message would be a photograph of a conversation that
+        // never happened, which is what shipped in the screenshots of 2026-09-07.
+        guard let send = composerSendButton() else {
+            return XCTFail("the composer must offer a Send button above the keyboard — \(describeSendControls())")
+        }
+        send.tap()
+
+        // The transcript, not the composer, is the signal. A sent message becomes a bubble
+        // of its own, and `Text(message.text)` gives that bubble the message as its label —
+        // so this is the app saying it took the message, rather than the test inferring it
+        // from a field that has more than one way to change.
+        XCTAssertTrue(app.staticTexts[Self.question].waitForExistence(timeout: 15),
+                      "Send did not put the message into the transcript, so it was never sent — \(describeSendControls())")
+
+        if !waitForReply(after: before, timeout: 180) {
+            capture("composer-no-reply")
+            XCTFail("the model never answered — check the provider is awake before believing this")
+        }
         capture("composer-after-reply")
 
         // And keyboard down, which is the other half of the accept criterion: the capsule
@@ -117,22 +150,70 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         return condition()
     }
 
-    /// A reply has landed when a bubble exists that isn't the message we sent and isn't
-    /// the thinking row. Polls rather than sleeping, so a fast model finishes fast.
-    private func waitForReply(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let thinking = app.staticTexts["Thinking…"].exists
-            let bubbles = app.staticTexts.allElementsBoundByIndex.filter {
-                $0.exists && !$0.label.isEmpty
-                    && $0.label != "What genres am I in the mood for?"
-                    && $0.label != "Thinking…"
-                    && $0.label != "Music Friend"
+    /// Every static text on screen, by label.
+    private func visibleLabels() -> Set<String> {
+        Set(app.staticTexts.allElementsBoundByIndex.filter { $0.exists }.map { $0.label })
+    }
+
+    /// A reply has landed when text appears that **was not on screen before the send** and
+    /// is not our own message echoed back into a bubble.
+    ///
+    /// Difference from a count, which is what this used to be: a count cannot tell a reply
+    /// from the greeting, the screen title, or the two hidden `debug.*` probes this build
+    /// carries, and so was satisfied before the message was even sent.
+    private func waitForReply(after before: Set<String>, timeout: TimeInterval) -> Bool {
+        waitFor(timeout: timeout) {
+            guard !self.app.staticTexts["Thinking…"].exists else { return false }
+            return self.visibleLabels().contains {
+                !$0.isEmpty && !before.contains($0) && $0 != Self.question && $0 != "Thinking…"
             }
-            if !thinking, bubbles.count > 1 { return true }
-            _ = XCTWaiter.wait(for: [XCTestExpectation(description: "poll")], timeout: 2)
         }
-        return false
+    }
+
+    /// The composer's own Send button — the one **above** the keyboard.
+    ///
+    /// The history, because it is why this is not `app.buttons["Send"].firstMatch`: the
+    /// field **used to** carry `.submitLabel(.send)`, which made the keyboard's return key
+    /// a second button labelled "Send", and that is the one `firstMatch` picked on both
+    /// runs on 2026-09-07. Tapping it did not submit — a `TextField(axis: .vertical)`
+    /// treats return as a newline — so the message stayed in the composer with a second
+    /// line under it, and the test called that a conversation.
+    ///
+    /// **Both modifiers are gone.** TBX-5158 removed `.submitLabel(.send)` and the dead
+    /// `.onSubmit(sendDraft)` from the field for exactly that reason, and gave the
+    /// composer's own button the identifier `FriendComposerSend`. Only one control on this
+    /// screen is named Send today. Do not put either modifier back — `MusicFriendView.swift`
+    /// carries the argument at the field itself, and this test is what caught it.
+    ///
+    /// Picking by position is therefore belt and braces now rather than the workaround it
+    /// was, and a rewrite should ask for `FriendComposerSend` by identifier instead. It is
+    /// left as it is on purpose: this test runs only when a live model provider is supplied,
+    /// so a change here would go unrun, and this file has already sat broken for an unknown
+    /// period because nothing ran it.
+    ///
+    /// The rule the geometry encodes: the keyboard covers the bottom of the screen, and the
+    /// composer sits above it.
+    private func composerSendButton() -> XCUIElement? {
+        let keyboardTop = app.keyboards.firstMatch.exists
+            ? app.keyboards.firstMatch.frame.minY
+            : CGFloat.greatestFiniteMagnitude
+        return app.buttons
+            .matching(NSPredicate(format: "label ==[c] %@", "Send"))
+            .allElementsBoundByIndex
+            .first { $0.exists && $0.isHittable && $0.frame.maxY <= keyboardTop }
+    }
+
+    /// What the "Send" label actually matches, for a failure message that says something.
+    /// Since TBX-5158 the composer's own button should be the only candidate; before it, the
+    /// keyboard's return key was a second. So more than one match printed here is the tell
+    /// that the field has grown a `.submitLabel` again.
+    private func describeSendControls() -> String {
+        let matches = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label ==[c] %@", "Send"))
+            .allElementsBoundByIndex
+            .filter { $0.exists }
+            .map { "type=\($0.elementType.rawValue) frame=\($0.frame) enabled=\($0.isEnabled) hittable=\($0.isHittable)" }
+        return matches.isEmpty ? "nothing on screen is labelled Send" : matches.joined(separator: " | ")
     }
 
     private func configureFriend() throws {
@@ -184,6 +265,10 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         // Failing here would put a coin-flip red in the gate, and a gate that is red at
         // random stops being a gate. Same judgement as the conversation eval: an
         // environment that cannot give a measurement is not measurable, not broken.
+        //
+        // `exists` is the right check *here*, unlike everywhere else: the tab bar is still
+        // behind the Settings sheet at this point, so nothing about it can be hittable yet.
+        // The hittable check belongs after `dismissSettings()`, and that is where it is.
         try XCTSkipUnless(
             waitFor(timeout: 180) { self.app.tabBars.buttons["Friend"].exists },
             """
@@ -193,7 +278,7 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
             """
         )
 
-        dismissSettings()
+        try dismissSettings()
     }
 
     /// Taps the first hittable element whose label *starts with* `prefix`, and fails
@@ -216,11 +301,57 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
     }
 
 
-    private func dismissSettings() {
-        let done = app.navigationBars.buttons["Done"].firstMatch
-        if done.exists { done.tap() }
-        while app.navigationBars.buttons.firstMatch.exists, !app.tabBars.firstMatch.exists {
-            app.navigationBars.buttons.firstMatch.tap()
+    /// Pops the pushed Music Friend detail, closes the Settings sheet, and **proves** the
+    /// root is reachable before returning.
+    ///
+    /// The version this replaced did nothing at all, twice over, and said nothing about it.
+    /// `app.navigationBars.buttons["Done"]` matched no element — the Settings sheet draws
+    /// its own large header rather than a `UINavigationBar` — and the loop guard
+    /// `!app.tabBars.firstMatch.exists` was false on entry, because the root tab bar stays
+    /// in the accessibility hierarchy the whole time a sheet covers it, so the loop body
+    /// never ran once. The test then tapped "Friend" through the modal and failed twenty
+    /// seconds later on the composer, pointing at the wrong screen entirely.
+    ///
+    /// So the signal for "am I back at the root" is deliberately **not** the existence of
+    /// anything: it is the *absence* of the `Music Friend` navigation bar together with the
+    /// Home tab being **hittable**, which a covering sheet makes false. And when that
+    /// signal does not arrive this throws, with a screenshot of wherever it got stuck.
+    /// This is `tapRow`'s rule, which the same file already argues for and this function
+    /// used not to apply: a precondition that quietly does nothing is worse than one that
+    /// fails.
+    private func dismissSettings() throws {
+        let detailBar = app.navigationBars["Music Friend"]
+        let home = app.tabBars.buttons["Home"]
+
+        // 1. Pop the pushed detail, if we are on it.
+        if detailBar.exists {
+            let back = detailBar.buttons.firstMatch
+            guard back.exists else {
+                capture("dismiss-failed-no-way-out-of-the-detail")
+                throw DismissalFailure("the Music Friend detail is up and its navigation bar offers no button to leave it")
+            }
+            back.tap()
+            guard waitFor(timeout: 10, until: { !detailBar.exists }) else {
+                capture("dismiss-failed-detail-would-not-pop")
+                throw DismissalFailure("tapping Back left the Music Friend navigation bar on screen")
+            }
+        }
+
+        // 2. Close the sheet. Unscoped, for the reason above. A miss here is not fatal on
+        //    its own — there is no Done to find when the sheet was never up — so the root
+        //    check below is what decides, and it cannot be satisfied by a sheet still up.
+        let done = app.buttons["Done"].firstMatch
+        if done.waitForExistence(timeout: 5) { done.tap() }
+
+        // 3. The check that makes the two steps above mean something.
+        guard waitFor(timeout: 20, until: { !detailBar.exists && home.isHittable }) else {
+            capture("dismiss-failed-never-reached-the-root")
+            throw DismissalFailure("""
+                Settings never closed: after Back and Done, \
+                Music Friend navigation bar present=\(detailBar.exists), \
+                Home tab hittable=\(home.isHittable). Anything read off the tab bar from \
+                here would be a photograph of the sheet.
+                """)
         }
     }
 
@@ -259,6 +390,20 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: 120),
                       "expected to reach the app after connecting")
     }
+}
+
+/// Thrown when the walk cannot get back to the root tab bar.
+///
+/// A thrown error rather than an `XCTFail` and a return: the caller's next act is to read
+/// the tab bar, and a failure recorded but not propagated would still let it do that and
+/// photograph a sheet. Both `LocalizedError` and `CustomStringConvertible`, because those
+/// are two different printings and XCTest reaches for the second: a bare `Error` reports as
+/// "the operation couldn't be completed", and a `LocalizedError` alone came out of a real
+/// run as `DismissalFailure(reason: "…")` — readable by luck rather than by design.
+private struct DismissalFailure: LocalizedError, CustomStringConvertible {
+    let description: String
+    init(_ reason: String) { description = "could not get back to the root from Settings — \(reason)" }
+    var errorDescription: String? { description }
 }
 
 private extension XCUIApplication {

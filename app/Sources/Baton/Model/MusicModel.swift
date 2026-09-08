@@ -148,7 +148,7 @@ final class MusicModel {
         // Never under test (the suites build their own pipelines), and a failed audio
         // engine start (no output device) degrades to plain AVPlayer with no seam.
         if !environment.isTesting,
-           UserDefaults.standard.bool(forKey: Self.experimentalEngineKey),
+           BatonStorage.defaults.bool(forKey: Self.experimentalEngineKey),
            let bridge = try? EngineDeckBridge.deviceBridge() {
             engineBridge = bridge
             music.attachEngineDeck(bridge)
@@ -282,7 +282,7 @@ final class MusicModel {
             // end-of-track handler reports time == duration) — NOT at the 97%-played mark, so a
             // long episode isn't deleted with minutes still to play.
             let reachedEnd = duration > 1 && time >= duration - 1
-            if reachedEnd, UserDefaults.standard.object(forKey: Self.autoRemoveFinishedKey) as? Bool ?? true {
+            if reachedEnd, BatonStorage.defaults.object(forKey: Self.autoRemoveFinishedKey) as? Bool ?? true {
                 MusicDownloadStore.shared.delete(song.id)
             }
         }

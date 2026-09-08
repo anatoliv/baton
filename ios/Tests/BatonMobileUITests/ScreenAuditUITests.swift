@@ -160,15 +160,16 @@ final class ScreenAuditUITests: XCTestCase {
         play.tap()
 
         // The mini player is the Mac's bottom bar equivalent.
-        let mini = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
+        let mini = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
         XCTAssertTrue(mini.waitForExistence(timeout: 10),
                       "the mini player must appear once something is playing")
         audit("mini-player")
 
-        // And the full player, where the adaptive backdrop lives.
-        mini.tap()
-        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 10),
-                      "tapping the mini player must open the full player")
+        // And the full player, where the adaptive backdrop lives. The proof that it opened
+        // is its dismiss control, which is a leading chevron labelled "Minimize player" —
+        // this waited on a trailing "Done" that the player stopped having in August, and
+        // reported a working screen as one that would not open.
+        openFullPlayer(in: app, timeout: 10)
         audit("full-player")
     }
 

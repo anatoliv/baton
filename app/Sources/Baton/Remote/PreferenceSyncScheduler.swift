@@ -94,7 +94,7 @@ final class PreferenceSyncScheduler {
 
     private func runIfConfigured() async {
         guard let gateway = Self.gateway(
-            urlString: UserDefaults.standard.string(forKey: "baton.agent.gatewayURL"),
+            urlString: BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL"),
             token: NavidromeKeychain.secret(account: "baton.agent.gatewayToken")
         ) else { return }
 

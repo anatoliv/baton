@@ -904,7 +904,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
     /// The "prefer downloads / play only offline" toggle (Settings + Downloads screen).
     public static let offlineModeKey = "baton.music.offlineMode"
-    public static var isOfflineMode: Bool { UserDefaults.standard.bool(forKey: offlineModeKey) }
+    public static var isOfflineMode: Bool { BatonStorage.defaults.bool(forKey: offlineModeKey) }
 
     public static func resolveStreamURL(songID: String) throws -> URL {
         // Prefer an offline download when present.

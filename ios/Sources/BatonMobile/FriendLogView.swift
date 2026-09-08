@@ -10,6 +10,7 @@ import SwiftUI
 struct FriendLogView: View {
     let log: FriendFeedbackLog
     let learning: FriendLearningStore
+    let memory: RemoteMemoryStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var filter: FriendExchange.Fault?
@@ -46,6 +47,46 @@ struct FriendLogView: View {
                         Text("What goes wrong")
                     } footer: {
                         Text("Tap to show only those. The fault matters more than the count: each one points at a different fix.")
+                    }
+                }
+
+                // What the friend believes about the person it is talking to.
+                //
+                // This had no surface on the phone at all: `friendMemory` appeared five
+                // times in `ios/Sources/BatonMobile` and every one was in `MobileModel`. So
+                // preferences and facts about someone — "nothing loud before nine", "their
+                // partner is called Sam" — were stored, sent to a model to steer its
+                // answers, and never shown to the person they were about. Corrections got a
+                // swipe-to-delete; memories got nothing.
+                //
+                // It is also the only way a memory bug is observable here. Since these
+                // cross devices, a memory that fails to arrive, arrives twice, or comes
+                // back after a forget could otherwise only be diagnosed by pulling a JSON
+                // file out of the simulator's container — and this repo's own experience is
+                // that sync defects are invisible to a green suite and obvious on a screen.
+                if !memory.entries.isEmpty {
+                    Section {
+                        ForEach(memory.entries) { entry in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(entry.text).font(.callout)
+                                // The quote, not a paraphrase. It is what makes a wrong
+                                // memory correctable rather than merely deniable: you can
+                                // see the sentence it was drawn from and judge the leap.
+                                Text("You said: “\(entry.quote)”")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .onDelete { offsets in
+                            // Through the store's own forget, which lays a tombstone as it
+                            // saves. A memory removed by deleting the row some other way
+                            // would come straight back on the next sync, because an absence
+                            // is indistinguishable from never having heard of it.
+                            offsets.map { memory.entries[$0].id }.forEach { memory.forget(id: $0) }
+                        }
+                    } header: {
+                        Text("What it remembers")
+                    } footer: {
+                        Text("Things you told the friend about yourself, in your own words. Swipe to forget one — it is removed from your other devices too.")
                     }
                 }
 

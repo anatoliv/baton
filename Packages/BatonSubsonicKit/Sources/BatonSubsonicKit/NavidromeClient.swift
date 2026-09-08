@@ -7,7 +7,7 @@ public enum NavidromeAuthMode: String, Codable, CaseIterable, Sendable {
     /// Universal Subsonic auth: `t = md5(password + salt)`, `s = salt`. The
     /// plaintext password is never sent — only the per-request md5.
     case tokenSalt
-    /// OpenSubsonic `apikeyauth` extension: a server-issued key sent as `apiKey`.
+    /// OpenSubsonic `apiKeyAuthentication` extension: a server-issued key sent as `apiKey`.
     /// Used only when the server advertises the extension.
     case apiKey
 }

@@ -27,7 +27,16 @@ private let navidromeSecretsLog = Logger(subsystem: "io.tonebox.baton", category
 public enum NavidromeKeychain {
     /// Keychain service shared by all Tonebox secrets. Matches
     /// `KeychainSecretStore.service`.
-    public static let service = "io.tonebox.secrets"
+    ///
+    /// A probe launch gets its own service, so the throwaway device starts with no credentials
+    /// and — the half that matters — cannot overwrite the owner's stored Navidrome password when
+    /// somebody types one into its Settings. The Keychain is the one piece of state that a
+    /// redirected preferences domain does not carry with it, so it is named here rather than left
+    /// as a footnote.
+    public static let service: String = {
+        guard let suite = BatonStorage.current.suiteName else { return "io.tonebox.secrets" }
+        return "io.tonebox.secrets.probe.\(suite)"
+    }()
 
     /// Account/key for the Navidrome secret. Matches
     /// `NavidromeConfig.secretKey` (the former UserDefaults key).
@@ -37,6 +46,10 @@ public enum NavidromeKeychain {
     /// instead of the real Keychain, so multi-server tests are hermetic and never
     /// clobber the user's stored secret. Nil in production (Security framework).
     public nonisolated(unsafe) static var inMemoryStore: [String: Data]?
+
+    /// Accounts the in-memory store refuses to write, so the failure path is testable.
+    /// Consulted only while `inMemoryStore` is active — never in production.
+    public nonisolated(unsafe) static var refusedAccounts: Set<String> = []
 
     /// The stored secret for the default (legacy) account, or nil when none is
     /// set. See `secret(account:)`.
@@ -52,7 +65,7 @@ public enum NavidromeKeychain {
         if let data = read(account: account), let value = String(data: data, encoding: .utf8), !value.isEmpty {
             return value
         }
-        let ud = UserDefaults.standard
+        let ud = BatonStorage.defaults
         if let legacy = ud.string(forKey: account), !legacy.isEmpty {
             write(Data(legacy.utf8), account: account) // migrate-on-read
             ud.removeObject(forKey: account)            // drop the plaintext copy
@@ -69,13 +82,29 @@ public enum NavidromeKeychain {
     /// Writes the secret to the Keychain under `account` and removes any
     /// plaintext `UserDefaults` copy. An empty/whitespace-only value deletes the
     /// item so an empty secret never lingers.
-    public static func setSecret(_ value: String, account: String) {
+    /// Returns whether the secret is now stored as asked.
+    ///
+    /// It used to return `Void` and swallow the `SecItem` status, logging it and moving on.
+    /// That let `SettingsTransfer.applyImport` count *attempts* as applied secrets, so an
+    /// import could report "1 secret" over a Keychain that had rejected the write — and the
+    /// same sheet would then say there was nothing to test, because the friend was not
+    /// configured without it. Two true statements that together describe something false
+    ///.
+    ///
+    /// `@discardableResult` because most callers are writing a value the user just typed on
+    /// a screen that will show them the outcome anyway; the ones that report a count are the
+    /// ones that must not ignore it.
+    @discardableResult
+    public static func setSecret(_ value: String, account: String) -> Bool {
+        let stored: Bool
         if value.isEmpty {
             deleteSecret(account: account)
+            stored = true          // asked for absence, and absence is what there now is
         } else {
-            write(Data(value.utf8), account: account)
+            stored = write(Data(value.utf8), account: account)
         }
-        UserDefaults.standard.removeObject(forKey: account)
+        BatonStorage.defaults.removeObject(forKey: account)
+        return stored
     }
 
     /// Removes the stored secret for the default (legacy) account.
@@ -142,14 +171,26 @@ public enum NavidromeKeychain {
         #endif
     }
 
-    private static func write(_ data: Data, account: String) {
+    /// Whether the data is now in the Keychain. The status was previously logged and
+    /// dropped; a caller that reports a count needs to know.
+    @discardableResult
+    private static func write(_ data: Data, account: String) -> Bool {
         ensureTestIsolation()
         if inMemoryStore != nil {
+            // A refusal is otherwise unreachable in a test: the in-memory store always
+            // succeeds, so the branch reporting a failed Keychain write had no coverage —
+            // and a mutation restoring the old count-attempts bug survived unnoticed. This
+            // is the seam that lets a test see what a real device produces with, say,
+            // `errSecInteractionNotAllowed`.
+            //
+            // Confined to the in-memory path, so production behaviour is untouched.
+            if refusedAccounts.contains(account) { return false }
             inMemoryStore?[account] = data
-            return
+            return true
         }
         #if !canImport(Security)
         LinuxSecretFile.write(data, account: account)
+        return true
         #else
         let baseQuery: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -163,16 +204,19 @@ public enum NavidromeKeychain {
         let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
         switch updateStatus {
         case errSecSuccess:
-            return
+            return true
         case errSecItemNotFound:
             var addQuery = baseQuery
             for (k, v) in attributes { addQuery[k] = v }
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             if addStatus != errSecSuccess {
                 navidromeSecretsLog.error("Keychain add failed: \(addStatus, privacy: .public)")
+                return false
             }
+            return true
         default:
             navidromeSecretsLog.error("Keychain update failed: \(updateStatus, privacy: .public)")
+            return false
         }
         #endif
     }

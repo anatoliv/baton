@@ -76,7 +76,7 @@ public final class PodcastSubscriptionStore {
     }
 
     /// Record a deliberate subscribe or unsubscribe against a feed.
-    private func noteLedger(_ feed: String, removed: Bool, defaults: UserDefaults = .standard) {
+    private func noteLedger(_ feed: String, removed: Bool, defaults: UserDefaults = BatonStorage.defaults) {
         var ledger = PodcastSubscriptionLedger.decode(defaults.data(forKey: Self.ledgerKey))
             ?? PodcastSubscriptionLedger.fromLegacyFeeds(defaults.stringArray(forKey: Self.syncedFeedsKey) ?? [])
         ledger.note(feed: feed, removed: removed)
@@ -92,7 +92,7 @@ public final class PodcastSubscriptionStore {
     /// without shipping the episode cache, which is derived data every device should fetch
     /// for itself rather than inherit stale.
     private func mirrorFeedsForSync() {
-        let defaults = UserDefaults.standard
+        let defaults = BatonStorage.defaults
         let feeds = channels.map(\.feedURL.absoluteString)
 
         // The ledger is the real record: it can say "unsubscribed", which a list cannot.
@@ -130,7 +130,7 @@ public final class PodcastSubscriptionStore {
     /// Returns what it did, so a caller can say so rather than having the list change under
     /// the user with no explanation.
     @discardableResult
-    public func adoptSyncedFeeds(defaults: UserDefaults = .standard) async -> (added: Int, removed: Int) {
+    public func adoptSyncedFeeds(defaults: UserDefaults = BatonStorage.defaults) async -> (added: Int, removed: Int) {
         let ledger = PodcastSubscriptionLedger.merged(
             PodcastSubscriptionLedger.decode(defaults.data(forKey: Self.ledgerKey)) ?? .init(),
             PodcastSubscriptionLedger.fromLegacyFeeds(defaults.stringArray(forKey: Self.syncedFeedsKey) ?? [])
@@ -250,12 +250,7 @@ public final class PodcastSubscriptionStore {
     // MARK: - Storage location
 
     /// `~/Library/Application Support/Baton/`, matching the download cache + control socket.
-    private static func defaultDirectory() -> URL {
-        let base = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        )) ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("Baton", isDirectory: true)
-    }
+    private static func defaultDirectory() -> URL { BatonStorage.supportDirectory() }
 }
 
 // MARK: - Episode → Song (playback)

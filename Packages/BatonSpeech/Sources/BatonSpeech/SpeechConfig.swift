@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 
 /// Configuration for Baton's self-hosted speech services: the TTS side (`speak_summary` — where
@@ -36,7 +37,7 @@ public enum SpeechConfig {
     public static let maxSummaryChars = 2000
 
     /// Overridable in tests; `.standard` in production.
-    nonisolated(unsafe) public static var defaults: UserDefaults = .standard
+    nonisolated(unsafe) public static var defaults: UserDefaults = BatonStorage.defaults
 
     // MARK: - Engine + resolved voice
     public enum Engine: String, Sendable { case kokoro, chatterbox }

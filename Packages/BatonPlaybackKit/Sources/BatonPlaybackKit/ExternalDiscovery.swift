@@ -43,7 +43,7 @@ public enum ExternalDiscovery {
     /// Optional. Adds YouTube results, which are the ones you can actually open and play.
     public static let youTubeKeyKey = "baton.discovery.youtube.key"
 
-    public static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+    public static var isEnabled: Bool { BatonStorage.defaults.bool(forKey: enabledKey) }
 
     /// Per-source opt-out, under the master switch rather than replacing it.
     ///
@@ -57,11 +57,11 @@ public enum ExternalDiscovery {
     }
 
     public static func isEnabled(_ source: Source) -> Bool {
-        UserDefaults.standard.object(forKey: enabledKey(for: source)) as? Bool ?? true
+        BatonStorage.defaults.object(forKey: enabledKey(for: source)) as? Bool ?? true
     }
 
     public static func setEnabled(_ enabled: Bool, for source: Source) {
-        UserDefaults.standard.set(enabled, forKey: enabledKey(for: source))
+        BatonStorage.defaults.set(enabled, forKey: enabledKey(for: source))
     }
 
     /// The key a source needs, or nil for one that needs none.

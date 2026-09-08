@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import CryptoKit
 import Foundation
 
@@ -86,7 +87,7 @@ public enum DevicePairing {
     ///
     /// Recorded so the owner can see what they've done. Deliberately **not** called a
     /// revocation list: Navidrome has no per-device credentials (verified against 0.61.2
-    /// and 0.63.2 — no `apikeyauth` extension), so removing a row cannot invalidate
+    /// and 0.63.2 — no `apiKeyAuthentication` extension), so removing a row cannot invalidate
     /// anything the phone already holds. Calling it "revoke" would be a lie told by a
     /// button label.
     public struct LinkedDevice: Codable, Identifiable, Equatable, Sendable {
@@ -106,14 +107,14 @@ public enum DevicePairing {
     public enum LinkedDevices {
         public static let storageKey = "baton.pairing.linkedDevices"
 
-        public static func all(defaults: UserDefaults = .standard) -> [LinkedDevice] {
+        public static func all(defaults: UserDefaults = BatonStorage.defaults) -> [LinkedDevice] {
             guard let data = defaults.data(forKey: storageKey),
                   let devices = try? JSONDecoder().decode([LinkedDevice].self, from: data)
             else { return [] }
             return devices.sorted { $0.linkedAt > $1.linkedAt }
         }
 
-        public static func record(name: String, defaults: UserDefaults = .standard) {
+        public static func record(name: String, defaults: UserDefaults = BatonStorage.defaults) {
             var devices = all(defaults: defaults)
             // Re-linking the same phone replaces its row rather than adding a second: two
             // entries for one device would misrepresent what happened.
@@ -122,7 +123,7 @@ public enum DevicePairing {
             save(devices, defaults: defaults)
         }
 
-        public static func forget(_ id: String, defaults: UserDefaults = .standard) {
+        public static func forget(_ id: String, defaults: UserDefaults = BatonStorage.defaults) {
             save(all(defaults: defaults).filter { $0.id != id }, defaults: defaults)
         }
 
@@ -197,7 +198,7 @@ public enum DevicePairing {
     /// and that decision lives here rather than in a boolean at each caller.
     public static func makePayload(
         for invitation: Invitation,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = BatonStorage.defaults
     ) throws -> Data {
         let export = try SettingsTransfer.makeExport(
             includeSecrets: true,

@@ -70,7 +70,7 @@ public final class ScrobbleQueue {
     /// Give up on an entry after this many failed deliveries (a permanent server rejection).
     public static let maxAttempts = 20
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = BatonStorage.defaults) {
         self.defaults = defaults
         load()
     }

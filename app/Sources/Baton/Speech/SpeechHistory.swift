@@ -1,4 +1,5 @@
 import BatonSpeech
+import BatonSubsonicKit
 import Foundation
 import Observation
 
@@ -31,7 +32,7 @@ final class SpeechHistoryStore {
 
     @ObservationIgnored private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = BatonStorage.defaults) {
         self.defaults = defaults
         load()
     }

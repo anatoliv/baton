@@ -1,4 +1,5 @@
 import AVFoundation
+import BatonSubsonicKit
 import Foundation
 import OSLog
 
@@ -91,7 +92,7 @@ extension AVPlayerDeck {
     /// nudge it back into motion within the policy's bounds.
     func stallRecoveryTick() {
         let key = StreamingPlaybackController.stallRecoveryEnabledKey
-        guard UserDefaults.standard.object(forKey: key) as? Bool ?? true else { return }
+        guard BatonStorage.defaults.object(forKey: key) as? Bool ?? true else { return }
         let status = player.timeControlStatus
         if status == .playing {
             stallPolicy.notePlaying()

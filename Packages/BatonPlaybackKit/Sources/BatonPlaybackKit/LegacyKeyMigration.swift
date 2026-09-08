@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 
 /// Moving settings from the `tonebox.*` namespace to `baton.*`, once, without losing any.
@@ -58,7 +59,7 @@ public enum LegacyKeyMigration {
 
     /// Copies each old value to its new key, once. Old values are left in place: a rollback
     /// to a previous build should find its settings where it left them.
-    public static func run(_ defaults: UserDefaults = .standard) {
+    public static func run(_ defaults: UserDefaults = BatonStorage.defaults) {
         guard !defaults.bool(forKey: completedKey) else { return }
         for (old, new) in inertKeys {
             guard defaults.object(forKey: new) == nil,

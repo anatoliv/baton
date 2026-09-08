@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import Foundation
 import Observation
 import BatonDSP
@@ -54,7 +55,7 @@ public final class AudioLevelMonitor {
     /// Take one sample now, without waiting for the timer. For tests.
     public func sampleNow() { sample() }
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = BatonStorage.defaults) {
         self.defaults = defaults
         if defaults.object(forKey: Self.enabledKey) == nil {
             defaults.set(true, forKey: Self.enabledKey)

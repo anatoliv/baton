@@ -1,5 +1,7 @@
 import BatonSubsonicKit
+import BatonSubsonicModels
 import Foundation
+import Observation
 
 /// What the music friend has learned from being told it was wrong.
 ///
@@ -69,7 +71,12 @@ public struct FriendCorrection: Codable, Identifiable, Sendable, Equatable {
 }
 
 /// The corrections, on disk, bounded and inspectable.
+///
+/// `@Observable` for the same reason as `RemoteMemoryStore`: `FriendLogView` has shown these
+/// with a swipe-to-delete since it was written, and nothing told the list the array had
+/// changed — so the row stayed on screen until the sheet was reopened.
 @MainActor
+@Observable
 public final class FriendLearningStore {
     /// Deliberately small. Twelve lines is enough to carry real corrections and short
     /// enough that it cannot quietly become the majority of the system prompt.
@@ -91,19 +98,118 @@ public final class FriendLearningStore {
     /// no field for and could not express without inventing one.
     public var memory: RemoteMemoryStore?
 
-    public init(url: URL? = nil) {
+    public init(url: URL? = nil,
+                defaults: UserDefaults = FriendLedgerStore.defaultDefaults()) {
         self.url = url ?? Self.defaultURL()
+        self.defaults = defaults
         load()
     }
 
+    /// Where the shared, merged view lives. Injectable so tests never touch the real one.
+    private let defaults: UserDefaults
+    /// True only while `adoptLedger` is writing what the ledger already says.
+    private var isAdopting = false
+
+    // MARK: - Crossing devices
+
+    /// This store's half of the shared ledger, read live from `UserDefaults` — never cached,
+    /// because `PreferenceSync` writes the merged result there and a cached copy would be
+    /// stale from that instant.
+    private var ledger: FriendLedger {
+        get { FriendLedger.decode(defaults.data(forKey: FriendLedger.storageKey)) ?? .init() }
+        set { defaults.set(newValue.encoded(), forKey: FriendLedger.storageKey) }
+    }
+
+    /// Record the current corrections, turning anything that has gone into a tombstone.
+    ///
+    /// The tombstone is the whole point here. `retireIfApproved` **deletes** a correction when
+    /// the friend later gets that request right, and a deletion that leaves no trace cannot be
+    /// told from "this device never had it" — so the other device would push the complaint
+    /// straight back and the friend would go on being corrected about something it has fixed.
+    func publishToLedger(now: Date = Date()) {
+        var ledger = self.ledger
+        let live = Dictionary(corrections.map { (FriendLedger.key(for: $0.request), $0) },
+                              uniquingKeysWith: { _, latest in latest })
+
+        var records: [String: FriendLedger.Correction] = [:]
+        for record in ledger.corrections { records[record.key] = record }
+
+        for (key, correction) in live {
+            let existing = records[key]
+            if let existing, !existing.removed, existing.request == correction.request,
+               existing.note == correction.note, existing.resolution == correction.resolution,
+               existing.fault == correction.fault.rawValue {
+                continue
+            }
+            records[key] = FriendLedger.Correction(
+                key: key, request: correction.request, note: correction.note,
+                fault: correction.fault.rawValue, resolution: correction.resolution,
+                date: correction.date, removed: false, removedAt: nil, statedAt: now)
+        }
+
+        for (key, var record) in records where !record.removed && live[key] == nil {
+            record.removed = true
+            record.removedAt = now
+            record.statedAt = now
+            records[key] = record
+        }
+
+        ledger.corrections = records.values.sorted { $0.key < $1.key }
+        self.ledger = ledger
+    }
+
+    /// Adopt the merged ledger — what both devices now agree the friend got wrong.
+    ///
+    /// A retirement recorded on the other device removes the correction here, which is the
+    /// answer to the question TBX-5125 raised: a retirement *is* a statement the other device
+    /// should adopt, because it means the friend demonstrably got that request right, and
+    /// that is a fact about the friend rather than about the device that observed it.
+    @discardableResult
+    public func adoptLedger() -> Bool {
+        let ledger = self.ledger
+        guard !ledger.corrections.isEmpty else { return false }
+
+        var byKey = Dictionary(corrections.map { (FriendLedger.key(for: $0.request), $0) },
+                               uniquingKeysWith: { _, latest in latest })
+        var changed = false
+
+        for record in ledger.corrections {
+            if record.removed {
+                if byKey.removeValue(forKey: record.key) != nil { changed = true }
+                continue
+            }
+            // A fault this build does not know is one a newer version of the other app added.
+            // Skip it rather than substituting a fault we can invent: the correction's whole
+            // value is telling the friend *what* it got wrong, and a guessed category would
+            // put words in the user's mouth. Forward-compatible in the safe direction — the
+            // record stays in the ledger and an updated build will pick it up.
+            guard let fault = FriendExchange.Fault(rawValue: record.fault) else { continue }
+            let incoming = FriendCorrection(
+                request: record.request, note: record.note, fault: fault,
+                date: record.date, exchangeID: byKey[record.key]?.exchangeID ?? UUID(),
+                resolution: record.resolution)
+            if let existing = byKey[record.key],
+               existing.request == incoming.request, existing.note == incoming.note,
+               existing.resolution == incoming.resolution, existing.fault == incoming.fault {
+                continue
+            }
+            byKey[record.key] = incoming
+            changed = true
+        }
+
+        guard changed else { return false }
+        isAdopting = true
+        defer { isAdopting = false }
+        corrections = byKey.values.sorted { $0.date > $1.date }
+        if corrections.count > Self.maxCorrections {
+            corrections.removeLast(corrections.count - Self.maxCorrections)
+        }
+        save()
+        return true
+    }
+
     private static func defaultURL() -> URL {
-        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                 in: .userDomainMask,
-                                                 appropriateFor: nil, create: true))
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let folder = base.appendingPathComponent("Baton", isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder.appendingPathComponent("music-friend-learned.json")
+        BatonStorage.supportDirectory().appendingPathComponent("music-friend-learned.json")
     }
 
     /// Learn from a rated exchange. Returns nil when there is nothing legitimate to learn.
@@ -187,6 +293,10 @@ public final class FriendLearningStore {
     /// Framed as history rather than law, and explicitly *not* a list of bans: a model
     /// handed "never play X" will refuse X in situations where X was exactly right.
     public var promptBlock: String? {
+        // Same reasoning as `RemoteMemoryStore.rendered`: adopt on read, so no surface has to
+        // remember to, and idempotent so it costs nothing when nothing arrived.
+        adoptLedger()
+
         guard !corrections.isEmpty else { return nil }
         return """
         THINGS YOU GOT WRONG BEFORE, in this person's judgement. Treat them as evidence \
@@ -194,6 +304,13 @@ public final class FriendLearningStore {
         \(corrections.map(\.promptLine).joined(separator: "\n"))
         """
     }
+
+    /// Re-read the file, for when something wrote it underneath this object.
+    ///
+    /// The case that matters is "Set up from a Mac": the import replaces this file and the
+    /// object was built at launch, so without this the phone shows an empty friend beside a
+    /// file full of corrections. Same shape as `AgentConfig.reload`.
+    public func reload() { load() }
 
     private func load() {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
@@ -216,6 +333,10 @@ public final class FriendLearningStore {
     }
 
     private func save() {
+        // Beside every save, so a mutation added later cannot forget to publish. Guarded
+        // against re-entry: `adoptLedger` saves too, and restating what we just adopted would
+        // start a push ping-pong between the two devices.
+        if !isAdopting { publishToLedger() }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         do {

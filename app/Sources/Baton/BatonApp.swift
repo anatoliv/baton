@@ -114,6 +114,13 @@ struct BatonApp: App {
             MusicWindowView()
                 .environment(music)
                 .environment(commandRouter)
+                // Every `@AppStorage` below here reads and writes the domain `BatonStorage`
+                // resolved — the app's own in a normal launch, a throwaway suite in a probe
+                // one. Without this, a probe run's settings would land in the owner's real
+                // preferences while its stores wrote elsewhere, which is the half-redirect
+                // that makes a sync walk test nothing. Repeated per scene because
+                // `defaultAppStorage` is an environment value and each scene has its own.
+                .defaultAppStorage(BatonStorage.defaults)
                 // Anchor the whole app to Baton brand orange (also installed as the
                 // `AccentColor` asset). Brand ⇄ Dynamic rule: chrome + actions are
                 // brand; the player wires the dynamic artwork accent explicitly on top.
@@ -212,6 +219,7 @@ struct BatonApp: App {
             MiniPlayerWindowView()
                 .environment(music)
                 .tint(.batonOrange)
+                .defaultAppStorage(BatonStorage.defaults)
         }
         .defaultSize(width: 340, height: 132)
         .windowResizability(.contentSize)
@@ -220,6 +228,7 @@ struct BatonApp: App {
         // the app menu's "About Baton" item (see `BatonAppCommands`).
         Window("About Baton", id: Self.aboutWindowID) {
             BatonAboutView()
+                .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
@@ -232,6 +241,7 @@ struct BatonApp: App {
                 .environment(music)
                 .environment(remote)
                 .tint(.batonOrange)
+                .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 760, height: 560)
@@ -243,6 +253,7 @@ struct BatonApp: App {
         Window("Baton Help", id: BatonHelpView.windowID) {
             BatonHelpView()
                 .tint(.batonOrange)
+                .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1040, height: 660)
@@ -256,6 +267,7 @@ struct BatonApp: App {
             MacMusicFriendView()
                 .environment(remote)
                 .tint(.batonOrange)
+                .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 520, height: 620)
@@ -266,6 +278,7 @@ struct BatonApp: App {
             SpeechHistoryView()
                 .environment(music)
                 .tint(.batonOrange)
+                .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)
         // First-run size only; thereafter `SummariesWindowAccessor` restores the saved frame
@@ -287,6 +300,7 @@ struct BatonApp: App {
         // extra itself; `BatonMenuBarContent` is covered directly where it matters.
         MenuBarExtra(isInserted: $menuBarExtraInserted) {
             BatonMenuBarContent(model: music, router: commandRouter)
+                .defaultAppStorage(BatonStorage.defaults)
         } label: {
             BatonMenuBarLabel(model: music)
         }
