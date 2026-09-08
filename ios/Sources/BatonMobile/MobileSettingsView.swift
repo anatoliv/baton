@@ -35,6 +35,11 @@ struct MobileSettingsView: View {
     /// without leaving the app.
     @State private var showsPrivacyPolicy = false
     /// Whether the server is answering. Checked on appear, and on tap.
+    /// Set when the Keychain refuses to hand over saved passwords, as opposed to holding none.
+    /// Without it this screen shows an address and a username with no hint that the password
+    /// behind them is simply unreachable.
+    @State private var keychainFailure: Int32?
+
     @State private var serverStatus = ServerStatus()
     /// Whether the recognizer host is answering. Same rule: checked, never assumed.
     @State private var whisperStatus: ServiceStatus = .unknown
@@ -164,6 +169,11 @@ struct MobileSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let keychainFailure {
+                    Section {
+                        KeychainLockedBanner(status: keychainFailure)
+                    }
+                }
                 Section {
                     if model.isDemoMode {
                         LabeledContent("Library", value: "Demo")
@@ -554,6 +564,10 @@ struct MobileSettingsView: View {
             // identity of the connection re-checks whenever it changes: a new server, a
             // different user, or leaving demo mode.
             .task(id: "\(model.isDemoMode)|\(NavidromeConfig.serverURLString)|\(NavidromeConfig.username)") {
+                // Asked before the reachability probe, because an unreadable Keychain explains a
+                // failure the probe would otherwise report as the server's fault. Account-
+                // independent: a lock takes out every secret at once, demo mode included.
+                keychainFailure = NavidromeKeychain.storeReadFailure()
                 // Only when there is something to check — in demo mode there is no server,
                 // and a red "can't reach" badge over the bundled library would be a lie.
                 if !model.isDemoMode { await serverStatus.check() }

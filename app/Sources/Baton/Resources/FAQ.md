@@ -70,7 +70,7 @@ new versions, and any speech servers you set up yourself: text-to-speech for spo
 and transcription for reading a podcast episode. Those are machines you run and point Baton at. It has no catalog
 server of its own to call. The one opt-in exception is crash reporting: if you turn on **Send
 crash & error reports** (Settings, About, Diagnostics, off by default), Baton sends crash and
-error data to its developer via Sentry to help fix bugs. It never sends your music, library,
+error data to its developer through Crashbox to help fix bugs. It never sends your music, library,
 server address, or account, and no IP or identifiers.
 
 **Is the control server a security risk?**

@@ -3,104 +3,182 @@ import Foundation
 import OSLog
 import Sentry
 
-/// Opt-in remote crash & error reporting via Sentry.
+/// Opt-in remote crash and error reporting to Crashbox through the Sentry SDK.
 ///
-/// Baton's default posture is "nothing is uploaded" — the app is
-/// self-hosted and doesn't phone home. This reporter stays dormant unless
-/// **both** are true:
-///
-///  1. the user has opted in (Settings, About → Diagnostics, default OFF), and
-///  2. a non-empty DSN is baked into the build (the `SentryDSN` Info.plist
-///     key, fed by `Config/Sentry.local.xcconfig`, which is gitignored).
-///
-/// Public / repo builds ship with an empty DSN, so remote reporting is
-/// impossible in them even if the toggle is flipped. No PII is collected
-/// (`sendDefaultPii = false`), and a `beforeSend` hook strips anything that
-/// could carry a server address or account identity. Your music library,
-/// track titles, server URL, and credentials are never attached.
+/// Reporting stays dormant unless the user opted in and packaging supplied one
+/// complete Crashbox configuration. The process starts at most one SDK client and
+/// has no runtime failover or dual-send path. Public builds contain no provider
+/// configuration; when Crashbox is absent or unhealthy, reporting is simply off.
 enum CrashReporting {
-    /// UserDefaults / `@AppStorage` key for the opt-in toggle. Absent or
-    /// `false` means reporting stays off.
     static let enabledKey = "baton.crashUploadEnabled"
+    static let perLaunchBudget = 20
+    static let requestTimeout: TimeInterval = 2
+    static let resourceTimeout: TimeInterval = 5
 
     private static let log = Logger(subsystem: "io.tonebox.baton", category: "crash-reporting")
+    private static let attemptGate = ReportingAttemptGate()
+    private static let budget = ReportingBudget(limit: perLaunchBudget)
+    private static let queue = DispatchQueue(
+        label: "io.tonebox.baton.crash-reporting",
+        qos: .utility
+    )
 
     /// Whether the user has opted in. Absent key means `false`.
     static var isEnabled: Bool {
         BatonStorage.defaults.bool(forKey: enabledKey)
     }
 
-    /// Whether this build can report at all (a DSN is baked in). The
-    /// Settings toggle is disabled when this is `false`.
-    static var isConfigured: Bool { dsn != nil }
+    /// The Settings toggle is disabled unless this exact artifact has a complete,
+    /// valid configuration and immutable source identity.
+    static var isConfigured: Bool { configuration != nil }
 
-    /// Start the SDK at launch if the user has opted in. No-op otherwise.
+    /// Launch never waits for SDK or network work.
     static func startIfEnabled() {
-        guard isEnabled else { return }
-        start()
+        guard isEnabled, let configuration else { return }
+        queue.async {
+            guard isEnabled else { return }
+            startSDKOnce(configuration)
+        }
     }
 
-    /// React to the user flipping the Settings toggle at runtime.
+    /// A preference change never waits for SDK shutdown or initialization.
     static func apply(enabled: Bool) {
         if enabled {
-            start()
+            guard let configuration else { return }
+            queue.async { startSDKOnce(configuration) }
         } else {
-            SentrySDK.close()
-            log.notice("Remote crash reporting disabled by user")
+            queue.async {
+                SentrySDK.close()
+                attemptGate.resetAfterExplicitDisable()
+                log.notice("Remote crash reporting disabled by user")
+            }
         }
     }
 
-    // MARK: - Internals
+    // MARK: - Artifact configuration
 
-    /// DSN baked into the build, or `nil` when empty/absent.
-    ///
-    /// The DSN is stored in the xcconfig **without** its `https://` scheme:
-    /// xcconfig treats `//` as a comment, so a full `https://…` value gets
-    /// truncated during substitution. The rest of a DSN has no `//`, so we
-    /// store the schemeless form and re-add the scheme here.
-    private static var dsn: String? {
-        guard let raw = Bundle.main.object(forInfoDictionaryKey: "SentryDSN") as? String else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasPrefix("https://") || trimmed.hasPrefix("http://") {
-            return trimmed
-        }
-        return "https://\(trimmed)"
+    struct Configuration: Equatable, Sendable {
+        let dsn: String
+        let provider: String
+        let release: String
+        let environment: String
     }
 
-    private static func start() {
-        guard let dsn else {
-            log.notice("Crash reporting opted in, but no DSN baked into this build — staying off")
-            return
+    /// Validate the built bundle independently of the release script. A partial,
+    /// insecure, mutable, or malformed configuration fails closed.
+    static func configuration(from info: [String: Any]) -> Configuration? {
+        func value(_ key: String) -> String? {
+            guard let raw = info[key] as? String else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
-        SentrySDK.start { options in
-            options.dsn = dsn
-            // Privacy: never attach IP, user identifiers, or request bodies.
-            options.sendDefaultPii = false
-            options.releaseName = release
-            #if DEBUG
-            options.environment = "debug"
-            #else
-            options.environment = "release"
-            #endif
-            // : this app promises "nothing identifying leaves the machine", yet
-            // sentry-cocoa 8.x defaults attach request URLs (server host + Subsonic
-            // auth) via network breadcrumbs/tracking/failed-request capture and via
-            // sampled spans (which bypass beforeSend). Disable every such path, drop
-            // performance tracing and session envelopes, and quiet the app-hang watchdog.
-            options.enableNetworkBreadcrumbs = false
-            options.enableNetworkTracking = false
-            options.enableCaptureFailedRequests = false
-            options.enableAutoPerformanceTracing = false
-            options.enableAppHangTracking = false
-            options.enableAutoSessionTracking = false
-            options.tracesSampleRate = 0
-            // Redact any residual identifying strings that still reach an event or a
-            // breadcrumb through a message, exception value, extra, or context.
-            options.beforeBreadcrumb = { crumb in Self.scrubBreadcrumb(crumb) }
-            options.beforeSend = { event in Self.scrub(event) }
+
+        // xcconfig values are deliberately schemeless because `//` begins a
+        // comment there. Requiring that form also excludes a plaintext HTTP DSN.
+        guard let rawDSN = value("CrashReportingDSN"),
+              !rawDSN.contains("//"),
+              let components = URLComponents(string: "https://\(rawDSN)"),
+              components.scheme == "https",
+              components.host?.isEmpty == false,
+              components.user?.isEmpty == false,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              !components.path.isEmpty,
+              components.path != "/",
+              let provider = value("CrashReportingProvider"),
+              provider == "crashbox",
+              let commit = validatedCommit(value("BatonSourceCommit")),
+              let version = value("CFBundleShortVersionString"),
+              let build = value("CFBundleVersion"),
+              let environment = value("CrashReportingEnvironment"),
+              environment.range(
+                  of: #"^[a-z0-9][a-z0-9._-]{0,63}$"#,
+                  options: .regularExpression
+              ) != nil else { return nil }
+
+        return Configuration(
+            dsn: "https://\(rawDSN)",
+            provider: provider,
+            release: releaseName(version: version, build: build, commit: commit),
+            environment: environment
+        )
+    }
+
+    private static var configuration: Configuration? {
+        configuration(from: Bundle.main.infoDictionary ?? [:])
+    }
+
+    // MARK: - Bounded, event-only SDK policy
+
+    /// The SDK's only network client. A slow or wedged provider gets a bounded
+    /// request/resource window and never waits for connectivity.
+    static func transportSession() -> URLSession {
+        let settings = URLSessionConfiguration.ephemeral
+        settings.waitsForConnectivity = false
+        settings.timeoutIntervalForRequest = requestTimeout
+        settings.timeoutIntervalForResource = resourceTimeout
+        settings.requestCachePolicy = .reloadIgnoringLocalCacheData
+        settings.urlCache = nil
+        settings.httpCookieStorage = nil
+        settings.httpShouldSetCookies = false
+        settings.urlCredentialStorage = nil
+        return URLSession(configuration: settings)
+    }
+
+    /// Apply the deliberately small envelope surface Crashbox accepts. This is
+    /// internal so policy tests inspect it without starting the singleton SDK.
+    static func configure(_ options: Options, configuration: Configuration) {
+        options.dsn = configuration.dsn
+        options.releaseName = configuration.release
+        options.environment = configuration.environment
+        options.sendDefaultPii = false
+        options.shutdownTimeInterval = 0
+        options.sampleRate = 1
+        options.maxCacheItems = UInt(perLaunchBudget)
+        options.maxBreadcrumbs = 0
+        options.sendClientReports = false
+        options.enableAutoSessionTracking = false
+        options.enableWatchdogTerminationTracking = false
+        options.enableAppHangTracking = false
+        options.enableAutoPerformanceTracing = false
+        options.enableNetworkTracking = false
+        options.enableNetworkBreadcrumbs = false
+        options.enableCaptureFailedRequests = false
+        options.enableFileIOTracing = false
+        options.enableCoreDataTracing = false
+        options.enableTimeToFullDisplayTracing = false
+        options.enableAutoBreadcrumbTracking = false
+        #if os(iOS)
+            options.attachScreenshot = false
+            options.attachViewHierarchy = false
+            options.reportAccessibilityIdentifier = false
+        #endif
+        options.tracesSampleRate = 0
+        options.configureProfiling = { profile in
+            profile.lifecycle = .manual
+            profile.sessionSampleRate = 0
+            profile.profileAppStarts = false
         }
-        log.notice("Remote crash reporting started")
+        options.urlSession = transportSession()
+        options.beforeBreadcrumb = { Self.scrubBreadcrumb($0) }
+        options.beforeSend = { event in
+            guard budget.admit() else { return nil }
+            return Self.scrub(event)
+        }
+    }
+
+    /// Runs only on the private utility queue. A failed attempt fuses retries
+    /// until the user explicitly disables and re-enables reporting.
+    private static func startSDKOnce(_ configuration: Configuration) {
+        let outcome = attemptGate.runOnce {
+            SentrySDK.start { options in Self.configure(options, configuration: configuration) }
+        }
+        switch outcome {
+        case .started: log.notice("Remote crash reporting started")
+        case .failed: log.error("Remote crash reporting unavailable; Baton continues")
+        case .idle: break
+        }
     }
 
     // MARK: - Scrubbing — pure, unit-tested in CrashReportingScrubberTests
@@ -163,10 +241,8 @@ enum CrashReporting {
     /// The exact source revision this build was compiled from, or `nil` when the
     /// build carries no usable one.
     ///
-    /// Read from the `BatonSourceCommit` Info.plist key, which `scripts/publish.sh`
-    /// stamps from `git rev-parse HEAD` (see `scripts/release-identity.sh`). Absent
-    /// in dev builds and in every macOS build before 0.17.12, and absent on iOS,
-    /// which does not stamp it — all of which fall back to the version-only id below.
+    /// Both release scripts stamp this from `git rev-parse HEAD`. Historical and
+    /// development builds remain honestly unconfigured instead of claiming a guess.
     static var sourceCommit: String? { validatedCommit(Bundle.main.object(forInfoDictionaryKey: "BatonSourceCommit") as? String) }
 
     /// Accepts exactly 40 lowercase hex characters and nothing else.
@@ -179,8 +255,11 @@ enum CrashReporting {
     static func validatedCommit(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count == 40 else { return nil }
-        guard trimmed.allSatisfy({ "0123456789abcdef".contains($0) }) else { return nil }
+        let bytes = Array(trimmed.utf8)
+        guard bytes.count == 40 else { return nil }
+        guard bytes.allSatisfy({ byte in
+            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x61 && byte <= 0x66)
+        }) else { return nil }
         return trimmed
     }
 
@@ -199,10 +278,4 @@ enum CrashReporting {
         return "\(base).\(commit)"
     }
 
-    private static var release: String {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "0"
-        let build = info?["CFBundleVersion"] as? String ?? "0"
-        return releaseName(version: version, build: build, commit: sourceCommit)
-    }
 }

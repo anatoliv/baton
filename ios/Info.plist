@@ -54,8 +54,12 @@
 	<string>Speech recognition turns what you say into a request for your music friend. On-device where available.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>SentryDSN</key>
-	<string>$(SENTRY_DSN)</string>
+	<key>CrashReportingDSN</key>
+	<string>$(CRASH_REPORTING_DSN)</string>
+	<key>CrashReportingEnvironment</key>
+	<string>$(CRASH_REPORTING_ENVIRONMENT)</string>
+	<key>CrashReportingProvider</key>
+	<string>$(CRASH_REPORTING_PROVIDER)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

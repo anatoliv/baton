@@ -94,14 +94,13 @@ final class ReleaseIdentityTests: XCTestCase {
         XCTAssertNil(MobileReleaseIdentity.validatedCommit(fullwidth))
     }
 
-    /// The key name and the tag name are the contract with two things outside this
-    /// file: `ios/project.yml` declares the Info.plist key, and
+    /// The key name is the contract with two things outside this file:
+    /// `ios/project.yml` declares the Info.plist key, and
     /// `ios/scripts/release-guard.sh` reads it back out of the built bundle. Renaming
-    /// either without changing those is a silent break, because a missing key reads
+    /// it without changing those is a silent break, because a missing key reads
     /// exactly like a build with no identity.
-    func testInfoPlistKeyAndTagNameAreTheAgreedStrings() {
+    func testInfoPlistKeyIsTheAgreedString() {
         XCTAssertEqual(MobileReleaseIdentity.infoKey, "BatonSourceCommit")
-        XCTAssertEqual(MobileReleaseIdentity.tagKey, "source_commit")
     }
 
     /// This test bundle is not built by testflight.sh, so it carries no stamped

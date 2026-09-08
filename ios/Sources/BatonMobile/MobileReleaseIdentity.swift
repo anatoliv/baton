@@ -1,5 +1,4 @@
 import Foundation
-import Sentry
 
 /// The source revision this build of Baton for iPhone was compiled from, and the one
 /// place that decides whether a candidate string counts as one.
@@ -17,22 +16,12 @@ import Sentry
 /// maps it to the `BatonSourceCommit` Info.plist key, and
 /// `ios/scripts/release-guard.sh` refuses to upload an archive whose baked value is
 /// missing, empty, unexpanded, abbreviated, uppercase or non-hex. This type reads the
-/// same key at runtime so a crash report can name its own source.
-///
-/// **Why a Sentry tag and not the release name.** `CrashReporting.release` is already
-/// `io.tonebox.baton@<version>+<build>`, and Sentry keys issue grouping, regression
-/// detection and dSYM association on that string. Re-pointing it would split the
-/// existing history of this app into before and after, for a gain a tag gives without
-/// the cost — a tag is a queryable facet on every event and leaves the release id
-/// alone. (`Shared/CrashReporting.swift` is shared with the Mac app and is TBX-5101's
-/// to change; nothing here touches it.)
+/// same key at runtime. `Shared/CrashReporting.swift` independently requires the
+/// canonical value and folds it into the release name, so every admitted event and
+/// its matching dSYM use one immutable source/build identity.
 enum MobileReleaseIdentity {
     /// The Info.plist key `ios/project.yml` declares and `testflight.sh` fills in.
     static let infoKey = "BatonSourceCommit"
-
-    /// The Sentry tag name. Snake case because that is what Sentry's own tag
-    /// vocabulary uses and what a search box autocompletes.
-    static let tagKey = "source_commit"
 
     /// The validated commit baked into this build, or `nil` when there isn't one.
     ///
@@ -70,15 +59,4 @@ enum MobileReleaseIdentity {
         return trimmed
     }
 
-    /// Attach the source commit to every event this build reports.
-    ///
-    /// A no-op unless reporting is actually live — the user opted in *and* a DSN is
-    /// baked in — and a no-op when the build has no usable commit, which is the honest
-    /// state for a dev build and for every App Store build so far. Setting a
-    /// placeholder would be worse than setting nothing.
-    static func applyToCrashReportingScope() {
-        guard CrashReporting.isEnabled, CrashReporting.isConfigured else { return }
-        guard let commit = sourceCommit else { return }
-        SentrySDK.configureScope { $0.setTag(value: commit, key: tagKey) }
-    }
 }

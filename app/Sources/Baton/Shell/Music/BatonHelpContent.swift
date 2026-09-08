@@ -316,6 +316,22 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.18.1",
+            date: "September 2026",
+            highlight: "Baton now says when it cannot read your saved passwords, instead of looking empty.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "A locked keychain used to look exactly like having no password saved. "
+                    + "Baton would sign in with nothing, show an empty library, and give you no "
+                    + "reason why. It now tells you the keychain is locked and that re-entering "
+                    + "your password will not help, because it will not."),
+                HelpWhatsNewChange(.fixed,
+                    "Reading a password saved by a much older version of Baton could delete it "
+                    + "if the keychain happened to be locked at the time. The old copy is now "
+                    + "kept until the new one is safely stored."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.18.0",
             date: "September 2026",
             highlight: "Your music friend remembers across devices, and there is a screen for what it knows.",
@@ -2274,7 +2290,7 @@ extension HelpWhatsNewRelease {
                 HelpWhatsNewChange(.added, "Auto-update via Sparkle: a Check for Updates item in "
                         + "the app menu and an Updates section in Settings, About."
                 ),
-                HelpWhatsNewChange(.added, "Opt-in crash reporting (Sentry): off by default and "
+                HelpWhatsNewChange(.added, "Opt-in crash reporting (Crashbox): off by default and "
                         + "scrubbed of personal data, in Settings, About, "
                         + "Diagnostics. It never sends your music, library, or "
                         + "server address."

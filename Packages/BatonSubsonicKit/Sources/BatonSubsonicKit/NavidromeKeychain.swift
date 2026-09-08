@@ -23,7 +23,10 @@ private let navidromeSecretsLog = Logger(subsystem: "io.tonebox.baton", category
 ///
 /// It also preserves the historical migrate-on-read from a plaintext
 /// `UserDefaults` copy (and the "remove the plaintext copy on write")
-/// behavior, matching `AIConfig.secretString` / `setSecretString` exactly.
+/// behavior, matching `AIConfig.secretString` / `setSecretString` exactly — with one
+/// deliberate departure: the plaintext copy is dropped only once the Keychain write has
+/// actually succeeded. The original dropped it unconditionally, which destroyed the secret
+/// outright whenever the Keychain was locked.
 public enum NavidromeKeychain {
     /// Keychain service shared by all Tonebox secrets. Matches
     /// `KeychainSecretStore.service`.
@@ -51,6 +54,89 @@ public enum NavidromeKeychain {
     /// Consulted only while `inMemoryStore` is active — never in production.
     public nonisolated(unsafe) static var refusedAccounts: Set<String> = []
 
+    /// Why a secret is not in hand. A caller holding only `String?` cannot tell `missing`
+    /// from `unreadable`, and the two want opposite things from the user: one asks them to
+    /// type a password, the other tells them typing it again will not help because the
+    /// Keychain is locked. Collapsing them is what made a locked Keychain present as an app
+    /// that "did not start properly", with the reason sitting in `os_log` where nobody looks
+    ///.
+    ///
+    /// `status` is `Int32` rather than `OSStatus` so this type still compiles on Linux, where
+    /// there is no Security framework and `unreadable` never occurs.
+    public enum SecretAvailability: Equatable, Sendable {
+        case present
+        case missing
+        case unreadable(status: Int32)
+
+        /// Whether the Keychain answered at all. `false` only for `unreadable`.
+        public var isReadable: Bool {
+            if case .unreadable = self { return false }
+            return true
+        }
+    }
+
+    /// Launch argument that makes every read report `unreadable` with the given status, so the
+    /// banner this drives can be photographed without locking the owner's real login Keychain
+    /// — which would take `codesign`, and every other app on the machine, down with it.
+    ///
+    /// `-baton.keychainUnreadable -25293` reproduces the Keychain-is-locked state exactly.
+    /// Namespaced and absent from every menu, in the idiom of `BatonStorage`'s probe flags, and
+    /// read-only in effect: it makes reads fail, writes nothing, and is gone on the next launch.
+    public static let simulatedReadFailureArgument = "-baton.keychainUnreadable"
+
+    /// Parsed once from the launch arguments. Nil in every ordinary run.
+    private static let launchSimulatedReadFailure: Int32? = {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: simulatedReadFailureArgument), i + 1 < args.count,
+              let status = Int32(args[i + 1]) else { return nil }
+        navidromeSecretsLog.error(
+            "Simulating Keychain read failure \(status, privacy: .public) for every account (launch argument)")
+        return status
+    }()
+
+    /// A read failure simulated by a test, overriding the launch argument. Nil in production.
+    public nonisolated(unsafe) static var simulatedReadFailure: Int32?
+
+    private static var effectiveSimulatedReadFailure: Int32? {
+        simulatedReadFailure ?? launchSimulatedReadFailure
+    }
+
+    /// Whether `account`'s secret is present, absent, or unreadable. The question
+    /// `secret(account:)` cannot answer, and the one a settings surface has to ask before it
+    /// renders an empty password field as if nothing were ever saved.
+    public static func availability(account: String) -> SecretAvailability {
+        switch rawRead(account: account) {
+        case .value: return .present
+        case .unreadable(let status): return .unreadable(status: status)
+        case .missing:
+            // A legacy plaintext value still counts as present: `secret(account:)` would
+            // migrate and return it, so reporting `missing` here would contradict it.
+            if let legacy = BatonStorage.defaults.string(forKey: account), !legacy.isEmpty {
+                return .present
+            }
+            return .missing
+        }
+    }
+
+    /// The status behind a Keychain that will not answer *at all* right now, or nil when it
+    /// answers. Independent of any one account.
+    ///
+    /// A locked Keychain is not a property of one secret — it takes out every account at once,
+    /// including ones this device has never stored. So the probe deliberately asks about an
+    /// account that does not exist: `errSecItemNotFound` proves the store answered, and only a
+    /// genuine `unreadable` comes back otherwise. Asking about a real account instead would
+    /// conflate "you have not set this one up" with "nothing can be read".
+    public static func storeReadFailure() -> Int32? {
+        if case .unreadable(let status) = rawRead(account: readabilityProbeAccount) { return status }
+        return nil
+    }
+
+    /// Whether the Keychain answers at all. See `storeReadFailure()` for the reason when it does not.
+    public static func storeIsReadable() -> Bool { storeReadFailure() == nil }
+
+    /// Deliberately never written. See `storeIsReadable()`.
+    private static let readabilityProbeAccount = "tonebox.keychainReadabilityProbe"
+
     /// The stored secret for the default (legacy) account, or nil when none is
     /// set. See `secret(account:)`.
     public static func secret() -> String? {
@@ -62,16 +148,23 @@ public enum NavidromeKeychain {
     /// (then drops the plaintext copy), mirroring the old `AIConfig.secretString`
     /// behavior. Multi-server keys each server's secret under its own account.
     public static func secret(account: String) -> String? {
-        if let data = read(account: account), let value = String(data: data, encoding: .utf8), !value.isEmpty {
+        let raw = rawRead(account: account)
+        if case .value(let data) = raw, let value = String(data: data, encoding: .utf8), !value.isEmpty {
             return value
         }
         let ud = BatonStorage.defaults
-        if let legacy = ud.string(forKey: account), !legacy.isEmpty {
-            write(Data(legacy.utf8), account: account) // migrate-on-read
-            ud.removeObject(forKey: account)            // drop the plaintext copy
-            return legacy
+        guard let legacy = ud.string(forKey: account), !legacy.isEmpty else { return nil }
+
+        // Migrate-on-read, but only when the Keychain is actually answering. Attempting it
+        // against a locked Keychain used to destroy the secret: `write` failed, its result was
+        // discarded, and the plaintext copy was removed anyway — so the one surviving copy went
+        // with it. The value is still returned either way, so a locked Keychain costs the user
+        // nothing but a retry.
+        if case .unreadable = raw { return legacy }
+        if write(Data(legacy.utf8), account: account) {
+            ud.removeObject(forKey: account) // drop the plaintext copy, now that there is another
         }
-        return nil
+        return legacy
     }
 
     /// Writes the secret for the default (legacy) account. See `setSecret(_:account:)`.
@@ -144,11 +237,24 @@ public enum NavidromeKeychain {
         if inMemoryStore == nil, BatonEnvironment.current.isTesting { inMemoryStore = [:] }
     }
 
-    private static func read(account: String) -> Data? {
+    /// The three outcomes the Keychain actually has. `read(account:)` throws the reason away
+    /// for the many callers that only want a value; `availability(account:)` keeps it.
+    private enum RawRead {
+        case value(Data)
+        case missing
+        case unreadable(Int32)
+    }
+
+    private static func rawRead(account: String) -> RawRead {
         ensureTestIsolation()
-        if let store = inMemoryStore { return store[account] }
+        if let simulated = effectiveSimulatedReadFailure { return .unreadable(simulated) }
+        if let store = inMemoryStore {
+            return store[account].map { RawRead.value($0) } ?? .missing
+        }
         #if !canImport(Security)
-        return LinuxSecretFile.read(account: account)
+        // No Security framework, so no lock and no auth: a 0600 file either has the value or
+        // does not. `unreadable` is unreachable here by construction.
+        return LinuxSecretFile.read(account: account).map { RawRead.value($0) } ?? .missing
         #else
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -161,14 +267,26 @@ public enum NavidromeKeychain {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         switch status {
         case errSecSuccess:
-            return item as? Data
+            guard let data = item as? Data else {
+                // Success with nothing to hand back is not "no password saved" — it is the
+                // Keychain contradicting itself, so it is reported as unreadable rather than
+                // silently becoming an empty field.
+                navidromeSecretsLog.error("Keychain returned success with no data")
+                return .unreadable(errSecSuccess)
+            }
+            return .value(data)
         case errSecItemNotFound:
-            return nil
+            return .missing
         default:
             navidromeSecretsLog.error("Keychain read failed: \(status, privacy: .public)")
-            return nil
+            return .unreadable(status)
         }
         #endif
+    }
+
+    private static func read(account: String) -> Data? {
+        if case .value(let data) = rawRead(account: account) { return data }
+        return nil
     }
 
     /// Whether the data is now in the Keychain. The status was previously logged and

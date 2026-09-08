@@ -148,6 +148,11 @@ private struct BatonServersPane: View {
     /// just happened, and it goes stale the moment anything changes.
     @State private var statuses: [UUID: ServiceStatus] = [:]
 
+    /// Set when the Keychain refused to answer, so the pane can say so instead of drawing a
+    /// list of servers whose passwords look absent. Re-checked on appear, since a lock can be
+    /// cleared (or arrive) while the window is open.
+    @State private var keychainFailure: Int32?
+
     /// Which server the edit sheet is editing — `.new` to add, `.existing` to edit.
     private enum EditTarget: Identifiable {
         case new
@@ -162,6 +167,11 @@ private struct BatonServersPane: View {
 
     var body: some View {
         Form {
+            if let keychainFailure {
+                Section {
+                    KeychainLockedBanner(status: keychainFailure)
+                }
+            }
             Section("Servers") {
                 if servers.isEmpty {
                     Text("No servers yet. Add one to start listening.")
@@ -267,6 +277,9 @@ private struct BatonServersPane: View {
 
     private func reload() {
         servers = NavidromeConfig.servers()
+        // Asked account-independently: a lock takes out every secret at once, including on a
+        // device that has no servers saved yet.
+        keychainFailure = NavidromeKeychain.storeReadFailure()
         activeID = NavidromeConfig.activeServerID()
     }
 

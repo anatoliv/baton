@@ -25,12 +25,24 @@ struct OnboardingView: View {
     @State private var headerValue = ""
     /// Trying the public demo is a "just show me" action, so it checks and connects rather
     /// than filling the form and leaving the work to you. These two drive that.
+    /// Set when the Keychain will not answer. This screen is reachable *because* of that:
+    /// `NavidromeConfig.isConfigured` is false whenever the secret reads empty, so a locked
+    /// Keychain sends a fully configured phone back to setup as though it had never been
+    /// connected. Saying so here matters more than saying it in Settings, because this is the
+    /// screen that actually appears.
+    @State private var keychainFailure: Int32?
+
     @State private var isCheckingDemoServer = false
     @State private var demoServerUnavailable: String?
 
     var body: some View {
         NavigationStack {
             Form {
+                if let keychainFailure {
+                    Section {
+                        KeychainLockedBanner(status: keychainFailure)
+                    }
+                }
                 // The first screen anyone sees — it should carry Baton's identity,
                 // not open cold on a URL field.
                 Section {
@@ -209,6 +221,9 @@ struct OnboardingView: View {
             }
             .navigationTitle("Connect to Navidrome")
             .navigationBarTitleDisplayMode(.inline)
+            // Asked every time the screen appears rather than once at launch: the Keychain can
+            // be unlocked while this is on screen, and the banner should go when it is.
+            .task { keychainFailure = NavidromeKeychain.storeReadFailure() }
             .toolbar {
                 if let onCancel {
                     ToolbarItem(placement: .topBarLeading) {

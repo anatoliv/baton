@@ -2419,7 +2419,7 @@ The full roadmap is in [`docs/05-roadmap-new-features.md`](docs/05-roadmap-new-f
   plus the scrobbling services and its own update feed if you turn those on, any
   text-to-speech server you set up, and — if you connect a chat bot — Telegram or Discord. It has no catalog server of its own to call. The one
   opt-in exception is crash reporting (Settings, About, Diagnostics, off by default): when you
-  turn it on, Baton sends crash and error data to its developer via Sentry to help fix bugs,
+  turn it on, Baton sends crash and error data to its developer through Crashbox to help fix bugs,
   never your music, library, server address, or account, and no IP or identifiers.
 - **The control server is loopback-only and token-protected.** It can't be reached from your
   network, and nothing on your Mac can drive it without the secret token. See

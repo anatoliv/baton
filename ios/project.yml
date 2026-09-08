@@ -14,8 +14,8 @@ packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     exactVersion: "2.4.1"
-  # Opt-in remote crash & error reporting, pinned to the same tested minor as the
-  # Mac app (the privacy hardening depends on 8.58.x option names/defaults).
+  # Opt-in Crashbox reporting over its deliberately small Sentry-compatible
+  # protocol. The SDK library is not a hosted-service dependency.
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
     exactVersion: "8.58.4"
@@ -50,6 +50,9 @@ settings:
     # whose baked value is missing, empty, unexpanded, abbreviated, uppercase or
     # non-hex. (TBX-5102)
     BATON_SOURCE_COMMIT: ""
+    CRASH_REPORTING_DSN: ""
+    CRASH_REPORTING_PROVIDER: ""
+    CRASH_REPORTING_ENVIRONMENT: ""
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
   configs:
     Debug:
@@ -98,10 +101,14 @@ targets:
       # One vocabulary for "is this service actually answering", so a green light means the
       # same thing on both apps and on every screen that shows one.
       - path: ../Shared/ServiceStatus.swift
+      # Tells "the Keychain is locked" apart from "no password saved" in one place, so both
+      # apps say the same thing about it. See the type's own note (TBX-5268).
+      - path: ../Shared/KeychainLockedBanner.swift
       # Opt-in crash reporting and the visual design system (brand colour, WCAG contrast
       # math, artwork-palette extractor), shared verbatim. They used to be compiled out of
       # the *Mac* tree, so nothing about their location said "both apps read this".
       - path: ../Shared/CrashReporting.swift
+      - path: ../Shared/ReportingAttemptGate.swift
       - path: ../Shared/Color+Baton.swift
       - path: ../Shared/ArtworkPalette.swift
       - path: Sources/Shared
@@ -118,8 +125,8 @@ targets:
           cp "$SRCROOT/../HELP.md" "$SRCROOT/Resources/HELP.md"
           cp "$SRCROOT/../FAQ.md"  "$SRCROOT/Resources/FAQ.md"
     configFiles:
-      Debug: Config/Sentry.xcconfig
-      Release: Config/Sentry.xcconfig
+      Debug: Config/CrashReporting.xcconfig
+      Release: Config/CrashReporting.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
@@ -167,10 +174,11 @@ targets:
         # exempt case. (The hand-rolled MD5 in BatonSubsonicKit is in the Linux
         # branch for the gateway and never compiles into this app.)
         ITSAppUsesNonExemptEncryption: false
-        # Substituted from the SENTRY_DSN build setting (Config/Sentry.xcconfig →
-        # optional gitignored Sentry.local.xcconfig). Empty in repo builds, so
-        # remote reporting stays off even if the user opts in.
-        SentryDSN: "$(SENTRY_DSN)"
+        # Crashbox is selected only at archive time from its protected input.
+        # Empty in public/dev builds, so the toggle cannot phone home.
+        CrashReportingDSN: "$(CRASH_REPORTING_DSN)"
+        CrashReportingProvider: "$(CRASH_REPORTING_PROVIDER)"
+        CrashReportingEnvironment: "$(CRASH_REPORTING_ENVIRONMENT)"
         # Same media-only ATS shape as the Mac app: plain-HTTP internet-radio
         # streams may play; cleartext NSURLSession is allowed only to LAN hosts
         # (self-hosted Navidrome/TTS on RFC-1918 addresses).

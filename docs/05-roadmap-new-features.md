@@ -159,22 +159,18 @@ build's update entry.
 **Why:** users expect a shipping macOS app to update itself; manual reinstall is a poor
 experience and the docs assumed this existed.
 
-### 14. Crash / error reporting via Sentry - IMPLEMENTED (opt-in, private DSN)
+### 14. Crash / error reporting via Crashbox - SOURCE PREPARED
 
-**Status:** shipped. Sentry project `baton-macos` created; `CrashReporting.swift` starts the
-SDK only when the user opts in (Settings, About, Diagnostics, default off) and a DSN is baked
-in; `sendDefaultPii = false` plus a `beforeSend` scrubber; DSN injected via the gitignored
-`app/Config/Sentry.local.xcconfig`; the secrets guard now catches Sentry tokens and DSNs.
+**Status:** source-prepared, not migrated. `CrashReporting.swift` uses the pinned Sentry Cocoa
+SDK only as a Crashbox-compatible client. It starts only when the user opts in (Settings,
+About, Diagnostics, default off) and the release carries a complete protected Crashbox
+configuration. `sendDefaultPii = false`, the scrubbers remain in force, and all optional SDK
+collection surfaces are disabled. See `docs/CRASHBOX-REPORTING.md` for the bounded failure,
+identity, dSYM, rollback, and remaining live-proof contract.
 
-**Approach (chosen): public code + private DSN.** The Sentry integration lives in the public
-source for transparency, but the DSN is injected at build time from a gitignored xcconfig (or
-CI secret) and is never committed. It ships **off by default**, opt-in via a Settings toggle,
-and PII-scrubbed: no track or library data, no IP, no account identifiers.
-
-**Build:** follow the house `observability-setup` pattern (Sentry gated + scrubbed); add a
-`Baton.Secrets.xcconfig` (gitignored) carrying `SENTRY_DSN`; a "Send crash & error reports"
-toggle defaulting off; a `beforeSend` scrubber; and update the "Does Baton phone home?" FAQ
-to add the opt-in caveat (as Tonebox does). Keep the DSN out of the public mirror.
+**Approach:** public client code plus a protected Crashbox DSN. Release packaging injects it
+from a gitignored mode-0600 xcconfig and deletes the temporary build config immediately.
+Ordinary builds remain reporting-disabled. Hosted Sentry is not a provider or fallback.
 
 **Why:** real crash insight from shipped builds without breaking Baton's privacy-first,
 "no telemetry by default" promise.

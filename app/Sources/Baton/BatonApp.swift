@@ -50,7 +50,8 @@ struct BatonApp: App {
 
     init() {
         // Start opt-in crash reporting if (and only if) the user turned it on
-        // and a DSN is baked into this build. No-op otherwise. See CrashReporting.
+        // and release packaging supplied a complete Crashbox configuration.
+        // No-op otherwise. See CrashReporting.
         CrashReporting.startIfEnabled()
         // Before anything asks the cache to hold something. The default is 512KB in
         // memory — about four covers against a 2,600-album library.

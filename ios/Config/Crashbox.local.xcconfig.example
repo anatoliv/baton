@@ -1,0 +1,6 @@
+// Crashbox build input. Copy to Crashbox.local.xcconfig and chmod 0600.
+// This is the only accepted remote-reporting input. If it is absent, empty, or
+// malformed, the release stays reporting-disabled.
+// Store the DSN without the https:// scheme because // begins an xcconfig comment.
+
+CRASHBOX_DSN = examplePublicKey@crash.example.invalid/project

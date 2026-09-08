@@ -1,0 +1,6 @@
+// Remote reporting defaults to fully disabled. testflight.sh passes a
+// short-lived mode-0600 Crashbox-only xcconfig to xcodebuild. Keeping these
+// empty means ordinary Xcode and public-source builds cannot phone home.
+CRASH_REPORTING_DSN =
+CRASH_REPORTING_PROVIDER =
+CRASH_REPORTING_ENVIRONMENT =

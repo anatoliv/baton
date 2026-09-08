@@ -480,6 +480,9 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 # second each, so they run here rather than behind the iPhone build. They run even
 # under SKIP_IOS: that flag means "the quick local loop", which is exactly when a
 # release script gets edited without much thought.
+#   test-crash-reporting-config
+#                          protected Crashbox input can select only Crashbox or
+#                          reporting-disabled, never a malformed/hosted fallback
 #   test-lints             the two source lints above can actually fail — they were
 #                          `grep … | grep -q .`, which under pipefail returns 141 on a
 #                          match and reads as "nothing found", so a credential lint could
@@ -492,7 +495,7 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          XCTest reporter rolls up — it reported a 157-test iPhone run as
 #                          154 because swift-testing prints a different line, and would
 #                          not have moved if all three had been deleted (TBX-5236)
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-lints test-gate-diagnosis test-gate-counts; do
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts; do
   GUARD_LOG="$(mktemp -t "baton-$guard.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then
     guard_cmd=("scripts/$guard.sh")

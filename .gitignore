@@ -5,10 +5,9 @@ DerivedData/
 *.xcodeproj
 .claude/worktrees/
 app/Info.plist
-# Local Sentry DSN override (the base xcconfig + .example are committed; the
-# real DSN lives here and must never be committed or mirrored).
-app/Config/Sentry.local.xcconfig
-ios/Config/Sentry.local.xcconfig
+# Protected Crashbox DSNs. Hosted-provider inputs are deliberately unsupported.
+app/Config/Crashbox.local.xcconfig
+ios/Config/Crashbox.local.xcconfig
 website/appcast.xml
 
 # Playwright CLI session artifacts — page snapshots capture whatever is on screen,

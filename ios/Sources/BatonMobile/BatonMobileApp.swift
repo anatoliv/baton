@@ -24,12 +24,9 @@ struct BatonMobileApp: App {
     @UIApplicationDelegateAdaptor(BatonAppDelegate.self) private var appDelegate
     @State private var model: MobileModel
     init() {
-        // No-op unless the user opted in AND a DSN is baked into this build.
+        // No-op unless the user opted in and release packaging supplied one complete,
+        // immutable provider configuration. Initialization runs off the UI thread.
         CrashReporting.startIfEnabled()
-        // Tag every reported event with the revision this build was compiled from, so a
-        // crash names its own source. No-op when reporting is off or the build carries
-        // no usable commit — see MobileReleaseIdentity.
-        MobileReleaseIdentity.applyToCrashReportingScope()
         // The default URLCache is 512KB in memory — about four covers. Raised before the
         // first request goes out, or the setting arrives after the cache it was meant to
         // size.
