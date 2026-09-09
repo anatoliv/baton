@@ -336,13 +336,32 @@ public enum NavidromeConfig {
     public struct ConnectInfo: Equatable, Sendable {
         public var extensions: [String]
 
-        public init(extensions: [String]) {
+        /// Whether the OpenSubsonic extensions probe actually got a real answer from the
+        /// server. False when it never completed — a classic (non-OpenSubsonic) server 404s
+        /// the endpoint, and any other transport failure collapses here too — in which case
+        /// `extensions` is empty but that must not be read as "the server confirmed it has no
+        /// extensions." It means we don't know. Defaults to `true` so existing call sites that
+        /// construct a `ConnectInfo` directly from a known extensions list (tests, mainly)
+        /// keep their previous meaning.
+        public var extensionsProbed: Bool
+
+        public init(extensions: [String], extensionsProbed: Bool = true) {
             self.extensions = extensions
+            self.extensionsProbed = extensionsProbed
         }
 
         public var supportsAPIKey: Bool {
             extensions.contains("apiKeyAuthentication") ||
                 extensions.contains("apikeyauth") // pre-spec name used by older servers
+        }
+
+        /// True only when we have positive evidence the server does NOT support API-key
+        /// auth: the probe completed and didn't report the extension. False — meaning
+        /// "don't treat API key as broken" — whenever the probe never got a real answer,
+        /// so a classic-Subsonic 404 (or any other probe failure) reads as unknown rather
+        /// than as unsupported.
+        public var apiKeyKnownUnsupported: Bool {
+            extensionsProbed && !supportsAPIKey
         }
     }
 
@@ -372,10 +391,18 @@ public enum NavidromeConfig {
             session: session
         )
         try await client.ping()
-        // Extensions are informational — a classic server 404s this endpoint;
-        // treat any failure as "no extensions" rather than failing the connect.
-        let extensions = await (try? client.openSubsonicExtensions()) ?? []
-        return ConnectInfo(extensions: extensions)
+        // Extensions are informational — a classic server 404s this endpoint, and any other
+        // failure here is equally uninformative (a flaky proxy, a timeout). Never fail the
+        // connect over it, and keep track of whether the probe actually completed: an empty
+        // result from a failed probe means "unknown", not "confirmed no extensions" — the
+        // distinction `apiKeyKnownUnsupported` relies on.
+        var extensions: [String] = []
+        var extensionsProbed = false
+        if let probed = try? await client.openSubsonicExtensions() {
+            extensions = probed
+            extensionsProbed = true
+        }
+        return ConnectInfo(extensions: extensions, extensionsProbed: extensionsProbed)
     }
 
     // MARK: - Naming helper

@@ -249,9 +249,11 @@ struct OnboardingView: View {
     /// their server to go down.
     private var publicDemoURL: String {
         #if DEBUG
-        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-uitestPublicDemoURL"),
-           index + 1 < ProcessInfo.processInfo.arguments.count {
-            return ProcessInfo.processInfo.arguments[index + 1]
+        // Was `-uitestPublicDemoURL <url>` in `app.launchArguments`, read by index. TBX-5336:
+        // `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch
+        // in four, so `ServerStatusUITests` now sets this through `app.launchEnvironment`.
+        if let override = ProcessInfo.processInfo.environment["uitestPublicDemoURL"] {
+            return override
         }
         #endif
         return NavidromePublicDemo.url
@@ -308,7 +310,16 @@ struct OnboardingView: View {
                 onConnected()
             } catch {
                 isConnecting = false
-                errorText = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
+                var message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
+                // No prior probe to consult here — `verify` only reaches the extensions check
+                // after a successful ping, and an unsupported API key normally fails the ping
+                // itself. So this is a hint from the failure's shape, not a probe result: a
+                // classic Subsonic server rejects an API key exactly like a wrong password,
+                // and the generic message alone doesn't say why.
+                if mode == .apiKey, let navError = error as? NavidromeError, navError.isAuthFailure {
+                    message += " If this server doesn't support API key sign-in, try Username & password instead."
+                }
+                errorText = message
             }
         }
     }

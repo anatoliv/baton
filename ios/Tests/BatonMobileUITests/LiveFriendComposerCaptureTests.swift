@@ -51,8 +51,10 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipIf(agentKey.isEmpty || agentBaseURL.isEmpty, "live model provider not provided")
         app = XCUIApplication()
-        app.launchArguments += ["-baton.resetSession", "-uitestBypassBiometrics"]
-        if !hasLiveServer { app.launchArguments += ["-baton.demoMode", "YES"] }
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        if !hasLiveServer { app.launchEnvironment["baton.demoMode"] = "YES" }
         // Everything `AgentConfig` keeps in UserDefaults is set here rather than typed
         // into the form. Typing it was three failed runs: the base URL field would not
         // clear — batched deletes get coalesced, per-character deletes did not register
@@ -60,15 +62,13 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         // "…/v1v1", "…/v1/v1v1", "…/v1/v1/v1v1" and the provider answered 404 every time.
         //
         // The settings form is not what this test is about. The API key still goes in by
-        // hand below, because it lives in the Keychain and no launch argument can reach
+        // hand below, because it lives in the Keychain and no launch override can reach
         // it — and that one field is empty to begin with, which is exactly the case that
         // never needed clearing.
-        app.launchArguments += [
-            "-baton.agent.route", "direct",
-            "-baton.agent.provider", "openAICompatible",
-            "-baton.agent.baseURL", agentBaseURL,
-        ]
-        if !agentModel.isEmpty { app.launchArguments += ["-baton.agent.model", agentModel] }
+        app.launchEnvironment["baton.agent.route"] = "direct"
+        app.launchEnvironment["baton.agent.provider"] = "openAICompatible"
+        app.launchEnvironment["baton.agent.baseURL"] = agentBaseURL
+        if !agentModel.isEmpty { app.launchEnvironment["baton.agent.model"] = agentModel }
         app.launch()
     }
 

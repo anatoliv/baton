@@ -122,10 +122,27 @@ devices.
 |---|---|---|
 | `GET /health` | none | Liveness, and whether Navidrome answers. |
 | `GET /v1/state` | token | Read the shared settings document. |
-| `PUT /v1/state` | token | Replace it. Body must be JSON. |
+| `PUT /v1/state` | token | Replace it. Body must be JSON. `409` if the document has moved on. |
 | `POST /v1/agent` | token | One conversation turn. Body: `{"message": "...", "player_context": "..."}`. |
 | `GET /v1/device/poll` | token | A player parks here waiting for a command. `204` when there's nothing. |
 | `POST /v1/device/result` | token | A player reports back what happened. |
+
+### The shared settings document has a revision
+
+Both `/v1/state` answers carry two headers:
+
+- `X-Baton-State-Revision` is which write of the document this is. It goes up by one on every
+  successful PUT. A client sends the revision it read back on its own PUT; if the document has
+  moved on since, the write is refused with `409 Conflict` and the client reads and merges
+  again. Without this, two devices that synced at the same time would each replace the other's
+  write and both would report success, because the PUT is a whole-file replace.
+- `X-Baton-Server-Time` is the gateway's clock, in seconds since 1970. Every timestamp inside
+  the document is expressed in it, so two devices whose own clocks disagree still order their
+  edits the same way. A device an hour ahead used to win every conflict for a setting until the
+  other one edited past that future time.
+
+A PUT that sends no revision is still accepted, so a device running an older build keeps
+syncing. It just cannot be told that it lost a race.
 
 The last two are how "play something mellow" reaches your speakers: the curation tools run
 on the gateway against Navidrome, and the playback verbs dispatch to whichever device is

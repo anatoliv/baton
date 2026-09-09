@@ -28,11 +28,10 @@ final class MacImportEvidenceTests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipIf(fileName.isEmpty || passphrase.isEmpty, "no planted export supplied")
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestBypassBiometrics",
-            "-baton.demoMode", "YES",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
     }
 
     override func tearDown() { app = nil; super.tearDown() }

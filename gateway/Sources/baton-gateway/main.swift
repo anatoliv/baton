@@ -115,6 +115,9 @@ let filesDirectory: URL = stateFileURL.deletingLastPathComponent()
     .appendingPathComponent("files", isDirectory: true)
 let fileStore = FileStore(directory: filesDirectory)
 
+/// The shared preference document and the revision that orders writes to it. See `StateStore`.
+let stateStore = StateStore(fileURL: stateFileURL)
+
 /// The staging area for uploads in flight. Beside the store rather than in `/tmp`, so a commit is
 /// a rename within one filesystem — which is what makes it atomic — rather than a copy across two.
 let uploadStagingDirectory: URL = filesDirectory.appendingPathComponent("staging", isDirectory: true)
@@ -243,9 +246,18 @@ func route(_ request: HTTPRequestMessage) async -> Data {
     // Persisted to disk rather than held in memory: a gateway restart is routine, and
     // silently losing someone's settings because a container bounced would be worse than
     // not syncing them at all.
+    //
+    // Both answers carry the document's revision and this gateway's own clock. The revision is
+    // what makes a read-modify-write safe — before it, a device that merged and pushed could not
+    // tell that the other device had written in between, and the second push simply replaced the
+    // first. The clock is what lets two devices order their edits at all: they used to compare
+    // timestamps each had stamped with its own clock, so a device an hour ahead won every
+    // conflict for a key until the other edited past that future time (S-F17).
     if request.method == "GET", request.path == "/v1/state" {
-        let body = (try? String(contentsOf: stateFileURL, encoding: .utf8)) ?? "{}"
-        return httpResponse(status: "200 OK", body: body)
+        let state = stateStore.read()
+        return httpResponse(status: "200 OK", contentType: "application/json",
+                            payload: Data(state.body.utf8),
+                            extraHeaders: StateStore.responseHeaders(revision: state.revision))
     }
     if request.method == "PUT", request.path == "/v1/state" {
         // Validated as JSON before it lands: a truncated PUT must not leave a file that
@@ -253,11 +265,24 @@ func route(_ request: HTTPRequestMessage) async -> Data {
         guard (try? JSONSerialization.jsonObject(with: request.body)) != nil else {
             return httpResponse(status: "400 Bad Request", body: #"{"error":"body must be JSON"}"#)
         }
-        do {
-            try request.body.write(to: stateFileURL, options: .atomic)
-            return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
-        } catch {
-            return httpResponse(status: "500 Internal Server Error", body: #"{"error":"could not persist state"}"#)
+        // Absent from an older client, and accepted without it. Refusing an unversioned PUT would
+        // break sync on every device that had not been updated yet, which is worse than the race.
+        let expected = request.headers[StateStore.revisionHeader.lowercased()].flatMap(Int.init)
+        switch stateStore.write(request.body, ifRevision: expected) {
+        case let .written(revision):
+            return httpResponse(status: "200 OK", contentType: "application/json",
+                                payload: Data(#"{"ok":true}"#.utf8),
+                                extraHeaders: StateStore.responseHeaders(revision: revision))
+        case let .stale(current):
+            // A distinguishable status on purpose: the client's answer is to read the document
+            // again and re-merge, which it cannot decide to do if this looks like any other error.
+            return httpResponse(
+                status: "409 Conflict", contentType: "application/json",
+                payload: Data(jsonObject(["error": "stale revision", "revision": current]).utf8),
+                extraHeaders: StateStore.responseHeaders(revision: current))
+        case .failed:
+            return httpResponse(status: "500 Internal Server Error",
+                                body: #"{"error":"could not persist state"}"#)
         }
     }
     // Files parked for another device. A Mac exports a reading and puts it here; the

@@ -19,10 +19,10 @@ final class PlayerLayoutUITests: XCTestCase {
         app = XCUIApplication()
         // Bundled demo library, not the network — the same reasoning as
         // `DynamicTypePlayerUITests`: layout has nothing to do with a server.
-        app.launchArguments += [
-            "-baton.resetSession", "-baton.demoMode", "YES",
-            "-uitestBypassBiometrics",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
     }
 
     override func tearDown() { app = nil; super.tearDown() }

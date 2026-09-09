@@ -23,10 +23,14 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
         // The bundled demo library, not demo.navidrome.org. Layout at a text size has
         // nothing to do with the network, so it should not depend on one — the same
         // reasoning DynamicTypePlayerUITests already records.
+        // TBX-5336: launchEnvironment, not launchArguments, for Baton's own overrides — see
+        // CLAUDE.md's UI-test section. `-UIPreferredContentSizeCategoryName` stays a launch
+        // argument: UIKit itself reads it, so it is unaffected by the flake this fixes.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        // AX5, the size the finding was photographed at.
         app.launchArguments += [
-            "-baton.resetSession", "-baton.demoMode", "YES",
-            "-uitestBypassBiometrics",
-            // AX5, the size the finding was photographed at.
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
         ]
     }
@@ -117,13 +121,14 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
     /// unreachable provider is not measurable rather than broken.
     func testAlphabetRailStaysAtAccessibilityTextSize() throws {
         let live = XCUIApplication()
+        live.launchEnvironment["baton.resetSession"] = "1"
+        live.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
+        live.launchEnvironment["uitestUser"] = "demo"
+        live.launchEnvironment["uitestSecret"] = "demo"
+        live.launchEnvironment["uitestBypassBiometrics"] = "1"
+        live.launchEnvironment["baton.railMinimum"] = "1"
         live.launchArguments += [
-            "-baton.resetSession",
-            "-uitestServer", "https://demo.navidrome.org",
-            "-uitestUser", "demo", "-uitestSecret", "demo",
-            "-uitestBypassBiometrics",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
-            "-baton.railMinimum", "1",
         ]
         try Self.skipUnlessDemoServerIsUp()
         app = live
@@ -156,11 +161,13 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
     /// spanning distinct letters (`DemoLibrary.railFixtureArtists`) only when this test asks for them.
     func testAlphabetRailStaysAtAccessibilityTextSizeOffline() {
         let offline = XCUIApplication()
+        offline.launchEnvironment["baton.resetSession"] = "1"
+        offline.launchEnvironment["baton.demoMode"] = "YES"
+        offline.launchEnvironment["baton.demoRailFixture"] = "1"
+        offline.launchEnvironment["uitestBypassBiometrics"] = "1"
+        offline.launchEnvironment["baton.railMinimum"] = "1"
         offline.launchArguments += [
-            "-baton.resetSession", "-baton.demoMode", "YES", "-baton.demoRailFixture",
-            "-uitestBypassBiometrics",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
-            "-baton.railMinimum", "1",
         ]
         app = offline
         app.launch()

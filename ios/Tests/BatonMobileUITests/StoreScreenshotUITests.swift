@@ -49,12 +49,12 @@ final class StoreScreenshotUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestServer", Self.server,
-            "-uitestUser", Self.user, "-uitestSecret", Self.secret,
-            "-uitestBypassBiometrics",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestServer"] = Self.server
+        app.launchEnvironment["uitestUser"] = Self.user
+        app.launchEnvironment["uitestSecret"] = Self.secret
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
     }
 
     override func tearDown() { app = nil; super.tearDown() }
@@ -242,11 +242,11 @@ final class StoreScreenshotUITests: XCTestCase {
         // nothing and takes that whole failure mode off the table. No `resetSession`
         // here, so the caches the warm pass filled survive.
         app.terminate()
-        app.launchArguments = [
-            "-uitestServer", Self.server,
-            "-uitestUser", Self.user, "-uitestSecret", Self.secret,
-            "-uitestBypassBiometrics",
-        ]
+        app.launchEnvironment.removeValue(forKey: "baton.resetSession")
+        app.launchEnvironment["uitestServer"] = Self.server
+        app.launchEnvironment["uitestUser"] = Self.user
+        app.launchEnvironment["uitestSecret"] = Self.secret
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
         app.launch()
 
         // The warm pass leaves a saved queue behind, which raises the "Continue where

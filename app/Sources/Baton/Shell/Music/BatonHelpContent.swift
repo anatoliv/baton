@@ -316,6 +316,24 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.2",
+            date: "September 2026",
+            highlight: "Cleared settings stay cleared on every device, and a server that cannot take an API key says so.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Clearing a shared setting now clears it on your other device too, "
+                    + "instead of coming back from it at the next sync."),
+                HelpWhatsNewChange(.fixed,
+                    "Two devices whose clocks disagree no longer let the one that is ahead "
+                    + "win every argument about a setting. The home gateway now keeps a "
+                    + "revision of the shared document and both devices use its clock."),
+                HelpWhatsNewChange(.improved,
+                    "The Add and Edit Server sheets say when the server you are editing does "
+                    + "not offer API key sign-in, and a failed API key connection now hints "
+                    + "that this may be why."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.1",
             date: "September 2026",
             highlight: "Gapless playback is on by default, and Settings work with the player window closed.",

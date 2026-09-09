@@ -85,6 +85,12 @@ enum SessionPurge {
         PodcastSubscriptionStore().purgeLocalSubscriptions()
         removeAllClippings(ClippingStore())
         FriendFeedbackLog().clear()
+        // The friend's memory and corrections too, the same way `purge` does it below
+        //: tombstoned into the shared ledger first, so a reset on one device
+        // cannot be undone by the next sync. This path had the same hole the card was filed
+        // for, and a UI fixture that "reset" the session still met last run's memories.
+        RemoteMemoryStore().forgetEverything()
+        FriendLearningStore().forgetAll()
         #if DEBUG
         // The review-prompt gate is versioned state (which days counted, which version was
         // already asked), not account data, so it isn't in `defaultsKeys` above. But a UI

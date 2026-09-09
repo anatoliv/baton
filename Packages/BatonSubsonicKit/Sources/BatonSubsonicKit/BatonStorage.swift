@@ -85,10 +85,18 @@ public enum BatonStorage {
     /// - a suite name equal to the app's own bundle identifier, which would redirect the owner's
     ///   real domain onto itself and quietly defeat the whole point;
     /// - `-baton.supportDirectory` with no `-baton.defaultsSuite`, the half-redirect.
+    ///
+    /// `environment` is a fallback, checked only when the argument form is absent. TBX-5336:
+    /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch in
+    /// four, so `StorageDomainUITests` passes this redirect through `app.launchEnvironment`
+    /// instead — `posix_spawn`'s envp, not argv reconstruction, and did not reproduce the drop
+    /// across repeated sweeps. The Mac's own `-baton.defaultsSuite` probe launches (a plain
+    /// process launch, not `XCUIApplication`) are unaffected and keep using the argument form.
     public static func redirect(from arguments: [String],
+                                environment: [String: String] = ProcessInfo.processInfo.environment,
                                 appDomain: String? = Bundle.main.bundleIdentifier) -> Redirect {
-        let suite = value(of: defaultsSuiteArgument, in: arguments)
-        let directory = value(of: supportDirectoryArgument, in: arguments)
+        let suite = value(of: defaultsSuiteArgument, in: arguments) ?? environment[envKey(defaultsSuiteArgument)]
+        let directory = value(of: supportDirectoryArgument, in: arguments) ?? environment[envKey(supportDirectoryArgument)]
 
         guard let suite else {
             if directory != nil {
@@ -126,6 +134,11 @@ public enum BatonStorage {
         return raw
     }
 
+    /// The environment-variable name for an argument like `-baton.defaultsSuite`: the same
+    /// string with the leading dash dropped, so the two channels are recognizable as the same
+    /// override at a glance.
+    private static func envKey(_ argument: String) -> String { String(argument.dropFirst()) }
+
     private static func isUsableSuiteName(_ name: String) -> Bool {
         guard (1...64).contains(name.count) else { return false }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz"
@@ -138,6 +151,9 @@ public enum BatonStorage {
     /// The redirect this process was launched with. Resolved once: a command line does not change,
     /// and re-reading it per call would invite two answers to one question.
     public static let current: Redirect = {
+        #if DEBUG
+        applyEnvironmentOverrides()
+        #endif
         let resolved = redirect(from: ProcessInfo.processInfo.arguments)
         if let suite = resolved.suiteName {
             storageLog.notice("""
@@ -176,6 +192,48 @@ public enum BatonStorage {
         carryTheArgumentDomain(into: redirected)
         return redirected
     }
+
+    #if DEBUG
+    /// The UI-test overrides that are safe to write straight into `.standard`, once, the
+    /// first time anything touches this type.
+    ///
+    /// TBX-5336: `XCUIApplication.launchArguments` drops a whole `-key value` group about
+    /// one launch in four, so overrides that used to ride `-key value` into `UserDefaults`'s
+    /// own NSArgumentDomain now come through `app.launchEnvironment` instead — a plain
+    /// string in the process environment, which `posix_spawn` delivers through envp rather
+    /// than argv reconstruction, and which did not reproduce the drop across repeated
+    /// sweeps (see `ReviewPrompt`, the first fix, and `redirect(from:environment:)` above).
+    ///
+    /// Written with `.set`, not `.register`: these values must win over anything already on
+    /// disk from a previous run on a reused simulator (`GridLayoutChromeUITests` forces its
+    /// branch "regardless of default"), and a registration-domain default cannot outrank a
+    /// real stored value the way NSArgumentDomain did.
+    ///
+    /// Deliberately a short, named list rather than "every `baton.`/`tonebox.` key in the
+    /// environment": `baton.demoMode` and the `baton.agent.*` keys are NOT here, because
+    /// `SessionPurge.wipeStores()` removes them on `-baton.resetSession` and a value written
+    /// this early would just be erased again — those two are read with their own
+    /// environment-first check, at the point each is actually read
+    /// (`MobileModel.restoreSession`, `AgentConfig.read`). Everything below is never wiped
+    /// and never written by anything but a person's own tap, so writing it once, this early,
+    /// is unconditionally correct.
+    private static let debugOverrideKeys = [
+        "baton.railMinimum",
+        "baton.music.experimentalEngine",
+        "baton.albums.style",
+        "tonebox.music.artistLayout",
+        "tonebox.music.podcastLayout",
+        "tonebox.music.radioLayout",
+    ]
+
+    private static func applyEnvironmentOverrides() {
+        let environment = ProcessInfo.processInfo.environment
+        for key in debugOverrideKeys {
+            guard let value = environment[key] else { continue }
+            UserDefaults.standard.set(value, forKey: key)
+        }
+    }
+    #endif
 
     /// Give the redirected suite the launch arguments the real domain would have had.
     ///

@@ -17,14 +17,19 @@ import LocalAuthentication
 /// track would be the most annoying feature in the app. This guards secrets, nothing else.
 @MainActor
 enum BiometricGate {
-    /// Launch argument that satisfies the gate in DEBUG builds, for UI tests and simulator
+    /// Environment key that satisfies the gate in DEBUG builds, for UI tests and simulator
     /// runs. Never compiled into release.
-    static let bypassArgument = "-uitestBypassBiometrics"
+    ///
+    /// Was a bare `-uitestBypassBiometrics` launch argument. TBX-5336:
+    /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch in
+    /// four, so every UI test now sets this through `app.launchEnvironment` instead, read here
+    /// via `ProcessInfo.processInfo.environment`.
+    static let bypassArgument = "uitestBypassBiometrics"
 
     /// Prompts for biometrics (with device-passcode fallback). Returns whether to proceed.
     static func authenticate(reason: String) async -> Bool {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains(bypassArgument) { return true }
+        if ProcessInfo.processInfo.environment[bypassArgument] != nil { return true }
         #endif
 
         let context = LAContext()

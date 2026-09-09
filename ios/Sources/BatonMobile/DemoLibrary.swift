@@ -127,7 +127,9 @@ enum DemoLibrary {
     /// resolves to local files.
     static func activate(_ model: MobileModel) {
         let catalogue = songs
-        let wantsRailFixture = ProcessInfo.processInfo.arguments.contains("-baton.demoRailFixture")
+        // Was `-baton.demoRailFixture` in `app.launchArguments` (TBX-5336: XCUIApplication
+        // drops a whole `-key value` group about one launch in four); now `app.launchEnvironment`.
+        let wantsRailFixture = ProcessInfo.processInfo.environment["baton.demoRailFixture"] != nil
         model.musicLibrary.seedDemo(
             songs: catalogue,
             albums: [album],

@@ -19,6 +19,15 @@ struct BatonServerEditSheet: View {
     @State private var authMode: NavidromeAuthMode
     @State private var connecting = false
     @State private var errorText: String?
+    /// The last real probe of this server, from `NavidromeConfig.verify` — either the
+    /// silent background check on appear (editing) or the check `save()` itself just ran.
+    /// Drives the API-key row's annotation: only a probe that actually completed and came
+    /// back without `apiKeyAuthentication` counts as "known unsupported". A probe
+    /// failure (a classic server 404ing the extensions endpoint, say) reads as unknown, not
+    /// as broken, and never blocks Save.
+    @State private var probedInfo: NavidromeConfig.ConnectInfo?
+    /// The URL `probedInfo` is about, so an edited URL doesn't keep showing a stale verdict.
+    @State private var probedURLString: String?
 
     init(existing: NavidromeServerEntry?, onSaved: @escaping () -> Void) {
         self.existing = existing
@@ -71,6 +80,16 @@ struct BatonServerEditSheet: View {
             }
             .formStyle(.grouped)
 
+            if authMode == .apiKey, urlString == probedURLString, probedInfo?.apiKeyKnownUnsupported == true {
+                Label(
+                    "This server didn't report API key support the last time it was checked. "
+                        + "Username & password may be the only option.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.callout).foregroundStyle(Color.warningTint)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             if let errorText {
                 Label(errorText, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.red)
@@ -90,6 +109,23 @@ struct BatonServerEditSheet: View {
         }
         .padding(20)
         .frame(width: 440)
+        // Silent, best-effort: editing an existing server already has a working secret, so this
+        // probes without asking the user to click anything — the same information `save()`
+        // would get anyway, just early enough to annotate the picker before they commit.
+        .task { await probeExistingServerIfNeeded() }
+    }
+
+    private func probeExistingServerIfNeeded() async {
+        guard let existing else { return }
+        let secret = NavidromeKeychain.secret(account: NavidromeConfig.keychainAccount(for: existing.id)) ?? ""
+        guard !secret.isEmpty else { return }
+        let info = try? await NavidromeConfig.verify(
+            urlString: existing.urlString, username: existing.username,
+            secret: secret, authMode: existing.authMode
+        )
+        guard let info else { return }
+        probedInfo = info
+        probedURLString = existing.urlString
     }
 
     /// Prefill the public Navidrome demo, naming it so it's obvious in the server list.

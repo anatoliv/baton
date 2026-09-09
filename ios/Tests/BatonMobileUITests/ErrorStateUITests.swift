@@ -16,14 +16,14 @@ final class ErrorStateUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            // .invalid is reserved by RFC 6761 and can never resolve, so this fails the
-            // same way on any network, including none.
-            "-uitestServer", "https://baton-unreachable.invalid",
-            "-uitestUser", "demo", "-uitestSecret", "demo",
-            "-uitestBypassBiometrics",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        // .invalid is reserved by RFC 6761 and can never resolve, so this fails the
+        // same way on any network, including none.
+        app.launchEnvironment["uitestServer"] = "https://baton-unreachable.invalid"
+        app.launchEnvironment["uitestUser"] = "demo"
+        app.launchEnvironment["uitestSecret"] = "demo"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
     }
 
     override func tearDown() { app = nil; super.tearDown() }

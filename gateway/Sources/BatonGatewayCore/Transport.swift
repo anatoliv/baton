@@ -362,6 +362,20 @@ public struct POSIXTransport: ServerTransport {
                     usleep(50_000)
                     continue
                 }
+                // This detached task's blocking `read(fd, ...)` in `handleConnection` still
+                // occupies a thread from Swift's cooperative pool for as long as the read blocks
+                // (TBX-5325, TBX-5308 S-F13). Left as-is rather than moved to a dedicated thread
+                // per connection: `SO_RCVTIMEO` bounds every such read to `readTimeout` (15 s in
+                // production), which turns the failure mode from "silent connections exhaust the
+                // pool for as long as they stay open" — the actual incident, unbounded — into
+                // "at most (processor count) connections cost the pool up to 15 s each before the
+                // deadline reclaims them". That is a real cost under a burst of slow clients, but
+                // it is not the unbounded one this card closed, and a per-connection dedicated
+                // thread is a bigger change (the read loop would need to stop being `async` and
+                // bridge into the two calls that still need to be — `handle` and `upload` — with
+                // its own synchronization) for a gain that only matters once someone is already
+                // seeing pool exhaustion at the current bound. Worth doing before this gateway
+                // serves more than a household's few devices at once; not before.
                 Task.detached {
                     await Self.handleConnection(
                         clientFD, stagingDirectory: staging, maximumBodyBytes: bodyCap,

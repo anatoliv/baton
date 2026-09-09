@@ -192,6 +192,23 @@ final class MobileModel {
     /// so without this the demo user is dropped back at the connect wall.
     private static let demoModeKey = "baton.demoMode"
 
+    /// Whether this launch should open into the demo library.
+    ///
+    /// Checks the environment override before the stored value, and deliberately at the
+    /// point of use rather than seeded into `UserDefaults` early: `SessionPurge.wipeStores()`
+    /// removes `demoModeKey` on `-baton.resetSession` (`baton.demoMode` is account data), and
+    /// `-baton.resetSession -baton.demoMode YES` is the single most common pair across the UI
+    /// suite. Seeding this key before `wipeStores()` runs would just have the reset erase it
+    /// again; reading the override here, after the reset has already happened, is what
+    /// TBX-5326's `-baton.review.*` env vars and this file's `resetArgument` above already do
+    /// for the same reason — was a bare `-baton.demoMode YES` launch argument.
+    private static var wantsDemoMode: Bool {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["baton.demoMode"] { return raw == "YES" }
+        #endif
+        return BatonStorage.defaults.bool(forKey: demoModeKey)
+    }
+
     /// Wipes the session before anything reads it.
     ///
     /// UI tests share one simulator, and one of them signs in to a real server to prove the
@@ -200,8 +217,13 @@ final class MobileModel {
     /// a reason that had nothing to do with them. State that leaks between tests turns one
     /// deliberate action into five mystery failures.
     ///
-    /// DEBUG-only, and driven by a launch argument no shipping build passes.
-    static let resetArgument = "-baton.resetSession"
+    /// DEBUG-only, and driven by a launch environment key no shipping build passes.
+    ///
+    /// Was a bare `-baton.resetSession` launch argument. TBX-5336:
+    /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch
+    /// in four, so every UI test now sets this through `app.launchEnvironment` instead, read
+    /// here via `ProcessInfo.processInfo.environment`.
+    static let resetArgument = "baton.resetSession"
 
     /// Puts one real clipping in the store at launch, so a UI test can long-press one.
     ///
@@ -210,12 +232,13 @@ final class MobileModel {
     /// which passes just as happily when the feature is broken. Two releases shipped a menu
     /// item nobody could see while a test asserting absence stayed green.
     ///
-    /// DEBUG-only and driven by a launch argument no shipping build passes, like the reset above.
-    static let seedClippingArgument = "-baton.seedClipping"
+    /// DEBUG-only and driven by a launch environment key no shipping build passes, like the
+    /// reset above (TBX-5336: was `-baton.seedClipping`).
+    static let seedClippingArgument = "baton.seedClipping"
 
     init() {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains(Self.resetArgument) {
+        if ProcessInfo.processInfo.environment[Self.resetArgument] != nil {
             SessionPurge.wipeStores()
         }
         #endif
@@ -279,7 +302,7 @@ final class MobileModel {
         clippings.seedLedgerIfNeeded()
 
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains(Self.seedClippingArgument) {
+        if ProcessInfo.processInfo.environment[Self.seedClippingArgument] != nil {
             seedClippingForUITests()
         }
         #endif
@@ -544,12 +567,16 @@ final class MobileModel {
         // text fields, so there is otherwise no way to reach any screen behind "connect to
         // a server". Mirrors KeepFloat's `-uitestFreshLogin`; never compiled into release.
         //
-        //   xcrun simctl launch <sim> io.tonebox.baton \
-        //     -uitestServer https://demo.navidrome.org -uitestUser demo -uitestSecret demo
-        let args = UserDefaults.standard
-        if let url = args.string(forKey: "uitestServer"),
-           let user = args.string(forKey: "uitestUser"),
-           let secret = args.string(forKey: "uitestSecret") {
+        // Was read through `UserDefaults.standard` off a bare `-key value` launch argument
+        // (NSArgumentDomain). TBX-5336: `XCUIApplication.launchArguments` drops a whole
+        // `-key value` group about one launch in four, so every UI test now sets these
+        // through `app.launchEnvironment` instead:
+        //
+        //   app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
+        //   app.launchEnvironment["uitestUser"] = "demo"
+        //   app.launchEnvironment["uitestSecret"] = "demo"
+        let env = ProcessInfo.processInfo.environment
+        if let url = env["uitestServer"], let user = env["uitestUser"], let secret = env["uitestSecret"] {
             NavidromeConfig.save(urlString: url, username: user, secret: secret, authMode: .tokenSalt)
         }
         // Stand in for a friend that somebody set up and tested, so the Friend tab — and
@@ -566,7 +593,7 @@ final class MobileModel {
         // hidden on an unconfigured device — which is what the first version of this did, and
         // the test caught it. The endpoint is deliberately unreachable: this makes the *tab*
         // appear, and nothing here should be able to talk to a real provider by accident.
-        if args.bool(forKey: "uitestVerifiedAgent") {
+        if env["uitestVerifiedAgent"] != nil {
             if !agentConfig.isConfigured {
                 agentConfig.route = .direct
                 agentConfig.provider = .openAICompatible
@@ -593,7 +620,7 @@ final class MobileModel {
         // memory its own previous run had deleted. A fixture that reads prior state is not a
         // fixture. `-baton.resetSession` does not cover this, because `SessionPurge` never
         // touches the friend's stores at all — which is its own defect.
-        if args.bool(forKey: "uitestSeedMemories") {
+        if env["uitestSeedMemories"] != nil {
             friendMemory.forgetEverything()
             friendMemory.remember(kind: "preference", text: "No vocals while they are working",
                                   quote: "no vocals while I'm working, please")
@@ -610,7 +637,7 @@ final class MobileModel {
             await warmLibrary()
             await verifyCredentials()
             await syncPreferences(force: true)
-        } else if BatonStorage.defaults.bool(forKey: Self.demoModeKey), DemoLibrary.isAvailable {
+        } else if Self.wantsDemoMode, DemoLibrary.isAvailable {
             startDemo()
         } else {
             showsSetup = true

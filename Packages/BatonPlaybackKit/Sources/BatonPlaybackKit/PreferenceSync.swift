@@ -22,6 +22,22 @@ private let syncLog = Logger(subsystem: "io.tonebox.baton", category: "Preferenc
 /// changing different settings must not clobber each other, which a whole-blob overwrite
 /// would do; each key carries when it changed and which device changed it, so the loser of
 /// a genuine race is a single setting rather than everything you touched today.
+///
+/// Two things make "last write" mean something (S-F17):
+///
+/// - **The timestamps are in the gateway's clock, not each device's.** They used to be compared
+///   across devices that had never agreed on the time, so a Mac an hour ahead won every conflict
+///   for a key until the phone edited past that future time. The gateway sends its own clock with
+///   the document and each device converts at that boundary; `Document.clockSkew` holds the
+///   difference. Where a timestamp still arrives from the future — an older build, or a gateway
+///   too old to send a time — it no longer beats a local edit. See `isFromTheFuture`.
+/// - **Clearing a setting is itself a write.** A removed key has no value to encode, so the push
+///   used to skip it and the shared document kept the old value for ever. It now travels as a
+///   tombstone, `Entry.deletedAt`.
+///
+/// And the document as a whole carries a revision the gateway stamps on every write, so a merge
+/// made against a document the other device has since replaced is refused rather than applied.
+/// The answer to that refusal is to read and merge again, which is what `sync` does.
 @MainActor
 public final class PreferenceSync {
     /// The keys worth carrying between devices.
@@ -171,6 +187,28 @@ public final class PreferenceSync {
         var value: Data          // the property-list encoding of the value
         var updatedAt: Date
         var device: String
+        /// Set when this entry records that the setting was *cleared*, not that it holds a value.
+        ///
+        /// Without it a deletion could not travel at all. Removing a synced key stamps a local
+        /// timestamp, but the push loop then had nothing to encode and skipped the key, so the
+        /// shared document kept the old value for ever and any device that had not stamped that
+        /// key re-adopted it. Resetting the EQ on the phone came back from the Mac (S-F17). The
+        /// merged list keys were exempt because they carry their own ledgers; the scalar path had
+        /// none.
+        ///
+        /// Optional, and a tombstone carries an **empty `value`**, which is what makes it safe to
+        /// send to a build that has never heard of this field. That build decodes the entry
+        /// (Codable ignores keys it does not know), tries to read an empty property list, fails,
+        /// and skips the key — so the tombstone is ignored rather than adopted as a value, which
+        /// is the safe direction. See `PreferenceSyncDeletionTests`.
+        var deletedAt: Date?
+
+        var isTombstone: Bool { deletedAt != nil }
+
+        /// Records that a key was cleared on this device at `date`.
+        static func tombstone(at date: Date, device: String) -> Entry {
+            Entry(value: Data(), updatedAt: date, device: device, deletedAt: date)
+        }
     }
 
     /// The shared document as this build can read it, which is not the same as all of it.
@@ -199,6 +237,21 @@ public final class PreferenceSync {
         /// Keys whose value did not decode as an `Entry`, held as the JSON that arrived so it can
         /// be written back exactly as it was.
         var unreadable: [String: Any] = [:]
+
+        /// Which write of the shared document this is, as the gateway counts them. `nil` from a
+        /// gateway too old to say, in which case a push cannot be checked and is sent unversioned.
+        var revision: Int?
+
+        /// Gateway time minus this device's time, from the clock the gateway sends with the
+        /// document. Zero when it does not send one.
+        ///
+        /// Every entry timestamp in the document is expressed in the gateway's clock, and this is
+        /// how a device converts to and from it. That is the whole answer to two devices whose
+        /// clocks disagree: they used to compare `Date()` values stamped independently, so a Mac
+        /// an hour ahead won every conflict for a key until the phone edited past that future
+        /// time (S-F17). One shared clock, held by the thing both devices already talk to, and the
+        /// comparison means something again.
+        var clockSkew: TimeInterval = 0
 
         subscript(key: String) -> Entry? {
             get { entries[key] }
@@ -408,17 +461,42 @@ public final class PreferenceSync {
     /// it. Without that, a device only ever *pulls* until someone edits a setting on it — so a
     /// Mac configured months ago would sit there holding an EQ curve the phone could never
     /// see. It is stamped `.distantPast`, so any real edit on any device wins over it.
-    static func shouldPush(localStamp: Date?, remote: Entry?) -> Bool {
+    static func shouldPush(localStamp: Date?, remote: Entry?, now: Date = Date()) -> Bool {
         // Never seed over a shared value: this device has no record of choosing it, and the
         // device that pushed it did.
         guard let localStamp else { return remote == nil }
         guard let remote else { return true }
+        // A stamp from beyond now is not evidence of anything, so it does not get to block a
+        // local edit. See `isFromTheFuture`.
+        if isFromTheFuture(remote, now: now) { return true }
         return remote.updatedAt < localStamp
     }
 
     /// Whether the shared store's copy is newer than this device's own last word on a key.
-    static func shouldAdopt(remote: Entry, localStamp: Date?) -> Bool {
-        remote.updatedAt > (localStamp ?? .distantPast)
+    static func shouldAdopt(remote: Entry, localStamp: Date?, now: Date = Date()) -> Bool {
+        // The same rule from the other side. A future entry still seeds a device that has never
+        // had an opinion about the key — refusing that would leave a fresh phone with nothing —
+        // but it never overrides an edit this device actually made.
+        if isFromTheFuture(remote, now: now) { return localStamp == nil }
+        return remote.updatedAt > (localStamp ?? .distantPast)
+    }
+
+    /// How far ahead a shared timestamp may be before this device stops believing it.
+    ///
+    /// A minute, which is far more than the round trip and far less than the clock errors this
+    /// guards against: the case is a device set to the wrong time zone or with no working clock,
+    /// which is out by hours. Smaller than that and ordinary jitter would start looking like skew.
+    static let futureTolerance: TimeInterval = 60
+
+    /// An entry stamped later than the shared clock has reached.
+    ///
+    /// Normally impossible, because every device expresses its stamps in the gateway's clock (see
+    /// `Document.clockSkew`). What produces one is a build old enough to have stamped in its own
+    /// clock, or a gateway too old to send its time. Either way the honest reading is that the
+    /// timestamp orders nothing, and a device that made a real edit should not lose to it for the
+    /// hours it takes local time to catch up — which is exactly what used to happen.
+    static func isFromTheFuture(_ entry: Entry, now: Date) -> Bool {
+        entry.updatedAt > now.addingTimeInterval(futureTolerance)
     }
 
     /// Pulls remote settings, applies anything newer, and pushes anything newer here.
@@ -429,73 +507,135 @@ public final class PreferenceSync {
     @discardableResult
     public func sync(gatewayURL: URL, token: String) async -> Bool {
         do {
-            var remote = try await fetch(gatewayURL: gatewayURL, token: token)
-            let stamps = localTimestamps
-
-            // Remote → local, for anything newer than our own last write.
-            var changed = false
-
-            for (key, entry) in remote.entries
-            where Self.syncedKeys.contains(key) && !Self.mergedKeys.contains(key) {
-                guard Self.shouldAdopt(remote: entry, localStamp: stamps[key]) else { continue }
-                if let value = try? PropertyListSerialization.propertyList(
-                    from: entry.value, options: [], format: nil
-                ) {
-                    defaults.set(value, forKey: key)
-                }
-            }
-
-            // Local → remote, for anything we changed more recently than they hold.
-            for key in Self.syncedKeys where !Self.mergedKeys.contains(key) {
-                // A key another build wrote in a shape this one cannot read is left alone. It is
-                // not absent, so seeding over it would be the loss rather than the fix.
-                guard !remote.isUnreadable(key) else { continue }
-                guard Self.shouldPush(localStamp: stamps[key], remote: remote[key]) else { continue }
-                guard let value = defaults.object(forKey: key),
-                      let encoded = try? PropertyListSerialization.data(
-                          fromPropertyList: value, format: .binary, options: 0
-                      )
-                else { continue }
-                remote[key] = Entry(value: encoded, updatedAt: stamps[key] ?? .distantPast,
-                                    device: deviceName)
-                changed = true
-            }
-            // The list keys, unioned in both directions at once. Timestamps don't decide
-            // anything here — the merged list is simply the truth, and both sides adopt it.
-            for key in Self.mergedKeys {
-                // Same rule as above, and it matters more here: these keys hold the podcast,
-                // friend-memory and clipping ledgers, and a merge that cannot see the remote side
-                // returns the local list alone, which is a whole-ledger replace wearing the word
-                // "merge" (S-F1).
-                guard !remote.isUnreadable(key) else { continue }
-                let localValue = defaults.object(forKey: key)
-                let remoteValue = remote[key].flatMap {
-                    try? PropertyListSerialization.propertyList(from: $0.value, options: [], format: nil)
-                }
-                guard let merged = Self.mergedValue(key: key, local: localValue, remote: remoteValue)
-                else { continue }
-                if !equalValues(merged, localValue) { defaults.set(merged, forKey: key) }
-                // Only push when the shared copy would actually change. Without this an
-                // idempotent merge still rewrites the document on every sync, and two
-                // devices ping-pong pushes forever over a list neither of them edited.
-                if !equalValues(merged, remoteValue),
-                   let encoded = try? PropertyListSerialization.data(
-                       fromPropertyList: merged, format: .binary, options: 0
-                   ) {
-                    remote[key] = Entry(value: encoded, updatedAt: Date(), device: deviceName)
-                    changed = true
-                }
-            }
-
-            if changed { try await push(remote, gatewayURL: gatewayURL, token: token) }
+            try await reconcile(gatewayURL: gatewayURL, token: token)
             return true
+        } catch SyncError.staleRevision {
+            // The other device wrote while this one was merging. The merge was done over a
+            // document that is no longer there, so it is redone over the one that is. Forcing the
+            // push instead would be exactly the lost update the revision exists to catch: the PUT
+            // is a whole-file replace, and the peer's write would go with it.
+            syncLog.notice("shared settings moved while syncing; reading them again")
+            do {
+                try await reconcile(gatewayURL: gatewayURL, token: token)
+                return true
+            } catch {
+                syncLog.error("preference sync skipped: \(error.localizedDescription, privacy: .public)")
+                return false
+            }
         } catch {
             syncLog.error("preference sync skipped: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
 
+    /// One pull, merge and push. Throws rather than reporting, so `sync` can tell a document that
+    /// moved under it — worth retrying once — from a gateway that is not there.
+    private func reconcile(gatewayURL: URL, token: String) async throws {
+        var remote = try await fetch(gatewayURL: gatewayURL, token: token)
+        let stamps = localTimestamps
+
+        // Every timestamp in the shared document is in the gateway's clock, and every stamp in
+        // `localTimestamps` is in this device's. These two convert between them, and when the
+        // gateway is too old to send a time the skew is zero and this is what it always was.
+        let skew = remote.clockSkew
+        let shared = { (date: Date) in date.addingTimeInterval(skew) }
+        let sharedNow = shared(Date())
+
+        // Remote → local, for anything newer than our own last write.
+        var changed = false
+
+        for (key, entry) in remote.entries
+        where Self.syncedKeys.contains(key) && !Self.mergedKeys.contains(key) {
+            guard Self.shouldAdopt(remote: entry, localStamp: stamps[key].map(shared),
+                                   now: sharedNow) else { continue }
+            // A tombstone says the setting was cleared, which is a thing to do rather than a
+            // value to write. Without this the removal never travelled at all.
+            if entry.isTombstone {
+                if defaults.object(forKey: key) != nil { defaults.removeObject(forKey: key) }
+                continue
+            }
+            if let value = try? PropertyListSerialization.propertyList(
+                from: entry.value, options: [], format: nil
+            ) {
+                defaults.set(value, forKey: key)
+            }
+        }
+
+        // Local → remote, for anything we changed more recently than they hold.
+        for key in Self.syncedKeys where !Self.mergedKeys.contains(key) {
+            // A key another build wrote in a shape this one cannot read is left alone. It is
+            // not absent, so seeding over it would be the loss rather than the fix.
+            guard !remote.isUnreadable(key) else { continue }
+            guard Self.shouldPush(localStamp: stamps[key].map(shared), remote: remote[key],
+                                  now: sharedNow) else { continue }
+            guard let value = defaults.object(forKey: key),
+                  let encoded = try? PropertyListSerialization.data(
+                      fromPropertyList: value, format: .binary, options: 0
+                  )
+            else {
+                // Nothing here to send. Two very different reasons for that, and telling them
+                // apart is the whole of the deletion fix: a key this device has stamped and no
+                // longer holds was **cleared here**, and that has to travel or the other device
+                // hands the old value straight back. A key with no stamp is simply one this
+                // device never had an opinion about, and saying nothing is right.
+                guard let stamp = stamps[key] else { continue }
+                // Already recorded as cleared. Rewriting it would move the timestamp forward on
+                // every sync, for a fact that has not changed.
+                guard remote[key]?.isTombstone != true else { continue }
+                remote[key] = Entry.tombstone(at: shared(stamp), device: deviceName)
+                changed = true
+                continue
+            }
+            remote[key] = Entry(value: encoded, updatedAt: shared(stamps[key] ?? .distantPast),
+                                device: deviceName)
+            changed = true
+        }
+        // The list keys, unioned in both directions at once. Timestamps don't decide
+        // anything here — the merged list is simply the truth, and both sides adopt it.
+        for key in Self.mergedKeys {
+            // Same rule as above, and it matters more here: these keys hold the podcast,
+            // friend-memory and clipping ledgers, and a merge that cannot see the remote side
+            // returns the local list alone, which is a whole-ledger replace wearing the word
+            // "merge" (S-F1).
+            guard !remote.isUnreadable(key) else { continue }
+            let localValue = defaults.object(forKey: key)
+            let remoteValue = remote[key].flatMap {
+                try? PropertyListSerialization.propertyList(from: $0.value, options: [], format: nil)
+            }
+            guard let merged = Self.mergedValue(key: key, local: localValue, remote: remoteValue)
+            else { continue }
+            if !equalValues(merged, localValue) { defaults.set(merged, forKey: key) }
+            // Only push when the shared copy would actually change. Without this an
+            // idempotent merge still rewrites the document on every sync, and two
+            // devices ping-pong pushes forever over a list neither of them edited.
+            if !equalValues(merged, remoteValue),
+               let encoded = try? PropertyListSerialization.data(
+                   fromPropertyList: merged, format: .binary, options: 0
+               ) {
+                remote[key] = Entry(value: encoded, updatedAt: sharedNow, device: deviceName)
+                changed = true
+            }
+        }
+
+        if changed { try await push(remote, gatewayURL: gatewayURL, token: token) }
+    }
+
     // MARK: - Transport
+
+    /// The header the gateway stamps each write of the shared document with, and reads back on a
+    /// push to see whether the pusher had read what it is replacing. See `StateStore`.
+    nonisolated static let revisionHeader = "X-Baton-State-Revision"
+    /// The gateway's own clock, as seconds since 1970. See `Document.clockSkew`.
+    nonisolated static let serverTimeHeader = "X-Baton-Server-Time"
+
+    enum SyncError: Error, LocalizedError {
+        /// The gateway refused the push because the document had moved since this device read it.
+        case staleRevision
+
+        var errorDescription: String? {
+            "The shared settings changed while this device was syncing, so nothing was sent."
+        }
+    }
 
     private func fetch(gatewayURL: URL, token: String) async throws -> Document {
         var request = URLRequest(url: GatewayAddress.root(gatewayURL).appendingPathComponent("v1/state"))
@@ -506,7 +646,16 @@ public final class PreferenceSync {
         }
         // Empty is "nothing shared yet"; unreadable throws, and `sync` pushes nothing. See
         // `decodeDocument` for why those had to stop being the same answer.
-        return try Self.decodeDocument(data)
+        var document = try Self.decodeDocument(data)
+        document.revision = http.value(forHTTPHeaderField: Self.revisionHeader).flatMap(Int.init)
+        // Measured at receipt rather than at request time, so the round trip counts against the
+        // gateway's answer being stale rather than against this device's clock being wrong. Both
+        // headers are absent from a gateway older than this change, and everything then behaves
+        // as it did before.
+        if let raw = http.value(forHTTPHeaderField: Self.serverTimeHeader), let seconds = Double(raw) {
+            document.clockSkew = seconds - Date().timeIntervalSince1970
+        }
+        return document
     }
 
     // MARK: - Is the gateway there?
@@ -554,11 +703,18 @@ public final class PreferenceSync {
         request.httpMethod = "PUT"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Which document this replaces. The gateway refuses the write if it has moved on, so a
+        // merge made against a document the other device has already replaced cannot silently
+        // throw that write away. Absent when the gateway did not say, which is how an older one
+        // keeps working.
+        if let revision = state.revision {
+            request.setValue(String(revision), forHTTPHeaderField: Self.revisionHeader)
+        }
         request.httpBody = try Self.encodeDocument(state)
         let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 409 { throw SyncError.staleRevision }
+        guard status == 200 else { throw URLError(.badServerResponse) }
     }
 }
 

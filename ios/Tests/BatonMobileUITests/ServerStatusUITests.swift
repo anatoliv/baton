@@ -18,7 +18,9 @@ final class ServerStatusUITests: XCTestCase {
         try Self.skipUnlessDemoServerIsUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += ["-baton.resetSession", "-baton.demoMode", "YES"]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
         app.launch()
         if app.navigationBars["What's New"].waitForExistence(timeout: 3), app.buttons["Done"].exists {
             app.buttons["Done"].tap()
@@ -161,7 +163,8 @@ final class ServerStatusUITests: XCTestCase {
         // no demo mode is what a new install actually looks like.
         app.terminate()
         let fresh = XCUIApplication()
-        fresh.launchArguments = ["-baton.resetSession", "-uitestPublicDemoURL", "https://invalid."]
+        fresh.launchEnvironment["baton.resetSession"] = "1"
+        fresh.launchEnvironment["uitestPublicDemoURL"] = "https://invalid."
         fresh.launch()
 
         let useDemo = fresh.buttons["Use Navidrome's public demo server"]

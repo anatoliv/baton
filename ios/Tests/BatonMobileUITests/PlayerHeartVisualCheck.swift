@@ -8,12 +8,13 @@ import XCTest
 final class PlayerHeartVisualCheck: XCTestCase {
     func testCaptureFullPlayer() throws {
         let app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestServer", "https://demo.navidrome.org",
-            "-uitestUser", "demo", "-uitestSecret", "demo",
-            "-uitestBypassBiometrics", "-uitestSkipSpeechAuthorization",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
+        app.launchEnvironment["uitestUser"] = "demo"
+        app.launchEnvironment["uitestSecret"] = "demo"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        app.launchEnvironment["uitestSkipSpeechAuthorization"] = "1"
         app.launch()
 
         let ready = app.buttons.matching(identifier: "Search").firstMatch
@@ -53,12 +54,13 @@ final class PlayerHeartVisualCheck: XCTestCase {
     /// project has shipped invisible and inert controls before.
     func testCaptureFriendScreen() throws {
         let app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestServer", "https://demo.navidrome.org",
-            "-uitestUser", "demo", "-uitestSecret", "demo",
-            "-uitestBypassBiometrics", "-uitestSkipSpeechAuthorization",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
+        app.launchEnvironment["uitestUser"] = "demo"
+        app.launchEnvironment["uitestSecret"] = "demo"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        app.launchEnvironment["uitestSkipSpeechAuthorization"] = "1"
         app.launch()
 
         let friend = app.buttons.matching(identifier: "Friend").firstMatch

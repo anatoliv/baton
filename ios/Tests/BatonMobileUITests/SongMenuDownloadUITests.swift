@@ -23,10 +23,10 @@ final class SongMenuDownloadUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession", "-baton.demoMode", "YES",
-            "-uitestBypassBiometrics",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
     }
 
     override func tearDown() { app = nil; super.tearDown() }

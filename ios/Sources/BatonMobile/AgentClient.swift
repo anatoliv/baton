@@ -79,6 +79,14 @@ final class AgentClient {
     /// and does nothing.
     var learnedCorrections: (@MainActor () -> String?)?
 
+    /// Identifies this conversation to the gateway, so `music_similar_songs` seeds from
+    /// *this* conversation's last search rather than whatever another one looked up
+    /// last (TBX-5325, TBX-5308 S-F26). Regenerated with the conversation itself
+    /// (`resetConversation`) — same boundary as `history`, so the two never disagree
+    /// about where one conversation ends and the next begins. Never persisted: a
+    /// process restart is a new conversation as far as the gateway's seed store cares.
+    private var conversationID = UUID().uuidString
+
     init(tools: AgentTools, player: StreamingPlaybackController, config: AgentConfig) {
         self.tools = tools
         self.player = player
@@ -87,6 +95,7 @@ final class AgentClient {
 
     func resetConversation() {
         history = []
+        conversationID = UUID().uuidString
     }
 
     /// Configuration is read fresh per send, so Settings edits apply immediately
@@ -296,6 +305,7 @@ final class AgentClient {
             "message": message,
             "player_context": playerContext(),
             "client": "baton-ios",
+            "session_id": conversationID,
         ])
         try guardTransport(request)
 

@@ -10,7 +10,10 @@ import XCTest
 final class ScannerReachabilityTests: XCTestCase {
     func testWhatTheScannerShowsWithoutACamera() {
         let app = XCUIApplication()
-        app.launchArguments += ["-baton.resetSession", "-uitestBypassBiometrics", "-baton.demoMode", "YES"]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60))
 

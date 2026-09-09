@@ -89,6 +89,18 @@ struct RootTabView: View {
                     .accessibilityIdentifier("debug.storageDomains")
                     .allowsHitTesting(false)
             }
+            // TBX-5336: whether a value passed through `app.launchEnvironment` actually
+            // reached this process. `LaunchEnvironmentReliabilityTests` sets a fresh value
+            // every launch and reads it back here, N times in a row, to measure the
+            // delivery rate directly rather than infer it from a feature's side effects —
+            // `-baton.launchProbe` is not read by anything else in the app.
+            .overlay(alignment: .bottomTrailing) {
+                Text(ProcessInfo.processInfo.environment["baton.launchProbe"] ?? "(absent)")
+                    .font(.system(size: 1))
+                    .foregroundStyle(.clear)
+                    .accessibilityIdentifier("debug.launchEnvironmentProbe")
+                    .allowsHitTesting(false)
+            }
             #endif
             .environment(\.nowPlayingPalette, paletteLoader.palette)
             // The user's choice, defaulting to Dark — the same control the Mac now has,

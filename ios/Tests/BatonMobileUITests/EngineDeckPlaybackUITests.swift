@@ -21,18 +21,17 @@ final class EngineDeckPlaybackUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestServer", "https://demo.navidrome.org",
-            "-uitestUser", "demo",
-            "-uitestSecret", "demo",
-            "-uitestBypassBiometrics",
-            // A stray tap must not be able to raise the speech-permission dialog: it is
-            // app-modal and blocks every test after it, on any screen. See VoiceInput.
-            "-uitestSkipSpeechAuthorization",
-            // The experiment, on. This is the whole point of the run.
-            "-baton.music.experimentalEngine", "YES",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
+        app.launchEnvironment["uitestUser"] = "demo"
+        app.launchEnvironment["uitestSecret"] = "demo"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        // A stray tap must not be able to raise the speech-permission dialog: it is
+        // app-modal and blocks every test after it, on any screen. See VoiceInput.
+        app.launchEnvironment["uitestSkipSpeechAuthorization"] = "1"
+        // The experiment, on. This is the whole point of the run.
+        app.launchEnvironment["baton.music.experimentalEngine"] = "YES"
     }
 
     override func tearDown() { app = nil; super.tearDown() }
@@ -71,8 +70,7 @@ final class EngineDeckPlaybackUITests: XCTestCase {
     /// simply always on, would both sail through it. This is the run that fails if either
     /// is true, and it doubles as the guard that the setting genuinely gates the feature.
     func testWithTheExperimentOffTheSameTrackPlaysOnAVPlayer() throws {
-        app.launchArguments.removeAll { $0 == "-baton.music.experimentalEngine" || $0 == "YES" }
-        app.launchArguments += ["-baton.music.experimentalEngine", "NO"]
+        app.launchEnvironment["baton.music.experimentalEngine"] = "NO"
         launchAndSettle()
 
         try startAnySong()
@@ -98,12 +96,13 @@ final class EngineDeckPlaybackUITests: XCTestCase {
     ///
     /// So this drives the switch itself.
     func testTurningTheSettingOnInTheAppRoutesTheNextTrackToTheEngine() throws {
-        // No launch argument for the setting at all — the app's own default (off) is what a
-        // person starts from. Passing "-…experimentalEngine NO" would put the value in
-        // NSArgumentDomain, which outranks anything @AppStorage writes, so the switch would
+        // No launch environment override for the setting at all — the app's own default
+        // (off) is what a person starts from. Setting "…experimentalEngine" to "NO" would
+        // still win over anything @AppStorage writes (`BatonStorage.applyEnvironmentOverrides`
+        // seeds it once, at launch, before the switch is ever tapped), so the switch would
         // snap back to off the instant the test tapped it and the failure would look like a
         // broken toggle rather than a rigged test.
-        app.launchArguments.removeAll { $0 == "-baton.music.experimentalEngine" || $0 == "YES" }
+        app.launchEnvironment.removeValue(forKey: "baton.music.experimentalEngine")
         launchAndSettle()
         dismissHandoffPromptIfPresent()
 

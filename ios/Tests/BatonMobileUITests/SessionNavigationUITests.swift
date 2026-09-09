@@ -20,11 +20,10 @@ final class SessionNavigationUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestBypassBiometrics",
-            "-uitestSkipSpeechAuthorization",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        app.launchEnvironment["uitestSkipSpeechAuthorization"] = "1"
     }
 
     override func tearDown() { app = nil; super.tearDown() }
@@ -77,7 +76,7 @@ final class SessionNavigationUITests: XCTestCase {
     /// Two levels deep — Library, then Liked — then play, then assert the screen has not
     /// moved. On the old code the Liked screen was gone and the Home tab was selected.
     func testPlayingATrackLeavesTheScreenWhereItWas() throws {
-        app.launchArguments += ["-baton.demoMode", "YES"]
+        app.launchEnvironment["baton.demoMode"] = "YES"
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60),
                       "app never reached its tab bar")
@@ -134,7 +133,7 @@ final class SessionNavigationUITests: XCTestCase {
     // MARK: - F9: the Engine cost section is on screen at all
 
     func testSettingsShowsTheEngineCostSection() throws {
-        app.launchArguments += ["-baton.demoMode", "YES"]
+        app.launchEnvironment["baton.demoMode"] = "YES"
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60),
                       "app never reached its tab bar")

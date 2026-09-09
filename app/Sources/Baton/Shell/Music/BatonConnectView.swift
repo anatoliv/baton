@@ -137,7 +137,17 @@ struct BatonConnectSheet: View {
             let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             // Don't let someone else's downtime look like our bug: the demo is a public server we
             // don't run, and it's the very first thing a new user is invited to click.
-            errorText = NavidromeDemoServer.errorText(forURL: urlString, detail: detail)
+            var message = NavidromeDemoServer.errorText(forURL: urlString, detail: detail)
+            // There's no prior probe to consult here — `verify` only reaches the extensions
+            // check after a successful ping, and an unsupported API key normally fails the
+            // ping itself. So this is a hint from the failure's shape, not a probe result: a
+            // classic Subsonic server rejects an API key exactly like a wrong password, and
+            // the generic message alone doesn't say why.
+            if authMode == .apiKey, !NavidromeDemoServer.matches(urlString),
+               let navError = error as? NavidromeError, navError.isAuthFailure {
+                message += " If this server doesn't support API key sign-in, try Username & password instead."
+            }
+            errorText = message
         }
     }
 }

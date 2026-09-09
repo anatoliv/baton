@@ -306,4 +306,71 @@ final class TransportTests: XCTestCase {
             "the body must parse as JSON, got: \(body)")
         XCTAssertEqual(parsed["error"] as? String, message, "and must carry the message unchanged")
     }
+
+    // MARK: - TBX-5325: a `session_id` in the request has to reach the seed store, over the wire
+
+    /// The gateway's `/v1/agent` handler reads `session_id` from the JSON body and threads it
+    /// through to whatever tool ran (`main.swift`'s `route`, then `GatewayToolSurface.run`); that
+    /// code lives in the executable target, which no test target can import — the same reason
+    /// `Transport.swift` itself had no tests before TBX-5308. This test cannot reach
+    /// `GatewayToolSurface` directly, so it drives the same shape end to end instead: a real HTTP
+    /// POST over a real socket, through `HTTPRequestMessage` parsing, into a JSON body decode of
+    /// `session_id`, keying the same `SearchSeedStore` the real tool surface uses. What it proves
+    /// is the wiring PR #53 promised and TBX-5325 found missing on the phone's end: two
+    /// conversations that each send their own `session_id` do not see each other's seed.
+    /// `SearchSeedStore` documents itself as not thread-safe on purpose — in production it is
+    /// only ever touched from the `@MainActor` tool surface. The `handle` closure here runs on
+    /// whichever pool thread accepted the connection, so this test locks around it rather than
+    /// capturing the store bare, the same pattern `Recorder` above uses for the request log.
+    final class SerializedSeeds: @unchecked Sendable {
+        private let lock = NSLock()
+        private let store = SearchSeedStore<String>()
+        func remember(_ value: String, for sessionID: String?) {
+            lock.lock(); defer { lock.unlock() }
+            store.remember(value, for: sessionID)
+        }
+        func seed(for sessionID: String?) -> String? {
+            lock.lock(); defer { lock.unlock() }
+            return store.seed(for: sessionID)
+        }
+    }
+
+    func testTwoSessionIDsOnTheWireKeepIndependentSeeds() throws {
+        let seeds = SerializedSeeds()
+        let port = try start(handle: { request in
+            guard let json = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],
+                  let message = json["message"] as? String else {
+                return httpResponse(status: "400 Bad Request", body: #"{"error":"bad body"}"#)
+            }
+            let sessionID = json["session_id"] as? String
+            if message.hasPrefix("remember:") {
+                seeds.remember(String(message.dropFirst("remember:".count)), for: sessionID)
+                return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
+            }
+            let seed = seeds.seed(for: sessionID) ?? "none"
+            return httpResponse(status: "200 OK", body: jsonObject(["text": seed]))
+        })
+
+        func post(_ body: [String: Any]) throws -> String {
+            let payload = try JSONSerialization.data(withJSONObject: body)
+            let fd = try open(port)
+            defer { close(fd) }
+            write(fd, "POST /v1/agent HTTP/1.1\r\nHost: x\r\nContent-Length: \(payload.count)\r\n\r\n")
+            write(fd, String(decoding: payload, as: UTF8.self))
+            let response = readAll(fd)
+            let bodyText = response.components(separatedBy: "\r\n\r\n").dropFirst().joined()
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(bodyText.utf8))) as? [String: Any]
+            return parsed?["text"] as? String ?? bodyText
+        }
+
+        _ = try post(["session_id": "alpha", "message": "remember:Debussy"])
+        _ = try post(["session_id": "beta", "message": "remember:Autechre"])
+
+        XCTAssertEqual(try post(["session_id": "alpha", "message": "recall"]), "Debussy",
+                       "alpha's own search must come back for alpha")
+        XCTAssertEqual(try post(["session_id": "beta", "message": "recall"]), "Autechre",
+                       "and beta's own search for beta, not alpha's")
+        XCTAssertEqual(try post(["message": "recall"]), "none",
+                       "a caller sending no session id must not inherit either conversation's seed")
+    }
 }

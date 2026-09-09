@@ -43,6 +43,11 @@ public struct FileStore: Sendable {
     public static let defaultMaximumFileBytes = 64 * 1024 * 1024
     /// Everything held, together. Past this the oldest goes.
     public static let defaultMaximumTotalBytes = 512 * 1024 * 1024
+    /// `name` comes straight from the caller's `X-Baton-Name` header, whose only bound is the
+    /// transport's 32 KB header cap (TBX-5325, TBX-5308 S-F26). Truncated rather than refused —
+    /// a display name is not something an upload should fail over — so every sidecar file and
+    /// every `list()` response stays a display name's size, not a header's.
+    public static let maximumNameLength = 255
     /// A file nobody collected in a fortnight is not going to be collected.
     public static let defaultMaximumAge: TimeInterval = 14 * 24 * 60 * 60
 
@@ -123,6 +128,7 @@ public struct FileStore: Sendable {
         try? FileManager.default.removeItem(at: blob)   // replacing an id is a re-upload, not an error
         try FileManager.default.moveItem(at: staged, to: blob)
 
+        let name = name.count <= Self.maximumNameLength ? name : String(name.prefix(Self.maximumNameLength))
         let meta = Metadata(id: id, name: name, contentType: contentType, size: size,
                             sha256: sha256, createdAt: now, origin: origin)
         try JSONEncoder().encode(meta).write(to: sidecarURL(id), options: .atomic)

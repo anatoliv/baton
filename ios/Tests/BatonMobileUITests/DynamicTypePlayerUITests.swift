@@ -22,11 +22,15 @@ final class DynamicTypePlayerUITests: XCTestCase {
         // album page, an unreachable control — which is a flaky test rather than three
         // bugs, and a red test that means nothing is worse than no test. Layout at a text
         // size has nothing to do with the network, so it should not depend on one.
+        // TBX-5336: launchEnvironment, not launchArguments, for Baton's own overrides — see
+        // CLAUDE.md's UI-test section. `-UIPreferredContentSizeCategoryName` stays a launch
+        // argument: UIKit itself reads it, so it is unaffected by the flake this fixes.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        // Third accessibility step — large enough to break the old layout, and a size
+        // real people use rather than an extreme nobody sets.
         app.launchArguments += [
-            "-baton.resetSession", "-baton.demoMode", "YES",
-            "-uitestBypassBiometrics",
-            // Third accessibility step — large enough to break the old layout, and a size
-            // real people use rather than an extreme nobody sets.
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL",
         ]
     }

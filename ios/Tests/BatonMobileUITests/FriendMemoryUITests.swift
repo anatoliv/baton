@@ -38,17 +38,16 @@ final class FriendMemoryUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestServer", "https://demo.navidrome.org",
-            "-uitestUser", "demo",
-            "-uitestSecret", "demo",
-            "-uitestSeedMemories", "YES",
-            // Stands in for a connection test the person already passed, so the Friend tab is
-            // there. Without it this skipped on every clean simulator, which is a test that
-            // reads as coverage and is not.
-            "-uitestVerifiedAgent", "YES",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
+        app.launchEnvironment["uitestUser"] = "demo"
+        app.launchEnvironment["uitestSecret"] = "demo"
+        app.launchEnvironment["uitestSeedMemories"] = "YES"
+        // Stands in for a connection test the person already passed, so the Friend tab is
+        // there. Without it this skipped on every clean simulator, which is a test that
+        // reads as coverage and is not.
+        app.launchEnvironment["uitestVerifiedAgent"] = "YES"
     }
 
     override func tearDown() { app = nil; super.tearDown() }

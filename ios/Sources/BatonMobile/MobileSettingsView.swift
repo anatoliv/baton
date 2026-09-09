@@ -57,7 +57,7 @@ struct MobileSettingsView: View {
     private var disconnectMessage: String {
         var parts = ["Baton will forget this server and remove its data from this iPhone: listening history, playlisted downloads, radio bans, scrobble accounts, the music friend's key, and what the music friend remembers about you and has learned from your corrections. That also clears the friend's memory on your other devices the next time they sync."]
         if purgePreview.historyCount > 0 {
-            parts.append("\(purgePreview.historyCount) plays will be cleared from this device \u{2014} your server's own play counts are untouched.")
+            parts.append("\(purgePreview.historyCount) plays will be cleared from this device. Your server's own play counts are untouched.")
         }
         if purgePreview.downloadSummary != nil {
             parts.append("Deleting downloads cannot be undone.")

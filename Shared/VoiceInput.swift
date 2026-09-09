@@ -37,13 +37,18 @@ final class VoiceInput {
 
     #if DEBUG
     /// Suppresses the speech-recognition permission dialog under UI test. See `start()`.
-    static let skipSpeechAuthorizationArgument = "-uitestSkipSpeechAuthorization"
-
-    /// True in **any** test run, unit or UI — not merely when a launch argument was passed.
     ///
-    /// The launch argument alone was not enough, and the way it failed is worth keeping.
+    /// Was a bare `-uitestSkipSpeechAuthorization` launch argument. TBX-5336:
+    /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch in
+    /// four, so the UI tests that need this now set it through `app.launchEnvironment`
+    /// instead, read here via `ProcessInfo.processInfo.environment`.
+    static let skipSpeechAuthorizationArgument = "uitestSkipSpeechAuthorization"
+
+    /// True in **any** test run, unit or UI — not merely when the environment override was set.
+    ///
+    /// The override alone was not enough, and the way it failed is worth keeping.
     /// `VoiceInputCrashTests` calls `start()` three times to exercise the dispatch-isolation
-    /// crash fix. Those are *unit* tests, so they never see a UI test's launch arguments —
+    /// crash fix. Those are *unit* tests, so they never see a UI test's launch environment —
     /// and each call raised the speech-permission dialog inside the test host. The dialog
     /// is drawn by SpringBoard and outlives the suite that raised it, so every UI test
     /// scheduled afterwards ran behind a modal alert nobody could tap.
@@ -54,7 +59,7 @@ final class VoiceInput {
     /// and a UI test run on its own passed on both. Ordering, not platform.
     static var isUnderTest: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || ProcessInfo.processInfo.arguments.contains(skipSpeechAuthorizationArgument)
+            || ProcessInfo.processInfo.environment[skipSpeechAuthorizationArgument] != nil
     }
     #endif
 

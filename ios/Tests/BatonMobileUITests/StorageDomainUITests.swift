@@ -36,7 +36,9 @@ final class StorageDomainUITests: XCTestCase {
 
     func testTheAppUnderXCUITestResolvesOneStorageDomainForBothHalvesOfFriendSync() {
         let app = XCUIApplication()
-        app.launchArguments += ["-baton.resetSession", "-baton.demoMode", "YES"]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
         app.launch()
 
         let report = app.otherElements["debug.storageDomains"].firstMatch
@@ -62,10 +64,11 @@ final class StorageDomainUITests: XCTestCase {
     /// worse than no redirect, since the run would look clean and test nothing.
     func testAProbeLaunchAlsoKeepsBothHalvesInOneDomain() {
         let app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession", "-baton.demoMode", "YES",
-            "-baton.defaultsSuite", "io.tonebox.tests.uiprobe",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // `-baton.defaultsSuite`'s environment fallback lives in `BatonStorage.redirect`.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
+        app.launchEnvironment["baton.defaultsSuite"] = "io.tonebox.tests.uiprobe"
         app.launch()
 
         let text = app.staticTexts["debug.storageDomains"].firstMatch

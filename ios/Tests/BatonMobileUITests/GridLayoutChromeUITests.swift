@@ -20,18 +20,18 @@ final class GridLayoutChromeUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestServer", "https://demo.navidrome.org",
-            "-uitestUser", "demo", "-uitestSecret", "demo",
-            "-uitestBypassBiometrics",
-            // Force the branch under test. These are the real `@AppStorage` keys
-            // (`BrowseLayout.key`), so this drives the screens exactly as a person who had
-            // tapped the grid button would — including Artists, whose default hides the bug.
-            "-tonebox.music.podcastLayout", "grid",
-            "-tonebox.music.radioLayout", "grid",
-            "-tonebox.music.artistLayout", "grid",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
+        app.launchEnvironment["uitestUser"] = "demo"
+        app.launchEnvironment["uitestSecret"] = "demo"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        // Force the branch under test. These are the real `@AppStorage` keys
+        // (`BrowseLayout.key`), so this drives the screens exactly as a person who had
+        // tapped the grid button would — including Artists, whose default hides the bug.
+        app.launchEnvironment["tonebox.music.podcastLayout"] = "grid"
+        app.launchEnvironment["tonebox.music.radioLayout"] = "grid"
+        app.launchEnvironment["tonebox.music.artistLayout"] = "grid"
     }
 
     override func tearDown() { app = nil; super.tearDown() }

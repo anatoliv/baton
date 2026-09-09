@@ -35,15 +35,14 @@ final class FriendVerificationEvidenceTests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipIf(stubBaseURL.isEmpty, "no stub provider supplied")
         app = XCUIApplication()
-        app.launchArguments += [
-            "-baton.resetSession",
-            "-uitestBypassBiometrics",
-            "-baton.demoMode", "YES",
-            "-baton.agent.route", "direct",
-            "-baton.agent.provider", "openAICompatible",
-            "-baton.agent.baseURL", stubBaseURL,
-            "-baton.agent.model", "chat",
-        ]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
+        app.launchEnvironment["baton.agent.route"] = "direct"
+        app.launchEnvironment["baton.agent.provider"] = "openAICompatible"
+        app.launchEnvironment["baton.agent.baseURL"] = stubBaseURL
+        app.launchEnvironment["baton.agent.model"] = "chat"
     }
 
     override func tearDown() { app = nil; super.tearDown() }
@@ -144,10 +143,10 @@ final class FriendVerificationEvidenceTests: XCTestCase {
         typeAPIKey()
         capture("20-key-typed-before-relaunch")
 
-        // Same launch arguments minus the wipe, so the only thing that could carry the key
+        // Same launch environment minus the wipe, so the only thing that could carry the key
         // across is the Keychain.
         app.terminate()
-        app.launchArguments = app.launchArguments.filter { $0 != "-baton.resetSession" }
+        app.launchEnvironment.removeValue(forKey: "baton.resetSession")
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60))
         openMusicFriendSettings()

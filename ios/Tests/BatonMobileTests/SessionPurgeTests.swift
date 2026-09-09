@@ -218,6 +218,26 @@ final class SessionPurgeTests: XCTestCase {
         XCTAssertNil(model.friendLearning.promptBlock, "the friend's learned corrections survived the purge")
     }
 
+    /// The DEBUG reset path (`-baton.resetSession`) is the one that found TBX-5230 in the
+    /// first place: a UI fixture reset the session and still met last run's memories. It
+    /// clears the same two stores `purge` does, through the same tombstoning calls.
+    func testResetSessionWipesTheFriendsMemoryAndLearning() {
+        let memory = RemoteMemoryStore()
+        let learning = FriendLearningStore()
+        _ = memory.remember(kind: "preference", text: "Nothing loud before nine",
+                            quote: "nothing loud before nine in the morning")
+        _ = learning.learn(from: FriendExchange(
+            surface: .phone, request: "play something loud", reply: "here",
+            rating: .down, fault: .wrongTrack))
+        XCTAssertNotNil(memory.rendered(), "precondition: a memory to erase")
+        XCTAssertNotNil(learning.promptBlock, "precondition: a correction to erase")
+
+        SessionPurge.wipeStores()
+
+        XCTAssertNil(RemoteMemoryStore().rendered(), "the friend's memory survived a session reset")
+        XCTAssertNil(FriendLearningStore().promptBlock, "the friend's corrections survived a session reset")
+    }
+
     private func seedClipping(into store: ClippingStore) throws -> ClippingStore.Item {
         let source = FileManager.default.temporaryDirectory
             .appendingPathComponent("ws6-\(UUID().uuidString).m4a")

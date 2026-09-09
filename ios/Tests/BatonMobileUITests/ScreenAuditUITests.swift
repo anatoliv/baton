@@ -24,7 +24,9 @@ final class ScreenAuditUITests: XCTestCase {
         // badge, and without this every later test inherited that connection — the demo
         // library was gone and five unrelated screens failed for a reason that was not
         // theirs.
-        app.launchArguments += ["-baton.resetSession", "-baton.demoMode", "YES"]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["baton.demoMode"] = "YES"
         app.launch()
         dismissWhatsNewIfPresented()
     }

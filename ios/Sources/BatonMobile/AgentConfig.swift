@@ -85,20 +85,39 @@ final class AgentConfig {
     /// after-import path is the one nobody exercises by hand.
     private static func read(defaults: UserDefaults, secrets: any SecretStore) -> Stored {
         Stored(
-            route: Route(rawValue: defaults.string(forKey: Keys.route) ?? "")
+            route: Route(rawValue: string(Keys.route, defaults) ?? "")
                 // Before this setting existed, having a gateway URL *was* the choice.
-                ?? ((defaults.string(forKey: Keys.gatewayURL)?.isEmpty == false) ? .gateway : .direct),
+                ?? ((string(Keys.gatewayURL, defaults)?.isEmpty == false) ? .gateway : .direct),
             provider: RemoteControlSettings.LLMProvider(
-                rawValue: defaults.string(forKey: Keys.provider) ?? ""
+                rawValue: string(Keys.provider, defaults) ?? ""
             ) ?? .anthropic,
-            model: defaults.string(forKey: Keys.model) ?? "claude-haiku-4-5-20251001",
-            baseURL: defaults.string(forKey: Keys.baseURL)
+            model: string(Keys.model, defaults) ?? "claude-haiku-4-5-20251001",
+            baseURL: string(Keys.baseURL, defaults)
                 ?? RemoteControlSettings.LLMProvider.anthropic.defaultBaseURL,
-            gatewayURL: defaults.string(forKey: Keys.gatewayURL) ?? "",
+            gatewayURL: string(Keys.gatewayURL, defaults) ?? "",
             apiKey: secrets.secret(for: Keys.apiKeyAccount) ?? "",
             gatewayToken: secrets.secret(for: Keys.gatewayTokenAccount) ?? "",
             verifiedFingerprint: defaults.string(forKey: Keys.verified)
         )
+    }
+
+    /// `defaults.string(forKey:)`, with a DEBUG-only environment override checked first.
+    ///
+    /// `FriendVerificationEvidenceTests` and `LiveFriendComposerCaptureTests` set
+    /// `route`/`provider`/`model`/`baseURL` at launch so the Friend tab is reachable without
+    /// a real provider. That used to be `-baton.agent.route direct` etc. in
+    /// `app.launchArguments`, read automatically off `UserDefaults`'s NSArgumentDomain.
+    /// TBX-5336: `XCUIApplication.launchArguments` drops a whole `-key value` group about one
+    /// launch in four, so these now come through `app.launchEnvironment` — and because
+    /// `AgentConfig` reads its stored values once, at construction (in a `MobileModel`
+    /// property initializer, before `MobileModel.init()`'s own body — including its
+    /// `-baton.resetSession` handling — has run at all), the override has to be checked here,
+    /// at the read, rather than seeded into `UserDefaults` at some other point in startup.
+    private static func string(_ key: String, _ defaults: UserDefaults) -> String? {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment[key] { return override }
+        #endif
+        return defaults.string(forKey: key)
     }
 
     /// Re-read everything, for when storage changed underneath this object.

@@ -176,4 +176,28 @@ final class FileStoreTests: XCTestCase {
         XCTAssertNil(store.blobURL(id: fileID))
         XCTAssertTrue(store.list().isEmpty)
     }
+
+    // MARK: - TBX-5325: a stored name is bounded on its own, not just by the header cap
+
+    /// `name` comes straight off `X-Baton-Name`, whose only limit is the transport's 32 KB
+    /// header cap — so an uncapped name would put up to 32 KB in every sidecar file and every
+    /// `list()` response, forever, for a field that exists to be shown on screen.
+    func testAnOversizedNameIsTruncatedRatherThanStoredWhole() throws {
+        let fileID = id()
+        let longName = String(repeating: "n", count: 5_000)
+        let meta = try store.commit(staged: try staged(10), id: fileID, name: longName,
+                                    contentType: "audio/mp4", sha256: nil, origin: nil)
+
+        XCTAssertEqual(meta.name.count, FileStore.maximumNameLength,
+                       "the name handed back must already be the bounded one")
+        XCTAssertEqual(store.metadata(id: fileID)?.name.count, FileStore.maximumNameLength,
+                       "and so must what comes back off disk")
+    }
+
+    /// An ordinary file name is untouched — this is a ceiling, not a rewrite.
+    func testAnOrdinaryNameIsUnaffected() throws {
+        let meta = try store.commit(staged: try staged(10), id: id(), name: "Reading.m4a",
+                                    contentType: "audio/mp4", sha256: nil, origin: nil)
+        XCTAssertEqual(meta.name, "Reading.m4a")
+    }
 }

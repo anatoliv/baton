@@ -13,7 +13,9 @@ final class iPadLayoutCaptureTests: XCTestCase {
         super.setUp()
         continueAfterFailure = true
         app = XCUIApplication()
-        app.launchArguments += ["-baton.resetSession", "-uitestBypassBiometrics"]
+        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        app.launchEnvironment["baton.resetSession"] = "1"
+        app.launchEnvironment["uitestBypassBiometrics"] = "1"
     }
 
     /// These walk an iPad-shaped canvas and mean nothing on a phone — where the same taps
