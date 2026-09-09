@@ -1,0 +1,75 @@
+[
+  {
+    "inserted_at": 1690003600,
+    "listened_at": 1690000000,
+    "recording_msid": "8f3471b5-7e6a-4d64-9e1c-0f6a25b8f7f2",
+    "user_name": "listener",
+    "track_metadata": {
+      "artist_name": "Tangerine Dream",
+      "track_name": "Ricochet, Pt. 1",
+      "release_name": "Ricochet",
+      "additional_info": {
+        "duration_ms": 1071000,
+        "submission_client": "ListenBrainz Web",
+        "recording_msid": "8f3471b5-7e6a-4d64-9e1c-0f6a25b8f7f2",
+        "artist_msid": null,
+        "tracknumber": 1
+      },
+      "mbid_mapping": {
+        "artist_mbids": ["2b0646af-b3f5-4c4e-9d1b-1b7b0a4f0d9c"],
+        "recording_mbid": "0c9b2d5a-3f1e-4a7c-8c1e-2f6d4b8a1c3e",
+        "release_mbid": "6a1b3c5d-7e9f-4b2a-8d6c-1e3f5a7b9c2d",
+        "caa_id": 29118211849,
+        "caa_release_mbid": "6a1b3c5d-7e9f-4b2a-8d6c-1e3f5a7b9c2d"
+      }
+    }
+  },
+  {
+    "inserted_at": 1690004900,
+    "listened_at": 1690001200,
+    "recording_msid": "1d5c7e9a-2b4f-4c6d-8e0a-3f5b7d9c1e2a",
+    "user_name": "listener",
+    "track_metadata": {
+      "artist_name": "Jean-Michel Jarre",
+      "track_name": "Oxygène, Pt. 4",
+      "release_name": "Oxygène",
+      "additional_info": {
+        "duration_ms": 245000,
+        "submission_client": "Baton",
+        "music_service_name": "Navidrome"
+      }
+    }
+  },
+  {
+    "inserted_at": 1690006100,
+    "listened_at": 1690002400,
+    "user_name": "listener",
+    "track_metadata": {
+      "artist_name": "Manuel Göttsching",
+      "track_name": "E2-E4",
+      "additional_info": {
+        "duration_ms": 3558000
+      }
+    }
+  },
+  {
+    "inserted_at": 1690007300,
+    "listened_at": 1690003600,
+    "user_name": "listener",
+    "track_metadata": {
+      "artist_name": "Tatsuro Yamashita",
+      "track_name": "夜のストレンジャー",
+      "release_name": "For You"
+    }
+  },
+  {
+    "inserted_at": 1690008500,
+    "listened_at": 1690004800,
+    "user_name": "listener",
+    "track_metadata": {
+      "artist_name": "   ",
+      "track_name": "A listen with no artist, which ListenBrainz does hold",
+      "release_name": "Unknown"
+    }
+  }
+]

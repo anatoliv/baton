@@ -74,8 +74,17 @@ struct MacMusicFriendView: View {
                 messages.append(Message(role: .friend, text: reply.text,
                                         exchangeID: remote?.feedbackLog.exchanges.first { $0.surface == .mac }?.id))
             }
+            // Clears a stale denial banner if the user granted mic/speech access in System
+            // Settings since this window was last open.
+            voice?.refreshAuthorization()
         }
-        .onDisappear { remote?.desktopSink = nil }
+        .onDisappear {
+            remote?.desktopSink = nil
+            // Otherwise switching away mid-recording leaves the mic, the audio session and
+            // the audio-focus token live: the orange mic dot stays on and music stays ducked
+            // with nothing on screen explaining why.
+            voice?.stop()
+        }
     }
 
     // MARK: Transcript

@@ -101,7 +101,7 @@ enum ReadAloudExport {
                     } catch {
                         // Same rule as a reading: once the host has failed, stop asking it.
                         hostIsDown = true
-                        readAloudLog.notice("export: TTS host unreachable — continuing in the built-in voice")
+                        readAloudLog.notice("export: TTS host unreachable, continuing in the built-in voice")
                     }
                 }
                 if rendered == nil {
@@ -117,7 +117,7 @@ enum ReadAloudExport {
                     // One unrenderable sentence should not lose the other three hundred. Say so,
                     // because a silently shorter file is exactly the kind of failure that is only
                     // noticed by someone listening on a walk.
-                    readAloudLog.error("export: no audio for one chunk — it is missing from the file")
+                    readAloudLog.error("export: no audio for one chunk, so it is missing from the file")
                 }
                 progress(Double(index + 1) / Double(chunks.count))
             }

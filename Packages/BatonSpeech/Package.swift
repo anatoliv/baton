@@ -16,5 +16,13 @@ let package = Package(
         .package(path: "../BatonSubsonicModels"),
         .package(path: "../BatonSubsonicKit"),
     ],
-    targets: [.target(name: "BatonSpeech", dependencies: ["BatonSubsonicModels", "BatonSubsonicKit"])]
+    targets: [
+        .target(name: "BatonSpeech", dependencies: ["BatonSubsonicModels", "BatonSubsonicKit"]),
+        // The package's first test target (S-F23 and S-F24). Its assertions all lived in the
+        // macOS app target, so `swift test` here was vacuous and the iPhone gate ran none of
+        // them while shipping the same code. `BatonSubsonicModels` is a direct test dependency
+        // because `Transcript` is what the response parser returns.
+        .testTarget(name: "BatonSpeechTests",
+                    dependencies: ["BatonSpeech", "BatonSubsonicModels"]),
+    ]
 )

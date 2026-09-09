@@ -8,11 +8,11 @@ struct MusicLyricsView: View {
     let song: NavidromeSong
     /// Injected lyrics for previews/snapshots (skips the network load).
     var previewLyrics: NavidromeLyrics?
-    @State private var lyrics: NavidromeLyrics?
+    @State private var lookup: LyricsLookup?
     @State private var loading = true
 
     private var displayLyrics: NavidromeLyrics? {
-        previewLyrics ?? lyrics
+        previewLyrics ?? lookup?.lyrics
     }
 
     private var isLoading: Bool {
@@ -21,8 +21,13 @@ struct MusicLyricsView: View {
 
     /// A two-hour set is not a song that happens to be missing its words, and saying so is
     /// kinder than the generic empty state after a lookup that never had a chance.
+    ///
+    /// A lookup that failed for a reason the person can act on says that instead. A refused
+    /// sign in and a rate-limited lyrics service used to render as "No lyrics for this
+    /// track", which is a statement about the song and was wrong about it (S-F27).
     private var emptyMessage: String {
-        LRCLIBLyrics.isLikelyLyricless(durationSeconds: song.duration)
+        if let reason = lookup?.failureMessage { return reason }
+        return LRCLIBLyrics.isLikelyLyricless(durationSeconds: song.duration)
             ? "Too long to have lyrics: mixes and sets aren't written down"
             : "No lyrics for this track"
     }
@@ -52,16 +57,19 @@ struct MusicLyricsView: View {
                 }
             } else {
                 VStack(spacing: 6) {
-                    Image(systemName: "text.quote").font(.title).foregroundStyle(.secondary)
-                    Text(emptyMessage).foregroundStyle(.secondary)
+                    Image(systemName: lookup?.failureMessage == nil ? "text.quote" : "exclamationmark.triangle")
+                        .font(.title).foregroundStyle(.secondary)
+                    Text(emptyMessage)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task(id: song.id) {
-            if let previewLyrics { lyrics = previewLyrics; loading = false; return }
+            if let previewLyrics { lookup = .found(previewLyrics); loading = false; return }
             loading = true
-            lyrics = await model.musicLibrary.lyrics(for: song.id, song: song)
+            lookup = await model.musicLibrary.lyricsLookup(for: song.id, song: song)
             loading = false
         }
     }

@@ -228,7 +228,7 @@ extension HelpTour {
                     title: "You bring the brain",
                     body: """
                     Baton ships no API key and contacts no model provider until \
-                    you set one up — Anthropic, OpenAI, or a model running on \
+                    you set one up: Anthropic, OpenAI, or a model running on \
                     your own machine. Until then the window will say it has \
                     nothing to answer with.
 
@@ -241,9 +241,9 @@ extension HelpTour {
                     symbol: "slider.horizontal.3",
                     title: "Setting it up",
                     body: """
-                    It lives in **Settings, Remote** — the same pane as the \
+                    It lives in **Settings, Remote** (the same pane as the \
                     Telegram and Discord bridges, because they all run on the \
-                    same brain — in the **Natural language** section below \
+                    same brain), in the **Natural language** section below \
                     them.
 
                     1. Turn on **Understand plain English**. Leave *Enable remote control* at the top of the pane alone; that one is only for the chat apps.
@@ -293,8 +293,8 @@ extension HelpTour {
                     title: "Tell it when it's wrong",
                     body: """
                     Every answer carries a quiet thumbs-up and thumbs-down. A \
-                    thumbs-down asks what went wrong — wrong track, \
-                    misunderstood, too slow, too chatty — and that correction \
+                    thumbs-down asks what went wrong (wrong track, \
+                    misunderstood, too slow, too chatty), and that correction \
                     goes into what it reads before answering next time.
 
                     **Settings, Friend Log** holds the whole history.
@@ -315,6 +315,20 @@ extension HelpWhatsNewRelease {
     /// enforced it. `WhatsNewFreshnessTests` now fails when the newest entry falls behind
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
+        HelpWhatsNewRelease(
+            version: "0.19.3",
+            date: "September 2026",
+            highlight: "Settings, Remote and Friend Log work with the library window closed, and every control has a name for VoiceOver.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Settings, Remote and Settings, Friend Log showed nothing when the library "
+                    + "window was closed and Baton was running from the menu bar. They now "
+                    + "show their switches, memories and log whether or not that window is open."),
+                HelpWhatsNewChange(.improved,
+                    "The controls that only had an icon now have a VoiceOver label, and the "
+                    + "full screen player hides what it covers from VoiceOver as well as from sight."),
+            ]
+        ),
         HelpWhatsNewRelease(
             version: "0.19.2",
             date: "September 2026",

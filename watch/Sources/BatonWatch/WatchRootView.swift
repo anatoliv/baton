@@ -34,15 +34,18 @@ struct WatchNowPlayingView: View {
                     Button { model.music.previous() } label: {
                         Image(systemName: "backward.fill")
                     }
+                    .accessibilityLabel("Previous")
                     Button {
                         model.music.isPlaying ? model.music.pause() : model.music.resume()
                     } label: {
                         Image(systemName: model.music.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                             .font(.title2)
                     }
+                    .accessibilityLabel(model.music.isPlaying ? "Pause" : "Play")
                     Button { model.music.next() } label: {
                         Image(systemName: "forward.fill")
                     }
+                    .accessibilityLabel("Next")
                 }
                 .buttonStyle(.plain)
             } else {

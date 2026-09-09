@@ -107,7 +107,7 @@ final class MobileAudioSession {
     /// stale; resuming here would race the host's rebuild. Playback stops and waits for
     /// the user, which is the honest outcome of the audio server dying underneath us.
     private func handleMediaServicesReset() {
-        sessionLog.error("media services were reset — rebuilding audio")
+        sessionLog.error("media services were reset, rebuilding audio")
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
         } catch {

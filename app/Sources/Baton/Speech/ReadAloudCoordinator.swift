@@ -383,12 +383,12 @@ final class ReadAloudCoordinator {
                 // host was answering in 15 ms. The reason lives in the thrown `SynthError`.
                 let reason = (error as? SpeechService.SynthError)?.message ?? error.localizedDescription
                 guard SpeechConfig.fallbackEnabled else {
-                    readAloudLog.error("synthesis failed and fallback is off — stopping the reading: \(reason, privacy: .public)")
+                    readAloudLog.error("synthesis failed and fallback is off. Stopping the reading: \(reason, privacy: .public)")
                     return false
                 }
                 if consecutiveFailures >= failuresBeforeFallback {
                     hostIsDown = true
-                    readAloudLog.notice("TTS host failed \(consecutiveFailures) times — the rest of this reading is in the built-in voice: \(reason, privacy: .public)")
+                    readAloudLog.notice("TTS host failed \(consecutiveFailures) times. The rest of this reading is in the built-in voice: \(reason, privacy: .public)")
                 } else {
                     readAloudLog.notice("one chunk failed, still trying the host: \(reason, privacy: .public)")
                 }

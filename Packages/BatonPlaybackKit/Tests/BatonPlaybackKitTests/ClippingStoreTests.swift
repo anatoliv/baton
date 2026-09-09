@@ -592,3 +592,145 @@ final class ClippingReconcileTests: XCTestCase {
         XCTAssertEqual(store.item(id: item.id)?.clipping.title, "Renamed elsewhere")
     }
 }
+
+
+/// The clipping files moving onto `VersionedStore` (S-F14 / TBX-5354).
+///
+/// A sidecar is the only record of what a clipping is, and a tombstone list that reads as
+/// empty brings back every clipping this device deleted. Neither can be re-derived from
+/// anything, which is what puts them in this batch.
+@MainActor
+final class ClippingPersistenceTests: XCTestCase {
+
+    private var dir: URL!
+    private var suite: UserDefaults!
+    private var store: ClippingStore!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("baton-clip-store-\(UUID().uuidString)")
+        suite = UserDefaults(suiteName: "baton.clipstore.\(UUID().uuidString)")!
+        store = ClippingStore(directory: dir, defaults: suite)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func staged() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clip-\(UUID().uuidString).m4a")
+        try Data(repeating: 0x41, count: 2048).write(to: url)
+        return url
+    }
+
+    private func reopened() -> ClippingStore {
+        let store = ClippingStore(directory: dir, defaults: suite)
+        store.loadIfNeeded()
+        return store
+    }
+
+    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+
+    /// Exactly what the pre-`VersionedStore` code wrote for both files: raw JSON, no envelope.
+    ///
+    ///     try JSONEncoder().encode(clipping).write(to: sidecarURL(id), options: .atomic)
+    ///     try JSONEncoder().encode(entries).write(to: dismissedURL, options: .atomic)
+    private func writeLegacySidecar(_ clipping: ClippingStore.Clipping) throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONEncoder().encode(clipping)
+            .write(to: dir.appendingPathComponent("\(clipping.id).json"), options: .atomic)
+    }
+
+    private func writeLegacyDismissed(_ entries: [String: Date]) throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONEncoder().encode(entries)
+            .write(to: dir.appendingPathComponent("dismissed.json"), options: .atomic)
+    }
+
+    func testReadsSidecarsAndTombstonesWrittenByTheOldCodeUnchanged() throws {
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let legacy = ClippingStore.Clipping(id: "0c1d2e3f", title: "Google Chrome 09.15",
+                                            source: "Google Chrome", durationSeconds: 371,
+                                            createdAt: created, text: "the words that were read",
+                                            sha256: "abc123")
+        try writeLegacySidecar(legacy)
+        let audio = dir.appendingPathComponent("0c1d2e3f.m4a")
+        try Data(repeating: 0x41, count: 2048).write(to: audio)
+        // Inside the 30-day retention window, or the tombstone is expired rather than lost.
+        let dismissedAt = Date().addingTimeInterval(-3600)
+        try writeLegacyDismissed(["deadbeef": dismissedAt])
+
+        let reopened = reopened()
+        XCTAssertEqual(reopened.item(id: "0c1d2e3f")?.clipping, legacy,
+                       "an upgrade must read the clipping the old build kept")
+        XCTAssertEqual(reopened.item(id: "0c1d2e3f")?.url, audio,
+                       "the audio file must still be found next to the sidecar")
+        XCTAssertEqual(reopened.dismissedDigests, ["deadbeef"],
+                       "an upgrade must read the tombstones, or every deleted clipping returns")
+
+        // And the write that follows keeps both.
+        reopened.rename(id: "0c1d2e3f", to: "Renamed")
+        XCTAssertTrue(reopened.dismiss(sha256: "cafebabe"))
+        let third = self.reopened()
+        XCTAssertEqual(third.item(id: "0c1d2e3f")?.clipping.title, "Renamed")
+        XCTAssertEqual(third.item(id: "0c1d2e3f")?.clipping.text, "the words that were read")
+        XCTAssertEqual(third.dismissedDigests, ["deadbeef", "cafebabe"])
+    }
+
+    /// An unreadable sidecar leaves the clipping out of the list either way. What changes is
+    /// that the bytes survive, so the title and transcript can be recovered by hand instead of
+    /// being replaced by the next rename.
+    func testACorruptSidecarIsQuarantinedRatherThanOverwritten() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let damaged = Data(#"{"id":"0c1d2e3f","title":"Google Chr"#.utf8)
+        try damaged.write(to: dir.appendingPathComponent("0c1d2e3f.json"))
+        try Data(repeating: 0x41, count: 2048).write(to: dir.appendingPathComponent("0c1d2e3f.m4a"))
+
+        let reopened = reopened()
+        XCTAssertNil(reopened.item(id: "0c1d2e3f"), "an unreadable sidecar is not a clipping")
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        let aside = try XCTUnwrap(names.first { $0.hasPrefix("0c1d2e3f.json.corrupt-") },
+                                  "the damaged bytes were not kept: \(names)")
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(aside)), damaged,
+                       "the quarantined copy must be the original bytes, byte for byte")
+    }
+
+    /// A quarantined sidecar sits next to the clipping under a name that starts with its id and
+    /// does not end in `.json`, which is exactly the shape the audio lookup used to accept.
+    ///
+    /// Written with the audio file absent on purpose, so the answer cannot depend on which
+    /// name the directory enumeration happens to return first: the quarantine file is the only
+    /// candidate the old rule would have matched. The right answer with no audio present is the
+    /// default `<id>.m4a` path, which the view then reports as a missing file. The wrong one is
+    /// a JSON fragment handed to the player as audio.
+    func testAQuarantinedSidecarIsNotMistakenForTheAudioFile() throws {
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        try writeLegacySidecar(.init(id: "0c1d2e3f", title: "Kept", source: "Chrome",
+                                     durationSeconds: 90, createdAt: created))
+        try Data(#"{"id":"0c1d2e3f","tit"#.utf8)
+            .write(to: dir.appendingPathComponent("0c1d2e3f.json.corrupt-2026-09-09T00-00-00Z"))
+
+        let reopened = reopened()
+        XCTAssertEqual(reopened.item(id: "0c1d2e3f")?.url.lastPathComponent, "0c1d2e3f.m4a",
+                       "the quarantine file was handed back as the clipping's audio")
+    }
+
+    /// A tombstone list that reads as empty is not a blank slate: every clipping this device
+    /// deleted comes back on the next reconcile.
+    func testACorruptTombstoneFileIsQuarantinedRatherThanOverwritten() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let damaged = Data(#"{"deadbeef":75300000"#.utf8)
+        try damaged.write(to: dir.appendingPathComponent("dismissed.json"))
+
+        let reopened = reopened()
+        XCTAssertTrue(reopened.dismissedDigests.isEmpty)
+        XCTAssertTrue(reopened.dismiss(sha256: "cafebabe")) // used to destroy the old list
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        let aside = try XCTUnwrap(names.first { $0.hasPrefix("dismissed.json.corrupt-") },
+                                  "the damaged tombstones were not kept: \(names)")
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(aside)), damaged)
+    }
+}

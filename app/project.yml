@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.19.2"
-    CURRENT_PROJECT_VERSION: "102"
+    MARKETING_VERSION: "0.19.3"
+    CURRENT_PROJECT_VERSION: "103"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -348,6 +348,11 @@ schemes:
         # run it. Found by checking which of the suites added for TBX-2838 actually
         # appeared in the result bundle — the total alone looked fine.
         - package: BatonSubsonicModels/BatonSubsonicModelsTests
+        # Added with the targets themselves (S-F24). Both packages shipped with no test
+        # target at all, so `swift test` in them was vacuous; a suite the gate does not run
+        # is the same hole one layer up, which is what happened to BatonSubsonicModels.
+        - package: BatonSpeech/BatonSpeechTests
+        - package: BatonMCPProtocol/BatonMCPProtocolTests
     profile:
       config: Release
     analyze:

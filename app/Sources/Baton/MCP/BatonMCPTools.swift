@@ -24,7 +24,7 @@ enum BatonMCPToolCatalog {
                 "music_search",
                 "Search the connected Navidrome music library for songs, albums, and artists matching a query. Returns matching songs (with ids you can pass to music_play) plus album/artist matches.",
                 properties: [
-                    "query": ["type": "string", "description": "What to search for — song title, artist, album, or keyword."],
+                    "query": ["type": "string", "description": "What to search for: song title, artist, album, or keyword."],
                     "limit": ["type": "integer", "description": "Max songs to return (default 20, max 100)."],
                 ],
                 required: ["query"]
@@ -33,7 +33,7 @@ enum BatonMCPToolCatalog {
                 "music_play",
                 "Immediately start playing songs on this Mac, replacing the current queue. Give `song_ids` to play an exact, ordered set, or `query` to play whatever matches a search ('play some jazz', 'play Kind of Blue').",
                 properties: [
-                    "query": ["type": "string", "description": "What to play — artist, album, song, or vibe keyword. Provide this or `song_ids`."],
+                    "query": ["type": "string", "description": "What to play: artist, album, song, or vibe keyword. Provide this or `song_ids`."],
                     "song_ids": ["type": "array", "items": ["type": "string"], "description": "Exact song ids to play, in order. Takes precedence over `query`."],
                     "limit": ["type": "integer", "description": "Max songs to queue when using `query` (default 25, max 100)."],
                 ],
@@ -55,15 +55,15 @@ enum BatonMCPToolCatalog {
             tool("music_next", "Skip to the next track in the music queue.", properties: [:], required: []),
             tool(
                 "music_previous",
-                "Go to the previous track. Always steps back a track, whatever the playhead position — unlike the app's back button, which restarts the current track when it is more than 3 seconds in. Pass force:false for that button-like behaviour instead.",
+                "Go to the previous track. Always steps back a track, whatever the playhead position. That is unlike the app's back button, which restarts the current track when it is more than 3 seconds in. Pass force:false for that button-like behaviour instead.",
                 properties: [
-                    "force": ["type": "boolean", "description": "Default true — step back a track regardless of playtime. Set false to restart the current track when more than 3 seconds in, matching the app's back button. No effect on the first track."],
+                    "force": ["type": "boolean", "description": "Default true: step back a track regardless of playtime. Set false to restart the current track when more than 3 seconds in, matching the app's back button. No effect on the first track."],
                 ],
                 required: []
             ),
             tool(
                 "music_set_volume",
-                "Set the music player volume (0–100). This only affects Baton's music player, not the macOS system volume.",
+                "Set the music player volume (0 to 100). This only affects Baton's music player, not the macOS system volume.",
                 properties: [
                     "percent": ["type": "integer", "description": "Volume from 0 (silent) to 100 (full)."],
                 ],
@@ -77,7 +77,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_recent_events",
-                "What was played recently and for how long before moving on — including "
+                "What was played recently and for how long before moving on, including "
                     + "skips. Answers 'did they actually like it', which play history cannot: "
                     + "a track heard to the end and one skipped after nine seconds look "
                     + "identical there.",
@@ -92,7 +92,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_get_playlist",
-                "Read one playlist's ordered tracks (by name or id), including each song's id, title, artist, duration, rating and like state. Use this to verify what a playlist actually contains — `music_list_playlists` returns only names and counts.",
+                "Read one playlist's ordered tracks (by name or id), including each song's id, title, artist, duration, rating and like state. Use this to verify what a playlist actually contains. `music_list_playlists` returns only names and counts.",
                 properties: [
                     "name": ["type": "string", "description": "Playlist name (case-insensitive). Provide this or `playlist_id`."],
                     "playlist_id": ["type": "string", "description": "Exact playlist id. Provide this or `name`."],
@@ -112,17 +112,17 @@ enum BatonMCPToolCatalog {
                 "music_like",
                 "Like (favorite) or unlike a track on the music server. Likes are stored per-user on Navidrome. Without `query`, acts on the currently-playing track.",
                 properties: [
-                    "query": ["type": "string", "description": "Song to like — searches and uses the top match. Omit to like the current track."],
+                    "query": ["type": "string", "description": "Song to like. Searches and uses the top match. Omit to like the current track."],
                     "unlike": ["type": "boolean", "description": "Set true to remove the like instead of adding it."],
                 ],
                 required: []
             ),
             tool(
                 "music_rate",
-                "Set a 1–5 star rating on a track (0 clears it). Ratings are stored per-user on the server. Without `query`, rates the currently-playing track.",
+                "Set a star rating from 1 to 5 on a track (0 clears it). Ratings are stored per-user on the server. Without `query`, rates the currently-playing track.",
                 properties: [
-                    "rating": ["type": "integer", "description": "0–5. 0 clears the rating."],
-                    "query": ["type": "string", "description": "Song to rate — top search match. Omit for the current track."],
+                    "rating": ["type": "integer", "description": "0 to 5. 0 clears the rating."],
+                    "query": ["type": "string", "description": "Song to rate. Uses the top search match. Omit for the current track."],
                 ],
                 required: ["rating"]
             ),
@@ -131,18 +131,18 @@ enum BatonMCPToolCatalog {
                 "Create a new playlist, optionally seeded with songs matching a query or with exact song ids.",
                 properties: [
                     "name": ["type": "string", "description": "Playlist name."],
-                    "query": ["type": "string", "description": "Optional — add the songs matching this search to the new playlist."],
+                    "query": ["type": "string", "description": "Optional. Adds the songs matching this search to the new playlist."],
                     "song_ids": ["type": "array", "items": ["type": "string"], "description": "Exact song ids to add. Precise alternative to `query`; takes precedence when both are given."],
                 ],
                 required: ["name"]
             ),
             tool(
                 "music_add_to_playlist",
-                "Add songs to an existing playlist (by name or id). Prefer `song_ids` when you know exactly which tracks you want — `query` appends every search match, which can silently add tracks you did not intend.",
+                "Add songs to an existing playlist (by name or id). Prefer `song_ids` when you know exactly which tracks you want. `query` appends every search match, which can silently add tracks you did not intend.",
                 properties: [
                     "name": ["type": "string", "description": "Playlist name (case-insensitive). Provide this or `playlist_id`."],
                     "playlist_id": ["type": "string", "description": "Exact playlist id. Provide this or `name`."],
-                    "query": ["type": "string", "description": "Songs to add — every search match is appended. Provide this or `song_ids`."],
+                    "query": ["type": "string", "description": "Songs to add. Every search match is appended. Provide this or `song_ids`."],
                     "song_ids": ["type": "array", "items": ["type": "string"], "description": "Exact song ids to add, in order. Takes precedence over `query`."],
                 ],
                 required: []
@@ -207,7 +207,7 @@ enum BatonMCPToolCatalog {
                 "music_play_next",
                 "Search the library for `query` and insert the matches immediately after the current track so they play next (without clearing the rest of the queue).",
                 properties: [
-                    "query": ["type": "string", "description": "What to play next — artist, album, song, or keyword."],
+                    "query": ["type": "string", "description": "What to play next: artist, album, song, or keyword."],
                     "limit": ["type": "integer", "description": "Max songs to insert (default 25, max 100)."],
                 ],
                 required: ["query"]
@@ -239,9 +239,9 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_set_crossfade",
-                "Set the crossfade between tracks, in seconds (0 turns it off, max 12). Crossfade and gapless are mutually exclusive — enabling crossfade suppresses gapless. This affects transitions at the END of a track; a manual skip always uses its own short blend.",
+                "Set the crossfade between tracks, in seconds (0 turns it off, max 12). Crossfade and gapless are mutually exclusive: enabling crossfade suppresses gapless. This affects transitions at the END of a track; a manual skip always uses its own short blend.",
                 properties: [
-                    "seconds": ["type": "number", "description": "0 to disable, or roughly 1–12 seconds of overlap. Values under 0.5 count as off."],
+                    "seconds": ["type": "number", "description": "0 to disable, or roughly 1 to 12 seconds of overlap. Values under 0.5 count as off."],
                 ],
                 required: ["seconds"]
             ),
@@ -263,7 +263,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_browse_albums",
-                "Browse albums by list type rather than by search — the way to answer 'something new', 'what I've been playing', or 'my usual'. Types: 'random', 'newest' (recently added), 'frequent' (most played), 'recent' (recently played), 'starred' (liked), 'alphabeticalByName', 'byGenre' (needs `genre`), 'byYear' (needs `from_year`/`to_year`).",
+                "Browse albums by list type rather than by search. This is the way to answer 'something new', 'what I've been playing', or 'my usual'. Types: 'random', 'newest' (recently added), 'frequent' (most played), 'recent' (recently played), 'starred' (liked), 'alphabeticalByName', 'byGenre' (needs `genre`), 'byYear' (needs `from_year`/`to_year`).",
                 properties: [
                     "type": ["type": "string", "description": "One of random, newest, frequent, recent, starred, alphabeticalByName, byGenre, byYear. Default 'random'."],
                     "genre": ["type": "string", "description": "Genre name, required when type='byGenre'."],
@@ -275,7 +275,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_similar_songs",
-                "Songs the server considers similar to a given song or artist — real neighbour data, not a keyword match. Give `song_id` or `query` (an artist or song name, whose top hit is used as the seed). This is what 'more like this' should use.",
+                "Songs the server considers similar to a given song or artist: real neighbour data, not a keyword match. Give `song_id` or `query` (an artist or song name, whose top hit is used as the seed). This is what 'more like this' should use.",
                 properties: [
                     "song_id": ["type": "string", "description": "Seed song id. Provide this or `query`."],
                     "query": ["type": "string", "description": "Artist or song name to seed from; its top search hit is used."],
@@ -285,7 +285,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_discover_external",
-                "Music the owner does NOT have, from public catalogues (MusicBrainz, ListenBrainz, and Last.fm / YouTube where a key is set). The outward-facing twin of `music_similar_songs`: use that one for 'what else in my library', and this one for 'what should I go and find'. Off unless the owner turned it on — if it reports that, say so plainly and don't retry.",
+                "Music the owner does NOT have, from public catalogues (MusicBrainz, ListenBrainz, and Last.fm / YouTube where a key is set). The outward-facing twin of `music_similar_songs`: use that one for 'what else in my library', and this one for 'what should I go and find'. Off unless the owner turned it on. If it reports that, say so plainly and don't retry.",
                 properties: [
                     "artist": ["type": "string", "description": "Artist to look outward from. Omit to use whatever is playing."],
                     "title": ["type": "string", "description": "Track title, when there is one. Sharpens the sources that work track-by-track."],
@@ -295,7 +295,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_liked",
-                "The owner's liked/starred songs, albums, and artists. The single best signal of taste — read it before recommending anything.",
+                "The owner's liked/starred songs, albums, and artists. The single best signal of taste. Read it before recommending anything.",
                 properties: [
                     "limit": ["type": "integer", "description": "Max songs to return (default 40, max 200)."],
                 ],
@@ -324,17 +324,17 @@ enum BatonMCPToolCatalog {
 
             tool(
                 "audio_suspend",
-                "Cooperative audio focus: pause (or duck) Baton's playback for an owner so it can be auto-resumed later only if the user didn't intervene. Coordination primitive for dictation/recording ducking — a client should NOT surface it as a user-facing action. Returns a `handle` to pass to audio_resume.",
+                "Cooperative audio focus: pause (or duck) Baton's playback for an owner so it can be auto-resumed later only if the user didn't intervene. Coordination primitive for dictation/recording ducking. A client should NOT surface it as a user-facing action. Returns a `handle` to pass to audio_resume.",
                 properties: [
                     "owner": ["type": "string", "description": "Stable id of the suspender, e.g. 'tonebox.dictation'."],
                     "mode": ["type": "string", "description": "'pause' (default) or 'duck' (lower player volume to duckToPercent, restored on resume)."],
-                    "duckToPercent": ["type": "integer", "description": "Target volume percent for mode='duck'. Omit to use the user's configured duck level (Settings → Playback); pass a value only when the context needs a different level. An explicit value is floored to 5% (duck stays audible) — for true silence use mode='pause', not duck."],
+                    "duckToPercent": ["type": "integer", "description": "Target volume percent for mode='duck'. Omit to use the user's configured duck level (Settings → Playback); pass a value only when the context needs a different level. An explicit value is floored to 5% (duck stays audible). For true silence use mode='pause', not duck."],
                 ],
                 required: ["owner"]
             ),
             tool(
                 "audio_resume",
-                "Release an audio-focus suspend and resume playback — but only if the owner still holds focus and the user hasn't changed playback since. Idempotent. Coordination primitive; not a user-facing action.",
+                "Release an audio-focus suspend and resume playback, but only if the owner still holds focus and the user hasn't changed playback since. Idempotent. Coordination primitive; not a user-facing action.",
                 properties: [
                     "handle": ["type": "string", "description": "The handle returned by audio_suspend. Provide this, or owner+generation."],
                     "owner": ["type": "string", "description": "Owner id (alternative to handle; pair with generation)."],
@@ -632,7 +632,7 @@ enum BatonMCPToolCatalog {
         // Subsonic answers byGenre-without-genre with the whole library, which
         // looks like a working call and isn't the question that was asked.
         if type == "byGenre", genre == nil {
-            throw BatonMCPToolError(message: "type='byGenre' needs a `genre` — see music_list_genres.")
+            throw BatonMCPToolError(message: "type='byGenre' needs a `genre`. See music_list_genres.")
         }
         let fromYear = optionalInt(args, "from_year")
         let toYear = optionalInt(args, "to_year")
@@ -666,7 +666,7 @@ enum BatonMCPToolCatalog {
         let artist = optionalString(args, "artist") ?? playing?.artist ?? ""
         guard !artist.isEmpty else {
             throw BatonMCPToolError(
-                message: "Nothing is playing — provide `artist` to say what to look outward from."
+                message: "Nothing is playing. Provide `artist` to say what to look outward from."
             )
         }
         let title = optionalString(args, "title")
@@ -693,7 +693,7 @@ enum BatonMCPToolCatalog {
         } catch ExternalDiscovery.Failure.notEnabled {
             return jsonText([
                 "enabled": false,
-                "note": "Looking outside the library is off. The owner can turn it on in Settings, Playback — it is the one lookup that talks to a service other than their own server.",
+                "note": "Looking outside the library is off. The owner can turn it on in Settings, Playback. It is the one lookup that talks to a service other than their own server.",
             ])
         } catch ExternalDiscovery.Failure.noArtist {
             throw BatonMCPToolError(message: "Provide `artist`.")
@@ -935,7 +935,7 @@ enum BatonMCPToolCatalog {
 
     private static func musicSetVolume(_ args: [String: Any], _ music: MusicModel) throws -> String {
         guard let percent = optionalInt(args, "percent") else {
-            throw BatonMCPToolError(message: "Missing required argument 'percent' (0–100).")
+            throw BatonMCPToolError(message: "Missing required argument 'percent' (0 to 100).")
         }
         music.music.setVolume(percent: percent)
         return musicNowPlaying(music)
@@ -1034,7 +1034,7 @@ enum BatonMCPToolCatalog {
             } catch { throw musicError(error) }
         }
         guard let current = music.music.nowPlaying else {
-            throw BatonMCPToolError(message: "Nothing is playing — provide a 'query' to pick a song.")
+            throw BatonMCPToolError(message: "Nothing is playing. Provide a 'query' to pick a song.")
         }
         return current
     }
@@ -1056,7 +1056,7 @@ enum BatonMCPToolCatalog {
 
     private static func musicRate(_ args: [String: Any], _ music: MusicModel) async throws -> String {
         guard let rating = optionalInt(args, "rating"), (0 ... 5).contains(rating) else {
-            throw BatonMCPToolError(message: "Provide 'rating' as an integer 0–5 (0 clears).")
+            throw BatonMCPToolError(message: "Provide 'rating' as an integer from 0 to 5 (0 clears).")
         }
         let song = try await resolveMusicSong(args, music)
         _ = try musicClient() // fail fast if no server is configured
@@ -1173,7 +1173,7 @@ enum BatonMCPToolCatalog {
         if exact.count == 1 { return exact[0] }
         if exact.count > 1 {
             let list = exact.map { "\($0.name) [\($0.id)]" }.joined(separator: ", ")
-            throw BatonMCPToolError(message: "Multiple playlists are named \"\(name)\" — pass 'playlist_id' to choose: \(list).")
+            throw BatonMCPToolError(message: "Multiple playlists are named \"\(name)\". Pass 'playlist_id' to choose: \(list).")
         }
         let near = all.filter { $0.name.lowercased().contains(lowered) }
         if near.isEmpty { throw BatonMCPToolError(message: "No playlist named \"\(name)\".") }
@@ -1210,7 +1210,7 @@ enum BatonMCPToolCatalog {
             throw BatonMCPToolError(message: "Missing required argument 'seconds'.")
         }
         guard music.music.nowPlaying != nil else {
-            throw BatonMCPToolError(message: "Nothing is playing — start a track before seeking.")
+            throw BatonMCPToolError(message: "Nothing is playing. Start a track before seeking.")
         }
         music.music.seek(to: TimeInterval(max(0, seconds)))
         return jsonText([
@@ -1222,7 +1222,7 @@ enum BatonMCPToolCatalog {
     private static func musicSetRepeat(_ args: [String: Any], _ music: MusicModel) throws -> String {
         let raw = try requireString(args, "mode").lowercased()
         guard let target = StreamingPlaybackController.RepeatMode(rawValue: raw) else {
-            throw BatonMCPToolError(message: "Unknown repeat mode \"\(raw)\" — use 'off', 'all', or 'one'.")
+            throw BatonMCPToolError(message: "Unknown repeat mode \"\(raw)\". Use 'off', 'all', or 'one'.")
         }
         // The setter is private(set); cycle (off → all → one → off) until it matches. Bounded
         // to the number of modes so a mismatch can't loop forever.
@@ -1328,7 +1328,7 @@ enum BatonMCPToolCatalog {
         } else if let current = music.music.nowPlaying {
             seed = current
         } else {
-            throw BatonMCPToolError(message: "Nothing is playing — provide a 'query' to seed the radio.")
+            throw BatonMCPToolError(message: "Nothing is playing. Provide a 'query' to seed the radio.")
         }
 
         // Prefer the wired "more like this" provider (radio-ban-filtered); fall back to a
@@ -1380,7 +1380,7 @@ enum BatonMCPToolCatalog {
             "crossfade_seconds": player.crossfadeSeconds,
             "enabled": player.crossfadeSeconds >= 0.5,
             "note": player.crossfadeSeconds >= 0.5
-                ? "Gapless is suppressed while crossfade is on — the two are mutually exclusive."
+                ? "Gapless is suppressed while crossfade is on. The two are mutually exclusive."
                 : "Crossfade off. Manual skips still use a short blend.",
         ])
     }

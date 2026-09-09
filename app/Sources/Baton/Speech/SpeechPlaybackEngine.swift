@@ -450,7 +450,7 @@ final class SpeechPlaybackEngine {
             guard let render else {
                 // Synthesis produced nothing. Speak it aloud unrouted rather than silently
                 // dropping the summary — a summary on the wrong speaker beats no summary.
-                speechLog.error("speech: native synthesis produced no audio — speaking unrouted")
+                speechLog.error("speech: native synthesis produced no audio, speaking unrouted")
                 self.speakDirectly(text, voice: voice)
                 return
             }

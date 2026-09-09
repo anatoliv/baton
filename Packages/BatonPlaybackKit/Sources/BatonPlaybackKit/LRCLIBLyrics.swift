@@ -67,18 +67,32 @@ public enum LRCLIBLyrics {
                               album: String?,
                               durationSeconds: Int?,
                               session: URLSession = .shared) async -> NavidromeLyrics? {
-        guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        await lookup(title: title, artist: artist, album: album,
+                     durationSeconds: durationSeconds, session: session).lyrics
+    }
+
+    /// The same lookup, keeping the reason when there is nothing to show.
+    ///
+    /// `lyrics(title:…)` above is this with the reason dropped, which is all a caller that
+    /// only renders a sheet needs. The panel needs more: a 429 from LRCLIB and a track with
+    /// no words are the same empty screen otherwise.
+    public static func lookup(title: String,
+                              artist: String?,
+                              album: String?,
+                              durationSeconds: Int?,
+                              session: URLSession = .shared) async -> LyricsLookup {
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { return .none }
         guard !isLikelyLyricless(durationSeconds: durationSeconds) else {
             lyricsLog.debug("lrclib: skipping lookup, track is long enough to be a mix")
-            return nil
+            return .none
         }
 
-        if let exact = await exactMatch(title: title, artist: artist, album: album,
-                                       durationSeconds: durationSeconds, session: session) {
-            return exact
-        }
-        return await searchMatch(title: title, artist: artist,
-                                 durationSeconds: durationSeconds, session: session)
+        let exact = await exactMatch(title: title, artist: artist, album: album,
+                                     durationSeconds: durationSeconds, session: session)
+        if case .found = exact { return exact }
+        let search = await searchMatch(title: title, artist: artist,
+                                       durationSeconds: durationSeconds, session: session)
+        return LyricsLookup.combining(exact, search)
     }
 
     // MARK: - The two hops
@@ -88,7 +102,7 @@ public enum LRCLIBLyrics {
                                    artist: String?,
                                    album: String?,
                                    durationSeconds: Int?,
-                                   session: URLSession) async -> NavidromeLyrics? {
+                                   session: URLSession) async -> LyricsLookup {
         var query = [URLQueryItem(name: "track_name", value: title)]
         if let artist, !artist.isEmpty { query.append(URLQueryItem(name: "artist_name", value: artist)) }
         if let album, !album.isEmpty { query.append(URLQueryItem(name: "album_name", value: album)) }
@@ -97,10 +111,11 @@ public enum LRCLIBLyrics {
         if let durationSeconds, durationSeconds > 0 {
             query.append(URLQueryItem(name: "duration", value: String(durationSeconds)))
         }
-        guard let data = await get("https://lrclib.net/api/get", query: query, session: session) else {
-            return nil
+        switch await get("https://lrclib.net/api/get", query: query, session: session) {
+        case let .ok(data): return parse(data).map(LyricsLookup.found) ?? .none
+        case .missing: return .none
+        case let .failed(failure): return .failed(failure)
         }
-        return parse(data)
     }
 
     /// `/api/search` — fuzzy on cleaned-up text, then filtered back down by duration.
@@ -111,37 +126,75 @@ public enum LRCLIBLyrics {
     private static func searchMatch(title: String,
                                     artist: String?,
                                     durationSeconds: Int?,
-                                    session: URLSession) async -> NavidromeLyrics? {
-        guard let durationSeconds, durationSeconds > 0 else { return nil }
+                                    session: URLSession) async -> LyricsLookup {
+        guard let durationSeconds, durationSeconds > 0 else { return .none }
         let track = searchableTitle(title)
-        guard !track.isEmpty else { return nil }
+        guard !track.isEmpty else { return .none }
         let performer = artist.map(searchableArtist) ?? ""
 
         var query = [URLQueryItem(name: "track_name", value: track)]
         if !performer.isEmpty { query.append(URLQueryItem(name: "artist_name", value: performer)) }
-        var results = await search(query, session: session)
+        var (results, failure) = await search(query, session: session)
 
         // Nothing under the structured query still leaves the free-text one, which weighs
         // the words together rather than field by field and sometimes finds what the split
         // could not.
         if results.isEmpty {
             let q = performer.isEmpty ? track : "\(track) \(performer)"
-            results = await search([URLQueryItem(name: "q", value: q)], session: session)
+            let (more, secondFailure) = await search([URLQueryItem(name: "q", value: q)], session: session)
+            results = more
+            failure = failure ?? secondFailure
         }
-        return bestMatch(in: results, title: title, artist: artist, durationSeconds: durationSeconds)
+        if let match = bestMatch(in: results, title: title, artist: artist,
+                                 durationSeconds: durationSeconds) {
+            return .found(match)
+        }
+        // A failure only counts when it left us with nothing: a rate-limited second hop
+        // after a first hop that answered is not a reason to say anything to anybody.
+        if results.isEmpty, let failure { return .failed(failure) }
+        return .none
     }
 
-    private static func search(_ query: [URLQueryItem], session: URLSession) async -> [SearchResult] {
-        guard let data = await get("https://lrclib.net/api/search", query: query, session: session) else {
-            return []
+    private static func search(_ query: [URLQueryItem],
+                               session: URLSession) async -> ([SearchResult], LyricsFailure?) {
+        switch await get("https://lrclib.net/api/search", query: query, session: session) {
+        case let .ok(data): return (parseSearchResults(data), nil)
+        case .missing: return ([], nil)
+        case let .failed(failure): return ([], failure)
         }
-        return parseSearchResults(data)
     }
 
-    private static func get(_ endpoint: String, query: [URLQueryItem], session: URLSession) async -> Data? {
+    /// One LRCLIB request, with the difference between "no record" and "could not ask" kept.
+    enum Response: Equatable {
+        case ok(Data)
+        /// The service answered and has nothing for this track. `/api/get` 404s constantly:
+        /// it is an exact match on tags, and tags are not exact. That is the normal case,
+        /// not a failure.
+        case missing
+        case failed(LyricsFailure)
+    }
+
+    /// What a status code means, separated from the request so it can be asserted directly.
+    enum StatusKind: Equatable {
+        case ok
+        case missing
+        case failed(LyricsFailure)
+    }
+
+    static func kind(ofStatus status: Int) -> StatusKind {
+        switch status {
+        case 200 ... 299: .ok
+        case 404: .missing
+        case 401, 403: .failed(.refused)
+        case 429: .failed(.rateLimited)
+        default: .failed(.unavailable)
+        }
+    }
+
+    private static func get(_ endpoint: String, query: [URLQueryItem], session: URLSession) async -> Response {
         var components = URLComponents(string: endpoint)
         components?.queryItems = query
-        guard let url = components?.url else { return nil }
+        guard let url = components?.url else { return .failed(.unavailable) }
 
         var request = URLRequest(url: url)
         // LRCLIB asks clients to identify themselves; an anonymous flood is how free
@@ -151,13 +204,20 @@ public enum LRCLIBLyrics {
 
         do {
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return data
+            guard let http = response as? HTTPURLResponse else { return .failed(.unavailable) }
+            switch Self.kind(ofStatus: http.statusCode) {
+            case .ok: return .ok(data)
+            case .missing: return .missing
+            case let .failed(failure):
+                // Logged at error, like every other failed request in this client. It used
+                // to be a `debug` line saying nothing about which failure it was, so a rate
+                // limit that stopped every lookup for the evening left no trace to find.
+                lyricsLog.error("lrclib \(endpoint, privacy: .public) returned \(http.statusCode)")
+                return .failed(failure)
+            }
         } catch {
-            // A lyrics lookup failing is not worth telling anyone about — the panel shows
-            // its empty state, which is the same thing it showed a moment ago.
-            lyricsLog.debug("lrclib lookup failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            lyricsLog.error("lrclib lookup failed: \(error.localizedDescription, privacy: .public)")
+            return .failed(.unavailable)
         }
     }
 

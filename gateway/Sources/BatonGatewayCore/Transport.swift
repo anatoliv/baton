@@ -237,7 +237,7 @@ public typealias DefaultTransport = POSIXTransport
 
 // MARK: - POSIX
 
-/// Linux: a plain blocking accept loop, one detached task per connection. The
+/// Linux: a plain blocking accept loop, one thread per connection. The
 /// gateway serves a household, not a datacenter — a thread-per-connection model
 /// is the right amount of machinery, and keeps the dependency list empty.
 ///
@@ -256,16 +256,44 @@ public struct POSIXTransport: ServerTransport {
     /// as long as the peer cared to keep the socket open, needing no token to do it. The
     /// 25-second `/v1/device/poll` hold is unaffected: that is the gateway waiting to *write*.
     let readTimeout: TimeInterval
+    /// How many connections may be in flight at once.
+    ///
+    /// A thread per connection is only bounded if something bounds it, and what used to bound it
+    /// was the cooperative pool running out, which is the defect rather than the design. Past
+    /// this many, a connection is answered `503` and closed rather than queued: a gateway for a
+    /// household never reaches it, and a client that does is better told than left hanging.
+    let maximumConcurrentConnections: Int
     let log: @Sendable (String) -> Void
 
     public init(stagingDirectory: URL,
                 maximumBodyBytes: Int = FileStore.defaultMaximumFileBytes,
                 readTimeout: TimeInterval = 15,
+                maximumConcurrentConnections: Int = 128,
                 log: @escaping @Sendable (String) -> Void = RequestLog.standardOutput) {
         self.stagingDirectory = stagingDirectory
         self.maximumBodyBytes = maximumBodyBytes
         self.readTimeout = readTimeout
+        self.maximumConcurrentConnections = max(1, maximumConcurrentConnections)
         self.log = log
+    }
+
+    /// How many connection threads are alive, so the cap above can mean something.
+    final class LiveConnections: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        /// Takes a slot, or reports that the cap is already reached.
+        func take(limit: Int) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard count < limit else { return false }
+            count += 1
+            return true
+        }
+        func release() {
+            lock.lock()
+            count -= 1
+            lock.unlock()
+        }
     }
 
     /// A listening socket a test can shut down. `serve` parks on `dispatchMain()` and never
@@ -349,6 +377,8 @@ public struct POSIXTransport: ServerTransport {
         let staging = stagingDirectory
         let bodyCap = maximumBodyBytes
         let deadline = readTimeout
+        let connectionCap = maximumConcurrentConnections
+        let live = LiveConnections()
         let sink = log
         let thread = Thread {
             while true {
@@ -362,26 +392,39 @@ public struct POSIXTransport: ServerTransport {
                     usleep(50_000)
                     continue
                 }
-                // This detached task's blocking `read(fd, ...)` in `handleConnection` still
-                // occupies a thread from Swift's cooperative pool for as long as the read blocks
-                // (TBX-5325, TBX-5308 S-F13). Left as-is rather than moved to a dedicated thread
-                // per connection: `SO_RCVTIMEO` bounds every such read to `readTimeout` (15 s in
-                // production), which turns the failure mode from "silent connections exhaust the
-                // pool for as long as they stay open" — the actual incident, unbounded — into
-                // "at most (processor count) connections cost the pool up to 15 s each before the
-                // deadline reclaims them". That is a real cost under a burst of slow clients, but
-                // it is not the unbounded one this card closed, and a per-connection dedicated
-                // thread is a bigger change (the read loop would need to stop being `async` and
-                // bridge into the two calls that still need to be — `handle` and `upload` — with
-                // its own synchronization) for a gain that only matters once someone is already
-                // seeing pool exhaustion at the current bound. Worth doing before this gateway
-                // serves more than a household's few devices at once; not before.
-                Task.detached {
-                    await Self.handleConnection(
+                // A thread of this connection's own, not a task on the cooperative pool
+                // (TBX-5346, TBX-5325, TBX-5308 S-F13).
+                //
+                // `handleConnection` reads with a blocking `read(2)`. Run inside `Task.detached`
+                // that read held one of the cooperative pool's threads (about one per core)
+                // for as long as it blocked, so roughly processor-count silent peers left
+                // nothing to run the next connection on, and every other detached task in the
+                // process stopped with them: the device link's actor jobs, the expiry timers,
+                // the next `/health`. `SO_RCVTIMEO` (below) bounded how long that lasted; it
+                // could not stop it happening. Owning the thread is what stops it happening,
+                // because a thread that is ours is allowed to block and nothing is queued
+                // behind it.
+                //
+                // The cost is a real thread per live connection, which is why there is a cap.
+                guard live.take(limit: connectionCap) else {
+                    // Say so rather than dropping the connection silently: a bare reset is
+                    // indistinguishable from a gateway that has died.
+                    Self.setTimeout(clientFD, SO_SNDTIMEO, 1)
+                    Self.write(clientFD, httpErrorResponse(status: "503 Service Unavailable",
+                                                           message: "too many connections"))
+                    close(clientFD)
+                    continue
+                }
+                let worker = Thread {
+                    defer { live.release() }
+                    Self.handleConnection(
                         clientFD, stagingDirectory: staging, maximumBodyBytes: bodyCap,
                         readTimeout: deadline, log: sink, handle: handle, upload: upload
                     )
                 }
+                worker.name = "baton-gateway-connection"
+                worker.stackSize = 512 * 1024
+                worker.start()
             }
         }
         thread.stackSize = 512 * 1024
@@ -389,6 +432,10 @@ public struct POSIXTransport: ServerTransport {
         return Listener(fileDescriptor: listenFD, port: boundPort)
     }
 
+    /// Synchronous on purpose: it runs on a thread of its own, where blocking is what threads
+    /// are for. The two things that stay `async` are `handle` and `upload`, because that is
+    /// where the gateway's actors are; `awaiting` puts each of those on the cooperative pool and
+    /// waits here for the answer.
     static func handleConnection(
         _ fd: Int32,
         stagingDirectory: URL,
@@ -397,7 +444,7 @@ public struct POSIXTransport: ServerTransport {
         log: @escaping @Sendable (String) -> Void,
         handle: @escaping @Sendable (HTTPRequestMessage) async -> Data,
         upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data
-    ) async {
+    ) {
         defer { close(fd) }
         setReadTimeout(fd, readTimeout)
         let started = Date()
@@ -426,7 +473,8 @@ public struct POSIXTransport: ServerTransport {
                 case .needMore:
                     continue
                 case let .complete(url, request):
-                    answer(await upload(request, url), method: request.method, path: request.path,
+                    answer(awaiting { await upload(request, url) },
+                           method: request.method, path: request.path,
                            userAgent: request.header("user-agent"))
                     return
                 case let .rejected(status, message):
@@ -449,7 +497,8 @@ public struct POSIXTransport: ServerTransport {
                 case .needMore:
                     continue
                 case let .complete(url, request):
-                    answer(await upload(request, url), method: request.method, path: request.path,
+                    answer(awaiting { await upload(request, url) },
+                           method: request.method, path: request.path,
                            userAgent: request.header("user-agent"))
                     return
                 case let .rejected(status, message):
@@ -468,7 +517,7 @@ public struct POSIXTransport: ServerTransport {
                        method: "?", path: "/", userAgent: nil)
                 return
             case .complete(let request):
-                let response = await handle(request)
+                let response = awaiting { await handle(request) }
                 answer(response, method: request.method, path: request.path,
                        userAgent: request.headers["user-agent"])
                 return
@@ -476,14 +525,51 @@ public struct POSIXTransport: ServerTransport {
         }
     }
 
-    /// `SO_RCVTIMEO`, so a silent peer cannot hold this connection (and the pool thread running
-    /// it) open for ever.
+    /// Runs one async step on the cooperative pool and waits here for its answer.
+    ///
+    /// The read loop is deliberately synchronous now and runs on a thread this
+    /// transport owns, so blocking it costs nothing anybody else is waiting on. `handle` and
+    /// `upload` stay `async` because that is where the gateway's actors live, and they belong on
+    /// the pool. This is the seam between the two, and it is the whole of the "own
+    /// synchronization" the earlier note worried about.
+    private static func awaiting(_ operation: @escaping @Sendable () async -> Data) -> Data {
+        let answer = Box()
+        let finished = DispatchSemaphore(value: 0)
+        Task.detached {
+            answer.value = await operation()
+            finished.signal()
+        }
+        finished.wait()
+        return answer.value
+    }
+
+    /// One `Data` handed from the task above back to the thread below.
+    private final class Box: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored = Data()
+        var value: Data {
+            get { lock.lock(); defer { lock.unlock() }; return stored }
+            set { lock.lock(); stored = newValue; lock.unlock() }
+        }
+    }
+
+    /// `SO_RCVTIMEO`, so a silent peer cannot hold this connection (and the thread running it)
+    /// open for ever.
+    ///
+    /// Still here after TBX-5346 moved the read off the cooperative pool, and still the thing
+    /// that ends a silent connection: owning the thread means one silent peer no longer costs
+    /// anybody else anything, but it does not make the peer go away.
     private static func setReadTimeout(_ fd: Int32, _ seconds: TimeInterval) {
+        setTimeout(fd, SO_RCVTIMEO, seconds)
+    }
+
+    /// `SO_RCVTIMEO` or `SO_SNDTIMEO`, in seconds. Both take a `timeval`.
+    static func setTimeout(_ fd: Int32, _ option: Int32, _ seconds: TimeInterval) {
         guard seconds > 0 else { return }
         let whole = seconds.rounded(.down)
         var timeout = timeval(tv_sec: Int(whole),
                               tv_usec: .init((seconds - whole) * 1_000_000))
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, option, &timeout, socklen_t(MemoryLayout<timeval>.size))
     }
 
     /// Writes every byte — a single `write` may be partial on a socket.

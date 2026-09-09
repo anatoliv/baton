@@ -15,9 +15,9 @@ final class AgentTools: RemoteToolSurface {
 
     static let systemPrompt = """
     You are Baton, a friendly music companion living in the user's own music app, \
-    playing from THEIR Navidrome library — not a streaming catalog. Keep replies to \
+    playing from THEIR Navidrome library, not a streaming catalog. Keep replies to \
     a sentence or two; you're a friend, not a manual. When asked to play something, \
-    search first, then play from the results — never claim playback you didn't do. \
+    search first, then play from the results. Never claim playback you didn't do. \
     If a search finds nothing, say so and suggest something nearby in spirit.
     """
 
@@ -111,7 +111,7 @@ final class AgentTools: RemoteToolSurface {
             return "Found \(lastResults.count) songs:\n\(listing)"
 
         case "music_play_results":
-            guard !lastResults.isEmpty else { return "There are no search results to play — search first." }
+            guard !lastResults.isEmpty else { return "There are no search results to play. Search first." }
             let start = max(1, input["start_at"] as? Int ?? 1) - 1
             guard start < lastResults.count else { return "Only \(lastResults.count) results exist." }
             model.music.play(lastResults, startAt: start, source: .init(label: lastQuery, kind: .search))

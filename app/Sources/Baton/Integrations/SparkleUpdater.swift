@@ -88,7 +88,7 @@ final class UpdaterEventLogger: NSObject, SPUUpdaterDelegate {
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        Self.log.notice("no update found — up to date")
+        Self.log.notice("no update found, already up to date")
         emit(.upToDate)
     }
 

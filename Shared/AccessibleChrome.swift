@@ -16,6 +16,30 @@ public extension View {
     func adaptiveMaterial<S: Shape>(_ shape: S) -> some View {
         modifier(AdaptiveMaterialBackground(shape: shape))
     }
+
+    /// Draw `overlay` over this view while `isCovered`, and take what it covers out of the
+    /// accessibility tree at the same time.
+    ///
+    /// A plain `.overlay` hides content from sight and not from VoiceOver. The rows
+    /// underneath stay in the tree, so a swipe still reaches a row that is not on the
+    /// screen, and a screenshot of the fixed screen looks identical to a screenshot of the
+    /// broken one. `Shared/ContentStateView.swift` hit this with the phone's empty states
+    ///; the Mac's full-screen player was the same shape.
+    ///
+    /// The two halves belong together, which is why this is one modifier rather than two
+    /// lines at each call site: writing `.overlay` and forgetting `accessibilityHidden` is
+    /// exactly the defect, and it is invisible unless someone runs VoiceOver.
+    ///
+    /// `CoveringOverlayAccessibilityTests` walks the real AppKit accessibility tree over
+    /// this modifier and asserts the covered control is gone from it.
+    @ViewBuilder
+    func coveringOverlay<Overlay: View>(
+        _ isCovered: Bool,
+        @ViewBuilder overlay: () -> Overlay
+    ) -> some View {
+        accessibilityHidden(isCovered)
+            .overlay { if isCovered { overlay() } }
+    }
 }
 
 private struct AdaptiveMaterialBackground<S: Shape>: ViewModifier {

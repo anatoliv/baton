@@ -47,9 +47,9 @@ struct DeviceLinkPane: View {
             Section {
                 Label("""
                 Scanning transfers this Mac's server address, sign-in and scrobble accounts \
-                to the phone. Unlinking later removes the phone's copy — it does not change \
-                your Navidrome password, because Navidrome has no per-device credentials to \
-                revoke. Both devices must be on the same network to pair; the phone works \
+                to the phone. Unlinking later removes the phone's copy. It does not change \
+                your Navidrome password, because Navidrome has no per-device credentials \
+                to revoke. Both devices must be on the same network to pair; the phone works \
                 anywhere afterwards.
                 """, systemImage: "info.circle")
                 .font(.callout)
@@ -128,7 +128,10 @@ struct DeviceLinkPane: View {
                 }
             }
             Text("""
-            Forgetting a device only removes it from this list. It cannot take back what             that device already holds — Navidrome has no per-device sign-in to revoke, so             the only way to cut off a phone you no longer trust is to change your Navidrome             password.
+            Forgetting a device only removes it from this list. It cannot take back \
+            what that device already holds. Navidrome has no per-device sign-in to \
+            revoke, so the only way to cut off a phone you no longer trust is to change \
+            your Navidrome password.
             """)
             .font(.callout)
             .foregroundStyle(.secondary)

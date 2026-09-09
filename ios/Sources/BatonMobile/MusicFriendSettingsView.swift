@@ -170,7 +170,7 @@ struct MusicFriendSettingsView: View {
         Section {
             Label("""
             The music friend is the one part of Baton that talks to a model provider. \
-            What it finds while looking around — song titles, artists, genres — goes to \
+            What it finds while looking around (song titles, artists, genres) goes to \
             whichever endpoint is set above, along with your message. Point the base URL \
             at a model on your own machine, or use your home server, and that stops being \
             true. Keys are stored in the Keychain.

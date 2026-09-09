@@ -4,6 +4,8 @@ import BatonSubsonicKit
 import Foundation
 import BatonDSP
 
+private let sonicProfileLog = Logger(subsystem: "io.tonebox.baton", category: "SonicProfiles")
+
 /// Sonic profiles for tracks, measured once from the audio and kept.
 ///
 /// `SonicProfile` turns a waveform into energy, brightness and tempo; this is what gets
@@ -147,16 +149,28 @@ public actor SonicProfileStore {
         BatonStorage.supportDirectory().appendingPathComponent("sonic-profiles.json")
     }
 
+    /// The versioned backing for `sonic-profiles.json` (S-F14).
+    ///
+    /// The file name does not change, and `VersionedStore.load` still adopts the old raw
+    /// `[String: SonicProfile]` dictionary an existing install already has, so an upgrade reads
+    /// what is there and re-stamps it on the next write. What changes is the failure: a
+    /// truncated file used to decode as "no profiles measured", and the next `persist()` wrote
+    /// that emptiness over it. Now the bytes are kept aside as `sonic-profiles.json.corrupt-<ts>`.
+    ///
+    /// `keepBackup` is false because a profile is derived data: it can be measured again from
+    /// the audio. The cost of losing one is a 90-second decode per track, not a hole in
+    /// something the user typed, which is what the rolling `.bak` is reserved for.
+    nonisolated static func store(at url: URL?) -> VersionedStore<[String: SonicProfile]>? {
+        url.map { VersionedStore<[String: SonicProfile]>(fileURL: $0, currentVersion: 1,
+                                                         keepBackup: false, log: sonicProfileLog) }
+    }
+
     nonisolated static func load(from url: URL?) -> [String: SonicProfile] {
-        guard let url, let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode([String: SonicProfile].self, from: data)
-        else { return [:] }
-        return decoded
+        store(at: url)?.load() ?? [:]
     }
 
     private func persist() {
-        guard let storeURL, let data = try? JSONEncoder().encode(profiles) else { return }
-        try? data.write(to: storeURL, options: .atomic)
+        Self.store(at: storeURL)?.save(profiles) // logs on failure; never fails silently
     }
 }
 #endif

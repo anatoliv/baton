@@ -76,8 +76,8 @@ private struct RemoteSettingsForm: View {
                 on your network is exposed. Bot tokens and any API key live in your login \
                 Keychain. Natural language is the only feature that contacts a third party.
 
-                It sends the sentence you typed and the list of Baton's own commands — never \
-                your credentials, and never your listening history. Whether it sends anything \
+                It sends the sentence you typed and the list of Baton's own commands, never \
+                your credentials and never your listening history. Whether it sends anything \
                 *from* your library is decided by one setting: with "let it look around" off, \
                 it never does; with it on, what it looks up travels with the question, because \
                 that is how it can answer at all.
@@ -188,7 +188,7 @@ private struct RemoteSettingsForm: View {
             }
             Text("""
             Message your bot `/link \(settings.linkCode)` from the chat you want to control \
-            Baton with — on either service. Until you do it ignores everyone, because a bot \
+            Baton with, on either service. Until you do it ignores everyone, because a bot \
             token on its own grants nothing. Each code works once.
             """)
             .font(.callout).foregroundStyle(.secondary)
@@ -243,7 +243,7 @@ private struct RemoteSettingsForm: View {
         Section("Natural language") {
             Toggle("Understand plain English", isOn: $settings.naturalLanguage.isEnabled)
             Text("""
-            Anything Baton doesn't recognize as a command gets read as intent — "put on \
+            Anything Baton doesn't recognize as a command gets read as intent: "put on \
             something mellow", "make me a 40-minute driving mix". Off by default; it needs \
             an API key and is the one part of Baton that talks to a model provider.
             """)
@@ -289,7 +289,7 @@ private struct RemoteSettingsForm: View {
             Toggle("Let it look around first", isOn: $settings.naturalLanguage.isAgentEnabled)
                 .disabled(!settings.naturalLanguage.isEnabled)
             Text("""
-            Without this, one message becomes one command, decided blind — ask for "lazy \
+            Without this, one message becomes one command, decided blind. Ask for "lazy \
             music" and you get "nothing matched", even when the same music is sitting there \
             tagged "chill". With it on, Baton can search, read your genres and liked songs, \
             try again with better words, and offer you a choice when two answers are both \
@@ -301,9 +301,9 @@ private struct RemoteSettingsForm: View {
             Toggle("Remember what you tell it", isOn: $settings.naturalLanguage.remembersOwner)
                 .disabled(!settings.naturalLanguage.isAgentEnabled)
             Text("""
-            Standing preferences you state in the chat — "no vocals while I'm working", \
-            "the gothic playlists are my partner's" — kept in a plain file you can open, \
-            and used to answer better next time. It stores your own words, never a guess \
+            Standing preferences you state in the chat ("no vocals while I'm working", \
+            "the gothic playlists are my partner's") are kept in a plain file you can \
+            open, and used to answer better next time. It stores your own words, never a guess \
             about you, and it tells you in the chat every time it writes one. Send \
             `memories` to see everything it keeps and `forget 2` to remove one.
             """)

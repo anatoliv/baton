@@ -49,8 +49,8 @@ public enum RemotePlatform: String, CaseIterable, Codable, Sendable, Identifiabl
     /// Where the user gets a bot token, shown under the token field.
     public var tokenHint: String {
         switch self {
-        case .telegram: "Message @BotFather → /newbot → paste the token it gives you."
-        case .discord: "discord.com/developers → your app → Bot → Reset Token. Turn on the Message Content intent."
+        case .telegram: "Message @BotFather, send /newbot, then paste the token it gives you."
+        case .discord: "At discord.com/developers, open your app, then Bot → Reset Token. Turn on the Message Content intent."
         // Never shown: the desktop friend has no token to get, which is the point of it.
         case .desktop: ""
         }

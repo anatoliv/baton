@@ -91,6 +91,13 @@ struct MusicFriendView: View {
                 }
             }
         }
+        // Clears a stale denial banner if the user granted mic/speech access in Settings
+        // since this tab was last on screen.
+        .onAppear { model.voice.refreshAuthorization() }
+        // Otherwise switching tabs mid-recording leaves the mic, the audio session and the
+        // audio-focus token live: the orange mic dot stays on and music stays ducked with
+        // nothing on screen explaining why.
+        .onDisappear { model.voice.stop() }
     }
 
     /// Which model is answering. The tab only exists once a connection test has passed,

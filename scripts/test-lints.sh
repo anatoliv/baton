@@ -218,5 +218,103 @@ do
   expect_import clean "$real_dir" "the real $real_dir is clean of unguarded Linux-missing imports"
 done
 
+# 7. W-21, the prose-dash lint (TBX-5348). Same pattern again: a third override,
+# BATON_DASH_LINT_SRC, points the REAL block at a planted tree. The cases below are the
+# shapes the grep this replaced could not see, which is the whole reason it is a lexer.
+#
+# The dashes themselves are built with printf rather than typed, so this file stays free of
+# the characters it exists to catch and nobody later "tidies" a fixture into passing.
+EM="$(printf '\xe2\x80\x94')"
+EN="$(printf '\xe2\x80\x93')"
+DASH_ALLOWLIST="scripts/lint-prose-dashes-allowlist.txt"
+
+run_dash_lint_over() {   # $1 = directory to lint, $2 = allowlist file ("" = none)
+  BATON_DASH_LINT_SRC="$1" BATON_DASH_LINT_ALLOWLIST="${2:-/dev/null}" LINT_ONLY=1 \
+    ./scripts/test.sh >/dev/null 2>&1
+}
+expect_dash() {   # $1 = "clean"|"dirty", $2 = dir, $3 = name, $4 = optional allowlist
+  run_dash_lint_over "$2" "${4:-}"; local rc=$?
+  if [ "$1" = clean ]; then
+    [ "$rc" -eq 0 ] && ok "$3" || bad "$3 (expected pass, got $rc)"
+  else
+    [ "$rc" -ne 0 ] && ok "$3" || bad "$3 (expected FAIL, lint passed)"
+  fi
+}
+
+# The plain case: one em dash in one ordinary string.
+mkdir -p "$WORK/dash-plain"
+echo "let t = Text(\"Nothing is playing $EM start a track first.\")" > "$WORK/dash-plain/Pane.swift"
+expect_dash dirty "$WORK/dash-plain" "an em dash in a plain string literal is caught"
+
+# The one that shipped: a backslash-continued multi-line string, where the dash and the
+# opening quote sit on different source lines. A line grep for a quoted dash called this
+# file clean, which is how the Settings, Remote linking hint survived the 0.19.0 pass.
+mkdir -p "$WORK/dash-continued"
+cat > "$WORK/dash-continued/BatonRemotePane.swift" <<SWIFT
+let body = """
+Message your bot from the chat you want to control \\
+Baton with $EM on either service. Until you do it ignores everyone.
+"""
+SWIFT
+expect_dash dirty "$WORK/dash-continued" "a backslash-continued multi-line string is caught (the one the grep missed)"
+
+# An en dash counts too, and a raw string has its own delimiter rules to get right.
+mkdir -p "$WORK/dash-raw"
+echo "let s = #\"Set a 1${EN}5 star rating.\"#" > "$WORK/dash-raw/Rating.swift"
+expect_dash dirty "$WORK/dash-raw" "an en dash inside a raw string literal is caught"
+
+# A string nested inside an interpolation inside another string: the case a scanner without
+# a stack loses, and from there it reads code as text and text as code.
+mkdir -p "$WORK/dash-nested"
+cat > "$WORK/dash-nested/Nested.swift" <<SWIFT
+let s = "outer \\(inner.map { "inner $EM dash" } ?? "none") tail"
+SWIFT
+expect_dash dirty "$WORK/dash-nested" "a dash inside a string nested in an interpolation is caught"
+
+# Comments are not copy. Flagging them would make the lint noisy in files whose strings are
+# all fine, and a noisy lint gets bypassed and then guards nothing.
+mkdir -p "$WORK/dash-comment"
+cat > "$WORK/dash-comment/Commented.swift" <<SWIFT
+/// The artist banner $EM a blurred backdrop, per the design note.
+// Another one $EM still a comment.
+/* And a block $EM also a comment. */
+let fine = "No dash in here at all."
+SWIFT
+expect_dash clean "$WORK/dash-comment" "an em dash in a comment is NOT flagged"
+
+# An escaped quote must not end the string early, or everything after it reads as code and
+# the next real dash goes unseen.
+mkdir -p "$WORK/dash-escaped-quote"
+cat > "$WORK/dash-escaped-quote/Escaped.swift" <<SWIFT
+let a = "he said \\"hello\\" and left"
+let b = "then this one $EM which must still be found"
+SWIFT
+expect_dash dirty "$WORK/dash-escaped-quote" "an escaped quote does not hide a later dash"
+
+# The allowlist has to actually silence an entry, keyed on the path plus the line text.
+mkdir -p "$WORK/dash-allowed"
+ALLOWED_LINE="Text(album.duration.map { fmt(\$0) } ?? \"$EM\")"
+echo "$ALLOWED_LINE" > "$WORK/dash-allowed/Row.swift"
+expect_dash dirty "$WORK/dash-allowed" "the deliberate no-value glyph is flagged when nothing allows it"
+printf '%s\t%s\n' "$WORK/dash-allowed/Row.swift" "$ALLOWED_LINE" > "$WORK/dash-allowed.txt"
+expect_dash clean "$WORK/dash-allowed" "an allowlisted line passes" "$WORK/dash-allowed.txt"
+# ...and only that line. The exemption is for this text, not for this file.
+echo "let hint = \"Off by default $EM it needs an API key.\"" >> "$WORK/dash-allowed/Row.swift"
+expect_dash dirty "$WORK/dash-allowed" "an allowlisted file is not a blanket exemption" "$WORK/dash-allowed.txt"
+
+# The real trees must be clean against the real allowlist, which is also the check that the
+# lexer still matches the code's shape rather than having rotted into matching nothing.
+expect_dash clean "app/Sources" "the real Mac source tree is free of prose dashes" "$DASH_ALLOWLIST"
+expect_dash clean "ios/Sources" "the real iPhone source tree is free of prose dashes" "$DASH_ALLOWLIST"
+expect_dash clean "Shared" "the real Shared tree is free of prose dashes" "$DASH_ALLOWLIST"
+
+# With BATON_DASH_LINT_SRC unset the gate scans all three roots with the real allowlist,
+# which is the shape a merge actually sees.
+if LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1; then
+  ok "the default (unscoped) dash lint covers all three roots and is clean"
+else
+  bad "the default (unscoped) dash lint covers all three roots and is clean (expected pass, got nonzero)"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

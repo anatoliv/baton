@@ -24,16 +24,46 @@ final class VoiceInput {
     private(set) var transcript = ""
 
     @ObservationIgnored private let controller: StreamingPlaybackController
-    @ObservationIgnored private var engine: AVAudioEngine?
+    /// Engine and recognition task, held in a plain non-isolated box so they can be released
+    /// from `deinit`. A `@MainActor` type's `deinit` is nonisolated and cannot reach its own
+    /// main-actor state (see `ScrobbleService`'s `ScheduledRetries` for the same pattern).
+    @ObservationIgnored private let hardware = VoiceInputHardware()
     @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
-    @ObservationIgnored private var task: SFSpeechRecognitionTask?
     @ObservationIgnored private var focusToken: StreamingPlaybackController.AudioFocusToken?
 
-    init(controller: StreamingPlaybackController) {
+    /// Injectable so a test can simulate "authorization was granted while the view was
+    /// away" without touching the real Speech/AVFoundation permission system.
+    @ObservationIgnored private let speechAuthorizationStatus: () -> SFSpeechRecognizerAuthorizationStatus
+    @ObservationIgnored private let microphonePermission: () -> AVAudioApplication.recordPermission
+
+    #if DEBUG
+    /// Incremented on every `stop()` call, including a no-op one. Lets a test confirm the
+    /// call happened when the view disappears without needing `start()` to have actually
+    /// reached `.listening`, which it never does under test (see `isUnderTest`).
+    private(set) var stopCallCountForTesting = 0
+    #endif
+
+    init(
+        controller: StreamingPlaybackController,
+        speechAuthorizationStatus: @escaping () -> SFSpeechRecognizerAuthorizationStatus = { SFSpeechRecognizer.authorizationStatus() },
+        microphonePermission: @escaping () -> AVAudioApplication.recordPermission = { AVAudioApplication.shared.recordPermission }
+    ) {
         self.controller = controller
+        self.speechAuthorizationStatus = speechAuthorizationStatus
+        self.microphonePermission = microphonePermission
     }
 
     var isListening: Bool { state == .listening }
+
+    /// Re-checks authorization without prompting, and clears a stale `.denied` banner if the
+    /// user granted access from Settings since this view was last on screen. Call from
+    /// `onAppear` on both friend views. A granted `start()` already overwrites `.denied`
+    /// with `.listening`, but nothing previously cleared it just by returning to the tab.
+    func refreshAuthorization() {
+        guard case .denied = state else { return }
+        guard speechAuthorizationStatus() == .authorized, microphonePermission() == .granted else { return }
+        state = .idle
+    }
 
     #if DEBUG
     /// Suppresses the speech-recognition permission dialog under UI test. See `start()`.
@@ -100,12 +130,12 @@ final class VoiceInput {
             }
         }
         guard speechAuthorized else {
-            state = .denied("Speech recognition isn't allowed — enable it in Settings → Privacy.")
+            state = .denied("Speech recognition isn't allowed. Enable it in Settings → Privacy.")
             return
         }
         let micAllowed = await AVAudioApplication.requestRecordPermission()
         guard micAllowed else {
-            state = .denied("Microphone access isn't allowed — enable it in Settings → Privacy.")
+            state = .denied("Microphone access isn't allowed. Enable it in Settings → Privacy.")
             return
         }
         guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
@@ -143,14 +173,14 @@ final class VoiceInput {
             engine.prepare()
             try engine.start()
 
-            self.engine = engine
+            hardware.engine = engine
             self.request = request
             state = .listening
 
             // And again: the recogniser reports on its own queue. The hop to the main
             // actor below is deliberate and sufficient — inheriting isolation here would
             // trap before ever reaching it.
-            task = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
+            hardware.task = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
                 let text = result?.bestTranscription.formattedString
                 let isFinal = result?.isFinal ?? false
                 let failed = error != nil
@@ -170,6 +200,9 @@ final class VoiceInput {
     /// Stops listening and returns the final transcript (empty when nothing was heard).
     @discardableResult
     func stop() -> String {
+        #if DEBUG
+        stopCallCountForTesting += 1
+        #endif
         guard state == .listening else { return transcript }
         request?.endAudio()
         finishListening()
@@ -177,13 +210,9 @@ final class VoiceInput {
     }
 
     private func finishListening() {
-        guard engine != nil || task != nil else { return }
-        engine?.stop()
-        engine?.inputNode.removeTap(onBus: 0)
-        task?.cancel()
-        engine = nil
+        guard hardware.engine != nil || hardware.task != nil else { return }
+        hardware.releaseAll()
         request = nil
-        task = nil
         releaseFocusAndRestoreSession()
         if state == .listening { state = .idle }
     }
@@ -203,4 +232,31 @@ final class VoiceInput {
             focusToken = nil
         }
     }
+}
+
+/// Holds the audio engine and recognition task so they can be released from `deinit` when
+/// `VoiceInput` itself is deallocated without `stop()` having run first: the friend view
+/// or window going away before `onDisappear` fires, or the object being replaced outright.
+/// A plain, non-isolated class. A `@MainActor` type's `deinit` is nonisolated and cannot
+/// reach its own main-actor state, so `VoiceInput` could not do this release directly.
+///
+/// This only covers the microphone and the recognition task, the literal hardware the mic
+/// indicator reflects. Releasing the audio-focus token also needs `StreamingPlaybackController`,
+/// which is `@MainActor`-isolated business logic (it can resume playback), not something to
+/// invoke from an unpredictable deallocation context. The focus token is released by the
+/// normal `stop()` path instead, which `.onDisappear` calls on both friend views. This box
+/// is the backstop for the case that path is skipped.
+private final class VoiceInputHardware: @unchecked Sendable {
+    var engine: AVAudioEngine?
+    var task: SFSpeechRecognitionTask?
+
+    func releaseAll() {
+        engine?.stop()
+        engine?.inputNode.removeTap(onBus: 0)
+        task?.cancel()
+        engine = nil
+        task = nil
+    }
+
+    deinit { releaseAll() }
 }

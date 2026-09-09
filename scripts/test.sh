@@ -592,7 +592,14 @@ fi
 # scans every `.swift` file under both apps' view trees. `BATON_LINT_SRC`, when set,
 # replaces the whole root list with that one directory — that's how `test-lints.sh` points
 # it at a planted tree without also picking up the real source.
-ACCESSIBILITY_LINT_ROOTS="${BATON_LINT_SRC:-$APP_DIR/Sources/Baton ios/Sources}"
+#
+# `Shared` and `watch/Sources` are here because "both apps' view trees" was still not every
+# view directory. `Shared` is compiled into the Mac app and the iPhone app alike, so a
+# violation there ships twice while sitting in neither app's directory; it happened to be
+# clean, which is worth keeping rather than discovering later. `watch/Sources` had three
+# unlabelled transport buttons and the parked Watch is in the gate for exactly this reason
+# (docs/watch-app-parked.md): nothing else was going to look at it.
+ACCESSIBILITY_LINT_ROOTS="${BATON_LINT_SRC:-$APP_DIR/Sources/Baton ios/Sources Shared watch/Sources}"
 icon_button_hits() {
   local f root
   for root in $ACCESSIBILITY_LINT_ROOTS; do
@@ -750,6 +757,39 @@ if [ -n "$import_lint_hits" ]; then
   printf '%s\n' "$import_lint_hits" | sed 's/^/    /' >&2
   red "  route it through Packages/BatonSubsonicKit/Sources/BatonSubsonicKit/PlatformCompat.swift"
   red "  instead, or guard it with #if canImport(<module>) if the file itself is Apple-only."
+  lint_fail=1
+fi
+# W-21: no em dash (U+2014) or en dash (U+2012, U+2013) inside a string a user reads.
+# Published copy here is written with the punctuation the sentence actually wants instead:
+# a period between two independent clauses, a colon before a definition, parentheses around
+# an aside, a comma only for a tight one.
+#
+# The 0.19.0 copy pass fixed the strings a review had listed by hand. A count afterwards
+# found 74 more in 29 files by grep, and the real figure was 117 in 34 files, because a grep
+# for a quoted dash on one line cannot see a backslash-continued or triple-quoted string and
+# cannot tell a string from a comment either (TBX-5348). Both misses are why this is a Python
+# lexer over the source rather than another pattern: it knows single-line, multi-line and raw
+# literals, interpolation with strings nested inside it, and comments.
+#
+# Deliberate glyphs (the "no value" em dash in a table cell, a "Title — Artist" separator, a
+# range in shipped release notes) live in the allowlist beside the script, keyed on the file
+# path plus the text of the line, so rewriting the sentence ends the exemption.
+#
+# `BATON_DASH_LINT_SRC` and `BATON_DASH_LINT_ALLOWLIST` let `scripts/test-lints.sh` drive
+# THIS block over a planted tree, the same way `BATON_IMPORT_LINT_SRC` does for W-20.
+DASH_LINT_ALLOWLIST="${BATON_DASH_LINT_ALLOWLIST:-scripts/lint-prose-dashes-allowlist.txt}"
+if [ -n "${BATON_DASH_LINT_SRC:-}" ]; then
+  DASH_LINT_DIRS=("$BATON_DASH_LINT_SRC")
+else
+  DASH_LINT_DIRS=("$APP_DIR/Sources" ios/Sources Shared)
+fi
+dash_lint_hits="$(python3 scripts/lint-prose-dashes.py --allowlist "$DASH_LINT_ALLOWLIST" "${DASH_LINT_DIRS[@]}" 2>/dev/null || true)"
+if [ -n "$dash_lint_hits" ]; then
+  red "  lint: an em or en dash inside a string a user reads:"
+  printf '%s\n' "$dash_lint_hits" | sed 's/^/    /' >&2
+  red "  rewrite the sentence with the punctuation it wants (a period between two independent"
+  red "  clauses, a colon before a definition, parentheses around an aside, a comma for a tight"
+  red "  one). If the dash is typography rather than prose, add it to $DASH_LINT_ALLOWLIST."
   lint_fail=1
 fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi

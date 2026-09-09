@@ -131,7 +131,7 @@ enum BatonMCPMixTools {
             if !warnings.isEmpty { payload["warnings"] = warnings }
             return jsonText(payload)
         default:
-            throw BatonMCPToolError(message: "Unknown action \"\(action)\" — use 'queue' or 'playlist'.")
+            throw BatonMCPToolError(message: "Unknown action \"\(action)\". Use 'queue' or 'playlist'.")
         }
     }
 
@@ -225,7 +225,7 @@ enum BatonMCPMixTools {
             warnings.append("Nothing matched the seed artist \"\(artist)\", so it was ignored.")
         }
         if pool.promptMatches == 0 {
-            warnings.append("The prompt text matched no track, album or artist names. Subsonic search matches metadata, not mood — a long descriptive prompt usually matches nothing.")
+            warnings.append("The prompt text matched no track, album or artist names. Subsonic search matches metadata, not mood. A long descriptive prompt usually matches nothing.")
         }
         if pool.collapsedToLiked {
             warnings.append("Every specific signal missed, so this mix was built only from your liked songs and does NOT reflect the prompt.")

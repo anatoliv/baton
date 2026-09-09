@@ -342,7 +342,7 @@ struct MobileSettingsView: View {
                 } footer: {
                     SettingsFooter(
                         text: """
-                        Turns some frequencies up and others down — more bass, less \
+                        Turns some frequencies up and others down: more bass, less \
                         harshness, whatever your headphones need. Start from a preset, or \
                         open Bands and move the sliders yourself. The preset name always \
                         describes the curve you actually have.
@@ -366,7 +366,7 @@ struct MobileSettingsView: View {
                     Text("""
                     Plays music streamed from your server through Baton's own audio \
                     pipeline instead of the system player. This is what makes the \
-                    equalizer and the moving bars work on streamed music — on the \
+                    equalizer and the moving bars work on streamed music. On the \
                     standard player they only affect downloaded tracks. Podcasts, \
                     downloads and radio keep using the standard player. While it is on, \
                     gapless and crossfade are skipped, so track changes are plain cuts. \
@@ -454,7 +454,7 @@ struct MobileSettingsView: View {
                         text: """
                         Gapless plays an album with no silence between tracks, the way a \
                         live record was meant to run. Crossfade instead overlaps the end \
-                        of one song with the start of the next — the two want opposite \
+                        of one song with the start of the next. The two want opposite \
                         things, so crossfade is hidden while gapless is on. Loudness \
                         evens out volume between quiet and loud tracks so you stop \
                         reaching for the volume.
@@ -463,7 +463,7 @@ struct MobileSettingsView: View {
                         things here that talk to a service other than your own server. \
                         Lyrics sends a track's title, artist and length. Looking outside \
                         sends the artist and title of the track you asked about, so the \
-                        public catalogues can say what else is out there — never your \
+                        public catalogues can say what else is out there, never your \
                         library or your history. Both are off until you turn them on.
                         """,
                         topic: SettingsHelpTopic.soundQuality,
@@ -538,7 +538,7 @@ struct MobileSettingsView: View {
                     Text("Display")
                 } footer: {
                     Text("""
-                    Stops the screen locking while Baton is open — for a phone propped on \
+                    Stops the screen locking while Baton is open, for a phone propped on \
                     a dock or a kitchen counter. Uses more battery, which is why it's off \
                     by default.
                     """)

@@ -19,17 +19,22 @@ import UserNotifications
 /// and it fires exactly once per launch regardless of whether the saved window state reopens
 /// the main window or leaves it closed — which is exactly the property this needed.
 ///
-/// `ObservableObject` + `@Published` so `RemoteControlService` reaches the `Window("Settings")`
-/// / `Window("Music Friend")` scenes through `@NSApplicationDelegateAdaptor`'s own observation,
-/// the same way a `@StateObject` would.
+/// `RemoteControlService` reaches the `Window("Settings")` / `Window("Music Friend")` scenes
+/// through `remoteHost`, not by being read straight off this delegate in the scene builder.
+/// `RemoteControlHost` says why that distinction is the whole fix.
 @MainActor
 final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    /// Where the chat remote control lives, so a view can watch it appear. See
+    /// `RemoteControlHost` for why the scenes read it through this box rather than through
+    /// the `remote` property below.
+    let remoteHost = RemoteControlHost()
+
     /// Chat remote control (Telegram / Discord). Shares the MCP server's audio-focus
     /// registry and drives the same `BatonMCPToolCatalog`, so a chat message and an agent
     /// call take one code path. Dormant (no bridges run) until configured in Settings →
     /// Remote, but the object itself exists for the app's whole lifetime: Settings → Remote
     /// and → Friend Log both read it.
-    @Published private(set) var remote: RemoteControlService?
+    var remote: RemoteControlService? { remoteHost.service }
 
     /// The MCP control server (Streamable HTTP on loopback). Lets agents — and Tonebox —
     /// drive playback, read now-playing/queue, and duck audio via owner-token focus.
@@ -71,6 +76,17 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         MacIntentServices.model = music
         BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips
 
+        // A cover-art request that comes back 401 or 403 raises the browse store's own
+        // error, which is what the library grid already shows through `ContentStatePlaceholder`.
+        // Artwork used to discard the response, so a refused credential looked exactly like a
+        // grid that had not finished loading. The store's existing rule applies unchanged:
+        // only an auth failure is worth telling someone about, because it is the one that
+        // never fixes itself. Debounced inside `ArtworkCache`, or sixty covers would say it
+        // sixty times.
+        ArtworkCache.shared.onCredentialRefused = { [weak music] in
+            music?.musicLibrary.lastError = NavidromeError.unauthorized.errorDescription
+        }
+
         // Read aloud (specs/read-aloud.md). The Services provider is the
         // zero-permission acquisition path — the system hands over another app's
         // selection, so this works on first launch with nothing granted and no
@@ -102,7 +118,7 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         // is a no-op unless the user has configured a platform.
         let chat = RemoteControlService(player: music.music, tools: MCPToolSurface(music: music, focus: s.focus))
         chat.apply()
-        remote = chat
+        remoteHost.service = chat
         // Route spoken-summary notifications ("Play" action) to the engine.
         let notifier = SpeechNotificationDelegate(speech: music.speech)
         UNUserNotificationCenter.current().delegate = notifier
@@ -124,6 +140,40 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         controlSocket?.stop()
         mcp?.stop()
         syncScheduler?.stop()
+    }
+}
+
+/// The one place the app's `RemoteControlService` lives, so that a *view* can watch it appear.
+///
+/// TBX-5324, second round. Building the service at the composition root was necessary and not
+/// sufficient: the scenes wrote `.environment(appDelegate.remote)`, and a `Window` scene's
+/// content is a value built while `BatonApp.body` is evaluated, which happens once, before
+/// AppKit calls `applicationDidFinishLaunching`. So the `nil` that was there at launch was
+/// baked into the Settings window's content and nothing ever read the property again: Settings
+/// → Remote and → Friend Log showed their "not available" fallback for the whole run, on a
+/// build whose control socket and MCP port were provably live. Measured on a clean single
+/// probe by reading the window's accessibility tree, not guessed from a screenshot.
+///
+/// A box that is `@Observable` and never replaced fixes both halves. Its identity is fixed
+/// before the scene graph is built, so the scene can bake *it* in safely, and the nil → service
+/// transition is read inside a view body, where SwiftUI's observation actually applies.
+@MainActor
+@Observable
+final class RemoteControlHost {
+    var service: RemoteControlService?
+}
+
+/// Puts the app's `RemoteControlService` into the environment from inside a view body.
+///
+/// The one line that matters is in `body`: every window that shows a remote-control surface
+/// wraps its content in this instead of writing `.environment(appDelegate.remote)` in the
+/// scene builder. See `RemoteControlHost`.
+struct RemoteControlScope<Content: View>: View {
+    let host: RemoteControlHost
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content.environment(host.service)
     }
 }
 
@@ -281,6 +331,9 @@ struct BatonApp: App {
                 // The Mac end of queue handoff: ask the server once whether the phone left
                 // a queue, and offer it. Saving has always happened; asking never did.
                 .macQueueHandoffOffer(model: music)
+                // DEBUG only, and nothing in a release build: lends `openWindow` to the
+                // `-baton.debugOpenWindow` launch flag. See BatonDebugWindows.
+                .batonDebugWindowOpener()
         }
         // Match Tonebox's music window: SwiftUI-managed title-bar hiding, persistent
         // across window reconfiguration (unlike poking NSWindow, which SwiftUI keeps
@@ -329,12 +382,13 @@ struct BatonApp: App {
         // Servers and Equalizer windows into sidebar panes, alongside Playback
         // and About. ⌥⌘E deep-links to the Equalizer pane (see BatonAppCommands).
         Window("Settings", id: BatonSettingsView.windowID) {
-            BatonSettingsView()
-                .environment(music)
-                .environment(appDelegate.remote)
-                .tint(.batonOrange)
-                .batonChrome()
-                .defaultAppStorage(BatonStorage.defaults)
+            RemoteControlScope(host: appDelegate.remoteHost) {
+                BatonSettingsView()
+                    .environment(music)
+                    .tint(.batonOrange)
+                    .batonChrome()
+                    .defaultAppStorage(BatonStorage.defaults)
+            }
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 760, height: 560)
@@ -358,11 +412,12 @@ struct BatonApp: App {
         // has been running this agent for the chat bridges all along; this is the first way
         // to talk to it without opening Telegram.
         Window("Music Friend", id: MacMusicFriendView.windowID) {
-            MacMusicFriendView()
-                .environment(appDelegate.remote)
-                .tint(.batonOrange)
-                .batonChrome()
-                .defaultAppStorage(BatonStorage.defaults)
+            RemoteControlScope(host: appDelegate.remoteHost) {
+                MacMusicFriendView()
+                    .tint(.batonOrange)
+                    .batonChrome()
+                    .defaultAppStorage(BatonStorage.defaults)
+            }
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 520, height: 620)
@@ -398,7 +453,10 @@ struct BatonApp: App {
             BatonMenuBarContent(model: music, router: commandRouter)
                 .defaultAppStorage(BatonStorage.defaults)
         } label: {
+            // The label renders whether or not any window is open, which is the only place a
+            // probe launched with the main window closed can borrow `openWindow` from.
             BatonMenuBarLabel(model: music)
+                .batonDebugWindowOpener()
         }
     }
 }

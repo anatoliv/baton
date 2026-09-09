@@ -106,13 +106,15 @@ public struct Biquad: Sendable {
         let a0 = 1 + alpha / a
         let a1 = -2 * cosW
         let a2 = 1 - alpha / a
-        let result = Biquad(
-            b0: Float(b0 / a0), b1: Float(b1 / a0), b2: Float(b2 / a0),
-            a1: Float(a1 / a0), a2: Float(a2 / a0)
-        )
-        // Defensive: never return a non-finite filter.
-        let coeffs = [result.b0, result.b1, result.b2, result.a1, result.a2]
-        return coeffs.allSatisfy { $0.isFinite } ? result : .identity
+        let n0 = Float(b0 / a0), n1 = Float(b1 / a0), n2 = Float(b2 / a0)
+        let d1 = Float(a1 / a0), d2 = Float(a2 / a0)
+        // Defensive: never return a non-finite filter. Five checks rather than an array
+        // literal, because this runs on the audio render thread every time the band set
+        // changes, which is continuously while an EQ slider is being dragged, and a Swift
+        // array here heap-allocates on that thread. `EQTapContext` preallocates its channel
+        // pointers for exactly this reason. (S-F23)
+        guard n0.isFinite, n1.isFinite, n2.isFinite, d1.isFinite, d2.isFinite else { return .identity }
+        return Biquad(b0: n0, b1: n1, b2: n2, a1: d1, a2: d2)
     }
 
     /// Magnitude response |H(e^{jω})| at frequency `f0` (Hz) for sample rate `fs`.
@@ -185,10 +187,17 @@ public final class EQCoefficients: @unchecked Sendable {
         guard generation != knownGeneration else { return nil }
         let count = Swift.min(specs.count, capacity)
         var maxBoostDB = 0.0
-        for i in 0 ..< count {
+        // A `while` rather than `for i in 0 ..< count`: without optimization, iterating a
+        // `Range` goes through `IndexingIterator` and its unspecialized `Collection` witness,
+        // which heap-allocates once per element. Release builds specialize that away, but a
+        // debug build is what a developer listens to, and this loop runs on the render
+        // thread. Measured with a `malloc_logger` hook: one 40 byte allocation per band. (S-F23)
+        var i = 0
+        while i < count {
             let s = specs[i]
             dest[i] = Biquad.peaking(frequency: s.frequency, sampleRate: sampleRate, q: s.q, gainDB: s.gainDB)
             if s.gainDB > 0 { maxBoostDB = Swift.max(maxBoostDB, s.gainDB) }
+            i += 1
         }
         let preGain = maxBoostDB > 0 ? Float(pow(10.0, -maxBoostDB / 20.0)) : 1
         return (generation, count, preGain)

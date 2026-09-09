@@ -278,16 +278,58 @@ public enum PairingClient {
         }
     }
 
+    /// The `Accumulator` behind a lock, because two queues touch it.
+    ///
+    /// The buffer is appended to from the `NWConnection` receive callback and read from the
+    /// timeout block on `DispatchQueue.global()`. Those are different threads with nothing
+    /// between them, so the read could copy a `Data` in the middle of being reallocated by an
+    /// append: a torn or short payload that then fails to parse and surfaces as "This file
+    /// isn't a Baton settings backup", which is the same symptom the short read produced and
+    /// would be chased the same wrong way (S-F27).
+    ///
+    /// `resumed` lives in here too, and for the same reason: the timeout and the last receive
+    /// callback race to finish the continuation, and resuming a `CheckedContinuation` twice
+    /// traps. `NSLock` rather than an actor because both callers are synchronous callbacks,
+    /// and the same lock the download engine already uses for the same shape of problem
+    /// (`BackgroundDownloadEngine.swift`). The lock is never held across `connection.cancel()`.
+    final class SharedAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sink: Accumulator
+        private var resumed = false
+
+        init(cap: Int) { sink = Accumulator(cap: cap) }
+
+        func consume(_ data: Data?, isComplete: Bool, failed: Bool) -> Accumulator.Step {
+            lock.lock()
+            defer { lock.unlock() }
+            return sink.consume(data, isComplete: isComplete, failed: failed)
+        }
+
+        /// Whatever has arrived so far, copied under the lock.
+        var accumulated: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return sink.accumulated
+        }
+
+        /// True exactly once, for the first caller to claim the finish.
+        func claimFinish() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if resumed { return false }
+            resumed = true
+            return true
+        }
+    }
+
     static func receiveAll(_ connection: NWConnection,
                            cap: Int = 4 * 1024 * 1024,
                            timeout: TimeInterval = 20) async -> Data? {
         await withCheckedContinuation { continuation in
-            nonisolated(unsafe) var sink = Accumulator(cap: cap)
-            nonisolated(unsafe) var resumed = false
+            let sink = SharedAccumulator(cap: cap)
 
             @Sendable func finish(_ value: Data?) {
-                guard !resumed else { return }
-                resumed = true
+                guard sink.claimFinish() else { return }
                 continuation.resume(returning: value)
             }
 

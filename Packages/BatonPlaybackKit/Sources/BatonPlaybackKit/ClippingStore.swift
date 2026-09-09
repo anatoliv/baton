@@ -112,9 +112,7 @@ public final class ClippingStore {
             .filter { $0.hasSuffix(".json") && $0 != Self.dismissedFileName }
             .compactMap { name -> Item? in
                 let id = String(name.dropLast(5))
-                guard let data = try? Data(contentsOf: sidecarURL(id)),
-                      let clip = try? JSONDecoder().decode(Clipping.self, from: data)
-                else { return nil }
+                guard let clip = sidecarStore(id).load() else { return nil }
                 return Item(clipping: clip, url: audioURL(id))
             }
             .sorted { $0.clipping.createdAt > $1.clipping.createdAt }
@@ -182,13 +180,11 @@ public final class ClippingStore {
         let clipping = Clipping(id: id, title: effectiveTitle, source: effectiveSource,
                                 durationSeconds: durationSeconds, createdAt: now,
                                 text: text, sha256: sha256)
-        do {
-            try JSONEncoder().encode(clipping).write(to: sidecarURL(id), options: .atomic)
-        } catch {
+        guard writeSidecar(clipping, id: id) else {
             // Do not leave audio with no record of what it is: that is a file nobody can
             // identify and nothing will ever clean up.
             try? FileManager.default.removeItem(at: destination)
-            throw StoreError.couldNotStore(error.localizedDescription)
+            throw StoreError.couldNotStore("could not write the sidecar for \(id)")
         }
         // Keeping the same audio again is a deliberate act and must beat an older tombstone,
         // exactly as a re-subscribe beats an unsubscribe. Without this, a clipping deleted
@@ -252,15 +248,25 @@ public final class ClippingStore {
 
     private var dismissedURL: URL { directory.appendingPathComponent(Self.dismissedFileName) }
 
+    /// Versioned backing for the tombstones (S-F14).
+    ///
+    /// A tombstone list that reads as empty is not a harmless blank: every clipping this device
+    /// deleted comes back on the next reconcile, which is the failure the list exists to stop.
+    /// A damaged `dismissed.json` used to do exactly that, and the next dismissal wrote the
+    /// short list over it. The file name is unchanged and the old raw `[String: Date]` map is
+    /// still adopted on load.
+    private var dismissedStore: VersionedStore<[String: Date]> {
+        VersionedStore<[String: Date]>(fileURL: dismissedURL, currentVersion: 1,
+                                       keepBackup: true, log: clippingLog)
+    }
+
     /// Digests dismissed on this device and still within the retention window.
     public var dismissedDigests: Set<String> {
         Set(loadDismissed().keys)
     }
 
     private func loadDismissed() -> [String: Date] {
-        guard let data = try? Data(contentsOf: dismissedURL),
-              let raw = try? JSONDecoder().decode([String: Date].self, from: data)
-        else { return [:] }
+        guard let raw = dismissedStore.load() else { return [:] }
         let cutoff = Date().addingTimeInterval(-Self.dismissedRetention)
         return raw.filter { $0.value > cutoff }
     }
@@ -270,15 +276,9 @@ public final class ClippingStore {
     /// comes straight back on the next refresh, with nothing anywhere saying why.
     @discardableResult
     private func saveDismissed(_ entries: [String: Date]) -> Bool {
-        do {
-            try JSONEncoder().encode(entries).write(to: dismissedURL, options: .atomic)
-            return true
-        } catch {
-            clippingLog.error(
-                "couldn't write the dismissed-clippings list, so a removed clipping may return: \(error.localizedDescription, privacy: .public)"
-            )
-            return false
-        }
+        // `VersionedStore.save` logs the failure, and returning it keeps the caller's contract:
+        // false means a removed clipping may come back on the next refresh.
+        dismissedStore.save(entries)
     }
 
     /// Record that this device does not want a digest back, pruning anything expired.
@@ -301,20 +301,16 @@ public final class ClippingStore {
 
     /// Writes a clipping's sidecar, reporting whether it landed.
     ///
+    /// The only place a sidecar is written. `adopt` used to encode and write its own copy, so
+    /// the two paths could drift in format or in error handling, and this is the moment the
+    /// migration puts them together (S-F14).
+    ///
     /// Callers that also state something in the shared ledger must check this first: the ledger
     /// travels to the other device, so announcing a rename whose local sidecar silently did not
     /// change leaves the two devices disagreeing with no way to notice.
     @discardableResult
     private func writeSidecar(_ clipping: Clipping, id: String) -> Bool {
-        do {
-            try JSONEncoder().encode(clipping).write(to: sidecarURL(id), options: .atomic)
-            return true
-        } catch {
-            clippingLog.error(
-                "couldn't write the clipping sidecar for \(id, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-            return false
-        }
+        sidecarStore(id).save(clipping) // logs on failure; a bad sidecar is kept aside
     }
 
     /// Rename a clipping, and say so in the shared ledger so the other device follows.
@@ -453,7 +449,11 @@ public final class ClippingStore {
     /// as a WAV still resolves after a later version starts writing something else.
     private func audioURL(_ id: String) -> URL {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        if let match = names.first(where: { $0.hasPrefix(id + ".") && !$0.hasSuffix(".json") }) {
+        // A sidecar sibling is not audio. `<id>.json` was excluded by suffix, which stopped
+        // being enough the moment `VersionedStore` could leave `<id>.json.corrupt-<timestamp>`
+        // next to it: that name has the id prefix, does not end in `.json`, and would have been
+        // handed back as the clipping's audio file.
+        if let match = names.first(where: { $0.hasPrefix(id + ".") && !$0.hasPrefix(id + ".json") }) {
             return directory.appendingPathComponent(match)
         }
         return audioURL(id, extension: "m4a")
@@ -465,6 +465,21 @@ public final class ClippingStore {
 
     private func sidecarURL(_ id: String) -> URL {
         directory.appendingPathComponent("\(id).json")
+    }
+
+    /// Versioned backing for one clipping's sidecar (S-F14).
+    ///
+    /// A sidecar is the only record of what a clipping *is*: its title, its source, its
+    /// transcript. Lose it and the audio is a file nobody can identify. It used to be read with
+    /// a `try?` inside `reload`, so an unreadable one made the clipping vanish from the list
+    /// while its audio stayed on disk forever. Now the bytes are kept aside and the clipping is
+    /// still absent, which is the same visible outcome with the evidence preserved.
+    ///
+    /// No `.bak`: the sidecar is small and written whole on every rename, so a rolling copy
+    /// would double the writes for a file whose last-good state is one edit behind anyway.
+    private func sidecarStore(_ id: String) -> VersionedStore<Clipping> {
+        VersionedStore<Clipping>(fileURL: sidecarURL(id), currentVersion: 1,
+                                 keepBackup: false, log: clippingLog)
     }
 
     private static func defaultDirectory() -> URL { BatonStorage.supportSubdirectory("Clippings") }

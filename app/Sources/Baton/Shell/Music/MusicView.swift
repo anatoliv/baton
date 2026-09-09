@@ -382,16 +382,15 @@ struct MusicView: View {
                     .adaptiveMaterial(Rectangle())
                 }
                 // Sidebar, browse content and the mini player sit behind the full-screen
-                // player as a plain `.overlay`, which draws over them but leaves them in
-                // the accessibility tree — a VoiceOver swipe still reaches the row that was
+                // player. A plain `.overlay` draws over them and leaves them in the
+                // accessibility tree, so a VoiceOver swipe still reaches the row that was
                 // covered. Same defect `contentState(...)` had (Shared/ContentStateView.swift).
-                .accessibilityHidden(showFullScreen)
-                .overlay {
-                    if showFullScreen {
-                        FullScreenNowPlaying(isPresented: $showFullScreen, artNamespace: artNamespace)
-                            .transition(.opacity)
-                            .zIndex(10)
-                    }
+                // `coveringOverlay` is the two halves in one place so the second cannot be
+                // forgotten again; see Shared/AccessibleChrome.swift.
+                .coveringOverlay(showFullScreen) {
+                    FullScreenNowPlaying(isPresented: $showFullScreen, artNamespace: artNamespace)
+                        .transition(.opacity)
+                        .zIndex(10)
                 }
                 .onAppear { paletteLoader.update(url: nowPlayingCoverURL) }
                 // Key on the song id, not coverArtID: podcast episodes share a nil cover id, so

@@ -1,8 +1,8 @@
 import BatonAgentKit
+import BatonGatewayCore
 import BatonMCPProtocol
 import BatonSubsonicKit
 import BatonSubsonicModels
-import BatonGatewayCore
 import Foundation
 
 // The Baton agent gateway: the music friend's home-server brain
@@ -16,6 +16,11 @@ import Foundation
 // long-poll (`/v1/device/poll`) and the playback tools dispatch to it, so "play
 // something mellow" reaches the phone. With no device listening, those tools say
 // so rather than pretending.
+//
+// This file is wiring only. The routes and their handlers are `GatewayRoutes`; the
+// dispatch that chooses between them is `BatonGatewayCore.Router`, which is where a test
+// can reach it (S-F24). Anything that ends up here again should be asked whether it could
+// ever be asserted on, because top-level code cannot be imported by a test target.
 //
 // Configuration (environment):
 //   BATON_GATEWAY_TOKEN   bearer token clients must present (required)
@@ -132,6 +137,19 @@ if sweptUploads > 0 {
         Data("swept \(sweptUploads) abandoned upload(s) from \(uploadStagingDirectory.path)\n".utf8))
 }
 
+let routes = GatewayRoutes(
+    token: token,
+    healthClient: healthClient,
+    healthProbeTimeout: healthProbeTimeout,
+    startedAt: startedAt,
+    deviceLink: deviceLink,
+    stateStore: stateStore,
+    fileStore: fileStore,
+    surface: surface,
+    llmConfig: llmConfig
+)
+let router = routes.router()
+
 FileHandle.standardOutput.write(Data("baton-gateway listening on :\(port) → \(serverURL.host() ?? "?")\n".utf8))
 FileHandle.standardOutput.write(Data("state file: \(stateFileURL.path)\n".utf8))
 
@@ -139,320 +157,7 @@ FileHandle.standardOutput.write(Data("state file: \(stateFileURL.path)\n".utf8))
 // wrapped around the router, which the streaming upload never reaches — so the one route that
 // writes caller-controlled bytes to disk before checking a token left no trace at all.
 try DefaultTransport(stagingDirectory: uploadStagingDirectory).serve(port: port) { request in
-    await route(request)
+    await router.dispatch(request)
 } upload: { request, staged in
-    await handleUpload(request, staged)
-}
-
-// MARK: - Files
-
-extension JSONEncoder {
-    /// ISO-8601 dates on the wire. The default is a float since 2001, which is unreadable in a
-    /// log and a trap for any client that is not Foundation.
-    static var gatewayISO8601: JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }
-}
-
-/// Publish a body the transport has already streamed to disk.
-///
-/// Authenticated here rather than in the transport, and that ordering is deliberate: the body is
-/// written to a staging file *before* the token is checked, so an unauthenticated caller can make
-/// the gateway write up to one file's worth of bytes. The alternative — parsing and checking auth
-/// mid-stream — puts credential handling inside the framing code, which is worse. What keeps it
-/// safe is that the staging file is deleted on every path out of here, so nothing accumulates.
-@MainActor @Sendable
-func handleUpload(_ request: StreamingUpload.Request, _ staged: URL) async -> Data {
-    func fail(_ status: String, _ message: String) -> Data {
-        try? FileManager.default.removeItem(at: staged)
-        return httpErrorResponse(status: status, message: message)
-    }
-    // `Request.bearerToken`, the same parse every other route uses. The hand-rolled
-    // `replacingOccurrences(of: "Bearer ", with: "")` here was case-sensitive, so a spec-legal
-    // `authorization: bearer <token>` was accepted on GET /v1/files and refused on this route
-    // (TBX-5308, S-F26).
-    guard BatonMCPAuth.constantTimeEquals(request.bearerToken ?? "", token) else {
-        return fail("401 Unauthorized", "bad token")
-    }
-    let id = String(request.path.dropFirst("/v1/files/".count))
-    do {
-        let meta = try fileStore.commit(
-            staged: staged,
-            id: id,
-            name: request.header("x-baton-name") ?? "file",
-            contentType: request.header("content-type") ?? "application/octet-stream",
-            sha256: request.header("x-baton-sha256"),
-            origin: request.header("x-baton-origin")
-        )
-        let data = (try? JSONEncoder.gatewayISO8601.encode(meta)) ?? Data("{}".utf8)
-        return httpResponse(status: "201 Created", body: String(data: data, encoding: .utf8) ?? "{}")
-    } catch FileStore.StoreError.badID {
-        return fail("400 Bad Request", "bad file id")
-    } catch let FileStore.StoreError.tooLarge(limit) {
-        return fail("413 Payload Too Large", "at most \(limit) bytes")
-    } catch {
-        return fail("500 Internal Server Error", "could not store the file")
-    }
-}
-
-// MARK: - Routing
-
-/// The routes. One line per request is written by the transport, for every response it sends
-/// (TBX-4045, and TBX-5308 for the uploads it used to miss) — see `RequestLog.write`.
-@MainActor @Sendable
-func route(_ request: HTTPRequestMessage) async -> Data {
-    if request.method == "GET", request.path == "/health" {
-        // Bounded, because it used to answer in two minutes. See `healthClient`.
-        //
-        // **Yes, an unauthenticated route makes an outbound call, and it stays that way.** The
-        // probe is the whole reason this route is worth polling: without it `/health` can only
-        // say "a process is listening", which the TCP connection already said. What it adds is
-        // the distinction between a gateway that is up and one that is up and *blind* — the
-        // state the whole of TBX-5068 was spent identifying by hand. What was unreasonable was
-        // the cost: an anonymous caller could park a request here for two minutes. One ping and
-        // at most two seconds is a fair price for the only signal the route carries, on a LAN
-        // service that is not exposed to the internet. If it ever is, the next step is a cached
-        // last-probe result with a short TTL rather than dropping the probe — a health check
-        // that has stopped checking anything is the failure mode, not the fix.
-        let navidrome = await HealthProbe.run(timeout: healthProbeTimeout) {
-            try await healthClient.ping()
-        }
-        // Device-poll counters ride along. The empty poll is dropped from the request
-        // log on purpose, and it is the *only* trace `awaitCommand` leaves — so without these,
-        // a gateway holding a poll open every 25 seconds and one nothing has touched in a week
-        // produce byte-identical logs. Read in one actor hop, so the numbers agree with the
-        // waiter list they came from.
-        let body = GatewayHealth.body(
-            navidrome: navidrome,
-            startedAt: startedAt,
-            polls: await deviceLink.pollStats
-        )
-        return httpResponse(status: "200 OK", body: body)
-    }
-    // Everything else is authenticated, constant-time.
-    let presented = request.bearerToken ?? ""
-    guard BatonMCPAuth.constantTimeEquals(presented, token) else {
-        return httpResponse(status: "401 Unauthorized", body: #"{"error":"bad token"}"#)
-    }
-    // Device link: the player parks here waiting for something to do.
-    // Shared preferences: the settings that are yours rather than a device's — EQ curve,
-    // radio bans, crossfade, the agent's non-secret config. Navidrome has nowhere to keep
-    // these (there is no client-preference API), and iCloud would drag a provisioning
-    // profile into the Mac's Developer ID release flow, so the gateway is the one place
-    // both apps already authenticate to.
-    //
-    // Persisted to disk rather than held in memory: a gateway restart is routine, and
-    // silently losing someone's settings because a container bounced would be worse than
-    // not syncing them at all.
-    //
-    // Both answers carry the document's revision and this gateway's own clock. The revision is
-    // what makes a read-modify-write safe — before it, a device that merged and pushed could not
-    // tell that the other device had written in between, and the second push simply replaced the
-    // first. The clock is what lets two devices order their edits at all: they used to compare
-    // timestamps each had stamped with its own clock, so a device an hour ahead won every
-    // conflict for a key until the other edited past that future time (S-F17).
-    if request.method == "GET", request.path == "/v1/state" {
-        let state = stateStore.read()
-        return httpResponse(status: "200 OK", contentType: "application/json",
-                            payload: Data(state.body.utf8),
-                            extraHeaders: StateStore.responseHeaders(revision: state.revision))
-    }
-    if request.method == "PUT", request.path == "/v1/state" {
-        // Validated as JSON before it lands: a truncated PUT must not leave a file that
-        // every future GET chokes on.
-        guard (try? JSONSerialization.jsonObject(with: request.body)) != nil else {
-            return httpResponse(status: "400 Bad Request", body: #"{"error":"body must be JSON"}"#)
-        }
-        // Absent from an older client, and accepted without it. Refusing an unversioned PUT would
-        // break sync on every device that had not been updated yet, which is worse than the race.
-        let expected = request.headers[StateStore.revisionHeader.lowercased()].flatMap(Int.init)
-        switch stateStore.write(request.body, ifRevision: expected) {
-        case let .written(revision):
-            return httpResponse(status: "200 OK", contentType: "application/json",
-                                payload: Data(#"{"ok":true}"#.utf8),
-                                extraHeaders: StateStore.responseHeaders(revision: revision))
-        case let .stale(current):
-            // A distinguishable status on purpose: the client's answer is to read the document
-            // again and re-merge, which it cannot decide to do if this looks like any other error.
-            return httpResponse(
-                status: "409 Conflict", contentType: "application/json",
-                payload: Data(jsonObject(["error": "stale revision", "revision": current]).utf8),
-                extraHeaders: StateStore.responseHeaders(revision: current))
-        case .failed:
-            return httpResponse(status: "500 Internal Server Error",
-                                body: #"{"error":"could not persist state"}"#)
-        }
-    }
-    // Files parked for another device. A Mac exports a reading and puts it here; the
-    // phone collects it. Nothing here knows what a reading is — podcast audio and downloaded
-    // tracks want the same road, and a second transport per file type is how a household ends up
-    // with three half-working ones.
-    //
-    // The PUT is absent from this switch on purpose: an upload never reaches `handle`, because
-    // its body is streamed to disk by the transport before any of this runs. See `handleUpload`.
-    if request.method == "GET", request.path == "/v1/files" {
-        let listing = fileStore.list()
-        let data = (try? JSONEncoder.gatewayISO8601.encode(listing)) ?? Data("[]".utf8)
-        return httpResponse(status: "200 OK", body: String(data: data, encoding: .utf8) ?? "[]")
-    }
-    if request.path.hasPrefix("/v1/files/") {
-        let id = String(request.path.dropFirst("/v1/files/".count))
-        switch request.method {
-        case "GET":
-            guard let meta = fileStore.metadata(id: id), let url = fileStore.blobURL(id: id),
-                  let payload = try? Data(contentsOf: url) else {
-                return httpResponse(status: "404 Not Found", body: #"{"error":"no such file"}"#)
-            }
-            // The digest travels in a header so the receiver can verify what it just downloaded.
-            // The gateway never checks it: end-to-end beats hop-by-hop, and it means a store
-            // nobody fully trusts still cannot hand over bad bytes without being caught.
-            var headers = ["X-Baton-Name": meta.name]
-            if let sha = meta.sha256 { headers["X-Baton-SHA256"] = sha }
-            return httpResponse(status: "200 OK", contentType: meta.contentType,
-                                payload: payload, extraHeaders: headers)
-        case "DELETE":
-            fileStore.remove(id: id)
-            return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
-        default:
-            return httpResponse(status: "405 Method Not Allowed", body: #"{"error":"GET or DELETE"}"#)
-        }
-    }
-    if request.method == "GET", request.path == "/v1/device/poll" {
-        if let command = await deviceLink.awaitCommand() {
-            let data = (try? JSONSerialization.data(withJSONObject: command.json)) ?? Data("{}".utf8)
-            return httpResponse(status: "200 OK", body: String(data: data, encoding: .utf8) ?? "{}")
-        } else {
-            return httpResponse(status: "204 No Content", body: "")
-        }
-    }
-    if request.method == "POST", request.path == "/v1/device/result" {
-        if let json = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],
-           let id = json["id"] as? String {
-            await deviceLink.deliverResult(
-                id: id,
-                text: json["text"] as? String ?? "",
-                isError: json["is_error"] as? Bool ?? false
-            )
-        }
-        return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
-    }
-    guard request.method == "POST", request.path == "/v1/agent" else {
-        return httpResponse(status: "404 Not Found", body: #"{"error":"unknown route"}"#)
-    }
-    guard let json = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],
-          let message = json["message"] as? String, !message.isEmpty else {
-        return httpErrorResponse(status: "400 Bad Request", message: "message is required")
-    }
-    // Which conversation this turn belongs to, so `music_similar_songs` seeds from *its* search
-    // rather than from whatever the last caller happened to look up (TBX-5308, S-F26). Optional:
-    // a client that sends nothing shares one slot, which is the behaviour it had before.
-    let sessionID = json["session_id"] as? String
-    do {
-        let outcome = try await RemoteAgent.run(
-            message: message,
-            history: [],
-            playerContext: json["player_context"] as? String,
-            config: llmConfig,
-            tools: RemoteAgent.toolSchemas(definitions: surface.definitions()),
-            runTool: { call in
-                await surface.run(name: call.name, arguments: call.jsonArguments, sessionID: sessionID)
-            }
-        )
-        let reply: [String: Any] = ["text": outcome.text, "tools_run": outcome.toolsRun]
-        return httpResponse(status: "200 OK", body: jsonObject(reply))
-    } catch {
-        // Serialised, not interpolated into a JSON literal. `RemoteNaturalLanguage.Failure`
-        // carries the provider's own text, which reliably contains quotes and newlines — so the
-        // body used to be invalid JSON, the phone fell back to a generic message, and "your
-        // credit balance is too low" never reached anybody (TBX-5308, S-F26).
-        return httpErrorResponse(status: "502 Bad Gateway", message: String(describing: error))
-    }
-}
-
-// MARK: - The server-side tool surface
-
-/// Curation tools bound straight to Navidrome. Playback verbs exist so the model
-/// never invents them — they answer that playback lives on the user's devices
-/// (dispatching to a connected phone/Mac is the next step).
-@MainActor
-final class GatewayToolSurface: RemoteToolSurface {
-    private let client: NavidromeClient
-    private let devices: DeviceLink
-    /// The last search, per conversation. One shared field made `music_similar_songs` seed from
-    /// whoever searched most recently (TBX-5308, S-F26).
-    private let lastResults = SearchSeedStore<[NavidromeSong]>()
-
-    init(client: NavidromeClient, devices: DeviceLink) {
-        self.client = client
-        self.devices = devices
-    }
-
-    func definitions() -> [[String: Any]] {
-        [
-            ["name": "music_search", "description": "Search the library for songs, albums, artists.",
-             "inputSchema": ["type": "object", "properties": ["query": ["type": "string"]], "required": ["query"]]],
-            ["name": "music_similar_songs", "description": "Songs similar to the most recent search's first result.",
-             "inputSchema": ["type": "object", "properties": [:]]],
-            ["name": "music_list_playlists", "description": "The user's playlists.",
-             "inputSchema": ["type": "object", "properties": [:]]],
-            ["name": "music_list_genres", "description": "Genres in the library.",
-             "inputSchema": ["type": "object", "properties": [:]]],
-            ["name": "music_random", "description": "Random songs, optionally by genre.",
-             "inputSchema": ["type": "object", "properties": ["genre": ["type": "string"]]]],
-            ["name": "music_play", "description": "Play something on the user's device — pass what to play.",
-             "inputSchema": ["type": "object", "properties": ["query": ["type": "string"]], "required": ["query"]]],
-            ["name": "music_pause", "description": "Pause playback on the user's device.",
-             "inputSchema": ["type": "object", "properties": [:]]],
-            ["name": "music_next", "description": "Skip to the next track on the user's device.",
-             "inputSchema": ["type": "object", "properties": [:]]],
-            ["name": "music_now_playing", "description": "What is playing on the user's device right now.",
-             "inputSchema": ["type": "object", "properties": [:]]],
-        ]
-    }
-
-    func run(name: String, arguments: [String: Any], sessionID: String?) async -> (text: String, isError: Bool) {
-        switch name {
-        case "music_search":
-            let query = arguments["query"] as? String ?? ""
-            guard let results = try? await client.search3(query: query) else {
-                return ("The library didn't answer — is Navidrome up?", true)
-            }
-            lastResults.remember(results.songs, for: sessionID)
-            if results.songs.isEmpty { return ("Nothing matched \"\(query)\".", false) }
-            let listing = results.songs.prefix(10).enumerated()
-                .map { "\($0.offset + 1). \($0.element.title) — \($0.element.artist ?? "?")" }
-                .joined(separator: "\n")
-            return ("Found \(results.songs.count) songs:\n\(listing)", false)
-        case "music_similar_songs":
-            guard let seed = lastResults.seed(for: sessionID)?.first else {
-                return ("Search first, then ask for similar.", false)
-            }
-            let similar = (try? await client.getSimilarSongs(id: seed.id)) ?? []
-            if similar.isEmpty { return ("The server has no similarity data for \(seed.title).", false) }
-            return ("Similar to \(seed.title):\n" + similar.prefix(10).map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
-        case "music_list_playlists":
-            let lists = (try? await client.getPlaylists()) ?? []
-            return (lists.isEmpty ? "No playlists yet." : lists.map { "• \($0.name) (\($0.songCount))" }.joined(separator: "\n"), false)
-        case "music_list_genres":
-            let genres = (try? await client.getGenres()) ?? []
-            return (genres.prefix(30).map(\.name).joined(separator: ", "), false)
-        case "music_random":
-            let genre = arguments["genre"] as? String
-            let songs = (try? await client.getRandomSongs(count: 10, genre: genre)) ?? []
-            lastResults.remember(songs, for: sessionID)
-            return (songs.map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
-        case "music_play", "music_pause", "music_next", "music_now_playing":
-            // Playback belongs to the device with the speakers. Dispatch and wait;
-            // if nothing is listening, say so instead of claiming success.
-            let argumentsJSON = (try? JSONSerialization.data(withJSONObject: arguments)) ?? Data("{}".utf8)
-            guard let result = await devices.dispatch(name: name, argumentsJSON: argumentsJSON) else {
-                return ("No Baton device is connected right now — open Baton on your phone and I'll play it there. I can still search and build you something from here.", false)
-            }
-            return result
-        default:
-            return ("The gateway doesn't have \(name).", true)
-        }
-    }
+    await routes.handleUpload(request, staged)
 }

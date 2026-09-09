@@ -24,15 +24,15 @@ enum BatonMCPTranscriptTools {
             [
                 "name": "music_transcript",
                 "description": """
-                Read what was actually said in a spoken track — a podcast episode, talk, or \
-                interview — with a timestamp on every line. Defaults to what's playing now; \
+                Read what was actually said in a spoken track (a podcast episode, talk, or \
+                interview) with a timestamp on every line. Defaults to what's playing now; \
                 pass `song_id` for a specific track. The transcript is produced once by a \
                 self-hosted recognizer and then cached, so repeat calls are free.
 
                 An hour of speech is far too much to read in one go, so this returns a \
                 WINDOW: pass `from_seconds` and `to_seconds` to read a stretch (at most \
                 \(maxSegments) lines come back). To find the right stretch first, call \
-                `music_summarize_track` — its sections are timestamped, so they tell you \
+                `music_summarize_track`. Its sections are timestamped, so they tell you \
                 where to look.
 
                 If the track has never been transcribed, this reports that rather than \
@@ -55,12 +55,12 @@ enum BatonMCPTranscriptTools {
                 "description": """
                 Summarize a spoken track that has already been transcribed: one overview plus \
                 timestamped sections that act as chapter marks. Read this BEFORE \
-                `music_transcript` — the sections say where in the episode a topic lives, so \
+                `music_transcript`: the sections say where in the episode a topic lives, so \
                 you can then read only that window instead of the whole hour.
 
                 Defaults to what's playing; pass `song_id` for a specific track. A summary is \
                 written once and cached with the transcript. Pass `create: true` to write one \
-                if it doesn't exist yet — that sends the transcript to whichever model the \
+                if it doesn't exist yet. That sends the transcript to whichever model the \
                 natural-language settings point at, so it is refused unless that model is on \
                 the user's own network.
                 """,
@@ -70,7 +70,7 @@ enum BatonMCPTranscriptTools {
                         "song_id": ["type": "string", "description": "Track id. Omit for the current track."],
                         "create": [
                             "type": "boolean",
-                            "description": "Write the summary if there isn't one yet. Default false — it costs several model calls.",
+                            "description": "Write the summary if there isn't one yet. Default false, because it costs several model calls.",
                         ],
                     ],
                     "required": [] as [String],

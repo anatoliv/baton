@@ -84,6 +84,66 @@ final class SonicProfileStoreTests: XCTestCase {
         XCTAssertTrue(present)
     }
 
+    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+
+    /// Exactly what the pre-`VersionedStore` `persist()` wrote: a raw dictionary, no envelope.
+    ///
+    ///     guard let storeURL, let data = try? JSONEncoder().encode(profiles) else { return }
+    ///     try? data.write(to: storeURL, options: .atomic)
+    private func writeLegacyFile(_ profiles: [String: SonicProfile], to url: URL) throws {
+        try JSONEncoder().encode(profiles).write(to: url, options: .atomic)
+    }
+
+    func testReadsAFileWrittenByTheOldCodeUnchanged() async throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profiles-legacy-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let legacy: [String: SonicProfile] = [
+            "song-1": SonicProfile(energy: 0.42, brightness: 0.61, tempo: 124.5),
+            "song-2": SonicProfile(energy: 0.11, brightness: 0.08, tempo: nil),
+        ]
+        try writeLegacyFile(legacy, to: storeURL)
+
+        let store = SonicProfileStore(storeURL: storeURL)
+        let loaded = await store.allProfiles()
+        XCTAssertEqual(loaded, legacy, "an upgrade must read the profiles the old build measured")
+
+        // And the next write re-stamps it as an envelope without losing anything.
+        let tone = try writeTone(frequency: 300, seconds: 2, channels: 1, name: "upgrade")
+        defer { try? FileManager.default.removeItem(at: tone) }
+        _ = await store.analyzeLocal(id: "song-3", url: tone)
+        let reopened = SonicProfileStore(storeURL: storeURL)
+        let after = await reopened.allProfiles()
+        XCTAssertEqual(after["song-1"], legacy["song-1"])
+        XCTAssertEqual(after["song-2"], legacy["song-2"])
+        XCTAssertNotNil(after["song-3"])
+    }
+
+    func testACorruptFileIsQuarantinedRatherThanOverwritten() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profiles-corrupt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("sonic-profiles.json")
+        let damaged = Data(#"{"song-1":{"energy":0.4,"bright"#.utf8) // truncated mid-write
+        try damaged.write(to: storeURL)
+
+        let store = SonicProfileStore(storeURL: storeURL)
+        let profiles = await store.allProfiles()
+        XCTAssertTrue(profiles.isEmpty, "unreadable bytes cannot be presented as profiles")
+
+        // The mutation that used to destroy them.
+        let tone = try writeTone(frequency: 300, seconds: 2, channels: 1, name: "corrupt")
+        defer { try? FileManager.default.removeItem(at: tone) }
+        _ = await store.analyzeLocal(id: "song-3", url: tone)
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let aside = try XCTUnwrap(names.first { $0.hasPrefix("sonic-profiles.json.corrupt-") },
+                                  "the damaged bytes were not kept: \(names)")
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(aside)), damaged,
+                       "the quarantined copy must be the original bytes, byte for byte")
+    }
+
     func testClearingRemovesProfilesFromDiskToo() async throws {
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("profiles-\(UUID().uuidString).json")

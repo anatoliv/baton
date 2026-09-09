@@ -52,6 +52,7 @@ final class TransportTests: XCTestCase {
     /// Start a transport on a port the kernel picks, so tests never collide.
     private func start(
         readTimeout: TimeInterval = 15,
+        maximumConcurrentConnections: Int = 128,
         log: @escaping @Sendable (String) -> Void = { _ in },
         handle: @escaping @Sendable (HTTPRequestMessage) async -> Data = { _ in
             httpResponse(status: "200 OK", body: #"{"ok":true}"#)
@@ -64,6 +65,7 @@ final class TransportTests: XCTestCase {
         let transport = POSIXTransport(stagingDirectory: staging,
                                        maximumBodyBytes: 1024 * 1024,
                                        readTimeout: readTimeout,
+                                       maximumConcurrentConnections: maximumConcurrentConnections,
                                        log: log)
         let started = try transport.start(port: 0, handle: handle, upload: upload)
         listener = started
@@ -205,6 +207,71 @@ final class TransportTests: XCTestCase {
         }
         XCTAssertTrue(readAll(fd).hasPrefix("HTTP/1.1 200 OK"),
                       "a client that keeps sending resets the clock with every chunk")
+    }
+
+    /// Twice processor count silent connections, and one ordinary request that must not wait
+    /// behind them.
+    ///
+    /// `SO_RCVTIMEO` bounded the cost of a silent connection; it did not stop one from occupying
+    /// a thread while it lasts. With the read running inside `Task.detached` those threads came
+    /// from Swift's cooperative pool, which has about one per core, so this many silent peers
+    /// left nothing to run the next connection on and `/health` waited for a deadline it had no
+    /// part in. The read now runs on a thread of the connection's own, so the pool is never the
+    /// thing that runs out.
+    ///
+    /// The deadline here is deliberately longer than the measurement: the point is that the
+    /// ordinary request does not wait for the silent ones to expire, not that they expire.
+    func testSilentConnectionsDoNotStallAnOrdinaryRequest() throws {
+        let silentCount = max(4, ProcessInfo.processInfo.activeProcessorCount * 2)
+        let port = try start(readTimeout: 30)
+
+        var silent: [Int32] = []
+        defer { for fd in silent { close(fd) } }
+        for _ in 0 ..< silentCount {
+            silent.append(try open(port, receiveTimeout: 5))
+        }
+        // Long enough for the accept loop to have taken all of them and for each to be sitting
+        // in its own blocking read.
+        Thread.sleep(forTimeInterval: 0.5)
+
+        let started = Date()
+        let response = try request(port)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 200 OK"),
+                      "a normal request must still be answered with \(silentCount) silent "
+                      + "connections open, got: \(response.prefix(40))")
+        XCTAssertLessThan(elapsed, 1,
+                          "and answered straight away, not after the silent connections' read "
+                          + "deadline: took \(String(format: "%.2f", elapsed))s")
+    }
+
+    /// The cap on live connections answers rather than drops.
+    ///
+    /// A thread per connection needs a ceiling, and a ceiling needs to be reachable in a test or
+    /// it is a branch nobody has run. Two silent peers fill a cap of two; the third is told what
+    /// happened instead of getting a bare reset it cannot tell from a dead gateway.
+    func testPastTheConnectionCapAClientIsToldRatherThanDropped() throws {
+        let port = try start(readTimeout: 30, maximumConcurrentConnections: 2)
+
+        var silent: [Int32] = []
+        defer { for fd in silent { close(fd) } }
+        for _ in 0 ..< 2 {
+            silent.append(try open(port, receiveTimeout: 5))
+        }
+        Thread.sleep(forTimeInterval: 0.3)
+
+        let response = try request(port)
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 503 Service Unavailable"),
+                      "past the cap the gateway must say so, got: \(response.prefix(40))")
+
+        // And the cap is a ceiling on what is live, not a total: a slot freed by a finished
+        // connection is usable again.
+        for fd in silent { close(fd) }
+        silent = []
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertTrue(try request(port).hasPrefix("HTTP/1.1 200 OK"),
+                      "a connection that ended must give its slot back")
     }
 
     // MARK: - S-F26: the request log has to cover the upload route

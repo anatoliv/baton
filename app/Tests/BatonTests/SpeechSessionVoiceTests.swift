@@ -205,4 +205,49 @@ struct SpeechSessionVoiceTests {
         #expect(SpeechConfig.sessionVoiceList().count == 1)
         #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_sky")
     }
+
+    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+
+    /// Exactly what the pre-`VersionedStore` setters wrote: a bare JSON blob under the same
+    /// key, no envelope.
+    ///
+    ///     guard let data = try? JSONEncoder().encode(list) else { return }
+    ///     defaults.set(data, forKey: sessionVoicesKey)
+    @Test("A voice list and a voice map written by the old code are read unchanged")
+    func legacyBlobsAreAdopted() throws {
+        let defaults = isolatedDefaults()
+        let legacyList = [SpeechConfig.SessionVoice(label: "alpha", voice: "kokoro:af_bella"),
+                          SpeechConfig.SessionVoice(label: "bravo", voice: "chatterbox:Emily.wav")]
+        defaults.set(try JSONEncoder().encode(legacyList), forKey: "tonebox.speech.sessionVoiceList")
+        let legacyMap = ["release": "kokoro:am_michael", "alert": "kokoro:af_sky"]
+        defaults.set(try JSONEncoder().encode(legacyMap), forKey: "tonebox.speech.voiceMap")
+
+        #expect(SpeechConfig.sessionVoiceList().map(\.label) == ["alpha", "bravo"])
+        #expect(SpeechConfig.assignedVoice(for: "bravo") == "chatterbox:Emily.wav")
+        #expect(SpeechConfig.voiceMap() == legacyMap)
+
+        // The next edit re-stamps each as an envelope without dropping what was there.
+        SpeechConfig.setSessionVoiceList(SpeechConfig.sessionVoiceList()
+            + [.init(label: "charlie", voice: "kokoro:am_puck")])
+        #expect(SpeechConfig.sessionVoiceList().map(\.label) == ["alpha", "bravo", "charlie"])
+        #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_bella")
+    }
+
+    /// A damaged blob used to read as "no list", so every agent fell back to the unlisted pool
+    /// and the next edit wrote that emptiness over the list somebody typed.
+    @Test("A damaged voice list is kept aside rather than written over")
+    func damagedListIsQuarantined() throws {
+        let defaults = isolatedDefaults()
+        let damaged = Data(#"[{"label":"alpha","voice":"koko"#.utf8)
+        defaults.set(damaged, forKey: "tonebox.speech.sessionVoiceList")
+
+        #expect(SpeechConfig.sessionVoiceList().isEmpty)
+        SpeechConfig.setSessionVoiceList([.init(label: "alpha", voice: "kokoro:af_sky")])
+
+        let aside = defaults.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix("tonebox.speech.sessionVoiceList.corrupt-") }
+        #expect(aside.count == 1)
+        #expect(defaults.data(forKey: try #require(aside.first)) == damaged)
+        #expect(SpeechConfig.sessionVoiceList().count == 1)
+    }
 }

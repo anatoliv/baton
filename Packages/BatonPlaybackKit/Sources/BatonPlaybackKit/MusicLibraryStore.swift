@@ -513,15 +513,49 @@ public final class MusicLibraryStore {
     /// played from an album, a playlist or the queue reached the fallback with nothing to
     /// look up, and returned nil before a single request was made.
     public func lyrics(for songID: String, song: NavidromeSong?) async -> NavidromeLyrics? {
-        if let fromServer = await (try? clientProvider().getLyrics(songID: songID)) ?? nil,
-           !fromServer.lines.isEmpty {
-            return fromServer
+        await lyricsLookup(for: songID, song: song).lyrics
+    }
+
+    /// The same lookup with the reason kept when it comes back empty.
+    ///
+    /// Both hops used to end in a `try?` or a discarded status, so a refused password, a
+    /// rate-limited LRCLIB and a track nobody has written words for were one answer: "No
+    /// lyrics for this track". The first two are things a person can act on. The panel asks
+    /// for this shape and shows a line for those two; everything else stays in the log and
+    /// keeps the ordinary empty state (S-F27).
+    public func lyricsLookup(for songID: String, song: NavidromeSong?) async -> LyricsLookup {
+        var serverFailure: LyricsFailure?
+        do {
+            if let fromServer = try await clientProvider().getLyrics(songID: songID),
+               !fromServer.lines.isEmpty {
+                return .found(fromServer)
+            }
+        } catch {
+            serverFailure = Self.lyricsFailure(for: error)
+            let message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
+            musicStoreLog.error("lyrics lookup failed: \(message, privacy: .public)")
         }
-        guard LRCLIBLyrics.isEnabled, let song = song ?? songForLyrics(songID) else { return nil }
-        return await LRCLIBLyrics.lyrics(
+        guard LRCLIBLyrics.isEnabled, let song = song ?? songForLyrics(songID) else {
+            return serverFailure.map(LyricsLookup.failed) ?? .none
+        }
+        let fallback = await LRCLIBLyrics.lookup(
             title: song.title, artist: song.artist, album: song.album,
             durationSeconds: song.duration
         )
+        guard let serverFailure else { return fallback }
+        return LyricsLookup.combining(.failed(serverFailure), fallback)
+    }
+
+    /// A server error as the lyrics panel needs to describe it.
+    ///
+    /// `notConfigured` is deliberately not `refused`: having no server at all is a different
+    /// sentence, and every other screen already says it. Telling someone their sign in was
+    /// refused when they never signed in sends them to check a password that does not exist.
+    nonisolated static func lyricsFailure(for error: any Error) -> LyricsFailure {
+        guard let navidrome = error as? NavidromeError else { return .unavailable }
+        if case .notConfigured = navidrome { return .unavailable }
+        if case let .http(status) = navidrome, status == 429 { return .rateLimited }
+        return navidrome.isAuthFailure ? .refused : .unavailable
     }
 
     /// The metadata LRCLIB needs, from whatever this store already knows about the track.

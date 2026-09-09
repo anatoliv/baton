@@ -298,7 +298,7 @@ final class SpeechAudioPlayer {
         do {
             try unit.setDeviceID(target)
         } catch {
-            speechLog.error("speech: output device \(target) refused — staying where we are")
+            speechLog.error("speech: output device \(target) refused, staying where we are")
             if let resumeAt { seek(to: resumeAt) }
             return false
         }
@@ -394,7 +394,7 @@ final class SpeechAudioPlayer {
             let held = String(format: "%.2f", seconds)
             speechLog.info("""
                 speech: bluetooth link woke in \(woke, privacy: .public)s, held \
-                \(held, privacy: .public)s of warm-up — raise tonebox.speech.bluetoothWarmup \
+                \(held, privacy: .public)s of warm-up. Raise tonebox.speech.bluetoothWarmup \
                 if the first word is still clipped
                 """)
         }

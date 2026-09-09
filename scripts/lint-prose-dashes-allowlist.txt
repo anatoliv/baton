@@ -1,0 +1,58 @@
+# W-21 allowlist: em and en dashes that are typography, not prose.
+#
+# The lint beside this file (scripts/lint-prose-dashes.py) refuses an em dash (U+2014) or an
+# en dash (U+2012, U+2013) inside a string a user reads, because published copy here is
+# written with the punctuation the sentence actually wants instead. A handful of dashes are
+# not sentences at all: a glyph standing in for a value that is missing, a separator between
+# two metadata fields, a range of keys or letters. Those belong here, each under a line
+# saying why, rather than being rewritten into something worse.
+#
+# FORMAT: one entry per line, the repo-relative path, a TAB, then the trimmed text of the
+# source line. Deliberately not a line number, which rots the moment anything above it moves;
+# deliberately not the path alone, so a file with one allowed glyph does not become a file
+# where any new dash passes. Rewriting the sentence stops the entry matching, which is the
+# point: the exemption is for this text, not for this file.
+#
+# Adding an entry is a copy decision. If the dash is doing the work of a period, a colon, a
+# pair of parentheses or a comma, it is prose and belongs in the sentence, not in here.
+
+# --- The "no value yet" glyph -------------------------------------------------
+# An em dash in a table cell where a number has not loaded or does not exist. It is the
+# conventional typographic stand-in for an empty cell, it is never read as a sentence, and
+# the alternatives (a blank cell, "n/a", "0") each say something the app does not mean: a
+# blank reads as a layout bug, "n/a" as "does not apply", and "0" as a measured zero.
+app/Sources/Baton/App/BatonAboutView.swift	let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+app/Sources/Baton/App/BatonAboutView.swift	let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+app/Sources/Baton/Integrations/UpdateChannel.swift	Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? "—"
+app/Sources/Baton/Shell/Music/BatonSettingsView.swift	let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+app/Sources/Baton/Shell/Music/BatonSettingsView.swift	let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+app/Sources/Baton/Shell/Music/MusicArtistsBrowser.swift	private var timeText: String { stats.map { ArtistHeuristics.formatDuration($0.seconds) } ?? "—" }
+app/Sources/Baton/Shell/Music/MusicArtistsBrowser.swift	private var tracksText: String { stats.map { "\($0.tracks)" } ?? "—" }
+app/Sources/Baton/Shell/Music/MusicArtistsBrowser.swift	return seconds > 0 ? "\(seconds)s" : "—"
+app/Sources/Baton/Shell/Music/MusicBrowseRows.swift	Text(playlist.duration.map { MusicAlbumCard.albumDuration($0) } ?? "—")
+app/Sources/Baton/Shell/Music/MusicBrowseRows.swift	private var timeText: String { (album.duration).map { MusicAlbumCard.albumDuration($0) } ?? "—" }
+app/Sources/Baton/Shell/Music/MusicBrowseRows.swift	private var tracksText: String { album.songCount.map { "\($0)" } ?? "—" }
+app/Sources/Baton/Shell/Music/MusicDownloadsView.swift	private var durationText: String { item.duration.map { MusicTrackRow.formatDuration($0) } ?? "—" }
+app/Sources/Baton/Shell/Music/MusicFoldersView.swift	Text(stats.map { "\($0.folders)" } ?? "—").frame(width: FolderColumns.folders, alignment: .trailing)
+app/Sources/Baton/Shell/Music/MusicFoldersView.swift	Text(stats.map { "\($0.songs)" } ?? "—").frame(width: FolderColumns.songs, alignment: .trailing)
+app/Sources/Baton/Shell/Music/MusicFoldersView.swift	Text(stats.map { ArtistHeuristics.formatDuration($0.seconds) } ?? "—")
+app/Sources/Baton/Shell/Music/MusicLikedView.swift	Text(song.duration.map { MusicTrackRow.formatDuration($0) } ?? "—")
+app/Sources/Baton/Shell/Music/MusicPodcastsView.swift	Text("—").font(.caption).foregroundStyle(.tertiary)
+app/Sources/Baton/Shell/Music/MusicRadioView.swift	Text("—").font(.caption).foregroundStyle(.tertiary)
+ios/Sources/BatonMobile/MobileSettingsView.swift	LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+
+# --- Field separators ---------------------------------------------------------
+# "Title — Artist" and "Label — detail". The dash is the divider between two fields in one
+# line of display, the same job "2007 · Electronic" does elsewhere, not punctuation inside a
+# sentence. Changing it changes what the widget and the tooltip look like, which is a design
+# decision and not a copy one.
+Shared/ServiceStatus.swift	.help(status.detail.map { "\(status.label) — \($0)" } ?? status.label)
+app/Sources/Baton/MCP/BatonMCPMixTools.swift	if let artist = song.artist, !artist.isEmpty { return "\(song.title) — \(artist)" }
+ios/Sources/BatonWidgets/BatonWidgets.swift	Text(snapshot.artist.map { "\(snapshot.title) — \($0)" } ?? snapshot.title)
+
+# --- Ranges in shipped What's New entries -------------------------------------
+# A range of keyboard shortcuts and a range of letters. Both are ranges, where the en dash is
+# the correct typography and "to" would be wrong ("an A to Z rail"). Both also sit in release
+# history that has already shipped, which is not rewritten after the fact.
+app/Sources/Baton/Shell/Music/BatonHelpContent.swift	HelpWhatsNewChange(.added, "A Go menu to jump to any section (⌘1–8), plus Now "
+ios/Sources/BatonMobile/HelpView.swift	.init(.added, "An A–Z rail on Albums, Artists and Folders. Drag it to jump: 2,604 albums is no longer a flick marathon."),

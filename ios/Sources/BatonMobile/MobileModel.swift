@@ -562,6 +562,7 @@ final class MobileModel {
     /// verification happens behind that, and only an outright rejection sends them to setup;
     /// a timeout is not evidence that a password is wrong.
     func restoreSession() async {
+        wireArtworkCredentialCheck()
         #if DEBUG
         // Simulator/UI-test affordance. Synthetic taps can drive buttons and rows but not
         // text fields, so there is otherwise no way to reach any screen behind "connect to
@@ -641,6 +642,21 @@ final class MobileModel {
             startDemo()
         } else {
             showsSetup = true
+        }
+    }
+
+    /// A refused cover-art request asks the existing credential check to run, rather than
+    /// deciding anything on its own.
+    ///
+    /// Cover art is usually the first thing to notice a credential has gone bad, because a
+    /// grid asks for sixty of them and the browse calls behind it may still be serving from
+    /// a cache. It is a poor authority though: a reverse proxy can refuse one image for
+    /// reasons that have nothing to do with the account. So the artwork layer only prompts,
+    /// and `verifyCredentials` pings and decides, which is the surface the app already has
+    /// for this.
+    func wireArtworkCredentialCheck() {
+        ArtworkCache.shared.onCredentialRefused = { [weak self] in
+            Task { @MainActor [weak self] in await self?.verifyCredentials() }
         }
     }
 

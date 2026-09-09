@@ -428,7 +428,7 @@ final class BatonMCPServer {
         if let sessionID = streamSessions.removeValue(forKey: key) {
             let expired = focus.expireHandles(forConnection: sessionID, on: music.music)
             if expired > 0 {
-                batonServerLog.info("SSE session \(sessionID) closed — expired \(expired) audio-focus handle(s)")
+                batonServerLog.info("SSE session \(sessionID) closed, expired \(expired) audio-focus handle(s)")
             }
         }
     }

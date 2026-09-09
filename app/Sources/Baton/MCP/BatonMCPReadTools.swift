@@ -32,7 +32,7 @@ enum BatonMCPReadTools {
             "description": """
             Read text aloud through Baton, on the user's speakers, with the music ducked \
             underneath and a window showing the text with the current sentence highlighted. \
-            Use it to hand over something you have already extracted — the article text from a \
+            Use it to hand over something you have already extracted: the article text from a \
             page you are driving, a long file, command output worth listening to. This is for \
             *documents*: for a one- or two-sentence "I finished the task" alert, use \
             `speak_summary` instead, which has the notification and banner delivery modes. \
@@ -40,7 +40,7 @@ enum BatonMCPReadTools {
             like a credential is removed, hashes and URLs are shortened, code blocks are \
             announced rather than pronounced, and with `kind: "terminal"` colour codes and \
             shell prompts are stripped. Set `kind` to match where the text came from. Pass \
-            `source` (the site, app or file name) — it labels the reading and, when the user \
+            `source` (the site, app or file name). It labels the reading and, when the user \
             has per-app voices on, chooses the voice. `gist: true` summarizes first and reads \
             the summary, which needs a model configured in Baton's Remote settings. Reading \
             starts immediately and returns straight away, and it is not persisted anywhere. \
@@ -50,7 +50,7 @@ enum BatonMCPReadTools {
             "inputSchema": [
                 "type": "object",
                 "properties": [
-                    "text": ["type": "string", "description": "The text to read. An article, a document, a scrollback — not a one-line alert."],
+                    "text": ["type": "string", "description": "The text to read. An article, a document, a scrollback, not a one-line alert."],
                     "source": ["type": "string", "description": "Where it came from, e.g. 'arstechnica.com' or 'Ghostty'. Shown with the reading and used to pick a voice when per-app voices are on."],
                     "kind": ["type": "string", "description": "'browser' (drop web furniture), 'terminal' (strip ANSI and shell prompts, keep the last command's output), or 'generic' (default). Every option redacts credentials."],
                     "gist": ["type": "boolean", "description": "Summarize first and read the summary rather than the whole thing. Needs a model configured in Baton's Remote settings; says so when there isn't one."],
@@ -64,7 +64,7 @@ enum BatonMCPReadTools {
         guard let text = args["text"] as? String,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
-            throw BatonMCPToolError(message: "read_aloud needs `text` — the text to read.")
+            throw BatonMCPToolError(message: "read_aloud needs `text`: the text to read.")
         }
         guard text.count <= maxCharacters else {
             throw BatonMCPToolError(
@@ -76,7 +76,7 @@ enum BatonMCPReadTools {
         // `SourceProfile` is already spelled with exactly these names, so its raw value is the
         // parser — a second mapping here would be one more place for the two to drift apart.
         guard let profile = SpeakableText.SourceProfile(rawValue: kind) else {
-            throw BatonMCPToolError(message: "Unknown kind \"\(kind)\" — use 'browser', 'terminal', or 'generic'.")
+            throw BatonMCPToolError(message: "Unknown kind \"\(kind)\". Use 'browser', 'terminal', or 'generic'.")
         }
         let source = (args["source"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let gist = args["gist"] as? Bool ?? false

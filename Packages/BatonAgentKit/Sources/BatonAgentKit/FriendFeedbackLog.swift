@@ -243,35 +243,30 @@ public final class FriendFeedbackLog {
 
     // MARK: - Persistence
 
+    /// The versioned backing for `music-friend-log.json` (S-F14).
+    ///
+    /// This file already moved a bad copy aside rather than over it, which was the important
+    /// half. What it did not have: a version stamp, so nothing could tell a future format from
+    /// a damaged one; a timestamped quarantine, so a second corruption overwrote the first
+    /// rescue; or a refusal to downgrade a file a newer build wrote. `VersionedStore` has all
+    /// three, and the file name and the old unversioned array are both still read.
+    ///
+    /// Pretty-printed and key-sorted, because a person opening this file is part of the
+    /// promise the type's header makes, and an envelope should not change that.
+    private var store: VersionedStore<[FriendExchange]> {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return VersionedStore<[FriendExchange]>(fileURL: url, currentVersion: 1,
+                                                keepBackup: false, encoder: encoder, log: friendLog)
+    }
+
     private func load() {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        guard let data = try? Data(contentsOf: url) else {
-            friendLog.error("could not read \(self.url.lastPathComponent, privacy: .public)")
-            return
-        }
-        guard
-              let decoded = try? JSONDecoder().decode([FriendExchange].self, from: data)
-        else {
-            // Move it aside rather than over it. Decoding to empty and then saving on the
-            // next mutation is how a corrupt file becomes a deleted one.
-            let quarantine = url.appendingPathExtension("corrupt")
-            try? FileManager.default.removeItem(at: quarantine)
-            try? FileManager.default.moveItem(at: url, to: quarantine)
-            friendLog.error("\(self.url.lastPathComponent, privacy: .public) would not decode — moved aside")
-            return
-        }
-        exchanges = decoded
+        if let decoded = store.load() { exchanges = decoded }
     }
 
     private func save() {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        do {
-            try encoder.encode(exchanges).write(to: url, options: .atomic)
-        } catch {
-            // A silently failing write loses every rating since the last good one, and the
-            // only symptom is a feature that seems not to learn.
-            friendLog.error("could not save \(self.url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
+        // A silently failing write loses every rating since the last good one, and the only
+        // symptom is a feature that seems not to learn. `VersionedStore.save` logs it.
+        store.save(exchanges)
     }
 }

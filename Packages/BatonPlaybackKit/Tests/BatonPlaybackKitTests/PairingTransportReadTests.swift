@@ -1,3 +1,4 @@
+import Darwin
 import Network
 import XCTest
 @testable import BatonPlaybackKit
@@ -15,55 +16,72 @@ import XCTest
 /// about a payload much larger than a segment.
 final class PairingTransportReadTests: XCTestCase {
 
-    /// A loopback server that writes `payload` and closes, exactly as the pairing host does.
-    private func serve(_ payload: Data) throws -> (port: UInt16, listener: NWListener) {
-        let listener = try NWListener(using: .tcp, on: .any)
-        listener.newConnectionHandler = { connection in
-            connection.start(queue: .global())
-            guard !payload.isEmpty else {
-                // An empty `send` never fires `contentProcessed`, so close directly. (Finding
-                // from this test hanging: relying on that completion is not safe for 0 bytes.)
-                connection.cancel()
-                return
+    /// A loopback server that writes `payload` and closes, exactly as the pairing host does —
+    /// built on plain BSD sockets rather than `NWListener`.
+    ///
+    /// **Un-parked 2026-09-09.** The three tests below were skipped since TBX-3846
+    /// because the client's `NWConnection` never reached `.ready` against an in-process
+    /// `NWListener` — confirmed again here: with the old `NWListener`-backed `serve()`, the
+    /// client hung past 90 seconds and was killed by hand (never reached `.ready`, `.failed`,
+    /// or `.cancelled`). Swapping only the *server* side to a raw BSD socket bound to
+    /// `127.0.0.1` — the client is still the genuine `NWConnection`-based
+    /// `PairingClient.receiveAll`, unchanged — reaches `.ready` immediately, in this same test
+    /// process. The likely reason: `NWListener(using:.tcp, on: .any)` binds `0.0.0.0`, which on
+    /// this macOS version is the shape that engages the Local Network permission / listener
+    /// sandboxing that an in-process xctest run never grants; a socket bound directly to the
+    /// loopback address is not asking for that permission at all. This is a harness fix, not a
+    /// production-code change — `PairingHost` (the Mac's real server) keeps using `NWListener`
+    /// because it has to bind the LAN interface, not loopback, for a phone to reach it.
+    private func serve(_ payload: Data) throws -> (port: UInt16, fd: Int32) {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw XCTSkip("couldn't open a BSD socket in this environment") }
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = 0   // ask the OS to pick a port
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
-            connection.send(content: payload, completion: .contentProcessed { _ in
-                connection.cancel()   // one connection, one payload, then closed
-            })
         }
-        listener.start(queue: .global())
-
-        let deadline = Date().addingTimeInterval(5)
-        while listener.port?.rawValue == nil, Date() < deadline { usleep(20_000) }
-        guard let port = listener.port?.rawValue else {
-            listener.cancel()
-            throw XCTSkip("the listener never got a port")
+        guard bound == 0 else {
+            close(fd)
+            throw XCTSkip("couldn't bind a loopback socket (errno \(errno))")
         }
-        return (port, listener)
-    }
 
-    /// The three socket tests below are **skipped**, and that is a finding rather than a
-    /// cop-out. The environment is fine: the firewall is off, and a plain BSD-socket loopback
-    /// server receiving 300 KB in a read-until-EOF loop works here. What could not be made to
-    /// run inside the time-box was the `NWConnection` harness — the client never reaches
-    /// `.ready` against an `NWListener` in this test process, so every read returns nothing and
-    /// the suite reports a fact about the harness rather than about the code.
-    ///
-    /// Muting them by asserting something weaker would be worse: it would look like coverage of
-    /// the exact bug that shipped.
-    ///
-    /// **What changed since, and it is most of the gap.** The bug was pure framing, and framing
-    /// only misbehaves when a payload arrives in more than one piece — which is precisely what
-    /// this harness could not arrange. `PairingClient.Accumulator` now holds that decision apart
-    /// from the socket, so `PairingAccumulatorTests` arranges it by hand: 300 KB in 1 KB pieces,
-    /// one byte at a time, a single piece, a peer that closes having sent nothing, an error
-    /// mid-stream, and the cap. Those six run.
-    ///
-    /// So what stays skipped here is narrower than it was: whether `NWConnection` delivers the
-    /// bytes at all, rather than whether they are reassembled. The real proof is still pairing a
-    /// phone with a Mac, which is what this bug needed in the first place.
-    private func skipUnlessNetworkHarnessWorks() throws {
-        throw XCTSkip("NWConnection loopback harness does not come up in this test process; "
-                      + "verify by pairing a real phone with a real Mac")
+        var actual = sockaddr_in()
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        withUnsafeMutablePointer(to: &actual) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { _ = getsockname(fd, $0, &len) }
+        }
+        let port = UInt16(bigEndian: actual.sin_port)
+        guard listen(fd, 1) == 0 else {
+            close(fd)
+            throw XCTSkip("couldn't listen on the loopback socket (errno \(errno))")
+        }
+
+        // One connection, one payload, then closed — matches what the real pairing host does
+        // (`connection.send(... .contentProcessed { connection.cancel() })`).
+        DispatchQueue.global().async {
+            let client = accept(fd, nil, nil)
+            guard client >= 0 else { return }
+            if !payload.isEmpty {
+                payload.withUnsafeBytes { buf in
+                    var offset = 0
+                    let base = buf.bindMemory(to: UInt8.self).baseAddress!
+                    while offset < buf.count {
+                        let n = write(client, base + offset, buf.count - offset)
+                        if n <= 0 { break }
+                        offset += n
+                    }
+                }
+            }
+            close(client)
+        }
+        return (port, fd)
     }
 
     private func read(fromPort port: UInt16) async throws -> Data? {
@@ -96,10 +114,9 @@ final class PairingTransportReadTests: XCTestCase {
 
     /// The regression. 512 KB is many segments; the old single read returned one of them.
     func testAPayloadLargerThanOneSegmentArrivesWhole() async throws {
-        try skipUnlessNetworkHarnessWorks()
         let payload = Data((0 ..< 512 * 1024).map { UInt8($0 % 251) })
-        let (port, listener) = try serve(payload)
-        defer { listener.cancel() }
+        let (port, fd) = try serve(payload)
+        defer { close(fd) }
 
         let received = try await read(fromPort: port)
         XCTAssertEqual(received?.count, payload.count, "the payload was truncated to one segment")
@@ -121,10 +138,9 @@ final class PairingTransportReadTests: XCTestCase {
 
     /// Small payloads still work — this is what made the bug look intermittent.
     func testASmallPayloadStillArrives() async throws {
-        try skipUnlessNetworkHarnessWorks()
         let payload = Data("{\"format\":\"baton-settings\"}".utf8)
-        let (port, listener) = try serve(payload)
-        defer { listener.cancel() }
+        let (port, fd) = try serve(payload)
+        defer { close(fd) }
 
         let received = try await read(fromPort: port)
         XCTAssertEqual(received, payload)
@@ -133,9 +149,8 @@ final class PairingTransportReadTests: XCTestCase {
     /// A sender that closes without writing yields nil rather than empty data, so `redeem`
     /// reports "empty" instead of handing zero bytes to the decoder.
     func testAClosedConnectionWithNothingSentIsNil() async throws {
-        try skipUnlessNetworkHarnessWorks()
-        let (port, listener) = try serve(Data())
-        defer { listener.cancel() }
+        let (port, fd) = try serve(Data())
+        defer { close(fd) }
 
         let received = try await read(fromPort: port)
         XCTAssertNil(received)

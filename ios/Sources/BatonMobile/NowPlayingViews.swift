@@ -953,8 +953,10 @@ struct LyricsSheet: View {
     let song: NavidromeSong
     let model: MobileModel
     @Environment(\.dismiss) private var dismiss
-    @State private var lyrics: NavidromeLyrics?
+    @State private var lookup: LyricsLookup?
     @State private var loaded = false
+
+    private var lyrics: NavidromeLyrics? { lookup?.lyrics }
 
     var body: some View {
         NavigationStack {
@@ -981,7 +983,13 @@ struct LyricsSheet: View {
                         }
                     }
                 } else if loaded {
-                    if LRCLIBLyrics.isLikelyLyricless(durationSeconds: song.duration) {
+                    // A refused sign in and a rate-limited lyrics service used to arrive
+                    // here as "No lyrics for this track", which is a claim about the song
+                    // and was wrong about it. Both are things a person can act on (S-F27).
+                    if let title = lookup?.failureTitle, let reason = lookup?.failureMessage {
+                        ContentUnavailableView(title, systemImage: "exclamationmark.triangle",
+                                               description: Text(reason))
+                    } else if LRCLIBLyrics.isLikelyLyricless(durationSeconds: song.duration) {
                         ContentUnavailableView("Too long to have lyrics", systemImage: "quote.bubble",
                                                description: Text("Mixes and sets this length aren't written down anywhere."))
                     } else {
@@ -997,7 +1005,7 @@ struct LyricsSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
             .task {
-                lyrics = await model.musicLibrary.lyrics(for: song.id, song: song)
+                lookup = await model.musicLibrary.lyricsLookup(for: song.id, song: song)
                 loaded = true
             }
         }

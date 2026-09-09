@@ -57,7 +57,7 @@ final class ReadAloudHotKey {
             // The likeliest cause by far is that another application already owns this
             // combination. Log rather than alert: the user is not necessarily at the keyboard,
             // and Settings shows the state.
-            readAloudLog.error("could not register the read-aloud hotkey (status \(status)) — another app may own it")
+            readAloudLog.error("could not register the read-aloud hotkey (status \(status)). Another app may own it")
         }
     }
 
@@ -90,7 +90,7 @@ final class ReadAloudHotKey {
         guard status == noErr else {
             // Swallowing this made a chord that never registered look exactly like a chord that
             // was never pressed, which is the shape of failure that costs an hour.
-            readAloudLog.error("could not register Shift + the read-aloud hotkey (status \(status)) — another app may own it")
+            readAloudLog.error("could not register Shift + the read-aloud hotkey (status \(status)). Another app may own it")
             return
         }
         wholeTextHotKeyRef = ref
@@ -105,7 +105,7 @@ final class ReadAloudHotKey {
         let status = RegisterEventHotKey(binding.keyCode, binding.modifiers | UInt32(optionKey), id,
                                          GetApplicationEventTarget(), 0, &ref)
         guard status == noErr else {
-            readAloudLog.error("could not register Option + the read-aloud hotkey (status \(status)) — another app may own it")
+            readAloudLog.error("could not register Option + the read-aloud hotkey (status \(status)). Another app may own it")
             return
         }
         ocrHotKeyRef = ref

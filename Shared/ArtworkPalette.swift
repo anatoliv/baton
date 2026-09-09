@@ -178,7 +178,12 @@ enum ArtworkColorExtractor {
             guard let fileData = try? Data(contentsOf: url) else { return nil }
             data = fileData
         } else {
-            guard let (loaded, _) = try? await URLSession.shared.data(from: url) else { return nil }
+            guard let (loaded, response) = try? await URLSession.shared.data(from: url) else { return nil }
+            // A refused or missing cover answers with an error body, not an image. Decoding
+            // catches most of those, but checking the status first is what tells a 401 apart
+            // from a dropped connection instead of filing both under "no palette".
+            if let http = response as? HTTPURLResponse,
+               ArtworkCache.classify(status: http.statusCode) != .loaded { return nil }
             data = loaded
         }
         #if canImport(AppKit)
@@ -205,7 +210,8 @@ final class ArtworkPaletteLoader {
     @ObservationIgnored private var cacheOrder: [URL] = []
     private static let cacheLimit = 64
     @ObservationIgnored private var currentURL: URL?
-    @ObservationIgnored private var task: Task<Void, Never>?
+    /// Readable so a test can await the extraction instead of sleeping and hoping.
+    @ObservationIgnored private(set) var task: Task<Void, Never>?
 
     /// Point the loader at a new cover-art URL. No-ops if unchanged. Falls back to
     /// neutral when `url` is nil.
@@ -216,10 +222,14 @@ final class ArtworkPaletteLoader {
         guard let url else { palette = .neutral; return }
         if let cached = cache[url] { palette = cached; return }
         task = Task { [weak self] in
-            let result = await ArtworkColorExtractor.palette(from: url) ?? .neutral
+            let extracted = await ArtworkColorExtractor.palette(from: url)
             guard let self, !Task.isCancelled, currentURL == url else { return }
-            remember(url, result)
-            withAnimation(.easeInOut(duration: 0.6)) { self.palette = result }
+            // Only a real extraction is remembered. This used to cache the neutral fallback
+            // after any failure, so one Wi-Fi blip while a track started left that track's
+            // backdrop grey for the rest of the session, or until 64 other tracks evicted
+            // it. A failure now costs one refetch on the next visit instead.
+            if let extracted { remember(url, extracted) }
+            withAnimation(.easeInOut(duration: 0.6)) { self.palette = extracted ?? .neutral }
         }
     }
 

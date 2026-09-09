@@ -8,6 +8,8 @@ import BatonSubsonicModels
 // as the DSP moves to its own SPM module.
 @_exported import BatonDSP
 
+private let eqLog = Logger(subsystem: "io.tonebox.baton", category: "Equalizer")
+
 /// A parametric equalizer for the music player. Each band carries its own centre
 /// frequency, Q (bandwidth), and gain, so bands can be reshaped — not just boosted or
 /// cut on a fixed grid. The equalizer persists its config, recomputes the biquad
@@ -125,8 +127,7 @@ public final class MusicEqualizer {
     /// config means — the fallbacks are the interesting part, and the reload path is the one
     /// nobody exercises by hand.
     private static func storedBands(in defaults: UserDefaults) -> [EQBand] {
-        if let data = defaults.data(forKey: Self.bandsKey),
-           let stored = try? JSONDecoder().decode([EQBand].self, from: data), !stored.isEmpty {
+        if let stored = bandsStore(in: defaults).load(), !stored.isEmpty {
             return stored.map { $0.clamped() }
         }
         if let storedGains = defaults.array(forKey: Self.gainsKey) as? [Double], storedGains.count == 10 {
@@ -233,11 +234,26 @@ public final class MusicEqualizer {
 
     // MARK: - Persistence + publishing
 
+    /// Versioned backing for the parametric bands (S-F14).
+    ///
+    /// Defaults-backed rather than file-backed, like the persisted play queue, because that is
+    /// where this curve has always lived and `PreferenceSync` carries the key between devices.
+    /// The blob used to be a bare `[EQBand]` read with a `try?`, so a damaged one silently
+    /// became "no bands" and the next slider move wrote the default curve over whatever the
+    /// user had built. `load` still adopts the old bare array, so an upgrade keeps the curve.
+    ///
+    /// A device on an older build that receives an envelope through sync cannot decode it and
+    /// falls back to `gainsKey`, which is why that key is still written below: it degrades to
+    /// the graphic curve rather than to silence.
+    private static func bandsStore(in defaults: UserDefaults) -> VersionedStore<[EQBand]> {
+        VersionedStore<[EQBand]>(backing: .defaults(defaults, key: bandsKey),
+                                 currentVersion: 1, log: eqLog)
+    }
+
     private func persistAndPublish() {
-        let d = defaults
-        if let data = try? JSONEncoder().encode(bands) { d.set(data, forKey: Self.bandsKey) }
+        Self.bandsStore(in: defaults).save(bands) // logs on failure; a bad blob is kept aside
         // Keep the legacy gains key in sync so an older build reads sane gains.
-        d.set(bands.map(\.gainDB), forKey: Self.gainsKey)
+        defaults.set(bands.map(\.gainDB), forKey: Self.gainsKey)
         publish()
     }
 

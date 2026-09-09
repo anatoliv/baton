@@ -17,11 +17,11 @@ enum BatonMCPSpeakTools {
             "name": "speak_summary",
             "description": """
             Speak a short task-completion summary aloud through Baton. Put the summary in \
-            `text`. Pick a voice by task `category` (mapped to a configured voice — e.g. \
+            `text`. Pick a voice by task `category` (mapped to a configured voice, e.g. \
             'ops', 'deploy', 'research', 'alert', or 'es' for Spanish; unknown categories \
             fall back to 'default'), or pass an explicit `voice`. `engine` selects Kokoro \
             (fast preset voices, default) or Chatterbox (premium / cloned voice). `mode` \
-            controls delivery: 'notify' (default — a macOS notification with a Play button), \
+            controls delivery: 'notify' (the default, a macOS notification with a Play button), \
             'banner' (an in-app banner with Play), or 'auto' (speak immediately, no \
             confirmation). The user's Speech → Delivery settings may override this and route the \
             summary to one or more surfaces (speak now, notification, banner); the returned \
@@ -30,7 +30,7 @@ enum BatonMCPSpeakTools {
             Settings). Keep summaries short. \
             When several agents run at once, pass `session` with a short name for THIS agent \
             (e.g. the repo you're working in). Baton shows it above the transcript so the user \
-            can see who is talking, and remembers it for the rest of this MCP connection — send \
+            can see who is talking, and remembers it for the rest of this MCP connection. Send \
             it on your first call and later calls inherit it. It is never read aloud, so it \
             costs no listening time and does not need to be short enough to say. It also \
             picks the voice: the user maps agent names to voices in Settings, and anything \
@@ -82,7 +82,7 @@ enum BatonMCPSpeakTools {
             .flatMap { SpeechConfig.Engine(rawValue: $0.lowercased()) }
         let requestedMode = (optionalString(args, "mode") ?? "notify").lowercased()
         guard ["auto", "banner", "notify"].contains(requestedMode) else {
-            throw BatonMCPToolError(message: "Unknown mode \"\(requestedMode)\" — use 'notify', 'banner', or 'auto'.")
+            throw BatonMCPToolError(message: "Unknown mode \"\(requestedMode)\". Use 'notify', 'banner', or 'auto'.")
         }
         // The user's Settings → Speech → Delivery decides the concrete surfaces. When they defer
         // to the agent, the requested `mode` is honored (with the SEC-12 auto-play gate on an
@@ -114,7 +114,7 @@ enum BatonMCPSpeakTools {
         let prepared: String
         if let profileName = optionalString(args, "prepare") {
             guard let profile = SpeakableText.SourceProfile(rawValue: profileName.lowercased()) else {
-                throw BatonMCPToolError(message: "Unknown prepare \"\(profileName)\" — use 'terminal', 'browser', or 'generic'.")
+                throw BatonMCPToolError(message: "Unknown prepare \"\(profileName)\". Use 'terminal', 'browser', or 'generic'.")
             }
             let chunks = SpeakableText.prepare(text, profile: profile)
             guard !chunks.isEmpty else {

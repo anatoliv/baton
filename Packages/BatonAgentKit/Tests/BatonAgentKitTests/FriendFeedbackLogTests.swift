@@ -98,4 +98,62 @@ final class FriendFeedbackLogTests: XCTestCase {
         let answered = FriendExchange(surface: .mcp, request: "what's playing", reply: "Yello")
         XCTAssertEqual(answered.resolution, "answered")
     }
+
+    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+
+    /// Exactly what the pre-`VersionedStore` `save()` wrote: a raw array, no envelope.
+    ///
+    ///     let encoder = JSONEncoder()
+    ///     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    ///     try encoder.encode(exchanges).write(to: url, options: .atomic)
+    private func writeLegacyFile(_ exchanges: [FriendExchange], to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(exchanges).write(to: url, options: .atomic)
+    }
+
+    func testReadsAFileWrittenByTheOldCodeUnchanged() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("friend-log-legacy-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        var rated = exchange("play something quiet")
+        rated.rating = .down
+        rated.fault = .wrongTrack
+        let legacy = [rated, exchange("no, quieter", played: ["A", "B"])]
+        try writeLegacyFile(legacy, to: url)
+
+        let log = FriendFeedbackLog(url: url)
+        XCTAssertEqual(log.exchanges, legacy, "an upgrade must read the log the old build wrote")
+
+        // And the write that follows keeps every one of them.
+        log.record(exchange("something else"))
+        let reopened = FriendFeedbackLog(url: url)
+        XCTAssertEqual(reopened.exchanges.count, 3)
+        XCTAssertEqual(Array(reopened.exchanges.suffix(2)), legacy)
+        XCTAssertNil(reopened.exchanges.first?.rating, "the newly recorded exchange is unrated")
+        XCTAssertEqual(reopened.exchanges[1].fault, .wrongTrack, "the rating did not survive")
+    }
+
+    func testACorruptFileIsQuarantinedRatherThanOverwritten() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("friend-log-corrupt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("music-friend-log.json")
+        let damaged = Data(#"[{"id":"8B0E","request":"play some"#.utf8) // truncated mid-write
+        try damaged.write(to: url)
+
+        let log = FriendFeedbackLog(url: url)
+        XCTAssertTrue(log.exchanges.isEmpty, "unreadable bytes cannot be presented as a log")
+        log.record(exchange("the mutation that used to delete them"))
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let aside = try XCTUnwrap(names.first { $0.hasPrefix("music-friend-log.json.corrupt-") },
+                                  "the damaged bytes were not kept: \(names)")
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent(aside)), damaged,
+                       "the quarantined copy must be the original bytes, byte for byte")
+        // The live file is a healthy envelope again, and the rescue is a separate file rather
+        // than the fixed `.corrupt` name the old code reused for every corruption it met.
+        XCTAssertEqual(FriendFeedbackLog(url: url).exchanges.count, 1)
+    }
 }

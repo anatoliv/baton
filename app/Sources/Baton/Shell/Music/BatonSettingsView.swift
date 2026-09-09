@@ -1116,7 +1116,7 @@ private struct BatonPlaybackPane: View {
                 Toggle("Experimental audio engine", isOn: $experimentalEngine)
                 Text("""
                 Plays **library streams** through Baton's own decode pipeline (AVAudioEngine) \
-                instead of the system player — which makes the equalizer and the live \
+                instead of the system player, which makes the equalizer and the live \
                 now-playing bars work on streamed audio. Podcasts, downloaded files, and \
                 internet radio stay on the standard player. While active, crossfade and \
                 gapless are ignored (track changes are plain cuts) and AirPlay falls back to \

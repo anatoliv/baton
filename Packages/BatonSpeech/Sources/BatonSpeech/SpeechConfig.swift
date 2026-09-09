@@ -314,16 +314,30 @@ public enum SpeechConfig {
         "kokoro:bf_emma", "kokoro:am_puck", "kokoro:af_sky", "kokoro:bm_george",
     ]
 
+    /// Versioned backing for the agent voice list (S-F14).
+    ///
+    /// A list somebody typed, one line per project, and nothing can re-derive it. It was a bare
+    /// JSON blob under one key read with a `try?`, so a damaged blob read as "no list" and every
+    /// agent quietly fell back to the unlisted pool while the next edit wrote the empty list
+    /// over it. `load` still adopts the old bare array, so an upgrade keeps the list.
+    static var sessionVoiceStore: VersionedStore<[SessionVoice]> {
+        VersionedStore<[SessionVoice]>(backing: .defaults(defaults, key: sessionVoicesKey),
+                                       currentVersion: 1, log: speechLog)
+    }
+
+    /// Versioned backing for the category-to-voice map (S-F14). Same shape, same reasoning:
+    /// a damaged blob used to be indistinguishable from "never customised".
+    static var voiceMapStore: VersionedStore<[String: String]> {
+        VersionedStore<[String: String]>(backing: .defaults(defaults, key: voiceMapKey),
+                                         currentVersion: 1, log: speechLog)
+    }
+
     public static func sessionVoiceList() -> [SessionVoice] {
-        guard let data = defaults.data(forKey: sessionVoicesKey),
-              let list = try? JSONDecoder().decode([SessionVoice].self, from: data)
-        else { return [] }
-        return list
+        sessionVoiceStore.load() ?? []
     }
 
     public static func setSessionVoiceList(_ list: [SessionVoice]) {
-        guard let data = try? JSONEncoder().encode(list) else { return }
-        defaults.set(data, forKey: sessionVoicesKey)
+        sessionVoiceStore.save(list) // logs on failure; a damaged blob is kept aside
     }
 
     /// Trimmed and case-folded, so "Baton", " baton " and "baton" are one project. Anything
@@ -397,16 +411,12 @@ public enum SpeechConfig {
     }
 
     public static func voiceMap() -> [String: String] {
-        if let data = defaults.data(forKey: voiceMapKey),
-           let map = try? JSONDecoder().decode([String: String].self, from: data),
-           !map.isEmpty {
-            return map
-        }
+        if let map = voiceMapStore.load(), !map.isEmpty { return map }
         return defaultVoiceMap
     }
 
     public static func setVoiceMap(_ map: [String: String]) {
-        if let data = try? JSONEncoder().encode(map) { defaults.set(data, forKey: voiceMapKey) }
+        voiceMapStore.save(map) // logs on failure; a damaged blob is kept aside
     }
 
     /// Restore the voice map and fallback toggle to their built-in defaults. Hosts are left
