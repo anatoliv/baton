@@ -34,6 +34,11 @@ final class ReviewPromptUITests: XCTestCase {
             // three, and a two-second settle instead of twenty.
             "-baton.review.requiredDays", "1",
             "-baton.review.settleSeconds", "2",
+            // Demo playback does not count towards the gate in a shipped build — the whole
+            // point of the demo is that nobody has committed to anything yet. The bundled
+            // library is also the only playback this test can rely on, so it opts back in
+            // through the DEBUG-only seam rather than the test being deleted.
+            "-baton.review.countInDemo",
             // Deliberately NOT passing -baton.review.listeningDays or .lastPromptedVersion.
             // A launch argument lands in NSArgumentDomain, which outranks the persistent
             // domain on read — so seeding them here would permanently shadow the keys,

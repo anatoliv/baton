@@ -181,4 +181,74 @@ final class StreamingUploadTests: XCTestCase {
             return XCTFail("accepted a malformed request line")
         }
     }
+
+    // MARK: - Auth, parsed the way every other route parses it (TBX-5308, S-F26)
+
+    /// The upload route did its own case-sensitive `replacingOccurrences(of: "Bearer ")`, so a
+    /// spec-legal lower-case scheme was accepted on `GET /v1/files` and refused here.
+    func testTheSchemeIsCaseInsensitiveLikeEveryOtherRoute() {
+        let lower = StreamingUpload.parseHead(Data("PUT /v1/files/ab HTTP/1.1\r\nauthorization: bearer s3cret\r\nContent-Length: 0".utf8))
+        XCTAssertEqual(lower?.bearerToken, "s3cret", "a lower-case scheme is legal and must be accepted")
+
+        let upper = StreamingUpload.parseHead(Data("PUT /v1/files/ab HTTP/1.1\r\nAuthorization: Bearer s3cret\r\nContent-Length: 0".utf8))
+        XCTAssertEqual(upper?.bearerToken, "s3cret")
+
+        let wrongScheme = StreamingUpload.parseHead(Data("PUT /v1/files/ab HTTP/1.1\r\nAuthorization: Basic s3cret\r\nContent-Length: 0".utf8))
+        XCTAssertNil(wrongScheme?.bearerToken, "only Bearer is a bearer token")
+    }
+
+    // MARK: - Header values that try to become headers (TBX-5308, S-F26)
+
+    /// `.whitespaces` is space and tab only, so a value ending in a bare LF used to be stored
+    /// intact and echoed back into a response head as a second line.
+    func testABareNewlineIsTrimmedFromAHeaderValue() {
+        let head = Data("PUT /v1/files/ab HTTP/1.1\r\nX-Baton-Name: quiet.txt\n\r\nContent-Length: 0".utf8)
+        let parsed = StreamingUpload.parseHead(head)
+        XCTAssertEqual(parsed?.header("x-baton-name"), "quiet.txt",
+                       "a trailing newline must not be stored as part of the value")
+    }
+
+    // MARK: - The staging ceiling and the sweep (TBX-5308, S-F13)
+
+    /// The per-file cap is per connection, so it bounds one upload and nothing else. Enough
+    /// uploads at once fill the disk a file at a time with every request inside the rules.
+    func testAnUploadIsRefusedWhenTooMuchIsAlreadyStaged() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Two megabytes already in flight, against a ceiling of three.
+        try Data(repeating: 0x41, count: 2_000_000)
+            .write(to: dir.appendingPathComponent("upload-\(UUID().uuidString)"))
+
+        let upload = StreamingUpload(stagingDirectory: dir, maximumBodyBytes: 2_000_000,
+                                     maximumStagingBytes: 3_000_000)
+        guard case let .rejected(status, _) = upload.consume(request(body: Data(repeating: 0x42, count: 1_500_000))) else {
+            return XCTFail("a second upload was accepted past the aggregate ceiling")
+        }
+        XCTAssertEqual(status, "503 Service Unavailable")
+        XCTAssertNil(upload.stagingURL, "and nothing was written for it")
+    }
+
+    /// One that fits is still accepted, or the ceiling would be a way to refuse everything.
+    func testAnUploadThatFitsUnderTheCeilingIsAccepted() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: 1000).write(to: dir.appendingPathComponent("upload-old"))
+
+        let upload = StreamingUpload(stagingDirectory: dir, maximumBodyBytes: 10_000,
+                                     maximumStagingBytes: 10_000)
+        guard case .complete = upload.consume(request(body: Data(repeating: 0x42, count: 5000))) else {
+            return XCTFail("an upload well inside the ceiling was refused")
+        }
+    }
+
+    /// A kill or a container stop mid-upload leaves a staged file nothing else can see:
+    /// `FileStore.prune` filters on `.json` in the parent directory, so these were for ever.
+    func testTheStartupSweepRemovesAbandonedStagingFilesAndNothingElse() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: dir.appendingPathComponent("upload-abandoned-1"))
+        try Data("x".utf8).write(to: dir.appendingPathComponent("upload-abandoned-2"))
+        try Data("x".utf8).write(to: dir.appendingPathComponent("something-else.txt"))
+
+        XCTAssertEqual(StreamingUpload.sweepStaging(directory: dir), 2)
+        let left = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        XCTAssertEqual(left, ["something-else.txt"], "the sweep must take its own litter and no more")
+    }
 }

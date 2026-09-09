@@ -79,6 +79,18 @@ public final class ScrobbleService {
     @ObservationIgnored private var lastCompletedKey: String?
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
 
+    /// One pending re-drain per destination, so a backoff actually ends.
+    ///
+    /// Without this, `nextAt` only gated a drain someone else triggered: a new play, a
+    /// relaunch, or a connectivity edge. With the network up the whole time and the
+    /// *service* down, none of the three arrives, and a queue sits full while the app looks
+    /// perfectly healthy. The tasks live in a box of their own so the box's `deinit`
+    /// cancels them — a `@MainActor` class cannot touch its own state from `deinit`.
+    @ObservationIgnored private let retryTasks = ScheduledRetries()
+    /// How the scheduled re-drain waits. Injectable so a test can drive the wait to zero
+    /// and assert the drain re-fires on its own, with no new enqueue and no path change.
+    @ObservationIgnored private let waitBeforeRetry: @Sendable (TimeInterval) async -> Void
+
     public init(
         listenBrainz: ScrobbleDestination,
         lastfm: ScrobbleDestination,
@@ -88,7 +100,10 @@ public final class ScrobbleService {
         defaults: UserDefaults = BatonStorage.defaults,
         now: @escaping () -> Date = { Date() },
         monitorNetwork: Bool = !BatonEnvironment.current.isTesting,
-        autoFlush: Bool = true
+        autoFlush: Bool = true,
+        waitBeforeRetry: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+        }
     ) {
         self.listenBrainz = listenBrainz
         self.lastfm = lastfm
@@ -97,6 +112,7 @@ public final class ScrobbleService {
         self.queue = queue
         self.now = now
         self.autoFlush = autoFlush
+        self.waitBeforeRetry = waitBeforeRetry
         self.defaults = defaults
         let stored = defaults.string(forKey: Self.sourceKey)
         externalSource = stored.flatMap(ExternalSource.init(rawValue:)) ?? .baton
@@ -215,27 +231,64 @@ public final class ScrobbleService {
                 let transient = Self.isTransient(error)
                 queue.fail(batch, countsAsAttempt: !transient)
                 let failures = (retryState[id]?.failures ?? 0) + 1
-                retryState[id] = (failures, now().addingTimeInterval(Self.backoffInterval(failures)))
+                let wait = Self.backoffInterval(failures)
+                retryState[id] = (failures, now().addingTimeInterval(wait))
                 serviceLog.error("\(id, privacy: .public) flush deferred (\(transient ? "transient" : "permanent", privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                scheduleRetry(destination, after: wait)
                 break
             }
         }
     }
 
-    /// Classifies a submit failure. Transient failures (network, 5xx, 429, and — until
-    /// 's per-provider handling — unclassified errors) are retried without burning an
-    /// attempt; definitive rejections (4xx, auth, Subsonic protocol errors) count so a
-    /// genuinely-undeliverable listen still retires.
+    /// Come back once the backoff has run out, so a destination that is simply down
+    /// recovers on its own. Cancelled and replaced if the same destination defers again,
+    /// cancelled wholesale when the service goes away, and a no-op while offline: the
+    /// reconnect edge already drains, and a drain with no network only burns a wake-up.
+    private func scheduleRetry(_ destination: ScrobbleDestination, after wait: TimeInterval) {
+        guard wait > 0 else { return } // the first failure retries on the next trigger anyway
+        let id = destination.destinationID
+        let task = Task { @MainActor [weak self, waitBeforeRetry] in
+            await waitBeforeRetry(wait)
+            guard !Task.isCancelled, let self, self.isOnline else { return }
+            // The wait we asked for has elapsed, so the gate in `drain` has been paid.
+            // Keep the failure count: the next backoff must still be longer than this one.
+            if let state = self.retryState[id] { self.retryState[id] = (state.failures, self.now()) }
+            await self.drain(destination)
+        }
+        retryTasks.replace(id, with: task)
+    }
+
+    /// Classifies a submit failure. Transient failures (network, 5xx, 429, and errors no
+    /// provider arm recognises) are retried without burning an attempt; definitive
+    /// rejections (4xx, auth, Subsonic protocol errors) count so a genuinely-undeliverable
+    /// listen still retires.
+    ///
+    /// The `ScrobbleError` arm is the one that was missing. Last.fm and ListenBrainz both
+    /// raise it, and everything they raised was filed as transient — including the 401 and
+    /// the Last.fm 4/9/26 that mean "re-authenticate", which no amount of retrying fixes.
+    /// A revoked session then filled the queue to `maxEntries` and dropped the oldest real
+    /// listens off the front while nothing ever retired. Only the codes that plainly mean
+    /// credentials are permanent here; an unrecognised code is still retried, because
+    /// getting the list wrong in the other direction throws listens away.
     public static func isTransient(_ error: Error) -> Bool {
         if error is URLError { return true }
         if let nav = error as? NavidromeError {
             switch nav {
-            case .transport, .notConfigured, .decoding: return true
+            // A locked Keychain is the definition of transient: it unlocks, and the listen is
+            // then perfectly deliverable. Burning an attempt on it would retire real listens
+            // for the duration of a screen lock.
+            case .transport, .notConfigured, .decoding, .credentialsUnreadable: return true
             case .http(let status): return status == 429 || (500...599).contains(status)
             case .invalidURL, .unauthorized, .subsonic: return false
             }
         }
-        return true // unknown (e.g. Last.fm/ListenBrainz) → retry rather than drop
+        if let scrobble = error as? ScrobbleError {
+            switch scrobble {
+            case .http(let status): return !(status == 401 || status == 403)
+            case .service(let message): return !MusicLastFM.isCredentialRejection(message)
+            }
+        }
+        return true // unknown provider error → retry rather than drop
     }
 
     /// Backoff after N consecutive failures. The first failure retries immediately (an
@@ -263,14 +316,46 @@ public final class ScrobbleService {
     ///
     /// Asking `MediaKind` is also the honest test: the id already says what a thing is, and
     /// enumerating the exclusions one at a time is how the next kind gets missed too.
+    /// **And the code has to ask `isPodcast`, not just declare it.** The hook above was
+    /// injected by the Mac and read by nothing, so a server-side episode — whose id is an
+    /// opaque Subsonic id, indistinguishable from a library track — was submitted to Last.fm
+    /// and ListenBrainz as music, permanently. The id-only test is necessary and not
+    /// sufficient; the host's registry is the only thing that knows the rest.
     private func isScrobblable(_ song: NavidromeSong) -> Bool {
-        Self.isScrobblableForTesting(song)
+        Self.isScrobblableForTesting(song) && !isPodcast(song)
     }
 
-    /// The same predicate, reachable without building a service. Exposed because the rule is
-    /// about *what may leave this machine*, and that deserves a test that does not depend on
-    /// standing up scrobble destinations.
+    /// The id-only half of the rule, reachable without building a service. Exposed because
+    /// the rule is about *what may leave this machine*, and that deserves a test that does
+    /// not depend on standing up scrobble destinations. It cannot see a server-side podcast
+    /// episode; `isScrobblable` asks `isPodcast` for that.
     public static func isScrobblableForTesting(_ song: NavidromeSong) -> Bool {
         MediaKind(id: song.id) == .libraryTrack
     }
+}
+
+/// Holds the pending re-drain task per destination. A plain, non-isolated class so its
+/// `deinit` can cancel them: a `@MainActor` type's `deinit` is nonisolated and cannot reach
+/// its own main-actor state, so a dictionary of tasks stored directly on `ScrobbleService`
+/// would have no honest place to be cancelled from.
+private final class ScheduledRetries: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tasks: [String: Task<Void, Never>] = [:]
+
+    func replace(_ id: String, with task: Task<Void, Never>) {
+        lock.lock()
+        let previous = tasks.updateValue(task, forKey: id)
+        lock.unlock()
+        previous?.cancel()
+    }
+
+    func cancelAll() {
+        lock.lock()
+        let pending = Array(tasks.values)
+        tasks.removeAll()
+        lock.unlock()
+        pending.forEach { $0.cancel() }
+    }
+
+    deinit { cancelAll() }
 }

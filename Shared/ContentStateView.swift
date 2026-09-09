@@ -75,7 +75,14 @@ extension View {
         emptyAction: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil
     ) -> some View {
-        overlay {
+        // Hide what the placeholder covers. The opaque background stops a sighted user
+        // reading the rows through it; without this, VoiceOver still walked them — on
+        // Downloads at the largest text size that meant swiping through an "Offline mode"
+        // toggle and a "0 downloads" header that were not on the screen. A UI test asking
+        // whether the placeholder and the content are both hittable could not tell the
+        // fixed screen from the broken one until this was here.
+        accessibilityHidden(state != .content)
+        .overlay {
             if state != .content {
                 ContentStatePlaceholder(
                     state: state, emptyTitle: emptyTitle, emptyMessage: emptyMessage,

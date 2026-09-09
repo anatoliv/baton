@@ -157,8 +157,12 @@ public final class PodcastSubscriptionStore {
                 _ = try await subscribe(to: feed)
                 added += 1
             } catch {
-                // One dead feed must not stop the rest arriving.
-                podcastStoreLog.error("couldn't adopt synced feed \(feed.absoluteString, privacy: .public)")
+                // One dead feed must not stop the rest arriving. The host is public and the
+                // rest is not: premium feeds (Patreon, Supercast) carry a per-subscriber token
+                // in the path, so a full URL here would write a bearer-equivalent into the log.
+                podcastStoreLog.error(
+                    "couldn't adopt synced feed from \(feed.host() ?? "an unknown host", privacy: .public): \(feed.absoluteString, privacy: .private)"
+                )
             }
         }
         if removed > 0 && added == 0 { persist() }
@@ -194,6 +198,22 @@ public final class PodcastSubscriptionStore {
     public func unsubscribe(_ channel: PodcastChannel) {
         channels.removeAll { $0.id == channel.id }
         persist()
+    }
+
+    /// Erases every subscription **on this device only**, for a session purge.
+    ///
+    /// Deliberately not `unsubscribe` in a loop. An unsubscribe writes a tombstone into the
+    /// shared ledger, which says "this show is gone" to every other device — and "erase my
+    /// data from this iPhone" is not a statement about the shows on someone's Mac. So the
+    /// file goes, the in-memory list goes, and the caller removes the ledger keys from this
+    /// device's defaults. Nothing is published.
+    public func purgeLocalSubscriptions() {
+        channels = []
+        lastError = nil
+        loaded = false
+        let manager = FileManager.default
+        try? manager.removeItem(at: storeURL)
+        try? manager.removeItem(at: storeURL.appendingPathExtension("bak"))
     }
 
     /// Re-fetches every subscribed feed concurrently, replacing each channel's episodes with

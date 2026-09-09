@@ -39,7 +39,7 @@ final class AgentDocumentationTests: XCTestCase {
         )
     }
 
-    /// The same catalog is published at baton.tonebox.io/help, and it is what
+    /// The same catalog is published at batonmusic.app/help, and it is what
     /// someone reads *before* installing.
     func testEveryShippedToolIsOnThePublicHelpPage() throws {
         let page = try repoFile("website/help.html")

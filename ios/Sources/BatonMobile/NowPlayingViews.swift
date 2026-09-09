@@ -218,7 +218,9 @@ struct FullPlayerView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                AdaptiveBackdrop(palette: paletteLoader.palette)
+                // Dark by design, not by preference — the transport over this is white
+                // whatever Settings → Appearance says.
+                AdaptiveBackdrop(palette: paletteLoader.palette, tone: .dark)
 
                 // Scrollable. The fixed VStack fitted at the default text size and at
                 // nothing above it: at the largest accessibility size the labels grow, the

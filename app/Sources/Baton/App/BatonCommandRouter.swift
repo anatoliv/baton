@@ -33,23 +33,23 @@ struct GoMenuCommands: Commands {
     @AppStorage("tonebox.music.railCollapsed", store: BatonStorage.defaults)
     private var railCollapsed = false
 
+    /// Every section the menu lists, in the same order the left rail draws them.
+    ///
+    /// This was a hand-written list of twelve while `MusicTab` had fourteen cases, so Clippings
+    /// and Folders had no menu entry at all. That is not cosmetic: `MusicView`'s own comment
+    /// promises that "hidden sections stay reachable from the Go menu", and right-click → Hide
+    /// removes the rail row, which was the only other route. Two sections could be hidden and
+    /// then not found again. Driving both the rail and the menu from `allCases` is the same
+    /// "when something exists in more than one place, put it in one" rule the rail already
+    /// follows.
+    static let sections = MusicView.MusicTab.allCases
+
     var body: some Commands {
         CommandMenu("Go") {
-            Button("Home") { router.pendingTab = .home }.keyboardShortcut("1", modifiers: .command)
-            Button("Search") { router.pendingTab = .search }.keyboardShortcut("2", modifiers: .command)
-            Button("Mixes") { router.pendingTab = .mixes }.keyboardShortcut("3", modifiers: .command)
-            Button("Albums") { router.pendingTab = .albums }.keyboardShortcut("4", modifiers: .command)
-            Button("Artists") { router.pendingTab = .artists }.keyboardShortcut("5", modifiers: .command)
-            Button("Playlists") { router.pendingTab = .playlists }.keyboardShortcut("6", modifiers: .command)
-            Button("Liked") { router.pendingTab = .starred }.keyboardShortcut("7", modifiers: .command)
-            Button("History") { router.pendingTab = .history }.keyboardShortcut("8", modifiers: .command)
-            Button("Later") { router.pendingTab = .later }.keyboardShortcut("9", modifiers: .command)
-
-            // The remaining sections have no numeric shortcut but must still be reachable from the
-            // menu — macOS convention allows shortcut-less menu items.
-            Button("Podcasts") { router.pendingTab = .podcasts }
-            Button("Radio") { router.pendingTab = .radio }
-            Button("Downloads") { router.pendingTab = .downloads }
+            ForEach(Self.sections) { section in
+                Button(section.label) { router.pendingTab = section }
+                    .keyboardShortcut(section.goShortcut.map { KeyboardShortcut($0, modifiers: .command) })
+            }
 
             Divider()
 

@@ -48,7 +48,9 @@ struct FullScreenNowPlaying: View {
         GeometryReader { geo in
             let showQueue = queueVisibleOverride ?? (geo.size.width >= 900)
             ZStack {
-                AdaptiveBackdrop(palette: palette)
+                // The player is dark by design, not by preference: the transport above
+                // this is white whatever the app's appearance setting says.
+                AdaptiveBackdrop(palette: palette, tone: .dark)
 
                 VStack(spacing: 0) {
                     header(showQueue: showQueue)
@@ -154,6 +156,7 @@ struct FullScreenNowPlaying: View {
             .buttonStyle(.plain)
             .keyboardShortcut(.escape, modifiers: [])
             .help("Collapse player (Esc)")
+            .accessibilityLabel("Collapse player")
             // Clear the window's top-left traffic lights.
             .padding(.leading, 52)
             Spacer()
@@ -183,12 +186,14 @@ struct FullScreenNowPlaying: View {
                 .buttonStyle(.plain)
                 .disabled(player.nowPlaying == nil)
                 .help("Delete — unlike + rate lowest so a cleanup tool can remove it later")
+                .accessibilityLabel("Mark for removal")
                 Button { withAnimation(.spring) { queueVisibleOverride = !showQueue } } label: {
                     Image(systemName: "list.bullet").font(.title3)
                         .foregroundStyle(showQueue ? .primary : .secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Toggle queue")
+                .accessibilityLabel("Toggle queue")
             }
         }
         .padding(20)

@@ -105,4 +105,19 @@ final class ReviewPromptTests: XCTestCase {
         XCTAssertFalse(ReviewPrompt.claimAsk())
         XCTAssertFalse(ReviewPrompt.isEarned)
     }
+
+    // MARK: - Demo mode
+
+    /// Playing the four bundled demo tracks is not an endorsement.
+    ///
+    /// iOS allows three of these prompts per user per year across every app they own, so
+    /// spending one on someone who has not connected Baton to anything is the exact waste
+    /// `ReviewPrompt`'s doc comment is about. Scrobbling and history already refuse demo
+    /// mode; this is the same rule for the same reason.
+    func testDemoPlaybackDoesNotCountTowardsTheGate() {
+        XCTAssertFalse(ProcessInfo.processInfo.arguments.contains(ReviewPrompt.countInDemoArgument),
+                       "precondition: this unit run is not opted into the demo seam")
+        XCTAssertFalse(ReviewPrompt.counts(isDemoMode: true))
+        XCTAssertTrue(ReviewPrompt.counts(isDemoMode: false))
+    }
 }

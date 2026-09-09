@@ -131,6 +131,9 @@ struct BatonServerEditSheet: View {
                 ? NavidromeConfig.defaultName(urlString: urlString, username: username)
                 : displayName.trimmingCharacters(in: .whitespaces)
 
+            // Before `addServer`, which makes its new server active when none was and would
+            // otherwise make the comparison in `selectServer` always answer "unchanged".
+            let previousActiveID = NavidromeConfig.activeServerID()
             let targetID: UUID
             if let existing {
                 NavidromeConfig.updateServer(
@@ -156,7 +159,7 @@ struct BatonServerEditSheet: View {
             // Make the just-saved server active and re-point the library. selectServer only
             // wipes the queue when the active server actually changes, so editing the current
             // server's credentials doesn't interrupt playback.
-            await model.selectServer(id: targetID)
+            await model.selectServer(id: targetID, previousActiveID: previousActiveID)
             onSaved()
             dismiss()
         } catch {

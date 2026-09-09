@@ -181,14 +181,46 @@ final class MusicModel {
     /// credential edit to the already-active server — keeps the queue and just refreshes the
     /// cached connection so nothing playing is disrupted.
     func selectServer(id: UUID) async {
-        let changed = NavidromeConfig.activeServerID() != id
+        await selectServer(id: id, previousActiveID: NavidromeConfig.activeServerID())
+    }
+
+    /// The same, told what the active server was *before* the caller changed anything.
+    ///
+    /// `addServer` makes its new server active when none was, so by the time a first-run
+    /// connect reached the plain `selectServer` the comparison was already false and the
+    /// queue was never cleared. For a genuinely new user the queue is empty and nothing
+    /// showed; any path that leaves a queue behind with no active server (removing every
+    /// server, a restore) carried it into the new connection, where every id resolves against
+    /// the wrong library. Callers that add a server capture the id first and pass it here.
+    func selectServer(id: UUID, previousActiveID: UUID?) async {
+        let changed = previousActiveID != id
         NavidromeConfig.setActiveServer(id: id)
         if changed {
             handleActiveServerChanged()
         } else {
             musicLibrary.refreshConnection()
         }
+        clearStalePlaybackError()
         await musicLibrary.loadAlbums()
+    }
+
+    /// Drop a playback error that has outlived the thing it described.
+    ///
+    /// The now-playing bar renders `state == .error(...)` as a yellow banner on every screen.
+    /// A first-run user starts with "No music server is configured", connects successfully,
+    /// and is then told on every tab, permanently, that no server is configured — until they
+    /// press Retry or start a track. The banner was true when it was written and nothing
+    /// re-evaluated it.
+    ///
+    /// `handleActiveServerChanged` already clears it as a side effect of `stop()`, but only on
+    /// a *real* switch, and first-run connect is not one: `addServer` has already made the new
+    /// server active, so `selectServer` takes the no-op branch. So this is called on both
+    /// paths rather than left to the branch that happens to reach it.
+    ///
+    /// Only when the transport is in `.error` — `stop()` on a playing queue would be a
+    /// surprising thing for saving a credential edit to do.
+    func clearStalePlaybackError() {
+        if case .error = music.state { music.stop() }
     }
 
     /// UserDefaults flag (default true): remove a podcast episode's download once finished.

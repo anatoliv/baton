@@ -32,6 +32,10 @@ struct BatonMobileApp: App {
         // size.
         ArtworkCache.configureURLCache()
         LegacyKeyMigration.run()
+        // Stamp the version a fresh install started on. Without this the What's New marker
+        // stayed empty for the life of the install, so the automatic sheet could never fire
+        // on any later update — which is every App Store install of 1.0.
+        WhatsNewView.stampInstalledVersion()
         let model = MobileModel()
         _model = State(initialValue: model)
         // Expose the composition root to Siri/Shortcuts intents (in-process).
@@ -88,23 +92,15 @@ struct BatonMobileApp: App {
     }
 
     /// Acts on a `baton://` link. What the link *means* is decided by `BatonDeepLink`,
-    /// which is a pure function and tested as one; this only carries it out.
+    /// which is a pure function and tested as one; `MobileModel.open` carries it out and
+    /// reports what happened, so a link that cannot be honoured says so instead of leaving
+    /// the app sitting there looking as though nothing was tapped.
     @MainActor
     private func route(_ url: URL) async {
-        guard NavidromeConfig.isConfigured, let link = BatonDeepLink(url: url) else { return }
-        switch link {
-        case .presentPlayer:
-            model.requestFullPlayer()
-        case let .playSong(id):
-            if let song = try? await NavidromeConfig.makeClient().getSong(id: id) {
-                model.music.play([song], source: .init(label: song.title, kind: .song, id: id))
-            }
-        case let .playAlbum(id):
-            let songs = await model.musicLibrary.albumSongs(id: id)
-            if !songs.isEmpty {
-                model.music.play(songs, source: .init(label: "Album", kind: .album, id: id))
-            }
-        }
+        // A link this app does not claim is not a failure worth a message: it was never
+        // ours, and something else on the phone may still handle it.
+        guard let link = BatonDeepLink(url: url) else { return }
+        model.linkFailure = await model.open(link).message
     }
 }
 

@@ -38,4 +38,33 @@ struct AgentAccessInfo: Equatable {
     static func loadCurrent() -> AgentAccessInfo? {
         discoveryDirectory.flatMap { load(from: $0) }
     }
+
+    /// What the Token row shows when the eye is closed. One spelling, so the row and the
+    /// snippet below it cannot disagree about what "hidden" looks like.
+    static let maskedToken = String(repeating: "•", count: 24)
+
+    /// A ready-to-paste MCP client config for the running server (Streamable HTTP + bearer
+    /// token), with the token hidden unless `revealingToken` is true.
+    ///
+    /// The masking on the Token row exists so a screenshot or a screen-share of Settings does
+    /// not hand over full remote control of playback. This code block sat two sections below
+    /// it with the same token in plain text, on the same screen, so the eye toggle protected
+    /// nothing (shot `23-settings-agents.jpg`). Copy still copies the real thing: the point is
+    /// what is *displayed*, not what is copied.
+    ///
+    /// A method on the model rather than a private helper in the view, so the masking has a
+    /// test — a privacy control nobody can assert on is a privacy control that quietly stops
+    /// working.
+    func clientConfigSnippet(revealingToken: Bool) -> String {
+        """
+        {
+          "mcpServers": {
+            "baton": {
+              "url": "\(url)",
+              "headers": { "Authorization": "Bearer \(revealingToken ? token : Self.maskedToken)" }
+            }
+          }
+        }
+        """
+    }
 }

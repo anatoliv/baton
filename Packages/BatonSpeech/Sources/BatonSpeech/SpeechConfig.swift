@@ -70,13 +70,49 @@ public enum SpeechConfig {
         }
     }
 
+    /// Whether the person has ever entered an address for this engine.
+    ///
+    /// The getters above hand back a localhost placeholder when nothing is stored, which is the
+    /// right answer to "where do I send a request" and the wrong one to "should a failure to
+    /// reach it read as broken". Settings → Speech probed both placeholders on appear and
+    /// greeted a brand-new install with two red failures for services nobody had set up.
+    ///
+    /// This is the same judgement the conversation eval already makes about its model host: an
+    /// endpoint nobody configured is *not measurable*, not broken. Comparing the stored string
+    /// against the placeholder would not do — `127.0.0.1:8880` is exactly where somebody
+    /// running Kokoro on this machine would put it, so that test would call a real, working
+    /// setup unconfigured.
+    public static func hasStoredHost(for engine: Engine) -> Bool {
+        let key = switch engine {
+        case .kokoro: kokoroHostKey
+        case .chatterbox: chatterboxHostKey
+        }
+        let stored = defaults.string(forKey: key) ?? ""
+        return !stored.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     // MARK: - Transcription (ASR)
 
     /// Where the self-hosted Whisper lives. Same localhost-placeholder rule as the TTS hosts:
     /// the real LAN address is set at runtime, never committed (the publish guard blocks
     /// `192.168.*`).
+    ///
+    /// **Empty on iOS.** On a Mac `127.0.0.1:8001` is a plausible guess, because the machine
+    /// running Baton is the machine somebody would run Whisper on. On a phone it is the
+    /// phone, which never runs one — so it shipped to every device as a saved-looking value
+    /// that can only ever report itself unreachable, and made `isTranscriptionConfigured`
+    /// answer yes on a fresh install. Empty lets the field's placeholder do the explaining.
+    /// Scoped rather than changed outright so a Mac that never touched the field keeps the
+    /// default it has been working with.
     public static var whisperBaseURL: String {
-        get { defaults.string(forKey: whisperHostKey) ?? "http://127.0.0.1:8001" }
+        get {
+            if let stored = defaults.string(forKey: whisperHostKey) { return stored }
+            #if os(iOS)
+            return ""
+            #else
+            return "http://127.0.0.1:8001"
+            #endif
+        }
         set { defaults.set(newValue, forKey: whisperHostKey) }
     }
 

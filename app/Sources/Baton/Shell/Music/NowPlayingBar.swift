@@ -333,6 +333,7 @@ struct NowPlayingBar: View {
         }
         .buttonStyle(.plain)
         .help(barCollapsed ? "Expand player" : "Minimize player")
+        .accessibilityLabel(barCollapsed ? "Expand player" : "Minimize player")
     }
 
     /// A single play/pause shown in the minimized bar so playback stays controllable.
@@ -349,6 +350,7 @@ struct NowPlayingBar: View {
         .buttonStyle(.plain)
         .disabled(!isRadio && player.nowPlaying == nil)
         .help(isPlayingNow ? "Pause" : "Play")
+        .accessibilityLabel(isPlayingNow ? "Pause" : "Play")
     }
 
     /// Upcoming tracks after the current one — drives the queue-button count badge.
@@ -627,6 +629,7 @@ private struct MusicQueueRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Remove from queue")
+                .accessibilityLabel("Remove \(song.title) from queue")
                 .transition(.opacity)
             }
         }

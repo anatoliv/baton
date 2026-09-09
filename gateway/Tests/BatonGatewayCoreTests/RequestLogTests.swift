@@ -185,4 +185,58 @@ final class RequestLogTests: XCTestCase {
         // Garbage in, a number that is obviously not a status out — rather than a plausible 200.
         XCTAssertEqual(RequestLog.status(ofResponse: Data("nonsense".utf8)), 0)
     }
+
+    // MARK: - The path as it is safe to write down (TBX-5308, S-F26)
+
+    /// A file id comes off the wire and lands in a line in a file that persists. It goes through
+    /// the same whitelist the store uses, so the log is not the one place a rejected id is quoted
+    /// back verbatim.
+    func testAFileIdIsSanitisedBeforeItIsLogged() {
+        XCTAssertEqual(RequestLog.safePath("/v1/files/0123abcd-EF"), "/v1/files/0123abcd-ef")
+        XCTAssertEqual(RequestLog.safePath("/v1/files/../../etc/passwd"), "/v1/files/invalid")
+        XCTAssertEqual(RequestLog.safePath("/v1/files/"), "/v1/files/")
+        XCTAssertEqual(RequestLog.safePath("/v1/state"), "/v1/state")
+    }
+
+    /// One line per request is a format, and unvalidated input must not be able to break it —
+    /// the same rule `caller` already applies to a User-Agent.
+    func testAPathCannotBreakTheLineFormat() {
+        XCTAssertEqual(RequestLog.safePath("/v1/sta\nte"), "/v1/state",
+                       "a newline in a path must not reach the log")
+        XCTAssertLessThanOrEqual(RequestLog.safePath("/" + String(repeating: "a", count: 500)).count, 120)
+        XCTAssertEqual(RequestLog.safePath("/v1/state?token=abc"), "/v1/state", "a query string is never logged")
+    }
+
+    // MARK: - Every response gets its line, uploads included (TBX-5308, S-F26)
+
+    /// The logging used to wrap the router, which a streaming upload never reaches — so the one
+    /// route that writes caller-controlled bytes to disk before checking a token left no trace.
+    func testWriteLogsAnUploadAndSanitisesItsPath() {
+        var lines: [String] = []
+        RequestLog.write(method: "PUT", path: "/v1/files/../secret", response: created,
+                         userAgent: "Baton/1.0", started: Date().addingTimeInterval(-0.05),
+                         to: { lines.append($0) })
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines[0].hasPrefix("PUT /v1/files/invalid 201 "), "got: \(lines[0])")
+    }
+
+    /// And the two suppressions survive the move, or the log floods again.
+    func testWriteKeepsTheSuppressionsTheLogDependsOn() {
+        var lines: [String] = []
+        let sink: (String) -> Void = { lines.append($0) }
+        let noContent = Data("HTTP/1.1 204 No Content\r\n\r\n".utf8)
+        let refused = Data("HTTP/1.1 401 Unauthorized\r\n\r\n".utf8)
+
+        RequestLog.write(method: "GET", path: "/v1/device/poll", response: noContent,
+                         userAgent: "Baton/1.0", started: Date(), to: sink)
+        RequestLog.write(method: "GET", path: "/v1/state", response: refused,
+                         userAgent: "baton-healthcheck/1", started: Date(), to: sink)
+        XCTAssertEqual(lines, [], "the empty poll and the passing healthcheck stay out of the log")
+
+        RequestLog.write(method: "GET", path: "/v1/state", response: created,
+                         userAgent: "baton-healthcheck/1", started: Date(), to: sink)
+        XCTAssertEqual(lines.count, 1, "a healthcheck that stops getting 401 must get louder, not quieter")
+    }
+
+    private let created = Data("HTTP/1.1 201 Created\r\n\r\n".utf8)
 }

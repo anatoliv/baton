@@ -370,6 +370,7 @@ private struct DownloadRow: View {
             }
             .buttonStyle(.plain)
             .help("Play")
+            .accessibilityLabel(isPlaying ? "Pause \(item.title)" : "Play \(item.title)")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)

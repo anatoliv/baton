@@ -21,15 +21,52 @@ public final class QueueHandoff {
     public var offer: Offer?
 
     @ObservationIgnored private let controller: StreamingPlaybackController
+    @ObservationIgnored private let server: Server
     @ObservationIgnored private var lastSavedSignature: String?
 
-    public init(controller: StreamingPlaybackController) {
-        self.controller = controller
+    /// Everything this type needs from the outside world, in one injectable value.
+    ///
+    /// It exists because handoff had no tests at all: the queue is fetched and saved
+    /// through a static client built from the active server's Keychain credentials, which
+    /// no test can stand up. Two findings that turn on exactly this behaviour (the Mac
+    /// never asking, and the public demo being offered strangers' queues) needed a seam
+    /// they could hold.
+    public struct Server: Sendable {
+        public var urlString: @Sendable @MainActor () -> String
+        public var isConfigured: @Sendable @MainActor () -> Bool
+        public var fetchQueue: @Sendable @MainActor () async -> NavidromePlayQueue?
+        public var saveQueue: @Sendable @MainActor ([String], String?, Int) async -> Void
+
+        public init(
+            urlString: @escaping @Sendable @MainActor () -> String,
+            isConfigured: @escaping @Sendable @MainActor () -> Bool,
+            fetchQueue: @escaping @Sendable @MainActor () async -> NavidromePlayQueue?,
+            saveQueue: @escaping @Sendable @MainActor ([String], String?, Int) async -> Void
+        ) {
+            self.urlString = urlString
+            self.isConfigured = isConfigured
+            self.fetchQueue = fetchQueue
+            self.saveQueue = saveQueue
+        }
+
+        /// The real server: the active Navidrome connection.
+        public static let live = Server(
+            urlString: { NavidromeConfig.serverURLString },
+            isConfigured: { NavidromeConfig.isConfigured },
+            fetchQueue: { try? await NavidromeConfig.makeClient().getPlayQueue() },
+            saveQueue: { songIDs, currentID, positionMs in
+                try? await NavidromeConfig.makeClient().savePlayQueue(
+                    songIDs: songIDs, currentID: currentID, positionMs: positionMs
+                )
+            }
+        )
     }
 
-    /// Checks the server's saved queue once at launch. Only offers it when it was
-    /// saved by a different client — resuming our own queue is what the local
-    /// persisted snapshot already does better.
+    public init(controller: StreamingPlaybackController, server: Server = .live) {
+        self.controller = controller
+        self.server = server
+    }
+
     /// The `c` client name this device saves under — offers from the same name are
     /// our own snapshots and never surface (the local queue restore covers those).
     #if os(iOS)
@@ -38,9 +75,31 @@ public final class QueueHandoff {
     public static let ownClientName = "baton"
     #endif
 
+    /// Whether a server URL is the public Navidrome demo, whose `demo` account is shared
+    /// with the whole internet.
+    ///
+    /// The play-queue slot is per **account**, not per person, so on that server saving
+    /// publishes your queue to strangers and an offer hands you theirs. Baton's own copy
+    /// calls this cross-device continuity, which is a different promise from a shared
+    /// login, and the demo is the first-run "Try the demo" target — the one server a new
+    /// user is most likely to be on. Matched on host, like every other demo check, so an
+    /// edited scheme, port or path is still the demo.
+    public static func isSharedPublicServer(_ urlString: String) -> Bool {
+        guard let host = NavidromeConfig.validatedURL(urlString)?.host?.lowercased() else { return false }
+        return host == URL(string: NavidromePublicDemo.url)?.host?.lowercased()
+    }
+
+    /// Whether handoff is allowed to touch the server-side slot at all right now.
+    private var mayUseServerSlot: Bool {
+        server.isConfigured() && !Self.isSharedPublicServer(server.urlString())
+    }
+
+    /// Checks the server's saved queue once at launch. Only offers it when it was
+    /// saved by a different client — resuming our own queue is what the local
+    /// persisted snapshot already does better.
     public func checkForHandoff() async {
-        guard NavidromeConfig.isConfigured else { return }
-        guard let saved = try? await NavidromeConfig.makeClient().getPlayQueue(),
+        guard mayUseServerSlot else { return }
+        guard let saved = await server.fetchQueue(),
               !saved.songs.isEmpty,
               saved.changedBy?.lowercased() != Self.ownClientName
         else { return }
@@ -70,6 +129,7 @@ public final class QueueHandoff {
     /// Saves the current queue server-side. Called on pause and on backgrounding —
     /// not on a timer, so the server isn't hammered during normal listening.
     public func saveNow() {
+        guard mayUseServerSlot else { return }
         let songs = controller.queue
         guard !songs.isEmpty else { return }
         let current = controller.nowPlaying?.id
@@ -78,10 +138,8 @@ public final class QueueHandoff {
         let signature = "\(current ?? "-"):\(position / 5000):\(songs.count)"
         guard signature != lastSavedSignature else { return }
         lastSavedSignature = signature
-        Task {
-            try? await NavidromeConfig.makeClient().savePlayQueue(
-                songIDs: songs.map(\.id), currentID: current, positionMs: position
-            )
+        Task { [server] in
+            await server.saveQueue(songs.map(\.id), current, position)
         }
     }
 }

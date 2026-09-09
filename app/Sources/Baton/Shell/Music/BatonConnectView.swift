@@ -123,10 +123,15 @@ struct BatonConnectSheet: View {
             // Add to the server list (rather than overwriting a single slot) and
             // make it active. When there are no servers yet this is the first one,
             // preserving the original single-server connect behavior.
+            //
+            // Read the active server *before* adding: `addServer` makes the new one active
+            // when none was, so asking afterwards always answers "nothing changed" and a
+            // stale queue from a previous server survives into this connection.
+            let previousActiveID = NavidromeConfig.activeServerID()
             let entry = NavidromeConfig.addServer(
                 displayName: NavidromeConfig.defaultName(urlString: urlString, username: username),
                 urlString: urlString, username: username, secret: password, authMode: authMode)
-            await model.selectServer(id: entry.id)
+            await model.selectServer(id: entry.id, previousActiveID: previousActiveID)
             dismiss()
         } catch {
             let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

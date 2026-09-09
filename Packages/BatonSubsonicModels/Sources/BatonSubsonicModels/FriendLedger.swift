@@ -38,8 +38,18 @@ public struct FriendLedger: Codable, Equatable, Sendable {
 
     /// Caps, per kind, mirroring what the stores themselves keep so the ledger cannot grow
     /// past what either end would hold anyway.
-    public static let maximumMemories = 60
-    public static let maximumCorrections = 60
+    ///
+    /// They now actually mirror them. These were 60 and 60 against a local 30 memories and 12
+    /// corrections, and the mismatch cost a disk write on the main actor **every turn**: the
+    /// prompt build adopted the ledger's 60, trimmed to the local cap, saved, and the next
+    /// prompt build found the same 30 missing and adopted them again. It also fed the tombstone
+    /// bug, because the old publish turned every trimmed record into a deletion the other device
+    /// honoured for 180 days (S-F18, S-F2).
+    ///
+    /// Nothing reachable is lost by lowering them. A record past a device's own cap could never
+    /// be held by that device anyway; the ledger was keeping rows no end could adopt.
+    public static let maximumMemories = 30
+    public static let maximumCorrections = 12
 
     /// The `UserDefaults` key this rides in, and therefore what `PreferenceSync.mergedKeys`
     /// names. Under `baton.` so `SettingsTransfer` carries it too — a device set up from a

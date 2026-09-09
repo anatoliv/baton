@@ -146,7 +146,7 @@ public enum LRCLIBLyrics {
         var request = URLRequest(url: url)
         // LRCLIB asks clients to identify themselves; an anonymous flood is how free
         // services stop being free.
-        request.setValue("Baton (https://baton.tonebox.io)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Baton (https://batonmusic.app)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 8
 
         do {

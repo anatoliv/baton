@@ -72,22 +72,55 @@ struct BatonApp: App {
         }
     }
 
+    /// A failed link says so, in the same place a failed drag already does.
+    ///
+    /// Every way this can go wrong — offline, a locked Keychain, no server yet, an id from a
+    /// different server — used to be swallowed by `try?` with no `else`, so the whole feature
+    /// had one failure mode and it was "absolutely nothing happens". The app already made
+    /// this argument for drag and drop, where `MusicView` posts a toast because "a drop with
+    /// no feedback is indistinguishable from a drop that missed". A link is the same shape.
+    ///
+    /// Static and pure so the wording is testable without a running app: a toast that appears
+    /// and says nothing useful is the original defect wearing a hat.
+    static func deepLinkFailureText(_ what: String, error: Error? = nil) -> String {
+        guard let error else { return what }
+        let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? what : "\(what): \(trimmed)"
+    }
+
     /// Acts on a `baton://` link. Deliberately small, and deliberately reusing what is
     /// already wired: `pendingSourceNavigation` is how the full-screen player's "Playing
     /// from" link already navigates, and `music.music.play` is the same call every row in
     /// the app makes.
     @MainActor
     private func handle(_ link: BatonDeepLink) async {
+        // Bring Baton forward whichever way the link goes. Acting on it behind the window the
+        // user was actually looking at is its own version of nothing happening.
+        NSApp.activate(ignoringOtherApps: true)
         switch link {
         case .presentPlayer:
             commandRouter.showNowPlayingToken += 1
         case let .playSong(id):
-            if let song = try? await NavidromeConfig.makeClient().getSong(id: id) {
+            do {
+                let song = try await NavidromeConfig.makeClient().getSong(id: id)
                 music.music.play([song], source: .init(label: song.title, kind: .song, id: id))
+            } catch {
+                music.music.postToast(
+                    Self.deepLinkFailureText("Couldn't open that track", error: error),
+                    symbol: "exclamationmark.triangle.fill", seconds: 4
+                )
             }
         case let .playAlbum(id):
             let songs = await music.musicLibrary.albumSongs(id: id)
-            if !songs.isEmpty {
+            if songs.isEmpty {
+                // `albumSongs` swallows its own error and hands back an empty list, so there is
+                // nothing more specific to say here than that the album did not come back.
+                music.music.postToast(
+                    Self.deepLinkFailureText("Couldn't open that album"),
+                    symbol: "exclamationmark.triangle.fill", seconds: 4
+                )
+            } else {
                 music.music.play(songs, source: .init(label: "Album", kind: .album, id: id))
             }
         }
@@ -115,6 +148,12 @@ struct BatonApp: App {
             MusicWindowView()
                 .environment(music)
                 .environment(commandRouter)
+                // The appearance choice. `MusicView` applies it too, on its outer group, so
+                // the view is right wherever it is hosted; here so the rule this app follows
+                // is "every window carries it", which is a rule a test can check. Applying an
+                // idempotent modifier twice costs nothing; a rule with two exceptions is what
+                // let Settings and Help drift in the first place.
+                .batonChrome()
                 // Every `@AppStorage` below here reads and writes the domain `BatonStorage`
                 // resolved — the app's own in a normal launch, a throwaway suite in a probe
                 // one. Without this, a probe run's settings would land in the owner's real
@@ -175,13 +214,23 @@ struct BatonApp: App {
                         speakingHUD = SpeakingHUDPresenter(model: music)
                         // Tear both down on app quit so the accept threads stop and the
                         // control.sock file / advertised endpoints don't linger.
+                        //
+                        // The preference-sync scheduler joins them here. It is started a few
+                        // lines above and had no caller for its `stop()` outside the tests, so
+                        // the set of services that can be quiesced and the set that actually
+                        // are were quietly different — and its `didBecomeActive` observer and
+                        // heartbeat task had no owner. Harmless at quit, since the process
+                        // dies anyway; the point is that a later "sign out" or "disconnect
+                        // gateway" path needs one place that stops everything, and a teardown
+                        // list missing a member is how that path ships half-done.
+                        let scheduler = syncScheduler
                         NotificationCenter.default.addObserver(
                             forName: NSApplication.willTerminateNotification,
                             object: nil, queue: .main
                         ) { _ in
                             MainActor.assumeIsolated {
                                 music.music.persistNow() // save queue + playhead on quit
-                                chat.stopAll(); sock.stop(); s.stop()
+                                chat.stopAll(); sock.stop(); s.stop(); scheduler?.stop()
                             }
                         }
                     }
@@ -195,6 +244,9 @@ struct BatonApp: App {
                     guard let link = BatonDeepLink(url: url) else { return }
                     Task { await handle(link) }
                 }
+                // The Mac end of queue handoff: ask the server once whether the phone left
+                // a queue, and offer it. Saving has always happened; asking never did.
+                .macQueueHandoffOffer(model: music)
         }
         // Match Tonebox's music window: SwiftUI-managed title-bar hiding, persistent
         // across window reconfiguration (unlike poking NSWindow, which SwiftUI keeps
@@ -216,6 +268,10 @@ struct BatonApp: App {
         }
 
         // Detached mini player (⌘⌥M elsewhere; opened via the transport's mini button).
+        // The one window with no `.batonChrome()`, and deliberately: `MiniPlayerWindowView`
+        // sets `.preferredColorScheme(.dark)` itself. It is a player surface — artwork wash,
+        // white-on-dark transport — and `AppearanceSetting` says those are a design rather
+        // than a preference. `BatonChromeCoverageTests` knows about this one by name.
         Window("Mini Player", id: MiniPlayerWindowView.windowID) {
             MiniPlayerWindowView()
                 .environment(music)
@@ -229,6 +285,7 @@ struct BatonApp: App {
         // the app menu's "About Baton" item (see `BatonAppCommands`).
         Window("About Baton", id: Self.aboutWindowID) {
             BatonAboutView()
+                .batonChrome()
                 .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentSize)
@@ -242,6 +299,7 @@ struct BatonApp: App {
                 .environment(music)
                 .environment(remote)
                 .tint(.batonOrange)
+                .batonChrome()
                 .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)
@@ -254,6 +312,7 @@ struct BatonApp: App {
         Window("Baton Help", id: BatonHelpView.windowID) {
             BatonHelpView()
                 .tint(.batonOrange)
+                .batonChrome()
                 .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)
@@ -268,6 +327,7 @@ struct BatonApp: App {
             MacMusicFriendView()
                 .environment(remote)
                 .tint(.batonOrange)
+                .batonChrome()
                 .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)
@@ -279,6 +339,7 @@ struct BatonApp: App {
             SpeechHistoryView()
                 .environment(music)
                 .tint(.batonOrange)
+                .batonChrome()
                 .defaultAppStorage(BatonStorage.defaults)
         }
         .windowResizability(.contentMinSize)

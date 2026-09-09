@@ -223,15 +223,26 @@ struct TranscriptSheet: View {
     /// be wrong copy most of the time it is read.
     private var offer: some View {
         let isSpokenWord = TranscriptionCoordinator.isOfferedAutomatically(for: song)
+        let configured = SpeechConfig.isTranscriptionConfigured
         return ContentUnavailableView {
-            Label(isSpokenWord ? "No transcript yet" : "This isn't spoken-word audio",
-                  systemImage: "text.viewfinder")
+            Label(offerTitle(isSpokenWord: isSpokenWord, configured: configured),
+                  systemImage: configured ? "text.viewfinder" : "gearshape")
         } description: {
             Text(transcriptionOfferDetail(isSpokenWord: isSpokenWord))
         } actions: {
             Button("Transcribe") { Task { await transcribe() } }
-                .disabled(!SpeechConfig.isTranscriptionConfigured)
+                .disabled(!configured)
         }
+    }
+
+    /// The title used to come from the content while the body came from the configuration,
+    /// so an unconfigured phone read "This isn't spoken-word audio" over "Set a transcription
+    /// host first" with a dead button underneath: two answers to two different questions
+    /// (I-F20). Not being set up wins, because it is the one the person can do something
+    /// about, and it is what the disabled button is about.
+    private func offerTitle(isSpokenWord: Bool, configured: Bool) -> String {
+        guard configured else { return "Transcription isn't set up" }
+        return isSpokenWord ? "No transcript yet" : "This isn't spoken-word audio"
     }
 
     private func transcriptionOfferDetail(isSpokenWord: Bool) -> String {

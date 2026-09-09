@@ -455,11 +455,21 @@ struct BatonSpeechPane: View {
         failureRow(loadState[engine] ?? .unknown)
     }
 
-    /// The one place a failed check turns into readable text, so all three hosts explain
-    /// themselves the same way instead of one of them only having a tooltip.
+    /// The one place a check turns into readable text, so all three hosts explain themselves
+    /// the same way instead of one of them only having a tooltip.
+    ///
+    /// `.notConfigured` is here, in secondary grey, rather than left blank. The badge draws
+    /// nothing for it and the tooltip is not somewhere anyone looks, so without a line the
+    /// fix for the two red rows would be silence — and silence next to a prefilled address
+    /// reads as "checked, fine". Neutral is a state worth stating, not the absence of one.
     @ViewBuilder
     private func failureRow(_ status: ServiceStatus) -> some View {
-        if case let .unreachable(why) = status {
+        if case let .notConfigured(what) = status {
+            Label(what, systemImage: status.symbol)
+                .font(.callout)
+                .foregroundStyle(status.tint)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if case let .unreachable(why) = status {
             Label(why, systemImage: status.symbol)
                 .font(.callout)
                 .foregroundStyle(status.tint)
@@ -821,6 +831,18 @@ struct BatonSpeechPane: View {
     /// hidden inside a strobe. Pressing Refresh by hand still shows the spinner, because
     /// there you asked and want to see it working.
     private func refreshVoices(_ engine: SpeechConfig.Engine, retry: Bool = true, silent: Bool = false) async {
+        // An address nobody has entered is unconfigured, not broken. The host getters hand back
+        // a localhost placeholder when nothing is stored, so probing on appear greeted a
+        // brand-new install with two red "Couldn't reach the kokoro TTS service" rows for
+        // services it had never been asked to use. Same judgement the conversation eval makes
+        // about its model host: unreachable and never set up are different states, and only one
+        // of them is a failure. The neutral line is true, too — the fallback toggle above it is
+        // on by default, so a summary is still spoken.
+        guard SpeechConfig.hasStoredHost(for: engine) else {
+            voices[engine] = []
+            loadState[engine] = .notConfigured("Not set up. Baton will use the system voice.")
+            return
+        }
         if !silent { loadState[engine] = .checking }
         do {
             let list = try await SpeechService.listVoices(engine: engine)

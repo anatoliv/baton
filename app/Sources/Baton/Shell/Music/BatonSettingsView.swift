@@ -253,6 +253,7 @@ private struct BatonServersPane: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden) // show just the ⋯ — the borderless style adds a redundant chevron otherwise
             .fixedSize()
+            .accessibilityLabel("Server actions")
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -367,14 +368,20 @@ private struct BatonAgentsPane: View {
                             Text(info.url).font(.callout.monospaced()).foregroundStyle(.secondary)
                                 .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                             Button { copy(info.url) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless)
+                                .help("Copy endpoint")
+                                .accessibilityLabel("Copy endpoint")
                         }
                     }
                     LabeledContent("Token") {
                         HStack {
-                            Text(revealToken ? info.token : String(repeating: "•", count: 24))
+                            Text(revealToken ? info.token : AgentAccessInfo.maskedToken)
                                 .font(.callout.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             Button { revealToken.toggle() } label: { Image(systemName: revealToken ? "eye.slash" : "eye") }.buttonStyle(.borderless)
+                                .help(revealToken ? "Hide token" : "Show token")
+                                .accessibilityLabel(revealToken ? "Hide token" : "Show token")
                             Button { copy(info.token) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless)
+                                .help("Copy token")
+                                .accessibilityLabel("Copy token")
                         }
                     }
                     if let socket = info.unixSocket {
@@ -410,11 +417,14 @@ private struct BatonAgentsPane: View {
 
             if let info {
                 Section("Client configuration") {
-                    Text(configSnippet(info))
+                    // Masked by the same eye toggle as the Token row above. Copy still copies
+                    // the real token, because that is what the button is for; what the screen
+                    // shows is the part a screenshot or a screen-share gives away.
+                    Text(info.clientConfigSnippet(revealingToken: revealToken))
                         .font(.callout.monospaced()).foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Button("Copy configuration") { copy(configSnippet(info)) }
+                    Button("Copy configuration") { copy(info.clientConfigSnippet(revealingToken: true)) }
                     Text("Paste into a client that speaks MCP Streamable HTTP (e.g. an agent SDK, or an `mcpServers` config). The bearer token authorizes every request — keep it private.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
@@ -424,19 +434,6 @@ private struct BatonAgentsPane: View {
         .onAppear { info = AgentAccessInfo.loadCurrent() }
     }
 
-    /// A ready-to-paste MCP client config for the running server (Streamable HTTP + bearer token).
-    private func configSnippet(_ info: AgentAccessInfo) -> String {
-        """
-        {
-          "mcpServers": {
-            "baton": {
-              "url": "\(info.url)",
-              "headers": { "Authorization": "Bearer \(info.token)" }
-            }
-          }
-        }
-        """
-    }
 }
 
 // MARK: - About pane
@@ -485,7 +482,7 @@ private struct BatonAboutPane: View {
                 }
                 Text("Baton is a native macOS player for your self-hosted Navidrome / Subsonic library — gapless playback, a parametric equalizer, and scrobbling, controllable by voice.")
                     .font(.callout).foregroundStyle(.secondary)
-                Link("baton.tonebox.io", destination: URL(string: "https://baton.tonebox.io")!)
+                Link("batonmusic.app", destination: URL(string: "https://batonmusic.app")!)
                     .font(.callout)
                 Text("© 2026 Anatoli Vishnyakov · free to use, modify, and share, under the MIT License.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -1168,6 +1165,9 @@ private struct BatonPlaybackPane: View {
 
             Divider()
             scrobbleSourceControls
+
+            Divider()
+            ScrobbleQueueControls(scrobbler: model.scrobbler)
         }
     }
 
@@ -1307,6 +1307,7 @@ private struct BatonPlaybackPane: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Check this connection")
+                .accessibilityLabel("Check this connection")
                 .disabled(lastFMStatus.isChecking)
                 Spacer()
                 Button("Disconnect", role: .destructive) { lastfm.disconnect() }

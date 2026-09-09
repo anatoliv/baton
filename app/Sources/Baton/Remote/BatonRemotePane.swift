@@ -33,6 +33,9 @@ private struct RemoteSettingsForm: View {
     @State private var discordChannels = ""
     @State private var isTesting = false
     @State private var testResult: RemoteNaturalLanguage.TestOutcome?
+    /// "Delete all…" has an ellipsis, which on macOS promises a question before anything
+    /// happens. It went straight through and erased every stored sentence with no way back.
+    @State private var showsForgetAllConfirm = false
 
     var body: some View {
         @Bindable var settings = service.settings
@@ -80,6 +83,15 @@ private struct RemoteSettingsForm: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog("Delete everything the friend remembers?",
+                            isPresented: $showsForgetAllConfirm) {
+            Button("Delete All", role: .destructive) { service.forgetEverythingRemembered() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Removes all \(storedMemoryCount) stored sentences here and on your other "
+                 + "devices, and they do not come back. What the friend has learned from your "
+                 + "corrections is kept; remove those in Settings, Friend Log.")
+        }
         .onAppear {
             telegramToken = service.settings.telegram.token
             discordToken = service.settings.discord.token
@@ -87,6 +99,12 @@ private struct RemoteSettingsForm: View {
             discordChannels = service.settings.discord.allowedChannels.sorted().joined(separator: ", ")
         }
     }
+
+    /// How many sentences are stored right now.
+    ///
+    /// A count rather than a bare button, because "Delete all" with no number cannot tell you
+    /// whether it will do anything, and it is what makes the confirmation specific.
+    private var storedMemoryCount: Int { service.memory.entries.count }
 
     // MARK: Platform
 
@@ -287,10 +305,23 @@ private struct RemoteSettingsForm: View {
             .font(.callout).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
+            // Deliberately *not* disabled with the agent switch above, unlike the toggle.
+            // Turning the friend off is one of the likeliest reasons to want this, and gating
+            // the delete button on the feature being on meant the only way to remove what had
+            // already been stored was to switch the friend back on first. A privacy control
+            // that needs the thing it protects you from is not one.
             LabeledContent("Stored memories") {
-                Button("Delete all…") { service.forgetEverythingRemembered() }
-                    .disabled(!settings.naturalLanguage.isAgentEnabled)
+                HStack(spacing: 8) {
+                    Text(storedMemoryCount == 1 ? "1 remembered" : "\(storedMemoryCount) remembered")
+                        .foregroundStyle(.secondary)
+                    Button("Delete all…") { showsForgetAllConfirm = true }
+                        .disabled(storedMemoryCount == 0)
+                }
             }
+            Text("Settings, Friend Log lists them one by one, each with the sentence it came "
+                 + "from and a button to forget just that one.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Label("""
             This is the setting that changes what leaves your Mac. Looking around means \

@@ -116,6 +116,40 @@ final class ProbeStorageTests: XCTestCase {
         XCTAssertEqual(FriendLedgerStoreProbe.defaults(redirect: .none, environment: .production), .standard)
     }
 
+    // MARK: - The stores that were missed, exercised rather than read
+
+    /// The queue store. Before M-F1 this returned `.standard` for a probe, so a probe launch
+    /// restored the owner's real 44-track queue and its playhead, and `persistQueue()` — which
+    /// fires from eighteen call sites — wrote the probe's queue back over it.
+    @MainActor func testThePlaybackQueueStoreFollowsAProbeRedirect() {
+        let suite = "io.tonebox.tests.probe.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let store = StreamingPlaybackController.defaultStore(
+            environment: .production, redirect: .init(suiteName: suite))
+
+        XCTAssertNotEqual(store, .standard, "a probe must not read or write the owner's queue")
+        store.set("probe", forKey: "baton.tests.probeHandshake")
+        XCTAssertEqual(BatonStorage.resolvedDefaults(for: .init(suiteName: suite))
+            .string(forKey: "baton.tests.probeHandshake"), "probe")
+    }
+
+    /// The EQ store, same shape: a probe used to read the owner's curve and overwrite it.
+    @MainActor func testTheEqualizerStoreFollowsAProbeRedirect() {
+        let suite = "io.tonebox.tests.probe.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let store = MusicEqualizer.defaultStore(environment: .production,
+                                                redirect: .init(suiteName: suite))
+        XCTAssertNotEqual(store, .standard, "a probe must not read or write the owner's EQ")
+    }
+
+    /// And with no redirect both are still the real domain in production: the fix must be inert on
+    /// every normal launch, which is every launch but a probe.
+    @MainActor func testWithNoRedirectThePlaybackAndEqualizerStoresAreTheRealDomain() {
+        XCTAssertEqual(StreamingPlaybackController.defaultStore(environment: .production,
+                                                               redirect: .none), .standard)
+        XCTAssertEqual(MusicEqualizer.defaultStore(environment: .production, redirect: .none), .standard)
+    }
+
     // MARK: - Drift: nobody quietly goes back to naming the real thing
 
     /// The repo, with symlinks resolved.
@@ -274,5 +308,128 @@ extension ProbeStorageTests {
         let source = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(source.contains("if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }"),
                       "FriendLedgerStore no longer routes its probe branch through BatonStorage")
+    }
+
+    // MARK: - Every resolver, not just the ones somebody remembered
+
+    /// The guard the three misses asked for.
+    ///
+    /// `FriendLedgerStore` got the probe branch when `BatonStorage` was written; three stores next
+    /// to it did not, and nothing said so for two releases. Each of the three read `guard
+    /// environment.isTesting else { return .standard }`, which is a *correct-looking* line: it
+    /// isolates tests, which is what its doc comment claimed to do. A probe launch is neither a
+    /// test run nor a normal launch, so all three fell through to the owner's real domain and
+    /// handed a probe the owner's saved queue and playhead, the owner's EQ curve, and the
+    /// Telegram and Discord authorized-sender list — and every write in the probe replaced them
+    /// (M-F1).
+    ///
+    /// The two checks above cannot catch this. `UserDefaults.standard` and
+    /// `UserDefaults = .standard` are different strings from `return .standard`, and a fourth
+    /// resolver added tomorrow would be a fourth silent miss.
+    ///
+    /// So the rule here is structural rather than a list: **anything that answers "which
+    /// `UserDefaults`" must take a `redirect` and must branch on it first.** A resolver cannot
+    /// resolve the probe branch without the parameter, so the parameter is the part that cannot be
+    /// forgotten quietly, and requiring `redirect.isActive` in the body is what stops it being
+    /// accepted and ignored.
+    func testEveryDefaultsResolverConsultsTheProbeRedirect() throws {
+        let resolvers = try defaultsResolvers()
+        XCTAssertGreaterThanOrEqual(resolvers.count, 4, """
+            Found \(resolvers.count) resolvers where at least four are known to exist \
+            (StreamingPlaybackController, MusicEqualizer, RemoteControlConfig, FriendLedgerStore). \
+            The scan has stopped finding them, which is not the same as the problem being gone.
+            """)
+
+        var offences: [String] = []
+        for resolver in resolvers where resolver.file != Self.theOnePlaceThatDecides {
+            if !resolver.declaration.contains("redirect") {
+                offences.append("\(resolver.file):\(resolver.line): \(resolver.name) takes no "
+                                + "`redirect`, so it cannot have a probe branch")
+            } else if !resolver.body.contains("redirect.isActive") {
+                offences.append("\(resolver.file):\(resolver.line): \(resolver.name) takes a "
+                                + "`redirect` and never branches on `redirect.isActive`")
+            }
+        }
+
+        XCTAssertEqual(offences.sorted(), [], "\n" + offences.sorted().joined(separator: "\n") + """
+            \n
+            Give each of these the shape the others have, probe branch first:
+
+                public static func defaultStore(environment: BatonEnvironment = .current,
+                                                redirect: BatonStorage.Redirect = BatonStorage.current)
+                                                -> UserDefaults {
+                    if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }
+                    guard environment.isTesting else { return .standard }
+                    …
+                }
+
+            The probe branch goes first because a probe launch is the shipping app, so it is \
+            neither a test run nor a launch that may touch the owner's domain (M-F1).
+            """)
+    }
+
+    /// `BatonStorage.resolvedDefaults` is the function every other resolver calls, so it is the one
+    /// that may name `.standard` without asking anyone.
+    private static let theOnePlaceThatDecides =
+        "Packages/BatonSubsonicKit/Sources/BatonSubsonicKit/BatonStorage.swift"
+
+    private struct Resolver {
+        var file: String
+        var line: Int
+        var name: String
+        /// The signature, joined across the lines it is written on.
+        var declaration: String
+        /// The lines after the signature, to the end of the function.
+        var body: String
+    }
+
+    /// Every function in the product sources that answers with a `UserDefaults`.
+    ///
+    /// Found by its return type rather than by its name, because the three that were missed were
+    /// not all called `defaultStore` — one of them was an `init` parameter chain with no name at
+    /// all, and naming the rule after today's spellings is how a fourth escapes it.
+    private func defaultsResolvers() throws -> [Resolver] {
+        let roots = ["app/Sources", "ios/Sources", "Shared", "Packages"]
+        var found: [Resolver] = []
+        for root in roots {
+            let base = repoRoot.appendingPathComponent(root)
+            guard let walker = FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil)
+            else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let relative = url.resolvingSymlinksInPath().path
+                    .replacingOccurrences(of: repoRoot.path + "/", with: "")
+                if relative.contains("/Tests/") || relative.contains(".build/") { continue }
+                guard let source = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let lines = source.components(separatedBy: "\n")
+
+                for (index, line) in lines.enumerated() where line.contains("-> UserDefaults") {
+                    // Walk back to the `func` keyword: these signatures wrap across lines, and
+                    // reading only the line the return type sits on would miss the parameters.
+                    var start = index
+                    while start > 0, !lines[start].contains("func ") { start -= 1 }
+                    guard lines[start].contains("func ") else { continue }
+
+                    let declaration = lines[start...index].joined(separator: " ")
+                    let name = declaration
+                        .components(separatedBy: "func ").last?
+                        .components(separatedBy: "(").first?
+                        .trimmingCharacters(in: .whitespaces) ?? "?"
+                    // The body: to the closing brace at the declaration's own indentation. A
+                    // fixed line count would read a short resolver's neighbours as its body and
+                    // pass on their `redirect.isActive`.
+                    let indent = lines[start].prefix { $0 == " " }
+                    var end = index + 1
+                    while end < lines.count, lines[end] != indent + "}" { end += 1 }
+
+                    found.append(Resolver(file: relative,
+                                          line: start + 1,
+                                          name: name,
+                                          declaration: declaration,
+                                          body: lines[(index + 1)..<min(end, lines.count)]
+                                              .joined(separator: "\n")))
+                }
+            }
+        }
+        return found
     }
 }

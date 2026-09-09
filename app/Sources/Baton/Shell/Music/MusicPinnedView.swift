@@ -113,6 +113,7 @@ struct MusicPinnedView: View {
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .help("Later actions")
+        .accessibilityLabel("Later actions")
     }
 
     // MARK: - Content
@@ -215,6 +216,8 @@ private struct PinnedRow: View {
                     }
             }
             .buttonStyle(.plain)
+            .help("Play")
+            .accessibilityLabel(isPlaying ? "Pause \(pin.title)" : "Play \(pin.title)")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(pin.title)
@@ -239,6 +242,8 @@ private struct PinnedRow: View {
                     .foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("More actions")
+            .accessibilityLabel("More actions")
         }
         .padding(.vertical, 5).padding(.horizontal, 10)
         .background(

@@ -144,7 +144,7 @@ recipe.
 Updates" menu item, an Updates section in Settings/About, and the Info.plist keys are all in.
 The real EdDSA public key (shared with Tonebox, per Sparkle's one-key recommendation) is set,
 `SUEnableAutomaticChecks` is true, and an (empty but valid) `appcast.xml` is hosted at
-baton.tonebox.io, so the in-app status reads "Ready" and Check for Updates works (reports
+batonmusic.app, so the in-app status reads "Ready" and Check for Updates works (reports
 "up to date"). The private signing key stays in the login Keychain.
 
 **What (remaining):** cut the first signed + notarized DMG and add its signed `<item>` to the
@@ -153,7 +153,7 @@ appcast per `docs/RELEASE-APPCAST-HOSTING.md`. Then real updates flow.
 **Build:** add the Sparkle SPM package; wire an updater controller plus a "Check for
 Updates..." menu item; add the `SUFeedURL`, `SUEnableAutomaticChecks`, and `SUPublicEDKey`
 Info.plist keys; generate an EdDSA key pair and keep the **private** key out of the repo;
-host an `appcast.xml` (on baton.tonebox.io alongside the DMG) and sign each
+host an `appcast.xml` (on batonmusic.app alongside the DMG) and sign each
 build's update entry.
 
 **Why:** users expect a shipping macOS app to update itself; manual reinstall is a poor

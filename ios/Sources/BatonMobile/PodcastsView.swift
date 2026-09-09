@@ -43,15 +43,12 @@ struct PodcastsListBody: View {
             // dropped here too. See `PodcastSubscriptionLedger` for why that is safe.
             _ = await model.podcastSubscriptions.adoptSyncedFeeds()
         }
-        .overlay {
-            if model.podcastSubscriptions.channels.isEmpty {
-                ContentUnavailableView(
-                    "No podcasts yet",
-                    systemImage: "mic",
-                    description: Text("Add an RSS feed to subscribe.")
-                )
-            }
-        }
+        .contentState(
+            model.podcastSubscriptions.channels.isEmpty ? .empty : .content,
+            emptyTitle: "No podcasts yet",
+            emptyMessage: "Add an RSS feed to subscribe.",
+            emptySymbol: "mic"
+        )
         .alert("Add podcast feed", isPresented: $showsAddFeed) {
             TextField("https://example.com/feed.xml", text: $feedURLText)
                 .textInputAutocapitalization(.never)

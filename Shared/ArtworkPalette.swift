@@ -219,34 +219,120 @@ final class ArtworkPaletteLoader {
     }
 }
 
+// MARK: - Backdrop tone
+
+extension ArtworkPalette {
+    /// Which ground the wash is painted for.
+    ///
+    /// The wash used to have only one answer, and it was always the dark one: deep
+    /// `secondary` under three glows and a black scrim. That is right in the player,
+    /// where the transport is white on purpose. It is wrong everywhere else the moment
+    /// somebody picks Settings → Appearance → Light, because the text above it flips to
+    /// near-black while the ground stays near-black with it.
+    enum BackdropTone: Equatable, Sendable { case dark, light }
+
+    /// The four flat colours `AdaptiveBackdrop` stacks, resolved for a tone. Pure, so the
+    /// legibility of the result can be asserted without rendering anything.
+    struct BackdropLayers: Equatable {
+        /// The ground the glows sit on.
+        var base: Color
+        /// Top-leading glow, opacity already applied.
+        var primaryGlow: Color
+        /// Top-trailing glow.
+        var accentGlow: Color
+        /// Bottom glow.
+        var bottomGlow: Color
+        /// The wash's last layer, which sets how far the whole thing is pulled toward
+        /// one end of the range.
+        var scrim: Color
+    }
+
+    /// How far the light tone drags each extracted colour toward white. High on purpose:
+    /// the point of the light wash is that near-black body text sits on it, so the tint
+    /// has to survive a saturated, dark cover without ever getting close to that text.
+    private static let lightBaseLift = 0.86
+    private static let lightGlowLift = 0.80
+
+    func backdropLayers(for tone: BackdropTone) -> BackdropLayers {
+        switch tone {
+        case .dark:
+            return BackdropLayers(
+                base: secondary,
+                primaryGlow: primary.opacity(0.9),
+                accentGlow: accent.opacity(0.8),
+                bottomGlow: primary.opacity(0.6),
+                scrim: Color.black.opacity(0.28)
+            )
+        case .light:
+            return BackdropLayers(
+                base: Contrast.blend(secondary, toward: .white, amount: Self.lightBaseLift),
+                primaryGlow: Contrast.blend(primary, toward: .white, amount: Self.lightGlowLift)
+                    .opacity(0.55),
+                accentGlow: Contrast.blend(accent, toward: .white, amount: Self.lightGlowLift)
+                    .opacity(0.45),
+                bottomGlow: Contrast.blend(primary, toward: .white, amount: Self.lightGlowLift)
+                    .opacity(0.40),
+                scrim: Color.white.opacity(0.45)
+            )
+        }
+    }
+
+    /// The flattest, least forgiving colour a caller's text can end up on: every glow
+    /// stacked at full strength over the base, then the scrim. Nothing on screen is ever
+    /// darker than this in the light tone or lighter than it in the dark tone, so a
+    /// contrast floor measured here holds for the whole wash.
+    func backdropWorstCase(for tone: BackdropTone) -> Color {
+        let layers = backdropLayers(for: tone)
+        var flat = layers.base
+        for glow in [layers.primaryGlow, layers.accentGlow, layers.bottomGlow, layers.scrim] {
+            flat = Contrast.composite(glow, over: flat)
+        }
+        return flat
+    }
+}
+
 /// The adaptive gradient backdrop rendered from an `ArtworkPalette` — the headline
 /// "color-from-artwork" surface. Layer content over it with `.ultraThinMaterial`
 /// for the smoked-glass look.
+///
+/// Follows the colour scheme it is placed in unless a `tone` is passed. Player surfaces
+/// pass `.dark` and mean it: they draw white transport on this ground whatever the app's
+/// appearance setting says, and `.preferredColorScheme(.dark)` on an ancestor is a
+/// presentation-level request rather than a promise about this view's environment.
 struct AdaptiveBackdrop: View {
     let palette: ArtworkPalette
+    /// Nil follows `\.colorScheme`; a value overrides it.
+    var tone: ArtworkPalette.BackdropTone?
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var resolvedTone: ArtworkPalette.BackdropTone {
+        tone ?? (colorScheme == .light ? .light : .dark)
+    }
 
     var body: some View {
+        let layers = palette.backdropLayers(for: resolvedTone)
         ZStack {
-            palette.secondary
+            layers.base
             RadialGradient(
-                colors: [palette.primary.opacity(0.9), .clear],
+                colors: [layers.primaryGlow, .clear],
                 center: .topLeading,
                 startRadius: 0,
                 endRadius: 520
             )
             RadialGradient(
-                colors: [palette.accent.opacity(0.8), .clear],
+                colors: [layers.accentGlow, .clear],
                 center: .topTrailing,
                 startRadius: 0,
                 endRadius: 460
             )
             RadialGradient(
-                colors: [palette.primary.opacity(0.6), .clear],
+                colors: [layers.bottomGlow, .clear],
                 center: .bottom,
                 startRadius: 0,
                 endRadius: 520
             )
-            Color.black.opacity(0.28)
+            layers.scrim
         }
         .ignoresSafeArea()
     }

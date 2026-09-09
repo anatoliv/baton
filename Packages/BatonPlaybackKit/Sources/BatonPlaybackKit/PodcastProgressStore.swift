@@ -116,9 +116,14 @@ public final class PodcastProgressStore {
 
     /// Forgets every episode's position — for session teardown. Where you got to in a
     /// podcast is listening history, and it belongs to the account that made it.
+    /// The server-episode registry goes with it: it is up to 2,000 episode titles fetched from
+    /// the account being left, and leaving it behind kept `isServerEpisode` answering true for
+    /// ids on a server this device no longer talks to.
     public func clear() {
         progress.removeAll()
+        serverEpisodes.removeAll()
         try? FileManager.default.removeItem(at: storeURL)
+        try? FileManager.default.removeItem(at: serverEpisodesURL)
     }
 
     private func persist() {

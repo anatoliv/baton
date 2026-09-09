@@ -40,6 +40,24 @@ private final class MockDestination: ScrobbleDestination {
     }
 }
 
+/// A clock the test moves by hand, so a backoff can expire without any real waiting.
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+
+    init(_ start: Date) { value = start }
+
+    var now: Date {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+
+    func advance(by seconds: TimeInterval) {
+        lock.lock(); defer { lock.unlock() }
+        value = value.addingTimeInterval(seconds)
+    }
+}
+
 @MainActor
 private func librarySong(_ id: String = "song1", duration: Int? = 200) -> NavidromeSong {
     NavidromeSong(id: id, title: "Title \(id)", artist: "Artist", album: "Album",
@@ -50,6 +68,14 @@ private func librarySong(_ id: String = "song1", duration: Int? = 200) -> Navidr
 private func podcastEpisode() -> NavidromeSong {
     NavidromeSong(id: "https://example.com/ep1.mp3", title: "Episode", artist: "Show",
                   album: nil, albumID: nil, duration: 3600, coverArtID: nil)
+}
+
+/// A server-side podcast episode: an opaque Subsonic id, indistinguishable from a library
+/// track until the host's episode registry is asked.
+@MainActor
+private func serverPodcastEpisode(_ id: String = "ep-4821") -> NavidromeSong {
+    NavidromeSong(id: id, title: "Episode 12", artist: "Show", album: nil,
+                  albumID: nil, duration: 3600, coverArtID: nil)
 }
 
 @MainActor
@@ -86,6 +112,44 @@ struct ScrobbleServiceTests {
         #expect(nav.nowPlayingCalls.isEmpty && lb.nowPlayingCalls.isEmpty && fm.nowPlayingCalls.isEmpty)
         #expect(nav.submitted.isEmpty && lb.submitted.isEmpty && fm.submitted.isEmpty)
         #expect(queue.pending.isEmpty)
+    }
+
+    /// The exclusion above only ever proved the id rule: a client-side episode carries an
+    /// `https://` id, which `MediaKind` already refuses. A **server-side** episode carries an
+    /// opaque Subsonic id, so the only thing that can tell it apart is the host's registry —
+    /// which is what `isPodcast` is for, and what the service never asked. The Mac injected
+    /// that hook and the code read it nowhere, so every server-side episode played past the
+    /// threshold went to Last.fm and ListenBrainz as music, permanently.
+    @Test("a server-side podcast episode is never scrobbled, opaque id and all")
+    func serverSidePodcastExcluded() async {
+        let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm"), nav = MockDestination("navidrome", maxBatch: 1)
+        let (service, queue) = makeService(lb: lb, fm: fm, nav: nav)
+        let episode = serverPodcastEpisode()
+        // What the composition root does: consult the episode registry as well as the id.
+        service.isPodcast = { $0.id == episode.id }
+
+        await service.nowPlayingAndWait(episode)
+        service.completed(episode, startedAt: start)
+        await service.flushAllAndWait()
+
+        #expect(nav.nowPlayingCalls.isEmpty && lb.nowPlayingCalls.isEmpty && fm.nowPlayingCalls.isEmpty)
+        #expect(nav.submitted.isEmpty && lb.submitted.isEmpty && fm.submitted.isEmpty)
+        #expect(queue.pending.isEmpty)
+    }
+
+    /// The guard is a podcast guard, not an off switch: a library track alongside it still
+    /// scrobbles, or the fix would be indistinguishable from breaking scrobbling.
+    @Test("a library track still scrobbles while the podcast hook is installed")
+    func libraryTrackUnaffectedByThePodcastHook() async {
+        let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm"), nav = MockDestination("navidrome", maxBatch: 1)
+        let (service, _) = makeService(lb: lb, fm: fm, nav: nav)
+        let episode = serverPodcastEpisode()
+        service.isPodcast = { $0.id == episode.id }
+
+        service.completed(librarySong(), startedAt: start)
+        await service.flushAllAndWait()
+
+        #expect(nav.submitted.count == 1 && lb.submitted.count == 1 && fm.submitted.count == 1)
     }
 
     @Test("in Baton mode a completed listen reaches all three destinations")
@@ -192,6 +256,41 @@ struct ScrobbleServiceTests {
         service.completed(librarySong(), startedAt: start)
         await service.flushAllAndWait()
         #expect(queue.take(destination: "navidrome", limit: 10).first?.attempts == 1)
+    }
+
+    /// A backoff used to be a gate and nothing else: `nextAt` blocked a drain that someone
+    /// else triggered, and the only triggers were a new play, a relaunch, or a connectivity
+    /// edge. With the network up the whole time and the service down, none of the three
+    /// arrives — so a queue that backed off once stayed backed off, looking healthy.
+    ///
+    /// The wait is injected and the clock is moved by hand, so this asserts the re-drain
+    /// happens on its own rather than that a sleep is long enough.
+    @Test("a deferred drain comes back on its own, with no new enqueue and no path change")
+    func deferredDrainRefiresItself() async {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm")
+        // Two transient failures: the first backs off by zero, the second schedules a wait.
+        let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 2)
+        let defaults = UserDefaults(suiteName: "scrobble-retry-\(UUID().uuidString)")!
+        let service = ScrobbleService(
+            listenBrainz: lb, lastfm: fm, navidrome: nav,
+            queue: ScrobbleQueue(defaults: defaults), defaults: defaults,
+            now: { clock.now }, monitorNetwork: false, autoFlush: false,
+            waitBeforeRetry: { seconds in clock.advance(by: seconds) }
+        )
+
+        service.completed(librarySong(), startedAt: start)
+        await service.flushAllAndWait()   // failure 1: backoff 0, nothing scheduled
+        await service.flushAllAndWait()   // failure 2: backoff 10 s, one retry scheduled
+        #expect(nav.submitted.isEmpty)
+
+        // Nothing else happens: no new play, no reconnect, no manual flush.
+        for _ in 0 ..< 200 where nav.submitted.isEmpty {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        #expect(nav.submitted.count == 1, "the scheduled retry has to deliver the queued listen")
     }
 
     @Test("an offline stretch never burns attempts or drops the head scrobble")

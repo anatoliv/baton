@@ -31,6 +31,21 @@ final class BatonDeepLinkTests: XCTestCase {
         XCTAssertEqual(BatonDeepLink(url: URL(string: "baton://play/abc123")!)?.disturbsPlayback, true)
     }
 
+    /// A link that cannot be honoured has to say so.
+    ///
+    /// `route` used to be `try? await …getSong(id:)` with no else, and `playAlbum` did
+    /// nothing at all when the album came back empty. So tapping a Baton link from Messages
+    /// or a shortcut opened the app and then nothing happened: offline, wrong server, a
+    /// deleted track and a link that never fired were all the same non-event.
+    func testEveryFailedLinkHasSomethingToSay() {
+        XCTAssertNil(DeepLinkOutcome.handled.message, "success is not an announcement")
+        for outcome: DeepLinkOutcome in [.notConnected, .songUnavailable, .albumUnavailable] {
+            let message = outcome.message
+            XCTAssertNotNil(message, "\(outcome) fails silently")
+            XCTAssertFalse(message?.isEmpty ?? true, "\(outcome) has an empty message")
+        }
+    }
+
     func testForeignAndMalformedLinksAreRefused() {
         XCTAssertNil(BatonDeepLink(url: URL(string: "https://example.com/play/1")!))
         XCTAssertNil(BatonDeepLink(url: URL(string: "baton://nonsense")!))

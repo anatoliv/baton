@@ -151,9 +151,10 @@ public final class PreferenceSync {
             return merged.encoded()
         }
         if key == SearchRecents.storageKey {
+            // The same lenient decode `SearchRecents.reload` uses: one element written by a build
+            // that knows a `Kind` this one does not must not empty both devices' lists (S-F27).
             let decode = { (value: Any?) -> [SearchRecents.Entry] in
-                guard let data = value as? Data else { return [] }
-                return (try? JSONDecoder().decode([SearchRecents.Entry].self, from: data)) ?? []
+                SearchRecents.decodeList(value as? Data)
             }
             let merged = SearchRecents.merge(decode(local), decode(remote))
             guard !merged.isEmpty else { return nil }
@@ -170,6 +171,100 @@ public final class PreferenceSync {
         var value: Data          // the property-list encoding of the value
         var updatedAt: Date
         var device: String
+    }
+
+    /// The shared document as this build can read it, which is not the same as all of it.
+    ///
+    /// The whole document used to be one `try?`: `decode([String: Entry].self) ?? [:]`. A decode
+    /// failure therefore looked exactly like a gateway nobody had synced to yet, and the sync that
+    /// followed found `remote[key] == nil` for every key, pushed this device's whole state, and the
+    /// PUT is a whole-file replace on the gateway. One bad byte on the wire, or one entry written by
+    /// a build that knows a field this one does not, and the other device's podcast unsubscribes,
+    /// friend-memory ledger and clipping ledger were gone (S-F1).
+    ///
+    /// So the two cases are now separate, and there are three of them rather than two:
+    ///
+    /// - **`{}` or an empty body** is genuinely "nothing shared yet". It is the first device's
+    ///   honest answer and it still means an empty document.
+    /// - **A document that is not a JSON object at all** is unreadable. `fetch` throws, `sync`
+    ///   returns false, and nothing is pushed. Doing nothing is always recoverable; pushing over it
+    ///   is not.
+    /// - **An entry inside a readable document that this build cannot decode** is kept verbatim in
+    ///   `unreadable` and written back untouched on the next PUT, and this device refuses to push
+    ///   over that key. One entry a newer phone wrote no longer costs the other fifteen, and an
+    ///   older build rewriting the document no longer strips what it did not understand.
+    struct Document {
+        /// The entries this build understands.
+        var entries: [String: Entry] = [:]
+        /// Keys whose value did not decode as an `Entry`, held as the JSON that arrived so it can
+        /// be written back exactly as it was.
+        var unreadable: [String: Any] = [:]
+
+        subscript(key: String) -> Entry? {
+            get { entries[key] }
+            set { entries[key] = newValue }
+        }
+
+        /// Whether this device must leave a key alone. Not "absent": absent means nobody has ever
+        /// said anything about it and seeding is right. This means somebody said something this
+        /// build cannot read, and overwriting it would be the data loss, not the fix.
+        func isUnreadable(_ key: String) -> Bool { unreadable[key] != nil }
+
+        var isEmpty: Bool { entries.isEmpty && unreadable.isEmpty }
+        var count: Int { entries.count + unreadable.count }
+    }
+
+    /// The document could not be read at all, as distinct from being empty.
+    enum DocumentError: Error, LocalizedError {
+        case notAnObject
+
+        var errorDescription: String? {
+            "The shared settings document could not be read, so nothing was sent to it."
+        }
+    }
+
+    /// Split a shared document into what this build can read and what it must preserve.
+    ///
+    /// An empty body is `{}` on purpose: a gateway that has never been written to is the first
+    /// device's normal case, and treating it as an error would mean no device could ever seed one.
+    static func decodeDocument(_ data: Data) throws -> Document {
+        let trimmed = data.drop { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }
+        if trimmed.isEmpty { return Document() }
+
+        guard let top = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              let object = top as? [String: Any]
+        else { throw DocumentError.notAnObject }
+
+        var document = Document()
+        for (key, value) in object {
+            // Round-tripped through `JSONSerialization` rather than decoded in place, so one entry
+            // failing cannot take the dictionary decode down with it. That single shared failure is
+            // the whole bug: `[String: Entry]` is all-or-nothing by construction.
+            guard let valueData = try? JSONSerialization.data(withJSONObject: value,
+                                                              options: [.fragmentsAllowed]),
+                  let entry = try? JSONDecoder().decode(Entry.self, from: valueData)
+            else {
+                syncLog.notice("""
+                    shared settings entry '\(key, privacy: .public)' was written by a build this \
+                    one cannot read; keeping it as it is rather than replacing it.
+                    """)
+                document.unreadable[key] = value
+                continue
+            }
+            document.entries[key] = entry
+        }
+        return document
+    }
+
+    /// The JSON to PUT: this build's entries, plus every entry it could not read, written back
+    /// exactly as it arrived.
+    static func encodeDocument(_ document: Document) throws -> Data {
+        var object: [String: Any] = document.unreadable
+        for (key, entry) in document.entries {
+            let encoded = try JSONEncoder().encode(entry)
+            object[key] = try JSONSerialization.jsonObject(with: encoded)
+        }
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
     private let defaults: UserDefaults
@@ -215,9 +310,22 @@ public final class PreferenceSync {
     /// 16 synced keys — every setting anyone forgot to instrument silently stopped syncing,
     /// and nothing about the code said so. Observation can't be forgotten: adding a key to
     /// `syncedKeys` is now sufficient.
+    /// How many block observers this class currently holds registered.
+    ///
+    /// Instrumentation, and it exists because the leak it measures has no other symptom. An
+    /// observer left registered after its `PreferenceSync` is gone wakes on every `UserDefaults`
+    /// change, finds `self` nil through the weak capture, and does nothing — forever, once per
+    /// instance ever built. Nothing crashes, nothing is slow enough to notice, and no assertion
+    /// anyone could write about the object's own behaviour can see it (S-F17). Counting the
+    /// registrations is the only thing that can.
+    ///
+    /// `@MainActor` like the rest of the class, so this is not a data race.
+    static private(set) var liveObservationCount = 0
+
     public func startObservingChanges() {
         guard observer == nil else { return }
         snapshot = currentValues()
+        Self.liveObservationCount += 1
         observer = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: defaults,
@@ -232,8 +340,27 @@ public final class PreferenceSync {
     public var isObservingChanges: Bool { observer != nil }
 
     public func stopObservingChanges() {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+            Self.liveObservationCount -= 1
+        }
         observer = nil
+    }
+
+    /// The block observer outlives this object unless it is taken off, and the block captures
+    /// `self` weakly precisely so it can keep firing after this object is gone: it wakes, finds
+    /// `self` nil, and does nothing, forever, once per `UserDefaults` change for every
+    /// `PreferenceSync` ever built (S-F17). Nothing crashes, which is why nobody noticed.
+    ///
+    /// `deinit` rather than relying on `stopObservingChanges`, because a caller that forgets is
+    /// exactly the case this covers, and the object cannot be deinitialised while anything still
+    /// wants the observation.
+    /// `isolated deinit` so it runs on the main actor and can simply call the same method a
+    /// caller would. The alternative, reaching into the token from a nonisolated `deinit`, needs
+    /// an unchecked box around a value the rest of the class already holds safely, which is more
+    /// unsafety than the problem is worth.
+    isolated deinit {
+        stopObservingChanges()
     }
 
     /// The notification says *something* changed, never what — so diff against the last
@@ -308,7 +435,7 @@ public final class PreferenceSync {
             // Remote → local, for anything newer than our own last write.
             var changed = false
 
-            for (key, entry) in remote
+            for (key, entry) in remote.entries
             where Self.syncedKeys.contains(key) && !Self.mergedKeys.contains(key) {
                 guard Self.shouldAdopt(remote: entry, localStamp: stamps[key]) else { continue }
                 if let value = try? PropertyListSerialization.propertyList(
@@ -320,6 +447,9 @@ public final class PreferenceSync {
 
             // Local → remote, for anything we changed more recently than they hold.
             for key in Self.syncedKeys where !Self.mergedKeys.contains(key) {
+                // A key another build wrote in a shape this one cannot read is left alone. It is
+                // not absent, so seeding over it would be the loss rather than the fix.
+                guard !remote.isUnreadable(key) else { continue }
                 guard Self.shouldPush(localStamp: stamps[key], remote: remote[key]) else { continue }
                 guard let value = defaults.object(forKey: key),
                       let encoded = try? PropertyListSerialization.data(
@@ -333,6 +463,11 @@ public final class PreferenceSync {
             // The list keys, unioned in both directions at once. Timestamps don't decide
             // anything here — the merged list is simply the truth, and both sides adopt it.
             for key in Self.mergedKeys {
+                // Same rule as above, and it matters more here: these keys hold the podcast,
+                // friend-memory and clipping ledgers, and a merge that cannot see the remote side
+                // returns the local list alone, which is a whole-ledger replace wearing the word
+                // "merge" (S-F1).
+                guard !remote.isUnreadable(key) else { continue }
                 let localValue = defaults.object(forKey: key)
                 let remoteValue = remote[key].flatMap {
                     try? PropertyListSerialization.propertyList(from: $0.value, options: [], format: nil)
@@ -362,16 +497,16 @@ public final class PreferenceSync {
 
     // MARK: - Transport
 
-    private func fetch(gatewayURL: URL, token: String) async throws -> [String: Entry] {
+    private func fetch(gatewayURL: URL, token: String) async throws -> Document {
         var request = URLRequest(url: GatewayAddress.root(gatewayURL).appendingPathComponent("v1/state"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
-        // An empty or unfamiliar document is treated as "nothing shared yet" rather than an
-        // error: the first device to sync finds `{}`.
-        return (try? JSONDecoder().decode([String: Entry].self, from: data)) ?? [:]
+        // Empty is "nothing shared yet"; unreadable throws, and `sync` pushes nothing. See
+        // `decodeDocument` for why those had to stop being the same answer.
+        return try Self.decodeDocument(data)
     }
 
     // MARK: - Is the gateway there?
@@ -399,20 +534,27 @@ public final class PreferenceSync {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 || status == 403 { return .rejected }
             guard status == 200 else { return .failed("The gateway answered with HTTP \(status).") }
-            // `{}` is the correct answer from a gateway nobody has synced to yet.
-            let entries = (try? JSONDecoder().decode([String: Entry].self, from: data))?.count ?? 0
-            return .ok(entries: entries)
+            // `{}` is the correct answer from a gateway nobody has synced to yet. A document that
+            // cannot be read is not that, and saying "Reachable, nothing shared yet" about one
+            // would be the same mistake the sync itself used to make, told to the owner's face
+            // (S-F1). Routed through `.failed` rather than a new case so nothing switching on this
+            // enum has to change.
+            guard let document = try? Self.decodeDocument(data) else {
+                return .failed("The gateway answered, but its shared settings could not be read. "
+                               + "Nothing was changed.")
+            }
+            return .ok(entries: document.count)
         } catch {
             return .failed(error.localizedDescription)
         }
     }
 
-    private func push(_ state: [String: Entry], gatewayURL: URL, token: String) async throws {
+    private func push(_ state: Document, gatewayURL: URL, token: String) async throws {
         var request = URLRequest(url: GatewayAddress.root(gatewayURL).appendingPathComponent("v1/state"))
         request.httpMethod = "PUT"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(state)
+        request.httpBody = try Self.encodeDocument(state)
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)

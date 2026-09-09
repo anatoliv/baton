@@ -165,6 +165,10 @@ final class MobileModel {
 
     func requestFullPlayer() { playerPresentationRequests += 1 }
 
+    /// Why the last `baton://` link could not be carried out, or nil. `RootTabView` shows it
+    /// and clears it. See `DeepLinkOutcome`.
+    var linkFailure: String?
+
     /// A song's album, built from what the song already carries. `albumID` is on every
     /// Subsonic song; the rest is cosmetic and the detail screen fetches the real thing.
     func revealAlbum(of song: NavidromeSong) {
@@ -227,9 +231,22 @@ final class MobileModel {
         let lastfm = MusicLastFM()
         self.listenBrainz = listenBrainz
         self.lastfm = lastfm
-        scrobbles = ScrobbleService(listenBrainz: listenBrainz, lastfm: lastfm)
+        // `localArchive:` is what makes the private listening archive count listens rather
+        // than starts. It used to be recorded from `onTrackStarted`, so a track skipped
+        // after two seconds was a play, and the phone's top tracks were a ranking of skips
+        // shown next to the Mac's real numbers. Same rule on both apps now: the scrobble
+        // threshold, via `ScrobbleService.completed`.
+        scrobbles = ScrobbleService(listenBrainz: listenBrainz, lastfm: lastfm, localArchive: history)
         podcastSubscriptions = PodcastSubscriptionStore()
-        podcastProgress = PodcastProgressStore()
+        let episodeProgress = PodcastProgressStore()
+        podcastProgress = episodeProgress
+        // Server-side podcast episodes carry opaque Subsonic ids, so the id-only default
+        // cannot spot them; the phone has to consult the registry too or episodes scrobble
+        // to Last.fm and ListenBrainz as music. The Mac has done this since the hook
+        // existed; the phone never set it at all.
+        scrobbles.isPodcast = { song in
+            song.isPodcastEpisode || episodeProgress.isServerEpisode(song.id)
+        }
         equalizer = MusicEqualizer()
         eqProcessor = AudioEQProcessor(coefficients: equalizer.coefficients, levels: AudioLevelMonitor.shared.snapshot)
         handoff = QueueHandoff(controller: controller)
@@ -298,7 +315,6 @@ final class MobileModel {
         controller.onTrackStarted = { [weak self] song in
             session.activateForPlayback()
             if self?.isDemoMode != true { self?.scrobbles.nowPlaying(song) }
-            self?.history.record(song)
             WidgetBridge.publish(
                 song: song, isPlaying: true,
                 artworkURL: library.coverArtURL(id: song.coverArtID ?? song.id, size: 300),

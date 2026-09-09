@@ -109,11 +109,19 @@ public final class PinStore {
     public private(set) var pins: [PinnedItem] = []
 
     private let storeURL: URL
+    private let store: VersionedStore<[PinnedItem]>
     private var loaded = false
 
     public init(directory: URL? = nil) {
         let dir = directory ?? PinStore.defaultDirectory()
         storeURL = dir.appendingPathComponent("pins.json")
+        // A pin list is hand-curated and nothing can re-derive it, which is why this one is in
+        // the first batch to move onto `VersionedStore`. The old pair of `try?`s meant a corrupt
+        // or truncated file read as an empty list and the next pin wrote that emptiness over it
+        // (S-F14). `load` still adopts the old unversioned array, so an upgrade reads what is
+        // already there.
+        store = VersionedStore<[PinnedItem]>(fileURL: storeURL, currentVersion: 1,
+                                             keepBackup: true, log: pinLog)
     }
 
     /// Pins newest-first (for the Later list).
@@ -146,21 +154,11 @@ public final class PinStore {
     public func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
-        if let data = try? Data(contentsOf: storeURL),
-           let saved = try? JSONDecoder().decode([PinnedItem].self, from: data) {
-            pins = saved
-        }
+        if let saved = store.load() { pins = saved }
     }
 
     private func persist() {
-        do {
-            try FileManager.default.createDirectory(
-                at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            try JSONEncoder().encode(pins).write(to: storeURL, options: .atomic)
-        } catch {
-            pinLog.error("persist failed: \(error.localizedDescription, privacy: .public)")
-        }
+        store.save(pins)
     }
 
     private static func defaultDirectory() -> URL { BatonStorage.supportDirectory() }

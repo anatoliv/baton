@@ -531,8 +531,15 @@ echo
 # One line per in-place mutation of a tracked file. Comment lines are excluded: the
 # script's header prose talks about the edits it makes, and counting the prose would
 # make the check pass for the wrong reason.
+#
+# The App Store metadata push is an in-place mutation too, one step removed: testflight.sh
+# calls `app-store-metadata.py push`, and that script rewrites the `_live` half of
+# ios/metadata/en-US.json from what Apple holds after the push. It is the site this check
+# could not see on 2026-09-09, when the first release with a pending listing change was
+# refused at the checkpoint before the upload for exactly that file. So the call line
+# counts as a site and resolves to that path.
 tf_edit_sites() {
-  grep -nE "sed -i|perl -0?[a-z]*pi|open\([a-z_]+, ['\"]w['\"]\)" "$1" \
+  grep -nE "sed -i|perl -0?[a-z]*pi|open\([a-z_]+, ['\"]w['\"]\)|app-store-metadata\.py\" push" "$1" \
     | grep -vE '^[0-9]+: *#'
 }
 
@@ -559,6 +566,9 @@ tf_edit_targets() {
   # sed -i / perl -pi: the target is the last word on the line.
   grep -hE "sed -i|perl -0?[a-z]*pi" "$tf" | grep -vE '^ *#' \
     | awk '{ t = $NF; gsub(/["'"'"']/, "", t); print (t ~ /^[A-Za-z0-9_.\/-]+$/ ? "ios/" t : "<unresolved>") }'
+  # The metadata push: its output path is fixed by app-store-metadata.py, not by the line.
+  grep -hE 'app-store-metadata\.py" push' "$tf" | grep -vE '^ *#' \
+    | sed 's|.*|ios/metadata/en-US.json|'
 }
 
 check_release_edit_drift() {
@@ -627,8 +637,14 @@ expect_saying red "an edit whose TARGET moved is caught, though the counts still
   "which is not declared to the guard" -- \
   check_release_edit_drift "$MOVED"
 
-# And the failure has to be the one it claims: the count, not some unrelated grep.
-expect_saying red "the drift report names both counts" "rewrites 2 tracked path(s) in place but declares 1" -- \
+# And the failure has to be the one it claims: the count, not some unrelated grep. The
+# numbers come from the real script rather than being written down here, so adding a
+# legitimate site and its declaration (as the metadata push was, 2026-09-09) does not turn
+# this into a test of last month's testflight.sh.
+REAL_SITES="$(tf_edit_sites "$DIR/testflight.sh" | grep -c . || true)"
+REAL_DECLARED="$(tf_declared_paths "$DIR/testflight.sh" | grep -c . || true)"
+expect_saying red "the drift report names both counts" \
+  "rewrites $((REAL_SITES + 1)) tracked path(s) in place but declares $REAL_DECLARED" -- \
   check_release_edit_drift "$DRIFTED"
 
 echo

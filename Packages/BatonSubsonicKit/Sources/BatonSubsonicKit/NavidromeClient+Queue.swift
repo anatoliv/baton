@@ -94,14 +94,14 @@ extension NavidromeClient {
         var query = songIDs.map { URLQueryItem(name: "id", value: $0) }
         if let currentID { query.append(URLQueryItem(name: "current", value: currentID)) }
         if let positionMs { query.append(URLQueryItem(name: "position", value: String(max(0, positionMs)))) }
-        _ = try await performJSON("savePlayQueue.view", query: query)
+        _ = try await performJSON("savePlayQueue.view", retry: false, query: query)
     }
 
     /// The last queue any client saved for this user (`getPlayQueue`), or nil when
     /// none exists. The songs come back as full objects, so the receiving device can
     /// rebuild the queue without extra lookups.
     public func getPlayQueue() async throws -> NavidromePlayQueue? {
-        let response = try await performJSON("getPlayQueue.view")
+        let response = try await performJSON("getPlayQueue.view", retry: true)
         guard let wire = response.playQueue else { return nil }
         return NavidromePlayQueue(
             songs: (wire.entry ?? []).map { $0.toDomain() },
@@ -113,7 +113,7 @@ extension NavidromeClient {
 
     /// All bookmarks for the current user (`getBookmarks`).
     public func getBookmarks() async throws -> [NavidromeBookmark] {
-        let response = try await performJSON("getBookmarks.view")
+        let response = try await performJSON("getBookmarks.view", retry: true)
         return (response.bookmarks?.bookmark ?? []).compactMap { wire in
             guard let song = wire.entry?.toDomain() else { return nil }
             return NavidromeBookmark(song: song, positionMs: wire.position ?? 0, comment: wire.comment)
@@ -128,11 +128,11 @@ extension NavidromeClient {
             URLQueryItem(name: "position", value: String(max(0, positionMs))),
         ]
         if let comment { query.append(URLQueryItem(name: "comment", value: comment)) }
-        _ = try await performJSON("createBookmark.view", query: query)
+        _ = try await performJSON("createBookmark.view", retry: false, query: query)
     }
 
     /// Removes the bookmark for one song (`deleteBookmark`).
     public func deleteBookmark(songID: String) async throws {
-        _ = try await performJSON("deleteBookmark.view", query: [URLQueryItem(name: "id", value: songID)])
+        _ = try await performJSON("deleteBookmark.view", retry: false, query: [URLQueryItem(name: "id", value: songID)])
     }
 }

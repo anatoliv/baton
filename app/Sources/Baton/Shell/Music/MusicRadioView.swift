@@ -221,6 +221,8 @@ private struct RadioStationCard: View {
                                 .background(Circle().fill(.white).shadow(radius: 6, y: 3))
                         }
                         .buttonStyle(.plain)
+                        .help(isPlaying ? "Stop station" : "Play station")
+                        .accessibilityLabel(isPlaying ? "Stop station" : "Play station")
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
@@ -367,6 +369,8 @@ private struct RadioStationListRow: View {
                     .foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("More actions")
+            .accessibilityLabel("More actions")
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(isOnAir ? Color.nowPlayingRowTint() : (hover ? Color.hoverTint : .clear),

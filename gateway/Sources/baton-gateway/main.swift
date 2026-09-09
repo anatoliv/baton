@@ -115,10 +115,28 @@ let filesDirectory: URL = stateFileURL.deletingLastPathComponent()
     .appendingPathComponent("files", isDirectory: true)
 let fileStore = FileStore(directory: filesDirectory)
 
-FileHandle.standardOutput.write(Data("baton-gateway listening on :\(port) → \(serverURL.host() ?? "?")\n".utf8))
+/// The staging area for uploads in flight. Beside the store rather than in `/tmp`, so a commit is
+/// a rename within one filesystem — which is what makes it atomic — rather than a copy across two.
+let uploadStagingDirectory: URL = filesDirectory.appendingPathComponent("staging", isDirectory: true)
 
-try DefaultTransport().serve(port: port) { request in
-    await handle(request)
+// Anything staged is litter, because no upload can be in flight before the listener starts
+// (TBX-5308, S-F13). A process kill or a container stop mid-upload used to leave its partial file
+// behind for ever: `FileStore.prune` cannot see these, since `list()` filters on `.json` in the
+// parent directory. Before the listener, so a fresh ceiling is not spent on old rubbish.
+let sweptUploads = StreamingUpload.sweepStaging(directory: uploadStagingDirectory)
+if sweptUploads > 0 {
+    FileHandle.standardOutput.write(
+        Data("swept \(sweptUploads) abandoned upload(s) from \(uploadStagingDirectory.path)\n".utf8))
+}
+
+FileHandle.standardOutput.write(Data("baton-gateway listening on :\(port) → \(serverURL.host() ?? "?")\n".utf8))
+FileHandle.standardOutput.write(Data("state file: \(stateFileURL.path)\n".utf8))
+
+// The transport logs every response it sends, uploads included (TBX-5308, S-F26). It used to be
+// wrapped around the router, which the streaming upload never reaches — so the one route that
+// writes caller-controlled bytes to disk before checking a token left no trace at all.
+try DefaultTransport(stagingDirectory: uploadStagingDirectory).serve(port: port) { request in
+    await route(request)
 } upload: { request, staged in
     await handleUpload(request, staged)
 }
@@ -146,10 +164,13 @@ extension JSONEncoder {
 func handleUpload(_ request: StreamingUpload.Request, _ staged: URL) async -> Data {
     func fail(_ status: String, _ message: String) -> Data {
         try? FileManager.default.removeItem(at: staged)
-        return httpResponse(status: status, body: #"{"error":"\#(message)"}"#)
+        return httpErrorResponse(status: status, message: message)
     }
-    guard BatonMCPAuth.constantTimeEquals(request.header("authorization")?
-        .replacingOccurrences(of: "Bearer ", with: "") ?? "", token) else {
+    // `Request.bearerToken`, the same parse every other route uses. The hand-rolled
+    // `replacingOccurrences(of: "Bearer ", with: "")` here was case-sensitive, so a spec-legal
+    // `authorization: bearer <token>` was accepted on GET /v1/files and refused on this route
+    // (TBX-5308, S-F26).
+    guard BatonMCPAuth.constantTimeEquals(request.bearerToken ?? "", token) else {
         return fail("401 Unauthorized", "bad token")
     }
     let id = String(request.path.dropFirst("/v1/files/".count))
@@ -175,33 +196,8 @@ func handleUpload(_ request: StreamingUpload.Request, _ staged: URL) async -> Da
 
 // MARK: - Routing
 
-/// Serve the request, then say so in one line.
-///
-/// Wrapping rather than logging inside each route: responses are built in a dozen places here,
-/// and a logger that has to be remembered at each one is a logger that will be forgotten at some
-/// of them — the same drift `PreferenceSync` records for its own hand-placed calls. The status is
-/// read back out of the response actually being returned, so what is logged is what was sent.
-@MainActor @Sendable
-func handle(_ request: HTTPRequestMessage) async -> Data {
-    let started = Date()
-    let response = await route(request)
-    if let line = RequestLog.line(
-        method: request.method,
-        path: request.path,
-        status: RequestLog.status(ofResponse: response),
-        userAgent: request.headers["user-agent"],
-        milliseconds: Int(Date().timeIntervalSince(started) * 1000)
-    ) {
-        // `FileHandle.standardOutput.write`, not `print`. Swift buffers stdout when it is a
-        // pipe rather than a terminal, and under Docker it is always a pipe — so `print` left
-        // every line sitting in the buffer and `docker logs` showed nothing at all. Deployed
-        // once that way and caught by looking at the running container, which no test could
-        // have told me. The startup line above already used this for the same reason.
-        FileHandle.standardOutput.write(Data((line + "\n").utf8))
-    }
-    return response
-}
-
+/// The routes. One line per request is written by the transport, for every response it sends
+/// (TBX-4045, and TBX-5308 for the uploads it used to miss) — see `RequestLog.write`.
 @MainActor @Sendable
 func route(_ request: HTTPRequestMessage) async -> Data {
     if request.method == "GET", request.path == "/health" {
@@ -322,8 +318,12 @@ func route(_ request: HTTPRequestMessage) async -> Data {
     }
     guard let json = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],
           let message = json["message"] as? String, !message.isEmpty else {
-        return httpResponse(status: "400 Bad Request", body: #"{"error":"message is required"}"#)
+        return httpErrorResponse(status: "400 Bad Request", message: "message is required")
     }
+    // Which conversation this turn belongs to, so `music_similar_songs` seeds from *its* search
+    // rather than from whatever the last caller happened to look up (TBX-5308, S-F26). Optional:
+    // a client that sends nothing shares one slot, which is the behaviour it had before.
+    let sessionID = json["session_id"] as? String
     do {
         let outcome = try await RemoteAgent.run(
             message: message,
@@ -332,14 +332,17 @@ func route(_ request: HTTPRequestMessage) async -> Data {
             config: llmConfig,
             tools: RemoteAgent.toolSchemas(definitions: surface.definitions()),
             runTool: { call in
-                await surface.run(name: call.name, arguments: call.jsonArguments, sessionID: nil)
+                await surface.run(name: call.name, arguments: call.jsonArguments, sessionID: sessionID)
             }
         )
         let reply: [String: Any] = ["text": outcome.text, "tools_run": outcome.toolsRun]
-        let data = (try? JSONSerialization.data(withJSONObject: reply)) ?? Data("{}".utf8)
-        return httpResponse(status: "200 OK", body: String(data: data, encoding: .utf8) ?? "{}")
+        return httpResponse(status: "200 OK", body: jsonObject(reply))
     } catch {
-        return httpResponse(status: "502 Bad Gateway", body: #"{"error":"\#(String(describing: error))"}"#)
+        // Serialised, not interpolated into a JSON literal. `RemoteNaturalLanguage.Failure`
+        // carries the provider's own text, which reliably contains quotes and newlines — so the
+        // body used to be invalid JSON, the phone fell back to a generic message, and "your
+        // credit balance is too low" never reached anybody (TBX-5308, S-F26).
+        return httpErrorResponse(status: "502 Bad Gateway", message: String(describing: error))
     }
 }
 
@@ -352,7 +355,9 @@ func route(_ request: HTTPRequestMessage) async -> Data {
 final class GatewayToolSurface: RemoteToolSurface {
     private let client: NavidromeClient
     private let devices: DeviceLink
-    private var lastResults: [NavidromeSong] = []
+    /// The last search, per conversation. One shared field made `music_similar_songs` seed from
+    /// whoever searched most recently (TBX-5308, S-F26).
+    private let lastResults = SearchSeedStore<[NavidromeSong]>()
 
     init(client: NavidromeClient, devices: DeviceLink) {
         self.client = client
@@ -389,14 +394,16 @@ final class GatewayToolSurface: RemoteToolSurface {
             guard let results = try? await client.search3(query: query) else {
                 return ("The library didn't answer — is Navidrome up?", true)
             }
-            lastResults = results.songs
+            lastResults.remember(results.songs, for: sessionID)
             if results.songs.isEmpty { return ("Nothing matched \"\(query)\".", false) }
             let listing = results.songs.prefix(10).enumerated()
                 .map { "\($0.offset + 1). \($0.element.title) — \($0.element.artist ?? "?")" }
                 .joined(separator: "\n")
             return ("Found \(results.songs.count) songs:\n\(listing)", false)
         case "music_similar_songs":
-            guard let seed = lastResults.first else { return ("Search first, then ask for similar.", false) }
+            guard let seed = lastResults.seed(for: sessionID)?.first else {
+                return ("Search first, then ask for similar.", false)
+            }
             let similar = (try? await client.getSimilarSongs(id: seed.id)) ?? []
             if similar.isEmpty { return ("The server has no similarity data for \(seed.title).", false) }
             return ("Similar to \(seed.title):\n" + similar.prefix(10).map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
@@ -409,7 +416,7 @@ final class GatewayToolSurface: RemoteToolSurface {
         case "music_random":
             let genre = arguments["genre"] as? String
             let songs = (try? await client.getRandomSongs(count: 10, genre: genre)) ?? []
-            lastResults = songs
+            lastResults.remember(songs, for: sessionID)
             return (songs.map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
         case "music_play", "music_pause", "music_next", "music_now_playing":
             // Playback belongs to the device with the speakers. Dispatch and wait;

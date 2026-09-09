@@ -493,11 +493,14 @@ enum BatonMCPToolCatalog {
 
     // MARK: - Music helpers
 
+    /// Reports the real reason rather than assuming there is no server. `makeClient` can also
+    /// fail because the Keychain is locked, and telling someone to add a server they already
+    /// added sends them to the wrong screen.
     private static func musicClient() throws -> NavidromeClient {
         do {
             return try NavidromeConfig.makeClient()
         } catch {
-            throw BatonMCPToolError(message: "No music server is configured. Add one in Settings → Music.")
+            throw musicError(error)
         }
     }
 

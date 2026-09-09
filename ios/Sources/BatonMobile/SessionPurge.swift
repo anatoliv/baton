@@ -55,6 +55,15 @@ enum SessionPurge {
         // means that server's record. Carrying it into the next sign-in shows the new
         // account a scope chosen for the old one, and silently defeats the default.
         "baton.history.scope",
+        // Podcast subscriptions, both halves: the ledger that can say "unsubscribed" and
+        // the plain feed list an older build still reads. Removed rather than unsubscribed
+        // one by one, because an unsubscribe writes a tombstone that syncs — this device is
+        // being wiped, which is not a statement about the Mac's shows.
+        PodcastSubscriptionStore.ledgerKey,
+        PodcastSubscriptionStore.syncedFeedsKey,
+        // Which albums and artists the previous account opened from Search, and the ids
+        // they resolve to. Removed for the same reason as the play history.
+        SearchRecents.storageKey,
     ]
 
     /// Clears the account's stores without needing a live `MobileModel`.
@@ -65,8 +74,30 @@ enum SessionPurge {
     static func wipeStores() {
         let defaults = BatonStorage.defaults
         for key in defaultsKeys { defaults.removeObject(forKey: key) }
-        for account in secretAccounts { NavidromeKeychain.setSecret("", account: account) }
+        // `deleteSecret`, not `setSecret("")`. Blanking left an empty Keychain item behind,
+        // so this path and the user-facing one below did not leave the device in the same
+        // state — which is exactly the difference that lets a test pass where the product
+        // would not.
+        for account in secretAccounts { NavidromeKeychain.deleteSecret(account: account) }
         NavidromeConfig.clear()
+        // The file-backed stores, for the same parity reason: a reset that leaves last
+        // session's podcasts and clippings on disk is not a reset.
+        PodcastSubscriptionStore().purgeLocalSubscriptions()
+        removeAllClippings(ClippingStore())
+        FriendFeedbackLog().clear()
+    }
+
+    /// Deletes every clipping from *this device*.
+    ///
+    /// `everywhere: false` and `dismissing: false` on purpose. "Delete everywhere" would
+    /// reach through the shared ledger and remove the same recordings from the Mac, and a
+    /// dismissal tombstone is a statement about a device that is about to have no session
+    /// at all. Both would outlive the account being erased.
+    private static func removeAllClippings(_ store: ClippingStore) {
+        store.loadIfNeeded()
+        for item in store.items {
+            store.remove(id: item.id, dismissing: false, everywhere: false)
+        }
     }
 
     /// What a purge is about to remove, so the confirmation can say it out loud.
@@ -105,6 +136,14 @@ enum SessionPurge {
         model.music.stop()
         model.music.clearQueue()
 
+        // And stop the gateway link before the token it is holding is deleted. The link was
+        // the one live connection this function did not name: it read the gateway token once
+        // into a local and then held an authenticated long-poll open, so after "Disconnect
+        // and delete my data" a foregrounded app went on presenting the revoked credential
+        // and running whatever commands came back against the local player. It only stopped
+        // when the app was backgrounded.
+        model.deviceLink.stop()
+
         if !keepDownloads {
             MusicDownloadStore.shared.deleteAll()
         }
@@ -120,12 +159,36 @@ enum SessionPurge {
         model.lastfm.disconnect()
         model.listenBrainz.token = ""
 
+        // Search history carries the previous account's queries and the album and artist ids
+        // they opened, and it is the first thing the next sign-in would show.
+        model.searchRecents.clear()
+        // Subscriptions, locally. See `PodcastSubscriptionStore.purgeLocalSubscriptions`.
+        model.podcastSubscriptions.purgeLocalSubscriptions()
+        // What the friend was asked and what it did. The friend's *memory* and its learned
+        // corrections deliberately stay: both live in the shared `baton.friend.ledger`, so
+        // clearing them here would publish tombstones that delete the same memories on the
+        // user's other devices. Whether a disconnect should forget them at all is TBX-5230,
+        // which is a product decision and not this function's to make.
+        model.friendLog.clear()
+
+        // Clippings are audio the user recorded themselves, so they go with the downloads
+        // rather than with the account: "switch servers" and "erase my recordings" are
+        // different intentions, and only one of them is irreversible.
+        if !keepDownloads {
+            removeAllClippings(model.clippings)
+        }
+
         // Server config + its per-server secret.
         NavidromeConfig.clear()
         model.musicLibrary.resetForServerChange()
 
         for account in secretAccounts { NavidromeKeychain.deleteSecret(account: account) }
         for key in defaultsKeys { BatonStorage.defaults.removeObject(forKey: key) }
+
+        // After the keys are gone, not before. `SearchRecents.clear()` removes only this
+        // server's entries and keeps the rest in memory, so the next thing recorded would
+        // write the whole list straight back over the key we just deleted.
+        model.searchRecents.reload()
 
         // The agent's readiness is derived from those keys; drop the cached verification so
         // the Friend tab can't outlive the configuration that earned it.

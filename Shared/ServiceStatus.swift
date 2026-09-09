@@ -97,20 +97,10 @@ enum ServiceStatus: Equatable {
     /// Subsonic reports bad credentials as a *protocol* error inside a 200 response, not an
     /// HTTP 401 — so checking the status code alone would file every wrong password under
     /// "can't reach server" and send people to debug their network.
+    /// Delegates to `NavidromeError.isAuthFailure`, which is the same question the browse
+    /// store asks and cannot see this file.
     static func isAuthFailure(_ error: Error) -> Bool {
-        guard let navidrome = error as? NavidromeError else { return false }
-        switch navidrome {
-        case .unauthorized, .notConfigured:
-            return true
-        case let .http(status):
-            return status == 401 || status == 403
-        case let .subsonic(code, _):
-            // 40 wrong username/password · 41 token auth not supported · 44 invalid API key
-            // · 50 user not authorized for the operation.
-            return [40, 41, 44, 50].contains(code)
-        default:
-            return false
-        }
+        (error as? NavidromeError)?.isAuthFailure ?? false
     }
 
     /// What went wrong, in words that name the thing to go and fix.
@@ -121,6 +111,11 @@ enum ServiceStatus: Equatable {
         if case let .transport(message)? = error as? NavidromeError { return message }
         if case let .http(status)? = error as? NavidromeError {
             return "The server answered with HTTP \(status)."
+        }
+        // Said in full rather than as "sign-in refused": nothing the person can retype fixes a
+        // locked keychain, so the detail has to name the keychain.
+        if case .credentialsUnreadable? = error as? NavidromeError {
+            return error.localizedDescription
         }
         if let urlError = error as? URLError {
             switch urlError.code {

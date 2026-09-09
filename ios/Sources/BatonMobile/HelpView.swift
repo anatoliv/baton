@@ -1,4 +1,5 @@
 import BatonPlaybackKit
+import BatonSubsonicKit
 import MarkdownUI
 import SwiftUI
 
@@ -40,7 +41,7 @@ struct HelpView: View {
                     if !matching.isEmpty {
                         Section(guide == .help ? "Guide" : "FAQ") {
                             ForEach(matching) { topic in
-                                NavigationLink(value: topic) { Text(topic.title) }
+                                NavigationLink(value: topic) { topicRow(topic) }
                             }
                         }
                     }
@@ -67,16 +68,40 @@ struct HelpView: View {
         .onChange(of: requestedTopic) { _, _ in consumeDeepLink() }
     }
 
+    /// What the contents and the search list: the phone's topics and the shared ones.
+    ///
+    /// `topics` keeps the Mac-only sections too, so a link into one still opens. What it
+    /// drops from the list is the table of Command-key shortcuts, and the rest of a guide
+    /// written for a machine this reader is not holding.
+    private var listedTopics: [HelpGuide.Topic] {
+        topics.filter { $0.audience.includes(.iphone) }
+    }
+
     private var shown: [HelpGuide.Topic] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? topics : HelpGuide.ranked(topics, query: trimmed)
+        return trimmed.isEmpty ? listedTopics : HelpGuide.ranked(listedTopics, query: trimmed)
+    }
+
+    /// The heading, with the section it belongs to under it. One line each, because four
+    /// rows reading "Shared settings between your d…" are a contents list you cannot
+    /// navigate.
+    @ViewBuilder
+    private func topicRow(_ topic: HelpGuide.Topic) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(topic.title)
+            if let parent = topic.parentTitle {
+                Text(parent)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// Opens the requested topic, then clears the request so re-opening Help doesn't
     /// silently jump there again.
     private func consumeDeepLink() {
         guard !requestedTopic.isEmpty, !topics.isEmpty else { return }
-        if let target = topics.first(where: { $0.slug == requestedTopic }) {
+        if let target = HelpGuide.topic(for: requestedTopic, in: topics) {
             path = [target]
         }
         requestedTopic = ""
@@ -111,8 +136,11 @@ private struct HelpTopicView: View {
         // The guides cross-reference each other constantly. Left to the system these
         // open Safari at a URL that doesn't exist, or do nothing at all.
         .environment(\.openURL, OpenURLAction { url in
+            // Through `HelpGuide`, because an anchor names the heading alone
+            // (`#turning-it-on-on-the-mac`) while a subsection's slug carries its parent.
+            // Matching on the slug alone missed nine links in the shipped guides.
             guard let slug = HelpGuide.anchorSlug(from: url),
-                  let target = topics.first(where: { $0.slug == slug })
+                  let target = HelpGuide.topic(for: slug, in: topics)
             else { return .systemAction }
             follow(target)
             return .handled
@@ -138,12 +166,41 @@ struct WhatsNewView: View {
     /// Last version whose notes were shown. Empty on a fresh install, which is
     /// why a first launch shows nothing — a new user needs onboarding, not a
     /// changelog.
-    @AppStorage("baton.whatsNew.lastShownVersion") private static var lastShown = ""
+    static let lastShownKey = "baton.whatsNew.lastShownVersion"
 
-    static var shouldShow: Bool {
-        !lastShown.isEmpty && lastShown != currentVersion
+    private static var lastShown: String {
+        get { BatonStorage.defaults.string(forKey: lastShownKey) ?? "" }
+        set { BatonStorage.defaults.set(newValue, forKey: lastShownKey) }
     }
 
+    /// The decision, as a pure function, so it can be proven without a launch.
+    ///
+    /// An empty `lastShown` still means "show nothing", but it can now only be empty for
+    /// the length of one launch: `stampInstalledVersion()` fills it in the first time the
+    /// app ever runs. Before that it stayed empty for ever, so an App Store install never
+    /// saw the automatic sheet on any later update.
+    static func shouldShow(lastShown: String, current: String) -> Bool {
+        !lastShown.isEmpty && lastShown != current
+    }
+
+    static var shouldShow: Bool {
+        shouldShow(lastShown: lastShown, current: currentVersion)
+    }
+
+    /// Records the version a fresh install started on, so a later update has something to
+    /// compare against.
+    ///
+    /// Called once at launch. It deliberately does **not** show anything: the version being
+    /// stamped is the one already running, so `shouldShow` stays false until the next
+    /// update. Anyone upgrading from a build that never stamped is in the same position as
+    /// a fresh install — the stamp lands now and the *next* release is the first they see.
+    static func stampInstalledVersion(_ defaults: UserDefaults = BatonStorage.defaults) {
+        guard (defaults.string(forKey: lastShownKey) ?? "").isEmpty else { return }
+        defaults.set(currentVersion, forKey: lastShownKey)
+    }
+
+    /// The sheet has been seen. Called on dismissal however it was dismissed — a swipe used
+    /// to leave the key untouched, so the sheet came back on every single launch.
     static func markShown() { lastShown = currentVersion }
 
     var body: some View {
@@ -178,7 +235,7 @@ struct WhatsNewView: View {
                     Text("Version \(release.version)").font(.headline)
                     if isLatest {
                         Text("LATEST")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.caption2.weight(.bold))
                             .tracking(0.5)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
@@ -196,11 +253,15 @@ struct WhatsNewView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(release.changes) { change in
                         HStack(alignment: .top, spacing: 10) {
+                            // Was 9pt pinned into .frame(width: 58): it neither scaled with
+                            // the text size nor had room to wrap, so at accessibility sizes
+                            // the kind read as a clipped fragment. .caption2 scales, and the
+                            // column sizes itself instead of being told a point width.
                             Text(change.kind.label.uppercased())
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.caption2.weight(.bold))
                                 .tracking(0.4)
                                 .foregroundStyle(tint(for: change.kind))
-                                .frame(width: 58, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .padding(.top, 3)
                             Text(change.text)
                                 .font(.subheadline)
@@ -246,6 +307,19 @@ struct WhatsNewView: View {
                 .init(.improved, "Because that test really runs, your music friend is ready the moment the setup finishes and its tab is simply there. The commonest reason it will not be is worth knowing: a model host on your home network cannot be reached from mobile data, and the check now says so instead of leaving you guessing."),
                 .init(.added, "What you have told your music friend to remember, and what it has learned from you correcting it, now travel with a setup too. Both of them live in files rather than in settings, so neither had ever been carried. Its log of past conversations stays on the device that had them."),
                 .init(.added, "You can now see what your music friend remembers about you. Open the Friend Log from the Music Friend screen and there is a list of the things you have told it, each one shown with the sentence you actually said, so you can judge what it took from your words. Swipe to forget one and it goes from your other devices too. Until now those memories were only ever read out to the friend, never shown to you."),
+                .init(.added, "Later is on the phone. Press and hold a song or an album to save it, and find everything you saved under Library."),
+                .init(.added, "Choosing Light in Settings now gives you a light app. The artwork wash follows the appearance you picked, so text stays readable on every screen."),
+                .init(.fixed, "Starting a track no longer throws you back to the Home tab or closes the screen you were on, and Home fills in as soon as you connect a server or open the demo instead of staying mostly empty until the next launch."),
+                .init(.fixed, "What's New now appears after an update on phones that installed Baton from the App Store, and stops coming back once you close it."),
+                .init(.fixed, "Disconnecting stops the link to your home gateway straight away, and clears search history, podcast subscriptions and the music friend's log along with everything else it already removed. Recordings you saved are deleted with your downloads, and kept when you choose to keep them."),
+                .init(.fixed, "Your listening history counts a track once you have actually listened to it, not the moment it starts, which is what the Mac has always done. History recorded by earlier versions keeps its entries."),
+                .init(.fixed, "Podcast episodes stored on your server are no longer scrobbled to Last.fm or ListenBrainz as music, and a play those services refuse because the account needs reconnecting is no longer retried forever."),
+                .init(.fixed, "The Lock Screen progress bar stops when you pause instead of running on without the music, and widgets go quiet when Baton has not been heard from for a while rather than claiming a song is still playing."),
+                .init(.fixed, "A bad sync can no longer wipe podcast subscriptions, the music friend's memories or your clippings on your Mac, and those settings survive an update of the gateway itself. Your play queue, your Later list, your saved servers and your recent searches all survive a damaged file."),
+                .init(.fixed, "Baton no longer creates a second playlist, adds the same tracks twice or counts one play twice when the connection drops at the wrong moment. When a screen cannot load it says why, a locked keychain says so instead of claiming no server is configured, and Podcasts and Radio report a rejected sign-in like every other screen."),
+                .init(.fixed, "Asking the music friend to play something no longer starts the music a minute after it told you it could not reach your device, and when its provider refuses a request you see what it actually said."),
+                .init(.improved, "Empty screens no longer draw on top of the content behind them at large text sizes, titles on Home wrap instead of being cut short, the A to Z index stays available at every text size, and the release notes scale with your text too."),
+                .init(.improved, "Smaller things: transcription starts with an empty server address instead of one pointing at the phone itself, the Music Friend settings say what each field is once filled in, the Search tab says what it searches before you type, the transcript sheet says transcription is not set up when that is the reason, the Engine cost readout is back in Settings, a Baton link that cannot be opened says why, Baton no longer asks you to rate it while you are only trying the demo, and the Privacy Policy link opens batonmusic.app."),
             ]
         ),
         ReleaseNote(
@@ -550,7 +624,7 @@ struct WhatsNewView: View {
                 .init(.fixed, "Tapping the Now Playing widget opened the app and restarted the track from the beginning, throwing away your queue. It takes you to the player now, which is what a tap on \u{201C}what is playing\u{201D} should do."),
                 .init(.fixed, "The Lock Screen clock drifted behind podcasts played faster than 1\u{00D7}, falling further behind the longer an episode ran. Baton was telling iOS the wrong playback speed."),
                 .init(.added, "The widget draws your cover art, in lock screen and StandBy sizes as well as on the Home Screen, with play/pause and next you can tap without opening the app."),
-                .init(.added, "Skip back and forward 15 seconds on the Lock Screen for podcasts, and like the current track from there or from CarPlay."),
+                .init(.added, "Skip back and forward 15 seconds on the Lock Screen for podcasts, and like the current track from there."),
                 .init(.added, "Playback speed for podcasts in the player itself, instead of only from the show\u{2019}s page."),
                 .init(.added, "Separate Wi\u{2011}Fi and cellular streaming quality. Baton has always been able to ask the server for a smaller stream and never did."),
                 .init(.added, "Lyrics from LRCLIB when your files have none \u{2014} off by default, since it is the one lookup that leaves your own server."),

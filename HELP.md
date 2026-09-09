@@ -11,8 +11,8 @@ behalf.
 Baton is made by [Tonebox](https://tonebox.io) and given away for free.
 
 This guide walks through every part of the app in plain language. If you just want a quick
-answer, the [FAQ](FAQ.md) is shorter. For the deeper design and architecture, see the docs
-in [`docs/`](docs/).
+answer, the [FAQ](FAQ.md) is shorter. For the deeper design and architecture, see the
+[repository on GitHub](https://github.com/anatoliv/baton).
 
 ## Contents
 
@@ -154,6 +154,7 @@ All three of these are a one-time transfer, though. To keep those settings in st
 on, see [Shared settings between your devices](#shared-settings-between-your-devices).
 
 ### Where the Mac says "right-click"
+<!-- baton:audience iphone -->
 
 Everything below describes the Mac, where a right-click opens the menu of things you can do
 to a song, an album, an artist, a playlist or a station. **On iPhone, touch and hold instead.**
@@ -161,6 +162,7 @@ The menu that appears is the same one: Play, Play Next, Add to Queue, Add to Pla
 Rate, Download, Start Radio, Go to Album, Go to Artist, and the radio bans.
 
 ### Widgets, the lock screen, and Live Activities
+<!-- baton:audience iphone -->
 
 Baton puts what's playing where you actually glance.
 
@@ -179,6 +181,7 @@ The widget draws artwork it already has on disk rather than fetching it, because
 network access is throttled and the cover would simply never appear.
 
 ### Siri and Shortcuts
+<!-- baton:audience iphone -->
 
 Baton answers Siri, and the same actions are building blocks in the Shortcuts app.
 
@@ -196,6 +199,7 @@ These run the same command surface the music friend and the app's own buttons us
 and the friend can never drift apart.
 
 ### How much data it uses
+<!-- baton:audience iphone -->
 
 **Settings → Sound** has two quality settings, one for each kind of connection: **Wi-Fi
 Quality** and **Cellular Quality**. Each takes **Original**, **High (320 kbps)**, **Medium
@@ -210,6 +214,7 @@ Anything you've downloaded ignores both settings. It's already on the phone at w
 quality it arrived.
 
 ### Face ID on your keys
+<!-- baton:audience iphone -->
 
 The music friend's API key is money, and a phone in someone else's hand is already unlocked.
 So on **Settings → Music Friend** the key and the gateway token stay masked until Face ID or
@@ -225,6 +230,7 @@ you come back to skip a track would be the worst feature in the app. It guards s
 nothing else.
 
 ### Making the phone yours
+<!-- baton:audience iphone -->
 
 A few things on the iPhone bend to how you actually listen:
 
@@ -240,6 +246,7 @@ A few things on the iPhone bend to how you actually listen:
   default because it costs battery.
 
 ### The demo library
+<!-- baton:audience iphone -->
 
 Baton needs a server, which makes an app with no server a locked door. There are two ways
 through it, and they answer different questions.
@@ -287,7 +294,7 @@ there never will be. Those settings go through a small service you run yourself,
 | Look up missing lyrics, scrobbling target | The experimental audio engine |
 | Which discovery sources are switched on | Ducking and stall timeouts |
 | The music friend: where answers come from, provider, model, base URL, and whether it speaks replies aloud | Appearance, and whether the screen stays awake |
-| The friend's own switches: understand plain English, let it look around first, remember what you tell it | The play queue and your local play history |
+| The friend's own switches: understand plain English, let it look around first, remember what you tell it | Your local play history, and the play queue (which has a route of its own, below) |
 
 Three of those deserve a word. **Your speech and transcription servers stay put** because
 they are addresses of machines rather than choices about listening: the phone is rarely on the
@@ -301,8 +308,27 @@ pair.
 And the master switch for looking outside your library stays put on purpose: that one is
 consent, and a phone should not inherit a decision the Mac made to start talking to strangers.
 
-A full setting-by-setting account of what crosses and what doesn't is in
-[`docs/settings-parity-mac-vs-iphone.html`](docs/settings-parity-mac-vs-iphone.html).
+### Picking up where the other device left off
+
+The queue is the one thing in that table with a route of its own. It doesn't travel through
+shared settings and it doesn't need the gateway: it uses the **play-queue slot your Subsonic
+server already has**, so it works with nothing running but Navidrome.
+
+Baton saves the queue there when playback **pauses**, and the phone saves it again when you
+leave the app. Not on a timer, so a normal evening of listening doesn't hammer the server.
+
+When you next open Baton, it asks the server once whether another device left a queue behind.
+If one is there you get a short prompt naming the track, with **Continue** and **Not now**.
+Continue rebuilds the queue and drops you at the same spot in the same song, part-way through
+if that is where you stopped. It only ever offers a queue that a *different* device saved:
+your own is already restored from disk, which it does better.
+
+This now works in both directions. The Mac published its queue from the start and never once
+read the slot back, so continuity ran phone to Mac only.
+
+**It is switched off on the public demo server.** The play-queue slot belongs to the account
+rather than to a person, and `demo.navidrome.org` shares one account with the whole internet.
+Baton neither saves to nor reads from that slot there, so nobody is offered a stranger's queue.
 
 ### Running a gateway
 
@@ -591,6 +617,12 @@ Because Later is a note to yourself rather than a judgement about the music, it 
 machine you made it on and never touches your server. Take something off the list by
 right-clicking it and removing it, or clear the whole list at once from the same place.
 
+**On iPhone**, Later is a row in the Library tab, with a badge for how many things are on it.
+Touch and hold a song or an album and choose **Save to Later** to add one. Tap anything in
+the list to play it, swipe a row left to remove it, and the menu in the top corner clears the
+list. A pin is kept on the device that made it, so what you save on the phone stays on the
+phone and what you saved on the Mac stays there.
+
 ---
 
 ## History
@@ -750,7 +782,7 @@ folder or the format doesn't move or rename files you've already saved. See the
 ## Clippings
 
 Clippings are audio Baton made for you and kept: right now, a reading saved from
-[read aloud](#read-aloud). After Baton reads something, **File → Keep Reading in Clippings**
+[read aloud](#reading-whats-on-your-screen). After Baton reads something, **File → Keep Reading in Clippings**
 puts that audio here. They live in the **Clippings** item in the left rail, which carries a
 badge with how many you have.
 
@@ -849,6 +881,7 @@ Podcast episodes don't use this. They get [transcripts](#transcripts-and-summari
 which are a different thing built a different way.
 
 ### The floating mini-player
+<!-- baton:audience mac -->
 
 Baton has a borderless, always-on-top **mini-player** window (press Command, Option, and M).
 It's a compact card you can park in a corner while you work in other apps, showing the
@@ -856,6 +889,7 @@ current track, artwork, the scrubber, the rating, and what's up next, and it exp
 little more. On macOS 26 and later it's drawn with Liquid Glass.
 
 ### The mini player on iPhone
+<!-- baton:audience iphone -->
 
 On the phone, the now-playing bar is a small capsule floating above the tabs: artwork, the
 track title, play/pause, next, and an ✕ that ends the session. Tap anywhere else on it for
@@ -869,6 +903,7 @@ return exactly as they were. No tab ever disappears for good; the row only stays
 you're actively scrolling away from it.
 
 ### The menu-bar controller
+<!-- baton:audience mac -->
 
 Baton also lives in the menu bar. The menu-bar item shows what's playing and gives you
 Play/Pause, Next, and Previous, plus shortcuts to open the main window or the mini-player.
@@ -943,6 +978,12 @@ under Playback, in the **Sound** section.
 > makes them overlap. Baton hides the gapless toggle whenever crossfade is turned up, so you
 > won't accidentally ask for both.
 
+> [!IMPORTANT]
+> One other setting switches both of these off. The **Experimental audio engine**, which is
+> what makes [the equalizer](#the-equalizer) reach music streamed from your server, ignores
+> gapless and crossfade while it is running: track changes become plain cuts. It is off by
+> default. If you turn it on and your albums stop running together, that is why.
+
 ### Defaults that match how you listen
 
 You don't have to set any of this by hand. Once you've played about twenty tracks, Baton
@@ -973,12 +1014,25 @@ setting: the audio tap Baton uses to filter playback does not run for a streamed
 either the Mac or the phone. It has always been that way, and Settings used to imply
 otherwise — this is the honest version.
 
-To equalize streamed music, turn on **Settings → Advanced → Experimental audio engine**,
-which plays streams through Baton's own audio pipeline where the equalizer is a real part
-of the chain. It costs noticeably more power, so it is off unless you ask for it. The
-equalizer screen tells you which of the two situations you are in.
+To equalize streamed music, turn on **Settings → Playback → Advanced → Experimental audio
+engine**, which plays streams through Baton's own audio pipeline where the equalizer is a
+real part of the chain. The equalizer screen tells you which of the two situations you are
+in.
 
-On iPhone this lives under **Settings → Equalizer**, with the bands behind the **Bands** row.
+**What it costs you.** Turning it on switches off two of the things
+[Sound quality](#sound-quality-gapless-crossfade-loudness) describes: while the experimental
+engine is running, **gapless playback and crossfade are both ignored**, and a track change is
+a plain cut. AirPlay falls back to realtime mirroring, and the engine uses noticeably more
+power, which is why it is off unless you ask for it. Podcasts, downloaded files and internet
+radio keep using the standard player either way, so gapless and crossfade still apply to
+them. If gapless matters more to you than equalizing streams, leave this off.
+
+The two apps differ on one point. **On iPhone the switch applies straight away**, to whatever
+is playing. **On the Mac it takes effect after you quit and reopen Baton**, and the setting
+text says so.
+
+On iPhone this lives under **Settings → Equalizer**, with the bands behind the **Bands** row,
+and the switch itself under **Settings → Advanced**.
 
 Baton has a **10-band parametric equalizer**. Open it from the Audio menu (press Option,
 Command, and E), or from the **Equalizer** pane in Settings.
@@ -1107,6 +1161,7 @@ related artists — you just don't get the YouTube links.
 ---
 
 ## Keyboard shortcuts
+<!-- baton:audience mac -->
 
 Most of these come from the **Playback** menu, which is available anywhere in the app.
 
@@ -1129,7 +1184,9 @@ Most of these come from the **Playback** menu, which is available anywhere in th
 | Open the mini-player | Command, Option, M |
 | Open the equalizer | Option, Command, E |
 | Open the music friend | Command, Shift, F |
+| Save the last reading as an audio file | Command, Shift, S |
 | Open Settings | Command, comma |
+| Open this guide | Command, question mark |
 
 **Get Info** (Command, I, or **Get Info** in a row's right-click menu) opens a sheet on the
 track itself: codec, bitrate, bit depth, sample rate, channels and file size, alongside how
@@ -1144,12 +1201,20 @@ And for moving around your library:
 | Go to a section in the sidebar | Command, 1 to 9 |
 | Find | Command, F |
 | Show what's playing now | Command, 0 |
+| Hide or show the sidebar | Command, Control, S |
 | Refresh the library from the server | Command, R |
 | Replay the last spoken summary | Command, Control, R |
 | Stop speaking | Command, Control, period |
 
-The Playback menu also holds **Shuffle**, **Repeat**, and the **Sleep Timer**. In the
-full-screen player, **Space** toggles play and pause and **Escape** exits.
+The **Go** menu lists every section the sidebar can show, including the ones with no number
+of their own: Clippings, Podcasts, Radio, Downloads and Folders. That matters if you have
+hidden a row from the sidebar, because the menu is then the way back to it.
+
+The Playback menu also holds **Shuffle**, **Repeat**, and the **Sleep Timer**.
+
+In the full-screen player, **Space** toggles play and pause and **Escape** exits. The left
+and right **arrow keys** skip back and forward ten seconds, and **[** and **]** cycle the side
+panel through Queue, Lyrics and Related.
 
 In song lists — Liked, search results, and the tracks inside an album or playlist — click the
 list once, then use the **up and down arrows** to move through it. **Return** plays the
@@ -1164,6 +1229,7 @@ just as visible.
 ---
 
 ## Webhook actions
+<!-- baton:audience mac -->
 
 Webhook actions let you send a media item to an HTTP endpoint you choose. They're aimed at
 podcast episodes: for example, you could POST an episode's audio URL to a service that
@@ -1396,7 +1462,7 @@ Open **Settings → Speech** and enter the address for whichever engine you set 
 
 Press **Test this connection**. Baton shows a green check with the number of voices it found, or
 the error if it can't reach the server. Once connected, each row of the [voice
-map](#one-voice-per-agent-the-voice-map) gets a voice picker (populated live from that server)
+map](#one-voice-per-category-the-voice-map) gets a voice picker (populated live from that server)
 and a ▶︎ **Preview** button, so you can hear a voice before assigning it.
 
 > [!NOTE]
@@ -1470,13 +1536,14 @@ sentence (voice `af_bella`). If Baton isn't connected, skip silently.
 ```
 
 Pick a voice per line with the `voice` input (`kokoro:af_bella`, `chatterbox:Emily.wav`, or a
-bare id like `af_nova`), or let the [voice map](#one-voice-per-agent-the-voice-map) choose by
+bare id like `af_nova`), or let the [voice map](#one-voice-per-category-the-voice-map) choose by
 `category`. A `CLAUDE.md` or Cursor rule takes effect on the **next** session — a running one
 won't reload it mid-task — and Baton must be running for the call to land.
 
 ---
 
 ## Reading what's on your screen
+<!-- baton:audience mac -->
 
 Baton can read text out loud from wherever you're working: an article in Chrome, a wall of
 build output in a terminal, a changelog, a long email. You select the text, Baton speaks it in
@@ -2291,8 +2358,17 @@ Three rules make that safe rather than creepy:
 - **It tells you every time it writes one.** "Noted — no vocals while you work." If it
   misunderstood, you see it in the same window a second later, and one message fixes it.
 - **It's one command away.** `memories` lists everything with the quote attached, `forget 2`
-  removes one, `forget everything` clears the lot. Settings, Remote has a switch to turn it
-  off and a button to delete everything.
+  removes one, `forget everything` clears the lot.
+
+You do not have to ask in chat to see them. **Settings → Friend Log** has a **What it
+remembers** section listing every stored memory, each with the sentence you actually said
+underneath it and a **Forget** button of its own. Forgetting one there removes it from your
+other devices too, rather than letting the next sync push it back.
+
+**Settings → Remote** holds the two blunter controls: **Remember what you tell it**, which
+stops it storing anything new, and **Delete all…**, which says how many memories are stored
+and asks before it removes them. That delete stays available even when you have turned the
+friend off, because switching it off is one of the likeliest reasons to want it.
 
 It keeps a couple of dozen things at most, forgetting whatever has gone longest unused. It
 also notes what it recently started playing, so "surprise me" stops surprising you with the
@@ -2302,15 +2378,18 @@ same three tracks.
 
 ## Settings reference
 
-On the Mac, open Settings by pressing Command and comma. On iPhone, Settings is the
-last tab. The panes are:
+On the Mac, open Settings by pressing Command and comma. It has nine panes, and each one is
+described below. The iPhone has no panes at all: Settings is the last tab, and it is a single
+scrolling list, so it has its own section at the end of this reference.
 
 ### Servers
+<!-- baton:audience mac -->
 
 Add, edit, remove, and switch between music servers. Each server keeps its own credentials in
 the Keychain. See [Using more than one server](#using-more-than-one-server).
 
 ### Playback
+<!-- baton:audience mac -->
 
 - **Sound.** Loudness normalization (Off, Track, or Album) and its pre-amp; crossfade length;
   gapless playback and its Wi-Fi-only prefetch option; a button to clear the prefetch cache;
@@ -2318,38 +2397,61 @@ the Keychain. See [Using more than one server](#using-more-than-one-server).
   you've told an endless radio to stop suggesting). Covered under
   [sound quality](#sound-quality-gapless-crossfade-loudness) and
   [autoplay](#the-queue-shuffle-repeat-and-autoplay).
+- **Menu Bar.** Whether the menu-bar icon shows the current track or station title beside it.
+  See [The menu-bar controller](#the-menu-bar-controller).
 - **Downloads.** Offline mode; whether to remove finished podcast episodes automatically; the
   download folder (with buttons to choose a folder, show it in Finder, or go back to the
   default); and the filename format with its `{artist}`, `{album}`, `{title}`, and `{id}`
   tokens. See [Downloads](#downloads-and-offline-listening).
 - **Scrobbling.** Your ListenBrainz token, your Last.fm connection, and the choice between
   scrobbles sent by Baton or handled by your server. See [Scrobbling](#scrobbling).
-- **Advanced.** How many recent filter terms each browse screen remembers, and a button to
-  clear that history.
+- **Finding music you don't have.** Whether Baton may ask Last.fm and YouTube about music
+  outside your library, and the keys those lookups use. Off until you turn it on. See
+  [Finding music you don't have](#finding-music-you-dont-have).
+- **Advanced.** Collapsed until you open it. How many recent filter terms each browse screen
+  remembers, a button to clear that history, and the **Experimental audio engine** switch
+  that lets the equalizer reach streamed music. Read what that switch costs you in
+  [The equalizer](#the-equalizer) before you turn it on.
 - **Reset to Defaults.** Restores the Sound and Browse preferences. Your scrobbling accounts
   and your download folder are kept.
 
 ### Equalizer
+<!-- baton:audience mac -->
 
-The 10-band parametric equalizer, its presets, the per-band controls, and a live response
-curve. See [The equalizer](#the-equalizer).
+- **Equalizer.** The master switch, and a line saying where the curve currently applies.
+- **Preset.** The named curves, and where a curve you changed is saved.
+- **Response.** The live response graph.
+- **Bands.** The ten bands themselves: frequency, gain and Q for each.
+
+See [The equalizer](#the-equalizer).
 
 ### Actions
+<!-- baton:audience mac -->
 
 Your webhook actions. See [Webhook actions](#webhook-actions).
 
 ### Speech
+<!-- baton:audience mac -->
 
 The text-to-speech servers and the category-to-voice map for spoken summaries. See
 [Speaking summaries aloud](#speaking-summaries-aloud).
 
 ### Agents
+<!-- baton:audience mac -->
 
-Whether an AI agent can drive Baton, and everything it needs to: the connection status, the
-endpoint address, and the access token, with a button to copy each. See
-[Letting an agent control your music](#letting-an-agent-control-your-music).
+Whether an AI agent can drive Baton, and everything it needs to:
+
+- **Connection.** Whether the control server is running, its endpoint address, and the access
+  token, with a button to copy each.
+- **Discovery.** The file an MCP client reads to find that endpoint and token by itself, so
+  there is nothing to paste.
+- **Client configuration.** The same settings written out as a config snippet, with a button
+  to copy it, for a client you do have to configure by hand.
+
+See [Letting an agent control your music](#letting-an-agent-control-your-music).
 
 ### Remote
+<!-- baton:audience mac -->
 
 Telegram and Discord bot tokens, the link code and the list of chats you've authorized (each
 revocable), an optional restriction to particular Discord channels, and the model provider
@@ -2361,25 +2463,74 @@ Discord](#controlling-baton-from-telegram-or-discord); the gateway is in [Shared
 between your devices](#shared-settings-between-your-devices).
 
 ### Friend Log
+<!-- baton:audience mac -->
 
 Every exchange you've had with the music friend, on any of your screens, with the thumbs-up
 or thumbs-down you gave it. This is where a correction goes to live, and where to look when
 you want to know why it answered the way it did. See [The music friend](#the-music-friend).
 
 ### About
+<!-- baton:audience mac -->
 
-Baton's version, its license (MIT), and a link to the website, plus two small sections:
+Baton's version, its license (MIT), and a link to the website, then seven sections:
 
-- **Updates**: the auto-update feed, its status, an "automatically check for updates" toggle,
-  and a **Check for Updates Now** button. See [Updates](#updates).
-- **Diagnostics**: the opt-in **Send crash & error reports** toggle, off by default. See
-  [Privacy and security](#privacy-and-security).
+- **Support Baton**: the tip jar. Baton is free and stays free, and a tip unlocks nothing.
 - **Lyrics**: **Look up missing lyrics**, which asks LRCLIB for words your server doesn't
   carry. See [Lyrics](#lyrics). (It lives here rather than under Playback, which is not where
-  you would look for it — worth knowing.)
+  you would look for it, worth knowing.)
+- **Appearance**: light, dark, or follow the system, for the settings and help windows. The
+  player keeps its dark treatment either way, because the colour it takes from your artwork
+  needs a dark ground to stay readable.
+- **Startup**: whether Baton opens when you sign in, so the menu-bar controls are there
+  straight away.
+- **Updates**: the auto-update feed, its status, an "automatically check for updates" toggle,
+  and a **Check for Updates Now** button. See [Updates](#updates).
+- **Back up & restore**: **Export…** writes your settings to a file, with or without your
+  accounts, and **Import…** reads one back. This is also one of the three ways to get your
+  setup onto a phone. See
+  [Getting your Mac's setup onto your phone](#getting-your-macs-setup-onto-your-phone).
+- **Diagnostics**: the opt-in **Send crash & error reports** toggle, off by default. See
+  [Privacy and security](#privacy-and-security).
 
 Each of the Playback, Equalizer, and Speech panes has its own **Reset to Defaults** button,
 and each is careful to keep your credentials and servers when it resets.
+
+### Settings on iPhone
+
+The phone has no panes. Settings is the last tab, and everything is one scrolling list, in
+this order:
+
+- **Server**: which server you're on, its sign-in, and **Set up from a Mac…**, which is the
+  three ways to bring a Mac's setup across. See
+  [Getting your Mac's setup onto your phone](#getting-your-macs-setup-onto-your-phone).
+- **Music Friend**: the model provider or home server the friend runs on, and its test
+  button. The Friend tab appears once that test passes. See
+  [Turning it on, on the iPhone](#turning-it-on-on-the-iphone).
+- **Equalizer**: the master switch, the presets, the ten bands, and a line saying where the
+  curve applies right now, which depends on the next section. See
+  [The equalizer](#the-equalizer).
+- **Advanced**: the **Experimental audio engine** switch, and under it **Engine cost**, which
+  reports the CPU time the current engine is spending per second of audio so you can compare
+  the two yourself. On the phone the switch applies straight away.
+- **Transcription**: turning spoken words into text you can read and search. See
+  [Transcripts and summaries](#transcripts-and-summaries).
+- **Sound**: gapless playback, crossfade (hidden while gapless is on, since the two want
+  opposite things), loudness normalization, and the two lookups that talk to a service other
+  than your own server. See
+  [Sound quality](#sound-quality-gapless-crossfade-loudness).
+- **Queue**: whether Baton keeps playing with similar songs when the queue runs out. See
+  [The queue, shuffle, repeat, and autoplay](#the-queue-shuffle-repeat-and-autoplay).
+- **Scrobbling**: ListenBrainz and Last.fm. Your server's own play counts need no setup. See
+  [Scrobbling](#scrobbling).
+- **Help & FAQ** and **What's New**: this guide, and the notes for each release.
+- **Diagnostics**: the opt-in **Send crash reports** toggle, off by default.
+- **Display**: **Keep the screen awake**, for a phone propped on a dock or a counter. Off by
+  default, because it uses more battery.
+- **Version** and **Privacy Policy** at the bottom.
+
+There is no Actions, Speech, Agents, Remote or Friend Log on the phone. Webhook actions,
+spoken summaries and the chat bridges are Mac features, and the friend's log lives on the
+Mac that runs it.
 
 ---
 
@@ -2388,7 +2539,7 @@ and each is careful to keep your credentials and servers when it resets.
 Baton updates with Sparkle, the standard macOS updater that many Mac apps use. There's a
 **Check for Updates** item in the app menu, and Baton checks its own feed and installs signed,
 notarized builds so you don't have to reinstall by hand. You can download the current release
-from [baton.tonebox.io](https://baton.tonebox.io), and it updates itself from there on.
+from [batonmusic.app](https://batonmusic.app), and it updates itself from there on.
 
 ---
 
@@ -2408,7 +2559,9 @@ Still on the roadmap, called out here so the docs stay honest:
 - **Crossfeed and other DSP**. (The lyrics fallback that used to sit on this list has
   shipped — see [Lyrics](#lyrics).)
 
-The full roadmap is in [`docs/05-roadmap-new-features.md`](docs/05-roadmap-new-features.md).
+The full roadmap is in
+[`docs/05-roadmap-new-features.md`](https://github.com/anatoliv/baton/blob/main/docs/05-roadmap-new-features.md)
+on GitHub.
 
 ---
 

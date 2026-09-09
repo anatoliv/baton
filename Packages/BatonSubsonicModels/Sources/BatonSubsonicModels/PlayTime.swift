@@ -39,9 +39,14 @@ public enum PlayTime {
     /// rather than an overload: with both `track(Int?)` and `track(Double?)` in scope, the
     /// perfectly reasonable `track(nil)` stops compiling, and an API that punishes the
     /// obvious spelling is one people work around. Callers say what they have.
+    ///
+    /// `Int(exactly:)` rather than `Int(_:)`: a finite Double can still sit outside `Int`'s
+    /// range, and the plain initialiser traps on it. A player clock or a server-reported
+    /// duration going wild should render nothing, not kill the app.
     public static func track(seconds: TimeInterval?) -> String? {
-        guard let seconds, seconds.isFinite else { return nil }
-        return track(Int(seconds))
+        guard let seconds, seconds.isFinite, let whole = Int(exactly: seconds.rounded(.towardZero))
+        else { return nil }
+        return track(whole)
     }
 
     /// Time left, as the player shows it: `-1:39:15`. Same shape as `track`, with a sign.
@@ -55,9 +60,11 @@ public enum PlayTime {
         return track(seconds).map { "-" + $0 }
     }
 
+    /// Same `Int(exactly:)` reasoning as `track(seconds:)`.
     public static func remaining(seconds: TimeInterval?) -> String? {
-        guard let seconds, seconds.isFinite else { return nil }
-        return remaining(Int(seconds))
+        guard let seconds, seconds.isFinite, let whole = Int(exactly: seconds.rounded(.towardZero))
+        else { return nil }
+        return remaining(whole)
     }
 
     /// A collection: `6h 57m`, or `45m` under an hour.

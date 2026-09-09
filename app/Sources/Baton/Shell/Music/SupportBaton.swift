@@ -88,7 +88,7 @@ private struct SupporterList: Decodable {
     let supporters: [Supporter]
 }
 
-/// Loads the "Thanks to our supporters" list from `baton.tonebox.io/supporters.json` so names can
+/// Loads the "Thanks to our supporters" list from `batonmusic.app/supporters.json` so names can
 /// be added by redeploying the site (via publish-site.sh) — no app release required. The last good
 /// copy is cached in Application Support, so the list paints instantly and survives offline; a
 /// background refresh keeps it current. If the fetch fails and there's no cache, the section simply
@@ -104,7 +104,7 @@ final class SupportersStore {
     private let fetch: (URL) async throws -> Data
 
     init(
-        remoteURL: URL = URL(string: "https://baton.tonebox.io/supporters.json")!,
+        remoteURL: URL = URL(string: "https://batonmusic.app/supporters.json")!,
         directory: URL? = nil,
         fetch: @escaping (URL) async throws -> Data = { url in
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)

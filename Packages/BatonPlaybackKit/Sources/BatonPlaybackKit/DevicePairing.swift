@@ -1,6 +1,9 @@
 import BatonSubsonicKit
 import CryptoKit
 import Foundation
+import OSLog
+
+private let linkedDevicesLog = Logger(subsystem: "io.tonebox.baton", category: "LinkedDevices")
 
 /// The wire protocol for linking a phone to a Mac by scanning a QR code.
 ///
@@ -127,8 +130,18 @@ public enum DevicePairing {
             save(all(defaults: defaults).filter { $0.id != id }, defaults: defaults)
         }
 
+        /// Keeps the previous log when the encode fails. `UserDefaults.set(nil:)` removes the
+        /// key, so the obvious `set(try? encode(...))` would erase the record of every device
+        /// this Mac handed its credentials to on any encoder error. A stale log is recoverable;
+        /// a deleted one is not, and this one is security-relevant.
         private static func save(_ devices: [LinkedDevice], defaults: UserDefaults) {
-            defaults.set(try? JSONEncoder().encode(devices), forKey: storageKey)
+            do {
+                defaults.set(try JSONEncoder().encode(devices), forKey: storageKey)
+            } catch {
+                linkedDevicesLog.error(
+                    "couldn't encode the linked-device log, keeping the previous one: \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 

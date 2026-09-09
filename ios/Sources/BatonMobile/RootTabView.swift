@@ -225,7 +225,12 @@ struct RootTabView: View {
             // onboarding, not a changelog.
             if WhatsNewView.shouldShow { showsWhatsNew = true }
         }
-        .sheet(isPresented: $showsWhatsNew) { WhatsNewView() }
+        // `onDismiss`, not only the sheet's Done button: a swipe down is how most people
+        // close a sheet, and it used to leave the marker untouched, so the same notes came
+        // back on every launch for as long as the version lasted.
+        .sheet(isPresented: $showsWhatsNew, onDismiss: { WhatsNewView.markShown() }) {
+            WhatsNewView()
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
@@ -273,6 +278,19 @@ struct RootTabView: View {
                 Text("Another Baton saved a queue at “\(title)”.")
             }
         }
+        // A Baton link that cannot be honoured used to do nothing at all, which is
+        // indistinguishable from a link that never fired.
+        .alert(
+            "Couldn't open that link",
+            isPresented: Binding(
+                get: { model.linkFailure != nil },
+                set: { if !$0 { model.linkFailure = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { model.linkFailure = nil }
+        } message: {
+            if let reason = model.linkFailure { Text(reason) }
+        }
     }
 
     /// Records that today counted as listening, and — on the day the gate finally opens —
@@ -284,6 +302,8 @@ struct RootTabView: View {
     /// the thing they bought it for. If they moved on or stopped it in the meantime, the
     /// moment wasn't good after all and the prompt stays unspent.
     private func askForAReviewIfEarned() {
+        // Demo sessions are not endorsements — see `ReviewPrompt.counts(isDemoMode:)`.
+        guard ReviewPrompt.counts(isDemoMode: model.isDemoMode) else { return }
         ReviewPrompt.recordListening()
         guard ReviewPrompt.isEarned else { return }
         Task { @MainActor in
@@ -323,15 +343,22 @@ private struct NowPlayingAccessory: ViewModifier {
 
     @Environment(\.horizontalSizeClass) private var sizeClass
 
+    /// Whether anything is playing is decided *inside* each branch, never between them.
+    ///
+    /// This modifier used to return `content` bare when nothing was playing and
+    /// `content.tabViewBottomAccessory { … }` when something was. Swapping one branch of a
+    /// `ViewModifier` body for another changes the structural identity of everything it
+    /// wraps, so the first play of every session rebuilt the whole `TabView`: the selected
+    /// tab reset to Home and every `NavigationStack` path was discarded. Two levels deep in
+    /// Library, tap a song, and you were back on Home with the stack gone. Tapping the mini
+    /// player's ✕ did it again in reverse.
+    ///
+    /// Every remaining branch is on something fixed for the life of the process — the
+    /// device idiom and the OS version — so no branch can be taken at one moment and
+    /// abandoned at the next. The empty capsule the old comment was written against is
+    /// handled where it belongs, in the accessory's own content.
     func body(content: Content) -> some View {
-        // The condition lives *outside* the accessory, not inside it: an
-        // accessory whose content is empty still reserves and draws the
-        // capsule, which rendered as a smeared duplicate of the content
-        // behind it. With nothing playing there should be no accessory at
-        // all.
-        if model.music.nowPlaying == nil {
-            content
-        } else if UIDevice.current.userInterfaceIdiom == .pad {
+        if UIDevice.current.userInterfaceIdiom == .pad {
             // Keyed to the *device*, not the size class: an iPhone Pro Max in landscape
             // also reports regular width, and the system accessory is right there — this
             // is about the iPad's canvas, not about how much width happens to be going.
@@ -342,17 +369,38 @@ private struct NowPlayingAccessory: ViewModifier {
             // the controls at the other. The standalone chrome is already a self-contained
             // capsule — capped and centred, it reads as a player rather than a shelf.
             content.safeAreaInset(edge: .bottom) {
-                NowPlayingBar(model: model, chrome: .standalone, onOpen: onTap)
-                    .readableWidth(620)
-                    .padding(.bottom, 6)
+                // An inset with nothing in it takes no height, so the conditional is safe
+                // here in a way it is not for the system accessory below.
+                if model.music.nowPlaying != nil {
+                    NowPlayingBar(model: model, chrome: .standalone, onOpen: onTap)
+                        .readableWidth(620)
+                        .padding(.bottom, 6)
+                }
+            }
+        } else if #available(iOS 26.1, *) {
+            // `isEnabled:`, not an `if` around the modifier. This is the whole fix: the
+            // accessory is always attached, so the chain never changes shape, and the OS
+            // simply does not draw the capsule while it is disabled. Attaching it
+            // unconditionally and leaving the content empty is *not* the same thing — the
+            // system still reserves and paints the capsule, which is the smeared empty pill
+            // the comment above was written against. That was tried here first and
+            // photographed before this line replaced it.
+            content.tabViewBottomAccessory(isEnabled: model.music.nowPlaying != nil) {
+                AccessoryNowPlayingBar(model: model, onTap: onTap)
             }
         } else if #available(iOS 26.0, *) {
+            // 26.0 only, where `isEnabled:` does not exist yet. The accessory stays
+            // attached — being thrown back to Home on the first play of every session is a
+            // worse trade than an empty capsule on a build nobody stays on for long — and
+            // its content is empty while nothing is playing.
             content.tabViewBottomAccessory {
                 AccessoryNowPlayingBar(model: model, onTap: onTap)
             }
         } else {
             content.safeAreaInset(edge: .bottom) {
-                NowPlayingBar(model: model, chrome: .standalone, onOpen: onTap)
+                if model.music.nowPlaying != nil {
+                    NowPlayingBar(model: model, chrome: .standalone, onOpen: onTap)
+                }
             }
         }
     }
@@ -395,17 +443,24 @@ private struct AccessoryNowPlayingBar: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     var body: some View {
+        // Nothing playing draws nothing. The condition belongs here rather than around the
+        // accessory modifier itself: this view is a leaf the OS hosts, so swapping its
+        // content costs a redraw, where swapping the modifier above it rebuilt the entire
+        // TabView and threw the user back to Home.
+        //
         // Capped on iPad. The accessory spans whatever width it's given, which on
         // a 13-inch canvas puts the track title at one edge and the controls at
         // the other with two feet of nothing between them — technically a bar,
         // visually a mistake. The phone is untouched: `readableWidth` is a no-op
         // in compact.
-        NowPlayingBar(
-            model: model,
-            chrome: .systemAccessory,
-            compact: placement == .inline,
-            onOpen: onTap
-        )
+        if model.music.nowPlaying != nil {
+            NowPlayingBar(
+                model: model,
+                chrome: .systemAccessory,
+                compact: placement == .inline,
+                onOpen: onTap
+            )
+        }
     }
 }
 

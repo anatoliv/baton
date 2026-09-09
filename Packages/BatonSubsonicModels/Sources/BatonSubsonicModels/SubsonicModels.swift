@@ -661,6 +661,14 @@ public struct NavidromePlaylist: Identifiable, Hashable, Sendable {
 public enum NavidromeError: Error, LocalizedError, Equatable, Sendable {
     /// No server URL / credentials configured yet.
     case notConfigured
+    /// A server is configured, but its stored secret cannot be read right now: the Keychain
+    /// is locked or is refusing this app.
+    ///
+    /// Separate from `notConfigured` because the two want opposite things from the person
+    /// reading them. Collapsed into one, the library screen told someone with a perfectly
+    /// good server that they had never set one up, and sent them to add it again. `status` is
+    /// the `OSStatus` behind the refusal, typed `Int32` so this compiles on Linux.
+    case credentialsUnreadable(status: Int32)
     /// The configured base URL could not form a valid request URL.
     case invalidURL
     /// Networking failed before an HTTP response (offline, TLS, timeout).
@@ -689,10 +697,48 @@ public enum NavidromeError: Error, LocalizedError, Equatable, Sendable {
         }
     }
 
+    /// What to tell someone who has no server yet, in one place.
+    ///
+    /// It said "Settings → Music" in three files and there has never been a Music pane on
+    /// either app: the Mac's panes are Servers, Playback, Equalizer, Actions, Speech, Agents,
+    /// Remote, Friend Log and About, and the phone's section is Server. Three copies of a
+    /// wrong route is exactly the drift this codebase keeps paying for, so there is now one.
+    public static let notConfiguredMessage: String = {
+        #if os(macOS)
+        return "No music server is configured. Add one in Settings, Servers."
+        #else
+        return "No music server is configured. Add one in Settings, Server."
+        #endif
+    }()
+
+    /// A refused or impossible sign-in, as opposed to a service that is not answering.
+    ///
+    /// Subsonic reports bad credentials as a *protocol* error inside a 200 response, not an
+    /// HTTP 401, so a status check alone files every wrong password under "cannot reach
+    /// server" and sends people to debug their network. Lives on the error rather than in a
+    /// view layer because both apps and the browse store all have to ask it, and the copy in
+    /// `Shared/ServiceStatus.swift` is invisible to the packages.
+    public var isAuthFailure: Bool {
+        switch self {
+        case .unauthorized, .notConfigured, .credentialsUnreadable:
+            true
+        case let .http(status):
+            status == 401 || status == 403
+        case let .subsonic(code, _):
+            // 40 wrong username/password · 41 token auth not supported · 44 invalid API key
+            // · 50 user not authorized for the operation.
+            [40, 41, 44, 50].contains(code)
+        case .invalidURL, .transport, .decoding:
+            false
+        }
+    }
+
     public var errorDescription: String? {
         switch self {
         case .notConfigured:
-            "No music server is configured. Add one in Settings → Music."
+            Self.notConfiguredMessage
+        case let .credentialsUnreadable(status):
+            "Your music server's saved password could not be read (Keychain error \(status)). Unlock your login keychain and try again. Typing the password again will not help while the keychain is locked."
         case .invalidURL:
             "The music server URL is invalid."
         case let .transport(detail):

@@ -131,7 +131,19 @@ enum WidgetBridge {
     ) async {
         guard let activity = Activity<NowPlayingActivityAttributes>.activities
             .first(where: { $0.id == id }) else { return }
-        await activity.update(ActivityContent(state: state, staleDate: nil))
+        await activity.update(ActivityContent(state: state, staleDate: staleDate(for: state)))
+    }
+
+    /// When the system should stop believing a pushed state. `nil` meant never, which is
+    /// how a jetsammed app left a card on the Lock Screen announcing a song that stopped
+    /// hours ago (I-F11). The widget reads `context.isStale` and goes quiet.
+    private nonisolated static func staleDate(
+        for state: NowPlayingActivityAttributes.ContentState
+    ) -> Date {
+        WidgetFreshness.activityStaleDate(
+            from: Date(), elapsed: state.elapsed, duration: state.duration,
+            isPlaying: state.isPlaying
+        )
     }
 
     /// Starts/updates/ends the Lock Screen activity to mirror the player. Ending on
@@ -178,7 +190,7 @@ enum WidgetBridge {
         } else {
             activity = try? Activity.request(
                 attributes: NowPlayingActivityAttributes(sourceLabel: sourceLabel),
-                content: ActivityContent(state: state, staleDate: nil)
+                content: ActivityContent(state: state, staleDate: staleDate(for: state))
             )
         }
     }

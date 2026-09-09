@@ -117,6 +117,15 @@ struct AlphabetIndexRail: View {
     /// makes the two impossible to disagree.
     static let reservedWidth: CGFloat = 22
 
+    /// The widest the rail is allowed to grow as the text size climbs.
+    ///
+    /// `@ScaledMetric` scales a value *up* with the text size, which is the right direction
+    /// here — unlike `FullPlayerView`'s hero artwork, where it was exactly backwards. But
+    /// uncapped it takes 22pt past 50 at AX5, and a rail that wide eats the rows it indexes,
+    /// which is what got scaling cancelled the first time round. The cap is what makes a
+    /// scaled rail affordable, and 34 is the gutter Albums already reserved.
+    static let maxWidth: CGFloat = 34
+
     /// Breathing room between the letters and whatever the rows end in.
     ///
     /// Albums' effective 12pt, kept explicit so it reads as a choice rather than as
@@ -124,16 +133,24 @@ struct AlphabetIndexRail: View {
     static let clearance: CGFloat = 12
 
     let entries: [AlphabetIndex.Entry]
+    /// Resolved by the modifier, so the frame here and the gutter it reserves cannot
+    /// disagree. That was already the point of one shared constant; a scaled width has to
+    /// keep it, since two `@ScaledMetric` declarations are two things to forget.
+    var width: CGFloat = AlphabetIndexRail.reservedWidth
     var onSelect: (AlphabetIndex.Entry) -> Void
 
     @State private var lastLetter: String?
+
+    /// Letters sized from the column they sit in, so a wider rail is a more legible one
+    /// rather than the same 10pt with more air around it.
+    private var letterSize: CGFloat { max(10, width * 0.45) }
 
     var body: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 ForEach(entries) { entry in
                     Text(entry.displayLetter)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(.system(size: letterSize, weight: .semibold, design: .rounded))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -159,7 +176,7 @@ struct AlphabetIndexRail: View {
                     .onEnded { _ in lastLetter = nil }
             )
         }
-        .frame(width: Self.reservedWidth)
+        .frame(width: width)
         .accessibilityElement()
         .accessibilityLabel("Alphabet index")
         .accessibilityHint("Drag to jump through the list")
@@ -184,34 +201,38 @@ extension View {
     }
 }
 
-/// Attaches the rail, reserves its room, and withholds both at accessibility text sizes.
+/// Attaches the rail and reserves its room, at a width that grows with the text size.
 ///
-/// The letters are hardcoded 10pt in a 22pt column: under the 44pt touch target, and the
-/// one piece of type in the app that ignores Dynamic Type outright. Scaling it was costed
-/// and cancelled as overengineering — a rail wide enough for accessibility type is a rail
-/// that eats the rows it indexes.
+/// The letters used to be hardcoded 10pt in a 22pt column, and the rail was withheld
+/// outright at accessibility sizes on the argument that a rail wide enough for that type
+/// is a rail that eats the rows it indexes. The cost of that landed the wrong way round:
+/// a user at accessibility text lost the navigation affordance altogether, while a user
+/// at large-but-not-accessibility text still got 10pt. Small for everyone, absent for the
+/// people with the most reason to want it.
 ///
-/// So at accessibility sizes there is no rail, and the filter every one of these screens
-/// now has is the accessible way to reach "S". Withholding the padding along with the
-/// overlay matters as much: reserving a gutter for a rail that isn't drawn is 34pt of
-/// nothing down the side of the list, at exactly the sizes with the least room to spare.
+/// So the width scales and is capped at `maxWidth`, which is the gutter Albums already
+/// reserved, and the letters are sized from the column rather than pinned. The rail stays
+/// on at every text size. Padding and overlay still move together: reserving a gutter for
+/// a rail that isn't drawn is 34pt of nothing down the side of the list.
 private struct AlphabetIndexRailModifier: ViewModifier {
     let entries: [AlphabetIndex.Entry]
     let proxy: ScrollViewProxy
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Scales up with the text size, capped so the rail cannot outgrow the rows it indexes.
+    @ScaledMetric(relativeTo: .caption2) private var scaledWidth: CGFloat = AlphabetIndexRail.reservedWidth
 
-    private var showsRail: Bool { !entries.isEmpty && !dynamicTypeSize.isAccessibilitySize }
+    private var showsRail: Bool { !entries.isEmpty }
+    private var railWidth: CGFloat { min(AlphabetIndexRail.maxWidth, scaledWidth) }
 
     func body(content: Content) -> some View {
         // The rail's own width plus its clearance, both from the rail itself. Reserving
         // less than the rail measures is not a smaller gutter, it is an overlap.
         content
             .padding(.trailing, showsRail
-                     ? AlphabetIndexRail.reservedWidth + AlphabetIndexRail.clearance
+                     ? railWidth + AlphabetIndexRail.clearance
                      : 0)
             .overlay(alignment: .trailing) {
                 if showsRail {
-                    AlphabetIndexRail(entries: entries) { entry in
+                    AlphabetIndexRail(entries: entries, width: railWidth) { entry in
                         proxy.scrollTo(entry.firstID, anchor: .top)
                     }
                     .padding(.vertical, 8)

@@ -204,20 +204,129 @@ enum CrashReporting {
         return out
     }
 
+    /// A filesystem path reduced to its last component, then redacted.
+    ///
+    /// For the binary and source paths inside a stack trace. `/Users/<name>/Library/Developer/
+    /// Xcode/DerivedData/…/Baton.app/Contents/MacOS/Baton` becomes `Baton`, which keeps the
+    /// frame readable and stable for grouping while removing the account name and everything
+    /// else about the machine. Redacting the whole string to `<redacted-path>` instead would
+    /// make every frame in every image identical, and Sentry groups on these.
+    static func redactPath(_ s: String) -> String {
+        let last = (s as NSString).lastPathComponent
+        return redact(last.isEmpty ? s : last)
+    }
+
+    /// Every string anywhere inside a nested container, redacted.
+    ///
+    /// The old `mapValues` handled the top level only, so `["response": ["url": "https://…"]]`
+    /// went out untouched. Depth-bounded because these come from callers, and an event is not
+    /// worth a stack overflow.
+    static func redactDeep(_ value: Any, depth: Int = 0) -> Any {
+        guard depth < 8 else { return "<redacted-too-deep>" }
+        if let s = value as? String { return redact(s) }
+        if let d = value as? [String: Any] { return d.mapValues { redactDeep($0, depth: depth + 1) } }
+        if let a = value as? [Any] { return a.map { redactDeep($0, depth: depth + 1) } }
+        return value
+    }
+
+    /// The frames of one stack trace, in place.
+    ///
+    /// `instructionAddress`, `imageAddress` and `symbolAddress` are kept exactly: they are what
+    /// Crashbox's symbolication worker resolves against the dSYM, and a redacted address is an
+    /// unsymbolicatable crash. `function` and `module` are symbol names from the binary, not
+    /// user data, and Sentry groups on them. What goes is the free-form material: source and
+    /// binary paths reduced to their last component, and the source-context and local-variable
+    /// fields dropped outright, since those can hold anything the program was holding.
+    static func scrubFrames(_ trace: SentryStacktrace?) {
+        guard let trace else { return }
+        for frame in trace.frames {
+            frame.fileName = frame.fileName.map(redactPath)
+            frame.package = frame.package.map(redactPath)
+            frame.contextLine = nil
+            frame.preContext = nil
+            frame.postContext = nil
+            frame.vars = nil
+        }
+    }
+
     /// Strips PII and redacts identifying strings across every field of an event.
+    ///
+    /// **Deny by default.** This used to name seven fields and leave the rest of `SentryEvent`
+    /// alone, which is the wrong shape for a privacy filter: `context`, `tags`, `fingerprint`,
+    /// `threads`, `debugMeta` and every `stacktrace` went out unread, `extra` was redacted one
+    /// level deep, and the executable path in the debug images carried the account name of
+    /// whoever was running the build. A scrubber has to enumerate what may leave. (S-F5)
+    ///
+    /// Every property of `SentryEvent` is accounted for below. The ones not mentioned are left
+    /// deliberately, and each is either ours or a machine value with nothing personal in it:
+    /// `eventId`, `timestamp`, `startTimestamp`, `level`, `platform`, `type`, `releaseName`,
+    /// `dist`, `environment` and `sdk`. `releaseName` in particular must survive untouched:
+    /// Crashbox keys the dSYM to it.
+    ///
+    /// **What Crashbox needs, and therefore what is not removed.** `debugMeta` is kept, not
+    /// nulled. Its images carry the Mach-O UUID and load address that
+    /// `AppleSymbolicationWorker` resolves a frame against; `crashbox.artifact_uuids` is keyed
+    /// on `(project_id, debug_id)`, so dropping the images makes every native crash permanently
+    /// unsymbolicated. See `~/Projects/crashbox/docs/apple-symbolication-worker.md`. Only the
+    /// two path fields on each image are cut down. Likewise `threads` stays: that doc says the
+    /// Cocoa SDK puts the stacks of any non-fatal capture under `threads` rather than
+    /// `exceptions`, so an event with its threads removed is most of a crash report missing.
     static func scrub(_ event: Event) -> Event {
+        // Dropped whole. `user` is the identity, `request` is a URL with its query, and
+        // `serverName` is the machine's hostname.
         event.user = nil
         event.serverName = nil
         event.request = nil
+
+        // Free-text and caller-supplied fields.
         if let m = event.message {
             event.message = SentryMessage(formatted: redact(m.formatted))
         }
-        event.exceptions?.forEach { $0.value = redact($0.value) }
+        event.logger = event.logger.map(redact)
+        event.transaction = event.transaction.map(redact)
+        event.fingerprint = event.fingerprint?.map(redact)
+        event.tags = event.tags?.mapValues(redact)
+        event.modules = event.modules?.mapValues(redact)
+        if let extra = event.extra {
+            event.extra = extra.mapValues { redactDeep($0) }
+        }
+        // `context` is a dictionary of dictionaries the SDK fills in: device, os, app, culture.
+        // Redacting each string rather than dropping the section keeps the model, OS version and
+        // memory figures that make a report triageable, and takes out the app bundle path, which
+        // is where the account name reaches the wire.
+        if let context = event.context {
+            event.context = context.mapValues { section in
+                section.mapValues { redactDeep($0) }
+            }
+        }
+
+        // Exceptions, their mechanisms and their stacks.
+        event.exceptions?.forEach { exception in
+            exception.value = redact(exception.value)
+            exception.module = exception.module.map(redact)
+            if let mechanism = exception.mechanism {
+                mechanism.desc = mechanism.desc.map(redact)
+                mechanism.helpLink = mechanism.helpLink.map(redact)
+                if let data = mechanism.data {
+                    mechanism.data = data.mapValues { redactDeep($0) }
+                }
+            }
+            scrubFrames(exception.stacktrace)
+        }
+        event.threads?.forEach { thread in
+            thread.name = thread.name.map(redact)
+            scrubFrames(thread.stacktrace)
+        }
+        scrubFrames(event.stacktrace)
+
+        // Debug images: keep the identity, cut the path.
+        event.debugMeta?.forEach { image in
+            image.name = image.name.map(redactPath)
+            image.codeFile = image.codeFile.map(redactPath)
+        }
+
         if let crumbs = event.breadcrumbs {
             event.breadcrumbs = crumbs.compactMap { scrubBreadcrumb($0) }
-        }
-        if let extra = event.extra {
-            event.extra = extra.mapValues { v in (v as? String).map(redact) ?? v }
         }
         return event
     }
@@ -231,7 +340,9 @@ enum CrashReporting {
         }
         if let msg = crumb.message { crumb.message = redact(msg) }
         if let data = crumb.data {
-            crumb.data = data.mapValues { v in (v as? String).map(redact) ?? v }
+            // Recursive for the same reason `extra` is: a breadcrumb's data is a caller's
+            // dictionary, and a URL one level down used to leave untouched.
+            crumb.data = data.mapValues { redactDeep($0) }
         }
         return crumb
     }

@@ -38,10 +38,6 @@ struct MusicView: View {
     @State private var dismissedError: String?
     /// Keyboard-nav focus row in the Albums list layout (↑/↓ move, Return opens).
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
-    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
-    private var appearance: AppearanceSetting {
-        AppearanceSetting(rawValue: appearanceRaw) ?? .dark
-    }
     @State private var albumKbIndex: Int?
     /// Measured width of the album grid, so keyboard up/down can move by a real row.
     @State private var gridWidth: CGFloat = 0
@@ -261,6 +257,27 @@ struct MusicView: View {
             case .folders: "folder"
             }
         }
+
+        /// The ⌘-number this section answers to in the **Go** menu, or nil for the ones that
+        /// have none (macOS is happy with shortcut-less menu items).
+        ///
+        /// Keyed on the case rather than on a position in a list, so building the menu from
+        /// `allCases` — which is what makes every section reachable — cannot silently move
+        /// ⌘8 off History and onto something else. The nine that had a number keep it.
+        var goShortcut: KeyEquivalent? {
+            switch self {
+            case .home: "1"
+            case .search: "2"
+            case .mixes: "3"
+            case .albums: "4"
+            case .artists: "5"
+            case .playlists: "6"
+            case .starred: "7"
+            case .history: "8"
+            case .later: "9"
+            case .clippings, .podcasts, .radio, .downloads, .folders: nil
+            }
+        }
     }
 
     private var library: MusicLibraryStore {
@@ -363,13 +380,6 @@ struct MusicView: View {
                             .zIndex(10)
                     }
                 }
-                // The user's choice, defaulting to Dark. The wash *is* built for a dark
-                // ground — near-black text over a warm gradient is unreadable, which is why
-                // this was hardcoded — but the Mac then had two answers at once, since
-                // Settings and Help always followed the system. One control, one answer.
-                // The player surfaces stay dark regardless; they are a design, not a
-                // preference.
-                .batonAppearance(appearance)
                 .onAppear { paletteLoader.update(url: nowPlayingCoverURL) }
                 // Key on the song id, not coverArtID: podcast episodes share a nil cover id, so
                 // keying on it would leave the window wash stuck between episodes.
@@ -441,6 +451,17 @@ struct MusicView: View {
                 MusicNotConnectedView()
             }
         }
+        // The user's choice, defaulting to Dark. The wash *is* built for a dark ground —
+        // near-black text over a warm gradient is unreadable, which is why this was
+        // hardcoded — but the Mac then had two answers at once, since Settings and Help
+        // always followed the system. One control, one answer. The player surfaces stay
+        // dark regardless; they are a design, not a preference.
+        //
+        // On the outer `Group`, not inside the `if library.isConfigured` branch where it
+        // used to sit. Below the branch it covered the library and not the
+        // `MusicNotConnectedView` gate — which is the very first screen a new user sees, so
+        // the half that was wrong was the half nobody could miss.
+        .batonChrome()
         .frame(minWidth: 520, minHeight: 480)
         // Track inspector (⌘I / "Get Info") — any row or the now-playing surface sets the song.
         .sheet(item: inspectorSongBinding) { song in

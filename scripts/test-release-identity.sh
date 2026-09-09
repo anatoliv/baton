@@ -307,12 +307,12 @@ fresh_repo() {  # a repo on branch release-0.17.13 at 0.17.13/98, plus a main at
 cask "baton" do
   version "0.17.12,97"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
-  url "https://baton.tonebox.io/Baton-#{version.csv.first}.dmg"
+  url "https://batonmusic.app/Baton-#{version.csv.first}.dmg"
 end
 CASK
   cat > "$r/website/index.html" <<'SITE'
 <p class="eyebrow">Version 0.17.12</p>
-<a href="https://baton.tonebox.io/Baton-0.17.12.dmg">Download for macOS</a>
+<a href="https://batonmusic.app/Baton-0.17.12.dmg">Download for macOS</a>
 SITE
   echo "// compiled source" > "$r/Shared/CrashReporting.swift"
   echo "// compiled source" > "$r/app/Sources/Baton/App.swift"

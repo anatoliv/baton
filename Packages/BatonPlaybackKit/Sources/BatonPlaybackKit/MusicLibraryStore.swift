@@ -372,17 +372,17 @@ public final class MusicLibraryStore {
     /// Songs in a genre — powers the per-genre "Daily Mix" cards.
     public func songsByGenre(_ genre: String, count: Int = 60) async -> [NavidromeSong] {
         if isDemo { return demoSongs.filter { $0.genres.contains(genre) || $0.genre == genre } }
-        return await (try? clientProvider().getSongsByGenre(genre, count: count)) ?? []
+        return await fetch(default: []) { try await $0.getSongsByGenre(genre, count: count) }
     }
 
     public func artistAlbums(id: String) async -> [NavidromeAlbum] {
         if isDemo { return albums }
-        return await (try? clientProvider().getArtistAlbums(id: id)) ?? []
+        return await fetch(default: []) { try await $0.getArtistAlbums(id: id) }
     }
 
     public func albumSongs(id: String) async -> [NavidromeSong] {
         if isDemo { return demoSongs.filter { $0.albumID == id } }
-        return await (try? clientProvider().getAlbum(id: id)) ?? []
+        return await fetch(default: []) { try await $0.getAlbum(id: id) }
     }
 
     /// Aggregate stats for an artist (album/track counts + total seconds), summed from
@@ -435,7 +435,7 @@ public final class MusicLibraryStore {
     public func artistInfo(id: String) async -> NavidromeArtistInfo? {
         // No biography to fetch without a server; nil renders as "no bio", not an error.
         if isDemo { return nil }
-        return try? await clientProvider().getArtistInfo(id: id)
+        return await fetch(default: nil) { try await $0.getArtistInfo(id: id) }
     }
 
     /// Whether the artist is in the user's starred ("followed") set. Reads the
@@ -457,7 +457,7 @@ public final class MusicLibraryStore {
     }
 
     public func playlist(id: String) async -> NavidromePlaylist? {
-        try? await clientProvider().getPlaylist(id: id)
+        await fetch(default: nil) { try await $0.getPlaylist(id: id) }
     }
 
     /// Structured/synced lyrics for a song (nil when neither the server nor LRCLIB has any).
@@ -506,8 +506,8 @@ public final class MusicLibraryStore {
 
     /// The folder roots with the server's index letters kept, for the A–Z rail.
     public func folderRootIndex() async -> ServerIndexedList<NavidromeFolder> {
-        guard !isDemo, let client = try? clientProvider() else { return .init(buckets: []) }
-        return (try? await client.getFolderIndex()) ?? .init(buckets: [])
+        guard !isDemo else { return .init(buckets: []) }
+        return await fetch(default: .init(buckets: [])) { try await $0.getFolderIndex() }
     }
 
     /// One folder's contents, or nil when the server can't answer.
@@ -519,8 +519,9 @@ public final class MusicLibraryStore {
     /// everything else.
     public func directory(id: String) async -> NavidromeDirectory? {
         if let cached = directoryCache[id] { return cached }
-        guard !isDemo, let client = try? clientProvider() else { return nil }
-        guard let directory = try? await client.getMusicDirectory(id: id) else { return nil }
+        guard !isDemo else { return nil }
+        guard let directory = await fetch(default: nil, { try await $0.getMusicDirectory(id: id) })
+        else { return nil }
         directoryCache[id] = directory
         return directory
     }
@@ -534,7 +535,6 @@ public final class MusicLibraryStore {
     /// Songs similar to a seed (song or artist id) — powers radio/discovery.
     public func similarSongs(seedID: String) async -> [NavidromeSong] {
         if isDemo { return demoSongs.filter { $0.id != seedID }.shuffled() }
-        guard let client = try? clientProvider() else { return [] }
         // Prefer true "similar" tracks. Many self-hosted Navidrome servers have no Last.fm agent,
         // so getSimilarSongs2 returns nothing — fall back to random library tracks so autoplay
         // ("continuous radio") keeps playing instead of stopping at the queue's end. (autoplay fix)
@@ -549,17 +549,17 @@ public final class MusicLibraryStore {
         // bug — one of the four radio call sites filtered too, and the other three did not.
         // Doing it here fixes all of them, and the "related" and "because you liked"
         // shelves as well.
-        let similar = ((try? await client.getSimilarSongs(id: seedID)) ?? [])
+        let similar = await fetch(default: []) { try await $0.getSimilarSongs(id: seedID) }
             .filter { $0.id != seedID }
         if !similar.isEmpty { return similar }
-        return ((try? await client.getRandomSongs()) ?? []).filter { $0.id != seedID }
+        return await fetch(default: []) { try await $0.getRandomSongs() }.filter { $0.id != seedID }
     }
 
     /// A one-off album list of a given `getAlbumList2` kind (newest / random / frequent …),
     /// returned directly without touching the browse `albums` state — for Home shelves.
     public func albums(type: String, size: Int = 14) async -> [NavidromeAlbum] {
         if isDemo { return albums }
-        return await (try? clientProvider().getAlbumList2(type: type, size: size)) ?? []
+        return await fetch(default: []) { try await $0.getAlbumList2(type: type, size: size) }
     }
 
     /// Lifetime top tracks **from the server**, so the ranking counts every device.
@@ -575,10 +575,9 @@ public final class MusicLibraryStore {
     /// played this week". Time-windowed stats stay local, and the UI says which is which.
     public func serverTopSongs(limit: Int = 50) async -> [NavidromeSong] {
         if isDemo { return demoSongs.sorted { ($0.playCount ?? 0) > ($1.playCount ?? 0) } }
-        guard let client = try? clientProvider() else { return [] }
         // `frequent` is the server's own most-played ordering; taking songs from those
         // albums and re-sorting by per-song count turns an album ranking into a track one.
-        let albums = (try? await client.getAlbumList2(type: "frequent", size: 20)) ?? []
+        let albums = await fetch(default: []) { try await $0.getAlbumList2(type: "frequent", size: 20) }
         var songs: [NavidromeSong] = []
         var seen = Set<String>()
         for album in albums {
@@ -610,8 +609,7 @@ public final class MusicLibraryStore {
             return demoSongs.filter { $0.played != nil }
                 .sorted { ($0.played ?? .distantPast) > ($1.played ?? .distantPast) }
         }
-        guard let client = try? clientProvider() else { return [] }
-        let albums = (try? await client.getAlbumList2(type: "recent", size: albumLimit)) ?? []
+        let albums = await fetch(default: []) { try await $0.getAlbumList2(type: "recent", size: albumLimit) }
         var songs: [NavidromeSong] = []
         var seen = Set<String>()
         for album in albums {
@@ -630,8 +628,7 @@ public final class MusicLibraryStore {
     /// I been listening to" across devices.
     public func serverRecentAlbums(limit: Int = 30) async -> [NavidromeAlbum] {
         if isDemo { return albums }
-        guard let client = try? clientProvider() else { return [] }
-        return (try? await client.getAlbumList2(type: "recent", size: limit)) ?? []
+        return await fetch(default: []) { try await $0.getAlbumList2(type: "recent", size: limit) }
     }
 
     /// Songs gathered from the first albums of a `getAlbumList2` list (newest / highest /
@@ -641,8 +638,7 @@ public final class MusicLibraryStore {
         // The demo catalogue *is* the library, so every "kind" of mix draws from it.
         // Shuffled, so the cards still differ from one another.
         if isDemo { return demoSongs.shuffled() }
-        guard let client = try? clientProvider() else { return [] }
-        let albums = (try? await client.getAlbumList2(type: type, size: albumLimit)) ?? []
+        let albums = await fetch(default: []) { try await $0.getAlbumList2(type: type, size: albumLimit) }
         var songs: [NavidromeSong] = []
         var seen = Set<String>()
         for album in albums {
@@ -724,8 +720,7 @@ public final class MusicLibraryStore {
     /// (the persisted queue only carries a stale snapshot, and overrides don't
     /// persist). Silent on failure — a stale display is better than a visible error.
     public func refreshRating(for song: NavidromeSong) async {
-        guard let client = try? clientProvider() else { return }
-        guard let fresh = try? await client.getSong(id: song.id) else { return }
+        guard let fresh = await fetch(default: nil, { try await $0.getSong(id: song.id) }) else { return }
         ratingOverrides[song.id] = MusicRatingState(isLiked: fresh.isLiked, userRating: fresh.userRating)
     }
 
@@ -758,7 +753,10 @@ public final class MusicLibraryStore {
     public func addToPlaylist(id: String, songIDs: [String]) async -> Int {
         var added = 0
         await mutatePlaylist { client in
-            let existing = Set(((try? await client.getPlaylist(id: id))?.songs ?? []).map(\.id))
+            // Throwing rather than treating a failed read as "the playlist is empty": that
+            // dedupe answer decides what gets appended, and a wrong one adds duplicates. The
+            // enclosing `mutatePlaylist` reports it.
+            let existing = Set(try await client.getPlaylist(id: id).songs.map(\.id))
             let fresh = songIDs.filter { !existing.contains($0) }
             guard !fresh.isEmpty else { return }
             // Add in chunks so a large bulk-add stays well under the GET URL length limit.
@@ -821,5 +819,35 @@ public final class MusicLibraryStore {
         let message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
         musicStoreLog.error("\(message, privacy: .public)")
         lastError = message
+    }
+
+    /// Runs a browse fetch, returning `fallback` when it fails and saying so.
+    ///
+    /// Sixteen browse call sites used to be `(try? client.getSomething()) ?? []`, which turns
+    /// an expired password, a 500, a reverse-proxy 401 or a locked Keychain into "this album
+    /// has no tracks", "this artist has no albums" and empty home rows, with no message and no
+    /// retry. `albumSongs` feeds "Play album", so a failed fetch made the play button do
+    /// nothing at all. The machinery to say so was already here and simply unused.
+    ///
+    /// Only an auth failure reaches `lastError`, deliberately. Several of these run as
+    /// background prefetches for home shelves, and raising a banner from every one of them on
+    /// a LAN blip would be worse than the silence: the browse screens ride out a transport
+    /// failure by design. An auth failure is the one that never fixes itself and the one a
+    /// person has to be told about, so it is where the visible change starts. Everything else
+    /// is logged, which is more than any of these did before.
+    private func fetch<T>(default fallback: T,
+                          _ body: (NavidromeClient) async throws -> T) async -> T {
+        do {
+            return try await body(clientProvider())
+        } catch {
+            let message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
+            if (error as? NavidromeError)?.isAuthFailure == true {
+                musicStoreLog.error("\(message, privacy: .public)")
+                lastError = message
+            } else {
+                musicStoreLog.error("browse fetch failed: \(message, privacy: .public)")
+            }
+            return fallback
+        }
     }
 }

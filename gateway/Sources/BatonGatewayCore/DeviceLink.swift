@@ -17,6 +17,28 @@ public actor DeviceLink {
         /// and this crosses an actor boundary, so the bytes travel instead of the
         /// dictionary — they were about to become bytes on the wire anyway.
         public let argumentsJSON: Data
+        /// When the tool call that produced this command was made (TBX-5308, S-F12).
+        public let createdAt: Date
+        /// How long it is worth delivering — the same wait the caller is giving it.
+        ///
+        /// Past this the agent has already told the user "the device didn't answer in time", so
+        /// handing the command to a phone that polls a minute later starts music nobody asked for
+        /// any more. A command is only worth delivering while somebody is still waiting for it.
+        public let lifetime: TimeInterval
+
+        init(id: String, name: String, argumentsJSON: Data,
+             createdAt: Date = Date(), lifetime: TimeInterval = 20) {
+            self.id = id
+            self.name = name
+            self.argumentsJSON = argumentsJSON
+            self.createdAt = createdAt
+            self.lifetime = lifetime
+        }
+
+        /// Still worth handing to a device.
+        public func isFresh(at now: Date = Date()) -> Bool {
+            now.timeIntervalSince(createdAt) < lifetime
+        }
 
         public var json: [String: Any] {
             let arguments = (try? JSONSerialization.jsonObject(with: argumentsJSON)) as? [String: Any] ?? [:]
@@ -27,7 +49,16 @@ public actor DeviceLink {
     public init() {}
 
     /// Commands waiting for a device to pick up.
+    ///
+    /// Bounded and aged, both (TBX-5308, S-F12). A command used to be appended here and never
+    /// removed by anything but a poll: the 20-second `dispatch` wait expired the *result* slot and
+    /// left the command itself in the queue for ever. So the agent said "the device didn't answer
+    /// in time" and the phone, polling a minute later, started playing — and a phone that had been
+    /// away a while came back to a burst of stale play/pause/next, in order.
     private var queue: [Command] = []
+    /// A ceiling for the pathological case: turns arriving faster than any device collects them.
+    /// Freshness alone bounds it in practice; this bounds it in principle.
+    private let maximumQueued = 16
     /// Devices parked in `poll` waiting for work, oldest first.
     ///
     /// **Plural, and that is the fix.** This was one slot, and `awaitCommand` assigned into it —
@@ -121,6 +152,10 @@ public actor DeviceLink {
     public func awaitCommand(timeout: TimeInterval = 25) async -> Command? {
         lastPollAt = Date()
         pollsServed += 1
+        // Anything nobody is waiting for any more is dropped rather than delivered. Dropped here
+        // as well as on expiry because a queued command's own timer is the only other thing that
+        // would remove it, and a process that was busy elsewhere can leave that late.
+        queue.removeAll { !$0.isFresh() }
         if !queue.isEmpty {
             commandsDelivered += 1
             return queue.removeFirst()
@@ -163,7 +198,8 @@ public actor DeviceLink {
     /// of pretending something played.
     public func dispatch(name: String, argumentsJSON: Data, timeout: TimeInterval = 20) async -> (text: String, isError: Bool)? {
         guard isDeviceConnected else { return nil }
-        let command = Command(id: UUID().uuidString, name: name, argumentsJSON: argumentsJSON)
+        let command = Command(id: UUID().uuidString, name: name, argumentsJSON: argumentsJSON,
+                              createdAt: Date(), lifetime: timeout)
 
         // The most recently parked device, which is what the single slot effectively chose
         // before: a newer poll replaced an older one, so the newest always won. Routing is
@@ -171,7 +207,9 @@ public actor DeviceLink {
         if let waiting = waitingDevices.popLast()?.continuation {
             waiting.resume(returning: command)
         } else {
+            queue.removeAll { !$0.isFresh() }
             queue.append(command)
+            if queue.count > maximumQueued { queue.removeFirst(queue.count - maximumQueued) }
         }
 
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<(text: String, isError: Bool), Never>) in
@@ -184,10 +222,18 @@ public actor DeviceLink {
         return result
     }
 
+    /// Give up waiting for this command's answer, and take the command with it.
+    ///
+    /// Removing the queue entry is the fix: the caller has been told nothing happened, so the
+    /// command must not still be sitting there for the next poll to pick up and play.
     private func expireResult(id: String) {
+        queue.removeAll { $0.id == id }
         guard let continuation = pendingResults.removeValue(forKey: id) else { return }
         continuation.resume(returning: ("The device didn't answer in time.", true))
     }
+
+    /// How many commands are waiting for a device right now. Bounded, and asserted to be.
+    public var queuedCommandCount: Int { queue.count }
 }
 
 /// The body of `GET /health`.

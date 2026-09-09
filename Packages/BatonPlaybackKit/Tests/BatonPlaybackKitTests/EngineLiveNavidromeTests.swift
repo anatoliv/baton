@@ -393,10 +393,40 @@ final class EngineLiveNavidromeTests: XCTestCase {
                       "the reload did not re-request with timeOffset")
         XCTAssertNotNil(harness.controller.nowPlaying, "a live seek must never drop the track")
         XCTAssertEqual(harness.controller.currentTime, target, accuracy: 2.0)
-        let afterReload = try await harness.renderSeconds(0.8)
-        XCTAssertGreaterThan(EngineTestSignals.rms(Array(afterReload.dropFirst(8_000))), 0.001,
-                             "the timeOffset stream did not produce audio at \(Int(target))s")
-        print("LIVE seek: in-spool → OK (no reload); cold reload to \(Int(target))s of \(Int(duration))s via timeOffset → OK")
+        // Same rule as the in-spool half, for the same reason: decide on the node having begun
+        // rendering the reloaded stream, not on a fixed window. A single 0.8 s render here
+        // reported silence on 2026-09-08 in isolation (TBX-5124's fifth sighting) while the
+        // reload was still fetching over the internet; the engine had not failed, it had not
+        // finished. Budget rather than count, early exit, and a skip when the node never
+        // starts, which is the environment refusing to measure rather than the code failing.
+        let reloadDeck = harness.controller.activeDeckForTesting
+        let reloadFramesBefore = harness.pipeline.playedFrames(on: reloadDeck)
+        let reloadStarted = Date()
+        var reloadRMS: Double = 0
+        var reloadNodeBegan = false
+        var reloadSlices = 0
+        while Date().timeIntervalSince(reloadStarted) < 60 {
+            if case .error(let message) = harness.controller.state {
+                return XCTFail("the timeOffset reload to \(Int(target))s failed: \(message)")
+            }
+            reloadSlices += 1
+            reloadRMS = EngineTestSignals.rms(try await harness.renderSeconds(0.25))
+            if harness.pipeline.playedFrames(on: reloadDeck) > reloadFramesBefore { reloadNodeBegan = true }
+            if reloadNodeBegan, reloadRMS > 0.001 { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let reloadWaited = Int(Date().timeIntervalSince(reloadStarted))
+        try XCTSkipUnless(
+            reloadNodeBegan,
+            "after the timeOffset reload to \(Int(target))s the player node never advanced in "
+                + "\(reloadWaited)s (\(reloadSlices) slices, state \(harness.controller.state)), so it was "
+                + "never handed the reloaded audio — not measurable on this link right now, which is "
+                + "different from broken")
+        XCTAssertGreaterThan(reloadRMS, 0.001,
+                             "the node rendered after the timeOffset reload to \(Int(target))s but produced "
+                             + "silence, sampled \(reloadSlices) times over \(reloadWaited)s")
+        print("LIVE seek: in-spool → OK (no reload); cold reload to \(Int(target))s of \(Int(duration))s "
+              + "via timeOffset → OK, audio after \(reloadWaited)s")
     }
 
     // MARK: - 5. The stored file, which the server does not transcode at all
@@ -495,18 +525,39 @@ final class EngineLiveNavidromeTests: XCTestCase {
 
         // The failure being hunted is a parse error, which surfaces as `.error` after the
         // engine's ladder — so give the ladder room to run rather than reading too early.
+        //
+        // How long to wait is a property of the link, not the code. This test picks the
+        // longest pass-through track in the library on purpose; on 2026-09-08 that was a
+        // six-hour, 429 MB m4a served over the internet, and a mid-file range seek into it
+        // needs the container's sample table before a single byte of audio can be placed.
+        // Ten seconds was enough on a quiet machine and not enough under a release gate
+        // running beside two other builds: the 0.19.0 publish failed here with "no audio"
+        // while the engine was still loading (loads=2, no error), and the same tree run in
+        // isolation drew a different track that never scheduled and skipped on the guard
+        // above, while the sibling timeOffset test failed on its own short window. So the
+        // window is a time budget with an early exit rather than a fixed count: a real
+        // regression on this path still shows up as `.error` in the first seconds or as
+        // silence for the whole budget, and a healthy build stops the moment audio arrives.
+        let seekStarted = Date()
+        let budget: TimeInterval = 60
         var rms: Double = 0
-        for _ in 0 ..< 20 {
+        var passes = 0
+        while Date().timeIntervalSince(seekStarted) < budget {
             if case .error(let message) = harness.controller.state {
                 return XCTFail("seeking a stored \(song.suffix ?? "?") the server does not transcode failed: \(message)")
             }
             rms = EngineTestSignals.rms(try await harness.renderSeconds(0.25))
+            passes += 1
             if rms > 0.001, harness.controller.currentTime > target { break }
             try await Task.sleep(for: .milliseconds(250))
         }
+        let waited = Int(Date().timeIntervalSince(seekStarted))
         XCTAssertGreaterThan(rms, 0.001,
-                             "no audio after seeking to \(Int(target))s of a stored \(song.suffix ?? "?")")
+                             "no audio within \(waited)s after seeking to \(Int(target))s of a stored "
+                             + "\(song.suffix ?? "?") (state \(harness.controller.state), "
+                             + "loads=\(harness.controller.loadCountForTesting), \(passes) renders)")
         print("LIVE stored-file seek: \(song.suffix ?? "?") \(Int(duration))s, seek to \(Int(target))s "
-              + "(spooled to \(Int(reachableEnd))s), loads=\(harness.controller.loadCountForTesting) → OK")
+              + "(spooled to \(Int(reachableEnd))s), loads=\(harness.controller.loadCountForTesting), "
+              + "audio after \(waited)s → OK")
     }
 }

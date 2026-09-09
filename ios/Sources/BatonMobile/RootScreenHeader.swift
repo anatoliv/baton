@@ -49,7 +49,10 @@ struct RootScreenHeader<Trailing: View, Accessory: View>: View {
                         Text(subtitle)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            // Two lines, because at accessibility sizes one turned
+                            // "You're exploring the demo library." into "You're explo…".
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 8)

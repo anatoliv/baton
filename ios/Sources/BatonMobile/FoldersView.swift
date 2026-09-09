@@ -114,13 +114,16 @@ struct FolderDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
-        .overlay {
-            if !loaded {
-                ProgressView()
-            } else if directory == nil || (directory!.folders.isEmpty && directory!.songs.isEmpty) {
-                ContentUnavailableView("Empty folder", systemImage: "folder")
-            }
-        }
+        .contentState(
+            ContentDisplayState.resolve(
+                isLoading: !loaded,
+                error: nil,
+                isEmpty: directory == nil || (directory!.folders.isEmpty && directory!.songs.isEmpty)
+            ),
+            emptyTitle: "Empty folder",
+            emptyMessage: "Nothing in this folder.",
+            emptySymbol: "folder"
+        )
         .task {
             directory = await model.musicLibrary.directory(id: folder.id)
             loaded = true

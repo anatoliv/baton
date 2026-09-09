@@ -140,13 +140,24 @@ struct SearchView: View {
                 let nothingFound = results.songs.isEmpty && results.albums.isEmpty
                     && results.artists.isEmpty
                 if !query.trimmingCharacters(in: .whitespaces).isEmpty, nothingFound {
-                    if let error = model.musicLibrary.lastError, !error.isEmpty {
-                        ContentStatePlaceholder(state: .failed(error))
-                    } else if !model.musicLibrary.isLoading {
-                        ContentUnavailableView.search(text: query)
+                    // Same frame and opaque ground `contentState` gives its placeholder.
+                    // Without them this drew straight over the rows at accessibility sizes.
+                    Group {
+                        if let error = model.musicLibrary.lastError, !error.isEmpty {
+                            ContentStatePlaceholder(state: .failed(error))
+                        } else if !model.musicLibrary.isLoading {
+                            ContentUnavailableView.search(text: query)
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.background)
                 }
             }
+            // Before you have typed anything, and with no history to offer, this tab was a
+            // header, a field and a screen of nothing — the one screen in the app with no
+            // empty state at all (I-F16). Separate from the overlay above because that one
+            // answers "your search found nothing", which is a different sentence.
+            .overlay { idlePlaceholder }
             // Scroll the results to put the keyboard away. Without it the keyboard covers
             // the tab bar and this screen has no exit either.
             .searchKeyboardDismissal()
@@ -196,6 +207,22 @@ struct SearchView: View {
 
     /// What is being searched, not what was found — a result count here would resize the
     /// header on every keystroke.
+    /// Shown only when there is genuinely nothing on the screen: no query, no typed
+    /// history, nothing opened before. Anything else and the list has content of its own.
+    @ViewBuilder
+    private var idlePlaceholder: some View {
+        if query.trimmingCharacters(in: .whitespaces).isEmpty,
+           recentQueries.isEmpty,
+           model.searchRecents.entries.isEmpty {
+            ContentUnavailableView {
+                Label("Search your library", systemImage: "magnifyingglass")
+            } description: {
+                Text(scopeLine.map { "Songs, albums and artists across \($0)." }
+                     ?? "Songs, albums and artists.")
+            }
+        }
+    }
+
     private var scopeLine: String? {
         let albums = model.musicLibrary.albums.count
         let artists = model.musicLibrary.artists.count

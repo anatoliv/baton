@@ -255,6 +255,16 @@ public final class RemoteCommandRouter {
         guard let entry = memory.remember(kind: kind, text: text, quote: quote) else {
             return ("A memory needs both what to remember and the owner's own words. Nothing was stored.", true)
         }
+        // `save()` used to return `Void` and could not fail, so this said "Noted, remembered"
+        // whether or not anything had reached the disk. The owner then had every reason to
+        // believe the friend knew something it would have forgotten by the next launch (S-F2).
+        guard memory.lastWriteSucceeded else {
+            return ("""
+            The memory could not be saved to disk, so it will be gone when Baton next starts. \
+            Tell the owner, in these words: "I couldn't save that one. Check that Baton can \
+            write to its Application Support folder."
+            """, true)
+        }
         return ("""
         Stored as memory \(entry.id). Now tell the owner, in your reply and in these words:         "Noted — \(entry.text). (`memories` lists what I keep, `forget \(entry.id)` deletes this one.)"
         """, false)

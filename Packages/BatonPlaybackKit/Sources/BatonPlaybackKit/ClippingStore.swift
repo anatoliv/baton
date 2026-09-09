@@ -217,7 +217,7 @@ public final class ClippingStore {
     public func setSHA256(id: String, to digest: String, at now: Date = Date()) {
         guard var item = item(id: id) else { return }
         item.clipping.sha256 = digest
-        try? JSONEncoder().encode(item.clipping).write(to: sidecarURL(id), options: .atomic)
+        guard writeSidecar(item.clipping, id: id) else { return }
         // The ledger is keyed by digest, so a clipping cannot appear in it until it has one.
         // This is the moment it does: state its title and source now, or the other device would
         // collect the file and have nothing shared to compare against, leaving a later rename
@@ -265,22 +265,56 @@ public final class ClippingStore {
         return raw.filter { $0.value > cutoff }
     }
 
-    private func saveDismissed(_ entries: [String: Date]) {
-        try? JSONEncoder().encode(entries).write(to: dismissedURL, options: .atomic)
+    /// Reports whether the tombstone file actually reached the disk. This is the write the
+    /// whole dismissal mechanism rests on: swallowing its failure is how a deleted clipping
+    /// comes straight back on the next refresh, with nothing anywhere saying why.
+    @discardableResult
+    private func saveDismissed(_ entries: [String: Date]) -> Bool {
+        do {
+            try JSONEncoder().encode(entries).write(to: dismissedURL, options: .atomic)
+            return true
+        } catch {
+            clippingLog.error(
+                "couldn't write the dismissed-clippings list, so a removed clipping may return: \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
     }
 
     /// Record that this device does not want a digest back, pruning anything expired.
-    public func dismiss(sha256 digest: String, now: Date = Date()) {
+    /// Returns false when the tombstone could not be written, which means the clipping will
+    /// be collected again.
+    @discardableResult
+    public func dismiss(sha256 digest: String, now: Date = Date()) -> Bool {
         var entries = loadDismissed()
         entries[digest] = now
-        saveDismissed(entries)
+        return saveDismissed(entries)
     }
 
     /// Forget a dismissal, so the clipping may be collected again.
-    public func undismiss(sha256 digest: String) {
+    @discardableResult
+    public func undismiss(sha256 digest: String) -> Bool {
         var entries = loadDismissed()
         entries.removeValue(forKey: digest)
-        saveDismissed(entries)
+        return saveDismissed(entries)
+    }
+
+    /// Writes a clipping's sidecar, reporting whether it landed.
+    ///
+    /// Callers that also state something in the shared ledger must check this first: the ledger
+    /// travels to the other device, so announcing a rename whose local sidecar silently did not
+    /// change leaves the two devices disagreeing with no way to notice.
+    @discardableResult
+    private func writeSidecar(_ clipping: Clipping, id: String) -> Bool {
+        do {
+            try JSONEncoder().encode(clipping).write(to: sidecarURL(id), options: .atomic)
+            return true
+        } catch {
+            clippingLog.error(
+                "couldn't write the clipping sidecar for \(id, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
     }
 
     /// Rename a clipping, and say so in the shared ledger so the other device follows.
@@ -292,7 +326,10 @@ public final class ClippingStore {
     public func rename(id: String, to title: String, at now: Date = Date()) {
         guard var item = item(id: id) else { return }
         item.clipping.title = title
-        try? JSONEncoder().encode(item.clipping).write(to: sidecarURL(id), options: .atomic)
+        // The ledger write below travels to the other device. Stating a rename there while the
+        // local sidecar quietly did not change is worse than not renaming at all, so a failed
+        // sidecar write stops here.
+        guard writeSidecar(item.clipping, id: id) else { return }
         if let digest = item.clipping.sha256 {
             var ledger = self.ledger
             ledger.setTitle(title, for: digest, at: now)
@@ -374,11 +411,11 @@ public final class ClippingStore {
     ///
     /// Returns what changed, so a caller can say so rather than having things move under the
     /// user with no explanation.
-    @discardableResult
     /// `deleted` carries the **playable** ids of what went, not a count. The caller has to take
     /// those out of the play queue, and once the files are gone there is no way to work out what
     /// they were — a clipping deleted on the other device would otherwise keep playing here with
     /// nobody having touched this machine.
+    @discardableResult
     public func reconcileWithLedger() -> (renamed: Int, deleted: [String]) {
         loadIfNeeded()
         let ledger = self.ledger
@@ -402,8 +439,7 @@ public final class ClippingStore {
             var changed = false
             if let title = record.title, title != clipping.title { clipping.title = title; changed = true }
             if record.sourceAt != nil, record.source != clipping.source { clipping.source = record.source; changed = true }
-            if changed {
-                try? JSONEncoder().encode(clipping).write(to: sidecarURL(item.id), options: .atomic)
+            if changed, writeSidecar(clipping, id: item.id) {
                 renamed += 1
             }
         }

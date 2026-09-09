@@ -33,6 +33,11 @@ struct SongContextMenu: ViewModifier {
                     model.music.enqueue([song])
                 } label: { Label("Add to Queue", systemImage: "text.append") }
 
+                // Local, cross-type, and works with no server — which is why it sits above
+                // the demo-mode divider with Play Next and Add to Queue rather than below
+                // it with the things that need one.
+                PinMenuButton(item: .song(song), model: model)
+
                 // Everything below needs a server: rating, playlists and similarity are
                 // all server-side. In demo mode they'd fail silently, so they're absent.
                 //
@@ -218,6 +223,8 @@ struct AlbumContextMenu: ViewModifier {
                 Button {
                     Task { model.music.enqueue(await songs()) }
                 } label: { Label("Add to Queue", systemImage: "text.append") }
+
+                PinMenuButton(item: .album(album), model: model)
 
                 if !model.isDemoMode {
                     Divider()

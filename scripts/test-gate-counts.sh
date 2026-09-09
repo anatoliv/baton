@@ -169,6 +169,31 @@ expect "a build that never ran tests reports no count" "$(count_log "$WORK/no-te
 
 # --- 4. The other two stages' log shapes ------------------------------------
 expect "gateway (swift test) counts both reporters" "$(count_log "$WORK/gateway.log" TOTAL)"  "5"
+
+# The gateway's own empty run, planted two ways, because they are two different accidents
+# and both used to print a green "its tests pass" line. `swift test` exits 0 in each.
+# (TBX-5317, D-F6)
+#
+#   a. the target is still there and every test in it was renamed or deleted
+cat >"$WORK/gateway-zero.log" <<'LOG'
+Test Suite 'All tests' started at 2026-09-08 12:47:15.528.
+Test Suite 'BatonGatewayTests.xctest' started at 2026-09-08 12:47:15.529.
+Test Suite 'BatonGatewayTests.xctest' passed at 2026-09-08 12:47:15.530.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'All tests' passed at 2026-09-08 12:47:15.530.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+LOG
+expect "gateway: a run that executed nothing counts 0" "$(count_log "$WORK/gateway-zero.log" TOTAL)" "0"
+
+#   b. the test target was dropped from Package.swift, so the run is a build and no
+#      reporter says anything at all. `${gateway_n:-0}` has to make this zero as well, or
+#      the louder half of the defect survives the fix.
+cat >"$WORK/gateway-notarget.log" <<'LOG'
+Building for debugging...
+[8/8] Compiling BatonGateway Router.swift
+Build complete! (2.31s)
+LOG
+expect "gateway: a run with no test target counts nothing" "$(count_log "$WORK/gateway-notarget.log" TOTAL)" ""
 expect "Mac: two bundles summed, not the repeats"   "$(count_log "$WORK/mac.log" XCTEST)"     "1857 2 1"
 expect "Mac: whole run"                             "$(count_log "$WORK/mac.log" TOTAL)"      "2006"
 
@@ -214,6 +239,14 @@ if grep -q 'gateway_n="$(log_test_total "$GATEWAY_LOG")"' scripts/test.sh; then
   ok "wiring: the gateway count counts both reporters"
 else
   bad "wiring: the gateway count no longer calls log_test_total"
+fi
+# And counting it is only half: the count has to be able to fail the gate. Every OTHER
+# stage routed a zero through `empty_run_is_failure`; the gateway printed green over it,
+# on the component the comment above it calls load-bearing for phone sync. (TBX-5317, D-F6)
+if grep -q '\[ "${gateway_n:-0}" -eq 0 \] && empty_run_is_failure' scripts/test.sh; then
+  ok "wiring: a gateway run that executed no tests fails the gate"
+else
+  bad "wiring: the gateway stage no longer routes an empty run through empty_run_is_failure"
 fi
 # The regression that would undo all of it: any stage going back to scraping its count out
 # of the XCTest rollup. The two legitimate mentions are inside `xctest_log_counts` (the awk

@@ -66,7 +66,71 @@ done
 expect dirty "$WORK/many-url" "8000 logged URLs are caught (the fail-open case)"
 expect dirty "$WORK/many-subsystem" "8000 foreign subsystems are caught (the fail-open case)"
 
-# 4. The real tree must be clean, which is also a check that the patterns still match the
+# 4. W-19, the accessibility lint. It is scoped to a list of primary-path file names, so a
+#    planted violation has to carry one of those names to be in scope — which is itself the
+#    assertion that the scoping works, since the same violation under another name passes.
+mkdir -p "$WORK/icon-multiline" "$WORK/icon-oneline" "$WORK/icon-out-of-scope" "$WORK/icon-labelled"
+cat > "$WORK/icon-multiline/NowPlayingBar.swift" <<'SWIFT'
+struct Bar: View {
+    var body: some View {
+        Button { player.next() } label: {
+            Image(systemName: "forward.fill")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Next")
+    }
+}
+SWIFT
+expect dirty "$WORK/icon-multiline" "an unlabelled icon Button is caught (help alone is not a label)"
+
+printf 'Button { copy(t) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless)\n' \
+  > "$WORK/icon-oneline/BatonSettingsView.swift"
+expect dirty "$WORK/icon-oneline" "the one-line form is caught too"
+
+mkdir -p "$WORK/icon-action"
+cat > "$WORK/icon-action/MusicDownloadsView.swift" <<'SWIFT'
+struct Row: View {
+    var body: some View {
+        Button(action: onPlay) {
+            Image(systemName: "play.fill")
+                .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
+    }
+}
+SWIFT
+expect dirty "$WORK/icon-action" "the Button(action:) form is caught too"
+
+# The identical violation outside the scoped list must pass, or the list means nothing.
+cp "$WORK/icon-multiline/NowPlayingBar.swift" "$WORK/icon-out-of-scope/SomeOtherPane.swift"
+expect clean "$WORK/icon-out-of-scope" "the same violation outside the scoped files is not flagged"
+
+# A label eighteen lines below the closure still counts: the chain is read by brace
+# balance, not a fixed window. This is the shape a windowed version got wrong.
+cat > "$WORK/icon-labelled/NowPlayingBar.swift" <<'SWIFT'
+struct Bar: View {
+    var body: some View {
+        Button { showingQueue.toggle() } label: {
+            Image(systemName: "list.bullet")
+                .overlay(alignment: .topTrailing) {
+                    if upcomingCount > 0 {
+                        Text("\(upcomingCount)")
+                            .padding(.horizontal, 3)
+                            .background(Capsule().fill(Color.accentColor))
+                            .offset(x: 9, y: -7)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .help("Queue")
+        .accessibilityLabel("Queue")
+    }
+}
+SWIFT
+expect clean "$WORK/icon-labelled" "a label below a multi-line overlay is found"
+
+# 5. The real tree must be clean, which is also a check that the patterns still match the
 #    code's shape rather than having rotted into matching nothing.
 expect clean "app/Sources/Baton" "the real source tree is clean"
 

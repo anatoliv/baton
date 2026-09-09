@@ -108,6 +108,55 @@ if [ -f "$APPCAST" ]; then
     [ "$AC_BUILD" = "$BUILD" ] || fail "appcast build '${AC_BUILD:-missing}' != '$BUILD'"
 fi
 
+# --- Both hostnames must serve the same appcast -------------------------------
+# TBX-5306. The site moved to batonmusic.app, but SUFeedURL is compiled into the
+# app and every Mac build up to 0.18.1 polls https://baton.tonebox.io/appcast.xml
+# and nothing else. That hostname is the only route to those machines. If it ever
+# stops serving the appcast — a tidied vhost, an expired cert, a DNS record
+# reclaimed — those installs go quiet permanently, with no error shown to anyone
+# and no way to reach them afterwards.
+#
+# Nothing else would notice, which is the whole reason this check exists. It runs
+# BEFORE the upload, so it compares what the two hosts are serving right now (the
+# previous release), and the question it answers is "are these two still the same
+# document" rather than anything about the release being built.
+#
+# Not measurable is not the same as broken, so: neither host reachable is a SKIP
+# (no network, or the laptop is offline). The new host answering while the old one
+# does not is a FAILURE, because that is exactly the shape of the accident.
+APPCAST_NEW="https://batonmusic.app/appcast.xml"
+APPCAST_OLD="https://baton.tonebox.io/appcast.xml"
+fetch_sha() {  # prints the sha256 of the body, or nothing if the fetch failed
+    curl -fsS --max-time 20 "$1" 2>/dev/null | shasum -a 256 | awk '{print $1}'
+}
+SHA_NEW="$(fetch_sha "$APPCAST_NEW")"
+SHA_OLD="$(fetch_sha "$APPCAST_OLD")"
+EMPTY_SHA="$(printf '' | shasum -a 256 | awk '{print $1}')"
+[ "$SHA_NEW" = "$EMPTY_SHA" ] && SHA_NEW=""
+[ "$SHA_OLD" = "$EMPTY_SHA" ] && SHA_OLD=""
+if [ -z "$SHA_NEW" ] && [ -z "$SHA_OLD" ]; then
+    printf '\033[33m~ appcast host check SKIPPED: neither host answered (offline?)\033[0m\n' >&2
+    echo "    $APPCAST_NEW" >&2
+    echo "    $APPCAST_OLD" >&2
+elif [ -z "$SHA_OLD" ]; then
+    fail "$APPCAST_OLD is not serving the appcast, but $APPCAST_NEW is.
+       Every Mac up to 0.18.1 has that URL compiled in as SUFeedURL and polls
+       nothing else. Restore the old vhost before publishing, or those installs
+       will never be offered another update. See deploy/README.md, TBX-5306."
+elif [ -z "$SHA_NEW" ]; then
+    fail "$APPCAST_NEW is not serving the appcast, but $APPCAST_OLD is.
+       New builds ship SUFeedURL on batonmusic.app (app/project.yml)."
+elif [ "$SHA_NEW" != "$SHA_OLD" ]; then
+    fail "the two hostnames serve different appcast documents:
+       $APPCAST_NEW  $SHA_NEW
+       $APPCAST_OLD  $SHA_OLD
+       They point at one nginx docroot (deploy/nginx/default.conf), so a
+       difference means a stale cache or a half-finished deploy. Older installs
+       poll the old host and would be offered different bits from everyone else."
+else
+    echo "    appcast identical on both hosts (${SHA_NEW:0:12}…)"
+fi
+
 # --- What's New ---------------------------------------------------------------
 # The panel is a version-pinned surface like any other, and it rots the same way:
 # it sat at 0.8.1 while 0.9.1 shipped — three releases of user-visible change that

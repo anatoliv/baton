@@ -403,6 +403,122 @@ if [ -n "${BATON_COUNT_BUNDLE:-}" ]; then
   exit 0
 fi
 
+# --- One gate at a time on this machine ------------------------------------
+#
+# WHY THIS EXISTS. On 2026-09-08 at 17:20 a gate died at the Mac suite with the
+# `BATON-DIAG` runner-death signature, and the backtrace named `_handleAEQuit`: a Quit
+# Apple Event from **outside** the process. Nothing in the test host asked to exit. A Mac
+# release had started four seconds after this run reached its Mac stage, `publish.sh` runs
+# this script first, and both runs app-hosted the same `Baton.app` out of `/tmp/baton-dd`.
+# Launching the second instance made LaunchServices quit the first. `testmanagerd` logged
+# two "Initiating session" lines 400 ms apart, which is the same event seen from the other
+# side. (TBX-5291)
+#
+# Two properties make it worth a guard rather than a note:
+#
+#   * It lies. The victim reports a runner death against whatever test was in flight, so
+#     the reader goes and reads TBX-2848's four failed repro attempts before the backtrace
+#     points anywhere else.
+#   * The victim is arbitrary. That afternoon the release won and an ad-hoc gate lost;
+#     twenty seconds the other way and a **release** dies twelve minutes in.
+#
+# REFUSE, do not queue. Waiting would put a publish behind somebody's exploratory gate,
+# which is its own bad outcome and much harder to notice. An operator who is told which
+# run holds the lock can decide; a run that silently waits cannot be decided about.
+#
+# THE WHOLE SCRIPT, not just the Mac stage. The collision is over the app-hosted
+# `Baton.app`, and every path through this script reaches it, so scoping the lock tighter
+# would only buy a refusal eight minutes later than it could have come. The message
+# carries the holder's derived data path so a reader can see whether it is the same
+# bundle.
+#
+# STALE LOCKS MUST NOT WEDGE THE MACHINE. A gate killed by hand leaves the file behind, and
+# a lock that survives a `pkill` and blocks every later run is worse than the bug it
+# guards. So the holder is checked for liveness, and the recorded start time is compared
+# against the live process's, since pids are reused. Either mismatch means the file is
+# debris and it is cleared.
+#
+# LINT_ONLY is exempt on purpose: that mode is a text pass over a planted tree, it hosts no
+# app, and the guard loop below runs `test-lints.sh` from **inside** a gate that already
+# holds this lock.
+GATE_LOCK="${BATON_GATE_LOCK:-/tmp/baton-gate.lock}"
+GATE_LOCK_HELD=""
+
+# The lock's own record of who holds it. `ps -o lstart=` rather than a timestamp we write
+# ourselves: it comes from the kernel, so it is the one field a recycled pid cannot fake.
+gate_lock_holder_start() {   # $1 = pid
+  ps -o lstart= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+gate_lock_release() {
+  [ -n "$GATE_LOCK_HELD" ] || return 0
+  # Only if it is still ours. A run that lost its lock to a stale-clear should not delete
+  # the successor's.
+  if [ "$(sed -n '1p' "$GATE_LOCK" 2>/dev/null)" = "$$" ]; then
+    rm -f "$GATE_LOCK"
+  fi
+  GATE_LOCK_HELD=""
+}
+
+gate_lock_acquire() {
+  local attempt pid started cwd derived live
+  for attempt in 1 2 3; do
+    # `set -o noclobber` makes the redirect itself the atomic test-and-set, so two runs
+    # starting in the same millisecond cannot both believe they created the file.
+    if ( set -o noclobber; printf '%s\n%s\n%s\n%s\n' \
+           "$$" "$(gate_lock_holder_start $$)" "$PWD" "$DERIVED" >"$GATE_LOCK" ) 2>/dev/null; then
+      GATE_LOCK_HELD=1
+      trap gate_lock_release EXIT INT TERM
+      return 0
+    fi
+    pid="$(sed -n '1p' "$GATE_LOCK" 2>/dev/null || true)"
+    started="$(sed -n '2p' "$GATE_LOCK" 2>/dev/null || true)"
+    cwd="$(sed -n '3p' "$GATE_LOCK" 2>/dev/null || true)"
+    derived="$(sed -n '4p' "$GATE_LOCK" 2>/dev/null || true)"
+    live=""
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      # Same pid AND the same start time. A pid alone would refuse forever the moment the
+      # number came round again, which is precisely the wedge this must not create.
+      [ "$(gate_lock_holder_start "$pid")" = "$started" ] && live=1
+    fi
+    if [ -z "$live" ]; then
+      yellow "  clearing a stale gate lock (pid ${pid:-?} is gone): $GATE_LOCK"
+      rm -f "$GATE_LOCK"
+      continue
+    fi
+    red "✗ another Baton gate is running (pid $pid, started ${started:-unknown}, ${cwd:-unknown})"
+    red "  Its derived data: ${derived:-unknown}"
+    red "  Two gates on this machine app-host the same Baton.app, and launching the second"
+    red "  makes LaunchServices quit the first. The victim reports a runner death against an"
+    red "  unrelated test, which is why this refuses instead of racing. (TBX-5291)"
+    red "  Wait for it, or stop it, then run again. BATON_ALLOW_CONCURRENT_GATE=1 overrides."
+    exit 1
+  done
+  # Three stale clears in a row means something is recreating the file faster than this can
+  # clear it. Say so rather than looping.
+  red "✗ could not take the gate lock at $GATE_LOCK after three attempts"
+  red "  Something is recreating it. Remove it by hand if no gate is running."
+  exit 1
+}
+
+if [ -z "${LINT_ONLY:-}" ] && [ -z "${BATON_ALLOW_CONCURRENT_GATE:-}" ]; then
+  gate_lock_acquire
+fi
+
+# `BATON_GATE_LOCK_PROBE` exists so `scripts/test-gate-lock.sh` can drive the acquire above
+# rather than keeping a copy of it, the same hatch `BATON_COUNT_LOG` and `LINT_ONLY` open
+# and for the same reason. It stops here, having taken the lock, because the alternative
+# way to test the stale-lock path is to start a real gate and kill it, and a guard whose
+# test costs a twelve-minute build is a guard nobody runs.
+#
+# It holds the lock for `BATON_GATE_LOCK_PROBE` seconds so a second shell can contend with
+# a genuinely live holder, which is the case that matters.
+if [ -n "${BATON_GATE_LOCK_PROBE:-}" ]; then
+  echo "GATE LOCK: acquired by $$"
+  sleep "$BATON_GATE_LOCK_PROBE"
+  exit 0
+fi
+
 bold "==> Generating Xcode project (xcodegen)"
 ( cd "$APP_DIR" && xcodegen generate >/dev/null )
 
@@ -454,6 +570,75 @@ if [ -n "$url_hits" ]; then
   printf '%s\n' "$url_hits" | sed 's/^/    /' >&2
   lint_fail=1
 fi
+# W-19: an icon-only Button must carry an .accessibilityLabel. `.help()` is not one:
+# SwiftUI maps it to the accessibility *hint*, so VoiceOver falls back to reading the SF
+# Symbol name and the user hears "backward.fill". 89 of the Mac app's 114 icon-only
+# controls had drifted that way before this rule existed, including a five-button
+# transport on fourteen screens and two identical copy buttons in Settings, one of which
+# copies the remote-control token (D-F20, D-F21).
+#
+# Deliberately narrow, twice over, because a noisy lint gets bypassed and then guards
+# nothing:
+#   1. It looks only at a button body that *starts* with a bare `Image(systemName:)`,
+#      in the two shapes this codebase writes: a `label:` closure and
+#      `Button(action:) { ... }`. A body built from a ZStack, a Label, or an image plus
+#      text is not flagged.
+#   2. It runs over the primary-path files listed below, not the whole tree. Thirty-six
+#      hits remain in secondary panes; adding a file to this list means fixing it first.
+# It reads the modifier chain by brace balance rather than a fixed line window, because
+# the queue button in NowPlayingBar carries its label eighteen lines below the closure
+# and a windowed version reported it as a violation.
+ACCESSIBILITY_LINT_FILES="MusicMediaCard.swift NowPlayingBar.swift MiniPlayerWindowView.swift \
+FullScreenNowPlaying.swift MusicPodcastsView.swift MusicRadioView.swift \
+MusicDownloadsView.swift MusicPinnedView.swift BatonSettingsView.swift"
+icon_button_hits() {
+  local f
+  while IFS= read -r f; do
+    case " $ACCESSIBILITY_LINT_FILES " in *" $(basename "$f") "*) ;; *) continue ;; esac
+    awk -v FN="$f" '
+      function braces(s,   i, c, n) {
+        n = 0
+        for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); if (c == "{") n++; else if (c == "}") n-- }
+        return n
+      }
+      function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+      function has_ax(s) { return (s ~ /accessibilityLabel|accessibilityHidden|accessibilityElement|accessibilityRepresentation/) }
+      { lines[NR] = $0 }
+      END {
+        for (i = 1; i <= NR; i++) {
+          l = lines[i]
+          tail = l
+          if (l ~ /label:[ \t]*\{/) sub(/^.*label:[ \t]*\{/, "", tail)
+          else if (l ~ /Button\(action:[^)]*\)[ \t]*\{/) sub(/^.*Button\(action:[^)]*\)[ \t]*\{/, "", tail)
+          else continue
+          bare = 0
+          if (trim(tail) ~ /^Image\(systemName:/) bare = 1
+          else if (trim(tail) == "" && i < NR && trim(lines[i+1]) ~ /^Image\(systemName:/) bare = 1
+          if (!bare) continue
+          found = has_ax(l)
+          bal = 1 + braces(tail)
+          j = i
+          while (bal > 0 && j < NR && j < i + 60) { j++; bal += braces(lines[j]); if (has_ax(lines[j])) found = 1 }
+          depth = 0
+          for (k = j + 1; k <= NR && k < i + 60 && !found; k++) {
+            t = trim(lines[k])
+            if (depth == 0 && t != "" && t !~ /^\./ && t !~ /^\/\// && t !~ /^\/\*/) break
+            if (has_ax(lines[k])) { found = 1; break }
+            depth += braces(lines[k])
+            if (depth < 0) break
+          }
+          if (!found) printf "%s:%d:%s\n", FN, i, trim(l)
+        }
+      }
+    ' "$f"
+  done < <(find "$SRC" -type f -name '*.swift')
+}
+icon_hits="$(icon_button_hits || true)"
+if [ -n "$icon_hits" ]; then
+  red "  lint: an icon-only Button has no .accessibilityLabel (.help is the hint, not the label):"
+  printf '%s\n' "$icon_hits" | sed 's/^/    /' >&2
+  lint_fail=1
+fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 [ "$lint_fail" -eq 0 ] && green "  lints clean" || { red "✗ LINT FAILED"; exit 1; }
 
@@ -495,7 +680,19 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          XCTest reporter rolls up — it reported a 157-test iPhone run as
 #                          154 because swift-testing prints a different line, and would
 #                          not have moved if all three had been deleted (TBX-5236)
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts; do
+#   test-testflight-exits  testflight.sh's exit code says the same thing as its last line —
+#                          a metadata failure exited silently because `set -e` made the
+#                          message dead code, and an unattached build exited 0 (TBX-5317)
+#   test-gate-lock         THIS script refuses a second concurrent gate and names the
+#                          holder, and a pidfile left by a killed gate does not wedge the
+#                          next run — two gates used to app-host the same Baton.app and
+#                          LaunchServices quit the first, reported as a runner death
+#                          against an unrelated test (TBX-5291)
+#   test-publish-guards    publish.sh's notarize wall clock is really armed, and a failed
+#                          Gatekeeper assessment stops the release — the wall clock used to
+#                          vanish silently without coreutils, and a rejected DMG published
+#                          on a yellow line (TBX-5317)
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards; do
   GUARD_LOG="$(mktemp -t "baton-$guard.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then
     guard_cmd=("scripts/$guard.sh")
@@ -703,7 +900,11 @@ for runtime, entries in devices.items():
     ios_status=$?
     ios_what="iPhone tests"
   else
-    bold "==> Building iPhone app (no simulator installed)"
+    # Yellow, not bold: this is a check that could not run, and `yellow` exists for
+    # exactly that distinction. In bold it read like an ordinary step, so a machine with
+    # no simulator runtime produced a log where the iPhone stage looked done. It is not:
+    # the app compiles and no phone test executes. (TBX-5317, D-F7)
+    yellow "==> Building iPhone app only (no simulator installed): BatonMobileTests will not run"
     xcodebuild build \
       -project ios/BatonMobile.xcodeproj \
       -scheme BatonMobile \
@@ -838,7 +1039,24 @@ for runtime, entries in devices.items():
       exit "$watch_status"
     fi
   else
-    bold "==> Skipping Watch build (no watchOS simulator installed)"
+    # The Watch app is parked, and CLAUDE.md says the gate building it "is what makes
+    # parking safe": it silently stopped compiling twice and nobody noticed, because
+    # nothing built it. On a machine with no watchOS runtime that guard does not fire, and
+    # printing the fact in bold made the log read as though it had. (TBX-5317, D-F7)
+    #
+    # And a release is where a skip actually costs something, which is the split this repo
+    # already makes for the App Store metadata check and for the phone's UI tests. CLEAN=1
+    # is publish.sh's release-grade run, so under it this refuses rather than warns: the
+    # machine cutting a release is the owner's, it has the runtime, and a release that
+    # quietly stopped checking the Watch is how the Watch stopped compiling twice.
+    if [ -n "${CLEAN:-}" ] && [ -z "${ALLOW_WATCH_SKIP:-}" ]; then
+      red "✗ WATCH BUILD CANNOT RUN: no watchOS simulator runtime is installed"
+      red "  This is a release-grade run (CLEAN=1), and the Watch build is what makes"
+      red "  parking the Watch app safe. Install a watchOS runtime (Xcode > Settings >"
+      red "  Components), or ALLOW_WATCH_SKIP=1 to publish with the Watch unverified."
+      exit 1
+    fi
+    yellow "==> Watch build skipped (no watchOS simulator installed): the parked Watch app is unverified against this shared-package change"
   fi
 else
   bold "==> Skipping iPhone and Watch checks (SKIP_IOS set)"
@@ -867,6 +1085,20 @@ if [ -z "${SKIP_IOS:-}" ]; then
     # The gateway has no `@Test` tests today; the whole point is that the number will move
     # on the day it gets one, rather than silently staying put. (TBX-5236)
     gateway_n="$(log_test_total "$GATEWAY_LOG")"
+    # Zero tests is not a pass, here as everywhere else. `swift test` exits 0 when the
+    # target has no tests left in it, so a rename or a target dropped from Package.swift
+    # would have printed a green "its tests pass" line over a run that proved nothing,
+    # on the one component described two comments up as load-bearing for phone sync. The
+    # iPhone stage and the Mac summary have routed through `empty_run_is_failure` for this
+    # reason since TBX-5236; this stage was the one that did not. (TBX-5317, D-F6)
+    if [ "${gateway_n:-0}" -eq 0 ] && empty_run_is_failure; then
+      red "✗ GATEWAY executed NO tests: exit 0, and nothing was proved"
+      red "  swift test succeeded and ran nothing: check gateway/Package.swift still lists"
+      red "  a test target, and that its tests were not renamed out of it."
+      red "  ALLOW_NO_TESTS=1 to accept an empty run."
+      red "  Full log: $GATEWAY_LOG"
+      exit 1
+    fi
     green "  gateway builds and its tests pass${gateway_n:+ — $gateway_n tests}"
   else
     red "✗ GATEWAY FAILED — the home gateway no longer builds or its tests fail"

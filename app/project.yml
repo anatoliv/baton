@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.18.1"
-    CURRENT_PROJECT_VERSION: "99"
+    MARKETING_VERSION: "0.19.0"
+    CURRENT_PROJECT_VERSION: "100"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -264,7 +264,14 @@ targets:
         # is hosted (see docs/RELEASE-APPCAST-HOSTING.md). Until then the
         # in-app UI shows "Not available yet" and the check is disabled.
         # See SparkleUpdater / UpdateChannel.
-        SUFeedURL: "https://baton.tonebox.io/appcast.xml"
+        #
+        # This URL is compiled into the shipped app and is the only way an
+        # installed copy ever hears about a release. Every build up to and
+        # including 0.18.1 has https://baton.tonebox.io/appcast.xml baked in and
+        # polls it forever, so that hostname must keep serving the appcast
+        # indefinitely, even though new builds use batonmusic.app.
+        # scripts/check-release.sh asserts both hosts serve identical bytes.
+        SUFeedURL: "https://batonmusic.app/appcast.xml"
         SUEnableAutomaticChecks: true
         # Shared EdDSA public key (the private key lives in the login Keychain;
         # Sparkle recommends one key across all your apps). Public, safe to commit.

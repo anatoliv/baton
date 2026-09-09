@@ -78,14 +78,34 @@ public final class RemoteMemoryStore {
 
     private var contents = Contents()
     private let url: URL?
+    private let store: VersionedStore<Contents>?
 
     public var entries: [Entry] { contents.entries }
+
+    /// Whether the last write to disk actually landed.
+    ///
+    /// `save()` returned `Void` and could not fail, so the router said "Noted, remembered" whether
+    /// or not anything had been written, and the only symptom of a full or read-only disk was a
+    /// friend that seemed to forget everything (S-F2). Additive rather than a changed return type
+    /// on `remember`, so nothing built on this class's API has to move.
+    public private(set) var lastWriteSucceeded = true
+
+    /// Whether the file could be read at startup. `false` means it was unreadable and has been
+    /// preserved aside, so this object's state is not what the device holds.
+    public private(set) var lastLoadSucceeded = true
 
     /// `url: nil` keeps everything in memory — what the tests use, and what a
     /// caller gets if the support directory is unwritable.
     public init(url: URL? = RemoteMemoryStore.defaultURL(),
                 defaults: UserDefaults = FriendLedgerStore.defaultDefaults()) {
         self.url = url
+        // `keepBackup: true` because this is irreplaceable: the person said these sentences, and
+        // nothing can re-derive them. See `VersionedStore` for what the envelope buys.
+        self.store = url.map {
+            VersionedStore<Contents>(fileURL: $0, currentVersion: 1, keepBackup: true,
+                                     encoder: .remoteMemory, decoder: .remoteMemory,
+                                     log: remoteLog)
+        }
         self.defaults = defaults
         load()
     }
@@ -94,6 +114,10 @@ public final class RemoteMemoryStore {
     private let defaults: UserDefaults
     /// True only while `adoptLedger` is writing what the ledger already says.
     private var isAdopting = false
+
+    /// Ledger keys the owner actually asked to forget, waiting to be turned into tombstones by
+    /// the next publish. See `publishToLedger` for why an absence is not enough.
+    private var pendingRemovals: Set<String> = []
 
     // MARK: Remembering
 
@@ -115,12 +139,7 @@ public final class RemoteMemoryStore {
             text: text, quote: quote, created: now, lastApplied: nil
         )
         contents.entries.append(entry)
-        if contents.entries.count > Self.entryLimit {
-            // Drop what has gone longest without being useful.
-            contents.entries.sort { ($0.lastApplied ?? $0.created) < ($1.lastApplied ?? $1.created) }
-            contents.entries.removeFirst(contents.entries.count - Self.entryLimit)
-            contents.entries.sort { $0.id < $1.id }
-        }
+        contents.entries = Self.capped(contents.entries)
         save()
         return entry
     }
@@ -129,11 +148,14 @@ public final class RemoteMemoryStore {
     public func forget(id: Int) -> Entry? {
         guard let index = contents.entries.firstIndex(where: { $0.id == id }) else { return nil }
         let removed = contents.entries.remove(at: index)
+        // Recorded, because the publish below can no longer infer a deletion from an absence.
+        pendingRemovals.insert(FriendLedger.key(for: removed.text))
         save()
         return removed
     }
 
     public func forgetEverything() {
+        for entry in contents.entries { pendingRemovals.insert(FriendLedger.key(for: entry.text)) }
         contents = Contents()
         save()
     }
@@ -206,29 +228,64 @@ public final class RemoteMemoryStore {
     public func reload() { load() }
 
     private func load() {
-        guard let url, let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder.remoteMemory.decode(Contents.self, from: data)
-        else { return }
+        guard let store else { lastLoadSucceeded = true; return }
+        let result = store.loadWithOutcome()
+        // A quarantined file is the dangerous case and the one that had no branch at all: both
+        // `try?` swallowed, `contents` stayed empty, and the next mutation replaced the good file
+        // with an empty one and told the other device every memory had been deleted (S-F2). The
+        // deletion half is now impossible by construction — see `publishToLedger` — and this flag
+        // is the second layer: a store that could not read its own file has nothing trustworthy
+        // to say about what this device holds.
+        lastLoadSucceeded = result.outcome != .quarantined
+        guard let decoded = result.payload else { return }
         contents = decoded
+        // Enforce the cap here rather than only on write. `entryLimit` is the bound the prompt
+        // rests on, and it was applied in `remember` alone — so a file arriving from a settings
+        // import (`SettingsTransfer` ships this file wholesale) went into the system prompt at
+        // whatever size it happened to be (S-F18). In memory only: writing on load would mean a
+        // launch that mutates the file before the owner has done anything.
+        contents.entries = Self.capped(contents.entries)
     }
 
-    private func save() {
+    /// The newest `entryLimit` entries, ordered by id as the rest of the class expects.
+    ///
+    /// One function so `load`, `remember` and `adoptLedger` cannot disagree about which entries a
+    /// trim drops. The three had the same six lines written out three times.
+    private static func capped(_ entries: [Entry]) -> [Entry] {
+        guard entries.count > entryLimit else { return entries }
+        // Drop what has gone longest without being useful.
+        var kept = entries.sorted { ($0.lastApplied ?? $0.created) < ($1.lastApplied ?? $1.created) }
+        kept.removeFirst(kept.count - entryLimit)
+        return kept.sorted { $0.id < $1.id }
+    }
+
+    @discardableResult
+    private func save() -> Bool {
+        // Write first, publish second. The old order published and then wrote, so a state that
+        // failed to persist was still announced to the other device as this device's truth.
+        guard let store else {
+            // In-memory store (tests, or an unwritable support directory). There is nothing to
+            // fail, and the ledger half still has to work.
+            lastWriteSucceeded = true
+            if !isAdopting { publishToLedger() }
+            return true
+        }
+        let written = store.save(contents)
+        lastWriteSucceeded = written
+        guard written else {
+            // A companion that can't write a note is still a companion; losing the file must
+            // never take the conversation down with it. `VersionedStore.save` has already logged
+            // why, and `lastWriteSucceeded` is what the router reads.
+            return false
+        }
+        // The file on disk is now exactly what this object holds, whatever the load said.
+        lastLoadSucceeded = true
         // Publish beside every save rather than at each call site: a mutation added later
         // cannot forget to, which is exactly how a ledger quietly stops matching its store.
         // Guarded against re-entry because `adoptLedger` saves too, and publishing what we
         // just adopted would restate every record and start a push ping-pong.
         if !isAdopting { publishToLedger() }
-        guard let url else { return }
-        do {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let data = try JSONEncoder.remoteMemory.encode(contents)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            // A companion that can't write a note is still a companion; losing
-            // the file must never take the conversation down with it.
-            remoteLog.error("Couldn't save remote memory: \(error.localizedDescription, privacy: .public)")
-        }
+        return true
     }
 
     // MARK: - Crossing devices
@@ -246,11 +303,29 @@ public final class RemoteMemoryStore {
 
     /// Record the current entries in the ledger, so the other device can see them.
     ///
-    /// Called after every change. Entries that have vanished since the last publish become
-    /// tombstones rather than simply disappearing: an absence is indistinguishable from "this
-    /// device never heard about it", so without this a forget would be undone by the other
-    /// device pushing the memory straight back.
+    /// Called after every change. A memory the owner **forgot** becomes a tombstone rather than
+    /// simply disappearing: an absence is indistinguishable from "this device never heard about
+    /// it", so without a record a forget would be undone by the other device pushing the memory
+    /// straight back.
+    ///
+    /// **Only a recorded forget tombstones.** This used to tombstone every ledger record with no
+    /// matching live entry, which reads as "publish the truth" and is not: an absence has at
+    /// least three causes, and only one of them is a deletion. A file that failed to load left
+    /// the store empty and tombstoned everything, for 180 days, on the other device too. A local
+    /// capacity trim tombstoned whatever it dropped, broadcasting a decision about this device's
+    /// prompt budget as the owner deleting a memory (S-F2, S-F18).
+    ///
+    /// So `forget`, `forgetEverything` and nothing else put a key in `pendingRemovals`, and this
+    /// consumes it. A record that is simply absent is now left exactly as it is, which is
+    /// recoverable: the next `adoptLedger` brings it back.
     func publishToLedger(now: Date = Date()) {
+        guard lastLoadSucceeded else {
+            remoteLog.error("""
+                not publishing the friend's memories: this device could not read its own store, \
+                so it has nothing trustworthy to say about them.
+                """)
+            return
+        }
         var ledger = self.ledger
         let live = Dictionary(contents.entries.map { (FriendLedger.key(for: $0.text), $0) },
                               uniquingKeysWith: { _, latest in latest })
@@ -271,12 +346,14 @@ public final class RemoteMemoryStore {
                 created: entry.created, removed: false, removedAt: nil, statedAt: now)
         }
 
-        for (key, var record) in records where !record.removed && live[key] == nil {
+        for key in pendingRemovals {
+            guard var record = records[key], !record.removed else { continue }
             record.removed = true
             record.removedAt = now
             record.statedAt = now
             records[key] = record
         }
+        pendingRemovals.removeAll()
 
         ledger.memories = records.values.sorted { $0.key < $1.key }
         self.ledger = ledger
@@ -324,12 +401,7 @@ public final class RemoteMemoryStore {
         guard changed else { return false }
         isAdopting = true
         defer { isAdopting = false }
-        contents.entries = byKey.values.sorted { $0.id < $1.id }
-        if contents.entries.count > Self.entryLimit {
-            contents.entries.sort { ($0.lastApplied ?? $0.created) < ($1.lastApplied ?? $1.created) }
-            contents.entries.removeFirst(contents.entries.count - Self.entryLimit)
-            contents.entries.sort { $0.id < $1.id }
-        }
+        contents.entries = Self.capped(byKey.values.sorted { $0.id < $1.id })
         save()
         return true
     }

@@ -50,8 +50,16 @@ public final class MusicEqualizer {
     /// which running the suite would otherwise overwrite.
     @ObservationIgnored private let defaults: UserDefaults
 
-    /// `.standard` in production; a unique throwaway suite per instance in the test environment.
-    public static func defaultStore(environment: BatonEnvironment = .current) -> UserDefaults {
+    /// The probe suite under a `-baton.defaultsSuite` launch; a unique throwaway suite per
+    /// instance in the test environment; `.standard` otherwise.
+    ///
+    /// `redirect` is a parameter only so a test can resolve the probe branch without being
+    /// launched as a probe; every caller in the app takes the default.
+    public static func defaultStore(environment: BatonEnvironment = .current,
+                                    redirect: BatonStorage.Redirect = BatonStorage.current) -> UserDefaults {
+        // Probe first, for the reason spelled out on `StreamingPlaybackController.defaultStore`:
+        // a probe used to read and overwrite the owner's real EQ curve (M-F1).
+        if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }
         guard environment.isTesting else { return .standard }
         return UserDefaults(suiteName: "io.tonebox.tests.eq.\(UUID().uuidString)") ?? .standard
     }

@@ -89,13 +89,23 @@ struct MusicFriendSettingsView: View {
                     await unlockSecrets()
                 }
             }
-            TextField("Model", text: $config.model)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            TextField("API base URL", text: $config.baseURL)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            // `LabeledContent`, matching the Transcription section next door. These were
+            // plain fields using their label as a placeholder, and the provider defaults
+            // fill both — so in practice they were two rows of raw values with nothing
+            // saying what either one was (I-F15).
+            LabeledContent("Model") {
+                TextField("claude-haiku-4-5", text: $config.model)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            LabeledContent("API base URL") {
+                TextField("https://host/v1", text: $config.baseURL)
+                    .keyboardType(.URL)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
         } header: {
             Text(config.route == .gateway ? "Model provider (fallback)" : "Model provider")
         } footer: {

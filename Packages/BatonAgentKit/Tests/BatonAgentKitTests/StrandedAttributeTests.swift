@@ -16,20 +16,42 @@ import XCTest
 /// reads correctly top to bottom, and only the *order* of two blocks is wrong. So this reads
 /// the sources instead.
 ///
-/// The rule is textual and deliberately narrow — an attribute alone on a line, with a doc
-/// comment as the next thing after it. A doc comment always documents the declaration below
-/// it, so an attribute sitting above one is either stranded (this bug) or, at best, written
-/// on the wrong side of the documentation and one insert away from becoming this bug.
+/// The rule is textual and deliberately narrow — an attribute alone on a line, with a comment
+/// as the next thing after it. A comment above a declaration documents that declaration, so an
+/// attribute sitting above one is either stranded (this bug) or, at best, written on the wrong
+/// side of the documentation and one insert away from becoming this bug.
+///
+/// It used to scan only `Sources/BatonAgentKit`: 19 files of the 316 this repo compiles, on the
+/// argument that the bug had been found there. Running its own rule over the whole tree turned
+/// up two more, both in `BatonPlaybackKit` and both of the "one insert away" kind — in
+/// `StreamingPlaybackController` an insert had already happened and the doc comment for
+/// `resolveStreamURL` was left describing `resolveDownloadURL`. A guard that reads 6% of the
+/// code is not a guard; it is a record of where somebody last looked. (TBX-5317, S-F25)
 final class StrandedAttributeTests: XCTestCase {
     /// `@Name` or `@Name(...)`, alone on the line. Anything else on the line means the
     /// attribute is already part of a complete declaration and cannot drift.
+    ///
+    /// The parenthesised part is `\(.*\)` rather than `\([^)]*\)` because attribute arguments
+    /// nest: `@available(*, deprecated, message: "use foo(bar:)")` closes an inner paren and the
+    /// non-nesting form stopped matching at it, so exactly the attributes with the most to say
+    /// were the ones exempt from the rule.
     private static let attributeOnly = try! NSRegularExpression(
-        pattern: #"^@[A-Za-z_][A-Za-z0-9_]*(\([^)]*\))?$"#)
+        pattern: #"^@[A-Za-z_][A-Za-z0-9_]*(\(.*\))?$"#)
+
+    /// Any comment, not just `///`. A `//` line or a `/** */` block between an attribute and a
+    /// declaration strands it identically; Swift skips all three. Neither form appears in the
+    /// tree today, so widening this costs nothing now and covers the next one.
+    private static func isComment(_ line: String) -> Bool {
+        line.hasPrefix("//") || line.hasPrefix("/*")
+    }
 
     func testNoAttributeIsSeparatedFromItsDeclarationByADocComment() throws {
         let sources = try Self.swiftSources()
-        XCTAssertGreaterThan(sources.count, 10,
-                             "Found almost no sources — the path below has moved, not the problem gone")
+        // 316 files as of 2026-09-09. The old bound was 10, which the single-package scan met
+        // with 19 — so the number is only useful if it is close enough to the truth to notice a
+        // source root going missing.
+        XCTAssertGreaterThan(sources.count, 200,
+                             "Found \(sources.count) sources — a source root has moved, not the problem gone")
 
         var offences: [String] = []
         for url in sources {
@@ -44,10 +66,10 @@ final class StrandedAttributeTests: XCTestCase {
                     next += 1
                 }
                 guard next < lines.count,
-                      lines[next].trimmingCharacters(in: .whitespaces).hasPrefix("///") else { continue }
+                      Self.isComment(lines[next].trimmingCharacters(in: .whitespaces)) else { continue }
 
                 offences.append("\(url.lastPathComponent):\(index + 1): \(attribute) is followed by "
-                                + "a doc comment, so it binds to whatever that comment documents")
+                                + "a comment, so it binds to whatever that comment documents")
             }
         }
 
@@ -55,17 +77,45 @@ final class StrandedAttributeTests: XCTestCase {
             + "\n\nMove the attribute so it touches its own declaration.")
     }
 
-    /// Every `.swift` file in this package's sources.
+    /// Every `.swift` file this repository ships, across all five source trees.
+    ///
+    /// Test sources are excluded on purpose: a test that plants the very shape being banned, in
+    /// order to prove the rule fires, must not fail the rule. Nothing else is excluded, and a
+    /// root that stops existing is caught by the count assertion above rather than passing
+    /// quietly as zero files.
     private static func swiftSources() throws -> [URL] {
-        // …/Tests/BatonAgentKitTests/StrandedAttributeTests.swift → …/Sources/BatonAgentKit
-        let sources = URL(fileURLWithPath: #filePath)
+        // …/Packages/BatonAgentKit/Tests/BatonAgentKitTests/StrandedAttributeTests.swift → repo
+        let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()      // BatonAgentKitTests
             .deletingLastPathComponent()      // Tests
             .deletingLastPathComponent()      // BatonAgentKit (package root)
-            .appendingPathComponent("Sources/BatonAgentKit")
-        let found = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)?
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
-        return try XCTUnwrap(found, "Couldn't enumerate \(sources.path)")
+            .deletingLastPathComponent()      // Packages
+            .deletingLastPathComponent()      // repository root
+
+        let fm = FileManager.default
+        var roots: [URL] = []
+        // Every package's Sources, discovered rather than listed, so a package added later is
+        // covered without anyone remembering this file.
+        let packages = repo.appendingPathComponent("Packages")
+        for entry in (try? fm.contentsOfDirectory(at: packages, includingPropertiesForKeys: nil)) ?? [] {
+            let sources = entry.appendingPathComponent("Sources")
+            if fm.fileExists(atPath: sources.path) { roots.append(sources) }
+        }
+        // The four trees outside Packages: files both apps compile, the gateway, and the three
+        // app targets. `watch` is here too, parked or not, since it compiles the shared code.
+        for path in ["Shared", "gateway/Sources", "app/Sources", "ios/Sources", "watch"] {
+            let url = repo.appendingPathComponent(path)
+            if fm.fileExists(atPath: url.path) { roots.append(url) }
+        }
+        XCTAssertFalse(roots.isEmpty, "No source root exists under \(repo.path)")
+
+        var found: [URL] = []
+        for root in roots {
+            let enumerated = fm.enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" }
+            found += try XCTUnwrap(enumerated, "Couldn't enumerate \(root.path)")
+        }
+        return found.filter { !$0.path.contains("/Tests/") }
     }
 }

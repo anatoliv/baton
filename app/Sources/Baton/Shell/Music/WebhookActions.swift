@@ -215,6 +215,32 @@ enum WebhookTemplate {
 final class WebhookActionStore {
     private(set) var actions: [WebhookAction] = []
 
+    /// The Keychain status behind an unreadable secret store, or nil when it answered.
+    ///
+    /// While this is set the store **writes nothing**. A locked Keychain used to be silently
+    /// fatal here: `secret(for:)` returned nil, `?? ""` turned the header value into an empty
+    /// string, and the next `persist()` — fired by any edit, rename, reorder or delete of any
+    /// action — wrote that empty string back through a `SecretStore` that deletes on empty. So
+    /// the one state in which the secrets could not be read was the state in which they were
+    /// destroyed. 0.18.1 shipped this exact fix on the Navidrome side (TBX-5268: "the old copy
+    /// is now kept until the new one is safely stored"); the webhook store still collapsed
+    /// `missing` and `unreadable` into `""`.
+    ///
+    /// Observable so the Actions pane can raise `KeychainLockedBanner` rather than leaving the
+    /// user with headers that look blank and edits that look saved.
+    private(set) var secretsUnreadable: Int32?
+
+    /// The header-secret keys the persisted list last held, so `persist()` can delete the ones
+    /// that dropped out. Without it a header removed from an action left its Keychain item
+    /// behind for ever, under a UUID nothing in the app could name again.
+    ///
+    /// This lives here rather than in `delete(_:)` because a header can leave an action without
+    /// the action leaving: renaming, reordering and editing all go through `persist()`, and
+    /// only the diff sees them. It is deliberately downstream of the `secretsUnreadable` guard
+    /// above — a diff computed against values that could not be read is the "delete everything"
+    /// version of this feature.
+    private var persistedSecretKeys: Set<String> = []
+
     private let defaults: UserDefaults
     private let secrets: any SecretStore
     private let storageKey = "tonebox.webhookActions"
@@ -268,8 +294,9 @@ final class WebhookActionStore {
     }
 
     func delete(_ action: WebhookAction) {
-        // Remove the action's header secrets from the store so nothing is stranded.
-        for header in action.headers { secrets.setSecret(nil, for: Self.secretKey(header)) }
+        // The action's header secrets go with it, but through `persist()`'s diff rather than a
+        // loop here: a header can also leave an action while the action stays, and two places
+        // that delete Keychain items are two places to get the locked-Keychain guard wrong.
         actions.removeAll { $0.id == action.id }
         persist()
     }
@@ -322,18 +349,43 @@ final class WebhookActionStore {
     // MARK: Persistence
 
     private func load() {
+        secretsUnreadable = nil
         guard let data = defaults.data(forKey: storageKey),
               var decoded = try? JSONDecoder().decode([WebhookAction].self, from: data) else { return }
-        // Re-inject each header's secret value from the secret store (blanked in the plaintext JSON).
+        // Re-inject each header's secret value from the secret store (blanked in the plaintext
+        // JSON), asking *why* rather than only *what*: an absent secret and a Keychain that
+        // will not answer both read as nil, and only one of them means the value is gone.
         for i in decoded.indices {
             for j in decoded[i].headers.indices {
-                decoded[i].headers[j].value = secrets.secret(for: Self.secretKey(decoded[i].headers[j])) ?? ""
+                let key = Self.secretKey(decoded[i].headers[j])
+                switch secrets.availability(for: key) {
+                case .present:
+                    decoded[i].headers[j].value = secrets.secret(for: key) ?? ""
+                case .missing:
+                    decoded[i].headers[j].value = ""
+                case let .unreadable(status):
+                    // The blank stays — there is nothing to show — but the store now knows the
+                    // blank is ignorance rather than emptiness, and will not write it back.
+                    decoded[i].headers[j].value = ""
+                    secretsUnreadable = status
+                }
             }
         }
         actions = decoded
+        persistedSecretKeys = Set(decoded.flatMap { $0.headers.map(Self.secretKey) })
     }
 
     private func persist() {
+        // Nothing is written while the secrets could not be read. Every header value in memory
+        // is a blank we invented, and writing blanks through `SecretStore` deletes the items.
+        if let status = secretsUnreadable {
+            webhookLog.error("""
+                Not saving webhook actions: the secret store refused to read \
+                (\(status, privacy: .public)). Writing back the blank header values would \
+                delete the stored secrets.
+                """)
+            return
+        }
         // Move header values into the secret store and persist the list with them blanked, so an
         // auth token in a header never lands in the cleartext defaults plist.
         var sanitized = actions
@@ -346,6 +398,13 @@ final class WebhookActionStore {
         }
         guard let data = try? JSONEncoder().encode(sanitized) else { return }
         defaults.set(data, forKey: storageKey)
+
+        // Only now, with the survivors safely written, delete the ones that dropped out.
+        let live = Set(actions.flatMap { $0.headers.map(Self.secretKey) })
+        for stranded in persistedSecretKeys.subtracting(live) {
+            secrets.setSecret(nil, for: stranded)
+        }
+        persistedSecretKeys = live
     }
 }
 
@@ -540,6 +599,19 @@ struct BatonActionsPane: View {
 
     var body: some View {
         Form {
+            // Same banner Settings raises for a locked Keychain on the Servers pane, for the
+            // same reason: the headers below will look blank, and nothing else on this screen
+            // would say why. While it is up, edits are not saved — which is the honest trade,
+            // because saving them would delete the secrets that cannot currently be read.
+            if let status = store.secretsUnreadable {
+                Section {
+                    KeychainLockedBanner(status: status)
+                    Text("Header values are hidden and changes to your actions are not being "
+                        + "saved while this lasts. Nothing has been lost.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Section("Webhook Actions") {
                 if store.actions.isEmpty {
                     Text("No actions yet. Add one to send a media item to an HTTP endpoint — "

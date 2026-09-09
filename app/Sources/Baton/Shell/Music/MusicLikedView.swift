@@ -328,6 +328,29 @@ struct MusicCollectionView: View {
     private var selectedArtists: [NavidromeArtist] { artists.filter { sel.contains($0.id) } }
     private var segmentIsEmpty: Bool { segmentOrderedIDs.isEmpty }
 
+    /// Whether the header should draw anything beyond the title and the field.
+    ///
+    /// Search opened on "Songs 0 / Albums 0 / Artists 0" chips, a mini transport, a sort
+    /// control and a filter menu, all sitting above the words "Search your library — type a
+    /// query and press return". Sort what, exactly. Every other browse screen already hides
+    /// its header when there is nothing under it: Clippings shows its empty state instead of
+    /// the header, and Later does the same.
+    ///
+    /// Keyed on a query having been *submitted*, not on the field having text: in search mode
+    /// the field is a server query that runs on return, so the chrome must not flicker in
+    /// while somebody is still typing. And not on the result count either — a search that
+    /// honestly returned nothing still wants its controls, because the next thing you do is
+    /// change the sort or the segment and look again.
+    private var showsChrome: Bool {
+        Self.showsChrome(searchMode: searchMode, submittedQuery: submittedQuery)
+    }
+
+    /// The rule on its own, so it has a test. Static and pure: the view around it needs a
+    /// window and a model, and the rule needs neither.
+    static func showsChrome(searchMode: Bool, submittedQuery: String) -> Bool {
+        !searchMode || !submittedQuery.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     private func ratingFor(_ song: NavidromeSong) -> Int { library.rating(song) }
 
     /// Always shown, Liked included.
@@ -393,7 +416,7 @@ struct MusicCollectionView: View {
         VStack(spacing: 0) {
             MusicBrowseHeader(
                 title: title,
-                count: segmentOrderedIDs.count,
+                count: showsChrome ? segmentOrderedIDs.count : nil,
                 filter: $filterText,
                 filterPrompt: filterPrompt,
                 filterOnSubmit: searchMode ? {
@@ -408,13 +431,17 @@ struct MusicCollectionView: View {
                 filterHistoryKey: searchMode ? "search" : "liked",
                 layout: $layout,
                 accessory: {
-                    HStack(spacing: 12) {
-                        Divider().frame(height: 20)
-                        segmentPills
+                    if showsChrome {
+                        HStack(spacing: 12) {
+                            Divider().frame(height: 20)
+                            segmentPills
+                        }
                     }
                 },
                 leading: {
-                    if sel.isEmpty {
+                    if !showsChrome {
+                        EmptyView()
+                    } else if sel.isEmpty {
                         MusicMiniTransport(onPlayWhenIdle: { play(shuffle: false) })
                         if !segmentIsEmpty { collectionMenu }
                         if !segmentIsEmpty {
@@ -436,9 +463,11 @@ struct MusicCollectionView: View {
                     }
                 },
                 sortMenu: {
-                    HStack(spacing: 8) {
-                        filterMenu
-                        MusicSortControls(ascending: $sortAscending, selection: $sort)
+                    if showsChrome {
+                        HStack(spacing: 8) {
+                            filterMenu
+                            MusicSortControls(ascending: $sortAscending, selection: $sort)
+                        }
                     }
                 }
             )

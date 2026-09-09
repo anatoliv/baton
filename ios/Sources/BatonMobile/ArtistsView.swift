@@ -36,7 +36,12 @@ struct ArtistsView: View {
                 // nowhere.
                 .overlay {
                     if !query.isEmpty, filtered.isEmpty, model.musicLibrary.lastError == nil {
+                        // Same frame and opaque ground `contentState` gives its placeholder.
+                        // Without them the search-empty view drew straight over the rows at
+                        // accessibility text sizes and both were unreadable.
                         ContentUnavailableView.search(text: query)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(.background)
                     }
                 }
                 .contentState(
@@ -340,12 +345,12 @@ struct GenresView: View {
         .searchKeyboardDismissal()
         .navigationTitle("Genres")
         .navigationBarTitleDisplayMode(.inline)
-        .overlay {
-            if useful.isEmpty {
-                ContentUnavailableView("No genres", systemImage: "guitars",
-                                       description: Text("Your server hasn't reported any genres worth browsing by."))
-            }
-        }
+        .contentState(
+            useful.isEmpty ? .empty : .content,
+            emptyTitle: "No genres",
+            emptyMessage: "Your server hasn't reported any genres worth browsing by.",
+            emptySymbol: "guitars"
+        )
         .task { await model.musicLibrary.loadGenres() }
         .refreshable { await model.musicLibrary.loadGenres() }
     }

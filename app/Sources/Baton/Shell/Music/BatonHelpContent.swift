@@ -316,19 +316,97 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.0",
+            date: "September 2026",
+            highlight: "Baton moves to batonmusic.app, the Friend Log shows what the music friend remembers, and a long list of things that used to fail quietly now say so.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "The Friend Log has a new section, What it remembers: everything the "
+                    + "music friend has been told about you, each with the sentence you said it "
+                    + "in, and a button to forget any one of them. Settings, Remote says how "
+                    + "many memories are stored and asks before deleting them all."),
+                HelpWhatsNewChange(.added,
+                    "The Mac now picks up a queue your iPhone left off, the way the iPhone "
+                    + "already picks up the Mac's."),
+                HelpWhatsNewChange(.added,
+                    "Scrobbling settings show how many plays are waiting to be sent, with a "
+                    + "Send now button. Plays held back while a service is down now go out on "
+                    + "their own when the wait is over."),
+                HelpWhatsNewChange(.added,
+                    "The Go menu lists every section, including Clippings and Folders, so "
+                    + "hiding one from the sidebar no longer puts it out of reach."),
+                HelpWhatsNewChange(.improved,
+                    "Baton's home is now batonmusic.app, and new copies check for updates "
+                    + "there. Copies already installed keep using the old address, which stays "
+                    + "working."),
+                HelpWhatsNewChange(.improved,
+                    "Settings, Help, About and the connect screen follow your Light or Dark "
+                    + "choice the way the library window already did, and choosing Light now "
+                    + "gives you a light window."),
+                HelpWhatsNewChange(.improved,
+                    "Every playback control on the browse and detail screens announces itself "
+                    + "to VoiceOver instead of reading out its icon name."),
+                HelpWhatsNewChange(.fixed,
+                    "Shared settings on your home gateway that cannot be read are now left "
+                    + "alone instead of replaced, so a bad sync can no longer wipe podcast "
+                    + "subscriptions, the music friend's memories or your clippings on your "
+                    + "other device. Those settings also survive an update of the gateway "
+                    + "itself."),
+                HelpWhatsNewChange(.fixed,
+                    "A music friend memory file that cannot be read is kept aside for "
+                    + "recovery rather than replaced, its memories are no longer deleted from "
+                    + "your other device, and the friend now says so when a memory could not be "
+                    + "saved."),
+                HelpWhatsNewChange(.fixed,
+                    "Your play queue, your Later list and your saved servers survive a "
+                    + "damaged file: whatever can be read is kept, a backup is written "
+                    + "alongside, and nothing is overwritten by a version of Baton that cannot "
+                    + "read it. Listening history keeps lines it cannot read instead of erasing "
+                    + "them."),
+                HelpWhatsNewChange(.fixed,
+                    "Baton no longer creates a second playlist, adds the same tracks twice or "
+                    + "counts one play twice when the connection drops at the wrong moment."),
+                HelpWhatsNewChange(.fixed,
+                    "When a screen cannot load it says why instead of showing an empty album "
+                    + "or empty rows. A locked keychain says the keychain is locked rather than "
+                    + "that no server is configured, and Podcasts and Radio report a rejected "
+                    + "sign-in the same way every other screen does."),
+                HelpWhatsNewChange(.fixed,
+                    "Podcast episodes stored on your server are no longer scrobbled to "
+                    + "Last.fm or ListenBrainz as music, and a play those services refuse "
+                    + "because the account needs reconnecting is no longer retried forever."),
+                HelpWhatsNewChange(.fixed,
+                    "A webhook action's saved header values survive a locked keychain, and "
+                    + "removing a header removes its saved value instead of leaving it behind. "
+                    + "The MCP configuration block hides the access token until you reveal it."),
+                HelpWhatsNewChange(.fixed,
+                    "Smaller dead ends: the no server bar goes away once you connect, "
+                    + "connecting for the first time clears a queue left over from another "
+                    + "server, a baton link that cannot be opened says why, the Speech pane "
+                    + "says a voice server is not set up rather than unreachable, Search waits "
+                    + "until you have searched before showing its controls, the mini player "
+                    + "shows when playback has failed, and the play queue is never shared "
+                    + "through the public demo server."),
+                HelpWhatsNewChange(.fixed,
+                    "Crash reports, when you have turned them on, now have file paths and "
+                    + "machine details stripped from every part of the report rather than only "
+                    + "some of it."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.18.1",
             date: "September 2026",
             highlight: "Baton now says when it cannot read your saved passwords, instead of looking empty.",
             changes: [
                 HelpWhatsNewChange(.fixed,
                     "A locked keychain used to look exactly like having no password saved. "
-                    + "Baton would sign in with nothing, show an empty library, and give you no "
-                    + "reason why. It now tells you the keychain is locked and that re-entering "
-                    + "your password will not help, because it will not."),
+                    + "Baton signed in with nothing and showed an empty library, with no hint of "
+                    + "why. It now says the keychain is locked, and that typing your password in "
+                    + "again will not fix it."),
                 HelpWhatsNewChange(.fixed,
                     "Reading a password saved by a much older version of Baton could delete it "
-                    + "if the keychain happened to be locked at the time. The old copy is now "
-                    + "kept until the new one is safely stored."),
+                    + "if the keychain was locked at the time. The old copy is now kept until "
+                    + "the new one is safely stored."),
             ]
         ),
         HelpWhatsNewRelease(
@@ -1439,7 +1517,7 @@ extension HelpWhatsNewRelease {
                         + "written from real setups: the Discord intent that silently breaks "
                         + "everything when missed, the exact invite permissions and why so few, "
                         + "and why a Telegram group bot ignores unprefixed messages. In this "
-                        + "Help window and at baton.tonebox.io."
+                        + "Help window and at batonmusic.app."
                 ),
             ]
         ),

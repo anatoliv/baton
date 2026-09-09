@@ -44,8 +44,40 @@ struct MiniPlayerWindowView: View {
     /// Contrast-corrected dynamic accent for the scrubber/volume fills + active state.
     private var accent: Color { paletteLoader.palette.uiAccent }
 
+    /// The player's last playback error, if the transport is in an error state.
+    ///
+    /// Same computed property as `NowPlayingBar`, deliberately identically spelled: the two
+    /// windows must not disagree about whether playback failed. The mini player had none, so
+    /// someone working from it pressed play, nothing happened, and the only explanation was in
+    /// a window they had closed (shots `32-miniplayer.jpg` against `30-closed-fs.jpg`, the
+    /// same instant, one showing the banner and one showing a clean, playable card).
+    private var playerError: String? {
+        if case let .error(message) = player.state { return message }
+        return nil
+    }
+
+    /// The error strip, compact enough for a 320pt panel: a glyph, the reason on one line, and
+    /// Retry. No Skip button — the main bar has room for two and this does not, and Retry is
+    /// the one that recovers a transient stall.
+    @ViewBuilder private var errorRow: some View {
+        if let playerError {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(playerError).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 4)
+                Button("Retry") { player.retryCurrent() }.buttonStyle(.link)
+            }
+            .font(.caption)
+            .foregroundStyle(Color.warningTint)
+            .help(playerError)
+            .accessibilityElement(children: .combine)
+            .transition(.opacity)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 10) {
+            errorRow
             header
 
             // The scrubber renders its own elapsed / −remaining time labels. Radio has no
@@ -199,6 +231,7 @@ struct MiniPlayerWindowView: View {
         }
         .buttonStyle(.plain)
         .help(expanded ? "Show less" : "Show volume, rating & Up Next")
+        .accessibilityLabel(expanded ? "Show less" : "Show more")
     }
 
     /// Open the full Music window and close the mini player.
@@ -276,6 +309,7 @@ struct MiniPlayerWindowView: View {
             }
             .buttonStyle(.plain)
             .help(liked ? "Unlike" : "Like")
+            .accessibilityLabel(liked ? "Unlike" : "Like")
         }
     }
 
@@ -290,6 +324,7 @@ struct MiniPlayerWindowView: View {
         }
         .buttonStyle(.plain)
         .help("Return to full player")
+        .accessibilityLabel("Return to full player")
     }
 
     @ViewBuilder

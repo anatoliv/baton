@@ -91,12 +91,32 @@ public final class SearchRecents {
 
     /// Re-read from disk — call after a sync has merged in another device's entries.
     public func reload() {
-        if let data = defaults.data(forKey: Self.storageKey),
-           let saved = try? JSONDecoder().decode([Entry].self, from: data) {
-            all = saved
-        } else {
-            all = []
-        }
+        all = Self.decodeList(defaults.data(forKey: Self.storageKey))
+    }
+
+    /// Decode a stored list, skipping any element this build cannot read.
+    ///
+    /// `Entry`'s decoder was hand-written so older fields survive, and then `kind` stayed strict:
+    /// `try c.decode(Kind.self, forKey: .kind)`. Add a `Kind` case on the phone and the Mac's
+    /// **whole array** decode throws, because an array decode is all-or-nothing. The list emptied,
+    /// the next `record()` persisted the empty list over the good one, and in `mergedValue` the
+    /// remote blob decoded to `[]` as well, so the merge pushed this device alone and took the
+    /// phone's entries out of the shared document too (S-F27).
+    ///
+    /// One row nobody can draw yet is a small loss. Every row on both devices is not.
+    ///
+    /// Shared by `reload` and `PreferenceSync.mergedValue` deliberately: two call sites decoding
+    /// the same bytes by two different rules is how one of them would keep the old behaviour.
+    public static func decodeList(_ data: Data?) -> [Entry] {
+        guard let data else { return [] }
+        guard let lenient = try? JSONDecoder().decode([Skippable].self, from: data) else { return [] }
+        return lenient.compactMap(\.entry)
+    }
+
+    /// One element of a stored list, which may be one this build does not understand.
+    private struct Skippable: Decodable {
+        let entry: Entry?
+        init(from decoder: Decoder) throws { entry = try? Entry(from: decoder) }
     }
 
     /// Point at a different server (sign-in, or switching servers).

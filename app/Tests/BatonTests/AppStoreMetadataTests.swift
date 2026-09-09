@@ -32,9 +32,11 @@ final class AppStoreMetadataTests: XCTestCase {
     ///
     /// Measured 2026-09-07 by the same `git grep` this test runs. The gap is what makes this
     /// a discriminator rather than a round number: the lowest-scoring keyword actually in the
-    /// field is `flac` at 27 (`self-hosted` 33, `opensubsonic` 35, `airplay` 52, `radio` 451),
-    /// while every term that had to be rejected scores 7 or less — `ampache` 2, `airsonic` 3,
-    /// `nas` 2, `opus` 7, `sonos` 7. Fifteen sits in open space between 7 and 27.
+    /// field is `flac` at 27 (`self-hosted` 33, `airplay` 52, `radio` 451), while every term
+    /// that had to be rejected scores 7 or less: `ampache` 2, `airsonic` 3, `nas` 2, `opus` 7,
+    /// `sonos` 7. Fifteen sits in open space between 7 and 27. (`opensubsonic`, 35, was in the
+    /// keyword field when those numbers were taken. It has since moved into the subtitle,
+    /// where `testNoKeywordRepeatsTheNameOrSubtitle` would now reject it as a keyword.)
     ///
     /// **Two corrections, both of which had made an earlier version of this check weaker than
     /// it looked.** The first draft counted substrings, so `ogg` scored 650 on `toggle` and
@@ -59,10 +61,10 @@ final class AppStoreMetadataTests: XCTestCase {
     /// staying for now.
     ///
     /// **Empty, because the debt is paid.** It held `navidrome`, `subsonic`, `music` and
-    /// `player` — 28 characters plus separators, about a third of a hard 100-byte field,
+    /// `player`: 28 characters plus separators, about a third of a hard 100-byte field,
     /// bought twice, since Apple pools the three fields and recombines terms across them.
-    /// They are gone from the desired keywords and ship at the next release; the
-    /// live listing still carries them, which is what `_live` in the metadata file records.
+    /// They are gone from the desired keywords, and since the 2026-09-07 push they
+    /// are gone from `_live` too, so the live listing no longer carries them either.
     ///
     /// Leave it empty unless a repeat genuinely has to stay. An entry here is visible debt,
     /// and the test fails both when an unrecorded repeat appears and when an entry outlives

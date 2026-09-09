@@ -372,15 +372,20 @@ struct MobileSettingsView: View {
                     gapless and crossfade are skipped, so track changes are plain cuts. \
                     It applies straight away, to whatever is playing.
                     """)
+                }
 
                 // The iPhone half of Stage 6. iOS has no per-app energy API, so
                 // the comparable number is the app's own CPU time per second of audio —
                 // the mechanism behind the cost, since the engine decodes in-process where
                 // the system player hands the work off. Flip the switch above, play for the
                 // same stretch each way, and read this.
+                //
+                // This whole section used to sit *inside* the `footer:` closure above, one
+                // brace too deep. A `Section` inside a footer's ViewBuilder is silently
+                // dropped, so `EngineCPUCostRow` shipped as dead code and the measurement it
+                // exists for was never once on screen.
                 Section("Engine cost") {
                     EngineCPUCostRow(model: model)
-                }
                 }
 
                 transcriptionSection
@@ -575,10 +580,14 @@ struct MobileSettingsView: View {
             // The recognizer host is checked on the same terms as the music server: a saved
             // address that was never contacted is a setting, not a working feature.
             .task(id: SpeechConfig.whisperBaseURL) { await checkWhisper() }
-            .sheet(isPresented: $showsWhatsNew) { WhatsNewView() }
+            // Marked on dismissal however it was dismissed, the same as the automatic sheet
+            // in `RootTabView` — a swipe closes a sheet just as much as the Done button does.
+            .sheet(isPresented: $showsWhatsNew, onDismiss: { WhatsNewView.markShown() }) {
+                WhatsNewView()
+            }
             .sheet(isPresented: $showsHelp) { HelpView() }
             .sheet(isPresented: $showsPrivacyPolicy) {
-                SafariView(url: URL(string: "https://baton.tonebox.io/privacy.html")!)
+                SafariView(url: URL(string: "https://batonmusic.app/privacy.html")!)
                     .ignoresSafeArea()
             }
             .confirmationDialog(

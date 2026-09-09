@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 
 private let storageLog = Logger(subsystem: "io.tonebox.baton", category: "BatonStorage")
 

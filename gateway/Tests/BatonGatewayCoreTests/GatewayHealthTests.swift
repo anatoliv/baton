@@ -195,6 +195,11 @@ final class GatewayHealthTests: XCTestCase {
 
     /// A command that arrives with nobody parked is queued and handed to the next poll — that
     /// path returns from a different branch of `awaitCommand`, and must still be counted.
+    ///
+    /// **The timing is explicit now** (TBX-5308, S-F12). This test used to let the second dispatch
+    /// expire and then collect its command anyway, which is the defect that card is about: a
+    /// command nobody is waiting for is dropped rather than played a minute later. So the dispatch
+    /// is left running while the poll collects it, which is the case the counter is really about.
     func testAQueuedCommandCollectedByTheNextPollIsCountedToo() async throws {
         let link = DeviceLink()
 
@@ -203,8 +208,12 @@ final class GatewayHealthTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(80))
             _ = await link.dispatch(name: "music_next", argumentsJSON: Data("{}".utf8), timeout: 0.3)
             _ = await warmUp
-            _ = await link.dispatch(name: "music_previous", argumentsJSON: Data("{}".utf8), timeout: 0.3)
+
+            async let dispatched: Void = { _ = await link.dispatch(
+                name: "music_previous", argumentsJSON: Data("{}".utf8), timeout: 1.0) }()
+            try? await Task.sleep(for: .milliseconds(80))
             _ = await link.awaitCommand(timeout: 0.5)    // takes the queued command immediately
+            await dispatched
             return true
         }
         XCTAssertEqual(ran, true, "a parked poll never came back")

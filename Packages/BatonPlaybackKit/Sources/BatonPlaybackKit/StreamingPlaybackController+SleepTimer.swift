@@ -8,15 +8,23 @@ import BatonSubsonicModels
 extension StreamingPlaybackController {
     // MARK: - Sleep timer
 
+    /// The longest sleep timer anyone can arm. Every UI call site picks from a fixed list well
+    /// inside this, but the MCP tool surface takes whatever number a client or a model sends,
+    /// and `minutes * 60` on a large one overflows and traps the whole app. The clamp lives
+    /// here rather than at the tool because there are five call sites and only one guarded it.
+    public static let maxSleepTimerMinutes = 24 * 60
+
     /// Pauses playback after `minutes` (nil/≤0 cancels). Clears any "after current
     /// track" timer. The countdown is exposed via `sleepTimerEndsAt` for the UI.
+    /// Values above `maxSleepTimerMinutes` are clamped to it.
     public func setSleepTimer(minutes: Int?) {
         sleepTimerTask?.cancel()
         sleepAfterCurrentTrack = false
-        guard let minutes, minutes > 0 else {
+        guard let requested = minutes, requested > 0 else {
             sleepTimerEndsAt = nil
             return
         }
+        let minutes = min(requested, Self.maxSleepTimerMinutes)
         sleepTimerEndsAt = Date().addingTimeInterval(TimeInterval(minutes) * 60)
         sleepTimerTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(minutes * 60))

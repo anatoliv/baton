@@ -14,6 +14,8 @@ struct HomeView: View {
     @State private var rediscover: [NavidromeAlbum] = []
     @State private var loaded = false
     @State private var showsSettings = false
+    /// The session the shelves on screen were fetched for. See `sessionIdentity`.
+    @State private var loadedIdentity: String?
 
     var body: some View {
         NavigationStack {
@@ -70,7 +72,21 @@ struct HomeView: View {
                 MobileSettingsView(model: model)
             }
             .refreshable { await load(force: true) }
-            .task { await load(force: false) }
+            // Keyed on the session, not bare.
+            //
+            // The tabs are built behind the setup cover, so a plain `.task` ran once before
+            // there was a server or a demo library to ask — both shelves came back empty,
+            // `loaded` was set, and nothing ever refetched. Home stayed one shelf over a
+            // screen of black until the app was relaunched or pulled to refresh, which is
+            // the first thing a new buyer and an App Review tester see. Keying on the
+            // identity of the session re-runs it the moment one begins: connected, entered
+            // the demo, or switched servers. Same pattern, and the same reason, as
+            // `MobileSettingsView`'s connection check.
+            .task(id: sessionIdentity) {
+                guard loadedIdentity != sessionIdentity else { return }
+                await load(force: true)
+                loadedIdentity = sessionIdentity
+            }
             .navigationDestination(for: NavidromeAlbum.self) { album in
                 AlbumDetailView(album: album, model: model)
             }
@@ -78,6 +94,20 @@ struct HomeView: View {
                 MixDetailView(mix: mix, model: model)
             }
         }
+    }
+
+    /// What counts as "a different session" for the purposes of refetching the shelves.
+    ///
+    /// Phase, demo mode and the server address, because any one of the three changing means
+    /// the shelves on screen were fetched from somewhere that is no longer the answer.
+    private var sessionIdentity: String {
+        Self.sessionIdentity(phase: "\(model.phase)", isDemoMode: model.isDemoMode,
+                             serverURL: NavidromeConfig.serverURLString)
+    }
+
+    /// Pure, so the rule can be checked without a running app.
+    static func sessionIdentity(phase: String, isDemoMode: Bool, serverURL: String) -> String {
+        "\(phase)|\(isDemoMode)|\(serverURL)"
     }
 
     private var greeting: String {
@@ -120,9 +150,10 @@ struct HomeView: View {
 /// A horizontal shelf of album covers.
 struct AlbumShelf: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// One shelf card size for every shelf. The album and song shelves hardcoded 142
     /// while the mix shelf asked `CardMetrics`, so iPad drew two card sizes side by side.
-    private var shelfSide: CGFloat { CardMetrics.shelfCard(sizeClass) }
+    private var shelfSide: CGFloat { CardMetrics.shelfCard(sizeClass, typeSize) }
     let title: String
     let albums: [NavidromeAlbum]
     let model: MobileModel
@@ -139,8 +170,8 @@ struct AlbumShelf: View {
                                     .frame(width: shelfSide, height: shelfSide)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
-                                Text(album.name).font(.subheadline.weight(.medium)).lineLimit(1)
-                                Text(album.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(album.name).font(.subheadline.weight(.medium)).lineLimit(2)
+                                Text(album.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(2)
                             }
                             .frame(width: shelfSide)
                         }
@@ -157,9 +188,10 @@ struct AlbumShelf: View {
 /// A horizontal shelf of songs — tap to play the shelf from that track.
 struct SongShelf: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// One shelf card size for every shelf. The album and song shelves hardcoded 142
     /// while the mix shelf asked `CardMetrics`, so iPad drew two card sizes side by side.
-    private var shelfSide: CGFloat { CardMetrics.shelfCard(sizeClass) }
+    private var shelfSide: CGFloat { CardMetrics.shelfCard(sizeClass, typeSize) }
     let title: String
     let songs: [NavidromeSong]
     let model: MobileModel
@@ -179,8 +211,8 @@ struct SongShelf: View {
                                     .frame(width: shelfSide, height: shelfSide)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
-                                Text(song.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                                Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(song.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                                Text(song.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(2)
                             }
                             .frame(width: shelfSide)
                         }
@@ -223,7 +255,8 @@ struct MixShelf: View {
 struct MixCard: View {
     let mix: MobileMix
     @Environment(\.horizontalSizeClass) private var sizeClass
-    private var side: CGFloat { CardMetrics.shelfCard(sizeClass) }
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private var side: CGFloat { CardMetrics.shelfCard(sizeClass, typeSize) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -248,8 +281,8 @@ struct MixCard: View {
             // middle of it.
             .contentShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: mix.tint.opacity(0.3), radius: 8, y: 3)
-            Text(mix.title).font(.subheadline.weight(.medium)).lineLimit(1)
-            Text(mix.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(mix.title).font(.subheadline.weight(.medium)).lineLimit(2)
+            Text(mix.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
         }
         .frame(width: side)
     }
@@ -335,13 +368,12 @@ struct MixDetailView: View {
         .listStyle(.plain)
         .navigationTitle(mix.title)
         .navigationBarTitleDisplayMode(.inline)
-        .overlay {
-            if loading { ProgressView() }
-            else if songs.isEmpty {
-                ContentUnavailableView("Nothing in this mix yet", systemImage: mix.icon,
-                                       description: Text("Play some music and it'll fill up."))
-            }
-        }
+        .contentState(
+            ContentDisplayState.resolve(isLoading: loading, error: nil, isEmpty: songs.isEmpty),
+            emptyTitle: "Nothing in this mix yet",
+            emptyMessage: "Play some music and it'll fill up.",
+            emptySymbol: mix.icon
+        )
         .task {
             songs = await mix.songs()
             loading = false

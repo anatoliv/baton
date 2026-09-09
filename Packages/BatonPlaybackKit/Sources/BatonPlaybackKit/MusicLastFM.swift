@@ -143,13 +143,22 @@ public final class MusicLastFM: ScrobbleDestination {
             let user = (json["user"] as? [String: Any])?["name"] as? String ?? ""
             return .valid(user: user)
         } catch let ScrobbleError.service(message) {
-            // 9 is "Invalid session key — please re-authenticate", 4 is authentication failed,
-            // 26 is a suspended API key. All three mean re-connecting, not waiting.
-            let isCredential = ["Last.fm 9:", "Last.fm 4:", "Last.fm 26:"].contains { message.hasPrefix($0) }
-            return isCredential ? .rejected : .failed(message)
+            return Self.isCredentialRejection(message) ? .rejected : .failed(message)
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    /// Whether a `ScrobbleError.service` message is Last.fm saying the credentials are the
+    /// problem: 9 is "Invalid session key, please re-authenticate", 4 is authentication
+    /// failed, 26 is a suspended API key. All three mean re-connecting, not waiting.
+    ///
+    /// One copy, because the connection badge and the retry queue have to agree. They did
+    /// not: `checkSession` knew these three meant "re-authenticate" while
+    /// `ScrobbleService.isTransient` filed every Last.fm error as retryable, so a revoked
+    /// session filled the queue to its cap and started dropping the oldest listens.
+    public static func isCredentialRejection(_ message: String) -> Bool {
+        ["Last.fm 4:", "Last.fm 9:", "Last.fm 26:"].contains { message.hasPrefix($0) }
     }
 
     // MARK: - Request + signing

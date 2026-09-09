@@ -75,6 +75,16 @@ or Docker it is `/`, so the file would land somewhere surprising or unwritable a
 settings would quietly vanish on every restart. Under a container, set it explicitly and put
 it on a mounted volume.
 
+`deploy/compose.yml` does exactly that: `BATON_STATE_FILE=/var/lib/baton-gateway/baton-state.json`,
+which is the named volume, and the parked files sit beside it because `filesDirectory` is derived
+from that path. **This was missing until 2026-09-09 and the compose comment claimed otherwise**
+: the state file was landing in the container's writable layer, so
+`docker compose up --force-recreate` — which is how `deploy.sh` starts the gateway, and the only
+way a rotated token takes effect — destroyed the shared settings and every file in flight on every
+deploy. Nobody noticed because both devices simply re-seed the document afterwards. `deploy.sh`
+now moves the old file onto the volume before recreating anything, and checks its digest across
+the restart rather than assuming.
+
 ## Where your settings live
 
 One JSON file, at `BATON_STATE_FILE`. It is a plain document you can open and read, and it

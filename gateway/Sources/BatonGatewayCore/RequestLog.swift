@@ -62,6 +62,56 @@ public enum RequestLog {
         return "\(method) \(path) \(status) \(milliseconds)ms \(caller(userAgent))"
     }
 
+    /// Write the line for a request that has just been answered, if it deserves one.
+    ///
+    /// **Every response goes through here, including an upload's** (TBX-5308, S-F26). The logging
+    /// used to sit in the router's own wrapper, which the streaming upload never reaches — so the
+    /// one route that writes caller-controlled bytes to disk *before* checking a token left no
+    /// trace at all, and a phone whose uploads were all refused looked identical to one that never
+    /// tried. Moved into the transport, where both paths converge, it cannot be forgotten for a
+    /// route again: that is the same reason the wrapper was chosen over per-route calls.
+    public static func write(method: String, path: String, response: Data,
+                             userAgent: String?, started: Date, now: Date = Date(),
+                             to log: (String) -> Void) {
+        guard let line = line(
+            method: method,
+            path: safePath(path),
+            status: status(ofResponse: response),
+            userAgent: userAgent,
+            milliseconds: Int(now.timeIntervalSince(started) * 1000)
+        ) else { return }
+        log(line)
+    }
+
+    /// The default sink.
+    ///
+    /// `FileHandle.standardOutput.write`, not `print`. Swift buffers stdout when it is a pipe
+    /// rather than a terminal, and under Docker it is always a pipe — so `print` left every line
+    /// sitting in the buffer and `docker logs` showed nothing at all. Deployed once that way and
+    /// caught by looking at the running container, which no test could have told me.
+    public static let standardOutput: @Sendable (String) -> Void = { line in
+        FileHandle.standardOutput.write(Data((line + "\n").utf8))
+    }
+
+    static let filesPrefix = "/v1/files/"
+
+    /// The path as it is safe to write down.
+    ///
+    /// A file id is chosen by the caller and becomes part of a line in a file that persists, so it
+    /// goes through the same whitelist the store uses before it is written anywhere — the log must
+    /// not be the one place a rejected id is quoted back verbatim. Control characters are stripped
+    /// from every path for the same reason `caller` filters a User-Agent: one line per request is
+    /// a format, and unvalidated input must not be able to break it.
+    public static func safePath(_ path: String) -> String {
+        let withoutQuery = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
+        let cleaned = String(withoutQuery.unicodeScalars.filter { $0.value > 0x20 && $0.value != 0x7F })
+        let capped = cleaned.count <= 120 ? cleaned : String(cleaned.prefix(120))
+        guard capped.hasPrefix(filesPrefix) else { return capped.isEmpty ? "/" : capped }
+        let id = String(capped.dropFirst(filesPrefix.count))
+        guard !id.isEmpty else { return filesPrefix }
+        return filesPrefix + (FileStore.sanitize(id) ?? "invalid")
+    }
+
     /// A short, safe name for who called.
     ///
     /// Only the first whitespace-delimited component of the User-Agent, filtered to characters a

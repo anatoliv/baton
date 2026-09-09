@@ -34,8 +34,13 @@ struct MusicMiniTransport: View {
                 Image(systemName: "shuffle").foregroundStyle(player.isShuffled ? Color.accentColor : .secondary)
             }
             .disabled(player.queue.isEmpty)
+            .help("Shuffle")
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(player.isShuffled ? "On" : "Off")
             Button { player.previous() } label: { Image(systemName: "backward.fill").foregroundStyle(.secondary) }
                 .disabled(player.queue.isEmpty)
+                .help("Previous")
+                .accessibilityLabel("Previous track")
             Button {
                 if player.isPlaying { player.pause() }
                 else if player.nowPlaying == nil { onPlayWhenIdle?() }
@@ -47,13 +52,20 @@ struct MusicMiniTransport: View {
                 Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill").font(.title3)
             }
             .disabled(player.queue.isEmpty && onPlayWhenIdle == nil)
+            .help(player.isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
             Button { player.next() } label: { Image(systemName: "forward.fill").foregroundStyle(.secondary) }
                 .disabled(player.queue.isEmpty)
+                .help("Next")
+                .accessibilityLabel("Next track")
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                     .foregroundStyle(player.repeatMode == .off ? .secondary : Color.accentColor)
             }
             .disabled(player.queue.isEmpty)
+            .help("Repeat")
+            .accessibilityLabel("Repeat")
+            .accessibilityValue(player.repeatMode.rawValue)
         }
         .font(.callout)
         .buttonStyle(.plain)
@@ -100,6 +112,7 @@ struct EntityHeartBadge: View {
         // Callers that pass `visible: true` (the player artwork) still show it always.
         .opacity(visible ? 1 : 0)
         .help(liked ? "Unlike" : "Like")
+        .accessibilityLabel(liked ? "Unlike" : "Like")
     }
 }
 
@@ -133,6 +146,7 @@ struct SongHeartBadge: View {
         // Callers that pass `visible: true` (the player artwork) still show it always.
         .opacity(visible ? 1 : 0)
         .help(liked ? "Unlike" : "Like")
+        .accessibilityLabel(liked ? "Unlike" : "Like")
     }
 }
 
@@ -223,11 +237,14 @@ struct MusicFilterField: View {
                     Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain).help("Recent filters")
+                .accessibilityLabel("Recent filters")
                 .popover(isPresented: $showHistory, arrowEdge: .bottom) { historyPopover }
             }
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                     .buttonStyle(.plain)
+                    .help("Clear")
+                    .accessibilityLabel("Clear filter")
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
@@ -270,6 +287,7 @@ struct MusicFilterField: View {
                         if history.isEmpty { showHistory = false }
                     } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
                         .buttonStyle(.plain).help("Remove")
+                        .accessibilityLabel("Remove \(term) from history")
                 }
                 .padding(.horizontal, 10).padding(.vertical, 5)
             }
@@ -372,6 +390,8 @@ struct MusicSortControls<Field: MusicSortField, Extra: View>: View where Field.A
             }
             .buttonStyle(.plain)
             .help(ascending ? "Ascending" : "Descending")
+            .accessibilityLabel("Sort direction")
+            .accessibilityValue(ascending ? "Ascending" : "Descending")
 
             Menu {
                 ForEach(Field.allCases) { field in

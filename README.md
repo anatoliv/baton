@@ -67,7 +67,7 @@ The `brew trust` step is not optional on Homebrew 6 and later: without it the in
 from a DMG, add `--force` to let the cask take it over (`brew install --cask --force baton`) —
 otherwise Homebrew refuses rather than overwrite an app it didn't install.
 
-Or download the DMG from [baton.tonebox.io](https://baton.tonebox.io), or build from source.
+Or download the DMG from [batonmusic.app](https://batonmusic.app), or build from source.
 
 macOS 15 (Sequoia) or later, Apple Silicon. The cask is marked `auto_updates`, so Baton keeps
 itself current through Sparkle rather than through `brew upgrade`.

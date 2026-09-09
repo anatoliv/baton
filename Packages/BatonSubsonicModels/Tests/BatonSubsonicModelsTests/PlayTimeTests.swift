@@ -71,4 +71,22 @@ final class PlayTimeTests: XCTestCase {
         XCTAssertEqual(PlayTime.spoken(15_120), "4 hr 12 min")
         XCTAssertEqual(PlayTime.spoken(7200), "2 hr")
     }
+
+    /// The guard was `seconds.isFinite`, and then `Int(seconds)` on a finite Double that sits
+    /// outside `Int`'s range traps rather than returning nil. A player clock or a
+    /// server-reported duration going wild is the realistic source, and it killed the app.
+    func testAFiniteButOutOfRangeDoubleRendersNothingRatherThanTrapping() {
+        XCTAssertNil(PlayTime.track(seconds: 1e30))
+        XCTAssertNil(PlayTime.track(seconds: -1e30))
+        XCTAssertNil(PlayTime.track(seconds: Double(Int.max) * 4))
+        XCTAssertNil(PlayTime.remaining(seconds: 1e30))
+        XCTAssertNil(PlayTime.remaining(seconds: -1e30))
+    }
+
+    func testOrdinaryDoubleSecondsStillFormat() {
+        XCTAssertEqual(PlayTime.track(seconds: 261.7), "4:21")
+        XCTAssertEqual(PlayTime.remaining(seconds: 5955.4), "-1:39:15")
+        XCTAssertNil(PlayTime.track(seconds: .infinity))
+        XCTAssertNil(PlayTime.track(seconds: .nan))
+    }
 }

@@ -40,8 +40,29 @@ extension View {
 /// Phone-sized cards are stranded on an iPad: a 142pt tile in the corner of a 1,032pt
 /// canvas reads as a mistake rather than as a choice.
 enum CardMetrics {
-    static func shelfCard(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat {
-        sizeClass == .regular ? 200 : 142
+    /// How much wider a shelf card gets as the text under it grows.
+    ///
+    /// The card width was keyed only on size class, so at the largest accessibility size
+    /// every album title rendered as "Varia…" and every artist as "Kimik…": a shelf of
+    /// covers with no words on it.
+    ///
+    /// Not `@ScaledMetric`, for two reasons. The step is deliberately discrete, since a
+    /// card only needs to change size at the point the label stops fitting; and the growth
+    /// has to be capped, because a card wide enough for uncapped accessibility type is
+    /// wider than the phone and the shelf stops being a shelf. 1.5x at the top end fits
+    /// "Various Artists" over two lines and still leaves the next card in view on a 393pt
+    /// screen, which is what tells you the row scrolls.
+    static func typeScale(_ typeSize: DynamicTypeSize) -> CGFloat {
+        switch typeSize {
+        case .accessibility1, .accessibility2: return 1.25
+        case .accessibility3, .accessibility4, .accessibility5: return 1.5
+        default: return typeSize >= .xxLarge ? 1.1 : 1
+        }
+    }
+
+    static func shelfCard(_ sizeClass: UserInterfaceSizeClass?,
+                          _ typeSize: DynamicTypeSize = .large) -> CGFloat {
+        (sizeClass == .regular ? 200 : 142) * typeScale(typeSize)
     }
 
     static func detailArt(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat {

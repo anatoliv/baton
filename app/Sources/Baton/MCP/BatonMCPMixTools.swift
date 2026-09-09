@@ -242,8 +242,10 @@ enum BatonMCPMixTools {
     // MARK: - Shared helpers (mirrors BatonMCPToolCatalog's private ones)
 
     private static func musicClient() throws -> NavidromeClient {
+        // Reports the real reason: a locked Keychain is not "no server configured", and the
+        // two want different screens. Same change as BatonMCPToolCatalog.musicClient().
         do { return try NavidromeConfig.makeClient() } catch {
-            throw BatonMCPToolError(message: "No music server is configured. Add one in Settings → Music.")
+            throw musicError(error)
         }
     }
 

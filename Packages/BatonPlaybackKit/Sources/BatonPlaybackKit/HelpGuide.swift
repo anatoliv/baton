@@ -22,23 +22,75 @@ public enum HelpGuide {
         public var resource: String { self == .help ? "HELP" : "FAQ" }
     }
 
+    /// Which app a section is written for.
+    ///
+    /// One guide serves two apps, so the Mac's contents used to open with eight phone-only
+    /// topics (widgets, Siri, cellular data, Face ID) before it reached Albums, and the
+    /// phone listed a table of Command-key shortcuts it has no keyboard for. A section
+    /// says who it is for with a marker line under its heading:
+    ///
+    /// ```
+    /// ### Siri and Shortcuts
+    /// <!-- baton:audience iphone -->
+    /// ```
+    ///
+    /// The marker is an HTML comment, so GitHub and the website render nothing for it, and
+    /// the parser strips the line before the body reaches either app. A `###` inherits its
+    /// `##` parent's audience unless it carries a marker of its own.
+    public enum Audience: String, Sendable, CaseIterable {
+        case both
+        case mac
+        case iphone
+
+        /// Does a section written for this audience belong in `reader`'s contents?
+        public func includes(_ reader: Audience) -> Bool { self == .both || self == reader }
+    }
+
+    /// The marker line that sets a section's audience.
+    static let audienceMarker = "<!-- baton:audience"
+
     /// One `##`/`###`-delimited section: a single entry in the contents.
     public struct Topic: Identifiable, Hashable, Sendable {
         public let guide: Kind
+        /// The heading as written, without its parent.
+        ///
+        /// This used to be the parent-qualified string, which is why four sidebar rows in
+        /// the Mac's Help window all read "Shared settings between your d…": the qualifier
+        /// ate the whole row and the part that told them apart was off the end of it. The
+        /// two halves are separate now, and each app draws the parent as a second line.
         public let title: String
+        /// The `##` this section sits under, for a `###`. Nil for a `##`.
+        public let parentTitle: String?
         /// GitHub-style anchor — what a `[link](#slug)` in the guide points at.
         public let slug: String
         /// The section's Markdown, heading line removed.
         public let body: String
+        /// Which app this section is for.
+        public let audience: Audience
+
+        /// "Playing music: Lyrics": the title with its parent, for a heading or a search.
+        public var qualifiedTitle: String {
+            guard let parentTitle, !parentTitle.isEmpty else { return title }
+            return "\(parentTitle): \(title)"
+        }
 
         public var id: String { "\(guide.rawValue)#\(slug)" }
-        public var searchText: String { (title + " " + body).lowercased() }
+        public var searchText: String { (qualifiedTitle + " " + body).lowercased() }
 
-        public init(guide: Kind, title: String, slug: String, body: String) {
+        public init(
+            guide: Kind,
+            title: String,
+            parentTitle: String? = nil,
+            slug: String,
+            body: String,
+            audience: Audience = .both
+        ) {
             self.guide = guide
             self.title = title
+            self.parentTitle = parentTitle
             self.slug = slug
             self.body = body
+            self.audience = audience
         }
 
         public static func == (lhs: Topic, rhs: Topic) -> Bool { lhs.id == rhs.id }
@@ -57,6 +109,13 @@ public enum HelpGuide {
         return all
     }
 
+    /// The topics one app lists: everything written for it, plus everything written for
+    /// both. Link resolution still runs over the unfiltered set, so a cross-platform
+    /// reference in the body of a topic this app does show still opens something.
+    public static func topics(help: String, faq: String, for reader: Audience) -> [Topic] {
+        topics(help: help, faq: faq).filter { $0.audience.includes(reader) }
+    }
+
     public static func parse(
         guide: Kind,
         text: String,
@@ -65,7 +124,11 @@ public enum HelpGuide {
         var preamble: [String] = []
         var sections: [Topic] = []
         var heading: String?
+        var parent: String?
         var lastH2: String?
+        var lastH2Audience: Audience = .both
+        var audience: Audience = .both
+        var inH2 = false
         var bodyLines: [String] = []
         var seenHeading = false
 
@@ -76,7 +139,17 @@ public enum HelpGuide {
             if heading.caseInsensitiveCompare("Contents") != .orderedSame {
                 let body = bodyLines.joined(separator: "\n")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                sections.append(Topic(guide: guide, title: heading, slug: slug(heading), body: body))
+                // Qualified by its parent, so a link written `#the-now-playing-bar` and a
+                // second section with the same heading under a different `##` stay apart.
+                let qualified = if let parent, !parent.isEmpty { "\(parent): \(heading)" } else { heading }
+                sections.append(Topic(
+                    guide: guide,
+                    title: heading,
+                    parentTitle: parent,
+                    slug: slug(qualified),
+                    body: body,
+                    audience: audience
+                ))
             }
             bodyLines.removeAll()
         }
@@ -86,15 +159,27 @@ public enum HelpGuide {
                 flush()
                 let title = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                 heading = title
+                parent = nil
                 lastH2 = title
+                lastH2Audience = .both
+                audience = .both
+                inH2 = true
                 seenHeading = true
             } else if line.hasPrefix("### ") {
                 flush()
-                let raw = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
-                // Qualified by its parent, so "The now-playing bar" doesn't sit in the
-                // contents with nothing saying it belongs to "Playing music".
-                heading = if let h2 = lastH2, !h2.isEmpty { "\(h2): \(raw)" } else { raw }
+                heading = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+                parent = lastH2
+                audience = lastH2Audience
+                inH2 = false
                 seenHeading = true
+            } else if seenHeading, isAudienceMarker(line) {
+                // Dropped rather than kept: it is bookkeeping, not text to read. A marker
+                // naming something that is not an audience is still dropped, so a typo
+                // shows up as an unfiltered section rather than as a comment on screen.
+                if let marked = parsedAudience(line) {
+                    audience = marked
+                    if inH2 { lastH2Audience = marked }
+                }
             } else if seenHeading {
                 bodyLines.append(line)
             } else {
@@ -114,6 +199,23 @@ public enum HelpGuide {
             }
         }
         return (welcome, sections)
+    }
+
+    /// Is this line a `<!-- baton:audience … -->` marker, whatever it names?
+    static func isAudienceMarker(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix(audienceMarker) && trimmed.hasSuffix("-->")
+    }
+
+    /// The audience a `<!-- baton:audience mac -->` line names, or nil for any other line.
+    static func parsedAudience(_ line: String) -> Audience? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard isAudienceMarker(trimmed) else { return nil }
+        let value = trimmed
+            .dropFirst(audienceMarker.count)
+            .dropLast(3)
+            .trimmingCharacters(in: .whitespaces)
+        return Audience(rawValue: value)
     }
 
     /// A heading's anchor, matching the slugs the guides' own Contents links use.
@@ -144,6 +246,23 @@ public enum HelpGuide {
             return String(raw[raw.index(after: hash)...])
         }
         return nil
+    }
+
+    /// The topic an anchor names, or nil if nothing in the guides answers to it.
+    ///
+    /// Anchors are written the way GitHub renders them, from the heading alone
+    /// (`#turning-it-on-on-the-mac`), while a subsection's slug carries its parent
+    /// (`the-music-friend-turning-it-on-on-the-mac`) so two subsections with the same
+    /// heading stay apart. Matching on the slug alone therefore missed every link into a
+    /// `###`, and both apps swallowed the miss: the tap did nothing and said nothing.
+    ///
+    /// So an exact slug wins, and failing that the one topic whose slug ends with the
+    /// anchor. "The one" is the whole guard: where two subsections would both answer, the
+    /// link is genuinely ambiguous and picking either is a guess.
+    public static func topic(for anchor: String, in topics: [Topic]) -> Topic? {
+        if let exact = topics.first(where: { $0.slug == anchor }) { return exact }
+        let qualified = topics.filter { $0.slug.hasSuffix("-" + anchor) }
+        return qualified.count == 1 ? qualified.first : nil
     }
 
     // MARK: - Search

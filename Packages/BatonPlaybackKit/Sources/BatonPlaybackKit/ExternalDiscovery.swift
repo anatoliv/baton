@@ -328,7 +328,7 @@ public enum ExternalDiscovery {
         request.timeoutInterval = 15
         // Same identifying agent the lookups use: MusicBrainz blocks generic ones outright,
         // and a test that gets blocked for a reason the real request never hits is a lie.
-        request.setValue("Baton/1.0 ( https://baton.tonebox.io )", forHTTPHeaderField: "User-Agent")
+        request.setValue("Baton/1.0 ( https://batonmusic.app )", forHTTPHeaderField: "User-Agent")
         do {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 200
@@ -572,7 +572,7 @@ public enum ExternalDiscovery {
         var request = URLRequest(url: url)
         // MusicBrainz *requires* a identifying User-Agent and blocks generic ones;
         // ListenBrainz asks for the same courtesy.
-        request.setValue("Baton/1.0 ( https://baton.tonebox.io )", forHTTPHeaderField: "User-Agent")
+        request.setValue("Baton/1.0 ( https://batonmusic.app )", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10
         do {
             let (data, response) = try await session.data(for: request)

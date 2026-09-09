@@ -126,13 +126,19 @@ struct BatonHelpView: View {
         init(_ shared: HelpGuide.Topic) { self.shared = shared }
 
         var guide: Guide { shared.guide == .help ? .help : .faq }
+        /// The heading alone. The parent is drawn beside it, not glued to the front of
+        /// it: four sidebar rows once all read "Shared settings between your d…".
         var title: String { shared.title }
+        /// The `##` this section sits under, for a `###`.
+        var parentTitle: String? { shared.parentTitle }
         var slug: String { shared.slug }
         /// Section Markdown with its heading line removed.
         var body: String { shared.body }
+        /// Which app the guide says this section is for.
+        var audience: HelpGuide.Audience { shared.audience }
 
         var id: String { shared.id }
-        var symbol: String { BatonHelpView.symbol(for: title) }
+        var symbol: String { BatonHelpView.symbol(for: shared.qualifiedTitle) }
         var searchText: String { shared.searchText }
 
         static func == (lhs: Topic, rhs: Topic) -> Bool { lhs.id == rhs.id }
@@ -170,6 +176,15 @@ struct BatonHelpView: View {
 
     private var selectedTopic: Topic? {
         topics.first { $0.id == selection }
+    }
+
+    /// What the contents and the search list: the Mac's topics and the shared ones.
+    ///
+    /// `topics` deliberately keeps the phone-only sections too. They are not listed here,
+    /// but the FAQ links into them, and a link that resolves to nothing is the bug this
+    /// window already had twelve of.
+    private var listedTopics: [Topic] {
+        topics.filter { $0.audience.includes(.mac) }
     }
 
     private var results: [Topic] {
@@ -220,7 +235,7 @@ struct BatonHelpView: View {
         if slug == Self.whatsNewID {
             query = ""
             selection = Self.whatsNewID
-        } else if let target = topics.first(where: { $0.slug == slug }) {
+        } else if let target = HelpGuide.topic(for: slug, in: topics.map(\.shared)) {
             query = ""
             selection = target.id
         }
@@ -237,13 +252,13 @@ struct BatonHelpView: View {
                 if trimmedQuery.isEmpty {
                     whatsNewRow
                     Section(Guide.help.sidebarTitle) {
-                        ForEach(topics.filter { $0.guide == .help }) { topicRow($0) }
+                        ForEach(listedTopics.filter { $0.guide == .help }) { topicRow($0) }
                     }
                     Section("Guided tours") {
                         ForEach(HelpTour.all) { tourRow($0) }
                     }
                     Section(Guide.faq.sidebarTitle) {
-                        ForEach(topics.filter { $0.guide == .faq }) { topicRow($0) }
+                        ForEach(listedTopics.filter { $0.guide == .faq }) { topicRow($0) }
                     }
                 } else if results.isEmpty {
                     Text("No results for \u{201C}\(trimmedQuery)\u{201D}")
@@ -285,8 +300,21 @@ struct BatonHelpView: View {
     }
 
     private func topicRow(_ topic: Topic) -> some View {
-        Label(topic.title, systemImage: topic.symbol)
-            .tag(topic.id)
+        Label {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(topic.title)
+                    .lineLimit(1)
+                if let parent = topic.parentTitle {
+                    Text(parent)
+                        .font(HelpTokens.Fonts.tiny)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        } icon: {
+            Image(systemName: topic.symbol)
+        }
+        .tag(topic.id)
     }
 
     private var whatsNewRow: some View {
@@ -306,9 +334,11 @@ struct BatonHelpView: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 Text(topic.title)
-                Text(topic.guide.sidebarTitle)
+                    .lineLimit(1)
+                Text(topic.parentTitle ?? topic.guide.sidebarTitle)
                     .font(HelpTokens.Fonts.tiny)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
         .tag(topic.id)
@@ -385,6 +415,12 @@ struct BatonHelpView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Color.primary.opacity(0.06), in: Capsule())
+                if let parent = topic.parentTitle {
+                    Text(parent)
+                        .font(HelpTokens.Fonts.small)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
             }
             .frame(height: HelpTokens.rowHeight)
@@ -410,7 +446,10 @@ struct BatonHelpView: View {
     private var linkAction: OpenURLAction {
         OpenURLAction { url in
             if let slug = anchorSlug(from: url) {
-                if let target = topics.first(where: { $0.slug == slug }) {
+                // Through `HelpGuide`, because an anchor is written from the heading alone
+                // while a subsection's slug carries its parent. Matching on the slug alone
+                // missed nine links in the shipped guides and swallowed every one.
+                if let target = HelpGuide.topic(for: slug, in: topics.map(\.shared)) {
                     selection = target.id
                 }
                 return .handled
@@ -428,7 +467,7 @@ struct BatonHelpView: View {
 
     /// Keyword ranking — title matches outrank body mentions.
     private func keywordRanked(for query: String) -> [Topic] {
-        Self.ranked(topics, query: query)
+        Self.ranked(listedTopics, query: query)
     }
 
     /// The sidebar's ranking, as a plain function of its inputs.

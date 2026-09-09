@@ -196,7 +196,11 @@ public enum NavidromeKeychain {
         } else {
             stored = write(Data(value.utf8), account: account)
         }
-        BatonStorage.defaults.removeObject(forKey: account)
+        // Only drop the legacy plaintext copy once the Keychain actually holds the value.
+        // This is the same bug TBX-5268 fixed on the read path: on a device still holding a
+        // legacy value, a write refused under errSecInteractionNotAllowed used to remove the
+        // only surviving copy of the credential. The type's own header promises otherwise.
+        if stored { BatonStorage.defaults.removeObject(forKey: account) }
         return stored
     }
 

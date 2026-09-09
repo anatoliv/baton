@@ -877,9 +877,18 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// stored queue/volume (which once restored a phantom test track on launch).
     public let defaults: UserDefaults
 
-    /// The persistence store to use when none is injected: `.standard` in
-    /// production, an isolated suite under XCTest.
-    public static func defaultStore(environment: BatonEnvironment = .current) -> UserDefaults {
+    /// The persistence store to use when none is injected: the probe suite under a
+    /// `-baton.defaultsSuite` launch, an isolated suite under XCTest, `.standard` otherwise.
+    ///
+    /// `redirect` is a parameter only so a test can resolve the probe branch without being
+    /// launched as a probe; every caller in the app takes the default.
+    public static func defaultStore(environment: BatonEnvironment = .current,
+                                    redirect: BatonStorage.Redirect = BatonStorage.current) -> UserDefaults {
+        // A probe launch outranks both cases below, and it has to: the whole point of one is that
+        // the shipping app runs normally against throwaway storage. Without this line a probe
+        // inherited the owner's saved queue, playhead and volume, and every `persistQueue()` wrote
+        // back over them (M-F1).
+        if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }
         guard environment.isTesting else { return .standard }
         // A unique suite per instance under test: persisted queue / now-playing state must never
         // leak between tests that each build their own controller or MusicModel (a shared suite let
@@ -888,13 +897,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         return UserDefaults(suiteName: "io.tonebox.tests.music.\(UUID().uuidString)") ?? .standard
     }
 
-    /// Resolves a queue item's `id` to a playable URL. Handles three cases: an offline
-    /// download, a client-side podcast episode (whose id *is* its absolute enclosure URL — see
-    /// `PodcastEpisode.asSong`), and the normal case of a Subsonic media id streamed from the
-    /// server. Static + isolated so it's unit-testable without a live server.
-    @MainActor
     /// The URL to DOWNLOAD a track for offline use: the original file for a library track
     /// (download.view, no transcode), or the enclosure URL for a podcast episode.
+    @MainActor
     public static func resolveDownloadURL(songID: String) throws -> URL {
         if MediaKind(id: songID) == .podcastEpisode, let url = URL(string: songID) {
             return url // podcast episode — its id IS the enclosure URL
@@ -906,6 +911,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     public static let offlineModeKey = "baton.music.offlineMode"
     public static var isOfflineMode: Bool { BatonStorage.defaults.bool(forKey: offlineModeKey) }
 
+    /// Resolves a queue item's `id` to a playable URL. Handles three cases: an offline
+    /// download, a client-side podcast episode (whose id *is* its absolute enclosure URL — see
+    /// `PodcastEpisode.asSong`), and the normal case of a Subsonic media id streamed from the
+    /// server. Static + isolated so it's unit-testable without a live server.
     public static func resolveStreamURL(songID: String) throws -> URL {
         // Prefer an offline download when present.
         if let local = MusicDownloadStore.shared.localURL(for: songID) { return local }
@@ -2305,20 +2314,33 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         var source: QueueSource?
     }
 
+    /// The queue's storage, with the protections every other precious store has.
+    ///
+    /// It had none: a truncated blob decoded to nil, `restoreQueue` returned, and the first
+    /// `persistQueue()` after launch — one of eighteen call sites — wrote the empty queue over
+    /// it. A long set simply vanished, with nothing said and nothing kept (S-F14). Now the bad
+    /// bytes are preserved under a sibling key, a `.bak` holds the last good snapshot, and a
+    /// snapshot from a newer build is read rather than downgraded.
+    ///
+    /// Computed rather than stored because `defaults` is injected per instance and the tests
+    /// build a controller per test; a stored one would be no cheaper and would have to be kept
+    /// in step with it.
+    private var queueStore: VersionedStore<QueueSnapshot> {
+        VersionedStore<QueueSnapshot>(backing: .defaults(defaults, key: Self.queueKey),
+                                      currentVersion: 1, keepBackup: true,
+                                      log: Logger(subsystem: "io.tonebox.baton",
+                                                  category: "PlayQueue"))
+    }
+
     private func persistQueue() {
         let snapshot = QueueSnapshot(songs: queue, index: currentIndex, position: currentTime, source: queueSource)
-        if let data = try? JSONEncoder().encode(snapshot) {
-            defaults.set(data, forKey: Self.queueKey)
-        }
+        queueStore.save(snapshot)
     }
 
     /// Restores the persisted queue in a **paused** state at the saved position.
     /// Playback never auto-starts on launch. Safe to call once at startup.
     public func restoreQueue() {
-        guard let data = defaults.data(forKey: Self.queueKey),
-              let snapshot = try? JSONDecoder().decode(QueueSnapshot.self, from: data),
-              !snapshot.songs.isEmpty
-        else { return }
+        guard let snapshot = queueStore.load(), !snapshot.songs.isEmpty else { return }
         queue = snapshot.songs
         currentIndex = max(0, min(snapshot.index, snapshot.songs.count - 1))
         queueSource = snapshot.source

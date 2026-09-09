@@ -43,18 +43,15 @@ struct RadioView: View {
                 .accessibilityLabel("Add station")
             }
         }
-        .overlay {
-            if model.radio.loading {
-                ProgressView()
-            } else if model.radio.stations.isEmpty {
-                ContentUnavailableView(
-                    "No stations",
-                    systemImage: "dot.radiowaves.left.and.right",
-                    description: Text(model.radio.loadError
-                                      ?? "Add a stream URL here, or save stations on your server.")
-                )
-            }
-        }
+        .contentState(
+            ContentDisplayState.resolve(isLoading: model.radio.loading,
+                                        error: nil,
+                                        isEmpty: model.radio.stations.isEmpty),
+            emptyTitle: "No stations",
+            emptyMessage: model.radio.loadError
+                ?? "Add a stream URL here, or save stations on your server.",
+            emptySymbol: "dot.radiowaves.left.and.right"
+        )
         .task { await model.radio.loadIfNeeded() }
         .refreshable { await model.radio.reload() }
         .alert("Add station", isPresented: $showsAdd) {

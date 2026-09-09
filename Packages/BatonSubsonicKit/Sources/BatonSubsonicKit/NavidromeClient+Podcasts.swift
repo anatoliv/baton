@@ -80,7 +80,7 @@ extension NavidromeClient {
     /// Subscribed podcast channels (`getPodcasts`). Pass `includeEpisodes: true` to get
     /// each channel's episodes inline (newest first); the default returns channels only.
     public func getPodcasts(includeEpisodes: Bool = false) async throws -> [NavidromePodcastChannel] {
-        let response = try await performPodcastJSON("getPodcasts.view", query: [
+        let response = try await performPodcastJSON("getPodcasts.view", retry: true, query: [
             URLQueryItem(name: "includeEpisodes", value: includeEpisodes ? "true" : "false"),
         ])
         return (response.podcasts?.channel ?? []).map { $0.toDomain() }
@@ -89,7 +89,7 @@ extension NavidromeClient {
     /// One channel with its episodes (`getPodcasts` filtered to a single `id`,
     /// `includeEpisodes=true`). Returns nil if the server doesn't know the channel.
     public func getPodcastChannel(id: String) async throws -> NavidromePodcastChannel? {
-        let response = try await performPodcastJSON("getPodcasts.view", query: [
+        let response = try await performPodcastJSON("getPodcasts.view", retry: true, query: [
             URLQueryItem(name: "includeEpisodes", value: "true"),
             URLQueryItem(name: "id", value: id),
         ])
@@ -98,7 +98,7 @@ extension NavidromeClient {
 
     /// The most recently published episodes across all channels (`getNewestPodcasts`).
     public func getNewestPodcasts(count: Int = 20) async throws -> [NavidromePodcastEpisode] {
-        let response = try await performPodcastJSON("getNewestPodcasts.view", query: [
+        let response = try await performPodcastJSON("getNewestPodcasts.view", retry: true, query: [
             URLQueryItem(name: "count", value: String(count)),
         ])
         return (response.newestPodcasts?.episode ?? []).map { $0.toDomain() }
@@ -110,54 +110,24 @@ extension NavidromeClient {
     /// an empty body; re-fetch the channel afterward (`getPodcastChannel`) to see the episode
     /// pick up a `streamID`/"completed" status once the download finishes.
     public func downloadPodcastEpisode(episodeID: String) async throws {
-        _ = try await performPodcastJSON("downloadPodcastEpisode.view", query: [
+        _ = try await performPodcastJSON("downloadPodcastEpisode.view", retry: false, query: [
             URLQueryItem(name: "id", value: episodeID),
         ])
     }
 
     // MARK: - Transport (podcast envelope)
 
-    /// A copy of the client's JSON transport specialized to the podcast envelope. The
-    /// shared `performJSON` decodes a fixed `SubsonicResponse` that (deliberately) doesn't
-    /// carry the podcast bodies, so podcast requests decode into `PodcastSubsonicResponse`
-    /// here instead. Same signing (`makeURL`), status/HTTP checks, and error mapping.
-    private func performPodcastJSON(_ endpoint: String, query: [URLQueryItem] = []) async throws -> PodcastSubsonicResponse {
-        let url = try makeURL(endpoint, query: query)
-        var request = URLRequest(url: url)
-        request.setValue(batonClientUserAgent, forHTTPHeaderField: "User-Agent")
-        for (name, value) in credentials.customHeaders { request.setValue(value, forHTTPHeaderField: name) }
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            podcastLog.error("\(endpoint, privacy: .public) transport failed: \(error.localizedDescription, privacy: .public)")
-            throw NavidromeError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw NavidromeError.transport("Non-HTTP response")
-        }
-        guard (200 ... 299).contains(http.statusCode) else {
-            throw NavidromeError.http(status: http.statusCode)
-        }
-
-        let envelope: PodcastSubsonicEnvelope
-        do {
-            envelope = try JSONDecoder().decode(PodcastSubsonicEnvelope.self, from: data)
-        } catch {
-            podcastLog.error("\(endpoint, privacy: .public): decode failed: \(error.localizedDescription, privacy: .public)")
-            throw NavidromeError.decoding(error.localizedDescription)
-        }
-        let subsonic = envelope.response
-        guard subsonic.isOK else {
-            let code = subsonic.error?.code ?? -1
-            let message = subsonic.error?.message ?? "Unknown error"
-            podcastLog.error("\(endpoint, privacy: .public): Subsonic error \(code, privacy: .public) — \(message, privacy: .public)")
-            if code == 40 || code == 41 || code == 44 { throw NavidromeError.unauthorized }
-            throw NavidromeError.subsonic(code: code, message: message)
-        }
-        return subsonic
+    /// The shared transport, decoding into the podcast envelope.
+    ///
+    /// This used to be a hand-copied transport, and the copy had lost two things the original
+    /// has: the 401/403 mapping to `.unauthorized`, so a Cloudflare Access setup told people
+    /// "The music server returned HTTP 401" on this tab and "check your credentials" on every
+    /// other one, and the single retry, so this tab alone failed on a LAN blip. The envelope is
+    /// the only part that was ever podcast-specific.
+    private func performPodcastJSON(_ endpoint: String, retry: Bool,
+                                    query: [URLQueryItem] = []) async throws -> PodcastSubsonicResponse {
+        try await performEnvelope(endpoint, retry: retry, query: query,
+                                  as: PodcastSubsonicEnvelope.self, log: podcastLog)
     }
 }
 
@@ -170,18 +140,16 @@ extension NavidromeClient {
 // constraint that podcast code only lives in new files — while sharing the `error`/`status`
 // contract with the rest of the client.
 
-public struct PodcastSubsonicEnvelope: Decodable {
+public struct PodcastSubsonicEnvelope: SubsonicEnvelopeWire {
     public let response: PodcastSubsonicResponse
     enum CodingKeys: String, CodingKey { case response = "subsonic-response" }
 }
 
-public struct PodcastSubsonicResponse: Decodable {
+public struct PodcastSubsonicResponse: SubsonicResponseWire {
     public let status: String
     public let error: SubsonicWireError?
     public let podcasts: PodcastsWire?
     public let newestPodcasts: NewestPodcastsWire?
-
-    public var isOK: Bool { status == "ok" }
 }
 
 /// `getPodcasts` → `podcasts.channel[]`.

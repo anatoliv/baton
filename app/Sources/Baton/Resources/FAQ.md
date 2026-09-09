@@ -472,7 +472,7 @@ just unlikes and low-rates the track. See [Albums and artists](HELP.md#albums-an
 ## Updates and platform
 
 **How do I install Baton?**
-Either grab the DMG from [baton.tonebox.io](https://baton.tonebox.io), or use Homebrew:
+Either grab the DMG from [batonmusic.app](https://batonmusic.app), or use Homebrew:
 
 ```sh
 brew tap anatoliv/baton https://github.com/anatoliv/baton
@@ -487,7 +487,7 @@ install refuses to load the cask. If Baton is already in `/Applications` from a 
 **How do updates work?**
 Baton uses Sparkle (the standard macOS updater). There's a **Check for Updates** item in the
 app menu, and Baton checks its own feed and installs signed, notarized builds. Download the
-current release from [baton.tonebox.io](https://baton.tonebox.io); it updates itself from there
+current release from [batonmusic.app](https://batonmusic.app); it updates itself from there
 on.
 
 If you installed with Homebrew, Sparkle still does the updating — the cask is marked

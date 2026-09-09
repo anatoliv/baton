@@ -81,6 +81,42 @@ enum Contrast {
         #endif
     }
 
+    /// sRGB components *plus* alpha. `components` deliberately drops alpha, which is fine
+    /// for a contrast reading and useless for compositing one layer over another.
+    static func componentsWithAlpha(_ color: Color) -> (r: Double, g: Double, b: Double, a: Double) {
+        #if canImport(AppKit)
+        guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return (0.5, 0.5, 0.5, 1) }
+        return (Double(srgb.redComponent), Double(srgb.greenComponent),
+                Double(srgb.blueComponent), Double(srgb.alphaComponent))
+        #else
+        var r: CGFloat = 0.5, g: CGFloat = 0.5, b: CGFloat = 0.5, a: CGFloat = 1
+        guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return (0.5, 0.5, 0.5, 1) }
+        return (Double(r), Double(g), Double(b), Double(a))
+        #endif
+    }
+
+    /// Mix `color` toward `target` by `amount` in [0,1]. `0` is the colour untouched, `1`
+    /// is the target. Opaque result: this lifts a colour, it does not fade one.
+    static func blend(_ color: Color, toward target: Color, amount: Double) -> Color {
+        let t = min(max(amount, 0), 1)
+        let (r, g, b) = components(color)
+        let (tr, tg, tb) = components(target)
+        return Color(red: r + (tr - r) * t, green: g + (tg - g) * t, blue: b + (tb - b) * t)
+    }
+
+    /// Source-over composite of `top` on an opaque `bottom`. The arithmetic the renderer
+    /// does, spelled out so a stack of translucent layers can be checked for contrast
+    /// without being drawn.
+    static func composite(_ top: Color, over bottom: Color) -> Color {
+        let (tr, tg, tb, alpha) = componentsWithAlpha(top)
+        let (br, bg, bb) = components(bottom)
+        return Color(
+            red: tr * alpha + br * (1 - alpha),
+            green: tg * alpha + bg * (1 - alpha),
+            blue: tb * alpha + bb * (1 - alpha)
+        )
+    }
+
     /// Linearize one gamma-encoded sRGB channel (WCAG definition).
     private static func linearize(_ channel: Double) -> Double {
         channel <= 0.03928 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)

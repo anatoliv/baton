@@ -1,5 +1,7 @@
 import Foundation
 
+private let radioLog = Logger(subsystem: "io.tonebox.baton", category: "NavidromeRadio")
+
 // MARK: - Internet radio (Subsonic)
 
 //
@@ -37,7 +39,7 @@ public struct NavidromeRadioStation: Identifiable, Hashable, Codable, Sendable {
 extension NavidromeClient {
     /// All internet-radio stations saved on the server (`getInternetRadioStations`).
     public func getInternetRadioStations() async throws -> [NavidromeRadioStation] {
-        let response = try await performRadioJSON("getInternetRadioStations.view")
+        let response = try await performRadioJSON("getInternetRadioStations.view", retry: true)
         return (response.internetRadioStations?.internetRadioStation ?? []).map { $0.toDomain() }
     }
 
@@ -52,7 +54,7 @@ extension NavidromeClient {
         if let homepageUrl, !homepageUrl.isEmpty {
             query.append(URLQueryItem(name: "homepageUrl", value: homepageUrl))
         }
-        _ = try await performRadioJSON("createInternetRadioStation.view", query: query)
+        _ = try await performRadioJSON("createInternetRadioStation.view", retry: false, query: query)
     }
 
     /// Updates an existing station (`updateInternetRadioStation`). `id`, `streamUrl`
@@ -71,62 +73,28 @@ extension NavidromeClient {
         if let homepageUrl, !homepageUrl.isEmpty {
             query.append(URLQueryItem(name: "homepageUrl", value: homepageUrl))
         }
-        _ = try await performRadioJSON("updateInternetRadioStation.view", query: query)
+        _ = try await performRadioJSON("updateInternetRadioStation.view", retry: false, query: query)
     }
 
     /// Deletes a station by id (`deleteInternetRadioStation`).
     public func deleteInternetRadioStation(id: String) async throws {
-        _ = try await performRadioJSON("deleteInternetRadioStation.view", query: [
+        _ = try await performRadioJSON("deleteInternetRadioStation.view", retry: false, query: [
             URLQueryItem(name: "id", value: id),
         ])
     }
 
     // MARK: - Transport
 
-    /// Runs a signed JSON request and decodes it into the radio-specific envelope.
+    /// The shared transport, decoding into the radio-specific envelope.
     ///
-    /// The base `NavidromeClient` funnels its endpoints through a `private
-    /// performJSON` that decodes into a shared `SubsonicResponse` — which doesn't
-    /// carry the internet-radio body. Rather than widen that shared type, radio
-    /// requests decode into their own `RadioSubsonicEnvelope` here, reusing the
-    /// client's `makeURL` signing + `session` and applying the same error mapping
-    /// (`unauthorized` for 40/41/44, `subsonic` otherwise).
-    private func performRadioJSON(_ endpoint: String, query: [URLQueryItem] = []) async throws -> RadioSubsonicResponse {
-        let url = try makeURL(endpoint, query: query)
-        var request = URLRequest(url: url)
-        request.setValue(batonClientUserAgent, forHTTPHeaderField: "User-Agent")
-        for (name, value) in credentials.customHeaders { request.setValue(value, forHTTPHeaderField: name) }
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw NavidromeError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw NavidromeError.transport("Non-HTTP response")
-        }
-        guard (200 ... 299).contains(http.statusCode) else {
-            throw NavidromeError.http(status: http.statusCode)
-        }
-
-        let envelope: RadioSubsonicEnvelope
-        do {
-            envelope = try JSONDecoder().decode(RadioSubsonicEnvelope.self, from: data)
-        } catch {
-            throw NavidromeError.decoding(error.localizedDescription)
-        }
-        let subsonic = envelope.response
-        guard subsonic.status == "ok" else {
-            let code = subsonic.error?.code ?? -1
-            let message = subsonic.error?.message ?? "Unknown error"
-            if code == 40 || code == 41 || code == 44 {
-                throw NavidromeError.unauthorized
-            }
-            throw NavidromeError.subsonic(code: code, message: message)
-        }
-        return subsonic
+    /// Was a hand-copied transport that had lost the 401/403 mapping to `.unauthorized` and the
+    /// single retry, exactly as the podcast copy had: the Radio tab said "The music server
+    /// returned HTTP 401" where every other screen said to check the credentials, and it alone
+    /// failed on a LAN blip. Only the envelope was ever radio-specific.
+    private func performRadioJSON(_ endpoint: String, retry: Bool,
+                                  query: [URLQueryItem] = []) async throws -> RadioSubsonicResponse {
+        try await performEnvelope(endpoint, retry: retry, query: query,
+                                  as: RadioSubsonicEnvelope.self, log: radioLog)
     }
 }
 
@@ -135,12 +103,12 @@ extension NavidromeClient {
 /// Radio-specific Subsonic envelope — a slim sibling of the shared `SubsonicEnvelope`
 /// that carries only the internet-radio body (plus status/error). Kept local so the
 /// shared response type doesn't need to grow a field for this feature.
-public struct RadioSubsonicEnvelope: Decodable {
+public struct RadioSubsonicEnvelope: SubsonicEnvelopeWire {
     public let response: RadioSubsonicResponse
     enum CodingKeys: String, CodingKey { case response = "subsonic-response" }
 }
 
-public struct RadioSubsonicResponse: Decodable {
+public struct RadioSubsonicResponse: SubsonicResponseWire {
     public let status: String
     public let error: SubsonicWireError?
     public let internetRadioStations: InternetRadioStationsWire?

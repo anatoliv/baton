@@ -41,6 +41,39 @@ enum ReviewPrompt {
         return 3
     }
 
+    /// Whether a demo session may count towards the gate.
+    ///
+    /// It must not. The four bundled demo tracks are what someone plays *before* deciding
+    /// whether the app is any good, and asking them to rate it spends one of the three
+    /// prompts iOS allows per user per year on a session that has not connected to
+    /// anything. Scrobbling and history already refuse demo mode for the same reason
+    /// (`MobileModel`).
+    ///
+    /// Overridable in DEBUG only, and for one reason: the bundled library is the only
+    /// playback a UI test can rely on, so without this seam `ReviewPromptUITests` could
+    /// never reach the ask at all.
+    ///
+    /// A bare launch flag read straight off `ProcessInfo`, the way `-uitestBypassBiometrics`
+    /// and `-baton.resetSession` are, rather than a `UserDefaults` key like the two numeric
+    /// overrides above. `-baton.review.countInDemo YES` through the argument domain read
+    /// back as false and cost a full UI-test run to find; the flag the rest of this app uses
+    /// for a yes-or-no does not have that failure mode.
+    static let countInDemoArgument = "-baton.review.countInDemo"
+
+    static var countsInDemoMode: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains(countInDemoArgument)
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether playback in this session should count as listening. Pure, so the demo rule
+    /// can be proven without a player.
+    static func counts(isDemoMode: Bool) -> Bool {
+        !isDemoMode || countsInDemoMode
+    }
+
     /// How long to let the music settle before interrupting it with the ask.
     static var settleDelay: Duration {
         #if DEBUG

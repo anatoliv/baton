@@ -6,7 +6,7 @@
 	     Sentry.framework; this one covers Baton's own code. Declare only what the
 	     code actually does — the audit that produced these entries is a grep for
 	     the required-reason APIs, and the full data story is
-	     https://baton.tonebox.io/privacy.html -->
+	     https://batonmusic.app/privacy.html -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>

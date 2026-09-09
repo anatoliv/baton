@@ -136,16 +136,16 @@ struct HistoryView: View {
         } message: {
             Text("This only clears the log on this phone. Your server's play counts are untouched.")
         }
-        .overlay {
-            // Only when *both* records are empty. Judging by the local log alone told a
-            // fresh phone that nothing had ever been played, while the server was sitting
-            // on years of it.
-            if model.history.entries.isEmpty, serverRecent.isEmpty, serverTop.isEmpty,
-               !loadingServerRecent, !loadingServerTop {
-                ContentUnavailableView("Nothing played yet", systemImage: "clock.arrow.circlepath",
-                                       description: Text("Play something and it'll show up here."))
-            }
-        }
+        // Only when *both* records are empty. Judging by the local log alone told a
+        // fresh phone that nothing had ever been played, while the server was sitting
+        // on years of it.
+        .contentState(
+            model.history.entries.isEmpty && serverRecent.isEmpty && serverTop.isEmpty
+                && !loadingServerRecent && !loadingServerTop ? .empty : .content,
+            emptyTitle: "Nothing played yet",
+            emptyMessage: "Play something and it'll show up here.",
+            emptySymbol: "clock.arrow.circlepath"
+        )
     }
 
     private func loadServerRecentIfNeeded() async {

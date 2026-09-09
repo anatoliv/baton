@@ -83,7 +83,15 @@ public final class FriendLearningStore {
     public static let maxCorrections = 12
 
     private let url: URL
+    private let store: VersionedStore<[FriendCorrection]>
     public private(set) var corrections: [FriendCorrection] = []
+
+    /// Whether the last write to disk actually landed, and whether the last read did.
+    ///
+    /// Additive rather than a changed return type on `learn`, so nothing built on this class has
+    /// to move. `save()` returned `Void` and could not fail (S-F2).
+    public private(set) var lastWriteSucceeded = true
+    public private(set) var lastLoadSucceeded = true
 
     /// Where a rating that carries the person's *words* goes instead of here.
     ///
@@ -100,7 +108,15 @@ public final class FriendLearningStore {
 
     public init(url: URL? = nil,
                 defaults: UserDefaults = FriendLedgerStore.defaultDefaults()) {
-        self.url = url ?? Self.defaultURL()
+        let fileURL = url ?? Self.defaultURL()
+        self.url = fileURL
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        // `keepBackup: true`: a correction is something the owner took the trouble to give, and
+        // nothing can re-derive it.
+        self.store = VersionedStore<[FriendCorrection]>(
+            fileURL: fileURL, currentVersion: 1, keepBackup: true,
+            encoder: encoder, log: friendLog)
         self.defaults = defaults
         load()
     }
@@ -109,6 +125,10 @@ public final class FriendLearningStore {
     private let defaults: UserDefaults
     /// True only while `adoptLedger` is writing what the ledger already says.
     private var isAdopting = false
+
+    /// Ledger keys for corrections this device deliberately dropped — retired, forgotten, or
+    /// superseded by the owner's own words — waiting to become tombstones on the next publish.
+    private var pendingRemovals: Set<String> = []
 
     // MARK: - Crossing devices
 
@@ -120,13 +140,26 @@ public final class FriendLearningStore {
         set { defaults.set(newValue.encoded(), forKey: FriendLedger.storageKey) }
     }
 
-    /// Record the current corrections, turning anything that has gone into a tombstone.
+    /// Record the current corrections, turning a **retired** one into a tombstone.
     ///
-    /// The tombstone is the whole point here. `retireIfApproved` **deletes** a correction when
-    /// the friend later gets that request right, and a deletion that leaves no trace cannot be
-    /// told from "this device never had it" — so the other device would push the complaint
-    /// straight back and the friend would go on being corrected about something it has fixed.
+    /// The tombstone is the whole point here. `retireIfApproved` deletes a correction when the
+    /// friend later gets that request right, and a deletion that leaves no trace cannot be told
+    /// from "this device never had it" — so the other device would push the complaint straight
+    /// back and the friend would go on being corrected about something it has fixed.
+    ///
+    /// **Only a recorded retirement or deletion tombstones**, for the reason spelled out on
+    /// `RemoteMemoryStore.publishToLedger`: this used to tombstone anything the ledger held and
+    /// this store did not, and an absence has several causes of which deletion is one. A failed
+    /// load and a local capacity trim both produced absences, and both were broadcast as the
+    /// owner deleting a correction (S-F2, S-F18).
     func publishToLedger(now: Date = Date()) {
+        guard lastLoadSucceeded else {
+            friendLog.error("""
+                not publishing the friend's corrections: this device could not read its own \
+                store, so it has nothing trustworthy to say about them.
+                """)
+            return
+        }
         var ledger = self.ledger
         let live = Dictionary(corrections.map { (FriendLedger.key(for: $0.request), $0) },
                               uniquingKeysWith: { _, latest in latest })
@@ -147,12 +180,14 @@ public final class FriendLearningStore {
                 date: correction.date, removed: false, removedAt: nil, statedAt: now)
         }
 
-        for (key, var record) in records where !record.removed && live[key] == nil {
+        for key in pendingRemovals {
+            guard var record = records[key], !record.removed else { continue }
             record.removed = true
             record.removedAt = now
             record.statedAt = now
             records[key] = record
         }
+        pendingRemovals.removeAll()
 
         ledger.corrections = records.values.sorted { $0.key < $1.key }
         self.ledger = ledger
@@ -239,7 +274,9 @@ public final class FriendLearningStore {
         if let note = exchange.note, !note.isEmpty, let memory {
             memory.remember(kind: "correction", text: guidance(from: exchange, note: note), quote: note)
             // Any older evidence-line about the same request is superseded by the person
-            // actually saying what they meant.
+            // actually saying what they meant. A real deletion, so it is recorded: without the
+            // tombstone the other device pushes the superseded complaint straight back.
+            recordRemovals(matching: exchange.request)
             corrections.removeAll { $0.request.caseInsensitiveCompare(exchange.request) == .orderedSame }
             save()
             return nil
@@ -274,18 +311,32 @@ public final class FriendLearningStore {
     public func retireIfApproved(_ exchange: FriendExchange) {
         guard exchange.rating == .up else { return }
         let before = corrections.count
+        recordRemovals(matching: exchange.request)
         corrections.removeAll { $0.request.caseInsensitiveCompare(exchange.request) == .orderedSame }
         if corrections.count != before { save() }
     }
 
     public func forget(_ id: UUID) {
+        if let going = corrections.first(where: { $0.id == id }) {
+            pendingRemovals.insert(FriendLedger.key(for: going.request))
+        }
         corrections.removeAll { $0.id == id }
         save()
     }
 
     public func forgetAll() {
+        for correction in corrections { pendingRemovals.insert(FriendLedger.key(for: correction.request)) }
         corrections = []
         save()
+    }
+
+    /// Note that every correction about `request` is about to be deleted on purpose, so the next
+    /// publish can tell this apart from a correction that is merely absent.
+    private func recordRemovals(matching request: String) {
+        for correction in corrections
+        where correction.request.caseInsensitiveCompare(request) == .orderedSame {
+            pendingRemovals.insert(FriendLedger.key(for: correction.request))
+        }
     }
 
     /// The block appended to the system prompt, or nil when there is nothing to say.
@@ -313,38 +364,37 @@ public final class FriendLearningStore {
     public func reload() { load() }
 
     private func load() {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        guard let data = try? Data(contentsOf: url) else {
-            friendLog.error("could not read \(self.url.lastPathComponent, privacy: .public)")
-            return
-        }
-        guard
-              let decoded = try? JSONDecoder().decode([FriendCorrection].self, from: data)
-        else {
-            // Move it aside rather than over it. Decoding to empty and then saving on the
-            // next mutation is how a corrupt file becomes a deleted one.
-            let quarantine = url.appendingPathExtension("corrupt")
-            try? FileManager.default.removeItem(at: quarantine)
-            try? FileManager.default.moveItem(at: url, to: quarantine)
-            friendLog.error("\(self.url.lastPathComponent, privacy: .public) would not decode — moved aside")
-            return
-        }
-        corrections = decoded
+        let result = store.loadWithOutcome()
+        // `VersionedStore` does what this method used to do by hand — quarantine rather than
+        // overwrite — and two things it did not: it keeps a `.bak` of the last good file, and it
+        // refuses to write over a file from a newer build rather than downgrading it. The
+        // hand-rolled version also lost the previous quarantine on each failure, so a second
+        // corrupt file destroyed the evidence from the first (S-F2, S-F14).
+        lastLoadSucceeded = result.outcome != .quarantined
+        guard let decoded = result.payload else { return }
+        // Capped here, not only in `learn`. The type doc promises the prompt is bounded, and
+        // trimming lived on the write path alone — so a `music-friend-learned.json` arriving
+        // through a settings import went into the system prompt at whatever size it was
+        // (S-F18). In memory only: a launch must not rewrite the file before the owner acts.
+        corrections = Array(decoded.prefix(Self.maxCorrections))
     }
 
-    private func save() {
+    @discardableResult
+    private func save() -> Bool {
+        // Write first, publish second. The old order announced a state to the other device
+        // before knowing whether this one had managed to keep it.
+        let written = store.save(corrections)
+        lastWriteSucceeded = written
+        guard written else {
+            // A silently failing write loses every rating since the last good one, and the
+            // only symptom is a feature that seems not to learn. `VersionedStore.save` logs why.
+            return false
+        }
+        lastLoadSucceeded = true
         // Beside every save, so a mutation added later cannot forget to publish. Guarded
         // against re-entry: `adoptLedger` saves too, and restating what we just adopted would
         // start a push ping-pong between the two devices.
         if !isAdopting { publishToLedger() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        do {
-            try encoder.encode(corrections).write(to: url, options: .atomic)
-        } catch {
-            // A silently failing write loses every rating since the last good one, and the
-            // only symptom is a feature that seems not to learn.
-            friendLog.error("could not save \(self.url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
+        return true
     }
 }

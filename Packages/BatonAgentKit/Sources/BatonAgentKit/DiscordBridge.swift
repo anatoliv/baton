@@ -377,7 +377,7 @@ public final class DiscordBridge {
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Discord blocks requests without a User-Agent it recognizes as a client.
-        request.setValue("DiscordBot (https://baton.tonebox.io, 1.0)", forHTTPHeaderField: "User-Agent")
+        request.setValue("DiscordBot (https://batonmusic.app, 1.0)", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
@@ -395,7 +395,7 @@ public final class DiscordBridge {
         guard let url = URL(string: Self.apiBase + "/gateway/bot") else { throw BridgeError.malformed }
         var request = URLRequest(url: url)
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("DiscordBot (https://baton.tonebox.io, 1.0)", forHTTPHeaderField: "User-Agent")
+        request.setValue("DiscordBot (https://batonmusic.app, 1.0)", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 { throw BridgeError.authFailed }

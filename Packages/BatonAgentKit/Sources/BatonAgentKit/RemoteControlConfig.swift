@@ -224,14 +224,28 @@ public final class RemoteControlSettings {
     private let defaults: UserDefaults
     private let secrets: any SecretStore
 
+    /// Where the remote-control settings persist when none is injected: the probe suite under a
+    /// `-baton.defaultsSuite` launch, a shared test suite under XCTest, `.standard` otherwise.
+    ///
+    /// `redirect` is a parameter only so a test can resolve the probe branch without being
+    /// launched as a probe; every caller in the app takes the default.
+    ///
+    /// The probe branch is first because this store holds the Telegram and Discord
+    /// **authorized-sender list**: before it existed, a probe read the owner's real allow-list and
+    /// any settings write in the probe replaced it (M-F1).
+    public static func defaultStore(environment: BatonEnvironment = .current,
+                                    redirect: BatonStorage.Redirect = BatonStorage.current) -> UserDefaults {
+        if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }
+        guard environment.isTesting else { return .standard }
+        return UserDefaults(suiteName: "baton.remote.tests") ?? .standard
+    }
+
     public init(
         environment: BatonEnvironment = .current,
         defaults: UserDefaults? = nil,
         secrets: (any SecretStore)? = nil
     ) {
-        let store = defaults
-            ?? (environment.isTesting ? UserDefaults(suiteName: "baton.remote.tests") : nil)
-            ?? .standard
+        let store = defaults ?? Self.defaultStore(environment: environment)
         let secretStore: any SecretStore = secrets
             ?? (environment.isTesting ? InMemorySecretStore() : KeychainSecretStore())
         self.defaults = store

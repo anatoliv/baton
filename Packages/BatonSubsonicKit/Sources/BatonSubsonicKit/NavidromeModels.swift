@@ -15,12 +15,34 @@ import Foundation
 // handful of endpoints we call keeps it small, and it mirrors how the API actually
 // overloads one envelope.
 
-public struct SubsonicEnvelope: Decodable {
+/// The `{ "subsonic-response": { ... } }` wrapper, whatever body sits inside it.
+///
+/// Podcasts and Radio each carry bodies the shared `SubsonicResponse` deliberately does not,
+/// so each has its own envelope. What they must not each have is their own transport: the two
+/// copies drifted, dropping the 401 mapping and the single retry, so those two tabs reported
+/// "HTTP 401" while every other screen said to check the credentials, and failed on a LAN blip
+/// the rest of the app rode out. One generic transport, three envelopes.
+public protocol SubsonicEnvelopeWire: Decodable {
+    associatedtype Body: SubsonicResponseWire
+    var response: Body { get }
+}
+
+/// The status and error contract every Subsonic body shares, whatever else it carries.
+public protocol SubsonicResponseWire: Decodable {
+    var status: String { get }
+    var error: SubsonicWireError? { get }
+}
+
+extension SubsonicResponseWire {
+    public var isOK: Bool { status == "ok" }
+}
+
+public struct SubsonicEnvelope: SubsonicEnvelopeWire {
     public let response: SubsonicResponse
     enum CodingKeys: String, CodingKey { case response = "subsonic-response" }
 }
 
-public struct SubsonicResponse: Decodable {
+public struct SubsonicResponse: SubsonicResponseWire {
     public let status: String
     public let version: String?
     public let error: SubsonicWireError?
@@ -44,10 +66,6 @@ public struct SubsonicResponse: Decodable {
     public let bookmarks: BookmarksWire?
     public let indexes: IndexesWire?
     public let directory: DirectoryWire?
-
-    public var isOK: Bool {
-        status == "ok"
-    }
 }
 
 /// `getIndexes` — the folder tree's roots, bucketed A–Z by the server.

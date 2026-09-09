@@ -367,6 +367,8 @@ private struct PodcastChannelListRow: View {
                     .foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("More actions")
+            .accessibilityLabel("More actions")
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(hover ? Color.hoverTint : .clear, in: RoundedRectangle(cornerRadius: 8))
@@ -746,6 +748,8 @@ private struct PodcastEpisodeRow: View {
                         .contentTransition(.symbolEffect(.replace.downUp))
                 }
                 .buttonStyle(.borderless)
+                .help(isPlaying ? "Pause" : "Play episode")
+                .accessibilityLabel(isPlaying ? "Pause" : "Play episode")
             }
         } else if isDownloading || episode.isDownloadingOnServer {
             HStack(spacing: 6) {

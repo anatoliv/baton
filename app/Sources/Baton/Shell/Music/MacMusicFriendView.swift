@@ -53,18 +53,6 @@ struct MacMusicFriendView: View {
     @State private var isThinking = false
     @FocusState private var composerFocused: Bool
 
-    /// The app's appearance choice, not the system's.
-    ///
-    /// Caught by opening the window rather than by a test: against a dark library this came
-    /// up white, because a new window follows the system unless told otherwise. `MusicView`
-    /// already carries the note that Settings and Help drifting to the system was the bug
-    /// worth fixing — one control, one answer. This is chrome, so it follows the setting;
-    /// player surfaces stay dark regardless and are not this.
-    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
-    private var appearance: AppearanceSetting {
-        AppearanceSetting(rawValue: appearanceRaw) ?? .dark
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             transcript
@@ -72,7 +60,11 @@ struct MacMusicFriendView: View {
             composer
         }
         .frame(minWidth: 420, minHeight: 320)
-        .batonAppearance(appearance)
+        // The app's appearance choice, not the system's — one control, one answer. Caught by
+        // opening the window rather than by a test: against a dark library this came up white,
+        // because a new window follows the system unless told otherwise. This is chrome, so it
+        // follows the setting; player surfaces stay dark regardless and are not this.
+        .batonChrome()
         .onAppear {
             composerFocused = true
             // Catch the replies nobody asked for: an auto-picked choice lands well after the

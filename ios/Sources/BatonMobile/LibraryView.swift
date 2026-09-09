@@ -84,6 +84,15 @@ struct LibraryView: View {
             NavigationLink { GenresView(model: model) } label: {
                 Label("Genres", systemImage: section.symbol)
             }
+        case .later:
+            // The Mac's ⌘9 screen. `PinStore` was loaded and purged on the phone with no
+            // way to see or add a pin (I-F18); the merge rule appends a section this build
+            // knows about and a saved layout does not, visible, so it shows up for people
+            // who have already edited their Library.
+            NavigationLink { LaterView(model: model) } label: {
+                Label("Later", systemImage: section.symbol)
+                    .badge(model.pins.pins.count)
+            }
         case .history:
             NavigationLink { HistoryView(model: model) } label: {
                 Label("History", systemImage: section.symbol)
@@ -250,12 +259,12 @@ struct LikedView: View {
         }
         .task { await model.musicLibrary.loadStarred() }
         .refreshable { await model.musicLibrary.loadStarred() }
-        .overlay {
-            if isEmpty {
-                ContentUnavailableView("Nothing liked yet", systemImage: "heart",
-                                       description: Text("Tap the heart on a track, album or artist and it turns up here."))
-            }
-        }
+        .contentState(
+            isEmpty ? .empty : .content,
+            emptyTitle: "Nothing liked yet",
+            emptyMessage: "Tap the heart on a track, album or artist and it turns up here.",
+            emptySymbol: "heart"
+        )
     }
 
     @ViewBuilder
@@ -919,15 +928,12 @@ struct DownloadsView: View {
         // A download finishing is the one event here worth feeling: people start one and
         // put the phone down, and the screen changing silently tells them nothing.
         .sensoryFeedback(.success, trigger: items.count)
-        .overlay {
-            if items.isEmpty, failed.isEmpty, store.inFlight.isEmpty {
-                ContentUnavailableView(
-                    "Nothing downloaded",
-                    systemImage: "arrow.down.circle",
-                    description: Text("Download an album or a song and it plays without a connection.")
-                )
-            }
-        }
+        .contentState(
+            items.isEmpty && failed.isEmpty && store.inFlight.isEmpty ? .empty : .content,
+            emptyTitle: "Nothing downloaded",
+            emptyMessage: "Download an album or a song and it plays without a connection.",
+            emptySymbol: "arrow.down.circle"
+        )
     }
 
     /// How many, and how much of the phone they're using. A count alone doesn't answer the

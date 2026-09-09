@@ -184,13 +184,13 @@ public struct NavidromeClient: Sendable {
     /// Liveness + credential check. Throws on any transport / auth / protocol
     /// failure; returns normally on `status: ok`.
     public func ping() async throws {
-        _ = try await performJSON("ping.view")
+        _ = try await performJSON("ping.view", retry: true)
     }
 
     /// OpenSubsonic extension names the server advertises (empty on a classic
     /// Subsonic server that lacks the endpoint). Used to pick the auth mode.
     public func openSubsonicExtensions() async throws -> [String] {
-        let response = try await performJSON("getOpenSubsonicExtensions.view")
+        let response = try await performJSON("getOpenSubsonicExtensions.view", retry: true)
         return (response.openSubsonicExtensions ?? []).map(\.name)
     }
 
@@ -235,7 +235,7 @@ public struct NavidromeClient: Sendable {
         albumCount: Int = 10,
         artistCount: Int = 10
     ) async throws -> NavidromeSearchResults {
-        let response = try await performJSON("search3.view", query: [
+        let response = try await performJSON("search3.view", retry: true, query: [
             URLQueryItem(name: "query", value: Self.foldedForSearch(query)),
             URLQueryItem(name: "songCount", value: String(songCount)),
             URLQueryItem(name: "albumCount", value: String(albumCount)),
@@ -247,7 +247,7 @@ public struct NavidromeClient: Sendable {
     /// An album's ordered songs (`getAlbum`). Used to play an album in track order
     /// rather than as loose search hits.
     public func getAlbum(id: String) async throws -> [NavidromeSong] {
-        let response = try await performJSON("getAlbum.view", query: [
+        let response = try await performJSON("getAlbum.view", retry: true, query: [
             URLQueryItem(name: "id", value: id),
         ])
         return (response.album?.song ?? []).map { $0.toDomain() }
@@ -255,13 +255,13 @@ public struct NavidromeClient: Sendable {
 
     /// All playlists (metadata only; `songs` is empty — call `getPlaylist`).
     public func getPlaylists() async throws -> [NavidromePlaylist] {
-        let response = try await performJSON("getPlaylists.view")
+        let response = try await performJSON("getPlaylists.view", retry: true)
         return (response.playlists?.playlist ?? []).map { $0.toDomain() }
     }
 
     /// One playlist with its ordered songs.
     public func getPlaylist(id: String) async throws -> NavidromePlaylist {
-        let response = try await performJSON("getPlaylist.view", query: [
+        let response = try await performJSON("getPlaylist.view", retry: true, query: [
             URLQueryItem(name: "id", value: id),
         ])
         guard let wire = response.playlist else {
@@ -274,17 +274,17 @@ public struct NavidromeClient: Sendable {
 
     /// "Like" a track/album/artist (`star`). Persists on the server.
     public func star(id: String) async throws {
-        _ = try await performJSON("star.view", query: [URLQueryItem(name: "id", value: id)])
+        _ = try await performJSON("star.view", retry: false, query: [URLQueryItem(name: "id", value: id)])
     }
 
     /// Remove a like (`unstar`).
     public func unstar(id: String) async throws {
-        _ = try await performJSON("unstar.view", query: [URLQueryItem(name: "id", value: id)])
+        _ = try await performJSON("unstar.view", retry: false, query: [URLQueryItem(name: "id", value: id)])
     }
 
     /// Set a 1–5 rating (`setRating`); `rating: 0` clears it.
     public func setRating(id: String, rating: Int) async throws {
-        _ = try await performJSON("setRating.view", query: [
+        _ = try await performJSON("setRating.view", retry: false, query: [
             URLQueryItem(name: "id", value: id),
             URLQueryItem(name: "rating", value: String(max(0, min(rating, 5)))),
         ])
@@ -294,7 +294,7 @@ public struct NavidromeClient: Sendable {
     /// server-side `starred` (like) and `userRating`. Used to reconcile the
     /// now-playing display with the server after a relaunch.
     public func getSong(id: String) async throws -> NavidromeSong {
-        let response = try await performJSON("getSong.view", query: [URLQueryItem(name: "id", value: id)])
+        let response = try await performJSON("getSong.view", retry: true, query: [URLQueryItem(name: "id", value: id)])
         guard let song = response.song else { throw NavidromeError.subsonic(code: -1, message: "No song in response") }
         return song.toDomain()
     }
@@ -303,7 +303,7 @@ public struct NavidromeClient: Sendable {
 
     /// All starred ("liked") items for the current user (`getStarred2`).
     public func getStarred2() async throws -> NavidromeSearchResults {
-        let response = try await performJSON("getStarred2.view")
+        let response = try await performJSON("getStarred2.view", retry: true)
         return Self.mapSearchResults(response.starred2)
     }
 
@@ -328,7 +328,7 @@ public struct NavidromeClient: Sendable {
         if let genre { query.append(URLQueryItem(name: "genre", value: genre)) }
         if let fromYear { query.append(URLQueryItem(name: "fromYear", value: String(fromYear))) }
         if let toYear { query.append(URLQueryItem(name: "toYear", value: String(toYear))) }
-        let response = try await performJSON("getAlbumList2.view", query: query)
+        let response = try await performJSON("getAlbumList2.view", retry: true, query: query)
         return (response.albumList2?.album ?? []).map { $0.toDomain() }
     }
 
@@ -339,7 +339,7 @@ public struct NavidromeClient: Sendable {
 
     /// The folder tree's roots with the server's own A–Z buckets kept, for the rail.
     public func getFolderIndex() async throws -> ServerIndexedList<NavidromeFolder> {
-        let response = try await performJSON("getIndexes.view", query: [])
+        let response = try await performJSON("getIndexes.view", retry: true, query: [])
         return ServerIndexedList(buckets: (response.indexes?.index ?? []).map { bucket in
             .init(letter: bucket.name ?? "#",
                   items: (bucket.artist ?? []).map { NavidromeFolder(id: $0.id, name: $0.name) })
@@ -347,14 +347,23 @@ public struct NavidromeClient: Sendable {
     }
 
     /// One folder's contents (`getMusicDirectory`): subfolders and playable songs.
+    ///
+    /// Throws when the server answers OK with no directory body, rather than inventing an empty
+    /// folder called "Folder". It was the one endpoint in this package that fabricated a success:
+    /// its siblings `getPlaylist` and `getSong` already throw, and a missing body rendered as a
+    /// real, empty folder with a placeholder name, which reads as "this folder is empty".
     public func getMusicDirectory(id: String) async throws -> NavidromeDirectory {
-        let response = try await performJSON("getMusicDirectory.view",
+        let response = try await performJSON("getMusicDirectory.view", retry: true,
                                              query: [URLQueryItem(name: "id", value: id)])
-        let wire = response.directory
-        let children = wire?.child ?? []
+        guard let wire = response.directory else {
+            throw NavidromeError.decoding("getMusicDirectory returned no directory")
+        }
+        let children = wire.child ?? []
         return NavidromeDirectory(
-            id: wire?.id ?? id,
-            name: wire?.name ?? "Folder",
+            // The requested id is the honest fallback for a body that omits its own. The name
+            // falls back to it for the same reason: an id names something real, "Folder" does not.
+            id: wire.id ?? id,
+            name: wire.name ?? wire.id ?? id,
             folders: children.compactMap { $0.folder.map { NavidromeFolder(id: $0.id, name: $0.name) } },
             songs: children.compactMap { $0.song?.toDomain() }
         )
@@ -367,25 +376,25 @@ public struct NavidromeClient: Sendable {
 
     /// All artists with the server's own index letters kept, for the rail.
     public func getArtistIndex() async throws -> ServerIndexedList<NavidromeArtist> {
-        let response = try await performJSON("getArtists.view")
+        let response = try await performJSON("getArtists.view", retry: true)
         return response.artists?.indexed() ?? ServerIndexedList(buckets: [])
     }
 
     /// One artist's albums (`getArtist`).
     public func getArtistAlbums(id: String) async throws -> [NavidromeAlbum] {
-        let response = try await performJSON("getArtist.view", query: [URLQueryItem(name: "id", value: id)])
+        let response = try await performJSON("getArtist.view", retry: true, query: [URLQueryItem(name: "id", value: id)])
         return (response.artist?.album ?? []).map { $0.toDomain() }
     }
 
     /// Library genres (`getGenres`).
     public func getGenres() async throws -> [NavidromeGenre] {
-        let response = try await performJSON("getGenres.view")
+        let response = try await performJSON("getGenres.view", retry: true)
         return (response.genres?.genre ?? []).map { $0.toDomain() }
     }
 
     /// Songs in a genre (`getSongsByGenre`).
     public func getSongsByGenre(_ genre: String, count: Int = 60) async throws -> [NavidromeSong] {
-        let response = try await performJSON("getSongsByGenre.view", query: [
+        let response = try await performJSON("getSongsByGenre.view", retry: true, query: [
             URLQueryItem(name: "genre", value: genre),
             URLQueryItem(name: "count", value: String(count)),
         ])
@@ -394,13 +403,13 @@ public struct NavidromeClient: Sendable {
 
     /// Biography + portrait for an artist (`getArtistInfo2`).
     public func getArtistInfo(id: String) async throws -> NavidromeArtistInfo {
-        let response = try await performJSON("getArtistInfo2.view", query: [URLQueryItem(name: "id", value: id)])
+        let response = try await performJSON("getArtistInfo2.view", retry: true, query: [URLQueryItem(name: "id", value: id)])
         return (response.artistInfo2 ?? ArtistInfo2Wire(biography: nil, largeImageUrl: nil)).toDomain()
     }
 
     /// Songs similar to a track/artist (`getSimilarSongs2`) — powers radio/discovery.
     public func getSimilarSongs(id: String, count: Int = 50) async throws -> [NavidromeSong] {
-        let response = try await performJSON("getSimilarSongs2.view", query: [
+        let response = try await performJSON("getSimilarSongs2.view", retry: true, query: [
             URLQueryItem(name: "id", value: id),
             URLQueryItem(name: "count", value: String(count)),
         ])
@@ -420,14 +429,14 @@ public struct NavidromeClient: Sendable {
         if let genre { query.append(URLQueryItem(name: "genre", value: genre)) }
         if let fromYear { query.append(URLQueryItem(name: "fromYear", value: String(fromYear))) }
         if let toYear { query.append(URLQueryItem(name: "toYear", value: String(toYear))) }
-        let response = try await performJSON("getRandomSongs.view", query: query)
+        let response = try await performJSON("getRandomSongs.view", retry: true, query: query)
         return (response.randomSongs?.song ?? []).map { $0.toDomain() }
     }
 
     /// Structured (optionally time-synced) lyrics for a song (`getLyricsBySongId`).
     /// Returns nil when the server has no lyrics for the track.
     public func getLyrics(songID: String) async throws -> NavidromeLyrics? {
-        let response = try await performJSON("getLyricsBySongId.view", query: [
+        let response = try await performJSON("getLyricsBySongId.view", retry: true, query: [
             URLQueryItem(name: "id", value: songID),
         ])
         return response.lyricsList?.toDomain()
@@ -446,7 +455,7 @@ public struct NavidromeClient: Sendable {
             URLQueryItem(name: "submission", value: submission ? "true" : "false"),
         ]
         if let time { query.append(URLQueryItem(name: "time", value: String(time))) }
-        _ = try await performJSON("scrobble.view", query: query)
+        _ = try await performJSON("scrobble.view", retry: false, query: query)
     }
 
     /// Reports how much of a track actually **played**, once it is left.
@@ -468,7 +477,7 @@ public struct NavidromeClient: Sendable {
         if let trackDuration, trackDuration > 0 {
             query.append(URLQueryItem(name: "trackDuration", value: String(trackDuration)))
         }
-        _ = try await performJSON("scrobble.view", query: query)
+        _ = try await performJSON("scrobble.view", retry: false, query: query)
     }
 
     // MARK: - Playlist CRUD
@@ -478,7 +487,7 @@ public struct NavidromeClient: Sendable {
     public func createPlaylist(name: String, songIDs: [String] = []) async throws -> NavidromePlaylist {
         var query = [URLQueryItem(name: "name", value: name)]
         query.append(contentsOf: songIDs.map { URLQueryItem(name: "songId", value: $0) })
-        let response = try await performJSON("createPlaylist.view", query: query)
+        let response = try await performJSON("createPlaylist.view", retry: false, query: query)
         // Some servers return the new playlist; fall back to a stub if not.
         if let wire = response.playlist { return wire.toDomain() }
         return NavidromePlaylist(id: "", name: name, songCount: songIDs.count, songs: [])
@@ -500,7 +509,7 @@ public struct NavidromeClient: Sendable {
         if let isPublic { query.append(URLQueryItem(name: "public", value: isPublic ? "true" : "false")) }
         query.append(contentsOf: songIDsToAdd.map { URLQueryItem(name: "songIdToAdd", value: $0) })
         query.append(contentsOf: songIndexesToRemove.map { URLQueryItem(name: "songIndexToRemove", value: String($0)) })
-        _ = try await performJSON("updatePlaylist.view", query: query)
+        _ = try await performJSON("updatePlaylist.view", retry: false, query: query)
     }
 
     /// Replaces a playlist's tracks with `songIDs` in the given order — used to persist a
@@ -512,7 +521,7 @@ public struct NavidromeClient: Sendable {
         var query = [URLQueryItem(name: "playlistId", value: id)]
         if let name { query.append(URLQueryItem(name: "name", value: name)) }
         query.append(contentsOf: songIDs.map { URLQueryItem(name: "songId", value: $0) })
-        _ = try await performJSON("createPlaylist.view", query: query)
+        _ = try await performJSON("createPlaylist.view", retry: false, query: query)
     }
 
     /// Replaces a playlist's tracks with `songIDs` in order, sending them in bounded batches so
@@ -535,7 +544,7 @@ public struct NavidromeClient: Sendable {
 
     /// Deletes a playlist (`deletePlaylist`).
     public func deletePlaylist(id: String) async throws {
-        _ = try await performJSON("deletePlaylist.view", query: [URLQueryItem(name: "id", value: id)])
+        _ = try await performJSON("deletePlaylist.view", retry: false, query: [URLQueryItem(name: "id", value: id)])
     }
 
     /// Shared mapping for `search3` / `getStarred2` result bodies.
@@ -561,7 +570,28 @@ public struct NavidromeClient: Sendable {
         }
     }
 
-    func performJSON(_ endpoint: String, query: [URLQueryItem] = []) async throws -> SubsonicResponse {
+    /// - Parameter retry: whether a transient transport failure is worth one more attempt.
+    ///
+    ///   There is no default on purpose. This is the transport for every endpoint in the
+    ///   package, reads and writes alike, and it used to retry all of them, which is the same
+    ///   as retrying a write: `.timedOut` and `.networkConnectionLost` both fire *after* the
+    ///   server has applied the request just as readily as before, so the second attempt
+    ///   created a second playlist with the same name, appended the same tracks twice, and
+    ///   counted one play as two. A required argument makes a new endpoint state which it is
+    ///   rather than inherit whichever default happened to be written here.
+    func performJSON(_ endpoint: String, retry: Bool,
+                     query: [URLQueryItem] = []) async throws -> SubsonicResponse {
+        try await performEnvelope(endpoint, retry: retry, query: query,
+                                  as: SubsonicEnvelope.self, log: navidromeLog)
+    }
+
+    /// The whole transport, over any envelope: signing, the optional retry, the HTTP status
+    /// mapping and the Subsonic status mapping. Podcasts and Radio call this with their own
+    /// envelope types rather than keeping copies that drift away from these mappings.
+    func performEnvelope<E: SubsonicEnvelopeWire>(_ endpoint: String, retry: Bool,
+                                                  query: [URLQueryItem] = [],
+                                                  as _: E.Type,
+                                                  log: Logger) async throws -> E.Body {
         let url = try makeURL(endpoint, query: query)
         var request = URLRequest(url: url)
         request.setValue(batonClientUserAgent, forHTTPHeaderField: "User-Agent")
@@ -570,32 +600,32 @@ public struct NavidromeClient: Sendable {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await Self.dataWithOneRetry(session: session, request: request)
+            (data, response) = retry
+                ? try await Self.dataWithOneRetry(session: session, request: request)
+                : try await session.data(for: request)
         } catch {
-            navidromeLog
-                .error(
-                    "\(endpoint, privacy: .public) transport failed: \(error.localizedDescription, privacy: .public)"
-                )
+            log.error(
+                "\(endpoint, privacy: .public) transport failed: \(error.localizedDescription, privacy: .public)"
+            )
             throw NavidromeError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {
-            navidromeLog.error("\(endpoint, privacy: .public): non-HTTP response")
+            log.error("\(endpoint, privacy: .public): non-HTTP response")
             throw NavidromeError.transport("Non-HTTP response")
         }
         guard (200 ... 299).contains(http.statusCode) else {
-            navidromeLog.error("\(endpoint, privacy: .public): HTTP \(http.statusCode, privacy: .public)")
+            log.error("\(endpoint, privacy: .public): HTTP \(http.statusCode, privacy: .public)")
             // A reverse proxy in front of Navidrome answers 401/403 for bad credentials — map
             // it to the actionable "check your credentials" error, not a generic HTTP code.
             if http.statusCode == 401 || http.statusCode == 403 { throw NavidromeError.unauthorized }
             throw NavidromeError.http(status: http.statusCode)
         }
 
-        let envelope: SubsonicEnvelope
+        let envelope: E
         do {
-            envelope = try JSONDecoder().decode(SubsonicEnvelope.self, from: data)
+            envelope = try JSONDecoder().decode(E.self, from: data)
         } catch {
-            navidromeLog
-                .error("\(endpoint, privacy: .public): decode failed: \(error.localizedDescription, privacy: .public)")
+            log.error("\(endpoint, privacy: .public): decode failed: \(error.localizedDescription, privacy: .public)")
             throw NavidromeError.decoding(error.localizedDescription)
         }
         let subsonic = envelope.response
@@ -604,10 +634,9 @@ public struct NavidromeClient: Sendable {
             let message = subsonic.error?.message ?? "Unknown error"
             // The server's error text is safe to log (no secrets); the username
             // lives in the query, never logged. Makes "check logs" actionable.
-            navidromeLog
-                .error(
-                    "\(endpoint, privacy: .public): Subsonic error \(code, privacy: .public) — \(message, privacy: .public)"
-                )
+            log.error(
+                "\(endpoint, privacy: .public): Subsonic error \(code, privacy: .public) — \(message, privacy: .public)"
+            )
             // 40 wrong credentials · 41 token auth unsupported · 44 invalid creds.
             if code == 40 || code == 41 || code == 44 {
                 throw NavidromeError.unauthorized

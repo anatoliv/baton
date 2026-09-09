@@ -73,9 +73,18 @@ struct NowPlayingProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
-        // The app reloads this timeline on every track change; the entry itself
-        // never needs future dates.
-        completion(Timeline(entries: [NowPlayingEntry(date: .now, snapshot: read())], policy: .never))
+        // The app reloads this timeline on every track change, so the *current* entry never
+        // needs a future date. What it does need is a second entry at the moment the
+        // snapshot goes stale: without one, a jetsammed app leaves the widget claiming
+        // playback until something else happens to reload it, which may be never. This is
+        // the only refresh that does not depend on the app being alive (I-F11).
+        let snapshot = read()
+        var entries = [NowPlayingEntry(date: .now, snapshot: snapshot)]
+        if let snapshot, !snapshot.songID.isEmpty {
+            let expiry = WidgetFreshness.staleMoment(after: snapshot.updatedAt)
+            if expiry > .now { entries.append(NowPlayingEntry(date: expiry, snapshot: snapshot)) }
+        }
+        completion(Timeline(entries: entries, policy: .never))
     }
 
     private func read() -> WidgetSnapshot? {
@@ -108,14 +117,18 @@ struct NowPlayingWidgetView: View {
     let entry: NowPlayingEntry
 
     var body: some View {
-        if let snapshot = entry.snapshot, !snapshot.songID.isEmpty {
+        if let snapshot = entry.snapshot, !snapshot.songID.isEmpty,
+           !WidgetFreshness.isStale(updatedAt: snapshot.updatedAt, asOf: entry.date) {
             content(snapshot)
                 // Not `baton://play/<id>` — that re-plays the track from the start with a
                 // one-item queue. The widget shows what is playing; tapping it should take
                 // you there, not restart it.
                 .widgetURL(URL(string: "baton://player"))
         } else {
-            idle
+            // A snapshot nobody has refreshed for half an hour is not evidence of playback.
+            // It falls back to the same quiet state an empty snapshot draws, still tappable,
+            // rather than to an error nobody can act on.
+            idle.widgetURL(URL(string: "baton://player"))
         }
     }
 
@@ -249,15 +262,28 @@ struct NowPlayingLiveActivity: Widget {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
-                    // A bar that moves on its own. Without it the card is only truthful at
-                    // the instant it was pushed, and pushing every second to animate a
-                    // progress bar is exactly what ActivityKit budgets are there to stop.
+                    // A bar that moves on its own *while the music does*. Without it the
+                    // card is only truthful at the instant it was pushed, and pushing
+                    // every second to animate a progress bar is exactly what ActivityKit
+                    // budgets are there to stop.
+                    //
+                    // Paused, the timer variant carried on against the wall clock and only
+                    // dimmed itself, so a track paused at 0:30 read as five minutes further
+                    // along five minutes later, and eventually as finished (I-F10). Pause
+                    // stops the clock, so the bar has to stop with it.
                     if context.state.duration > 0 {
-                        ProgressView(timerInterval: progressRange(context.state),
-                                     countsDown: false)
-                            .labelsHidden()
-                            .tint(.secondary)
-                            .opacity(context.state.isPlaying ? 1 : 0.45)
+                        Group {
+                            if context.state.isPlaying, !context.isStale {
+                                ProgressView(timerInterval: progressRange(context.state),
+                                             countsDown: false)
+                            } else {
+                                ProgressView(value: min(context.state.elapsed, context.state.duration),
+                                             total: context.state.duration)
+                            }
+                        }
+                        .labelsHidden()
+                        .tint(.secondary)
+                        .opacity(context.state.isPlaying && !context.isStale ? 1 : 0.45)
                     }
                 }
                 Spacer(minLength: 0)
@@ -302,7 +328,10 @@ struct NowPlayingLiveActivity: Widget {
                     .frame(maxWidth: .infinity)
                 }
             } compactLeading: {
-                Image(systemName: context.state.isPlaying ? "waveform" : "pause.fill")
+                // A stale card has no idea whether anything is playing, so it must not
+                // draw the glyph that says it is.
+                Image(systemName: context.state.isPlaying && !context.isStale
+                      ? "waveform" : "pause.fill")
             } compactTrailing: {
                 Image(systemName: "music.note")
             } minimal: {

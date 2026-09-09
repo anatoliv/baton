@@ -238,19 +238,70 @@ public final class MusicPlayHistory: LocalListenRecording {
 
     // MARK: - Persistence
 
+    /// Lines that did not decode on this load, kept so the first rewrite can preserve them.
+    ///
+    /// This is a lifetime listening archive and the free alternative to Last.fm, and it used to
+    /// drop undecodable lines with no log and no count, then erase them for good on the next
+    /// `rewriteFile()`. `appendLine` is a non-atomic `FileHandle` append, so a crash or a full
+    /// disk mid-write leaves exactly such a line. Nothing anywhere said a listen had been lost.
+    @ObservationIgnored private var quarantinedLines: [Data] = []
+
+    /// Where those lines go, once, before the file is rewritten. Same idea as
+    /// `VersionedStore.preserveCorrupt`: keep the bytes, out of the way of the live file.
+    @ObservationIgnored private var corruptURL: URL {
+        historyURL.appendingPathExtension("corrupt")
+    }
+
     private func load() {
         migrateFromDefaultsIfNeeded()
         guard let data = try? Data(contentsOf: historyURL), !data.isEmpty else { return }
         let decoder = JSONDecoder()
         // The file is append-order (oldest→newest); the UI wants newest-first.
         var loaded: [Entry] = []
+        var skipped: [Data] = []
         for line in data.split(separator: 0x0A) where !line.isEmpty {
-            if let e = try? decoder.decode(Entry.self, from: Data(line)) { loaded.append(e) }
+            if let e = try? decoder.decode(Entry.self, from: Data(line)) {
+                loaded.append(e)
+            } else {
+                skipped.append(Data(line))
+            }
+        }
+        quarantinedLines = skipped
+        if !skipped.isEmpty {
+            historyLog.error(
+                "\(skipped.count, privacy: .public) play-history lines did not decode; they will be kept in \(self.corruptURL.lastPathComponent, privacy: .public) before any rewrite"
+            )
         }
         entries = loaded.reversed()
         if entries.count > Self.maxEntries {
             entries.removeLast(entries.count - Self.maxEntries)
             rewriteFile() // compact past the cap
+        }
+    }
+
+    /// Appends the undecodable lines to the sidecar, once per load.
+    ///
+    /// One-shot on purpose, not a permanent refusal to rewrite: cap compaction runs from
+    /// `load()` itself, and a store that will never rewrite is a store that grows without
+    /// bound. Preserve the bytes, then carry on.
+    private func quarantineSkippedLines() {
+        guard !quarantinedLines.isEmpty else { return }
+        var out = Data()
+        for line in quarantinedLines { out.append(line); out.append(0x0A) }
+        quarantinedLines = []
+        do {
+            if let handle = try? FileHandle(forWritingTo: corruptURL) {
+                defer { try? handle.close() }
+                _ = try handle.seekToEnd()
+                try handle.write(contentsOf: out)
+            } else {
+                try out.write(to: corruptURL, options: .atomic)
+            }
+            historyLog.notice("kept unreadable play-history lines in \(self.corruptURL.lastPathComponent, privacy: .public)")
+        } catch {
+            historyLog.error(
+                "couldn't keep the unreadable play-history lines: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -266,27 +317,49 @@ public final class MusicPlayHistory: LocalListenRecording {
     }
 
     /// Append one entry as a JSONL line (O(1)) — the live hot path.
+    ///
+    /// A failure here loses one listen, and it used to lose it silently. Logged, so a disk that
+    /// has stopped accepting writes shows up as itself rather than as an archive that quietly
+    /// stopped growing.
     private func appendLine(_ entry: Entry) {
-        guard var line = try? JSONEncoder().encode(entry) else { return }
-        line.append(0x0A)
-        if !FileManager.default.fileExists(atPath: historyURL.path) {
-            try? line.write(to: historyURL, options: .atomic)
+        guard var line = try? JSONEncoder().encode(entry) else {
+            historyLog.error("couldn't encode a play-history entry, so it was not recorded")
             return
         }
-        if let handle = try? FileHandle(forWritingTo: historyURL) {
+        line.append(0x0A)
+        do {
+            if !FileManager.default.fileExists(atPath: historyURL.path) {
+                try line.write(to: historyURL, options: .atomic)
+                return
+            }
+            let handle = try FileHandle(forWritingTo: historyURL)
             defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: line)
+            _ = try handle.seekToEnd()
+            try handle.write(contentsOf: line)
+        } catch {
+            historyLog.error(
+                "couldn't append a play-history entry: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
     /// Rewrite the whole file in chronological (append) order — used on trim/import/out-of-order.
+    ///
+    /// This is the write that used to destroy the lines `load()` had skipped, so the bytes go
+    /// to the sidecar first. The old file is left alone if the rewrite fails.
     private func rewriteFile() {
+        quarantineSkippedLines()
         let encoder = JSONEncoder()
         var out = Data()
         for entry in entries.reversed() {
             if var line = try? encoder.encode(entry) { line.append(0x0A); out.append(line) }
         }
-        try? out.write(to: historyURL, options: .atomic)
+        do {
+            try out.write(to: historyURL, options: .atomic)
+        } catch {
+            historyLog.error(
+                "couldn't rewrite the play-history file: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 }

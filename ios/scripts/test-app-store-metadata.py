@@ -26,12 +26,12 @@ TOOL = os.path.join(HERE, "app-store-metadata.py")
 LIVE = {
     "name": "Baton Music",
     "subtitle": "Navidrome & Subsonic player",
-    "privacyPolicyUrl": "https://baton.tonebox.io/privacy.html",
+    "privacyPolicyUrl": "https://batonmusic.app/privacy.html",
     "description": "Baton plays the music you host yourself.",
     "keywords": "navidrome,subsonic,music,player,self-hosted",
     "promotionalText": "Your library, your server, your phone.",
-    "marketingUrl": "https://baton.tonebox.io",
-    "supportUrl": "https://baton.tonebox.io/help.html",
+    "marketingUrl": "https://batonmusic.app",
+    "supportUrl": "https://batonmusic.app/help.html",
 }
 
 INFO_FIELDS = ("name", "subtitle", "privacyPolicyUrl")

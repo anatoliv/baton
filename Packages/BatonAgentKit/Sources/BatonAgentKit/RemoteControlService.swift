@@ -101,6 +101,15 @@ public final class RemoteControlService {
         router.memory.forgetEverything()
     }
 
+    /// What the friend has been told to remember, so a surface can show it and forget one.
+    ///
+    /// The router owns the one live instance. Handing that out rather than letting a view make
+    /// its own `RemoteMemoryStore()` is the whole point: they would read the same file into two
+    /// different objects, and the moment either wrote, the other would be showing history. The
+    /// Mac's 0.18.0 What's New promised "a screen for it too, so you can read what it has
+    /// learned and remove anything you would rather it forgot"; this is what that screen reads.
+    public var memory: RemoteMemoryStore { router.memory }
+
     /// Bring running bridges in line with the current settings.
     public func apply() {
         guard settings.isEnabled else { stopAll(); return }

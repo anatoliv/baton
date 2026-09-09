@@ -1,5 +1,7 @@
 import Foundation
 
+private let configLog = Logger(subsystem: "io.tonebox.baton", category: "NavidromeConfig")
+
 /// One saved server in the multi-server list: everything needed to rebuild a
 /// connection except the secret (which lives in the Keychain, keyed by `id`).
 public struct NavidromeServerEntry: Identifiable, Codable, Equatable, Sendable {
@@ -118,7 +120,9 @@ public enum NavidromeConfig {
         )
         var list = storedServers()
         list.append(entry)
-        writeServers(list)
+        // The secret follows the list, not the other way round: a Keychain entry for a server
+        // that is not in the list is orphaned, and nothing ever finds it again.
+        guard writeServers(list) else { return entry }
         NavidromeKeychain.setSecret(secret, account: keychainAccount(for: entry.id))
         if defaults.string(forKey: activeServerKey) == nil {
             defaults.set(entry.id.uuidString, forKey: activeServerKey)
@@ -291,10 +295,22 @@ public enum NavidromeConfig {
         return URLSession(configuration: config)
     }()
 
-    /// Builds a client from the stored config, or throws `.notConfigured`.
+    /// Builds a client from the stored config.
+    ///
+    /// Throws `.credentialsUnreadable` rather than `.notConfigured` when a server is on file
+    /// and the Keychain will not answer. `credentials()` returns nil for both, and telling
+    /// someone with a configured server to go and configure one is a dead end: the
+    /// `storeReadFailure()` banner is only wired into Settings and Onboarding, which nobody
+    /// visits when the library screen says they never set anything up (TBX-5268's other half).
     public static func makeClient(session: URLSession = sharedSession) throws -> NavidromeClient {
-        guard let credentials = credentials() else { throw NavidromeError.notConfigured }
-        return NavidromeClient(credentials: credentials, session: session)
+        if let credentials = credentials() {
+            return NavidromeClient(credentials: credentials, session: session)
+        }
+        if let id = activeServerID(),
+           case let .unreadable(status) = NavidromeKeychain.availability(account: keychainAccount(for: id)) {
+            throw NavidromeError.credentialsUnreadable(status: status)
+        }
+        throw NavidromeError.notConfigured
     }
 
     /// The active server's extra HTTP headers ([:] when none).
@@ -378,14 +394,77 @@ public enum NavidromeConfig {
         defaults.string(forKey: activeServerKey)
     }
 
-    private static func storedServers() -> [NavidromeServerEntry] {
-        guard let data = defaults.data(forKey: serversKey) else { return [] }
-        return (try? JSONDecoder().decode([NavidromeServerEntry].self, from: data)) ?? []
+    /// Where a server list that could not be read is kept, once, before anything overwrites it.
+    ///
+    /// The list used to decode all-or-nothing and fall back to `[]`, so a single bad entry
+    /// dropped every configured server, the app said "no music server is configured", and the
+    /// moment the user added one `writeServers` replaced the blob with a one-element list.
+    /// Recovery was impossible by construction: `migrateLegacyIfNeeded` returns early while
+    /// `serversKey` has data, and the Keychain secrets are keyed by the now-lost server UUIDs.
+    /// The realistic trigger is a schema change, which means it would have hit everyone at once
+    /// on one upgrade.
+    public static let unreadableServersKey = "tonebox.navidrome.servers.unreadable"
+
+    /// One element that failed to decode does not take the others with it.
+    private struct SkippableEntry: Decodable {
+        let entry: NavidromeServerEntry?
+        init(from decoder: Decoder) throws {
+            entry = try? NavidromeServerEntry(from: decoder)
+        }
     }
 
-    private static func writeServers(_ list: [NavidromeServerEntry]) {
-        if let data = try? JSONEncoder().encode(list) {
-            defaults.set(data, forKey: serversKey)
+    /// True when `serversKey` holds bytes that did not fully decode, so the next write must
+    /// preserve them before overwriting.
+    private static func storedServersAreDamaged(_ data: Data) -> Bool {
+        if let clean = try? JSONDecoder().decode([NavidromeServerEntry].self, from: data) {
+            // A clean decode of a shorter list than the array holds is not possible; if it
+            // decoded at all, nothing was lost.
+            _ = clean
+            return false
+        }
+        return true
+    }
+
+    private static func storedServers() -> [NavidromeServerEntry] {
+        guard let data = defaults.data(forKey: serversKey) else { return [] }
+        if let list = try? JSONDecoder().decode([NavidromeServerEntry].self, from: data) { return list }
+        // Whatever survives: an array whose elements changed shape (a new non-optional field,
+        // an unknown auth mode after a downgrade) still yields every entry that did decode.
+        // A blob damaged at the JSON level yields nothing here, and is preserved on write.
+        let salvaged = (try? JSONDecoder().decode([SkippableEntry].self, from: data))?
+            .compactMap(\.entry) ?? []
+        configLog.error(
+            "the saved server list did not decode; recovered \(salvaged.count, privacy: .public) of its entries"
+        )
+        return salvaged
+    }
+
+    /// Writes the list, preserving an unreadable blob first.
+    ///
+    /// A flat "refuse to write" would be worse than the bug: `writeServers` is on the add,
+    /// update, remove, setActive and setCustomHeaders paths, so refusing would leave the app
+    /// permanently unable to persist anything. Instead the unreadable bytes are copied aside,
+    /// once, and the write proceeds, so the entries are still there to recover by hand.
+    @discardableResult
+    private static func writeServers(_ list: [NavidromeServerEntry]) -> Bool {
+        if let existing = defaults.data(forKey: serversKey),
+           defaults.data(forKey: unreadableServersKey) == nil,
+           storedServersAreDamaged(existing) {
+            defaults.set(existing, forKey: unreadableServersKey)
+            configLog.error(
+                "kept the unreadable server list under \(unreadableServersKey, privacy: .public) before overwriting it"
+            )
+        }
+        do {
+            defaults.set(try JSONEncoder().encode(list), forKey: serversKey)
+            return true
+        } catch {
+            // Was silent, which produced a server that existed in the Keychain and not in the
+            // list: `addServer` writes the secret whether or not this landed.
+            configLog.error(
+                "couldn't encode the server list, so it was not saved: \(error.localizedDescription, privacy: .public)"
+            )
+            return false
         }
     }
 

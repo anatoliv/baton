@@ -128,4 +128,93 @@ final class SessionPurgeTests: XCTestCase {
 
         XCTAssertTrue(ScrobbleQueue(defaults: defaults).pending.isEmpty)
     }
+
+    // MARK: - Every store on the model, named
+
+    /// The one that catches the *next* leak.
+    ///
+    /// `SessionPurge`'s own doc comment sets the standard: one function that names every
+    /// store, so a store added later shows up as a missing line. Four had gone missing
+    /// anyway — search history, podcast subscriptions, clippings and the friend log — while
+    /// the confirmation the user agreed to said "Baton will forget this server and remove
+    /// its data from this iPhone". Search history was the worst of them: it carries the
+    /// previous account's queries and the album and artist ids they opened, and it is the
+    /// first thing the next sign-in would put on screen.
+    ///
+    /// This test walks the stores the model holds rather than the keys the purge happens to
+    /// know about, so adding a store to `MobileModel` and forgetting the purge fails here.
+    func testPurgeLeavesEveryStoreOnTheModelEmpty() throws {
+        let model = MobileModel()
+
+        model.history.record(NavidromeSong(id: "s1", title: "A", artist: "X"))
+        model.radioBans.ban("s1")
+        model.searchRecents.record(album: NavidromeAlbum(id: "al1", name: "An Album", artist: "X"))
+        model.friendLog.record(FriendExchange(surface: .phone, request: "something mellow",
+                                              reply: "here you go"))
+        let clipping = try seedClipping(into: model.clippings)
+
+        SessionPurge.purge(model, keepDownloads: false)
+
+        XCTAssertTrue(model.history.entries.isEmpty, "play history")
+        XCTAssertFalse(model.radioBans.isBanned("s1"), "radio bans")
+        XCTAssertTrue(model.searchRecents.entries.isEmpty, "search history, this server")
+        XCTAssertTrue(model.searchRecents.all.isEmpty, "search history, every server")
+        XCTAssertTrue(model.podcastSubscriptions.channels.isEmpty, "podcast subscriptions")
+        XCTAssertTrue(model.clippings.items.isEmpty, "clippings")
+        XCTAssertTrue(model.friendLog.exchanges.isEmpty, "the friend log")
+        XCTAssertTrue(model.pins.ordered.isEmpty, "Later / pins")
+        XCTAssertEqual(model.scrobbles.pendingCount, 0, "the scrobble outbox")
+        XCTAssertNil(model.handoff.offer, "a queue handed over from another device")
+
+        // And the keys behind them, or the next write would put the list straight back.
+        XCTAssertNil(BatonStorage.defaults.object(forKey: SearchRecents.storageKey),
+                     "baton.search.recents survived")
+        XCTAssertNil(BatonStorage.defaults.object(forKey: PodcastSubscriptionStore.ledgerKey),
+                     "the podcast subscription ledger survived")
+        XCTAssertNil(BatonStorage.defaults.object(forKey: PodcastSubscriptionStore.syncedFeedsKey),
+                     "the legacy podcast feed list survived")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: clipping.url.path),
+                       "the clipping's audio file survived the purge")
+    }
+
+    /// Clippings are the user's own recordings, so they follow the same rule as downloads:
+    /// "switch servers" and "erase my recordings" are different intentions.
+    func testKeepingDownloadsKeepsClippings() throws {
+        let model = MobileModel()
+        let clipping = try seedClipping(into: model.clippings)
+
+        SessionPurge.purge(model, keepDownloads: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: clipping.url.path),
+                      "keeping downloads must keep the recordings the user made themselves")
+        model.clippings.remove(id: clipping.id, dismissing: false, everywhere: false)
+    }
+
+    /// The friend's *memory* and its learned corrections are deliberately not purged: both
+    /// live in the shared `baton.friend.ledger`, so clearing them here would publish
+    /// tombstones that delete the same memories on the user's Mac. Whether a disconnect
+    /// should forget them at all is TBX-5230, a product decision this function must not make.
+    func testTheFriendsMemoryIsLeftAlone() {
+        let model = MobileModel()
+        model.friendMemory.forgetEverything()
+        _ = model.friendMemory.remember(kind: "preference", text: "No vocals while working",
+                                        quote: "no vocals while I'm working")
+        XCTAssertNotNil(model.friendMemory.rendered(), "precondition: a memory to keep")
+
+        SessionPurge.purge(model, keepDownloads: true)
+
+        XCTAssertNotNil(model.friendMemory.rendered(), """
+            the purge deleted the friend's memories, which TBX-5230 reserves for the owner \
+            and which would tombstone the same memories on the other device
+            """)
+        model.friendMemory.forgetEverything()
+    }
+
+    private func seedClipping(into store: ClippingStore) throws -> ClippingStore.Item {
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ws6-\(UUID().uuidString).m4a")
+        try Data("not really audio".utf8).write(to: source)
+        return try store.adopt(source, title: "A reading", sourceName: "Tests")
+    }
 }
