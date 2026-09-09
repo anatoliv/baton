@@ -68,7 +68,7 @@ struct ScrobbleSettingsView: View {
                     .disabled(!model.lastfm.hasCredentials)
 
                     if awaitingLastfmAuth {
-                        Button("I've approved it — finish") {
+                        Button("I've approved it, finish") {
                             Task {
                                 await model.lastfm.completeAuth()
                                 awaitingLastfmAuth = false
@@ -89,7 +89,7 @@ struct ScrobbleSettingsView: View {
             } header: {
                 Text("Offline queue")
             } footer: {
-                Text("Plays are queued when you're offline and sent when you're back — nothing is lost on the tube.")
+                Text("Plays are queued when you're offline and sent when you're back. Nothing is lost on the tube.")
             }
         }
         .navigationTitle("Scrobbling")

@@ -10,9 +10,13 @@ struct BatonRemotePane: View {
         if let service {
             RemoteSettingsForm(service: service)
         } else {
+            // `RemoteControlService` is built once, at launch, for the app's whole lifetime
+            //, so this should not be reachable in a real run. Kept as a fallback
+            // for the SwiftUI preview and any future path that renders this pane without the
+            // environment wired, rather than crashing or showing a blank form.
             Form {
                 Section("Remote control") {
-                    Text("Remote control starts with the main player window. Open Baton's window and come back.")
+                    Text("Remote control isn't available right now. Restart Baton and try again.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -47,7 +51,7 @@ private struct RemoteSettingsForm: View {
                         .font(.system(size: 30)).foregroundStyle(.tint).frame(width: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Remote control").font(.title3.bold())
-                        Text("Drive Baton from Telegram or Discord — play, skip, queue, set the volume — from anywhere you can send a message.")
+                        Text("Drive Baton from Telegram or Discord (play, skip, queue, set the volume) from anywhere you can send a message.")
                             .font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -150,7 +154,7 @@ private struct RemoteSettingsForm: View {
                         Button("Save") { saveDiscordChannels() }
                     }
                 }
-                Text("Comma-separated channel ids. Leave empty to accept any channel the bot can see — authorized people only, either way.")
+                Text("Comma-separated channel ids. Leave empty to accept any channel the bot can see (authorized people only, either way).")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -177,6 +181,7 @@ private struct RemoteSettingsForm: View {
                         NSPasteboard.general.setString(settings.linkCode, forType: .string)
                     } label: { Image(systemName: "doc.on.doc") }
                         .buttonStyle(.borderless)
+                        .accessibilityLabel("Copy link code")
                     Button("New code") { settings.regenerateLinkCode() }
                         .buttonStyle(.borderless)
                 }

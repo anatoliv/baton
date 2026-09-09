@@ -85,6 +85,16 @@ enum SessionPurge {
         PodcastSubscriptionStore().purgeLocalSubscriptions()
         removeAllClippings(ClippingStore())
         FriendFeedbackLog().clear()
+        #if DEBUG
+        // The review-prompt gate is versioned state (which days counted, which version was
+        // already asked), not account data, so it isn't in `defaultsKeys` above. But a UI
+        // test that resets the session between runs needs it cleared too: `claimAsk()`
+        // permanently spends the prompt for the running app version, `ui-tests.sh` reuses a
+        // simulator, and without this a second run against the same container reads as a
+        // failure that looks like a regression rather than a leftover from the first
+        //. `resetForTesting()` is the seam `ReviewPromptTests` already uses.
+        ReviewPrompt.resetForTesting()
+        #endif
     }
 
     /// Deletes every clipping from *this device*.
@@ -164,12 +174,17 @@ enum SessionPurge {
         model.searchRecents.clear()
         // Subscriptions, locally. See `PodcastSubscriptionStore.purgeLocalSubscriptions`.
         model.podcastSubscriptions.purgeLocalSubscriptions()
-        // What the friend was asked and what it did. The friend's *memory* and its learned
-        // corrections deliberately stay: both live in the shared `baton.friend.ledger`, so
-        // clearing them here would publish tombstones that delete the same memories on the
-        // user's other devices. Whether a disconnect should forget them at all is TBX-5230,
-        // which is a product decision and not this function's to make.
+        // What the friend was asked and what it did, plus what it remembers and what it has
+        // learned from being corrected. TBX-5230 (owner decision, 2026-09-09): "Disconnect
+        // and delete my data" means all of it, including the friend — a person who asks
+        // Baton to forget them should not find the friend still repeating what they told it
+        // on a server they no longer use. `forgetEverything` / `forgetAll` tombstone every
+        // entry into the shared `baton.friend.ledger` before clearing the local copy, so a
+        // later sync adopts the tombstones (this device said "forgotten") instead of a peer
+        // that still holds the old rows pushing them straight back.
         model.friendLog.clear()
+        model.friendMemory.forgetEverything()
+        model.friendLearning.forgetAll()
 
         // Clippings are audio the user recorded themselves, so they go with the downloads
         // rather than with the account: "switch servers" and "erase my recordings" are

@@ -367,6 +367,7 @@ struct MusicMixCard: View {
                     .opacity(loading ? 0 : (hovering ? 1 : 0.85))
                     .overlay { if loading { ProgressView().controlSize(.small).tint(.white).padding(12) } }
                     .help("Play “\(mix.title)”")
+                    .accessibilityLabel("Play \(mix.title)")
                 }
                 .frame(height: 96)
                 VStack(alignment: .leading, spacing: 2) {

@@ -115,8 +115,8 @@ final class ReviewPromptTests: XCTestCase {
     /// `ReviewPrompt`'s doc comment is about. Scrobbling and history already refuse demo
     /// mode; this is the same rule for the same reason.
     func testDemoPlaybackDoesNotCountTowardsTheGate() {
-        XCTAssertFalse(ProcessInfo.processInfo.arguments.contains(ReviewPrompt.countInDemoArgument),
-                       "precondition: this unit run is not opted into the demo seam")
+        XCTAssertNil(ProcessInfo.processInfo.environment[ReviewPrompt.countInDemoEnvironmentKey],
+                     "precondition: this unit run is not opted into the demo seam")
         XCTAssertFalse(ReviewPrompt.counts(isDemoMode: true))
         XCTAssertTrue(ReviewPrompt.counts(isDemoMode: false))
     }

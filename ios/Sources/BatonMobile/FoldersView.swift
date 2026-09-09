@@ -46,7 +46,7 @@ struct FoldersView: View {
                                         isEmpty: roots.isEmpty),
             emptyTitle: "No folders",
             emptyMessage: model.isDemoMode
-                ? "The demo library has no folder tree — connect a server to browse by folder."
+                ? "The demo library has no folder tree. Connect a server to browse by folder."
                 : "The server didn't report a folder tree.",
             emptySymbol: "folder",
             onRetry: { Task { rootIndex = await model.musicLibrary.folderRootIndex() } }

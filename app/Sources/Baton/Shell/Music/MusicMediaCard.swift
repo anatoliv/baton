@@ -324,6 +324,11 @@ struct MusicBrowseHeader<Accessory: View, Leading: View, SortMenu: View>: View {
     /// Per-screen key for the filter field's recent-history dropdown (nil disables it).
     var filterHistoryKey: String? = nil
     @Binding var layout: MusicBrowseLayout
+    /// Whether the list/grid picker is drawn. Search passes its `showsChrome` here so the
+    /// picker keeps company with the sort control and the counts it belongs beside: before
+    /// a query has run there is nothing to lay out, and a layout control over an empty
+    /// screen was the last piece of chrome the M-F15 finding named.
+    var showsLayoutPicker: Bool = true
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var sortMenu: () -> SortMenu
@@ -355,7 +360,7 @@ struct MusicBrowseHeader<Accessory: View, Leading: View, SortMenu: View>: View {
                 leading()
                 Spacer()
                 sortMenu()
-                MusicLayoutPicker(layout: $layout)
+                if showsLayoutPicker { MusicLayoutPicker(layout: $layout) }
             }
             .padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 8)
             Divider()

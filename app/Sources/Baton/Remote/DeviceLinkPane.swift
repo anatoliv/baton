@@ -71,7 +71,7 @@ struct DeviceLinkPane: View {
             Button("Show pairing code") { start() }
                 .disabled(!NavidromeConfig.isConfigured)
             if !NavidromeConfig.isConfigured {
-                Label("Connect this Mac to a server first — there's nothing to hand over yet.",
+                Label("Connect this Mac to a server first. There's nothing to hand over yet.",
                       systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary)
             }

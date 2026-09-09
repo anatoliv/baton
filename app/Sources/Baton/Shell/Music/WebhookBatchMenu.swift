@@ -39,6 +39,7 @@ struct WebhookBatchMenu: View {
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             .help("Run an action on the selection")
+            .accessibilityLabel("Run an action on the selection")
             .confirmationDialog(
                 pending.map { "Run “\($0.name)” on \(count) items?" } ?? "",
                 isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),

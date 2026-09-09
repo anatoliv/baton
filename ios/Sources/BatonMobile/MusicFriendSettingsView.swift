@@ -161,8 +161,8 @@ struct MusicFriendSettingsView: View {
             if let testResult { resultRow(testResult) }
         } footer: {
             Text(config.route == .gateway
-                 ? "Asks your server what's playing — a read-only question that exercises the whole path. The Friend tab appears once it answers, and hides again if you change anything here."
-                 : "Sends one short request (\u{201C}pause the music\u{201D}) the same way a message would, so a pass means the next message will work — not just that something answered. Nothing is played or paused. The Friend tab appears once it passes, and hides again if you change anything here.")
+                 ? "Asks your server what's playing: a read-only question that exercises the whole path. The Friend tab appears once it answers, and hides again if you change anything here."
+                 : "Sends one short request (\u{201C}pause the music\u{201D}) the same way a message would, so a pass means the next message will work, not just that something answered. Nothing is played or paused. The Friend tab appears once it passes, and hides again if you change anything here.")
         }
     }
 

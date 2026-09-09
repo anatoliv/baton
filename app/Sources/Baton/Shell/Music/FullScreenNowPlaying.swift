@@ -104,7 +104,7 @@ struct FullScreenNowPlaying: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "Subsonic can't delete files, so \"\(player.nowPlaying?.title ?? "this track")\" will be unliked and rated lowest (★) so a library-cleanup tool can remove it later — and skipped now."
+                "Subsonic can't delete files, so \"\(player.nowPlaying?.title ?? "this track")\" will be unliked and rated lowest (★) so a library-cleanup tool can remove it later, and skipped now."
             )
         }
     }
@@ -185,7 +185,7 @@ struct FullScreenNowPlaying: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(player.nowPlaying == nil)
-                .help("Delete — unlike + rate lowest so a cleanup tool can remove it later")
+                .help("Delete: unlike + rate lowest so a cleanup tool can remove it later")
                 .accessibilityLabel("Mark for removal")
                 Button { withAnimation(.spring) { queueVisibleOverride = !showQueue } } label: {
                     Image(systemName: "list.bullet").font(.title3)

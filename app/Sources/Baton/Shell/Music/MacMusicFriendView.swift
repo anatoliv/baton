@@ -160,7 +160,7 @@ struct MacMusicFriendView: View {
             }
             .buttonStyle(.plain)
             .disabled(isThinking)
-            .help(voice?.isListening == true ? "Stop and send what you said" : "Hold a thought — click to talk")
+            .help(voice?.isListening == true ? "Stop and send what you said" : "Hold a thought: click to talk")
             .accessibilityLabel(voice?.isListening == true ? "Stop listening" : "Speak")
 
             // A way out of here. This window is the one place in the app where someone can
@@ -312,6 +312,7 @@ private struct MacFriendBubble: View {
                 Image(systemName: rating == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
             }
             .help("This was right")
+            .accessibilityLabel("This was right")
 
             Button {
                 rating = .down
@@ -320,6 +321,7 @@ private struct MacFriendBubble: View {
                 Image(systemName: rating == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
             }
             .help("This was wrong")
+            .accessibilityLabel("This was wrong")
             .popover(isPresented: $showsFaultPicker) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("What went wrong?").font(.callout.weight(.semibold))

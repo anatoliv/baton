@@ -133,21 +133,21 @@ part of setting up any music app, so there are three ways round it. All of them 
 - **Scan a code.** On the Mac, open **Settings → Remote → Link a device → Show pairing code**. On
   the phone, choose **Scan a code from your Mac** and point the camera at it. Your server
   address, your sign-in and your settings come across encrypted, and there is nothing to
-  type — not even a passphrase. Both devices have to be on the same network, because the
+  type (not even a passphrase). Both devices have to be on the same network, because the
   code contains a local address the phone connects back to.
 - **Import a file.** On the Mac, use **Settings → About → Back up & restore → Export…**, then get the file to
-  your phone however you like — AirDrop, iCloud Drive, email. On the phone, choose **Choose
+  your phone however you like: AirDrop, iCloud Drive, email. On the phone, choose **Choose
   an exported file**. If you exported it with your accounts included it's encrypted, and
   you'll need the passphrase you chose. This is the one that works when the two devices
   aren't on the same network.
 - **Type it in.** **Connect to Navidrome** takes a server address, a username and a
   password, exactly as the Mac's first run does.
 
-Your likes, ratings, playlists and play counts don't need any of this — they live on your
+Your likes, ratings, playlists and play counts don't need any of this: they live on your
 Navidrome server, and both apps read and write them as the same user, so they are already
 the same on every device. What travels here is the things Navidrome has nowhere to keep:
-your equalizer curve, crossfade, radio bans, your music friend's whole setup, and — because
-pairing encrypts everything it sends — your server passwords, your scrobbling tokens and your
+your equalizer curve, crossfade, radio bans, your music friend's whole setup, and (because
+pairing encrypts everything it sends) your server passwords, your scrobbling tokens and your
 API keys. You sign in nowhere and paste nothing.
 
 All three of these are a one-time transfer, though. To keep those settings in step from then
@@ -166,14 +166,14 @@ Rate, Download, Start Radio, Go to Album, Go to Artist, and the radio bans.
 
 Baton puts what's playing where you actually glance.
 
-- **Home screen.** Add the **Now Playing** widget in the usual way — touch and hold the home
+- **Home screen.** Add the **Now Playing** widget in the usual way: touch and hold the home
   screen, tap **+**, search for Baton. It comes in the three home-screen sizes.
 - **Lock screen and StandBy.** The same widget also comes in the three accessory shapes:
   rectangular, circular and inline. Add it from the lock screen's own **Customize** screen.
   This is the one that matters most for a music app, because it's the surface you look at
   without unlocking anything.
 - **A Live Activity while music plays.** Start something and a compact now-playing line
-  appears on the lock screen with a progress bar that runs on its own — no unlocking, no
+  appears on the lock screen with a progress bar that runs on its own. It needs no unlocking, no
   opening the app. It's deliberately quiet: one muted icon, the title, and the artist a step
   down. It's telling you something you already know, so it shouldn't shout.
 
@@ -187,12 +187,12 @@ Baton answers Siri, and the same actions are building blocks in the Shortcuts ap
 
 Say **"Play something in Baton"** or **"Play music in Baton"** and Siri asks what you'd like,
 then searches your library and plays the results. **"Resume Baton"** picks up where you left
-off. Siri can't yet take the album name in the same breath — that needs a kind of parameter
+off. Siri can't yet take the album name in the same breath: that needs a kind of parameter
 Apple only allows for fixed lists, so it asks rather than guessing.
 
 In the **Shortcuts** app, search for Baton and you'll find: **Play music**, **Pause music**,
 **Play or pause**, **Next track**, **Previous track**, **Like the current track**, and **Play
-songs matching**. Use them in an automation the way you'd use any others — start a playlist
+songs matching**. Use them in an automation the way you'd use any others: start a playlist
 when you arrive somewhere, pause when a focus mode begins.
 
 These run the same command surface the music friend and the app's own buttons use, so Siri
@@ -207,7 +207,7 @@ Quality** and **Cellular Quality**. Each takes **Original**, **High (320 kbps)**
 
 **Original** means no cap: the server sends the file as it is, which for a FLAC library is
 the whole point of owning the files. That's also the setting most likely to matter on a
-metered plan, which is why the two are separate — leave Wi-Fi on Original and put cellular on
+metered plan, which is why the two are separate: leave Wi-Fi on Original and put cellular on
 Medium, and the phone does the right thing without you thinking about it.
 
 Anything you've downloaded ignores both settings. It's already on the phone at whatever
@@ -237,7 +237,7 @@ A few things on the iPhone bend to how you actually listen:
 - **Edit the Library list.** Tap **Edit** on the Library tab to hide sections you never
   open and drag the rest into your order. New sections appear automatically even if you've
   customized the list.
-- **Jump by letter.** Long alphabetical lists — Albums, Artists, Folders — have an A–Z
+- **Jump by letter.** Long alphabetical lists (Albums, Artists, Folders) have an A to Z
   rail along the right edge. Tap or drag it.
 - **Search remembers.** The albums and artists you open from search wait under the empty
   search field next time.
@@ -251,15 +251,15 @@ A few things on the iPhone bend to how you actually listen:
 Baton needs a server, which makes an app with no server a locked door. There are two ways
 through it, and they answer different questions.
 
-**Try the demo** on the first-run screen opens a small library built into the app — real
-tracks, played through the real engine — so you can see what Baton does before setting
+**Try the demo** on the first-run screen opens a small library built into the app (real
+tracks, played through the real engine), so you can see what Baton does before setting
 anything up. Nothing about it touches the network.
 
 **Use Navidrome's public demo server** fills in the sign-in for
 `https://demo.navidrome.org` (username `demo`, password `demo`), the instance the Navidrome
 project publishes for exactly this. That one is a real library over a real connection: a
 few thousand Creative Commons tracks, artwork arriving over the wire, search against a
-proper index. It is not our server, so it can be slow or offline — but it shows you what
+proper index. It is not our server, so it can be slow or offline, but it shows you what
 Baton is actually for in a way four bundled tracks cannot.
 
 Connect your own server whenever you like from **Settings → Connect to Navidrome**, and
@@ -299,7 +299,7 @@ there never will be. Those settings go through a small service you run yourself,
 Three of those deserve a word. **Your speech and transcription servers stay put** because
 they are addresses of machines rather than choices about listening: the phone is rarely on the
 same network as the Whisper box, and inheriting an address it cannot reach would look like a
-broken setting. **Secrets never travel through sync** — keys live in the
+broken setting. **Secrets never travel through sync**: keys live in the
 Keychain, and putting them in a synced JSON file would be a downgrade in handling. They move
 by pairing instead, encrypted, which is the one place they belong. So the friend's provider,
 model and base URL keep themselves in step continuously; the key itself arrives once, when you
@@ -333,7 +333,7 @@ Baton neither saves to nor reads from that slot there, so nobody is offered a st
 ### Running a gateway
 
 The gateway is a small Swift service in this repository, under `gateway/`. It runs on macOS
-and on Linux, and it wants to live somewhere always on — the same box as Navidrome is the
+and on Linux, and it wants to live somewhere always on: the same box as Navidrome is the
 obvious home. It needs a token you invent (both devices present it) and your Navidrome
 sign-in, and it refuses to start without them:
 
@@ -364,13 +364,13 @@ server**. The **Home server** section appears with the same two fields: the addr
 token from your gateway's configuration.
 
 The green light on both means a request that just happened, not that the fields are filled
-in — and editing either field clears it, because the old answer belonged to a different
+in, and editing either field clears it, because the old answer belonged to a different
 address.
 
 ### When two devices disagree
 
 Settled per setting, not per device. Each setting carries when it changed and which device
-changed it, and the newest one wins — so two devices changing *different* things never clobber
+changed it, and the newest one wins, so two devices changing *different* things never clobber
 each other, and the loser of a real race is one setting rather than everything you touched
 that day.
 
@@ -429,7 +429,7 @@ Across list views you can select several rows at once and act on them together. 
 
 ## Browsing by folder
 
-The tag views — albums, artists, genres — are Navidrome's reading of your library. The
+The tag views (albums, artists, genres) are Navidrome's reading of your library. The
 **Folders** view is the file system's: the directory tree exactly as it sits on disk, which
 for a collection organized by hand often carries meaning the tags don't. If you have a
 `Live bootlegs` folder, or a `1997` folder, or a folder per DJ set, that structure *is* your
@@ -438,7 +438,7 @@ filing system, and no amount of tag-reading will reconstruct it.
 Open a folder to see its subfolders and its tracks in file order.
 
 **Play means everything underneath.** Playing a folder plays every track inside it *and*
-inside all of its subfolders, in order — so playing `Live bootlegs` plays the lot, not just
+inside all of its subfolders, in order, so playing `Live bootlegs` plays the lot, not just
 the handful of loose files at the top. On a very large tree Baton stops walking at some point
 and tells you it did, rather than quietly playing a part of what you asked for.
 
@@ -447,12 +447,12 @@ It browses like the rest of the app, because it is the rest of the app:
 - **Filter and sort** at the top, with the filter box remembering your recent terms.
 - **List or grid**, whichever you prefer, remembered per screen.
 - **Hover a folder** for a play button without opening it.
-- **Right-click** for the same actions as a menu — play, queue, save to Later.
+- **Right-click** for the same actions as a menu: play, queue, save to Later.
 - **Select several** folders and act on all of them at once. Baton gathers the tracks under
   each one and treats them as a single pile.
 
 On the Mac, Folders is a sidebar section. On iPhone it's a row in the Library tab. Both
-browse the same tree, live from the server — nothing is duplicated locally.
+browse the same tree, live from the server: nothing is duplicated locally.
 
 ---
 
@@ -491,8 +491,8 @@ in Settings, under Playback, in the Advanced section.
 Baton keeps **what you typed** and **what you opened**, because they answer different
 questions. The queries are the list under the clock icon in the search field on the Mac,
 and under "Recent Searches" on the phone. The albums and artists you opened from a search
-appear under "Recently Opened" — often the faster route back, since what you actually
-wanted was the record, not the words you used to find it.
+appear under "Recently Opened" (often the faster route back, since what you actually
+wanted was the record, not the words you used to find it).
 
 Both are shared between your Mac and your phone once
 [shared settings](#shared-settings-between-your-devices) are set up (Settings → Remote). They're **merged, not overwritten**: a search made on one device is added to what
@@ -500,7 +500,7 @@ the other already had, rather than replacing it, so nothing you looked for disap
 because the other device synced more recently.
 
 The opened albums and artists are remembered **per server**. They're stored as your
-server's own ids, which mean nothing on a different library — so if you sign in to another
+server's own ids, which mean nothing on a different library, so if you sign in to another
 server you'll see that server's list, and switching back brings the first one with it.
 
 ---
@@ -599,7 +599,7 @@ thing. They travel with you to any Subsonic client, and back again.
 podcast worth a proper sitting, a station catches your ear in passing: right-click it and
 choose **Save to Later**, and it waits for you in one list.
 
-It takes anything — songs, albums, artists, playlists, podcasts, and radio stations — and
+It takes anything (songs, albums, artists, playlists, podcasts, and radio stations) and
 keeps them together rather than scattering them across five screens. When more than one kind
 is saved, buttons above the list let you narrow it to just the albums, or just the podcasts.
 There's a filter box for the same reason, and the list/grid switch works here as everywhere
@@ -651,14 +651,14 @@ affects your local list and stats; it doesn't touch your server's play counts.
 
 ### Whose plays you're looking at
 
-Your Navidrome server records every play, from every device, against your user — so it has
+Your Navidrome server records every play, from every device, against your user, so it has
 always been the real record. Baton also keeps a small log on each device, which is what
 makes History open instantly and work with no connection.
 
 On iPhone, **Recent** reads from the server by default, so it includes what you played on
 the Mac; switch to **This iPhone** for the on-device log. **All-time Top Tracks** has always
 come from the server. The windowed rankings ("This Week", "This Month") can only come from
-the device, because Subsonic keeps a running count rather than a dated event log — so those
+the device, because Subsonic keeps a running count rather than a dated event log, so those
 are per-device by nature, not by choice.
 
 Clearing history on a device clears only that device's log. Your server's play counts are
@@ -694,7 +694,7 @@ How it works:
 - **Your shows follow you.** Subscribe on the Mac and the show appears on your iPhone, and
   the other way round. Unsubscribing travels too: drop a show on one device and it goes on
   the other, rather than being handed back the next time they talk. This rides the same
-  device sync as your other settings, so it needs a gateway set up — see
+  device sync as your other settings, so it needs a gateway set up: see
   [Shared settings between your devices](#shared-settings-between-your-devices).
   Where you are in an episode is still per-device.
 - **Downloading.** For shows you follow by RSS, episodes play right away with no download
@@ -735,7 +735,7 @@ them alongside your library.
   can't find one, it shows a colored monogram made from the station's name.
 - **Your stations are already everywhere.** Unlike podcasts, stations live on your server
   rather than on the device, so a station you add on the Mac is simply there on your iPhone
-  the next time it loads the Radio tab — no sync to set up, and nothing to keep in step.
+  the next time it loads the Radio tab: no sync to set up, and nothing to keep in step.
 
 When a station is on air, the [now-playing bar](#playing-music) switches into radio mode:
 station artwork and name, the live track, and **Previous** and **Next station** buttons in
@@ -840,15 +840,15 @@ Command, Control, and J), and expand it again the same way.
 
 ### The little bars that mark what's playing
 
-Wherever a track appears in a list — search results, an album, the queue, a folder — the one
+Wherever a track appears in a list (search results, an album, the queue, a folder), the one
 you're listening to is marked by a small set of moving bars instead of a static symbol. They
 tell you two things at a glance: which row is current, and whether it's actually running. A
 paused track holds its bars still rather than pretending.
 
 **They move with the music, not on a loop.** The bars are driven by the sound itself, read in
 four frequency bands as it plays, so they lift with the bassline and flicker on the hi-hats.
-Where that reading isn't available — internet radio, or the first second of a track before
-any audio has arrived — they fall back to an even animation that looks much the same. The
+Where that reading isn't available (internet radio, or the first second of a track before
+any audio has arrived), they fall back to an even animation that looks much the same. The
 difference is that one of them is telling the truth.
 
 If you have **Reduce Motion** turned on in macOS, the bars are drawn at rest instead of
@@ -871,8 +871,8 @@ Where they come from is worth knowing, because it explains an empty panel. Navid
 serves lyrics that are **embedded in your files**, and most libraries have very few of those,
 so for most people this panel starts out blank no matter what is playing.
 
-Turn on **Look up missing lyrics** — **Settings → About** on the Mac, **Settings → Sound** on
-iPhone — and Baton asks [LRCLIB](https://lrclib.net), a free and open lyrics database, for
+Turn on **Look up missing lyrics** (**Settings → About** on the Mac, **Settings → Sound** on
+iPhone), and Baton asks [LRCLIB](https://lrclib.net), a free and open lyrics database, for
 anything your server doesn't have. It sends the track's title, artist and length, and nothing
 else: not your library, not your history, not who you are. Lyrics embedded in your own files
 always win, so turning this on never overwrites what you already have.
@@ -896,8 +896,8 @@ track title, play/pause, next, and an ✕ that ends the session. Tap anywhere el
 the full player.
 
 On iOS 26 and later, the bar also **gets out of the way while you browse**. Scroll down any
-list and the tab bar shrinks to just the current tab's icon, with a slimmer player — artwork,
-title, play/pause — docking beside it, so one compact row is all the screen gives up while
+list and the tab bar shrinks to just the current tab's icon, with a slimmer player (artwork,
+title, play/pause) docking beside it, so one compact row is all the screen gives up while
 you're reading. Scroll back up, or tap the shrunken bar, and the full tabs and controls
 return exactly as they were. No tab ever disappears for good; the row only stays small while
 you're actively scrolling away from it.
@@ -963,7 +963,7 @@ under Playback, in the **Sound** section.
   without gaps play with no silence between tracks. Baton pre-loads the next track (and for
   streamed tracks, prefetches the stream to a small on-disk cache) so the hand-off is clean.
   You can limit that prefetch to **Wi-Fi only** so it doesn't eat a metered connection like
-  a personal hotspot. Gapless is off by default, and it's mutually exclusive with crossfade
+  a personal hotspot. Gapless is on by default, and it's mutually exclusive with crossfade
   (one abuts tracks perfectly, the other overlaps them).
 - **Crossfade.** Overlap the end of one track with the start of the next, anywhere from off
   up to twelve seconds. Off is a clean cut.
@@ -1005,14 +1005,14 @@ and re-run the suggestion from there if your habits change.
 The preset name always describes the curve you actually have, rather than the last button
 you pressed. Move a band and it becomes **Custom**; move every band back to zero and it says
 **Flat** again, because that is what Flat is. Choosing a preset replaces the whole curve, so
-anything you had hand-tuned is gone — there's a **Flat / Reset** button when you want to
+anything you had hand-tuned is gone: there's a **Flat / Reset** button when you want to
 start over.
 
 **What it affects.** On the standard player the equalizer applies to **downloaded tracks**,
 not to music streamed from your server. That is a platform limitation rather than a
 setting: the audio tap Baton uses to filter playback does not run for a streamed item, on
 either the Mac or the phone. It has always been that way, and Settings used to imply
-otherwise — this is the honest version.
+otherwise: this is the honest version.
 
 To equalize streamed music, turn on **Settings → Playback → Advanced → Experimental audio
 engine**, which plays streams through Baton's own audio pipeline where the equalizer is a
@@ -1066,7 +1066,7 @@ frequencies, you can move each band where you want it.
 
 ## Scrobbling
 
-Scrobbling is the record of what you listened to — and it is what most of the rest of Baton
+Scrobbling is the record of what you listened to, and it is what most of the rest of Baton
 is built out of.
 
 That record is where **Home** gets its shelves, where **Rediscover** finds the album you
@@ -1088,7 +1088,7 @@ Baton can report your listens to three places:
   browser, approve, and come back to finish.
 
 A track counts as played once you've heard **half of it, or four minutes, whichever comes
-first** — the usual scrobbling convention. In practice:
+first** (the usual scrobbling convention). In practice:
 
 - A 3-minute song counts at **1:30**.
 - A 7-minute song counts at **3:30**.
@@ -1117,8 +1117,8 @@ moment you've heard them all.
 
 **Looking outward** asks the same question of the public music catalogues instead: given this
 artist, what else is out there. Turn it on in **Settings, Playback**, then right-click any
-track or artist and choose **Find more like this**, or just ask the music friend — *"find me
-more like this"* — on the Mac, on your phone, or over Telegram.
+track or artist and choose **Find more like this**, or just ask the music friend (*"find me
+more like this"*) on the Mac, on your phone, or over Telegram.
 
 Results are things you can act on rather than a list of names: where the source gives a link,
 Baton gives you the link.
@@ -1127,7 +1127,7 @@ Baton gives you the link.
 > This is the one feature that talks to a service that isn't your own server. Asking
 > "what sounds like Aura?" tells the catalogue you were listening to Aura. That's a small
 > disclosure and an obvious one, but it's yours to make, so it's **off until you turn it
-> on** — and it sends the artist and title, nothing else. Not your library, not your
+> on**, and it sends the artist and title, nothing else. Not your library, not your
 > history, not who you are.
 
 ### The four places it looks
@@ -1137,14 +1137,14 @@ collect API keys:
 
 | Source | What it gives you | Needs |
 |---|---|---|
-| **MusicBrainz** | Identity — which "Aura" you actually mean | Nothing |
+| **MusicBrainz** | Identity: which "Aura" you actually mean | Nothing |
 | **ListenBrainz** | Related artists, ranked by what real people play in the same sitting | Nothing |
 | **Last.fm** | Track-by-track similarity, finer-grained than the above | An API key |
 | **YouTube** | Something you can press play on immediately | An API key |
 
 A source with **no key is off, not broken**. Baton says which ones are quiet and why, and
 gets on with the answer from the ones that aren't. If you never add a key, you still get
-related artists — you just don't get the YouTube links.
+related artists: you just don't get the YouTube links.
 
 ---
 
@@ -1191,7 +1191,7 @@ Most of these come from the **Playback** menu, which is available anywhere in th
 **Get Info** (Command, I, or **Get Info** in a row's right-click menu) opens a sheet on the
 track itself: codec, bitrate, bit depth, sample rate, channels and file size, alongside how
 many times you've played it and when you last did. If the track is downloaded, it shows you
-where on disk it is. Every field is read straight from your server's own metadata — nothing
+where on disk it is. Every field is read straight from your server's own metadata: nothing
 is guessed, and a blank field means your library doesn't carry that tag.
 
 And for moving around your library:
@@ -1216,14 +1216,14 @@ In the full-screen player, **Space** toggles play and pause and **Escape** exits
 and right **arrow keys** skip back and forward ten seconds, and **[** and **]** cycle the side
 panel through Queue, Lyrics and Related.
 
-In song lists — Liked, search results, and the tracks inside an album or playlist — click the
+In song lists (Liked, search results, and the tracks inside an album or playlist), click the
 list once, then use the **up and down arrows** to move through it. **Return** plays the
 highlighted track and **Command and Return** queues it up next. **Command and A** selects
 everything, and in the queue the **Delete** key removes the row you're pointing at.
 
 Baton also follows the system **Reduce Motion** setting (System Settings → Accessibility →
-Display). Turn it on and the continuous animations — the breathing artwork in the full-screen
-player, the equalizer bars, the zoom on hover — hold still, while hover and selection stay
+Display). Turn it on and the continuous animations (the breathing artwork in the full-screen
+player, the equalizer bars, the zoom on hover) hold still, while hover and selection stay
 just as visible.
 
 ---
@@ -1371,15 +1371,15 @@ in" in Console.
 When Baton speaks, the actual voice comes from a **text-to-speech (TTS) engine**. You have
 three options, from zero-effort to best-quality:
 
-1. **Nothing at all — the built-in Mac voice.** If you set nothing up, Baton uses macOS's own
+1. **Nothing at all: the built-in Mac voice.** If you set nothing up, Baton uses macOS's own
    speech (the same engine as VoiceOver). It just works, offline, no install. The voice is a
    bit robotic, but a summary is never dropped.
-2. **Kokoro** — a small, free voice server you run yourself. Fast, natural-sounding, 50+ preset
+2. **Kokoro**: a small, free voice server you run yourself. Fast, natural-sounding, 50+ preset
    voices (including Spanish). Runs on any Mac or PC **with no graphics card**.
-3. **Chatterbox** — a higher-quality voice server that can also **clone a voice** from a short
+3. **Chatterbox**: a higher-quality voice server that can also **clone a voice** from a short
    sample. Needs an **NVIDIA graphics card (GPU)**, so it usually lives on a separate machine.
 
-Everything below is optional — set up as much or as little as you like. Baton talks to both
+Everything below is optional: set up as much or as little as you like. Baton talks to both
 servers the same way (the OpenAI "audio/speech" format), so any service that speaks that format
 can be plugged in, self-hosted or cloud.
 
@@ -1401,13 +1401,13 @@ everyday voices, and only add **Chatterbox** if you want top quality or a cloned
 A "voice server" is just a small program that turns text into audio and answers over your
 network. It can run either place:
 
-- **On the same Mac as Baton (local).** Simplest. The address is `http://127.0.0.1:<port>` —
+- **On the same Mac as Baton (local).** Simplest. The address is `http://127.0.0.1:<port>`:
   `127.0.0.1` means "this machine." **Kokoro** is perfect here because it needs no GPU.
 - **On another machine on your network (remote).** For example a Linux box with an NVIDIA GPU
   for **Chatterbox**. You reach it by that machine's name (`http://mybox.local:<port>`) or its
   LAN address (`http://<your-lan-ip>:<port>`).
 
-Either way there's **no cloud account and nothing leaves your own network** — this is different
+Either way there's **no cloud account and nothing leaves your own network**: this is different
 from a hosted service like ElevenLabs, where your text is sent to someone else's servers.
 
 #### Setting up Kokoro (no GPU needed)
@@ -1420,11 +1420,11 @@ docker run -d --restart unless-stopped -p 8880:8880 \
   ghcr.io/remsky/kokoro-fastapi-cpu:latest
 ```
 
-That's the whole install — Kokoro now answers at `http://<that-machine>:8880`. (`-d` runs it in
+That's the whole install: Kokoro now answers at `http://<that-machine>:8880`. (`-d` runs it in
 the background; `--restart unless-stopped` brings it back after a reboot.) Confirm it's alive:
 `curl http://localhost:8880/health` should return `200`.
 
-> Use the **CPU** image above — it works everywhere and is plenty fast (a short sentence in well
+> Use the **CPU** image above: it works everywhere and is plenty fast (a short sentence in well
 > under a second). There's a GPU image too, but for a model this small the GPU buys nothing.
 
 #### Setting up Chatterbox (needs an NVIDIA GPU)
@@ -1446,19 +1446,19 @@ colon. Chatterbox always listens on 8004 inside its container, so the left numbe
 you can reach and the right one is not. A common sign you have the wrong port is a reply from
 some other service, such as `Error: gzip is not supported by this browser`.
 
-To use a **cloned voice**, drop a 5–10 second `.wav` sample of the target voice into its
+To use a **cloned voice**, drop a 5- to 10-second `.wav` sample of the target voice into its
 voices folder; it shows up in Baton's voice list by filename (e.g. `Emily.wav`).
 
-> Chatterbox is the heavier engine — reach for it when you want the best quality or a custom
+> Chatterbox is the heavier engine: reach for it when you want the best quality or a custom
 > cloned voice, not for every routine "build finished" line.
 
 #### Pointing Baton at your server(s)
 
 Open **Settings → Speech** and enter the address for whichever engine you set up:
 
-- **Kokoro base URL** — e.g. `http://127.0.0.1:8880` (same Mac) or `http://mybox.local:8880`
+- **Kokoro base URL**: e.g. `http://127.0.0.1:8880` (same Mac) or `http://mybox.local:8880`
   (another machine).
-- **Chatterbox base URL** — e.g. `http://mybox.local:8004`.
+- **Chatterbox base URL**: e.g. `http://mybox.local:8004`.
 
 Press **Test this connection**. Baton shows a green check with the number of voices it found, or
 the error if it can't reach the server. Once connected, each row of the [voice
@@ -1498,19 +1498,19 @@ the same way it uses the music tools.
 
 ### Controlling when an agent speaks
 
-`speak_summary` is a tool the agent *chooses* to call — Baton never speaks on its own. So
+`speak_summary` is a tool the agent *chooses* to call: Baton never speaks on its own. So
 **you** decide when a summary is read aloud, either per request or as a standing rule.
 
 **Per request (no setup).** Just ask for it in the moment:
 
 > "Run the tests and **say** the result when you're done."
 > → the agent runs the tests, then calls `speak_summary` with something like "All 467 tests
-> passed" — and stays silent on the next task unless you ask again.
+> passed", and stays silent on the next task unless you ask again.
 
-**A standing rule (Claude Code).** Put a one-line instruction in a `CLAUDE.md` — `./CLAUDE.md`
+**A standing rule (Claude Code).** Put a one-line instruction in a `CLAUDE.md`: `./CLAUDE.md`
 for one project, `~/.claude/CLAUDE.md` for all of them. Two useful shapes:
 
-- **Opt-in (recommended) — silent unless asked:**
+- **Opt-in (recommended), silent unless asked:**
 
   ```md
   Spoken summaries: default do NOT speak. Only call `mcp__baton__speak_summary` when I
@@ -1518,14 +1518,14 @@ for one project, `~/.claude/CLAUDE.md` for all of them. Two useful shapes:
   short sentence (voice `af_bella`). If Baton isn't connected, skip silently.
   ```
 
-- **Always — a spoken line after every task:**
+- **Always, a spoken line after every task:**
 
   ```md
   When you finish a task, call `mcp__baton__speak_summary` with a one-sentence summary
   (voice `af_bella`). If Baton isn't connected, skip silently.
   ```
 
-**A standing rule (Cursor).** The same idea lives in a Cursor **Rule** — add a project rule in
+**A standing rule (Cursor).** The same idea lives in a Cursor **Rule**: add a project rule in
 `.cursor/rules/` (or a global rule under Cursor → Settings → Rules) with the same wording,
 e.g.:
 
@@ -1537,8 +1537,8 @@ sentence (voice `af_bella`). If Baton isn't connected, skip silently.
 
 Pick a voice per line with the `voice` input (`kokoro:af_bella`, `chatterbox:Emily.wav`, or a
 bare id like `af_nova`), or let the [voice map](#one-voice-per-category-the-voice-map) choose by
-`category`. A `CLAUDE.md` or Cursor rule takes effect on the **next** session — a running one
-won't reload it mid-task — and Baton must be running for the call to land.
+`category`. A `CLAUDE.md` or Cursor rule takes effect on the **next** session (a running one
+won't reload it mid-task), and Baton must be running for the call to land.
 
 ---
 
@@ -1574,12 +1574,12 @@ to set up.
 **A keyboard shortcut, which you choose.** Settings → Speech → Read aloud has a recorder: click
 it, press the combination you want. There is **no shortcut set out of the box**, so Baton can
 never collide with something you already use. The shortcut asks the app you're in for your
-selection, and macOS gates that behind **Accessibility** — Baton asks the first time you press
+selection, and macOS gates that behind **Accessibility**: Baton asks the first time you press
 it, and explains why.
 
 **Reading a whole pane, not just a selection.** Hold **Shift** with your shortcut and Baton
-reads the whole thing you're focused on rather than what you've highlighted — the entire
-scrollback of a terminal, say, when you'd rather not select it first. This one depends on the
+reads the whole thing you're focused on rather than what you've highlighted (the entire
+scrollback of a terminal, say, when you'd rather not select it first). This one depends on the
 app being willing to hand over its contents, and browsers are not: in Chrome it does nothing,
 so select the part you want and use the plain shortcut there.
 
@@ -1610,7 +1610,7 @@ the model, not just before it reaches the speaker.
 ### Why some apps need the clipboard
 
 Apps differ in how willing they are to hand over your selection, and browsers are the awkward
-case. A terminal like Ghostty hands it straight over. **Chrome does not** — it exposes page
+case. A terminal like Ghostty hands it straight over. **Chrome does not**: it exposes page
 text in a way the ordinary route can't read, so for Chrome and most other browsers Baton falls
 back to copying the selection, reading it, and putting your clipboard back the way it was.
 
@@ -1632,7 +1632,7 @@ Read aloud is mostly about *not* reading things to you. Before a word is spoken,
   on screen more often than anyone likes to admit.
 - **Cleans up terminal output.** Colour codes and cursor commands disappear, the prompt is
   dropped but the command you typed is kept, and if your selection spans several commands only
-  the last one's output is read — that's almost always the one you selected it for.
+  the last one's output is read: that's almost always the one you selected it for.
 - **Skips what can't be listened to.** A commit hash becomes "a forty-character hash", a UUID
   becomes "a UUID", a link becomes "a link to example.com", and a block of code is announced as
   "Swift code block, twelve lines" instead of having its punctuation pronounced.
@@ -1810,7 +1810,7 @@ It looks like this:
 You connect a client by pointing it at that **url** over the **Streamable HTTP** transport and
 passing the **token** as a bearer token in the `Authorization` header. Both values come
 straight out of `mcp.json`. The token above is shortened for display, and **app.version** is
-whichever build of Baton is running — yours will show its real values.
+whichever build of Baton is running: yours will show its real values.
 
 > [!NOTE]
 > The port is `8787` by default, but if something else already has it, Baton uses the next
@@ -1882,15 +1882,15 @@ full catalog.
 **Explore the library:**
 
 Searching answers "is this in here". These answer "what *is* in here", which is what a
-recommendation has to start from — an agent that can read your genres and what you actually
+recommendation has to start from: an agent that can read your genres and what you actually
 play can suggest something from your collection instead of guessing at song titles.
 
 | Tool | What it does | Main inputs |
 |---|---|---|
-| `music_list_genres` | List the genres in your library with song counts — the vocabulary it really uses, which is rarely the words people say | `limit` |
+| `music_list_genres` | List the genres in your library with song counts: the vocabulary it really uses, which is rarely the words people say | `limit` |
 | `music_browse_albums` | Browse albums by kind rather than by search: random, newest, most-played, recently played, liked, by genre, by year | `type`, `genre`, `from_year`, `to_year`, `limit` |
-| `music_similar_songs` | Songs your server considers similar to a track or artist — real neighbour data, not a keyword match | `song_id` or `query`, `limit` |
-| `music_discover_external` | Music you *don't* have, from public catalogues — the outward-facing twin of the one above. Off unless you turn it on | `artist`, `title`, `limit` |
+| `music_similar_songs` | Songs your server considers similar to a track or artist: real neighbour data, not a keyword match | `song_id` or `query`, `limit` |
+| `music_discover_external` | Music you *don't* have, from public catalogues: the outward-facing twin of the one above. Off unless you turn it on | `artist`, `title`, `limit` |
 | `music_liked` | Your liked songs, albums, and artists | `limit` |
 | `music_random` | Random songs, optionally within a genre or year range | `genre`, `from_year`, `to_year`, `limit` |
 | `music_artist_info` | An artist's biography and every album of theirs you have | `artist_id` or `query` |
@@ -2004,7 +2004,7 @@ fast-path), see [`docs/04-integration-and-mcp.md`](docs/04-integration-and-mcp.m
 
 Baton has a music friend: ask for something in plain language and it works out what you
 meant, then does it with your library and your player. "Something calmer", "what is this?",
-"play the live version instead" — it has the same hands you do.
+"play the live version instead": it has the same hands you do.
 
 Open it on the Mac from **Go › Music Friend**, or press **⌘⇧F**. On iPhone it is the
 **Friend** tab, which appears once a connection test has passed. Setting a provider is not
@@ -2021,20 +2021,20 @@ directly and answer immediately, without asking a model anything. That keeps the
 things instant and free; the model is for the requests that actually need thinking about.
 
 **You have to bring the brain.** Baton ships no key and talks to no model provider until you
-set one up — point it at Anthropic, at OpenAI, or at something running on your own machine.
+set one up: point it at Anthropic, at OpenAI, or at something running on your own machine.
 Until then the friend has nothing to answer with.
 
 ### Turning it on, on the Mac
 
 The setting lives in **Settings, Remote**, which is also where the Telegram and Discord
 bridges are. That pane is about everything that answers you in words, not just the chat
-apps, so the friend's brain is configured there too — in the **Natural language** section
+apps, so the friend's brain is configured there too, in the **Natural language** section
 near the bottom.
 
 1. **Settings → Remote**, and scroll past Telegram, Discord, Linking and Devices to
    **Natural language**.
 2. Turn on **Understand plain English**. Leave **Enable remote control** at the top of the
-   pane alone unless you want Telegram or Discord as well — the friend window doesn't need
+   pane alone unless you want Telegram or Discord as well: the friend window doesn't need
    it.
 3. Pick a **Provider**: *Anthropic* or *OpenAI-compatible*. Choosing one fills in a matching
    model and base URL, so the only thing left is the key.
@@ -2043,13 +2043,13 @@ near the bottom.
 5. Optionally change **Model** or **API base URL**. This is where a model on your own
    machine goes: point the base URL at it and nothing leaves the house.
 6. Click **Test**. It sends one real request the way a message would, so a pass means the
-   next thing you say will work — not just that something answered.
+   next thing you say will work: not just that something answered.
 7. Turn on **Let it look around first**. Without it, one message becomes one command decided
    blind: ask for "lazy music" and you get "nothing matched" even with a shelf of things
    tagged *chill*. **Remember what you tell it** sits underneath and needs it on.
 
 Then **Go › Music Friend**, or **⌘⇧F**. If the window still says it has nothing to answer
-with, step 2 is the one that was missed — a key with the toggle off does nothing.
+with, step 2 is the one that was missed: a key with the toggle off does nothing.
 
 ### Turning it on, on the iPhone
 
@@ -2083,7 +2083,7 @@ they sit one above the other:
 | **Model provider** | The API root **including** `/v1`, because that is where `/chat/completions` hangs off. |
 
 **About the fallback.** The panel says Baton falls back to the model provider if the home
-server cannot be reached, and it does — a home server that is asleep or has moved will not
+server cannot be reached, and it does: a home server that is asleep or has moved will not
 take the friend down with it. What the fallback does *not* do is make the Friend tab appear:
 that gate tests the route you actually chose. If you picked Home server and have no gateway,
 test as **Model provider** instead.
@@ -2095,7 +2095,7 @@ appearing to listen and doing nothing. Typing is always there as well, and **Ret
 while **Option-Return** starts a new line.
 
 **Tell it when it is wrong.** Every answer has a quiet thumbs-up and thumbs-down under it. A
-thumbs-down asks what went wrong — wrong track, misunderstood, too slow, too chatty — and
+thumbs-down asks what went wrong (wrong track, misunderstood, too slow, too chatty), and
 that correction goes into what it reads before answering next time. On the Mac you can read
 the whole history in **Settings, Friend Log**.
 
@@ -2113,41 +2113,41 @@ and no change to the loopback-only control server described above.
 
 A "bot" here is just an account on Telegram or Discord that Baton logs into, so you can send
 it messages the way you'd message a person. Making one is free and takes about two minutes.
-You only need to do one service — pick whichever you already use.
+You only need to do one service: pick whichever you already use.
 
 #### Telegram, step by step
 
-1. Open Telegram and start a chat with **@BotFather** — Telegram's official bot for making
+1. Open Telegram and start a chat with **@BotFather**: Telegram's official bot for making
    bots. Search the name and look for the blue verified checkmark.
 2. Send it `/newbot`.
-3. It asks for a display name — anything you like, such as `My Music`.
+3. It asks for a display name: anything you like, such as `My Music`.
 4. It asks for a username, which must be unique and end in `bot`, such as
    `my_music_2026_bot`. If it's taken, it just asks again.
 5. BotFather replies with a token that looks like `8123456789:AAF3k9...`. **Treat it like a
-   password** — anyone holding it can act as your bot.
+   password**: anyone holding it can act as your bot.
 6. In Baton: **Settings → Remote**, turn on **Enable remote control**, then **Enable
    Telegram**, paste the token into **Bot token**, click **Save**. Within a second or two the
-   **Status** line turns green and shows your bot's `@name`. Red shows Telegram's reason —
+   **Status** line turns green and shows your bot's `@name`. Red shows Telegram's reason:
    almost always a mistyped token.
 7. Open a chat with your new bot and send `/link 123456`, using the six-digit **link code**
-   from the **Linking** section of the same pane. It replies "Linked." — try `np` or `play`.
+   from the **Linking** section of the same pane. It replies "Linked.": try `np` or `play`.
 
 **Using it in a group chat?** Two things to know. Telegram bots in groups default to
-*privacy mode*, which hides ordinary messages from them — so `np` goes unseen while `/np`
+*privacy mode*, which hides ordinary messages from them, so `np` goes unseen while `/np`
 gets through. Either stick to `/`-prefixed commands in groups, or message BotFather
 `/setprivacy` and turn privacy off for your bot. And when several bots share a group,
-`/pause@your_bot_name` disambiguates — Baton understands the suffix.
+`/pause@your_bot_name` disambiguates: Baton understands the suffix.
 
 #### Discord, step by step
 
 The order below matters: the **Message Content intent** comes before the token, because a
-bot that connects without it sees every message with the text stripped out — it looks like
+bot that connects without it sees every message with the text stripped out: it looks like
 Baton ignoring you, with no error anywhere.
 
 1. Go to **discord.com/developers/applications** and sign in.
 2. Click **New Application**, name it (say, `Baton`), and create it.
 3. In the left sidebar open **Bot**, then set three things on that page:
-   - **Public Bot: off** — so only you can invite it anywhere.
+   - **Public Bot: off**, so only you can invite it anywhere.
    - Under **Privileged Gateway Intents**, turn **Message Content Intent on**, and click
      **Save Changes**.
    - Click **Reset Token**, confirm, and copy the token. It is shown exactly once; if you
@@ -2155,7 +2155,7 @@ Baton ignoring you, with no error anywhere.
 4. In Baton: **Settings → Remote**, turn on **Enable remote control** and **Enable
    Discord**, paste the token, click **Save**. The **Status** line turns green with the
    bot's name once the connection is up.
-5. Invite the bot to a server — it can see nothing until you do. Grab the **Application
+5. Invite the bot to a server: it can see nothing until you do. Grab the **Application
    ID** from the app's **General Information** page, and open this URL with yours
    substituted:
 
@@ -2164,18 +2164,18 @@ Baton ignoring you, with no error anywhere.
    ```
 
    Pick your server in the dialog and authorize. `68608` grants exactly **View Channels,
-   Send Messages, and Read Message History** — all a music remote needs. Don't grant
+   Send Messages, and Read Message History**: all a music remote needs. Don't grant
    Administrator or Manage-anything; a remote control has no business with them. (The same
    thing can be clicked together under **OAuth2 → URL Generator**: scope `bot`, then those
    three permissions.)
 
-   No server of your own? Create one with the **+** button in Discord's left rail — a
+   No server of your own? Create one with the **+** button in Discord's left rail: a
    private server with just you in it is the tidiest option.
 6. Pick or create a channel for it. A dedicated `#music` or `#baton` channel keeps things
-   readable, but any channel works — Baton ignores messages written by bots, so it can
+   readable, but any channel works: Baton ignores messages written by bots, so it can
    share a channel with webhook feeds without tripping over them.
 7. In that channel, send `/link 123456` with the six-digit code from Baton's **Linking**
-   section. "Linked." — you're done.
+   section. "Linked.": you're done.
 
 To confine the bot to specific channels, fill **Limit to channels** with channel ids
 (comma-separated). Getting an id: Discord **Settings → Advanced → Developer Mode on**, then
@@ -2187,7 +2187,7 @@ leaving it empty is fine, because the link-code allowlist is what actually guard
 The link step isn't ceremony, and it's worth understanding why it's there. A bot token
 identifies *the bot*, not *you*. Anyone who found your bot could otherwise message it and
 take over your speakers. So until a chat is linked, Baton ignores every message it gets
-except a correct link code — and each code works only once, because you type it into a chat
+except a correct link code, and each code works only once, because you type it into a chat
 history that might get backed up or read over your shoulder.
 
 If you ever want to cut a chat off, the Remote pane lists every linked chat with a **Revoke**
@@ -2210,14 +2210,14 @@ and `/pause` do the same thing.
 | `queue radiohead` | Adds matches to the end of the queue |
 | `queue` | Shows what's coming up |
 | `playnext <song>` | Slots something in right after the current track |
-| `vol 40` | Volume, 0 to 100 — Baton's own volume, not the Mac's |
+| `vol 40` | Volume, 0 to 100: Baton's own volume, not the Mac's |
 | `seek 1:30` | Jump to a position (`90` and `1m30s` also work) |
 | `np` | What's playing right now |
 | `search coltrane` | Look without playing |
 | `like` · `unlike` | Star the current track (or `like <song>`) |
 | `rate 5` | Rate the current track, 0 to 5 |
 | `playlists` | List your playlists |
-| `playlist Evening` | Play a playlist by name — part of the name is enough |
+| `playlist Evening` | Play a playlist by name: part of the name is enough |
 | `mix upbeat focus` | Build a mix from a description |
 | `radio` | Endless "more like this" from the current track |
 | `shuffle on` · `repeat one` | Modes (`repeat` takes `off`, `all`, or `one`) |
@@ -2233,7 +2233,7 @@ typed word.
 ### Saying it in your own words
 
 Turn on **Understand plain English** in the same pane and anything Baton doesn't recognize as
-a command gets read as intent instead — "put on something mellow", "skip this one", "make me
+a command gets read as intent instead: "put on something mellow", "skip this one", "make me
 a 40-minute driving mix".
 
 This one needs a model to talk to, which you provide; Baton ships no key, and the feature
@@ -2242,8 +2242,8 @@ tells you whether it worked, so you're never guessing.
 
 Baton speaks two API dialects, which between them cover nearly everything:
 
-- **Anthropic** — Claude's Messages API.
-- **OpenAI-compatible** — the `chat/completions` shape that OpenAI, Groq, Together, Mistral,
+- **Anthropic**: Claude's Messages API.
+- **OpenAI-compatible**: the `chat/completions` shape that OpenAI, Groq, Together, Mistral,
   DeepSeek and OpenRouter all serve, *and* that self-hosted servers speak: vLLM, Ollama,
   LM Studio, llama.cpp, LiteLLM. This is the one to pick for a model running on your own
   hardware.
@@ -2252,18 +2252,18 @@ Baton speaks two API dialects, which between them cover nearly everything:
 ([console.anthropic.com](https://console.anthropic.com) or
 [platform.openai.com](https://platform.openai.com)), paste it into **API key**, click
 **Save**, then **Test**. Model and base URL are pre-filled sensibly for each provider and can
-be left alone. Costs are yours and are small — each message is one short request.
+be left alone. Costs are yours and are small: each message is one short request.
 
 **Using your own model.** If you run a model on your own machine or network, set the provider
 to **OpenAI-compatible**, put your server's address in **API base URL** (the root that
-`/chat/completions` hangs off — for example `http://your-server:8000/v1`, or
+`/chat/completions` hangs off: for example `http://your-server:8000/v1`, or
 `http://localhost:11434/v1` for Ollama), and set **Model** to whatever name your server
 serves. Most local servers accept any key; put something in the field anyway. Nothing leaves
 your network, and there's no per-message cost.
 
 One thing macOS does that looks like a Baton bug: the first time Baton talks to something on
 your own network, macOS asks permission, and if that prompt was missed or declined every attempt
-fails with *"The Internet connection appears to be offline"* — even though Baton is plainly
+fails with *"The Internet connection appears to be offline"*, even though Baton is plainly
 online. Allow it under **System Settings → Privacy & Security → Local Network**, where Baton
 should be switched on.
 
@@ -2271,17 +2271,17 @@ One thing to check with a local model: it must support **tool calling** (also ca
 calling). Baton asks the model to pick from its list of commands, and a model or server built
 without that support will fail the Test with an error saying so. Most current instruct models
 handle it; very small or older ones often don't. Smaller models are also less precise at
-picking details out of a sentence — asking for "kind of blue" might search for just "blue" —
+picking details out of a sentence (asking for "kind of blue" might search for just "blue"),
 so if results feel vague, a larger model is the fix.
 
-If you'd rather not have any of this, leave it off — every command in the table above works
+If you'd rather not have any of this, leave it off: every command in the table above works
 without it.
 
 If you use a phrase that collides with a command, put `ask` in front to force the
 plain-English reading: `ask play something quiet`.
 
 **Commands are tried first, but they don't trap you.** A message starting with a command word
-is handled instantly and locally — `play kind of blue` is a search, not a question for the
+is handled instantly and locally: `play kind of blue` is a search, not a question for the
 model. If that literal reading finds nothing, and plain English is on, Baton asks the model
 what you meant rather than leaving you with "no songs matched". So `play the second one`
 works even though it starts with `play`.
@@ -2293,7 +2293,7 @@ expires after about half an hour of quiet, and is kept separately for each chat.
 `forget` to clear it whenever you like.
 
 This is the one feature in Baton that talks to a third party, and it's off until you switch it
-on. What leaves your Mac is the sentence you typed and the list of Baton's own commands —
+on. What leaves your Mac is the sentence you typed and the list of Baton's own commands:
 never your server credentials or what you've been listening to. Under the hood the model is
 choosing from the same control surface an AI agent gets, so a sentence can't ask Baton to do
 anything the buttons can't. Deleting a playlist is deliberately left out of what a sentence
@@ -2306,24 +2306,24 @@ translator and something you can have a conversation with.
 
 Off, your sentence becomes one command, chosen blind. The model has never seen your library,
 so it has to be right first time about music it knows nothing about. Ask for "lazy music" and
-you get "nothing matched" — even though the chillout is right there, tagged `chill`, `lounge`
+you get "nothing matched", even though the chillout is right there, tagged `chill`, `lounge`
 and `ambient`, because a mood is rarely a song title.
 
 On, Baton lets it look before it answers. It can read which genres your library actually uses,
 what you've liked and played most, what's similar to a track, and what albums are newest or
-most-played — then search again with words it has seen work, and play the result. The reply
-tells you what it did and why it isn't literally what you asked: *"nothing called 'lazy' —
+most-played, then search again with words it has seen work, and play the result. The reply
+tells you what it did and why it isn't literally what you asked: *"nothing called 'lazy':
 your chillout is tagged chill, playing that"*.
 
 **It asks when asking is the honest thing.** If what it found splits two ways and the answer
-changes what you'd hear — two artists sharing a name, a six-hour mix beside a forty-minute set
-— it offers them as buttons, each with the fact that decides it. Tap one, or type `2`, or say
+changes what you'd hear (two artists sharing a name, a six-hour mix beside a forty-minute set),
+it offers them as buttons, each with the fact that decides it. Tap one, or type `2`, or say
 "the ambient one". Ignore it and after a minute or so it starts the one it recommended and
 says that's what it did, rather than leaving you in silence. Send anything else and the
-question is dropped — it won't start playing under you a minute after you've moved on.
+question is dropped: it won't start playing under you a minute after you've moved on.
 
 **This is the setting that changes what leaves your Mac,** which is why it's separate and off
-by default. Looking around means what it finds — song titles, artists, genres — travels to the
+by default. Looking around means what it finds (song titles, artists, genres) travels to the
 model along with your question, because that's the only way it can answer. With it off, none of
 your library ever does. Point the base URL at a model running on your own machine and the
 distinction stops mattering: nothing leaves your network either way.
@@ -2333,12 +2333,12 @@ local model that's typically a second or two.
 
 **It knows what you listen to.** Before it answers, Baton hands it a dozen lines read from
 your own server: your biggest genres with counts, what you've played most and how often, how
-many songs you've liked, what you added recently. Nothing is stored and nothing is guessed —
+many songs you've liked, what you added recently. Nothing is stored and nothing is guessed:
 they're the server's own numbers, read fresh each day. It's what makes "what kind of music do
 I listen to?" answerable, "surprise me" grounded in your collection rather than a coin flip,
 and a remark like "that's its 34th play" possible at all.
 
-**It occasionally has a view.** When a number is worth mentioning it says so in passing —
+**It occasionally has a view.** When a number is worth mentioning it says so in passing,
 and then does what you asked anyway. It never refuses and never lectures, and it mentions any
 one thing at most once a day, because a friend says it once and software that says it three
 times running is nagging.
@@ -2353,9 +2353,9 @@ Baton and it keeps them, in a plain file you can open at
 Three rules make that safe rather than creepy:
 
 - **It stores your words, not its impressions.** Every memory carries the sentence you
-  actually said. There is nowhere to put "seems to like sad music on Sundays" — the file has
+  actually said. There is nowhere to put "seems to like sad music on Sundays": the file has
   no field for a guess about you, which is a better guarantee than a promise not to make one.
-- **It tells you every time it writes one.** "Noted — no vocals while you work." If it
+- **It tells you every time it writes one.** "Noted: no vocals while you work." If it
   misunderstood, you see it in the same window a second later, and one message fixes it.
 - **It's one command away.** `memories` lists everything with the quote attached, `forget 2`
   removes one, `forget everything` clears the lot.
@@ -2455,7 +2455,7 @@ See [Letting an agent control your music](#letting-an-agent-control-your-music).
 
 Telegram and Discord bot tokens, the link code and the list of chats you've authorized (each
 revocable), an optional restriction to particular Discord channels, and the model provider
-and natural-language settings the music friend runs on, plus **Shared settings** — the
+and natural-language settings the music friend runs on, plus **Shared settings**: the
 gateway that keeps your preferences in step with your iPhone. Setting the friend's model
 provider up is step-by-step in [Turning it on, on the Mac](#turning-it-on-on-the-mac); the
 chat bridges are in [Controlling Baton from Telegram or
@@ -2557,7 +2557,7 @@ Still on the roadmap, called out here so the docs stay honest:
 - **Sonic-analysis mixes**, built from the actual sound of your music (tempo, energy, key),
   not just your play history.
 - **Crossfeed and other DSP**. (The lyrics fallback that used to sit on this list has
-  shipped — see [Lyrics](#lyrics).)
+  shipped: see [Lyrics](#lyrics).)
 
 The full roadmap is in
 [`docs/05-roadmap-new-features.md`](https://github.com/anatoliv/baton/blob/main/docs/05-roadmap-new-features.md)
@@ -2570,7 +2570,7 @@ on GitHub.
 - **Your credentials live in the macOS Keychain**, never in a plain text file.
 - **Baton doesn't phone home by default.** It talks only to the music server you point it at,
   plus the scrobbling services and its own update feed if you turn those on, any
-  text-to-speech server you set up, and — if you connect a chat bot — Telegram or Discord. It has no catalog server of its own to call. The one
+  text-to-speech server you set up, and (if you connect a chat bot) Telegram or Discord. It has no catalog server of its own to call. The one
   opt-in exception is crash reporting (Settings, About, Diagnostics, off by default): when you
   turn it on, Baton sends crash and error data to its developer through Crashbox to help fix bugs,
   never your music, library, server address, or account, and no IP or identifiers.
@@ -2621,12 +2621,12 @@ the service gave, which is usually a mistyped or reset token.
 discord.com/developers → your application → **Bot** → Privileged Gateway Intents, then click
 **Reconnect** in Baton. Without it Discord delivers your messages with the text removed, so
 Baton receives an empty message and has nothing to act on. If the bot doesn't appear in your
-server's member list at all, it was never invited — see the
+server's member list at all, it was never invited: see the
 [setup steps](#controlling-baton-from-telegram-or-discord).
 
 **It says the chat isn't authorized.** That's the expected answer until you link it. Send
 `/link` followed by the six-digit code from Settings, Remote. If the code is refused, it's
-because codes are single-use — click **New code** and send the new one.
+because codes are single-use: click **New code** and send the new one.
 
 **It answers "I don't know that".** The message wasn't one of the commands. Send `help` for
 the list, or turn on **Understand plain English** to have Baton read it as intent instead.

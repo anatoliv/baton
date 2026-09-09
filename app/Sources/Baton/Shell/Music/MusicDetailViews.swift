@@ -339,6 +339,7 @@ struct MusicAlbumBanner: View {
                 .background(.black.opacity(0.35), in: Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Back")
         // Center-align the back chevron with the sidebar's collapse chevron: the rail
         // chevron sits at 8 (rail top inset) + 14 (½ of its 28pt height) = 22pt; this
         // 30pt circle needs a 7pt top inset (7 + 15) to share that center line.
@@ -688,6 +689,7 @@ struct MusicArtistBanner: View {
                 .background(.black.opacity(0.35), in: Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Back")
         // Center-align the back chevron with the sidebar's collapse chevron: the rail
         // chevron sits at 8 (rail top inset) + 14 (½ of its 28pt height) = 22pt; this
         // 30pt circle needs a 7pt top inset (7 + 15) to share that center line.
@@ -849,6 +851,7 @@ struct MusicPlaylistDetail: View {
             Image(systemName: "ellipsis.circle").font(.callout).frame(width: 26, height: 26).contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton).fixedSize().foregroundStyle(.secondary).help("Playlist options")
+        .accessibilityLabel("Playlist options")
     }
 
     @ViewBuilder private var songsContent: some View {

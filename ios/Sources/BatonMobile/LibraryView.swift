@@ -245,6 +245,7 @@ struct LikedView: View {
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
+                .accessibilityLabel("Sort")
             }
             if segment == .songs {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -579,6 +580,7 @@ struct PlaylistsView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { newName = ""; showsNew = true } label: { Image(systemName: "plus") }
                     .disabled(model.isDemoMode)
+                    .accessibilityLabel("New playlist")
             }
         }
         .contentState(
@@ -806,6 +808,7 @@ struct PlaylistDetailView: View {
                     Image(systemName: "arrow.down.circle")
                 }
                 .disabled(songs.isEmpty)
+                .accessibilityLabel("Download all")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isEditing ? "Done" : "Edit") { isEditing.toggle() }
@@ -895,7 +898,7 @@ struct DownloadsView: View {
                 } header: {
                     Label("\(Counted.phrase(failed.count, "download")) failed", systemImage: "exclamationmark.triangle")
                 } footer: {
-                    Text("These didn't finish — usually the server went away mid-transfer. Retrying picks up where it stopped.")
+                    Text("These didn't finish. Usually the server went away mid-transfer. Retrying picks up where it stopped.")
                 }
             }
 

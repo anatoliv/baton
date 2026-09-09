@@ -231,7 +231,7 @@ struct MusicHomeView: View {
         VStack(spacing: 8) {
             Image(systemName: "music.note.house").font(.system(size: 34)).foregroundStyle(.secondary)
             Text("Your Home fills in as you listen").font(.headline)
-            Text("Play a few tracks and browse your library — recently played, mixes, and picks show up here.")
+            Text("Play a few tracks and browse your library: recently played, mixes, and picks show up here.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity).padding(.top, 40).padding(.horizontal, 40)

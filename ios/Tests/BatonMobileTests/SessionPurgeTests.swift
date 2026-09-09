@@ -191,24 +191,31 @@ final class SessionPurgeTests: XCTestCase {
         model.clippings.remove(id: clipping.id, dismissing: false, everywhere: false)
     }
 
-    /// The friend's *memory* and its learned corrections are deliberately not purged: both
-    /// live in the shared `baton.friend.ledger`, so clearing them here would publish
-    /// tombstones that delete the same memories on the user's Mac. Whether a disconnect
-    /// should forget them at all is TBX-5230, a product decision this function must not make.
-    func testTheFriendsMemoryIsLeftAlone() {
+    /// TBX-5230 (owner decision, 2026-09-09): the purge now takes the friend's memory and
+    /// its learned corrections too, not just the exchange log. Both live in the shared
+    /// `baton.friend.ledger`, so clearing them here must publish tombstones — not merely go
+    /// silent — or a peer device still holding the old rows would push them straight back on
+    /// the next sync. `RemoteMemoryStore.forgetEverything()` / `FriendLearningStore.forgetAll()`
+    /// already guarantee that at the store level — proved directly against the ledger by
+    /// `testForgettingEverythingLeavesTombstonesRatherThanAnEmptyLedger`,
+    /// `testForgettingEverythingIsNotUndoneByTheNextSync` and
+    /// `testClearingEveryCorrectionIsNotUndoneByTheNextSync` in
+    /// `BatonAgentKitTests/FriendSyncTests.swift`. This test only has to prove the purge
+    /// actually calls them.
+    func testPurgeErasesTheFriendsMemoryAndLearning() {
         let model = MobileModel()
-        model.friendMemory.forgetEverything()
         _ = model.friendMemory.remember(kind: "preference", text: "No vocals while working",
                                         quote: "no vocals while I'm working")
-        XCTAssertNotNil(model.friendMemory.rendered(), "precondition: a memory to keep")
+        _ = model.friendLearning.learn(from: FriendExchange(
+            surface: .phone, request: "play something mellow", reply: "here you go",
+            rating: .down, fault: .wrongTrack))
+        XCTAssertNotNil(model.friendMemory.rendered(), "precondition: a memory to erase")
+        XCTAssertNotNil(model.friendLearning.promptBlock, "precondition: a correction to erase")
 
         SessionPurge.purge(model, keepDownloads: true)
 
-        XCTAssertNotNil(model.friendMemory.rendered(), """
-            the purge deleted the friend's memories, which TBX-5230 reserves for the owner \
-            and which would tombstone the same memories on the other device
-            """)
-        model.friendMemory.forgetEverything()
+        XCTAssertNil(model.friendMemory.rendered(), "the friend's memory survived the purge")
+        XCTAssertNil(model.friendLearning.promptBlock, "the friend's learned corrections survived the purge")
     }
 
     private func seedClipping(into store: ClippingStore) throws -> ClippingStore.Item {

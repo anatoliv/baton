@@ -174,7 +174,7 @@ struct BatonSpeechPane: View {
 
             Toggle("Use the clipboard when an app will not share its selection", isOn: $allowClipboardFallback)
                 .onChange(of: allowClipboardFallback) { _, v in ReadAloudSettings.allowClipboardFallback = v }
-            Text("Some apps, Chrome among them, do not hand over the selected text directly. Baton can copy it instead and put your clipboard back afterwards. Turn this off if you would rather it never touched the clipboard — the shortcut will then do nothing in those apps.")
+            Text("Some apps, Chrome among them, do not hand over the selected text directly. Baton can copy it instead and put your clipboard back afterwards. Turn this off if you would rather it never touched the clipboard. The shortcut will then do nothing in those apps.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -192,7 +192,7 @@ struct BatonSpeechPane: View {
             }
             Text(unfinishedCount == 0
                  ? "Stop part-way through an article and Baton keeps your place so you can carry on from File → Resume Reading. Nothing is kept right now. Up to \(UnfinishedReadings.maximumEntries) readings are held, for \(Int(UnfinishedReadings.retention / 86_400)) days, and only the cleaned text you actually heard."
-                 : "\(unfinishedCount) saved, resumable from File → Resume Reading. Up to \(UnfinishedReadings.maximumEntries) are held, for \(Int(UnfinishedReadings.retention / 86_400)) days, and only the cleaned text you actually heard — anything that looked like a password or a key was removed before it was spoken, so it was never written here either.")
+                 : "\(unfinishedCount) saved, resumable from File → Resume Reading. Up to \(UnfinishedReadings.maximumEntries) are held, for \(Int(UnfinishedReadings.retention / 86_400)) days, and only the cleaned text you actually heard. Anything that looked like a password or a key was removed before it was spoken, so it was never written here either.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -225,7 +225,7 @@ struct BatonSpeechPane: View {
                 }
             }
 
-            Text("Readings are not saved. They play once and do not appear in Spoken Summaries, and nothing watches your screen — Baton only ever reads what you ask it to, when you ask.")
+            Text("Readings are not saved. They play once and do not appear in Spoken Summaries, and nothing watches your screen. Baton only ever reads what you ask it to, when you ask.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -244,7 +244,7 @@ struct BatonSpeechPane: View {
             .onChange(of: announceImmediately) { _, on in SpeechConfig.announceImmediately = on; enforceReachable() }
             Text(announceImmediately
                  ? "Every summary is spoken as soon as the audio is ready. Your own opt-in, so it isn't gated."
-                 : "The agent decides whether a summary is urgent enough to speak right away (if you allow it just below) or simply wait — and it reaches you through the alerts below.")
+                 : "The agent decides whether a summary is urgent enough to speak right away (if you allow it just below) or simply wait, and it reaches you through the alerts below.")
                 .font(.callout).foregroundStyle(.secondary)
 
             // The auto-play gate — a refinement of "Let the agent decide", not a peer. Irrelevant
@@ -253,7 +253,7 @@ struct BatonSpeechPane: View {
                 .onChange(of: allowAutoPlay) { _, on in SpeechConfig.allowAutoPlay = on }
                 .disabled(announceImmediately)
                 .padding(.leading, 18)
-            Text("Lets an agent's `mode: \"auto\"` speak without confirmation. Off by default — a safety gate so a leaked token can't blast audio; when off, an agent's summaries just wait as the alerts below.")
+            Text("Lets an agent's `mode: \"auto\"` speak without confirmation. Off by default: a safety gate so a leaked token can't blast audio; when off, an agent's summaries just wait as the alerts below.")
                 .font(.callout).foregroundStyle(.secondary)
                 .padding(.leading, 18)
 
@@ -262,7 +262,7 @@ struct BatonSpeechPane: View {
                 .onChange(of: alertNotification) { _, on in SpeechConfig.alertWithNotification = on; enforceReachable() }
             Toggle("Alert with an in-app banner", isOn: $alertBanner)
                 .onChange(of: alertBanner) { _, on in SpeechConfig.alertWithBanner = on; enforceReachable() }
-            Text("Where summaries show up — pick either, both, or neither. A notification and a banner each carry a **Play** button; with **Announce immediately** they're a replayable record. If a waiting summary would have nowhere to go, a banner is kept on so it's never lost.")
+            Text("Where summaries show up: pick either, both, or neither. A notification and a banner each carry a **Play** button; with **Announce immediately** they're a replayable record. If a waiting summary would have nowhere to go, a banner is kept on so it's never lost.")
                 .font(.callout).foregroundStyle(.secondary)
 
             Divider()
@@ -280,7 +280,7 @@ struct BatonSpeechPane: View {
                 }
             }
             .onChange(of: bluetoothWarmup) { _, seconds in SpeechConfig.bluetoothWarmup = seconds }
-            Text("A Bluetooth speaker sleeps when nothing is playing and takes a moment to wake, which otherwise eats the first word. Baton holds silence for this long before speaking, but **only** over Bluetooth — wired and built-in output are never delayed. Raise it if you still lose the start; the Console log reports how long your speaker actually took.")
+            Text("A Bluetooth speaker sleeps when nothing is playing and takes a moment to wake, which otherwise eats the first word. Baton holds silence for this long before speaking, but **only** over Bluetooth. Wired and built-in output are never delayed. Raise it if you still lose the start; the Console log reports how long your speaker actually took.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
@@ -356,6 +356,7 @@ struct BatonSpeechPane: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Test this connection")
+                    .accessibilityLabel("Test this connection")
                     .disabled(whisperStatus.isChecking)
                 }
             }
@@ -439,6 +440,7 @@ struct BatonSpeechPane: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Test this connection")
+                .accessibilityLabel("Test this connection")
                 .disabled(loadState[engine]?.isChecking == true)
             }
         } label: {
@@ -555,7 +557,7 @@ struct BatonSpeechPane: View {
                 }
             }
 
-            Text("An agent that sends a `session` name speaks in the voice you give it here. The label is matched loosely — case and surrounding spaces do not matter — and it can be anything you like, not only a repo name. Anything **not** in this list speaks in a voice from outside it, the same one every time, so a named project never shares its sound with an unnamed one. An explicit `voice` in the tool call still wins over all of it.")
+            Text("An agent that sends a `session` name speaks in the voice you give it here. The label is matched loosely (case and surrounding spaces do not matter), and it can be anything you like, not only a repo name. Anything **not** in this list speaks in a voice from outside it, the same one every time, so a named project never shares its sound with an unnamed one. An explicit `voice` in the tool call still wins over all of it.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
@@ -756,7 +758,8 @@ struct BatonSpeechPane: View {
                 Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .help("Common categories — you can also type your own")
+            .help("Common categories. You can also type your own")
+            .accessibilityLabel("Common categories, you can also type your own")
         }
     }
 

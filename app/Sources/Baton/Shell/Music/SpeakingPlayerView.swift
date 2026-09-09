@@ -228,6 +228,7 @@ struct SpeakingPlayerView: View {
                 .foregroundStyle(canSeek ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .disabled(!canSeek)
                 .help("Back 10 seconds")
+                .accessibilityLabel("Back 10 seconds")
 
             if isLive {
                 Button { speech.togglePause() } label: {
@@ -235,24 +236,28 @@ struct SpeakingPlayerView: View {
                         .font(.system(size: 32))
                 }
                 .help(speech.isPaused ? "Resume" : "Pause")
+                .accessibilityLabel(speech.isPaused ? "Resume" : "Pause")
             } else if let idlePlay {
                 // Host-supplied idle action (the window's Play, which starts the loaded summary).
                 Button(action: idlePlay.action) {
                     Image(systemName: idlePlay.icon).font(.system(size: 32))
                 }
                 .help(idlePlay.help)
+                .accessibilityLabel(idlePlay.help)
             } else {
                 Button { speech.replayLast() } label: {
                     Image(systemName: "arrow.counterclockwise.circle.fill").font(.system(size: 32))
                 }
                 .disabled(!speech.canReplay)
                 .help("Replay")
+                .accessibilityLabel("Replay")
             }
 
             Button { speech.seek(by: 10) } label: { Image(systemName: "goforward.10") }
                 .foregroundStyle(canSeek ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .disabled(!canSeek)
                 .help("Forward 10 seconds")
+                .accessibilityLabel("Forward 10 seconds")
         }
         .buttonStyle(.plain)
         .font(.title3)

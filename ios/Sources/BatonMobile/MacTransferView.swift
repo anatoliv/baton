@@ -107,7 +107,7 @@ struct MacTransferView: View {
             Button("Import") { apply(passphrase: passphrase) }
             Button("Cancel", role: .cancel) { importData = nil; passphrase = "" }
         } message: {
-            Text("This export is encrypted — enter the passphrase you set on the Mac.")
+            Text("This export is encrypted. Enter the passphrase you set on the Mac.")
         }
         .alert("Settings import", isPresented: Binding(
             get: { status != nil },
@@ -145,7 +145,7 @@ struct MacTransferView: View {
             + "and \(Counted.phrase(result.secretCount, "secret"))."
         guard result.secretsRefused > 0 else { return base }
         return base + " \(Counted.phrase(result.secretsRefused, "account")) could not be saved "
-            + "to the Keychain — you will need to enter those again."
+            + "to the Keychain. You will need to enter those again."
     }
 
     /// Applies a Mac export: preferences and secrets land in the same UserDefaults and

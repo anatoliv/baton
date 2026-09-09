@@ -242,12 +242,18 @@ struct MacDeadEndTests {
 
     // MARK: - F17. Everything started at launch is stopped at quit
 
+    /// TBX-5324 moved the whole launch-time composition root (this scheduler included) off
+    /// the main window's `.task` and into `BatonAppDelegate`, an `NSApplicationDelegate`.
+    /// See that type's doc comment for why. Teardown moved with it: `applicationWillTerminate` is
+    /// the delegate's own quit hook, so this no longer reads for a `NotificationCenter`
+    /// observer on `willTerminateNotification`, but the property this guards (nothing started
+    /// at launch is left running at quit) is unchanged.
     @Test("The preference-sync scheduler is stopped when the app terminates")
     func schedulerIsStoppedAtQuit() throws {
         let app = try source("app/Sources/Baton/BatonApp.swift")
-        let teardown = try #require(app.range(of: "willTerminateNotification")).lowerBound
+        let teardown = try #require(app.range(of: "func applicationWillTerminate(")).lowerBound
         let after = String(app[teardown...].prefix(600))
-        #expect(after.contains("scheduler?.stop()"),
+        #expect(after.contains("syncScheduler?.stop()"),
                 "PreferenceSyncScheduler.stop() has no caller outside the tests again")
     }
 }

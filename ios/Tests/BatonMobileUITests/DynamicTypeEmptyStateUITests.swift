@@ -145,6 +145,63 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
                       "the A-Z rail is absent at accessibility text size, which is the defect")
     }
 
+    /// The offline half of the rail test above. `testAlphabetRailStaysAtAccessibilityTextSize`
+    /// proves the rail scales against a real server and skips when one is not reachable, which is the
+    /// right call for that test — but it left the rail with no coverage at all on a machine with no
+    /// network, or in `ui-tests.sh`'s release set if `demo.navidrome.org` happens to be down that day.
+    ///
+    /// The bundled demo library holds one artist by design (Goldberg Variations is the curated story
+    /// App Review and everyday users see), and one artist can never clear a positive rail threshold no
+    /// matter how low `-baton.railMinimum` goes. `-baton.demoRailFixture` adds a dozen artist-only rows
+    /// spanning distinct letters (`DemoLibrary.railFixtureArtists`) only when this test asks for them.
+    func testAlphabetRailStaysAtAccessibilityTextSizeOffline() {
+        let offline = XCUIApplication()
+        offline.launchArguments += [
+            "-baton.resetSession", "-baton.demoMode", "YES", "-baton.demoRailFixture",
+            "-uitestBypassBiometrics",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
+            "-baton.railMinimum", "1",
+        ]
+        app = offline
+        app.launch()
+
+        XCTAssertTrue(app.buttons["Library"].firstMatch.waitForExistence(timeout: 30),
+                      "the app never reached the tab bar")
+        app.buttons["Library"].firstMatch.tap()
+
+        let row = app.buttons["Artists"]
+        XCTAssertTrue(reveal(row) || row.waitForExistence(timeout: 20), "no Artists row")
+        row.tap()
+
+        let rail = app.descendants(matching: .any)
+            .matching(identifier: "AlphabetIndexRail").firstMatch
+        let found = rail.waitForExistence(timeout: 30)
+        capture("23-dynamictype-ax5-rail-offline")
+        XCTAssertTrue(found,
+                      "the A-Z rail is absent against the bundled demo library plus its rail fixture, "
+                          + "with no network involved")
+    }
+
+    /// Later's overflow menu (`Menu { Button("Clear All", ...) } label: { Image(systemName:
+    /// "ellipsis.circle") }` in `LaterView.swift`) was one of the 55 icon-only controls with
+    /// no VoiceOver label outside the  lint's old nine-file scope. A
+    /// screenshot cannot show a missing accessibility label, but a runtime walk that reaches
+    /// the screen at AX5 is still worth more than reading the diff — this repo's own habit
+    /// (`CLAUDE.md`, "verify against the running app, not the code").
+    func testLaterScreenRendersAtAccessibilityTextSize() {
+        app.launch()
+
+        XCTAssertTrue(app.buttons["Library"].firstMatch.waitForExistence(timeout: 30),
+                      "the app never reached the tab bar")
+        app.buttons["Library"].firstMatch.tap()
+
+        let row = app.buttons["Later"]
+        XCTAssertTrue(reveal(row) || row.waitForExistence(timeout: 20), "no Later row")
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Later"].waitForExistence(timeout: 15), "Later never opened")
+        capture("24-dynamictype-ax5-later")
+    }
+
     private nonisolated static func skipUnlessDemoServerIsUp() throws {
         var request = URLRequest(url: URL(string: "https://demo.navidrome.org/ping")!)
         request.timeoutInterval = 10

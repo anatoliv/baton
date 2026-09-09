@@ -320,7 +320,7 @@ final class WebhookActionStore {
             webhookLog.error("action \(action.name, privacy: .public): header \(name, privacy: .public) has no value")
             return .init(
                 status: nil,
-                detail: "the “\(name)” header has no value — re-enter it in Settings → Actions"
+                detail: "the “\(name)” header has no value; re-enter it in Settings → Actions"
             )
         }
 
@@ -511,8 +511,8 @@ struct WebhookSendResult {
     /// A plain-language hint when the server said nothing useful.
     private static func genericReason(for status: Int) -> String {
         switch status {
-        case 401, 403: "the server rejected the credentials — check the Authorization header"
-        case 404: "the server has no such path — check the URL"
+        case 401, 403: "the server rejected the credentials; check the Authorization header"
+        case 404: "the server has no such path; check the URL"
         case 405: "wrong HTTP method for that URL"
         case 408, 504: "the server timed out"
         case 413: "the request was too large"
@@ -614,8 +614,8 @@ struct BatonActionsPane: View {
             }
             Section("Webhook Actions") {
                 if store.actions.isEmpty {
-                    Text("No actions yet. Add one to send a media item to an HTTP endpoint — "
-                        + "e.g. POST a podcast episode's audio URL to a save-transcript service.")
+                    Text("No actions yet. Add one to send a media item to an HTTP endpoint "
+                        + "(e.g. POST a podcast episode's audio URL to a save-transcript service).")
                         .font(.callout).foregroundStyle(.secondary)
                 } else {
                     ForEach(store.actions) { action in
@@ -633,6 +633,7 @@ struct BatonActionsPane: View {
                                 Image(systemName: "trash")
                             }
                             .help("Delete action")
+                            .accessibilityLabel("Delete action")
                         }
                     }
                 }
@@ -713,6 +714,7 @@ struct WebhookActionEditor: View {
                             Button(role: .destructive) { draft.headers.removeAll { $0.id == header.id } } label: {
                                 Image(systemName: "minus.circle")
                             }.buttonStyle(.borderless)
+                            .accessibilityLabel("Remove header")
                         }
                     }
                     Button { draft.headers.append(.init()) } label: { Label("Add Header", systemImage: "plus") }
@@ -739,7 +741,7 @@ struct WebhookActionEditor: View {
                             && $0.value.trimmingCharacters(in: .whitespaces).isEmpty
                     }) {
                         Label(
-                            "A header with a name but no value won’t be sent. Re-enter the value — stored values are kept in the Keychain and can become unreadable after an app update.",
+                            "A header with a name but no value won’t be sent. Re-enter the value. Stored values are kept in the Keychain and can become unreadable after an app update.",
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .font(.callout)
@@ -765,7 +767,7 @@ struct WebhookActionEditor: View {
                     }
                 }
                 Section {
-                    Text("An action fills whatever tokens match the item you run it on — songs, albums, artists, playlists, or podcast episodes. Unknown tokens are removed.")
+                    Text("An action fills whatever tokens match the item you run it on: songs, albums, artists, playlists, or podcast episodes. Unknown tokens are removed.")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(MusicWebhookTokens.reference, id: \.kind) { group in
                         DisclosureGroup(group.kind) {

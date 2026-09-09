@@ -7,6 +7,17 @@ options:
   createIntermediateGroups: true
   xcodeVersion: "26.0"
   defaultConfig: Release
+  # Puts HELP.md/FAQ.md into Resources/ before xcodegen enumerates the tree, so a fresh
+  # checkout's or worktree's first `xcodegen generate` finds them. The preBuildScript below
+  # keeps them fresh on every build after that, but it cannot make them exist in TIME:
+  # xcodegen reads Resources/ once, at generate time, and the two guides are gitignored (the
+  # Mac keeps tracked copies; a generated file the build rewrites under itself would break
+  # the release guard's dirty-tree check). Without this, a clean checkout's first generate
+  # produces a project with no reference to either file, the prebuild step then writes two
+  # files the app never bundles, and SettingsHelpLinkTests fails 2 of N in a way that reads
+  # like a regression in whatever you just changed rather than a missing sync step
+  # (TBX-5330). See CLAUDE.md, "Cut the iPhone release from its own checkout".
+  preGenCommand: ./scripts/sync-help.sh
 
 packages:
   # Renders the bundled HELP.md / FAQ.md guides, same library and pin as the Mac

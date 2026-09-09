@@ -96,7 +96,7 @@ struct SharedSettingsPane: View {
         switch await sync.check(gatewayURL: url, token: token) {
         case let .ok(entries):
             gatewayStatus = .ok(detail: entries == 0
-                ? "Reachable. Nothing shared yet — this would be the first device."
+                ? "Reachable. Nothing shared yet. This would be the first device."
                 : "Reachable. \(entries) settings shared.")
         case .rejected:
             gatewayStatus = .refused("The gateway didn't accept this token.")

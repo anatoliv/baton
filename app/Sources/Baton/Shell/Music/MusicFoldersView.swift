@@ -25,7 +25,7 @@ enum FolderActions {
         let result = await model.musicLibrary.songsUnderFolder(id: folder.id)
         if result.truncated {
             model.music.postToast(
-                "“\(folder.name)” is huge — using the first \(result.songs.count) songs",
+                "“\(folder.name)” is huge, using the first \(result.songs.count) songs",
                 symbol: "exclamationmark.triangle"
             )
         }

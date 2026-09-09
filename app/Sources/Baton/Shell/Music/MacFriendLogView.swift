@@ -40,7 +40,17 @@ struct MacFriendLogView: View {
             // hide, behind an empty log, the sentences the app is still sending to a model.
             // First, because this is the section the 0.18.0 What's New sent people here to
             // find, and it is the one with something personal in it.
-            if let memory, !memory.entries.isEmpty { remembered(memory) }
+            if remote == nil {
+                // `RemoteControlService` is built once, at launch, for the app's whole
+                // lifetime, so it should already exist by the time any window can
+                // show this pane. Distinct from the "nothing recorded yet" case below, which
+                // is a legitimately empty log rather than a missing service; conflating the
+                // two used to make this pane say "Nothing yet" when it meant something else.
+                Section {
+                    Text("Remote control isn't available right now. Restart Baton and try again.")
+                        .foregroundStyle(.secondary)
+                }
+            } else if let memory, !memory.entries.isEmpty { remembered(memory) }
             if let log, !log.exchanges.isEmpty {
                 tally(log)
                 if let learning, !learning.corrections.isEmpty { learned(learning) }
@@ -48,7 +58,7 @@ struct MacFriendLogView: View {
                 Section {
                     Button("Clear Log", role: .destructive) { showsClearConfirm = true }
                 }
-            } else if memory?.entries.isEmpty ?? true {
+            } else if remote != nil, memory?.entries.isEmpty ?? true {
                 Section {
                     Text("Nothing yet. Ask the music friend something over Telegram or "
                          + "Discord and it will show up here, with a way to tell it when it "
@@ -62,8 +72,8 @@ struct MacFriendLogView: View {
             Button("Clear", role: .destructive) { log?.clear() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Removes every recorded exchange. What it has already learned is kept — "
-                 + "remove those separately, so clearing a log does not silently undo "
+            Text("Removes every recorded exchange. What it has already learned is kept. "
+                 + "Remove those separately, so clearing a log does not silently undo "
                  + "corrections you meant.")
         }
         .sheet(item: $noting) { exchange in
@@ -88,7 +98,7 @@ struct MacFriendLogView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Text("Click to show only those. The fault matters more than the count — each "
+                Text("Click to show only those. The fault matters more than the count: each "
                      + "one points at a different fix.")
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -195,6 +205,7 @@ struct MacFriendLogView: View {
             }
             .buttonStyle(.borderless)
             .help("Good answer")
+            .accessibilityLabel("Good answer")
 
             Menu {
                 ForEach(FriendExchange.Fault.allCases, id: \.self) { fault in
@@ -208,6 +219,7 @@ struct MacFriendLogView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("Poor answer")
+            .accessibilityLabel("Poor answer")
         }
         .foregroundStyle(exchange.rating == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
     }

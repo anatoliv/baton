@@ -102,6 +102,7 @@ struct MusicDiscoveryView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Open at \(suggestion.source.label)")
+                .accessibilityLabel("Open at \(suggestion.source.label)")
             }
         }
         .padding(.vertical, 2)

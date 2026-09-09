@@ -577,66 +577,179 @@ fi
 # transport on fourteen screens and two identical copy buttons in Settings, one of which
 # copies the remote-control token (D-F20, D-F21).
 #
-# Deliberately narrow, twice over, because a noisy lint gets bypassed and then guards
-# nothing:
-#   1. It looks only at a button body that *starts* with a bare `Image(systemName:)`,
-#      in the two shapes this codebase writes: a `label:` closure and
-#      `Button(action:) { ... }`. A body built from a ZStack, a Label, or an image plus
-#      text is not flagged.
-#   2. It runs over the primary-path files listed below, not the whole tree. Thirty-six
-#      hits remain in secondary panes; adding a file to this list means fixing it first.
-# It reads the modifier chain by brace balance rather than a fixed line window, because
-# the queue button in NowPlayingBar carries its label eighteen lines below the closure
-# and a windowed version reported it as a violation.
-ACCESSIBILITY_LINT_FILES="MusicMediaCard.swift NowPlayingBar.swift MiniPlayerWindowView.swift \
-FullScreenNowPlaying.swift MusicPodcastsView.swift MusicRadioView.swift \
-MusicDownloadsView.swift MusicPinnedView.swift BatonSettingsView.swift"
+# Narrow in one dimension only, on purpose, because a noisy lint gets bypassed and then
+# guards nothing: it looks only at a button body that *starts* with a bare
+# `Image(systemName:)`, in the two shapes this codebase writes — a `label:` closure and
+# `Button(action:) { ... }`. A body built from a ZStack, a Label, or an image plus text is
+# not flagged. It reads the modifier chain by brace balance rather than a fixed line
+# window, because the queue button in NowPlayingBar carries its label eighteen lines below
+# the closure and a windowed version reported it as a violation.
+#
+# It USED to also be narrow by file: a fixed allowlist of nine primary-path files, on the
+# argument that a lint scoped to files nobody had fixed yet couldn't be blocking. That left
+# 55 unlabelled controls sitting outside the allowlist, in both apps, found only by a
+# one-off grep (TBX-5327). Every one of those is fixed now, so the allowlist is gone: this
+# scans every `.swift` file under both apps' view trees. `BATON_LINT_SRC`, when set,
+# replaces the whole root list with that one directory — that's how `test-lints.sh` points
+# it at a planted tree without also picking up the real source.
+ACCESSIBILITY_LINT_ROOTS="${BATON_LINT_SRC:-$APP_DIR/Sources/Baton ios/Sources}"
 icon_button_hits() {
-  local f
-  while IFS= read -r f; do
-    case " $ACCESSIBILITY_LINT_FILES " in *" $(basename "$f") "*) ;; *) continue ;; esac
-    awk -v FN="$f" '
-      function braces(s,   i, c, n) {
-        n = 0
-        for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); if (c == "{") n++; else if (c == "}") n-- }
-        return n
-      }
-      function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
-      function has_ax(s) { return (s ~ /accessibilityLabel|accessibilityHidden|accessibilityElement|accessibilityRepresentation/) }
-      { lines[NR] = $0 }
-      END {
-        for (i = 1; i <= NR; i++) {
-          l = lines[i]
-          tail = l
-          if (l ~ /label:[ \t]*\{/) sub(/^.*label:[ \t]*\{/, "", tail)
-          else if (l ~ /Button\(action:[^)]*\)[ \t]*\{/) sub(/^.*Button\(action:[^)]*\)[ \t]*\{/, "", tail)
-          else continue
-          bare = 0
-          if (trim(tail) ~ /^Image\(systemName:/) bare = 1
-          else if (trim(tail) == "" && i < NR && trim(lines[i+1]) ~ /^Image\(systemName:/) bare = 1
-          if (!bare) continue
-          found = has_ax(l)
-          bal = 1 + braces(tail)
-          j = i
-          while (bal > 0 && j < NR && j < i + 60) { j++; bal += braces(lines[j]); if (has_ax(lines[j])) found = 1 }
-          depth = 0
-          for (k = j + 1; k <= NR && k < i + 60 && !found; k++) {
-            t = trim(lines[k])
-            if (depth == 0 && t != "" && t !~ /^\./ && t !~ /^\/\// && t !~ /^\/\*/) break
-            if (has_ax(lines[k])) { found = 1; break }
-            depth += braces(lines[k])
-            if (depth < 0) break
-          }
-          if (!found) printf "%s:%d:%s\n", FN, i, trim(l)
+  local f root
+  for root in $ACCESSIBILITY_LINT_ROOTS; do
+    while IFS= read -r f; do
+      awk -v FN="$f" '
+        function braces(s,   i, c, n) {
+          n = 0
+          for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); if (c == "{") n++; else if (c == "}") n-- }
+          return n
         }
-      }
-    ' "$f"
-  done < <(find "$SRC" -type f -name '*.swift')
+        function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+        function has_ax(s) { return (s ~ /accessibilityLabel|accessibilityHidden|accessibilityElement|accessibilityRepresentation/) }
+        { lines[NR] = $0 }
+        END {
+          for (i = 1; i <= NR; i++) {
+            l = lines[i]
+            tail = l
+            if (l ~ /label:[ \t]*\{/) sub(/^.*label:[ \t]*\{/, "", tail)
+            else if (l ~ /Button\(action:[^)]*\)[ \t]*\{/) sub(/^.*Button\(action:[^)]*\)[ \t]*\{/, "", tail)
+            else continue
+            bare = 0
+            if (trim(tail) ~ /^Image\(systemName:/) bare = 1
+            else if (trim(tail) == "" && i < NR && trim(lines[i+1]) ~ /^Image\(systemName:/) bare = 1
+            if (!bare) continue
+            found = has_ax(l)
+            bal = 1 + braces(tail)
+            j = i
+            while (bal > 0 && j < NR && j < i + 60) { j++; bal += braces(lines[j]); if (has_ax(lines[j])) found = 1 }
+            depth = 0
+            for (k = j + 1; k <= NR && k < i + 60 && !found; k++) {
+              t = trim(lines[k])
+              if (depth == 0 && t != "" && t !~ /^\./ && t !~ /^\/\// && t !~ /^\/\*/) break
+              if (has_ax(lines[k])) { found = 1; break }
+              depth += braces(lines[k])
+              if (depth < 0) break
+            }
+            if (!found) printf "%s:%d:%s\n", FN, i, trim(l)
+          }
+        }
+      ' "$f"
+    done < <(find "$root" -type f -name '*.swift')
+  done
 }
 icon_hits="$(icon_button_hits || true)"
 if [ -n "$icon_hits" ]; then
   red "  lint: an icon-only Button has no .accessibilityLabel (.help is the hint, not the label):"
   printf '%s\n' "$icon_hits" | sed 's/^/    /' >&2
+  lint_fail=1
+fi
+# W-20: a bare import of a framework the Linux gateway image (swift:6.0-jammy) does not have,
+# outside `#if canImport(...)`, breaks a build nothing here checks. Until now the only
+# compiler for this was the Linux Docker image, which meant `deploy.sh` on the deploy host was the
+# first place it could fail. It failed there twice in eleven days (TBX-3907, TBX-5323):
+# `BatonStorage.swift` and `VersionedStore.swift` each wrote `import OSLog` directly instead
+# of going through `PlatformCompat.swift`, which exists precisely to shim OSLog, CryptoKit and
+# Security for Linux. Every other file in the package gets this right by omission, which is
+# exactly the shape of rule a compiler should enforce and nothing was.
+#
+# Scoped to the packages the gateway's `Package.swift` actually depends on, plus the gateway's
+# own sources: the same boundary the Linux Docker build below draws, so this lint and that
+# build are checking the same seam at two different costs.
+#
+# `Observation` is deliberately NOT in the forbidden list: it ships in the Linux Swift 6
+# toolchain (`swift:6.0-jammy`), so gating it would be a lint wrong about the platform it
+# claims to protect. `AVFoundation`, `CoreAudio` and `MediaPlayer` are here because
+# `BatonAgentKit` used to pull in the whole playback engine for three read-only properties
+# (fixed via `RemotePlayerContext`); the entries stay so a regression is caught at lint speed
+# rather than at the next Linux build.
+#
+# `BATON_IMPORT_LINT_SRC` lets `scripts/test-lints.sh` point this at a planted tree, the same
+# way `BATON_LINT_SRC` does for the lints above: one directory, not the five real ones.
+if [ -n "${BATON_IMPORT_LINT_SRC:-}" ]; then
+  IMPORT_LINT_DIRS=("$BATON_IMPORT_LINT_SRC")
+else
+  IMPORT_LINT_DIRS=(
+    Packages/BatonAgentKit/Sources
+    Packages/BatonSubsonicKit/Sources
+    Packages/BatonSubsonicModels/Sources
+    Packages/BatonMCPProtocol/Sources
+    gateway/Sources
+  )
+fi
+IMPORT_LINT_PY="$(mktemp -t baton-import-lint.XXXXXX).py"
+cat > "$IMPORT_LINT_PY" <<'PYEOF'
+import glob, os, re, sys
+
+# Frameworks the Linux gateway image cannot provide (or, for the playback-engine trio,
+# must never reach the agent layer). Kept in sync by hand with PlatformCompat.swift and
+# the RemotePlayerContext boundary. Not derived from either, since deriving it from the
+# shim would let a new shim silently widen what is allowed.
+FORBIDDEN = {
+    "OSLog", "Security", "CryptoKit", "Network", "Combine",
+    "SwiftUI", "AppKit", "UIKit", "AVFoundation", "CoreAudio", "MediaPlayer",
+}
+
+IMPORT_RE = re.compile(r'^\s*import\s+([A-Za-z_][A-Za-z0-9_]*)\s*$')
+IF_RE = re.compile(r'^\s*#if\s+(.*)$')
+ELIF_RE = re.compile(r'^\s*#elseif\s+(.*)$')
+ELSE_RE = re.compile(r'^\s*#else\b')
+ENDIF_RE = re.compile(r'^\s*#endif\b')
+CANIMPORT_RE = re.compile(r'canImport\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)')
+
+def guarded_modules(cond):
+    # Modules this branch positively requires: a `canImport(X)` in the condition that is
+    # not negated. `!canImport(X)` means this branch runs where X is ABSENT, so it does
+    # not guard an `import X` inside it.
+    mods = set()
+    for m in CANIMPORT_RE.finditer(cond):
+        if cond[:m.start()].rstrip().endswith('!'):
+            continue
+        mods.add(m.group(1))
+    return mods
+
+violations = []
+for root in sys.argv[1:]:
+    for path in sorted(glob.glob(os.path.join(root, '**', '*.swift'), recursive=True)):
+        with open(path, encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+        stack = []  # one guarded-module set per open #if/#elseif/#else level
+        for i, line in enumerate(lines, start=1):
+            m = IF_RE.match(line)
+            if m:
+                stack.append(guarded_modules(m.group(1)))
+                continue
+            m = ELIF_RE.match(line)
+            if m:
+                if stack:
+                    stack[-1] = guarded_modules(m.group(1))
+                else:
+                    stack.append(guarded_modules(m.group(1)))
+                continue
+            if ELSE_RE.match(line):
+                if stack:
+                    stack[-1] = set()  # the #else branch: none of the #if's guards hold
+                continue
+            if ENDIF_RE.match(line):
+                if stack:
+                    stack.pop()
+                continue
+            m = IMPORT_RE.match(line)
+            if m and m.group(1) in FORBIDDEN:
+                active = set()
+                for level in stack:
+                    active |= level
+                if m.group(1) not in active:
+                    violations.append("%s:%d:%s" % (path, i, line.rstrip()))
+
+for v in violations:
+    print(v)
+PYEOF
+import_lint_hits="$(python3 "$IMPORT_LINT_PY" "${IMPORT_LINT_DIRS[@]}" || true)"
+rm -f "$IMPORT_LINT_PY"
+if [ -n "$import_lint_hits" ]; then
+  red "  lint: a bare import of a framework missing on Linux, outside #if canImport(...):"
+  printf '%s\n' "$import_lint_hits" | sed 's/^/    /' >&2
+  red "  route it through Packages/BatonSubsonicKit/Sources/BatonSubsonicKit/PlatformCompat.swift"
+  red "  instead, or guard it with #if canImport(<module>) if the file itself is Apple-only."
   lint_fail=1
 fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
@@ -1112,29 +1225,79 @@ if [ -z "${SKIP_IOS:-}" ]; then
   # properties. Nothing noticed for a long time, because the only thing that ever built the
   # gateway was this script, on macOS, where the Apple branch of every `#if` compiles fine.
   #
-  # So building it for Linux is the check. It is not about Docker — it is the only way to
-  # assert that the agent layer has stayed free of Apple-only dependencies. Skipped when
-  # Docker is absent, because an unavailable builder is *not measurable* rather than broken:
-  # the same judgement the conversation eval makes about an unreachable model host.
-  if [ "${SKIP_LINUX_GATEWAY:-0}" != "1" ] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    bold "==> Gateway builds for Linux (agent-layer platform guard)"
+  # So building it for Linux is the check. Docker itself is not on this Mac; the deploy host (WEB01) has it,
+  # and its Docker is what `gateway/deploy/deploy.sh` already builds against for a real
+  # deploy. This stage reuses that script's rsync + `docker build` shape (only the packages
+  # the gateway's dependency graph reaches, not the whole repo) but against a throwaway tag,
+  # `baton-gateway:gate`, in a directory of its own on the host, so it can never touch the
+  # running container, its named volume, or `docker compose`. It is a build only.
+  #
+  # A lint above (W-20) catches the one class of Linux break seen so far, a bare import of a
+  # framework the shim exists to cover. It does not catch an API-level gap, which only a real
+  # Linux compiler can: BatonAgentKit pulling in the whole playback engine for three
+  # read-only properties (TBX-3907) was exactly that shape, and no lint would have caught it.
+  #
+  # Skipped, in yellow, when WEB01 is unset or the host does not answer within a few seconds, because an
+  # unreachable builder is *not measurable* rather than broken, the same judgement the
+  # conversation eval makes about an unreachable model host. Bounded by a wall clock so a
+  # hung ssh (a sleeping host that still answers ARP, a stalled rsync) cannot stall the gate
+  # the way `notarytool submit` has stalled a release.
+  LINUX_GATEWAY_HOST="${WEB01:-}"
+  if [ "${SKIP_LINUX_GATEWAY:-0}" != "1" ] \
+     && ssh -o ConnectTimeout=5 -o BatchMode=yes "$LINUX_GATEWAY_HOST" 'command -v docker' >/dev/null 2>&1; then
+    bold "==> Gateway builds for Linux on $LINUX_GATEWAY_HOST (agent-layer platform guard)"
+
+    # Same portable wall clock as `scripts/publish.sh`'s notarize step: `timeout` is not a
+    # macOS builtin, Homebrew's coreutils supplies it as `timeout` or `gtimeout` depending on
+    # how it was installed, and perl's alarm is the fallback that needs nothing installed. A
+    # shim that silently drops the bound on a machine without coreutils is worse than none,
+    # because it also removes the reason to look, so the last resort says so instead.
+    if command -v timeout >/dev/null; then
+      :
+    elif command -v gtimeout >/dev/null; then
+      timeout() { gtimeout "$@"; }
+    elif command -v perl >/dev/null; then
+      timeout() {
+        local secs="$1"; shift
+        perl -e 'my $s = shift @ARGV; alarm $s; exec @ARGV or die "exec: $!";' "$secs" "$@"
+      }
+    else
+      yellow "  no wall clock available (timeout, gtimeout and perl are all absent);"
+      yellow "  running the Linux build unbounded. Install coreutils to restore the bound."
+      timeout() { shift; "$@"; }
+    fi
+
+    LINUX_REMOTE_DIR="${LINUX_GATEWAY_REMOTE_DIR:-baton-gateway-gate}"
     LINUX_LOG="$(mktemp -t baton-gateway-linux.XXXXXX).log"
+    LINUX_BUILD_SH="$(mktemp -t baton-gateway-linux-build.XXXXXX).sh"
+    cat > "$LINUX_BUILD_SH" <<BUILDEOF
+set -euo pipefail
+ssh "$LINUX_GATEWAY_HOST" "mkdir -p ~/$LINUX_REMOTE_DIR/Packages"
+rsync -a --delete --exclude '.build' --exclude '.git' \\
+  Packages/BatonAgentKit Packages/BatonSubsonicKit Packages/BatonSubsonicModels Packages/BatonMCPProtocol \\
+  "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/Packages/"
+rsync -a --delete --exclude '.build' gateway/ "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/gateway/"
+ssh "$LINUX_GATEWAY_HOST" "cd ~/$LINUX_REMOTE_DIR && cp gateway/deploy/Dockerfile . && docker build -f Dockerfile -t baton-gateway:gate ."
+BUILDEOF
     set +e
-    docker build -f gateway/deploy/Dockerfile -t baton-gateway:gate . >"$LINUX_LOG" 2>&1
+    timeout 600 bash "$LINUX_BUILD_SH" >"$LINUX_LOG" 2>&1
     linux_status=$?
     set -e
+    rm -f "$LINUX_BUILD_SH"
     if [ "$linux_status" -eq 0 ]; then
-      green "  gateway builds for Linux"
+      green "  gateway builds for Linux on $LINUX_GATEWAY_HOST"
     else
       red "✗ GATEWAY NO LONGER BUILDS FOR LINUX"
-      red "  Something in BatonAgentKit (or below it) now needs an Apple-only framework."
+      red "  Something in BatonAgentKit (or below it) now needs an Apple-only framework, or"
+      red "  the build on $LINUX_GATEWAY_HOST timed out after 10 minutes."
       red "  The usual cause is a new import that reaches BatonPlaybackKit; see RemotePlayerContext."
       grep -E "error:|no such module" "$LINUX_LOG" | sed 's/^/    /' | head -15 >&2 || true
       red "  Full log: $LINUX_LOG"
       exit "$linux_status"
     fi
   else
-    yellow "  Linux gateway build skipped (no usable docker) — the agent layer's platform boundary is unverified"
+    yellow "  Linux gateway build skipped: $LINUX_GATEWAY_HOST did not answer with a usable"
+    yellow "  docker within 5 seconds. The agent layer's platform boundary is unverified."
   fi
 fi
 

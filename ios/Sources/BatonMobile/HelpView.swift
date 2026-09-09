@@ -309,7 +309,7 @@ struct WhatsNewView: View {
                 .init(.added, "You can now see what your music friend remembers about you. Open the Friend Log from the Music Friend screen and there is a list of the things you have told it, each one shown with the sentence you actually said, so you can judge what it took from your words. Swipe to forget one and it goes from your other devices too. Until now those memories were only ever read out to the friend, never shown to you."),
                 .init(.added, "Later is on the phone. Press and hold a song or an album to save it, and find everything you saved under Library."),
                 .init(.added, "Choosing Light in Settings now gives you a light app. The artwork wash follows the appearance you picked, so text stays readable on every screen."),
-                .init(.fixed, "Starting a track no longer throws you back to the Home tab or closes the screen you were on, and Home fills in as soon as you connect a server or open the demo instead of staying mostly empty until the next launch."),
+                .init(.fixed, "Starting a track no longer throws you back to the Home tab or closes the screen you were on. Home fills in as soon as you connect a server or open the demo, instead of staying mostly empty until the next launch."),
                 .init(.fixed, "What's New now appears after an update on phones that installed Baton from the App Store, and stops coming back once you close it."),
                 .init(.fixed, "Disconnecting stops the link to your home gateway straight away, and clears search history, podcast subscriptions and the music friend's log along with everything else it already removed. Recordings you saved are deleted with your downloads, and kept when you choose to keep them."),
                 .init(.fixed, "Your listening history counts a track once you have actually listened to it, not the moment it starts, which is what the Mac has always done. History recorded by earlier versions keeps its entries."),
@@ -318,8 +318,13 @@ struct WhatsNewView: View {
                 .init(.fixed, "A bad sync can no longer wipe podcast subscriptions, the music friend's memories or your clippings on your Mac, and those settings survive an update of the gateway itself. Your play queue, your Later list, your saved servers and your recent searches all survive a damaged file."),
                 .init(.fixed, "Baton no longer creates a second playlist, adds the same tracks twice or counts one play twice when the connection drops at the wrong moment. When a screen cannot load it says why, a locked keychain says so instead of claiming no server is configured, and Podcasts and Radio report a rejected sign-in like every other screen."),
                 .init(.fixed, "Asking the music friend to play something no longer starts the music a minute after it told you it could not reach your device, and when its provider refuses a request you see what it actually said."),
-                .init(.improved, "Empty screens no longer draw on top of the content behind them at large text sizes, titles on Home wrap instead of being cut short, the A to Z index stays available at every text size, and the release notes scale with your text too."),
-                .init(.improved, "Smaller things: transcription starts with an empty server address instead of one pointing at the phone itself, the Music Friend settings say what each field is once filled in, the Search tab says what it searches before you type, the transcript sheet says transcription is not set up when that is the reason, the Engine cost readout is back in Settings, a Baton link that cannot be opened says why, Baton no longer asks you to rate it while you are only trying the demo, and the Privacy Policy link opens batonmusic.app."),
+                .init(.improved, "Empty screens no longer draw on top of the content behind them at large text sizes, and titles on Home wrap instead of being cut short. The A to Z index stays available at every text size, and the release notes scale with your text too."),
+                .init(.improved, "Smaller things. Transcription starts with an empty server address instead of one pointing at the phone itself. The Music Friend settings say what each field is once you have filled it in, the Search tab says what it searches before you type, and the transcript sheet says transcription is not set up when that is the reason. The Engine cost readout is back in Settings. A Baton link that cannot be opened says why, Baton no longer asks you to rate it while you are only trying the demo, and the Privacy Policy link opens batonmusic.app."),
+                .init(.improved, "Gapless playback is on by default for anyone who has not changed it. Turn it off in Settings, Sound if you would rather have plain track changes."),
+                .init(.fixed, "Disconnect and delete my data now also erases what the music friend remembers about you and what it has learned from your corrections, on your other devices too at their next sync."),
+                .init(.fixed, "A sleep timer set to the end of the track now stops the music when gapless is on, instead of letting the next track start."),
+                .init(.improved, "Every icon-only control announces itself to VoiceOver, and the artwork accent no longer assumes a dark screen in Light mode."),
+                .init(.improved, "Crash reports, when you have turned them on, now reach Baton's own crash service. This is the first build that can report one."),
             ]
         ),
         ReleaseNote(
@@ -730,7 +735,7 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "Real music in the demo, and a shuffle button that tells you where it stands.",
             changes: [
-                .init(.improved, "The demo library is now a real recording — four movements of Bach's Goldberg Variations, played by Kimiko Ishizaka and released into the public domain. It replaces the synthesized tones that were there to avoid a licensing problem."),
+                .init(.improved, "The demo library is now a real recording: four movements of Bach's Goldberg Variations, played by Kimiko Ishizaka and released into the public domain. It replaces the synthesized tones that were there to avoid a licensing problem."),
                 .init(.improved, "The Shuffle button shows whether shuffle is on, and pressing it again stops shuffling. Stopping part-way through an album keeps playing from where you are rather than starting the record again."),
                 .init(.improved, "The mark beside the playing track is now moving bars rather than a still symbol, so a glance tells you whether music is running or paused."),
                 .init(.improved, "An album page now says how many tracks, how long, what year and what genre; its artist opens the artist; and Download, Like, Play Next and Add to Queue moved into a menu so the track listing starts higher up the screen."),
@@ -754,7 +759,7 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "Mix cards that look like the Mac's.",
             changes: [
-                .init(.improved, "Mix cards now carry the same artwork as the Mac — the painted backdrops for Most Played, Just Added, Top Rated and the rest, and the same generated one for genre and server mixes. The phone was drawing a flat colour tile of its own invention."),
+                .init(.improved, "Mix cards now carry the same artwork as the Mac: the painted backdrops for Most Played, Just Added, Top Rated and the rest, and the same generated one for genre and server mixes. The phone was drawing a flat colour tile of its own invention."),
                 .init(.improved, "The art and the code that draws it are now shared between the two apps, so a card can't look like one product on the Mac and another on the phone."),
             ]
         ),
@@ -763,14 +768,14 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "Album art you can see all of.",
             changes: [
-                .init(.improved, "Artwork that isn't square is shown whole instead of cropped to the tile — over a softly blurred copy of itself, the way the Mac has always drawn its cards. A 16:9 thumbnail was losing its outer thirds on the phone."),
+                .init(.improved, "Artwork that isn't square is shown whole instead of cropped to the tile, over a softly blurred copy of itself, the way the Mac has always drawn its cards. A 16:9 thumbnail was losing its outer thirds on the phone."),
                 .init(.improved, "Album grids, artist and album headers, and the full-screen player all draw this way. Small row thumbnails are unchanged."),
             ]
         ),
         ReleaseNote(
             version: "0.3.16",
             date: "August 2026",
-            highlight: "Search remembers what you typed — on both devices.",
+            highlight: "Search remembers what you typed, on both devices.",
             changes: [
                 .init(.added, "Search now keeps the queries you typed, not just the albums and artists you opened. Tap one to run it again."),
                 .init(.added, "Both lists are shared with your Mac. A search made there is one tap away here, and the other way round."),
@@ -783,12 +788,12 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "How long everything is, and a listening history that counts every device.",
             changes: [
-                .init(.added, "Track lists show each song's length — search results, playlists, folders, liked songs, downloads, history and an album's track listing."),
+                .init(.added, "Track lists show each song's length: search results, playlists, folders, liked songs, downloads, history and an album's track listing."),
                 .init(.added, "Up Next shows how long each track runs and totals what's still to play: \"11 tracks left · 49m\"."),
                 .init(.added, "Albums in list view and liked albums show their total play time alongside the artist and year."),
                 .init(.added, "History now reads from your server by default, so Recent includes what you played on the Mac. Switch to \"This iPhone\" for the on-device log, which still works with no connection."),
                 .init(.fixed, "Disconnecting from Settings left you looking at the settings of a server you had just disconnected from, instead of the setup screen."),
-                .init(.improved, "Pausing, stopping and resuming now actually sound like fades. The previous ramp was short and linear, which the ear reads as a cut — in a car it was inaudible. It is longer now, shaped to how loudness is actually perceived, and resuming eases back in instead of snapping on."),
+                .init(.improved, "Pausing, stopping and resuming now actually sound like fades. The previous ramp was short and linear, which the ear reads as a cut; in a car it was inaudible. It is longer now, shaped to how loudness is actually perceived, and resuming eases back in instead of snapping on."),
                 .init(.fixed, "Changing the volume while a track was fading out snapped it back to full volume for the rest of the fade."),
                 .init(.fixed, "Signing in to a different server inherited the previous account's History scope."),
             ]
@@ -796,14 +801,14 @@ struct WhatsNewView: View {
         ReleaseNote(
             version: "0.3.14",
             date: "August 2026",
-            highlight: "Browsing that scales to a real library — jump by letter, browse by folder, and make the Library list yours.",
+            highlight: "Browsing that scales to a real library: jump by letter, browse by folder, and make the Library list yours.",
             changes: [
-                .init(.added, "An A–Z rail on Albums, Artists and Folders. Drag it to jump — 2,604 albums is no longer a flick marathon."),
+                .init(.added, "An A–Z rail on Albums, Artists and Folders. Drag it to jump: 2,604 albums is no longer a flick marathon."),
                 .init(.added, "Folders: browse the library the way it sits on disk, on both the Mac and the phone. Play any folder top to bottom."),
                 .init(.added, "Go to Album and Go to Artist from the player and any song's menu. The player was a dead end."),
-                .init(.added, "Search remembers the albums and artists you opened — they wait under the empty search field."),
+                .init(.added, "Search remembers the albums and artists you opened. They wait under the empty search field."),
                 .init(.added, "Edit the Library tab: hide sections you never use, reorder the rest."),
-                .init(.added, "The queue says what's feeding it — \"Playing from Albums\" — on both apps."),
+                .init(.added, "The queue says what's feeding it (\"Playing from Albums\") on both apps."),
                 .init(.improved, "Playlists show their play time and sort by name, songs or length; a filter field inside big playlists."),
                 .init(.improved, "The player shows the stream's format and bitrate, and tapping the duration shows time remaining."),
                 .init(.improved, "Albums can be a grid or a dense list, and sort by year. A keep-screen-awake switch in Settings."),
@@ -814,7 +819,7 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "A stuck track that nothing could stop, softer stops, and podcasts that follow you.",
             changes: [
-                .init(.fixed, "A crossfade could leave a second track playing that no button could silence — every song you picked afterwards played on top of it. It can't happen now."),
+                .init(.fixed, "A crossfade could leave a second track playing that no button could silence. Every song you picked afterwards played on top of it. It can't happen now."),
                 .init(.improved, "Pausing and stopping fade over about a tenth of a second instead of cutting mid-waveform, which is what made them click."),
                 .init(.added, "Podcast subscriptions travel between your Mac and your phone. Subscribe on one and the other picks it up; episodes are still fetched fresh on each device."),
             ]
@@ -824,7 +829,7 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "The album grid lines up again.",
             changes: [
-                .init(.fixed, "Covers that aren't square — a lot of them, in a real library — made their grid cell wider than the column, so rows went ragged and album titles ran off the edge. Every cell is now the same square, whatever shape the artwork is."),
+                .init(.fixed, "Covers that aren't square (a lot of them, in a real library) made their grid cell wider than the column, so rows went ragged and album titles ran off the edge. Every cell is now the same square, whatever shape the artwork is."),
             ]
         ),
         ReleaseNote(
@@ -833,7 +838,7 @@ struct WhatsNewView: View {
             highlight: "Trying the public demo server is one tap, and it tells you when that server is down.",
             changes: [
                 .init(.improved, "\"Use Navidrome's public demo server\" now checks the server and signs you in, instead of filling the form and leaving you to press Connect."),
-                .init(.added, "If their server isn't answering, Baton says so — and offers the built-in demo, which needs no connection at all."),
+                .init(.added, "If their server isn't answering, Baton says so, and offers the built-in demo, which needs no connection at all."),
             ]
         ),
         ReleaseNote(
@@ -850,7 +855,7 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "You can put the keyboard away again.",
             changes: [
-                .init(.fixed, "Music Friend and Search had no way to dismiss the keyboard — and since the keyboard covers the tab bar, no way off the screen either. Drag the list down, tap the background, or use Done above the keyboard."),
+                .init(.fixed, "Music Friend and Search had no way to dismiss the keyboard, and since the keyboard covers the tab bar, no way off the screen either. Drag the list down, tap the background, or use Done above the keyboard."),
             ]
         ),
         ReleaseNote(
@@ -858,8 +863,8 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "The queue gets a screen, ratings show what they are, and Settings tells you whether your server is actually answering.",
             changes: [
-                .init(.added, "Settings shows whether your server is really connected — checked by asking it, not by assuming. It tells a refused password apart from a server that isn't there."),
-                .init(.improved, "Up Next opens as its own screen. It used to share the player with the artwork and controls, leaving about one and a half rows visible — not enough to reorder anything."),
+                .init(.added, "Settings shows whether your server is really connected: checked by asking it, not by assuming. It tells a refused password apart from a server that isn't there."),
+                .init(.improved, "Up Next opens as its own screen. It used to share the player with the artwork and controls, leaving about one and a half rows visible, not enough to reorder anything."),
                 .init(.fixed, "The rating control showed a single star whatever a song scored, and its menu marked nothing as chosen. Five tappable stars now, as on the Mac; tap the star you're on to clear it."),
                 .init(.fixed, "A song's context menu now marks its current rating and says the score rather than a bare \"Rate\"."),
             ]
@@ -877,10 +882,10 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "Settings that explain themselves, Help you can navigate, and a public demo server to try Baton against.",
             changes: [
-                .init(.added, "Try Baton against Navidrome's own public demo server — no server of your own required."),
+                .init(.added, "Try Baton against Navidrome's own public demo server (no server of your own required)."),
                 .init(.added, "Help is a searchable list of topics now, instead of one very long page. Its contents links work."),
                 .init(.added, "Every group of settings says in plain words what it does, with a link to the full explanation."),
-                .init(.added, "The player gained a Related panel — songs your server thinks belong with this one."),
+                .init(.added, "The player gained a Related panel: songs your server thinks belong with this one."),
                 .init(.added, "Downloads shows what failed and offers to retry, plus how much space they use."),
                 .init(.fixed, "The equalizer's presets did nothing. Choosing one now actually changes the sound."),
                 .init(.fixed, "The preset row went blank whenever you moved a slider. It names the curve you have."),
@@ -893,7 +898,7 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "Every screen opens the same way, with the space given back to your music.",
             changes: [
-                .init(.improved, "Home, Albums, Library, Search and Settings all share one header and open at the same height — about a tenth of the screen reclaimed."),
+                .init(.improved, "Home, Albums, Library, Search and Settings all share one header and open at the same height (about a tenth of the screen reclaimed)."),
                 .init(.improved, "Each screen's header says what's on it: how many albums, how many playlists, which server."),
                 .init(.fixed, "The mini player drew a second background inside the system one, leaving its rounded ends unpainted."),
             ]
@@ -912,12 +917,12 @@ struct WhatsNewView: View {
             date: "August 2026",
             highlight: "Pair with a Mac, and settings that follow you between devices.",
             changes: [
-                .init(.added, "Set up by scanning a code your Mac shows — no typing a server address or a password."),
+                .init(.added, "Set up by scanning a code your Mac shows (no typing a server address or a password)."),
                 .init(.added, "Equalizer, crossfade, radio bans and your music friend's setup can travel between devices through your Baton gateway."),
                 .init(.added, "Face ID guards your music friend's API key and gateway token. Playing music never asks."),
                 .init(.improved, "Every screen takes its colour from the cover that's playing, the way the Mac does."),
                 .init(.improved, "All-time top tracks come from your server, so what you played on the Mac counts too."),
-                .init(.fixed, "Disconnecting now really disconnects — downloads, history and accounts — and says what it will delete first."),
+                .init(.fixed, "Disconnecting now really disconnects: downloads, history and accounts, and says what it will delete first."),
                 .init(.fixed, "A dropped connection no longer sends you back to the sign-in screen."),
             ]
         ),

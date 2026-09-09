@@ -80,6 +80,48 @@ struct BackdropContrastTests {
         #expect(layers.scrim == Color.black.opacity(0.28))
     }
 
+    // MARK: - uiAccent against the tone it is actually drawn on
+
+    /// `uiAccent` used to clamp against flat black for every tone, on the argument that
+    /// `AdaptiveBackdrop` was always dark. That stopped being true the moment this suite's
+    /// own light wash shipped: an accent lightened just enough to survive *black* can still
+    /// be badly illegible on the light wash's own worst-case ground, because that ground
+    /// is nowhere near black — it is pulled toward white.
+    ///
+    /// This proves the old, tone-blind arithmetic really does fail here (not a hypothetical
+    /// — `Contrast.ensureContrast(of:against:min:)` against `.black` is exactly what
+    /// `uiAccent` computed for every tone before this fix), and that `uiAccent(for: .light)`
+    /// does not.
+    @Test("A dark palette's old black-clamped accent fails AA on the light wash it would sit on")
+    func oldBlackReferenceFailsOnTheLightWash() {
+        // A dark, saturated accent — clamped against black it ends up dark enough to clear
+        // AA there, but that same darkness is illegible against a ground pulled toward white.
+        let palette = ArtworkPalette(
+            primary: Color(red: 0.05, green: 0.02, blue: 0.18),
+            secondary: Color(red: 0.02, green: 0.01, blue: 0.08),
+            accent: Color(red: 0.05, green: 0.03, blue: 0.22)
+        )
+        let lightGround = palette.backdropWorstCase(for: .light)
+
+        let oldStyleAccent = Contrast.ensureContrast(of: palette.accent, against: .black, min: floor)
+        let oldRatio = Contrast.ratio(oldStyleAccent, lightGround)
+        #expect(oldRatio < floor,
+                "the old black-only reference gives \(oldRatio):1 on the light wash, which should fail; if it doesn't, this palette no longer demonstrates the bug")
+
+        let newRatio = Contrast.ratio(palette.uiAccent(for: .light), lightGround)
+        #expect(newRatio >= floor,
+                "uiAccent(for: .light) gives \(newRatio):1 on the light wash it is actually drawn on")
+    }
+
+    /// `uiAccent` (the `.dark`-defaulted property every existing caller uses) is pinned to
+    /// its historical value: the fix only changes the reference for `.light`.
+    @Test("uiAccent still means uiAccent(for: .dark)")
+    func plainUIAccentStillMeansDark() {
+        for (_, palette) in Self.hostile {
+            #expect(palette.uiAccent == palette.uiAccent(for: .dark))
+        }
+    }
+
     @Test("Compositing is the renderer's arithmetic, not an approximation")
     func compositeMatchesSourceOver() {
         // Half-opacity white over black is mid-grey. If this drifts, every contrast number

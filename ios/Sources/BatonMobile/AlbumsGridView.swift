@@ -147,6 +147,7 @@ struct AlbumsGridView: View {
         } label: {
             Image(systemName: "arrow.up.arrow.down")
         }
+        .accessibilityLabel("Sort")
     }
 }
 

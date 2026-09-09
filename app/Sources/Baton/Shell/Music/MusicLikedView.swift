@@ -408,7 +408,8 @@ struct MusicCollectionView: View {
                     .foregroundStyle(filtersActive ? Color.accentColor : Color.secondary)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .help(filtersActive ? "Filters active — click to change" : "Filter by liked / rating")
+            .help(filtersActive ? "Filters active: click to change" : "Filter by liked / rating")
+            .accessibilityLabel(filtersActive ? "Filters active, click to change" : "Filter by liked or rating")
         }
     }
 
@@ -430,6 +431,7 @@ struct MusicCollectionView: View {
                 filterFocused: $filterFocused,
                 filterHistoryKey: searchMode ? "search" : "liked",
                 layout: $layout,
+                showsLayoutPicker: showsChrome,
                 accessory: {
                     if showsChrome {
                         HStack(spacing: 12) {
@@ -636,6 +638,7 @@ struct MusicCollectionView: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             .foregroundStyle(.secondary)
             .help("Collection actions")
+            .accessibilityLabel("Collection actions")
         }
     }
 
@@ -859,6 +862,7 @@ struct MusicCollectionView: View {
                         .foregroundStyle(sel.isEmpty ? .secondary : Color.accentColor)
                 }
                 .buttonStyle(.plain).frame(width: 18).help("Select all")
+                .accessibilityLabel("Select all")
                 Color.clear.frame(width: 40, height: 1)
                 Text("Title")
             }
@@ -1133,6 +1137,7 @@ struct MusicLikedSongRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).frame(width: 18).help("Select")
+                .accessibilityLabel("Select")
             }
 
             if let trackNumber {
@@ -1326,6 +1331,7 @@ struct LikedSongGridCell: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).padding(6)
+                .accessibilityLabel("Select")
             }
         }
         .hoverLift(hovering)

@@ -104,6 +104,7 @@ struct MusicTrackInspector: View {
                 Image(systemName: "arrow.up.forward.app")
             }
             .buttonStyle(.plain).foregroundStyle(.tint).help("Reveal in Finder")
+            .accessibilityLabel("Reveal in Finder")
         }
     }
 

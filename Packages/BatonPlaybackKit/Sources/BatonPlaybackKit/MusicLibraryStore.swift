@@ -124,11 +124,18 @@ public final class MusicLibraryStore {
     ///
     /// `liked` is the subset to show under Liked — a couple of tracks, so that screen
     /// demonstrates the feature instead of being an empty dead end.
+    ///
+    /// `extraArtists` adds artist-only rows with no songs or albums behind them — never
+    /// populated by the curated demo itself, only by a caller opting in for a test fixture
+    /// (`DemoLibrary.railFixtureArtists`, gated on `-baton.demoRailFixture`). The A–Z rail
+    /// needs a couple dozen artists to earn its threshold, and the curated demo is one
+    /// artist on purpose.
     public func seedDemo(
         songs: [NavidromeSong],
         albums: [NavidromeAlbum],
         liked: [NavidromeSong] = [],
-        artwork: [String: URL] = [:]
+        artwork: [String: URL] = [:],
+        extraArtists: [NavidromeArtist] = []
     ) {
         isDemo = true
         demoArtwork = artwork
@@ -145,9 +152,37 @@ public final class MusicLibraryStore {
             artist.coverArtID = songs.first { $0.artist == name }?.coverArtID
             return artist
         }
+        artists.append(contentsOf: extraArtists)
+        artists.sort { $0.name < $1.name }
+        // `artistIndex` used to stay at its empty default through every demo session —
+        // `artists` was filled in above but nothing ever built the bucketed twin the A–Z
+        // rail actually reads (`ArtistsView.indexEntries` asks for `artistIndex`, not
+        // `artists`), so the rail could never draw in demo mode at any artist count.
+        artistIndex = Self.bucketedByFirstLetter(artists)
         playlists = []
         isLoading = false
         lastError = nil
+    }
+
+    /// Group `artists` into the server-index-shaped buckets the A–Z rail reads, sorted and
+    /// folded the same way `AlphabetIndex.bucket(for:)` does in
+    /// `ios/Sources/BatonMobile/AlphabetIndexRail.swift`. That file is iOS UI and out of
+    /// reach from this package (the Mac links it too), so the handful of lines are
+    /// duplicated rather than shared; `AlphabetIndexOrderingTests` pins the two rules
+    /// against each other so a drift between them fails a test instead of shipping quietly.
+    private static func bucketedByFirstLetter(
+        _ artists: [NavidromeArtist]
+    ) -> ServerIndexedList<NavidromeArtist> {
+        var order: [String] = []
+        var byLetter: [String: [NavidromeArtist]] = [:]
+        for artist in artists {
+            let folded = artist.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            let letter = folded.trimmingCharacters(in: .whitespaces).first
+                .map { $0.isLetter ? String($0).uppercased() : "#" } ?? "#"
+            if byLetter[letter] == nil { order.append(letter) }
+            byLetter[letter, default: []].append(artist)
+        }
+        return ServerIndexedList(buckets: order.map { .init(letter: $0, items: byLetter[$0] ?? []) })
     }
 
     /// Leaves demo mode and empties everything the demo put there.

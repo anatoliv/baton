@@ -270,6 +270,12 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// recorded without gaps (live, DJ, classical) flow seamlessly, with none of the
     /// stream-buffering pause a reload would cause. Persisted. Ignored when crossfade > 0
     /// (that already overlaps tracks).
+    ///
+    /// Defaults to on (owner decision, 2026-09-09): the listing and onboarding already lead
+    /// with gapless, and it never ran for anyone who hadn't opened Settings. An install that
+    /// never touched the key gets the new default; a stored value — including an explicit
+    /// `false` from someone who turned it off — is still respected. See the
+    /// `object(forKey:) == nil` check in `init` below.
     public var gaplessEnabled: Bool = false {
         didSet {
             guard gaplessEnabled != oldValue else { return }
@@ -281,6 +287,16 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// When on, the gapless next-track prefetch is skipped on metered connections
     /// (cellular / personal hotspot / Low Data Mode) — playback still works, the streamed
     /// handoff just isn't pre-cached. Persisted.
+    ///
+    /// Stays off by default even though `gaplessEnabled` flipped to on (2026-09-09): the
+    /// prefetch reuses `annotatedStreamURL` → `streamURLProvider`, which already caps a
+    /// metered connection's bitrate via `NetworkReachability.streamQuality` (`.high`,
+    /// 320 kbps, unless the user raised it) — the same cap normal mid-track streaming gets.
+    /// A prefetch is not *extra* cellular data over a session: the next track streams either
+    /// way, gapless just fetches it a few seconds earlier. The only incremental cost is one
+    /// track's worth of wasted bytes if playback stops or skips right at the boundary, which
+    /// `gaplessPrefetcher.reap` already bounds. No evidence of a real cellular-bill regression
+    /// from flipping `gaplessEnabled`, so this default is left alone.
     public var gaplessPrefetchWifiOnly: Bool = false {
         didSet {
             guard gaplessPrefetchWifiOnly != oldValue else { return }
@@ -1007,7 +1023,11 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         }
         loudnessPreampDB = defaults.object(forKey: Self.loudnessPreampKey) as? Double ?? 0
         crossfadeSeconds = defaults.object(forKey: Self.crossfadeKey) as? Double ?? 0
-        gaplessEnabled = defaults.bool(forKey: Self.gaplessKey)
+        // `object(forKey:) == nil` is the "never touched this" signal — `bool(forKey:)` can't
+        // tell a never-set key from a stored `false`, and both must mean different things now
+        // that the default is on: a fresh install gets gapless; someone who explicitly turned
+        // it off keeps it off.
+        gaplessEnabled = defaults.object(forKey: Self.gaplessKey) as? Bool ?? true
         gaplessPrefetchWifiOnly = defaults.bool(forKey: Self.gaplessWifiOnlyKey)
         duckPercent = defaults.object(forKey: Self.duckKey) as? Int ?? 20
         stallTimeoutSeconds = defaults.object(forKey: Self.stallTimeoutKey) as? Double ?? Self.defaultStallTimeout
@@ -2033,6 +2053,23 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         if !preloadURL.isFileURL {
             startGaplessPrefetch(songID: songID, streamURL: streamURL, index: planned)
         }
+    }
+
+    /// Withdraw a gapless preload that was already set up before "pause at end of track"
+    /// got armed. `avDeck` is `private` to this file, so `+SleepTimer` (a different file in
+    /// this module) reaches it through here.
+    ///
+    /// True gapless has the `AVQueuePlayer` hand off to the next track's *audio* on its own,
+    /// before `handleEnded()` ever runs — so a preload set up while gapless was already
+    /// playing (e.g. by `play()`, before the sleep timer was armed) survives
+    /// `preloadGaplessNextIfNeeded()`'s own `!sleepAfterCurrentTrack` guard, which only
+    /// stops a *new* preload from being made and does nothing about one already sitting in
+    /// the queue. Without this, arming "pause at end of track" while gapless had already
+    /// queued the next item did not pause: `handleEnded()` found the preload, reconciled
+    /// onto it, and kept playing straight through the boundary the sleep timer was meant to
+    /// stop at.
+    func withdrawGaplessPreloadForSleepTimer() {
+        avDeck.clearPreparedNext()
     }
 
     /// Download the queued next stream to the prefetch cache; when it lands (and it's still

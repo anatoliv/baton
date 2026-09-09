@@ -57,7 +57,7 @@ final class UnfinishedReadings {
             let source = (sourceName?.trimmingCharacters(in: .whitespacesAndNewlines))
                 .flatMap { $0.isEmpty ? nil : $0 } ?? "Reading"
             let percent = chunks.isEmpty ? 0 : Int(Double(resumeIndex) / Double(chunks.count) * 100)
-            return "\(source) — \(percent)% in"
+            return "\(source) (\(percent)% in)"
         }
     }
 

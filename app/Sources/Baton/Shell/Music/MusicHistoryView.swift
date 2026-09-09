@@ -320,7 +320,7 @@ struct MusicHistoryView: View {
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .help("Listening log: export, import, or clear — your data stays private")
+        .help("Listening log: export, import, or clear; your data stays private")
     }
 
     /// A compact lifetime/trend banner above the list: total plays, window plays, and a tiny

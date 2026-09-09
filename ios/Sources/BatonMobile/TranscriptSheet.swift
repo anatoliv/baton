@@ -137,7 +137,7 @@ struct TranscriptSheet: View {
 
             Text(model.agentConfig.isConfigured
                 ? "An overview plus timestamped sections you can tap to jump to."
-                : "Set up the music friend's model in Settings first — summarizing uses it.")
+                : "Set up the music friend's model in Settings first. Summarizing uses it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

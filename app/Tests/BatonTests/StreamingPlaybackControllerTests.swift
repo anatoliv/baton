@@ -698,6 +698,26 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertFalse(c.sleepTimerArmed) // disarmed after firing
     }
 
+    /// Found while flipping the gapless default on (2026-09-09): `play()` already preloads
+    /// the next track for a true-gapless handoff, and arming the sleep timer *after* that
+    /// preload exists did not withdraw it. `handleEnded()` then reconciled onto the
+    /// preloaded item and kept playing straight through the boundary the sleep timer was
+    /// meant to stop at — silently, because the OS had already handed audio off to track
+    /// "b" before `handleEnded()` ran. Explicit `gaplessEnabled = true` here so this stays
+    /// pinned regardless of what the default is.
+    func testSleepAtEndOfTrackPausesEvenWithAGaplessPreloadAlreadyQueued() {
+        let c = makeController()
+        c.gaplessEnabled = true
+        c.crossfadeSeconds = 0
+        c.play([song("a"), song("b")])
+        c.sleepAtEndOfTrack()
+        XCTAssertTrue(c.sleepTimerArmed)
+        c.simulateTrackEndedForTesting()
+        XCTAssertEqual(c.state, .paused, "a gapless preload made from before the timer was armed advanced through it")
+        XCTAssertEqual(c.nowPlaying?.id, "a")
+        XCTAssertFalse(c.sleepTimerArmed)
+    }
+
     // MARK: - Gapless
 
     /// With gapless enabled, a simulated track-end must still advance the queue. In the
@@ -728,6 +748,23 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(c.nowPlaying?.id, "b")
         XCTAssertEqual(c.queue.count, 3)
         XCTAssertEqual(c.state, .playing)
+    }
+
+    /// Owner decision, 2026-09-09: gapless defaults on. A fresh install (nothing ever
+    /// written to `gaplessKey`) must come up with gapless already enabled, not off.
+    func testGaplessEnabledDefaultsToTrueOnFreshInstall() {
+        let c = makeController()
+        XCTAssertTrue(c.gaplessEnabled)
+    }
+
+    /// The flip to "on by default" must not overwrite a choice someone already made. A
+    /// stored `false` — not merely absent — has to survive a fresh controller reading the
+    /// same suite, which is the whole point of reading `object(forKey:) == nil` rather than
+    /// `bool(forKey:)` for the "never touched this" signal.
+    func testGaplessEnabledRespectsStoredFalse() {
+        suite.set(false, forKey: StreamingPlaybackController.gaplessKey)
+        let c = makeController()
+        XCTAssertFalse(c.gaplessEnabled)
     }
 
     func testCancelSleepTimerDisarms() {

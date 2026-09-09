@@ -123,6 +123,7 @@ struct SpeechHistoryView: View {
                 if !filter.isEmpty {
                     Button { filter = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundStyle(.secondary).help("Clear filter")
+                        .accessibilityLabel("Clear filter")
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)

@@ -51,6 +51,7 @@ struct LaterView: View {
                             showsClearConfirm = true
                         }
                     } label: { Image(systemName: "ellipsis.circle") }
+                    .accessibilityLabel("Later options")
                 }
             }
         }

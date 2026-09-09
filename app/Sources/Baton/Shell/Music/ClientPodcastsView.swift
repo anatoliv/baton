@@ -199,7 +199,7 @@ struct ClientPodcastsView: View {
             state: .empty,
             emptyTitle: "No podcasts yet",
             emptyMessage: "Subscribe to a podcast by pasting its RSS feed URL. Baton fetches "
-                + "episodes directly, so this works with any server — including Navidrome.",
+                + "episodes directly, so this works with any server, including Navidrome.",
             emptySymbol: "mic",
             emptyActionLabel: "Add a Show",
             emptyAction: { showingAdd = true }
@@ -574,6 +574,7 @@ private struct ClientPodcastChannelDetail: View {
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .help("Download episodes for offline listening")
+        .accessibilityLabel("Download episodes for offline listening")
     }
 
     private var downloadedCount: Int {
@@ -759,6 +760,7 @@ private struct ClientPodcastEpisodeRow: View {
             } else if hover {
                 Button(action: onDownload) { Image(systemName: "arrow.down.circle") }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Download for offline")
+                    .accessibilityLabel("Download for offline")
             } else {
                 Color.clear
             }

@@ -106,7 +106,8 @@ struct OutputDevicePicker: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Output device for music and spoken summaries — podcasts, downloads and radio follow the system output")
+        .help("Output device for music and spoken summaries. Podcasts, downloads and radio follow the system output")
+        .accessibilityLabel("Output device for music and spoken summaries. Podcasts, downloads and radio follow the system output.")
         .onAppear(perform: refresh)
     }
 

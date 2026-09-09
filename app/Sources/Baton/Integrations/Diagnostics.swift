@@ -23,7 +23,7 @@ enum Diagnostics {
     static func format(_ lines: [LogLine], redactor: (String) -> String = CrashReporting.redact) -> String {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
-        var out = "Baton diagnostics — \(lines.count) log line(s), subsystem \(subsystem)\n\n"
+        var out = "Baton diagnostics: \(lines.count) log line(s), subsystem \(subsystem)\n\n"
         out += lines.map { line in
             "\(iso.string(from: line.date)) [\(line.level)] \(line.category): \(redactor(line.message))"
         }.joined(separator: "\n")

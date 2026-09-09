@@ -246,9 +246,9 @@ final class WebhookActionsTests: XCTestCase {
         XCTAssertEqual(WebhookSendResult.summarize(body: Data("plain trouble".utf8), status: 500), "plain trouble")
         // Empty body and HTML error pages fall back to a plain-language hint.
         XCTAssertEqual(WebhookSendResult.summarize(body: Data(), status: 404),
-                       "the server has no such path — check the URL")
+                       "the server has no such path; check the URL")
         XCTAssertEqual(WebhookSendResult.summarize(body: Data("<html>oops</html>".utf8), status: 401),
-                       "the server rejected the credentials — check the Authorization header")
+                       "the server rejected the credentials; check the Authorization header")
     }
 
     /// The failure that survived the first fix: the header NAME was set, but its value came back
@@ -267,7 +267,7 @@ final class WebhookActionsTests: XCTestCase {
         XCTAssertNil(result.status, "it must not reach the network at all")
         XCTAssertFalse(sent, "a request with an empty auth header is never worth sending")
         XCTAssertEqual(result.detail,
-                       "the “Authorization” header has no value — re-enter it in Settings → Actions")
+                       "the “Authorization” header has no value; re-enter it in Settings → Actions")
     }
 
     /// A header that's fully blank (no name, no value) is just an unused row — it must not trip

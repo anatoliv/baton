@@ -64,7 +64,7 @@ struct OnboardingView: View {
                             .shadow(color: Color.brandMuted, radius: 16, y: 6)
                         Text("Your music, your server.")
                             .font(.headline)
-                        Text("Baton plays your Navidrome library — gapless, offline, and with a music friend to talk to.")
+                        Text("Baton plays your Navidrome library: gapless, offline, and with a music friend to talk to.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -126,7 +126,7 @@ struct OnboardingView: View {
                     }
                 } footer: {
                     if let reason = demoServerUnavailable {
-                        Text("Navidrome's demo server isn't answering right now — \(reason) "
+                        Text("Navidrome's demo server isn't answering right now. \(reason) "
                              + "It's their server, not ours, so this happens. The built-in demo "
                              + "works with no connection at all.")
                         .foregroundStyle(Color.warningTint)
@@ -145,7 +145,7 @@ struct OnboardingView: View {
                     Text("Server")
                 } footer: {
                     if NavidromeConfig.isInsecure(urlString) {
-                        Text("This is a plain-HTTP address — fine on your home network, not on the open internet.")
+                        Text("This is a plain-HTTP address: fine on your home network, not on the open internet.")
                     }
                 }
 
@@ -198,7 +198,7 @@ struct OnboardingView: View {
                 // wondering what happened to their library.
                 if AppServicesHolder.model?.credentialsRejected == true {
                     Section {
-                        Label("Your server didn't accept the saved sign-in. Your downloads and settings are still here — just sign in again.",
+                        Label("Your server didn't accept the saved sign-in. Your downloads and settings are still here. Just sign in again.",
                               systemImage: "exclamationmark.lock")
                             .font(.footnote)
                             .foregroundStyle(.secondary)

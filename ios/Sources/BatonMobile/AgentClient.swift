@@ -386,8 +386,8 @@ final class AgentClient {
     private func hint(status: Int, body: String) -> String {
         switch status {
         case 401, 403: return "Check the API key in Settings."
-        case 429: return "Rate limited — trying the fallback if one is configured."
-        case 404: return "Check the endpoint URL — the path wasn't found."
+        case 429: return "Rate limited. Trying the fallback if one is configured."
+        case 404: return "Check the endpoint URL. The path wasn't found."
         default: return body.isEmpty ? "" : body
         }
     }

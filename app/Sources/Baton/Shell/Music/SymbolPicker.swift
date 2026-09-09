@@ -97,6 +97,7 @@ struct SymbolField: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Choose a symbol")
+                .accessibilityLabel("Choose a symbol")
                 .popover(isPresented: $showingPicker, arrowEdge: .bottom) {
                     SymbolPickerPopover(symbol: $symbol)
                 }
@@ -104,7 +105,7 @@ struct SymbolField: View {
                 TextField(label, text: $symbol, prompt: Text(SFSymbolCatalog.fallback))
             }
             if isBroken {
-                Text("No SF Symbol called “\(symbol.trimmingCharacters(in: .whitespaces))” — the \(SFSymbolCatalog.fallback) icon will be used instead.")
+                Text("No SF Symbol called “\(symbol.trimmingCharacters(in: .whitespaces))”. The \(SFSymbolCatalog.fallback) icon will be used instead.")
                     .font(.caption)
                     .foregroundStyle(Color.warningTint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -153,6 +154,7 @@ private struct SymbolPickerPopover: View {
                                     }
                                     .buttonStyle(.plain)
                                     .help(name)
+                                    .accessibilityLabel(name)
                                 }
                             }
                         } header: {

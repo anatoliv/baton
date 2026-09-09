@@ -226,7 +226,7 @@ struct ServerPodcastsView: View {
             Image(systemName: "mic.slash").font(.system(size: 34)).foregroundStyle(.secondary)
             Text("Switching to Baton's podcast subscriptions").font(.headline)
             Text("This server doesn't implement the Subsonic podcast API (Navidrome doesn't), so "
-                + "Baton uses its own RSS subscriptions instead — they work with any server. "
+                + "Baton uses its own RSS subscriptions instead. They work with any server. "
                 + "One moment…")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }

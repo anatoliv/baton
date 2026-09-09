@@ -23,7 +23,7 @@ struct MusicLyricsView: View {
     /// kinder than the generic empty state after a lookup that never had a chance.
     private var emptyMessage: String {
         LRCLIBLyrics.isLikelyLyricless(durationSeconds: song.duration)
-            ? "Too long to have lyrics — mixes and sets aren't written down"
+            ? "Too long to have lyrics: mixes and sets aren't written down"
             : "No lyrics for this track"
     }
 

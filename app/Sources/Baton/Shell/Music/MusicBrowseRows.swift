@@ -113,6 +113,7 @@ struct MusicRowActions: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(action.tint)
                 .help(action.title)
+                .accessibilityLabel(action.title)
             }
         }
         .transition(.opacity)

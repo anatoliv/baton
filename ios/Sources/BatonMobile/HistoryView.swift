@@ -116,6 +116,7 @@ struct HistoryView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("History options")
             }
         }
         .task(id: "\(segment.rawValue)-\(window.rawValue)-\(scopeRaw)") {

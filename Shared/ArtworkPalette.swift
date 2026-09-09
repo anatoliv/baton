@@ -22,18 +22,35 @@ struct ArtworkPalette: Equatable {
         accent: Color(red: 0.22, green: 0.22, blue: 0.22)
     )
 
-    /// Reference the player-context contrast guarantee clamps against. The
-    /// `AdaptiveBackdrop` is always dark (deep `secondary` + a black scrim), so a
-    /// near-black reference is the conservative, always-legible target.
-    static let contrastReference = Color.black
-
     /// The accent as applied to **foreground** player controls (progress fill, volume
-    /// fill, favorite/active state). Enforces the design doc's Brand ⇄ Dynamic +
-    /// contrast rules: (near-)grayscale artwork falls back to brand orange; otherwise
-    /// the vibrant accent is lightened until it clears AA (4.5:1) on the dark backdrop.
-    var uiAccent: Color {
+    /// fill, favorite/active state), against the `.dark` backdrop tone. Enforces the
+    /// design doc's Brand ⇄ Dynamic + contrast rules: (near-)grayscale artwork falls
+    /// back to brand orange; otherwise the vibrant accent is lightened until it clears
+    /// AA (4.5:1) against flat black.
+    ///
+    /// Kept as the property every existing caller already uses, defaulting to `.dark`:
+    /// the player surfaces (`FullScreenNowPlaying`, `MiniPlayerWindowView`, the iOS
+    /// player) force a dark backdrop regardless of the app's appearance setting, and
+    /// flat black is at least as dark as that real backdrop
+    /// (`backdropWorstCase(for: .dark)`), so it stays the conservative reference this
+    /// value has always been checked against.
+    var uiAccent: Color { uiAccent(for: .dark) }
+
+    /// `uiAccent`, told which backdrop tone it is actually drawn against.
+    ///
+    /// This used to be one fixed reference — flat black — on the reasoning that
+    /// `AdaptiveBackdrop` is always dark. That stopped being true the moment Light mode
+    /// got its own wash (WS7, PR #60): `NowPlayingBar` in the main window follows the
+    /// ambient appearance rather than forcing `.dark`, so in Light mode its accent was
+    /// still being lightened to survive *black* while the ground behind it had been
+    /// pulled toward white (`backdropLayers(for: .light)`) — an accent legible on
+    /// black can be nearly invisible on that light wash. For `.light` this clamps
+    /// against `backdropWorstCase(for: .light)` instead: this palette's own flattened,
+    /// worst-case rendering of the light wash, rather than a guess that assumed dark.
+    func uiAccent(for tone: BackdropTone) -> Color {
         if Contrast.saturation(accent) < 0.15 { return .batonOrange }
-        return Contrast.ensureContrast(of: accent, against: Self.contrastReference, min: 4.5)
+        let reference: Color = tone == .dark ? .black : backdropWorstCase(for: .light)
+        return Contrast.ensureContrast(of: accent, against: reference, min: 4.5)
     }
 }
 
@@ -229,7 +246,18 @@ extension ArtworkPalette {
     /// where the transport is white on purpose. It is wrong everywhere else the moment
     /// somebody picks Settings → Appearance → Light, because the text above it flips to
     /// near-black while the ground stays near-black with it.
-    enum BackdropTone: Equatable, Sendable { case dark, light }
+    enum BackdropTone: Equatable, Sendable {
+        case dark, light
+
+        /// What a caller with no forced tone actually gets: the ambient appearance,
+        /// light or dark. `AdaptiveBackdrop.resolvedTone` and any other caller whose
+        /// backdrop follows `\.colorScheme` (rather than forcing `.dark`, the way the
+        /// player surfaces do) should use this rather than re-deriving the same
+        /// two-way match — `MusicView`'s `NowPlayingBar` accent is the other caller.
+        static func resolved(for colorScheme: ColorScheme) -> BackdropTone {
+            colorScheme == .light ? .light : .dark
+        }
+    }
 
     /// The four flat colours `AdaptiveBackdrop` stacks, resolved for a tone. Pure, so the
     /// legibility of the result can be asserted without rendering anything.
@@ -307,7 +335,7 @@ struct AdaptiveBackdrop: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var resolvedTone: ArtworkPalette.BackdropTone {
-        tone ?? (colorScheme == .light ? .light : .dark)
+        tone ?? .resolved(for: colorScheme)
     }
 
     var body: some View {

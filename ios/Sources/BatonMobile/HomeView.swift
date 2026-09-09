@@ -51,7 +51,7 @@ struct HomeView: View {
                         ContentUnavailableView(
                             "Nothing here yet",
                             systemImage: "music.note.house",
-                            description: Text("Once your server has music — and you've played some — this is where it turns up.")
+                            description: Text("Once your server has music (and you've played some), this is where it turns up.")
                         )
                         .padding(.top, 40)
                     }

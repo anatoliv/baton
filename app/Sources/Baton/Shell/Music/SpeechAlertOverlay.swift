@@ -47,6 +47,7 @@ private struct SpeechAlertOverlay: ViewModifier {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, 16).padding(.vertical, 11)
         .background(.thinMaterial, in: Capsule())

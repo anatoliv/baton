@@ -103,9 +103,9 @@ struct MusicFriendView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Hi — I'm your music friend.")
+            Text("Hi, I'm your music friend.")
                 .font(.headline)
-            Text("Try: “play something mellow”, “what's this song?”, “start a radio from this”, or “louder”. I only know your library — that's the point.")
+            Text("Try: “play something mellow”, “what's this song?”, “start a radio from this”, or “louder”. I only know your library: that's the point.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             // A safety net rather than the usual case: the tab is hidden until a

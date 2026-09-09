@@ -269,7 +269,7 @@ private struct BatonServersPane: View {
         // A refusal and an unreachable host need different things from you, and a tooltip is
         // not where someone will find that out. `.ok` says nothing extra: the tick said it.
         switch statuses[server.id] {
-        case let .refused(why), let .unreachable(why): return "\(who) — \(why)"
+        case let .refused(why), let .unreachable(why): return "\(who): \(why)"
         default: return who
         }
     }
@@ -351,7 +351,7 @@ private struct BatonAgentsPane: View {
                         .font(.system(size: 30)).foregroundStyle(.tint).frame(width: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Agent control").font(.title3.bold())
-                        Text("Baton hosts a local MCP server so AI agents can play, queue, and read your music — and duck it while they speak.")
+                        Text("Baton hosts a local MCP server so AI agents can play, queue, and read your music, and duck it while they speak.")
                             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -411,7 +411,7 @@ private struct BatonAgentsPane: View {
                             .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                     }
                 }
-                Text("An MCP client (Claude Desktop, an agent SDK, or Tonebox) reads this file to find the endpoint + token automatically — no manual setup.")
+                Text("An MCP client (Claude Desktop, an agent SDK, or Tonebox) reads this file to find the endpoint + token automatically (no manual setup).")
                     .font(.callout).foregroundStyle(.secondary)
             }
 
@@ -425,7 +425,7 @@ private struct BatonAgentsPane: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Copy configuration") { copy(info.clientConfigSnippet(revealingToken: true)) }
-                    Text("Paste into a client that speaks MCP Streamable HTTP (e.g. an agent SDK, or an `mcpServers` config). The bearer token authorizes every request — keep it private.")
+                    Text("Paste into a client that speaks MCP Streamable HTTP (e.g. an agent SDK, or an `mcpServers` config). The bearer token authorizes every request. Keep it private.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -480,7 +480,7 @@ private struct BatonAboutPane: View {
                 LabeledContent("License") {
                     Text("MIT").textSelection(.enabled).foregroundStyle(.secondary)
                 }
-                Text("Baton is a native macOS player for your self-hosted Navidrome / Subsonic library — gapless playback, a parametric equalizer, and scrobbling, controllable by voice.")
+                Text("Baton is a native macOS player for your self-hosted Navidrome / Subsonic library: gapless playback, a parametric equalizer, and scrobbling, controllable by voice.")
                     .font(.callout).foregroundStyle(.secondary)
                 Link("batonmusic.app", destination: URL(string: "https://batonmusic.app")!)
                     .font(.callout)
@@ -494,7 +494,7 @@ private struct BatonAboutPane: View {
                 Toggle("Look up missing lyrics", isOn: $lrclibEnabled)
                 Text("Navidrome only serves lyrics that are embedded in your files, so for "
                      + "most libraries this panel is always empty. With this on, Baton asks "
-                     + "LRCLIB — a free, open lyrics database — for anything your server "
+                     + "LRCLIB (a free, open lyrics database) for anything your server "
                      + "doesn't have. It sends the track title, artist and length, and "
                      + "nothing else. Lyrics in your own files always win.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -509,7 +509,7 @@ private struct BatonAboutPane: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 Text("Baton's library window was always dark, because the colour wash it "
-                     + "takes from your artwork needs a dark ground to stay readable — while "
+                     + "takes from your artwork needs a dark ground to stay readable, while "
                      + "these settings followed your system, so the app disagreed with "
                      + "itself. Pick once. The player keeps its dark treatment either way.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -564,7 +564,7 @@ private struct BatonAboutPane: View {
                         }
                     }
                 }
-                Text("Exports Baton's own log entries from the last hour to a text file — with your server address, IPs, and paths redacted — for troubleshooting \"won't load\" / \"update failed\" reports.")
+                Text("Exports Baton's own log entries from the last hour to a text file (with your server address, IPs, and paths redacted) for troubleshooting \"won't load\" / \"update failed\" reports.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -604,7 +604,7 @@ private struct BatonSettingsBackupControls: View {
                     Button("Import…") { isImporting = true }
                 }
             }
-            Text("Move your Baton setup to another Mac. Preferences — playback, equalizer, layouts, spoken-summary voices, webhooks, and your server list — are always included. Server passwords and scrobbler logins are optional; including them encrypts the file with a passphrase you set.")
+            Text("Move your Baton setup to another Mac. Preferences (playback, equalizer, layouts, spoken-summary voices, webhooks, and your server list) are always included. Server passwords and scrobbler logins are optional; including them encrypts the file with a passphrase you set.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         .sheet(isPresented: $showExportOptions) { exportOptionsSheet }
@@ -628,8 +628,8 @@ private struct BatonSettingsBackupControls: View {
             Text("Export Settings").font(.headline)
             Toggle("Include accounts & passwords", isOn: $includeSecrets)
             Text(includeSecrets
-                ? "Server passwords and scrobbler logins are included, and the file is encrypted with the passphrase below — you'll need it to import."
-                : "A plain, shareable file with your preferences and server list — no passwords. You'll re-enter server passwords on the other Mac.")
+                ? "Server passwords and scrobbler logins are included, and the file is encrypted with the passphrase below. You'll need it to import."
+                : "A plain, shareable file with your preferences and server list (no passwords). You'll re-enter server passwords on the other Mac.")
                 .font(.callout).foregroundStyle(.secondary)
             if includeSecrets {
                 SecureField("Passphrase", text: $passphrase)
@@ -904,7 +904,7 @@ private struct BatonPlaybackPane: View {
         player.loudnessMode = .off
         player.loudnessPreampDB = 0
         player.crossfadeSeconds = 0
-        player.gaplessEnabled = false
+        player.gaplessEnabled = true
         player.gaplessPrefetchWifiOnly = false
         player.autoplayEnabled = false
         player.stallTimeoutSeconds = StreamingPlaybackController.defaultStallTimeout
@@ -925,7 +925,7 @@ private struct BatonPlaybackPane: View {
                 ForEach(StreamingPlaybackController.LoudnessMode.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.menu)
-            Text("Evens out track-to-track volume using your server's ReplayGain / R128 data — no re-encoding, no lag. **Track** levels every song the same; **Album** keeps an album's own quiet-to-loud dynamics. Needs ReplayGain tags in your library; tracks without data play at normal volume.")
+            Text("Evens out track-to-track volume using your server's ReplayGain / R128 data (no re-encoding, no lag). **Track** levels every song the same; **Album** keeps an album's own quiet-to-loud dynamics. Needs ReplayGain tags in your library; tracks without data play at normal volume.")
                 .font(.callout).foregroundStyle(.secondary)
             if player.loudnessMode != .off {
                 LabeledContent("Pre-amp") {
@@ -965,15 +965,15 @@ private struct BatonPlaybackPane: View {
             ))
             .disabled(crossfadeOn)
             Text(crossfadeOn
-                ? "Unavailable while crossfade is on — the two are mutually exclusive. Set Crossfade to Off to use gapless."
-                : "For albums recorded without gaps (live, DJ sets, classical) — preloads the next track so it starts with no gap. Downloaded tracks are seamless; streamed tracks are prefetched to a small cache so their handoff is gap-free too.")
+                ? "Unavailable while crossfade is on: the two are mutually exclusive. Set Crossfade to Off to use gapless."
+                : "For albums recorded without gaps (live, DJ sets, classical), preloads the next track so it starts with no gap. Downloaded tracks are seamless; streamed tracks are prefetched to a small cache so their handoff is gap-free too.")
                 .font(.callout).foregroundStyle(.secondary)
             if player.gaplessEnabled, !crossfadeOn {
                 Toggle("Prefetch streamed tracks on Wi-Fi only", isOn: Binding(
                     get: { player.gaplessPrefetchWifiOnly },
                     set: { player.gaplessPrefetchWifiOnly = $0 }
                 ))
-                Text("Skip the next-track prefetch on metered connections (personal hotspot, Low Data Mode). Playback still works — the streamed handoff just isn't pre-cached.")
+                Text("Skip the next-track prefetch on metered connections (personal hotspot, Low Data Mode). Playback still works. The streamed handoff just isn't pre-cached.")
                     .font(.callout).foregroundStyle(.secondary)
                 if gaplessCacheBytes > 0 {
                     Button("Clear prefetch cache (\(ByteCountFormatter.string(fromByteCount: gaplessCacheBytes, countStyle: .file)))", role: .destructive) {
@@ -1020,7 +1020,7 @@ private struct BatonPlaybackPane: View {
                         .frame(width: sliderValueWidth, alignment: .trailing)
                 }
             }
-            Text("How long playback waits on a stalled stream before recovering — it retries where it left off, then moves on. Lower recovers faster on a flaky, filtered, or VPN network; higher tolerates a legitimately slow connection. Default 20s.")
+            Text("How long playback waits on a stalled stream before recovering: it retries where it left off, then moves on. Lower recovers faster on a flaky, filtered, or VPN network; higher tolerates a legitimately slow connection. Default 20s.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
@@ -1177,7 +1177,7 @@ private struct BatonPlaybackPane: View {
         Section("Finding music you don't have") {
             Toggle("Look outside my library", isOn: $externalDiscoveryEnabled)
             Text("\"More like this\" normally searches the music you already own. With this on, "
-                 + "Baton can also ask the public catalogues what else is out there — and the "
+                 + "Baton can also ask the public catalogues what else is out there, and the "
                  + "music friend can too. It sends the artist and title of the track you asked "
                  + "about, and nothing else: not your library, not your history.")
                 .font(.callout).foregroundStyle(.secondary)
@@ -1194,11 +1194,11 @@ private struct BatonPlaybackPane: View {
                 // Optional, and framed that way. A missing key switches a source off; it is
                 // not an error and nothing here should read like one.
                 TextField("Last.fm API key", text: $lastFMDiscoveryKey,
-                          prompt: Text("Optional — adds track-by-track similarity"))
+                          prompt: Text("Optional: adds track-by-track similarity"))
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: lastFMDiscoveryKey) { ExternalDiscovery.setKey($1, for: .lastFM) }
                 TextField("YouTube API key", text: $youTubeDiscoveryKey,
-                          prompt: Text("Optional — adds results you can play straight away"))
+                          prompt: Text("Optional: adds results you can play straight away"))
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: youTubeDiscoveryKey) { ExternalDiscovery.setKey($1, for: .youTube) }
                 Text("MusicBrainz and ListenBrainz need no account and work as soon as this is "
@@ -1287,7 +1287,7 @@ private struct BatonPlaybackPane: View {
             Text("Handled by my server").tag(ScrobbleService.ExternalSource.server)
         }
         .pickerStyle(.radioGroup)
-        Text("If your Navidrome/Subsonic server is **already** linked to Last.fm/ListenBrainz, choose **Handled by my server** so the same play isn't scrobbled twice — Baton still tracks play counts and \"now playing\". Otherwise leave it on **Sent by Baton**. Server play counts are always tracked regardless.")
+        Text("If your Navidrome/Subsonic server is **already** linked to Last.fm/ListenBrainz, choose **Handled by my server** so the same play isn't scrobbled twice. Baton still tracks play counts and \"now playing\". Otherwise leave it on **Sent by Baton**. Server play counts are always tracked regardless.")
             .font(.callout).foregroundStyle(.secondary)
     }
 
@@ -1325,11 +1325,11 @@ private struct BatonPlaybackPane: View {
                 Button("Authorize in browser…") { Task { await lastfm.beginAuth() } }
                     .disabled(!lastfm.hasCredentials)
                 if lastfm.pendingToken != nil {
-                    Button("I've authorized — finish") { Task { await lastfm.completeAuth() } }
+                    Button("I've authorized, finish") { Task { await lastfm.completeAuth() } }
                         .buttonStyle(.borderedProminent)
                 }
             }
-            Text("Last.fm needs your own free API account ([create one](https://www.last.fm/api/account/create)) — paste the key + secret, click Authorize (a browser tab opens), approve it, then click Finish.")
+            Text("Last.fm needs your own free API account ([create one](https://www.last.fm/api/account/create)): paste the key + secret, click Authorize (a browser tab opens), approve it, then click Finish.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }

@@ -47,6 +47,12 @@ extension StreamingPlaybackController {
         sleepTimerTask?.cancel()
         sleepTimerEndsAt = nil
         sleepAfterCurrentTrack = true
+        // Gapless may already have the next track queued up in the `AVQueuePlayer` from
+        // before this was armed — withdraw it, or the OS hands off to it anyway and the
+        // sleep timer never gets a boundary to stop at. See
+        // `withdrawGaplessPreloadForSleepTimer` for why this can't just be a guard in
+        // `preloadGaplessNextIfNeeded`.
+        withdrawGaplessPreloadForSleepTimer()
     }
 
     /// Clears any pending sleep timer (fixed-time or end-of-track). Also aborts an

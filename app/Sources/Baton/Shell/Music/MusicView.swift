@@ -44,6 +44,10 @@ struct MusicView: View {
     /// Close action for the pop-out window (nil inline). Drives the rail's close button.
     @Environment(\.musicWindowClose) private var windowClose
     @State private var closeHovering = false
+    /// `NowPlayingBar`'s backdrop here follows the ambient appearance (unlike
+    /// `FullScreenNowPlaying` and `MiniPlayerWindowView`, which force `.dark`), so its
+    /// accent has to resolve against whichever tone `AdaptiveBackdrop` actually painted.
+    @Environment(\.colorScheme) private var colorScheme
 
     // Multi-select for the Albums / Playlists browse tabs (shared model + bar).
     @State private var albumSel = MusicMultiSelect()
@@ -185,6 +189,7 @@ struct MusicView: View {
         }
         .menuStyle(.borderlessButton).fixedSize()
         .help("Filter albums")
+        .accessibilityLabel("Filter albums")
     }
     /// Shared namespace so the mini-bar artwork morphs into the full-screen hero.
     @Namespace private var artNamespace
@@ -360,7 +365,10 @@ struct MusicView: View {
                         .speechAlertBanner()
                         NowPlayingBar(
                             artNamespace: artNamespace, expanded: showFullScreen,
-                            accent: paletteLoader.palette.uiAccent
+                            // This bar's backdrop is the ambient-appearance ZStack above
+                            // (no `tone:` override), so its accent has to clamp against
+                            // whichever wash that actually painted, not always black.
+                            accent: paletteLoader.palette.uiAccent(for: .resolved(for: colorScheme))
                         ) {
                             // Pop any drill-down to root so the window-titlebar back
                             // button (which would sit next to the traffic lights and
@@ -373,6 +381,11 @@ struct MusicView: View {
                     }
                     .adaptiveMaterial(Rectangle())
                 }
+                // Sidebar, browse content and the mini player sit behind the full-screen
+                // player as a plain `.overlay`, which draws over them but leaves them in
+                // the accessibility tree — a VoiceOver swipe still reaches the row that was
+                // covered. Same defect `contentState(...)` had (Shared/ContentStateView.swift).
+                .accessibilityHidden(showFullScreen)
                 .overlay {
                     if showFullScreen {
                         FullScreenNowPlaying(isPresented: $showFullScreen, artNamespace: artNamespace)
@@ -688,6 +701,7 @@ struct MusicView: View {
         }
         .buttonStyle(.plain)
         .help(railCollapsed ? "Expand sidebar" : "Collapse sidebar")
+        .accessibilityLabel(railCollapsed ? "Expand sidebar" : "Collapse sidebar")
     }
 
     /// Item count for a nav badge (nil = no badge — Search has no fixed total, and a
@@ -737,6 +751,7 @@ struct MusicView: View {
                     Spacer(minLength: 6)
                     Button { dismissedError = error } label: { Image(systemName: "xmark") }
                         .buttonStyle(.plain).foregroundStyle(.secondary).help("Dismiss")
+                        .accessibilityLabel("Dismiss")
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
             }

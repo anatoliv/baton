@@ -10,7 +10,7 @@ A free macOS music player for your own self-hosted music library. It plays from 
 [Navidrome](https://www.navidrome.org/) or Subsonic-compatible server, with real playback
 depth (true gapless, crossfade, ReplayGain loudness matching, and a 10-band equalizer). It
 also runs a small control server so an AI agent can search, queue, and steer your music for
-you — and, through the same surface, so can a Telegram or Discord message from your phone.
+you, and, through the same surface, so can a Telegram or Discord message from your phone.
 The tagline is *"Conduct your music."*
 
 **Is Baton free?**
@@ -124,26 +124,26 @@ It runs on the same control surface agents use, so a chat message can't do anyth
 own buttons can't.
 
 **Why does it say "nothing matched" for music I know I have?**
-Because a plain search only matches text in titles, artists and albums — and a mood is rarely a
+Because a plain search only matches text in titles, artists and albums, and a mood is rarely a
 title. Ask for "lazy music" and nothing is called that, even though the chillout is sitting
 there tagged `chill` or `ambient`. Turn on **Let it look around first** (Settings, Remote) and
 it will check what your library actually calls things, then find and play it. See
 [Letting it look around first](HELP.md#letting-it-look-around-first).
 
 **Does turning that on send my library somewhere?**
-Parts of it, yes — that's the trade, and it's why the switch is separate and off by default.
+Parts of it, yes: that's the trade, and it's why the switch is separate and off by default.
 Looking around means what it finds (song titles, artists, genres) goes to the model along with
 your question, because there's no other way for it to answer. With the switch off, none of your
 library ever leaves. If you point Baton at a model running on your own machine or network,
 nothing leaves it in either case.
 
 **Does it remember things between conversations?**
-Only what you tell it, and only when "let it look around" is on. Standing preferences — "no
-vocals while I'm working", "those playlists are my partner's" — are kept in a plain file you
+Only what you tell it, and only when "let it look around" is on. Standing preferences ("no
+vocals while I'm working", "those playlists are my partner's") are kept in a plain file you
 can open, always alongside the words you actually used. It never stores a guess about you;
 there is no field in the file for one. It says so in the chat every time it writes something,
 `memories` lists everything it keeps, and `forget 2` or `forget everything` removes it.
-Everything else it appears to know — your genres, play counts, what you've liked — isn't
+Everything else it appears to know (your genres, play counts, what you've liked) isn't
 memory at all: it reads that from your own server each day.
 
 **Does chat control open my Mac to the internet?**
@@ -153,27 +153,27 @@ and nothing needs forwarding on your router.
 
 **Can anyone who finds my bot control my music?**
 No. A bot token identifies the bot, not you, so Baton doesn't treat it as permission. Every
-chat has to be linked with a six-digit code shown in Settings — until then Baton ignores
+chat has to be linked with a six-digit code shown in Settings: until then Baton ignores
 everything it's sent, and each code works only once. You can revoke a linked chat at any time
 from the same pane.
 
 **Can I use my own local model instead of a paid API?**
-Yes. Set the provider to **OpenAI-compatible** and point the base URL at your own server —
+Yes. Set the provider to **OpenAI-compatible** and point the base URL at your own server:
 vLLM, Ollama, LM Studio, llama.cpp and LiteLLM all speak that dialect. Nothing leaves your
 network and there's no per-message cost. The model does need to support tool calling, since
 Baton asks it to pick from a list of commands; the **Test** button tells you in one click
 whether yours does.
 
 **What permissions does the Discord bot need?**
-Three: View Channels, Send Messages, and Read Message History — permissions value `68608` in
-the invite URL. It deliberately gets no Administrator and no Manage-anything: a music remote
+Three: View Channels, Send Messages, and Read Message History (permissions value `68608` in
+the invite URL). It deliberately gets no Administrator and no Manage-anything: a music remote
 that can only read and write messages stays a music remote even if the token leaks. You also
 need the **Message Content intent** switched on for the bot (Developer Portal → Bot), or
 Discord delivers your messages with the text removed.
 
 **Can the bot share a channel with webhooks or other bots?**
 Yes. Baton ignores everything written by a bot account, so alert feeds and download
-notifications in the same channel don't trigger it — only messages from linked people do.
+notifications in the same channel don't trigger it. Only messages from linked people do.
 
 **Why does my bot ignore messages in a Telegram group?**
 Telegram's *privacy mode*, on by default for group bots, hides ordinary messages from them:
@@ -217,7 +217,7 @@ Cursor config examples, opt-in "speak only when asked" rules, and the full detai
 
 **What is the music friend?**
 Someone to ask for music in plain language. "Something calmer", "what is this?", "play the
-live version instead" — it works out what you meant and does it with your library and your
+live version instead": it works out what you meant and does it with your library and your
 player, rather than handing you search results to sort through yourself. Open it on the Mac
 from **Go, Music Friend** or with **⌘⇧F**; on iPhone it's the **Friend** tab. The full
 walkthrough is [The music friend](HELP.md#the-music-friend), and there's a guided tour of the
@@ -225,7 +225,7 @@ same name in Help.
 
 **Do I need an API key, and what does it cost?**
 You need one, and Baton doesn't include it. Baton ships no key and contacts no model provider
-until you set one up — Anthropic, OpenAI, or a model running on your own machine. What it
+until you set one up: Anthropic, OpenAI, or a model running on your own machine. What it
 costs is whatever that provider charges you; Baton adds nothing and takes nothing. Point it at
 a local model and it costs nothing at all.
 
@@ -235,7 +235,7 @@ Discord, Linking and Devices. That pane looks like it's only about the chat brid
 why it's easy to miss: turn on **Understand plain English**, pick a **Provider**, paste the
 **API key** and press **Save** beside the field, then press **Test**. Turn on **Let it look
 around first** as well, or one message becomes one command decided blind. You don't need
-**Enable remote control** at the top of the pane — that's Telegram and Discord only. Full
+**Enable remote control** at the top of the pane: that's Telegram and Discord only. Full
 steps: [Turning it on, on the Mac](HELP.md#turning-it-on-on-the-mac).
 
 On iPhone it has a pane to itself, **Settings → Music Friend**, and the **Friend** tab shows
@@ -249,8 +249,8 @@ request to succeed because a key with a typo in it is still a key, and a tab tha
 "configure me first" is a promise it cannot keep.
 
 **Can Home server point at my own LLM?**
-No, and this is the most common way to get stuck. **Home server** means a **Baton gateway** —
-the small `baton-gateway` service you run at home — and Baton asks it for `/v1/agent`, which
+No, and this is the most common way to get stuck. **Home server** means a **Baton gateway**
+(the small `baton-gateway` service you run at home), and Baton asks it for `/v1/agent`, which
 only the gateway answers. Ollama, vLLM, LiteLLM and the rest speak a model API, not that one,
 so they will always fail this test however well they are running. To use a model on your own
 machine, choose **Model provider** and point its base URL there, or run the gateway and give
@@ -265,7 +265,7 @@ from the home server address if you paste one.
 **What does the fallback actually do?**
 If your home server cannot be reached, or turns out not to be a gateway, the friend quietly
 uses the model provider below instead, so a machine that is asleep does not take it down. It
-does **not** make the Friend tab appear — that gate tests the route you chose. If you have no
+does **not** make the Friend tab appear: that gate tests the route you chose. If you have no
 gateway, test as **Model provider**.
 
 **I set a key and it still says it can't answer.**
@@ -276,8 +276,8 @@ Plain commands are free either way. "Pause", "next", "louder" and their like are
 directly, without asking a model anything.
 
 **Where does my data go?**
-To the provider you configured, and nowhere else. With **Let it look around first** off — the
-default — only your question is sent. With it on, what it finds in your library while
+To the provider you configured, and nowhere else. With **Let it look around first** off (the
+default), only your question is sent. With it on, what it finds in your library while
 answering (song titles, artists, genres) goes along with the question, because there is no
 other way for it to answer. If the model runs on your own machine or network, nothing leaves
 it in either case. [Agent control](#agent-control) above goes into what "look around" sends
@@ -289,7 +289,7 @@ case, with a line pointing at **Settings, Remote**. It's also what "I can't answ
 now" means when nothing else looks wrong.
 
 If a provider *is* configured and answers still fail, the status line in **Settings, Remote**
-gives the provider's own reason — usually a mistyped key, or a model name the provider doesn't
+gives the provider's own reason: usually a mistyped key, or a model name the provider doesn't
 recognise.
 
 **Is the friend on my Mac the same one on my phone and in Telegram?**
@@ -305,7 +305,7 @@ window says so rather than failing silently.
 
 **How do I correct it when it gets something wrong?**
 Every answer has a quiet thumbs-up and thumbs-down under it. A thumbs-down asks what went
-wrong — wrong track, misunderstood, too slow, too chatty — and that correction goes into what
+wrong (wrong track, misunderstood, too slow, too chatty), and that correction goes into what
 it reads before answering next time. **Settings, Friend Log** on the Mac holds the whole
 history.
 
@@ -346,27 +346,27 @@ there's no usable color. It's purely cosmetic. See
 **Does Baton have widgets, or work on the lock screen?**
 On iPhone, yes. The **Now Playing** widget comes in the three home-screen sizes and the three
 lock-screen and StandBy shapes, and while music is playing a Live Activity shows what's on
-with a progress bar that runs by itself — no unlocking. On the Mac, the current track appears
+with a progress bar that runs by itself, requiring no unlocking. On the Mac, the current track appears
 in the macOS Now Playing widget in Control Center like any other player. See
 [Widgets, the lock screen, and Live Activities](HELP.md#widgets-the-lock-screen-and-live-activities).
 
 **Can I use Siri or the Shortcuts app?**
 On iPhone. "Play something in Baton" and "Resume Baton" work out loud, and the Shortcuts app
 has Play, Pause, Play or pause, Next, Previous, Like the current track, and Play songs
-matching to build automations from. Siri can't take the album name in the same sentence yet —
+matching to build automations from. Siri can't take the album name in the same sentence yet:
 it asks instead. See [Siri and Shortcuts](HELP.md#siri-and-shortcuts).
 
 **Can I limit what Baton uses on cellular data?**
 Yes, and separately from Wi-Fi. **Settings → Sound** on iPhone has **Wi-Fi Quality** and
 **Cellular Quality**, each set to Original, High (320 kbps), Medium (192 kbps) or Low
 (128 kbps). Leave Wi-Fi on Original for your FLACs and put cellular on Medium, and the phone
-sorts itself out. Downloads ignore both — they're already on the phone.
+sorts itself out. Downloads ignore both: they're already on the phone.
 
 **Why does my iPhone ask for Face ID in Settings?**
 Only in front of the music friend's API key and gateway token, because a key against a paid
 provider is money and an unlocked phone in someone else's hand is already past the front door.
 It falls back to your passcode, and a phone with nothing enrolled is let straight through. It
-is not an app-wide lock — you'll never be asked just to skip a track.
+is not an app-wide lock: you'll never be asked just to skip a track.
 
 **Can I cast to speakers?**
 AirPlay works today, from the AirPlay picker in the now-playing bar. Chromecast, Sonos, and
@@ -428,7 +428,7 @@ for the tail of a long build. See
 
 **Does Baton watch my screen?**
 No, and it cannot. Baton has no idea what is on your screen until you select something and ask
-for it. There is no background monitoring and no polling — every reading happens because you
+for it. There is no background monitoring and no polling: every reading happens because you
 started it. Readings are not saved either: one plays, and then it is gone. Three exceptions, all of them things you ask for by name. File → Save Reading as Audio… writes a single file wherever you point it and nowhere else. File → Keep Reading in Clippings keeps that same audio inside Baton, where it appears in the Clippings list along with the words that were read, so you can find it later by a phrase from the middle of it; it stays until you delete it, and deleting it from that list removes the audio and the text together. And if you stop half way through an article, Baton keeps your place so File → Resume Reading can carry on: up to five of those, for seven days, holding the cleaned text you heard rather than the raw selection. Settings → Speech → Read aloud says how many are being held and forgets them on request. None of the three leaves your Mac.
 
 **Is Read aloud a screen reader?**
@@ -444,14 +444,14 @@ shortcut and explains why.
 
 **Why does my clipboard flicker when I use the shortcut in Chrome?**
 Because Chrome will not hand over the selected text the ordinary way, so Baton copies it,
-reads it, and puts your clipboard back — images and files included. It happens in a fraction
+reads it, and puts your clipboard back (images and files included). It happens in a fraction
 of a second, though a clipboard manager may still notice. Terminals like Ghostty share their
 selection directly and need none of this. You can switch the fallback off in Settings → Speech
 → Read aloud, at the cost of the shortcut doing nothing in a browser.
 
 **Will Baton read my API keys out loud?**
-It tries hard not to. Before anything is spoken, Baton strips things shaped like credentials —
-API keys, tokens, bearer headers, private key blocks — and says "a redacted token" instead.
+It tries hard not to. Before anything is spoken, Baton strips things shaped like credentials
+(API keys, tokens, bearer headers, private key blocks) and says "a redacted token" instead.
 Terminal output is exactly where such things sit, which is why the check runs on every reading
 rather than only on some. Treat it as a good safety net rather than a guarantee.
 
@@ -490,7 +490,7 @@ app menu, and Baton checks its own feed and installs signed, notarized builds. D
 current release from [batonmusic.app](https://batonmusic.app); it updates itself from there
 on.
 
-If you installed with Homebrew, Sparkle still does the updating — the cask is marked
+If you installed with Homebrew, Sparkle still does the updating: the cask is marked
 `auto_updates`, so `brew upgrade` deliberately leaves Baton alone rather than fighting the
 in-app updater. `brew info --cask baton` will keep showing the version you installed until you
 re-run the cask; that's expected, not a stale install.
@@ -502,14 +502,14 @@ the vision, architecture, and integration details.
 ## Can I try Baton without a server?
 
 Yes. Choose **Try the demo** on the first-run screen and Baton opens a small library built
-into the app — real tracks, played through the real engine, with nothing going over the
+into the app: real tracks, played through the real engine, with nothing going over the
 network. Connect your own Navidrome server whenever you like; on iPhone that's **Settings →
 Connect to Navidrome**, on the Mac it's **Settings → Servers**.
 
 ## How do I get my Mac's settings onto my iPhone?
 
 **Settings → Set up from a Mac** on the phone. Scanning the code your Mac shows is the
-quickest — nothing to type, not even a passphrase — but it needs both devices on the same
+quickest (nothing to type, not even a passphrase), but it needs both devices on the same
 network. If they aren't, export a settings file from the Mac and import it on the phone
 instead. Either way your server address, sign-in, equalizer and the rest come across.
 
@@ -520,7 +520,7 @@ the same everywhere.
 **Do my podcasts and radio stations follow me between devices?**
 Yes, by two different routes. **Radio stations** live on your server alongside your music, so
 they're simply the same on every device with nothing to set up. **Podcast subscriptions**
-can't work that way — Navidrome has no podcast API, so Baton follows RSS feeds itself — and
+can't work that way (Navidrome has no podcast API, so Baton follows RSS feeds itself), and
 they travel with your other settings through a gateway instead (see
 [shared settings](#what-are-shared-settings-and-do-i-need-a-gateway) below).
 
@@ -552,11 +552,11 @@ stays on the device is anything that describes *that device* rather than you: th
 folder, offline mode, demo mode, and how far into an episode you are.
 
 **Does my API key travel?**
-Not through shared settings — keys live in the Keychain and never enter the shared file. The
+Not through shared settings: keys live in the Keychain and never enter the shared file. The
 *pairing code* is what moves secrets, and it moves all of them: your server passwords, your
 ListenBrainz and Last.fm tokens, your discovery keys, the gateway token and the music friend's
 API key, every one of them encrypted. Pair a phone and you should not have to paste anything.
-The switch that lets Baton look outside your library stays per-device though — that one is
+The switch that lets Baton look outside your library stays per-device though: that one is
 consent, and a phone shouldn't inherit it.
 
 **What happens if I change the same thing on both devices?**

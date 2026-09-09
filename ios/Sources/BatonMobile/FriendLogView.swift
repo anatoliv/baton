@@ -86,7 +86,7 @@ struct FriendLogView: View {
                     } header: {
                         Text("What it remembers")
                     } footer: {
-                        Text("Things you told the friend about yourself, in your own words. Swipe to forget one — it is removed from your other devices too.")
+                        Text("Things you told the friend about yourself, in your own words. Swipe to forget one. It is removed from your other devices too.")
                     }
                 }
 
@@ -108,7 +108,7 @@ struct FriendLogView: View {
                         // The point of showing these is that they can be wrong. One
                         // thumbs-down given in irritation is indistinguishable, to the
                         // machine, from a considered one.
-                        Text("Added to what the friend is told about you, as evidence rather than rules. Swipe to remove one — a learned correction you cannot see is one you cannot fix.")
+                        Text("Added to what the friend is told about you, as evidence rather than rules. Swipe to remove one: a learned correction you cannot see is one you cannot fix.")
                     }
                 }
 

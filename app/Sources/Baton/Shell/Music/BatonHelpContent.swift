@@ -316,6 +316,29 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.1",
+            date: "September 2026",
+            highlight: "Gapless playback is on by default, and Settings work with the player window closed.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Gapless playback is on by default for anyone who has not changed it. "
+                    + "Turn it off in Settings, Playback, Sound if you would rather have plain "
+                    + "track changes."),
+                HelpWhatsNewChange(.fixed,
+                    "Settings, Remote and Settings, Friend Log now work with the player "
+                    + "window closed. They used to be empty until you opened it again."),
+                HelpWhatsNewChange(.fixed,
+                    "A sleep timer set to the end of the track now stops the music when "
+                    + "gapless is on, instead of letting the next track start."),
+                HelpWhatsNewChange(.improved,
+                    "Every icon-only control in the app announces itself to VoiceOver, and "
+                    + "the artwork accent no longer assumes a dark window in Light mode."),
+                HelpWhatsNewChange(.improved,
+                    "Crash reports, when you have turned them on, now reach Baton's own crash "
+                    + "service. This is the first build that can report one."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.0",
             date: "September 2026",
             highlight: "Baton moves to batonmusic.app, the Friend Log shows what the music friend remembers, and a long list of things that used to fail quietly now say so.",
@@ -359,7 +382,7 @@ extension HelpWhatsNewRelease {
                     + "saved."),
                 HelpWhatsNewChange(.fixed,
                     "Your play queue, your Later list and your saved servers survive a "
-                    + "damaged file: whatever can be read is kept, a backup is written "
+                    + "damaged file. Whatever can be read is kept, a backup is written "
                     + "alongside, and nothing is overwritten by a version of Baton that cannot "
                     + "read it. Listening history keeps lines it cannot read instead of erasing "
                     + "them."),
@@ -380,12 +403,12 @@ extension HelpWhatsNewRelease {
                     + "removing a header removes its saved value instead of leaving it behind. "
                     + "The MCP configuration block hides the access token until you reveal it."),
                 HelpWhatsNewChange(.fixed,
-                    "Smaller dead ends: the no server bar goes away once you connect, "
+                    "Smaller dead ends. The no server bar goes away once you connect, and "
                     + "connecting for the first time clears a queue left over from another "
-                    + "server, a baton link that cannot be opened says why, the Speech pane "
+                    + "server. A baton link that cannot be opened says why. The Speech pane "
                     + "says a voice server is not set up rather than unreachable, Search waits "
-                    + "until you have searched before showing its controls, the mini player "
-                    + "shows when playback has failed, and the play queue is never shared "
+                    + "until you have searched before showing its controls, and the mini "
+                    + "player shows when playback has failed. The play queue is never shared "
                     + "through the public demo server."),
                 HelpWhatsNewChange(.fixed,
                     "Crash reports, when you have turned them on, now have file paths and "
@@ -566,7 +589,7 @@ extension HelpWhatsNewRelease {
                     "Settings, Speech, Agent voices is now a list you add to, as long as you "
                     + "like: a label, a voice, and a button to hear it. 0.17.4 gave you five "
                     + "slots and worked out which one each agent got from its name, which could "
-                    + "not keep the promise that mattered — five names land on five different "
+                    + "not keep the promise that mattered: five names land on five different "
                     + "slots only about one time in twenty, so projects shared a voice and the "
                     + "remedy was to go and override it. Saying which voice you want is simpler "
                     + "than a rule that has to be corrected."),
@@ -1189,14 +1212,14 @@ extension HelpWhatsNewRelease {
             changes: [
                 HelpWhatsNewChange(.improved, "With the experimental audio engine on, Baton kept its audio "
                         + "pipeline running while paused, rendering silence for as long as "
-                        + "the app was open — measurably more power paused than playing. "
+                        + "the app was open: measurably more power paused than playing. "
                         + "The pipeline now sleeps when nothing is playing, and the level "
                         + "meter stops when the engine is not the one playing."
                 ),
                 HelpWhatsNewChange(.improved, "The equalizer now says where it actually applies: on the "
                         + "standard player it affects downloaded tracks, and music streamed "
                         + "from your server is untouched. That has always been true and was "
-                        + "never stated — Settings used to claim the opposite."
+                        + "never stated. Settings used to claim the opposite."
                 ),
             ]
         ),
@@ -1226,7 +1249,7 @@ extension HelpWhatsNewRelease {
             highlight: "The bars move with the music, and the heart is everywhere it should be.",
             changes: [
                 HelpWhatsNewChange(.improved, "The bars on the playing track now follow the music itself rather "
-                        + "than looping — a bassline pushes the left bar, a hi-hat flicks the "
+                        + "than looping: a bassline pushes the left bar, a hi-hat flicks the "
                         + "right one."
                 ),
                 HelpWhatsNewChange(.improved, "Albums and artists can be liked, not just songs. The heart appears "
@@ -2077,7 +2100,7 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.6.7",
             date: "2026",
-            highlight: "Try the Navidrome demo server from Settings too — not just on the very "
+            highlight: "Try the Navidrome demo server from Settings too, not just on the very "
                 + "first screen.",
             changes: [
                 HelpWhatsNewChange(.added, "Settings \u{2192} Servers \u{2192} Add Server now offers \u{201C}Try "
@@ -2105,10 +2128,10 @@ extension HelpWhatsNewRelease {
             version: "0.6.5",
             date: "2026",
             highlight: "A big accessibility and keyboard release: browse with the arrow keys, "
-                + "honour Reduce Motion, refresh the library with \u{2318}R — and podcasts that "
+                + "honour Reduce Motion, refresh the library with \u{2318}R, and podcasts that "
                 + "remember where you left off on any server.",
             changes: [
-                HelpWhatsNewChange(.added, "Keyboard navigation in song lists — \u{2191}/\u{2193} move through "
+                HelpWhatsNewChange(.added, "Keyboard navigation in song lists: \u{2191}/\u{2193} move through "
                         + "Liked, Search, album and playlist tracks; Return plays, "
                         + "\u{2318}Return plays next."
                 ),
@@ -2117,7 +2140,7 @@ extension HelpWhatsNewRelease {
                         + "hover and selection stay clearly visible."
                 ),
                 HelpWhatsNewChange(.added, "Go → Refresh Library (\u{2318}R) refetches albums, artists, "
-                        + "playlists, liked songs, stations, and podcast feeds — for a server "
+                        + "playlists, liked songs, stations, and podcast feeds, for a server "
                         + "whose content changed while Baton was open."
                 ),
                 HelpWhatsNewChange(.added, "A \u{201C}Continue listening\u{201D} shelf on Home puts every "
@@ -2129,7 +2152,7 @@ extension HelpWhatsNewRelease {
                 HelpWhatsNewChange(.added, "Get Info (\u{2318}I) shows a track\u{2019}s codec, bitrate, bit "
                         + "depth, sample rate, year, play count, and download location."
                 ),
-                HelpWhatsNewChange(.added, "The scroll wheel now works on the volume slider and the scrubber — "
+                HelpWhatsNewChange(.added, "The scroll wheel now works on the volume slider and the scrubber: "
                         + "scroll to change volume or seek."
                 ),
                 HelpWhatsNewChange(.added, "Hide sidebar sections you don\u{2019}t use (right-click the rail); "
@@ -2140,12 +2163,12 @@ extension HelpWhatsNewRelease {
                         + "server so you can try Baton before setting anything up."
                 ),
                 HelpWhatsNewChange(.improved, "Internet radio now appears properly in the menu-bar player and the "
-                        + "mini player — both show the station and control it, instead of a "
+                        + "mini player. Both show the station and control it, instead of a "
                         + "stale library track."
                 ),
                 HelpWhatsNewChange(.improved, "Podcasts on servers with their own podcast support (gonic, Airsonic) "
                         + "now resume where you left off, show listening progress, and can be "
-                        + "marked played — matching Baton\u{2019}s own subscriptions."
+                        + "marked played, matching Baton\u{2019}s own subscriptions."
                 ),
                 HelpWhatsNewChange(.improved, "VoiceOver can read and adjust the position and volume sliders "
                         + "everywhere they appear, and the main transport buttons announce "
@@ -2160,7 +2183,7 @@ extension HelpWhatsNewRelease {
                         + "selecting a show."
                 ),
                 HelpWhatsNewChange(.fixed, "Cover art no longer re-downloads every time a row or card is "
-                        + "redrawn — browsing large libraries is faster and thumbnails "
+                        + "redrawn. Browsing large libraries is faster and thumbnails "
                         + "stop flickering."
                 ),
                 HelpWhatsNewChange(.fixed, "Podcast episodes are no longer scrobbled to Last.fm or ListenBrainz "
@@ -2171,10 +2194,10 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.6.4",
             date: "2026",
-            highlight: "Replay a spoken summary — the last one anytime, or any recent one from a new history list.",
+            highlight: "Replay a spoken summary: the last one anytime, or any recent one from a new history list.",
             changes: [
                 HelpWhatsNewChange(.added, "Playback → Replay Last Summary (\u{2303}\u{2318}R) re-speaks the "
-                        + "most recent spoken summary anytime — even after the "
+                        + "most recent spoken summary anytime, even after the "
                         + "speaking HUD has closed."
                 ),
                 HelpWhatsNewChange(.added, "Playback → Recent Summaries opens a Spoken Summaries "
@@ -2186,15 +2209,15 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.6.3",
             date: "2026",
-            highlight: "Move your whole Baton setup to another Mac — export your settings and import them safely.",
+            highlight: "Move your whole Baton setup to another Mac: export your settings and import them safely.",
             changes: [
                 HelpWhatsNewChange(.added, "Settings → About → Back up & restore: export your "
                         + "preferences (playback, equalizer, layouts, spoken-summary "
                         + "voices, webhooks, and your server list) to a file, and "
                         + "import them on another Mac."
                 ),
-                HelpWhatsNewChange(.added, "Optionally include server passwords and scrobbler logins "
-                        + "— doing so encrypts the file with a passphrase you set, so "
+                HelpWhatsNewChange(.added, "Optionally include server passwords and scrobbler logins. "
+                        + "Doing so encrypts the file with a passphrase you set, so "
                         + "your secrets never travel in the clear."
                 ),
             ]
@@ -2214,7 +2237,7 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.6.1",
             date: "2026",
-            highlight: "Playback recovers from a stalled connection instead of spinning forever — a fix for flaky, filtered, or VPN networks.",
+            highlight: "Playback recovers from a stalled connection instead of spinning forever (a fix for flaky, filtered, or VPN networks).",
             changes: [
                 HelpWhatsNewChange(.fixed, "Playback no longer hangs on an endless buffering spinner "
                         + "when the connection is slow or blocked (a VPN, or corporate "
@@ -2259,10 +2282,10 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.5.0",
             date: "2026",
-            highlight: "Take control of a spoken summary — pause, resume, or stop it, with a live progress bar.",
+            highlight: "Take control of a spoken summary: pause, resume, or stop it, with a live progress bar.",
             changes: [
                 HelpWhatsNewChange(.added, "A speaking HUD appears while a summary plays, with "
-                        + "Pause / Resume and Stop — so a long read no longer has "
+                        + "Pause / Resume and Stop, so a long read no longer has "
                         + "to run to the end."
                 ),
                 HelpWhatsNewChange(.added, "Pause / Resume / Stop Speaking are in the Playback menu "
@@ -2274,7 +2297,7 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.4.0",
             date: "2026",
-            highlight: "Drive Baton from the keyboard and the menu bar — a Go menu, ⌘F search, Space to play, and a tidier status menu.",
+            highlight: "Drive Baton from the keyboard and the menu bar: a Go menu, ⌘F search, Space to play, and a tidier status menu.",
             changes: [
                 HelpWhatsNewChange(.added, "A Go menu to jump to any section (⌘1–8), plus Now "
                         + "Playing (⌘0) and Toggle Sidebar (⌃⌘S). ⌘F jumps to "
@@ -2297,14 +2320,14 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.3.0",
             date: "2026",
-            highlight: "Decide how spoken summaries reach you — announce right away, or wait quietly as a notification or banner.",
+            highlight: "Decide how spoken summaries reach you: announce right away, or wait quietly as a notification or banner.",
             changes: [
                 HelpWhatsNewChange(.added, "Settings → Speech → Delivery: choose whether an "
                         + "agent's spoken summary is announced immediately or "
-                        + "waits, and pick where it shows up — a macOS "
+                        + "waits, and pick where it shows up: a macOS "
                         + "notification, an in-app banner, or both."
                 ),
-                HelpWhatsNewChange(.added, "A safety gate — off by default — controls whether an "
+                HelpWhatsNewChange(.added, "A safety gate (off by default) controls whether an "
                         + "agent may speak a summary immediately without your "
                         + "confirmation, so a leaked token can't play audio at you."
                 ),
@@ -2320,7 +2343,7 @@ extension HelpWhatsNewRelease {
             highlight: "Filter Search and Liked by what you love, and three playback fixes from real-world use.",
             changes: [
                 HelpWhatsNewChange(.added, "Filter Search and Liked results by liked state and "
-                        + "star rating — a funnel next to Sort narrows songs and "
+                        + "star rating: a funnel next to Sort narrows songs and "
                         + "albums to just what you're looking for."
                 ),
                 HelpWhatsNewChange(.fixed, "Autoplay now keeps a continuous radio going at the end "

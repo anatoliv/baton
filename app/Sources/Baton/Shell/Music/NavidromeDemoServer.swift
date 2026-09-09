@@ -32,7 +32,7 @@ enum NavidromeDemoServer {
     /// detail but leading with who actually owns the outage.
     static func failureText(detail: String) -> String {
         "Couldn't reach the public Navidrome demo. That server is run by the Navidrome project, "
-            + "not by Baton, and it can be offline or change its sign-in at any time — connect "
+            + "not by Baton, and it can be offline or change its sign-in at any time. Connect "
             + "your own server to get started. (\(detail))"
     }
 

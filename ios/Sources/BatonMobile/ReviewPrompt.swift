@@ -33,10 +33,20 @@ enum ReviewPrompt {
     /// could only ever be reasoned about, never seen — which is the exact failure this
     /// codebase keeps paying for (a grid whose cells all measured the same, an equalizer
     /// whose coefficients were never applied). `ReviewPromptUITests` sets it to 1.
+    ///
+    /// Read through `ProcessInfo.processInfo.environment`, set via `app.launchEnvironment`,
+    /// not `-key value` in `app.launchArguments`. TBX-5326 found that a `-key value` pair
+    /// does not reliably reach the process at all: about one run in four, the ENTIRE group
+    /// of `-baton.review.*` arguments was simply absent from `ProcessInfo.processInfo.arguments`
+    /// on a fresh `app.launch()`: not just the boolean form, this integer read the built-in
+    /// default too, on the same launches. `launchEnvironment` goes through posix_spawn's envp
+    /// instead of argv reconstruction and did not reproduce the drop across the same sweep.
     static var requiredListeningDays: Int {
         #if DEBUG
-        let override = UserDefaults.standard.integer(forKey: "baton.review.requiredDays")
-        if override > 0 { return override }
+        if let raw = ProcessInfo.processInfo.environment["BATON_REVIEW_REQUIRED_DAYS"],
+           let override = Int(raw), override > 0 {
+            return override
+        }
         #endif
         return 3
     }
@@ -53,16 +63,19 @@ enum ReviewPrompt {
     /// playback a UI test can rely on, so without this seam `ReviewPromptUITests` could
     /// never reach the ask at all.
     ///
-    /// A bare launch flag read straight off `ProcessInfo`, the way `-uitestBypassBiometrics`
-    /// and `-baton.resetSession` are, rather than a `UserDefaults` key like the two numeric
-    /// overrides above. `-baton.review.countInDemo YES` through the argument domain read
-    /// back as false and cost a full UI-test run to find; the flag the rest of this app uses
-    /// for a yes-or-no does not have that failure mode.
-    static let countInDemoArgument = "-baton.review.countInDemo"
+    /// `-baton.review.countInDemo YES` through `UserDefaults`'s argument domain read back as
+    /// false and cost a full UI-test run to find. Moving it to a bare `ProcessInfo` flag (the
+    /// way `-uitestBypassBiometrics` and `-baton.resetSession` work) looked like the fix, but
+    /// TBX-5326 later caught the same flag itself missing from `ProcessInfo.processInfo.arguments`
+    /// on other launches, alongside the numeric overrides above going missing on the very same
+    /// runs. The trap was never "booleans specifically don't read back"; it is that a `-key`
+    /// (or `-key value`) pair does not reliably survive `app.launchArguments` at all. This env
+    /// var, set via `app.launchEnvironment`, is the mitigation that held up under repeated runs.
+    static let countInDemoEnvironmentKey = "BATON_REVIEW_COUNT_IN_DEMO"
 
     static var countsInDemoMode: Bool {
         #if DEBUG
-        return ProcessInfo.processInfo.arguments.contains(countInDemoArgument)
+        return ProcessInfo.processInfo.environment[countInDemoEnvironmentKey] != nil
         #else
         return false
         #endif
@@ -75,10 +88,14 @@ enum ReviewPrompt {
     }
 
     /// How long to let the music settle before interrupting it with the ask.
+    ///
+    /// Same `ProcessInfo.processInfo.environment` reasoning as `requiredListeningDays` above.
     static var settleDelay: Duration {
         #if DEBUG
-        let seconds = UserDefaults.standard.double(forKey: "baton.review.settleSeconds")
-        if seconds > 0 { return .seconds(seconds) }
+        if let raw = ProcessInfo.processInfo.environment["BATON_REVIEW_SETTLE_SECONDS"],
+           let seconds = Double(raw), seconds > 0 {
+            return .seconds(seconds)
+        }
         #endif
         return .seconds(20)
     }

@@ -125,11 +125,11 @@ final class UnfinishedReadingsTests: XCTestCase {
     /// than a blank one.
     func testTheMenuTitleSaysWhereItCameFromAndHowFarIn() {
         store.record(id: UUID(), chunks: chunks(10), resumeIndex: 5, sourceName: "Ghostty", startedAt: Date())
-        XCTAssertEqual(store.entries.first?.menuTitle, "Ghostty — 50% in")
+        XCTAssertEqual(store.entries.first?.menuTitle, "Ghostty (50% in)")
 
         store.clear()
         store.record(id: UUID(), chunks: chunks(4), resumeIndex: 1, sourceName: "   ", startedAt: Date())
-        XCTAssertEqual(store.entries.first?.menuTitle, "Reading — 25% in")
+        XCTAssertEqual(store.entries.first?.menuTitle, "Reading (25% in)")
     }
 }
 

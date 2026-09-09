@@ -66,10 +66,12 @@ done
 expect dirty "$WORK/many-url" "8000 logged URLs are caught (the fail-open case)"
 expect dirty "$WORK/many-subsystem" "8000 foreign subsystems are caught (the fail-open case)"
 
-# 4. W-19, the accessibility lint. It is scoped to a list of primary-path file names, so a
-#    planted violation has to carry one of those names to be in scope — which is itself the
-#    assertion that the scoping works, since the same violation under another name passes.
-mkdir -p "$WORK/icon-multiline" "$WORK/icon-oneline" "$WORK/icon-out-of-scope" "$WORK/icon-labelled"
+# 4. W-19, the accessibility lint. It used to be scoped to a list of nine primary-path file
+#    names, so it could go blocking before the rest of the tree was clean — which meant a
+#    planted violation had to carry one of those names to be caught, and 55 real ones sat
+#    outside it undetected (TBX-5327). Every file is in scope now, so these plant the same
+#    violations under names the old allowlist would have ignored.
+mkdir -p "$WORK/icon-multiline" "$WORK/icon-oneline" "$WORK/icon-any-name" "$WORK/icon-labelled" "$WORK/icon-ios-shaped"
 cat > "$WORK/icon-multiline/NowPlayingBar.swift" <<'SWIFT'
 struct Bar: View {
     var body: some View {
@@ -102,9 +104,25 @@ struct Row: View {
 SWIFT
 expect dirty "$WORK/icon-action" "the Button(action:) form is caught too"
 
-# The identical violation outside the scoped list must pass, or the list means nothing.
-cp "$WORK/icon-multiline/NowPlayingBar.swift" "$WORK/icon-out-of-scope/SomeOtherPane.swift"
-expect clean "$WORK/icon-out-of-scope" "the same violation outside the scoped files is not flagged"
+# The old allowlist would have passed this silently because the name isn't one of the nine.
+# There is no allowlist now, so any file name is in scope.
+cp "$WORK/icon-multiline/NowPlayingBar.swift" "$WORK/icon-any-name/SomeOtherPane.swift"
+expect dirty "$WORK/icon-any-name" "the same violation under a name outside the old allowlist is now flagged too"
+
+# The same algorithm over an iPhone-shaped file, proving the lint isn't Mac-only: before
+# this branch, `SRC` defaulted to app/Sources/Baton alone and ios/Sources was never scanned
+# at all, allowlist or not.
+cat > "$WORK/icon-ios-shaped/LibraryView.swift" <<'SWIFT'
+struct LibraryView: View {
+    var body: some View {
+        Button { newName = ""; showsNew = true } label: {
+            Image(systemName: "plus")
+        }
+        .disabled(model.isDemoMode)
+    }
+}
+SWIFT
+expect dirty "$WORK/icon-ios-shaped" "an iPhone-shaped file is scanned the same way"
 
 # A label eighteen lines below the closure still counts: the chain is read by brace
 # balance, not a fixed window. This is the shape a windowed version got wrong.
@@ -130,9 +148,75 @@ struct Bar: View {
 SWIFT
 expect clean "$WORK/icon-labelled" "a label below a multi-line overlay is found"
 
-# 5. The real tree must be clean, which is also a check that the patterns still match the
-#    code's shape rather than having rotted into matching nothing.
-expect clean "app/Sources/Baton" "the real source tree is clean"
+# 5. The real tree must be clean, in both apps now that neither is scoped out, which is
+#    also a check that the patterns still match the code's shape rather than having rotted
+#    into matching nothing.
+expect clean "app/Sources/Baton" "the real Mac source tree is clean"
+expect clean "ios/Sources" "the real iPhone source tree is clean"
+
+# 6. With BATON_LINT_SRC unset, the real gate scans both apps by default — the actual shape
+#    a merge sees, not a single directory standing in for it.
+if BATON_LINT_SRC= LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1; then
+  ok "the default (unscoped) run covers both apps and is clean"
+else
+  bad "the default (unscoped) run covers both apps and is clean (expected pass, got nonzero)"
+fi
+
+# 6. W-20, the Linux-import lint (TBX-5323). It drives the SAME real block via a second
+# override, BATON_IMPORT_LINT_SRC, so a planted tree here does not also feed the W-16/W-18/
+# W-19 lints above (those still read the real app/Sources/Baton, which is clean per case 5).
+run_import_lint_over() {   # $1 = directory to lint
+  BATON_IMPORT_LINT_SRC="$1" LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1
+}
+expect_import() {   # $1 = "clean"|"dirty", $2 = dir, $3 = name
+  run_import_lint_over "$2"; local rc=$?
+  if [ "$1" = clean ]; then
+    [ "$rc" -eq 0 ] && ok "$3" || bad "$3 (expected pass, got $rc)"
+  else
+    [ "$rc" -ne 0 ] && ok "$3" || bad "$3 (expected FAIL, lint passed)"
+  fi
+}
+
+# The exact defect that shipped: BatonStorage.swift wrote `import OSLog` directly instead of
+# going through PlatformCompat.swift. Same filename, so a fix that only checks the message
+# rather than the file it names would not be caught here either.
+mkdir -p "$WORK/import-bare-oslog"
+printf 'import OSLog\nimport Foundation\n\nstruct BatonStorage {}\n' > "$WORK/import-bare-oslog/BatonStorage.swift"
+expect_import dirty "$WORK/import-bare-oslog" "a bare import OSLog is caught (the BatonStorage.swift defect)"
+
+mkdir -p "$WORK/import-bare-cryptokit"
+printf 'import CryptoKit\nimport Foundation\n' > "$WORK/import-bare-cryptokit/Hash.swift"
+expect_import dirty "$WORK/import-bare-cryptokit" "a bare import CryptoKit is caught"
+
+# A guarded import must pass: this is the PlatformCompat.swift shape.
+mkdir -p "$WORK/import-guarded"
+cat > "$WORK/import-guarded/Compat.swift" <<'SWIFT'
+#if canImport(OSLog)
+import OSLog
+#else
+import Foundation
+#endif
+SWIFT
+expect_import clean "$WORK/import-guarded" "a guarded import behind #if canImport is not flagged"
+
+# Observation ships on Linux Swift 6 (swift:6.0-jammy), so it must NOT be in the forbidden
+# set even though it sits beside SwiftUI/Combine in most people's heads. The card that filed
+# this lint called this out explicitly as the mistake to not make.
+mkdir -p "$WORK/import-observation"
+printf 'import Observation\nimport Foundation\n' > "$WORK/import-observation/Watched.swift"
+expect_import clean "$WORK/import-observation" "a bare import Observation is NOT flagged (it ships on Linux Swift 6)"
+
+# The real gateway dependency graph must be clean today, and stay the check that catches the
+# next drift before deploy.sh does.
+for real_dir in \
+  Packages/BatonAgentKit/Sources \
+  Packages/BatonSubsonicKit/Sources \
+  Packages/BatonSubsonicModels/Sources \
+  Packages/BatonMCPProtocol/Sources \
+  gateway/Sources
+do
+  expect_import clean "$real_dir" "the real $real_dir is clean of unguarded Linux-missing imports"
+done
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

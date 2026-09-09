@@ -55,7 +55,7 @@ struct MobileSettingsView: View {
     }
 
     private var disconnectMessage: String {
-        var parts = ["Baton will forget this server and remove its data from this iPhone: listening history, playlisted downloads, radio bans, scrobble accounts and the music friend's key."]
+        var parts = ["Baton will forget this server and remove its data from this iPhone: listening history, playlisted downloads, radio bans, scrobble accounts, the music friend's key, and what the music friend remembers about you and has learned from your corrections. That also clears the friend's memory on your other devices the next time they sync."]
         if purgePreview.historyCount > 0 {
             parts.append("\(purgePreview.historyCount) plays will be cleared from this device \u{2014} your server's own play counts are untouched.")
         }
@@ -248,7 +248,7 @@ struct MobileSettingsView: View {
                 } footer: {
                     Text(model.agentConfig.isReady
                          ? "The Friend tab is available."
-                         : "Connect a model provider or your home server, then test it — the Friend tab appears once the test passes.")
+                         : "Connect a model provider or your home server, then test it. The Friend tab appears once the test passes.")
                 }
 
                 Section {
@@ -525,7 +525,7 @@ struct MobileSettingsView: View {
                     Text("Diagnostics")
                 } footer: {
                     Text(CrashReporting.isConfigured
-                         ? "Off by default. Crash reports carry no server address, credentials or track names — the Subsonic auth parameters are stripped before anything is sent."
+                         ? "Off by default. Crash reports carry no server address, credentials or track names. The Subsonic auth parameters are stripped before anything is sent."
                          : "This build has no reporting endpoint compiled in, so nothing can be sent.")
                 }
 
@@ -550,7 +550,7 @@ struct MobileSettingsView: View {
                         Label("Privacy Policy", systemImage: "hand.raised")
                     }
                 } footer: {
-                    Text("Baton is open source and MIT-licensed — the source is free forever; the App Store build funds development.")
+                    Text("Baton is open source and MIT-licensed: the source is free forever; the App Store build funds development.")
                 }
             }
             .nowPlayingWash(wash)

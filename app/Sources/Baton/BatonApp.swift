@@ -2,6 +2,131 @@ import BatonSubsonicKit
 import SwiftUI
 import UserNotifications
 
+/// Composition root for the services that used to start inside the main "Baton" window's
+/// `.task`: the MCP server, the fast-path control socket, the chat-bridge remote control,
+/// read-aloud, and preference sync. None of them need a window; they need the app. Gating
+/// them on that window's `.task` meant they simply never existed whenever it was closed at
+/// quit and restored closed (Baton keeps running from the menu bar), so Settings → Remote and
+/// → Friend Log, which both read `RemoteControlService`, rendered empty with nothing on
+/// screen to say why.
+///
+/// **Why an `NSApplicationDelegate` and not `BatonApp.init()`.** The obvious first attempt —
+/// building everything in `init()`, gated the same way `SparkleUpdater` already is — compiles
+/// but crashes on first launch: `NSApp.servicesProvider = …` (used by read-aloud) force-unwraps
+/// `NSApp`, and `NSApp` is `nil` until AppKit's own launch sequence assigns it, which happens
+/// *after* SwiftUI finishes constructing the `App` value. `applicationDidFinishLaunching` is
+/// the documented point after that assignment and before any window is guaranteed on screen,
+/// and it fires exactly once per launch regardless of whether the saved window state reopens
+/// the main window or leaves it closed — which is exactly the property this needed.
+///
+/// `ObservableObject` + `@Published` so `RemoteControlService` reaches the `Window("Settings")`
+/// / `Window("Music Friend")` scenes through `@NSApplicationDelegateAdaptor`'s own observation,
+/// the same way a `@StateObject` would.
+@MainActor
+final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    /// Chat remote control (Telegram / Discord). Shares the MCP server's audio-focus
+    /// registry and drives the same `BatonMCPToolCatalog`, so a chat message and an agent
+    /// call take one code path. Dormant (no bridges run) until configured in Settings →
+    /// Remote, but the object itself exists for the app's whole lifetime: Settings → Remote
+    /// and → Friend Log both read it.
+    @Published private(set) var remote: RemoteControlService?
+
+    /// The MCP control server (Streamable HTTP on loopback). Lets agents — and Tonebox —
+    /// drive playback, read now-playing/queue, and duck audio via owner-token focus.
+    private var mcp: BatonMCPServer?
+    /// The native fast-path listener (Unix socket) for latency-critical audio ducking.
+    /// Shares the MCP server's audio-focus registry so socket + MCP focus interoperate (§7).
+    private var controlSocket: BatonControlSocket?
+    /// Notification-center delegate for the `speak_summary` tool's "Play" action. Retained
+    /// for the app's lifetime so tapping a spoken-summary notification plays the audio.
+    private var speechNotifier: SpeechNotificationDelegate?
+    /// Owns the floating speaking-HUD panel (Pause/Resume/Stop over any Space while a summary
+    /// plays). Retained for the app's lifetime; observes `music.speech` to show/hide the panel.
+    private var speakingHUD: SpeakingHUDPresenter?
+    /// Speaks text captured off the screen (Services entry, and later the hotkey). Retained for
+    /// the app's lifetime because it owns the in-flight synthesis task for a reading.
+    private var readAloud: ReadAloudCoordinator?
+    /// Pulls shared settings in on its own. Before this the Mac only ever synced when
+    /// someone pressed a button in Settings, so the phone's searches, podcasts and EQ
+    /// simply never arrived.
+    private var syncScheduler: PreferenceSyncScheduler?
+
+    /// Set by `BatonApp.init()` immediately after this delegate is created. SwiftUI
+    /// constructs the `@NSApplicationDelegateAdaptor`-backed delegate before `init()`'s own
+    /// body runs — the same "defaults are applied before the body starts" rule that makes
+    /// `@State private var music = MusicModel()` already readable there — so this is always
+    /// assigned well before AppKit can call `applicationDidFinishLaunching`.
+    var music: MusicModel!
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Never under XCTest, same guard as `SparkleUpdater` elsewhere in this file: the unit
+        // tests are app-hosted, so this fires inside the test host too, and a live MCP
+        // listener, chat bridges, and a network sync scheduler in the test host are exactly
+        // the real-world side effects `BatonEnvironment` exists to keep out.
+        guard !BatonEnvironment.current.isTesting else { return }
+        let music = self.music!
+
+        // Expose the composition root to Shortcuts/Siri, same shape as the
+        // phone's AppServicesHolder.
+        MacIntentServices.model = music
+        BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips
+
+        // Read aloud (specs/read-aloud.md). The Services provider is the
+        // zero-permission acquisition path — the system hands over another app's
+        // selection, so this works on first launch with nothing granted and no
+        // hotkey bound. Registering it is free; nothing runs until someone
+        // chooses Speak with Baton.
+        let coordinator = ReadAloudCoordinator(music: music)
+        ScreenTextReader.shared.onCapture = { [coordinator] capture in
+            coordinator.read(capture)
+        }
+        NSApp.servicesProvider = ScreenTextReader.shared
+        // The hotkey routes through the same capture path as the Services
+        // entry, so both get identical source classification and cleaning.
+        // `apply()` is a no-op while the key is unbound, which is the default.
+        ReadAloudHotKey.shared.onSelection = { text in
+            ScreenTextReader.shared.capture(text, from: NSWorkspace.shared.frontmostApplication)
+        }
+        ReadAloudHotKey.shared.apply()
+        readAloud = coordinator
+
+        let scheduler = PreferenceSyncScheduler(model: music)
+        scheduler.start()
+        syncScheduler = scheduler
+
+        let s = BatonMCPServer(music: music); s.start(); mcp = s
+        // Start the fast-path listener sharing the server's focus registry.
+        let sock = BatonControlSocket(focus: s.focus, music: music); sock.start()
+        controlSocket = sock
+        // Chat bridges, sharing the server's focus registry. `apply()`
+        // is a no-op unless the user has configured a platform.
+        let chat = RemoteControlService(player: music.music, tools: MCPToolSurface(music: music, focus: s.focus))
+        chat.apply()
+        remote = chat
+        // Route spoken-summary notifications ("Play" action) to the engine.
+        let notifier = SpeechNotificationDelegate(speech: music.speech)
+        UNUserNotificationCenter.current().delegate = notifier
+        SpeechNotifier.registerCategory()
+        speechNotifier = notifier
+        // Bring up the floating speaking HUD (independent, all-Spaces panel).
+        speakingHUD = SpeakingHUDPresenter(model: music)
+    }
+
+    /// Tears everything down on quit so the accept threads stop, the control.sock file /
+    /// advertised endpoints don't linger, and preference sync's observer + heartbeat task have
+    /// somewhere to end. Harmless at quit since the process dies anyway; the point is that a
+    /// later "sign out" or "disconnect gateway" path needs one place that stops everything, and
+    /// a teardown list missing a member is how that path ships half-done.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard !BatonEnvironment.current.isTesting else { return }
+        music?.music.persistNow() // save queue + playhead on quit
+        remote?.stopAll()
+        controlSocket?.stop()
+        mcp?.stop()
+        syncScheduler?.stop()
+    }
+}
+
 /// Baton — a standalone, free macOS music player extracted from Tonebox.
 ///
 /// The whole player is rooted on a single `MusicModel` (`@Observable`), the same
@@ -12,38 +137,13 @@ import UserNotifications
 struct BatonApp: App {
     @State private var music = MusicModel()
 
-    /// The MCP control server (Streamable HTTP on loopback). Lets agents — and Tonebox —
-    /// drive playback, read now-playing/queue, and duck audio via owner-token focus.
-    /// Started once when the main window first appears.
-    @State private var mcp: BatonMCPServer?
-
-    /// The native fast-path listener (Unix socket) for latency-critical audio ducking.
-    /// Shares the MCP server's audio-focus registry so socket + MCP focus interoperate (§7).
-    @State private var controlSocket: BatonControlSocket?
-
-    /// Notification-center delegate for the `speak_summary` tool's "Play" action. Retained
-    /// for the app's lifetime so tapping a spoken-summary notification plays the audio.
-    @State private var speechNotifier: SpeechNotificationDelegate?
-
-    /// Owns the floating speaking-HUD panel (Pause/Resume/Stop over any Space while a summary
-    /// plays). Retained for the app's lifetime; observes `music.speech` to show/hide the panel.
-    @State private var speakingHUD: SpeakingHUDPresenter?
+    /// Owns the MCP server, the chat-bridge remote control, read-aloud, and preference sync —
+    /// see the type's own doc for why this composition root is a delegate rather than
+    /// `BatonApp.init()`.
+    @NSApplicationDelegateAdaptor(BatonAppDelegate.self) private var appDelegate
 
     /// Bridges menu-bar commands (Go / Find / Now Playing) into the main window's state.
     @State private var commandRouter = BatonCommandRouter()
-
-    /// Speaks text captured off the screen (Services entry, and later the hotkey). Retained for
-    /// the app's lifetime because it owns the in-flight synthesis task for a reading.
-    @State private var readAloud: ReadAloudCoordinator?
-
-    /// Chat remote control (Telegram / Discord). Shares the MCP server's audio-focus
-    /// registry and drives the same `BatonMCPToolCatalog`, so a chat message and an
-    /// agent call take one code path. Dormant until configured in Settings → Remote.
-    @State private var remote: RemoteControlService?
-    /// Pulls shared settings in on its own. Before this the Mac only ever synced when
-    /// someone pressed a button in Settings, so the phone's searches, podcasts and EQ
-    /// simply never arrived.
-    @State private var syncScheduler: PreferenceSyncScheduler?
 
     /// Window id for the custom About panel (opened from the app menu).
     static let aboutWindowID = "baton-about"
@@ -70,6 +170,10 @@ struct BatonApp: App {
         if UpdateChannel.isConfiguredFromBundle, !BatonEnvironment.current.isTesting {
             MainActor.assumeIsolated { _ = SparkleUpdater.shared }
         }
+
+        // Hand the composition-root delegate the model it needs, before AppKit can possibly
+        // call `applicationDidFinishLaunching` on it. See `BatonAppDelegate`.
+        appDelegate.music = music
     }
 
     /// A failed link says so, in the same place a failed drag already does.
@@ -165,76 +269,6 @@ struct BatonApp: App {
                 // `AccentColor` asset). Brand ⇄ Dynamic rule: chrome + actions are
                 // brand; the player wires the dynamic artwork accent explicitly on top.
                 .tint(.batonOrange)
-                .task {
-                    // Expose the composition root to Shortcuts/Siri, same shape as the
-                    // phone's AppServicesHolder.
-                    MacIntentServices.model = music
-                    BatonMCPSpeakTools.sweepStaleTempFiles() // clear orphaned speech clips
-                    // Read aloud (specs/read-aloud.md). The Services provider is the
-                    // zero-permission acquisition path — the system hands over another app's
-                    // selection, so this works on first launch with nothing granted and no
-                    // hotkey bound. Registering it is free; nothing runs until someone
-                    // chooses Speak with Baton.
-                    if readAloud == nil {
-                        let coordinator = ReadAloudCoordinator(music: music)
-                        ScreenTextReader.shared.onCapture = { [coordinator] capture in
-                            coordinator.read(capture)
-                        }
-                        NSApp.servicesProvider = ScreenTextReader.shared
-                        // The hotkey routes through the same capture path as the Services
-                        // entry, so both get identical source classification and cleaning.
-                        // `apply()` is a no-op while the key is unbound, which is the default.
-                        ReadAloudHotKey.shared.onSelection = { text in
-                            ScreenTextReader.shared.capture(text, from: NSWorkspace.shared.frontmostApplication)
-                        }
-                        ReadAloudHotKey.shared.apply()
-                        readAloud = coordinator
-                    }
-                    if syncScheduler == nil {
-                        let scheduler = PreferenceSyncScheduler(model: music)
-                        scheduler.start()
-                        syncScheduler = scheduler
-                    }
-                    if mcp == nil {
-                        let s = BatonMCPServer(music: music); s.start(); mcp = s
-                        // Start the fast-path listener sharing the server's focus registry.
-                        let sock = BatonControlSocket(focus: s.focus, music: music); sock.start()
-                        controlSocket = sock
-                        // Chat bridges, sharing the server's focus registry. `apply()`
-                        // is a no-op unless the user has configured a platform.
-                        let chat = RemoteControlService(player: music.music, tools: MCPToolSurface(music: music, focus: s.focus))
-                        chat.apply()
-                        remote = chat
-                        // Route spoken-summary notifications ("Play" action) to the engine.
-                        let notifier = SpeechNotificationDelegate(speech: music.speech)
-                        UNUserNotificationCenter.current().delegate = notifier
-                        SpeechNotifier.registerCategory()
-                        speechNotifier = notifier
-                        // Bring up the floating speaking HUD (independent, all-Spaces panel).
-                        speakingHUD = SpeakingHUDPresenter(model: music)
-                        // Tear both down on app quit so the accept threads stop and the
-                        // control.sock file / advertised endpoints don't linger.
-                        //
-                        // The preference-sync scheduler joins them here. It is started a few
-                        // lines above and had no caller for its `stop()` outside the tests, so
-                        // the set of services that can be quiesced and the set that actually
-                        // are were quietly different — and its `didBecomeActive` observer and
-                        // heartbeat task had no owner. Harmless at quit, since the process
-                        // dies anyway; the point is that a later "sign out" or "disconnect
-                        // gateway" path needs one place that stops everything, and a teardown
-                        // list missing a member is how that path ships half-done.
-                        let scheduler = syncScheduler
-                        NotificationCenter.default.addObserver(
-                            forName: NSApplication.willTerminateNotification,
-                            object: nil, queue: .main
-                        ) { _ in
-                            MainActor.assumeIsolated {
-                                music.music.persistNow() // save queue + playhead on quit
-                                chat.stopAll(); sock.stop(); s.stop(); scheduler?.stop()
-                            }
-                        }
-                    }
-                }
                 // `baton://` — the front door the Mac never had. Every path behind these
                 // links already existed (the router navigates, the engine plays); only the
                 // scheme and this handler were missing, so a link that worked on the phone
@@ -297,7 +331,7 @@ struct BatonApp: App {
         Window("Settings", id: BatonSettingsView.windowID) {
             BatonSettingsView()
                 .environment(music)
-                .environment(remote)
+                .environment(appDelegate.remote)
                 .tint(.batonOrange)
                 .batonChrome()
                 .defaultAppStorage(BatonStorage.defaults)
@@ -325,7 +359,7 @@ struct BatonApp: App {
         // to talk to it without opening Telegram.
         Window("Music Friend", id: MacMusicFriendView.windowID) {
             MacMusicFriendView()
-                .environment(remote)
+                .environment(appDelegate.remote)
                 .tint(.batonOrange)
                 .batonChrome()
                 .defaultAppStorage(BatonStorage.defaults)

@@ -256,6 +256,7 @@ private struct SpeakingHUDContent: View {
         }
         .buttonStyle(.plain)
         .help("Recent summaries")
+        .accessibilityLabel("Recent summaries")
     }
 
     private var closeButton: some View {
@@ -268,5 +269,6 @@ private struct SpeakingHUDContent: View {
         }
         .buttonStyle(.plain)
         .help("Stop & close")
+        .accessibilityLabel("Stop and close")
     }
 }

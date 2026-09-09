@@ -30,21 +30,30 @@ final class ReviewPromptUITests: XCTestCase {
             "-baton.demoMode", "YES",
             "-uitestBypassBiometrics",
             "-uitestSkipSpeechAuthorization",
-            // Collapse the gate to something a test can reach: one listening day instead of
-            // three, and a two-second settle instead of twenty.
-            "-baton.review.requiredDays", "1",
-            "-baton.review.settleSeconds", "2",
-            // Demo playback does not count towards the gate in a shipped build — the whole
-            // point of the demo is that nobody has committed to anything yet. The bundled
-            // library is also the only playback this test can rely on, so it opts back in
-            // through the DEBUG-only seam rather than the test being deleted.
-            "-baton.review.countInDemo",
-            // Deliberately NOT passing -baton.review.listeningDays or .lastPromptedVersion.
-            // A launch argument lands in NSArgumentDomain, which outranks the persistent
-            // domain on read — so seeding them here would permanently shadow the keys,
-            // `recordListening()` would write where nothing reads, and the gate could never
-            // open. `-baton.resetSession` is what clears prior state.
         ]
+        // The three review-gate overrides go through the environment, not launchArguments.
+        // TBX-5326: a `-key value` pair in launchArguments does not reliably reach the
+        // process at all. `-baton.review.countInDemo YES` first read back as false through
+        // UserDefaults's argument domain; after that was fixed by reading a bare flag off
+        // `ProcessInfo.processInfo.arguments` instead, repeated runs on this same simulator
+        // still showed the ENTIRE group of `-baton.review.*` arguments missing from
+        // `ProcessInfo.processInfo.arguments` on about one launch in four: the integer
+        // requiredDays included, reading the built-in default of 3 on those runs. That is
+        // consistent with the ask never firing on a second run and looking like a
+        // regression rather than a launch-argument delivery flake.
+        // `launchEnvironment` is delivered through posix_spawn's envp rather than argv
+        // reconstruction, and did not reproduce the drop across the same sweep.
+        app.launchEnvironment["BATON_REVIEW_REQUIRED_DAYS"] = "1"
+        app.launchEnvironment["BATON_REVIEW_SETTLE_SECONDS"] = "2"
+        // Demo playback does not count towards the gate in a shipped build — the whole
+        // point of the demo is that nobody has committed to anything yet. The bundled
+        // library is also the only playback this test can rely on, so it opts back in
+        // through the DEBUG-only seam rather than the test being deleted. Presence is the
+        // whole signal, so any non-empty value opts in.
+        app.launchEnvironment["BATON_REVIEW_COUNT_IN_DEMO"] = "1"
+        // Deliberately NOT passing -baton.review.listeningDays or .lastPromptedVersion.
+        // Those are the persisted state itself, not overrides, and `-baton.resetSession` is
+        // what clears them (SessionPurge.wipeStores() -> ReviewPrompt.resetForTesting()).
     }
 
     override func tearDown() { app = nil; super.tearDown() }

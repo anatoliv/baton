@@ -243,6 +243,7 @@ struct SleepTimerMenu: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Sleep timer")
+        .accessibilityLabel("Sleep timer")
     }
 }
 
@@ -271,6 +272,7 @@ struct MusicRatingCluster: View {
             }
             .buttonStyle(.plain)
             .help(liked ? "Unlike" : "Like")
+            .accessibilityLabel(liked ? "Unlike" : "Like")
 
             HStack(spacing: 6) {
                 ForEach(1 ... 5, id: \.self) { star in
@@ -285,6 +287,7 @@ struct MusicRatingCluster: View {
                     }
                     .buttonStyle(.plain)
                     .help("Rate \(star)")
+                    .accessibilityLabel("Rate \(star)")
                 }
             }
         }

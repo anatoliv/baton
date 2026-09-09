@@ -1,4 +1,5 @@
 import XCTest
+import BatonPlaybackKit
 import BatonSubsonicKit
 import BatonSubsonicModels
 @testable import BatonMobile
@@ -104,5 +105,51 @@ extension AlphabetIndexOrderingTests {
         XCTAssertEqual(AlphabetIndex.Entry(letter: "X-Z", firstID: "1").displayLetter, "X-Z",
                        "a range carries information and fits")
         XCTAssertEqual(AlphabetIndex.Entry(letter: "[Unknown]", firstID: "1").displayLetter, "?")
+    }
+}
+
+@MainActor
+extension AlphabetIndexOrderingTests {
+    // MARK: - The demo library's own index
+
+    /// `artistIndex` used to stay at its default-empty value through every demo session —
+    /// `seedDemo` filled in the flat `artists` array but nothing built the bucketed twin
+    /// `ArtistsView.indexEntries` actually reads, so the rail could never draw in demo mode
+    /// no matter how many artists it held. `MusicLibraryStore.bucketedByFirstLetter` fixes
+    /// that, duplicating (not sharing — `BatonPlaybackKit` cannot see this app-level file)
+    /// the same fold-and-bucket rule `AlphabetIndex.bucket(for:)` uses. This pins the two
+    /// against each other so a drift between the copies fails here instead of shipping
+    /// quietly the way the three rail bugs the file above guards against did.
+    func testDemoLibraryIndexAgreesWithTheRailsOwnBucketingRule() {
+        let names = ["Ava Bloom", "Bruno Castillo", "Édith Fontaine", "01 Collective", "Zebra Duo"]
+        let store = MusicLibraryStore()
+        store.seedDemo(
+            songs: [],
+            albums: [],
+            extraArtists: names.map { NavidromeArtist(id: "demo-rail-\($0)", name: $0) }
+        )
+
+        let expected = names.map { AlphabetIndex.bucket(for: $0) }.sorted()
+        XCTAssertEqual(store.artistIndex.buckets.map(\.letter).sorted(), Array(Set(expected)).sorted())
+        // And each bucket's members actually fold to that letter under the rail's own rule.
+        for bucket in store.artistIndex.buckets {
+            for artist in bucket.items {
+                XCTAssertEqual(AlphabetIndex.bucket(for: artist.name), bucket.letter,
+                               "\(artist.name) landed in bucket \(bucket.letter) under the demo index, "
+                                   + "but the rail's own rule would file it elsewhere")
+            }
+        }
+    }
+
+    /// The fixture itself has to actually clear the rail's threshold, or adding it proves
+    /// nothing: this is the number `-baton.railMinimum 1` needs to be smaller than.
+    func testRailFixtureHasEnoughArtistsToEarnARail() {
+        let store = MusicLibraryStore()
+        store.seedDemo(songs: [], albums: [], extraArtists: DemoLibrary.railFixtureArtists)
+
+        let ordered = AlphabetIndex.Ordered.server(store.artistIndex, minimum: 1)
+        XCTAssertFalse(ordered.entries.isEmpty,
+                       "the rail fixture has \(DemoLibrary.railFixtureArtists.count) artists across "
+                           + "\(store.artistIndex.buckets.count) letters, which should clear minimum 1")
     }
 }

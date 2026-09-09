@@ -55,7 +55,7 @@ struct ImportedSetupCheckView: View {
     /// The three cases need different things from the reader, so they are three sentences.
     private var footer: String {
         if check.isRunning {
-            return "Testing each service the import configured. Nothing is being sent — these are read-only checks."
+            return "Testing each service the import configured. Nothing is being sent. These are read-only checks."
         }
         if check.order.isEmpty {
             return "Your settings are in. There was nothing here that needed a connection test."
@@ -63,7 +63,7 @@ struct ImportedSetupCheckView: View {
         if check.allPassed {
             return "Everything the import configured is answering. Your music friend is ready and its tab is in the tab bar."
         }
-        return "Your settings are in and nothing was undone. The services below that could not be reached usually point at an address that only works on your home network — open Settings to change one."
+        return "Your settings are in and nothing was undone. The services below that could not be reached usually point at an address that only works on your home network. Open Settings to change one."
     }
 
     @ViewBuilder

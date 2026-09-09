@@ -799,6 +799,7 @@ struct HelpTopicButton: View {
         }
         .buttonStyle(.borderless)
         .help(label)
+        .accessibilityLabel(label)
     }
 }
 

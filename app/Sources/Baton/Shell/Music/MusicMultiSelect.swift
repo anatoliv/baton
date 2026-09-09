@@ -181,6 +181,7 @@ struct MusicSelectionBar<Actions: View>: View {
             .buttonStyle(.plain)
             .keyboardShortcut(selectAllShortcut ? KeyboardShortcut("a", modifiers: .command) : nil)
             .help(allSelected ? "Deselect all" : "Select all displayed (⌘A)")
+            .accessibilityLabel(allSelected ? "Deselect all" : "Select all displayed")
 
             Text("\(count) selected").font(.caption).foregroundStyle(.secondary)
 
@@ -196,6 +197,7 @@ struct MusicSelectionBar<Actions: View>: View {
             .buttonStyle(.plain).foregroundStyle(.secondary)
             .keyboardShortcut(.cancelAction)
             .help("Clear selection (Esc)")
+            .accessibilityLabel("Clear selection")
         }
     }
 }
@@ -222,6 +224,7 @@ struct MusicBatchAddToPlaylistMenu: View {
         }
         .menuStyle(.borderlessButton).fixedSize()
         .help("Add selection to a playlist")
+        .accessibilityLabel("Add selection to a playlist")
         .task { if model.musicLibrary.playlists.isEmpty { await model.musicLibrary.loadPlaylists() } }
     }
 
@@ -252,6 +255,7 @@ struct MusicBatchButton: View {
                 .frame(width: 24, height: 24).contentShape(Rectangle())
         }
         .buttonStyle(.plain).help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -271,5 +275,6 @@ struct MusicSelectCheckbox: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).frame(width: 18).help("Select")
+        .accessibilityLabel("Select")
     }
 }
