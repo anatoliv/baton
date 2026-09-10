@@ -33,6 +33,12 @@ import Foundation
 /// **It must be cheap**, because while a measurement is open every allocation on every thread
 /// in the process pays for it. What is left is a bit test, one pointer load and a mach port
 /// comparison.
+///
+/// Duplicated from `BatonDSPTests/AllocationCounter.swift` (PR #113 / S-F23) rather than
+/// shared: the code this file measures, `EQTapContext.process(_:)`, lives in BatonPlaybackKit,
+/// a different SPM package, and this helper is deliberately test-only. It has no business in
+/// either package's shipping target. Keep the two copies identical apart from this
+/// paragraph; `AllocationCounterSafetyTests` in each package is what proves they both work.
 enum AllocationCounter {
     private typealias LoggerFn = @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void
 

@@ -116,7 +116,7 @@ public enum BatonStorage {
         guard suite != appDomain else {
             storageLog.error("""
                 refusing a defaults suite equal to the app's own domain \
-                ('\(suite, privacy: .public)') — that is not a redirect.
+                ('\(suite, privacy: .public)'): that is not a redirect.
                 """)
             return .none
         }
@@ -157,7 +157,7 @@ public enum BatonStorage {
         let resolved = redirect(from: ProcessInfo.processInfo.arguments)
         if let suite = resolved.suiteName {
             storageLog.notice("""
-                PROBE LAUNCH — preferences in suite '\(suite, privacy: .public)', files under \
+                PROBE LAUNCH: preferences in suite '\(suite, privacy: .public)', files under \
                 '\(directory(for: resolved).path, privacy: .public)'. The owner's own domain and \
                 Application Support are not being touched.
                 """)

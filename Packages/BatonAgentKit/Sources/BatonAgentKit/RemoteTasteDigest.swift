@@ -102,7 +102,7 @@ public final class RemoteTasteDigest {
         return """
         What the owner listens to (from their server, current as of today):
         \(lines.joined(separator: "\n"))
-        These are facts, not guesses — use them to ground what you play and say.
+        These are facts, not guesses: use them to ground what you play and say.
         """
     }
 

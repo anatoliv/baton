@@ -108,7 +108,7 @@ extension AVPlayerDeck {
         )
         switch action {
         case .retryPlay:
-            stallLog.warning("player parked with recovered buffer — re-issuing play (attempt \(self.stallPolicy.attempts))")
+            stallLog.warning("player parked with recovered buffer: re-issuing play (attempt \(self.stallPolicy.attempts))")
             player.rate = player.defaultRate == 0 ? 1 : player.defaultRate
         case .giveUp, .none:
             break

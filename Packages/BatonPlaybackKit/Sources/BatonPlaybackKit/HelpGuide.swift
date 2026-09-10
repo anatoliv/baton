@@ -388,6 +388,6 @@ public enum NavidromePublicDemo {
     /// broken".
     public static let caveat =
         "Navidrome's own public server, with a few thousand Creative Commons tracks. "
-        + "It's not ours, so it can be slow or offline — but it's a real library over a "
+        + "It's not ours, so it can be slow or offline, but it's a real library over a "
         + "real connection, which the built-in demo isn't."
 }

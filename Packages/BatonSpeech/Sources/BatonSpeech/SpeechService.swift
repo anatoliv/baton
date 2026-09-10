@@ -128,7 +128,7 @@ public enum SpeechService {
         do {
             return try await session.data(for: request)
         } catch let error as URLError {
-            speechLog.notice("TTS request failed (\(error.code.rawValue, privacy: .public)) — retrying once")
+            speechLog.notice("TTS request failed (\(error.code.rawValue, privacy: .public)), retrying once")
             try? await Task.sleep(nanoseconds: 500_000_000)
             return try await session.data(for: request)
         }

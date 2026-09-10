@@ -40,6 +40,9 @@ app/Sources/Baton/Shell/Music/MusicLikedView.swift	Text(song.duration.map { Musi
 app/Sources/Baton/Shell/Music/MusicPodcastsView.swift	Text("—").font(.caption).foregroundStyle(.tertiary)
 app/Sources/Baton/Shell/Music/MusicRadioView.swift	Text("—").font(.caption).foregroundStyle(.tertiary)
 ios/Sources/BatonMobile/MobileSettingsView.swift	LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+Packages/BatonAgentKit/Sources/BatonAgentKit/RemoteCommandRouter.swift	let name = item["name"] as? String ?? "—"
+Packages/BatonAgentKit/Sources/BatonAgentKit/RemoteCommandRouter.swift	let name = album["name"] as? String ?? "—"
+Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/SettingsTransfer.swift	Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
 
 # --- Field separators ---------------------------------------------------------
 # "Title — Artist" and "Label — detail". The dash is the divider between two fields in one
@@ -49,6 +52,16 @@ ios/Sources/BatonMobile/MobileSettingsView.swift	LabeledContent("Version", value
 Shared/ServiceStatus.swift	.help(status.detail.map { "\(status.label) — \($0)" } ?? status.label)
 app/Sources/Baton/MCP/BatonMCPMixTools.swift	if let artist = song.artist, !artist.isEmpty { return "\(song.title) — \(artist)" }
 ios/Sources/BatonWidgets/BatonWidgets.swift	Text(snapshot.artist.map { "\(snapshot.title) — \($0)" } ?? snapshot.title)
+Packages/BatonAgentKit/Sources/BatonAgentKit/RemoteChoice.swift	lines.append(option.detail.isEmpty ? marker : "\(marker) — \(option.detail)")
+Packages/BatonAgentKit/Sources/BatonAgentKit/RemoteCommandRouter.swift	return artist.map { "• \(name) — \($0)" } ?? "• \(name)"
+Packages/BatonAgentKit/Sources/BatonAgentKit/RemoteCommandRouter.swift	var out = artist.map { "\(title) — \($0)" } ?? title
+Packages/BatonAgentKit/Sources/BatonAgentKit/RemoteTasteDigest.swift	.map { "\($0.title) — \($0.artist) (\($0.plays) plays)" }
+Packages/BatonAgentKit/Sources/BatonAgentKit/RemoteTasteDigest.swift	album.artist.map { "\(album.name) — \($0)" } ?? album.name
+Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/InternetRadioStore.swift	return picked.isEmpty ? trimmed : picked.joined(separator: " — ")
+Packages/BatonSubsonicModels/Sources/BatonSubsonicModels/SubsonicModels.swift	if let artist = DisplayName.artist(artist) { return "\(artist) — \(title)" }
+gateway/Sources/baton-gateway/GatewayToolSurface.swift	.map { "\($0.offset + 1). \($0.element.title) — \($0.element.artist ?? "?")" }
+gateway/Sources/baton-gateway/GatewayToolSurface.swift	return ("Similar to \(seed.title):\n" + similar.prefix(10).map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
+gateway/Sources/baton-gateway/GatewayToolSurface.swift	return (songs.map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
 
 # --- Ranges in shipped What's New entries -------------------------------------
 # A range of keyboard shortcuts and a range of letters. Both are ranges, where the en dash is
@@ -56,3 +69,20 @@ ios/Sources/BatonWidgets/BatonWidgets.swift	Text(snapshot.artist.map { "\(snapsh
 # history that has already shipped, which is not rewritten after the fact.
 app/Sources/Baton/Shell/Music/BatonHelpContent.swift	HelpWhatsNewChange(.added, "A Go menu to jump to any section (⌘1–8), plus Now "
 ios/Sources/BatonMobile/HelpView.swift	.init(.added, "An A–Z rail on Albums, Artists and Folders. Drag it to jump: 2,604 albums is no longer a flick marathon."),
+
+# --- Characters needed to parse or trim text, not prose -----------------------
+# The literal dash glyphs are members of a CharacterSet used to strip dangling separator
+# punctuation from a downloaded filename ("{artist} - {title}" with no artist becomes
+# " - Title", trimmed to "Title"). Rewriting the sentence is not possible here: there is no
+# sentence, the characters themselves are the thing being matched, and removing either one
+# from the set would leave that punctuation in a filename it should have been trimmed from.
+Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/MusicDownloadStore.swift	let trimSet = CharacterSet(charactersIn: " -_.–—").union(.whitespaces)
+
+# --- Generates a Swift comment, not prose --------------------------------------
+# This string is written verbatim into a generated `.swift` fixture file as a `//` or
+# `// TODO:` comment for a human reviewing exported eval cases (FriendEvalExport). The same
+# reasoning the lint already applies to comments in source ("nobody reads them in the app")
+# applies one level removed: the text becomes a comment the moment it is written to disk, it
+# is never shown to an app user, and it exists to be read by whoever is triaging eval fixtures.
+Packages/BatonAgentKit/Sources/BatonAgentKit/FriendEvalExport.swift	// actually typed, kept verbatim — tidying the phrasing would re-imagine the
+Packages/BatonAgentKit/Sources/BatonAgentKit/FriendEvalExport.swift	return "        // TODO: .plays or .answers? — Case(message: \"\(escaped)\", expect: .plays),\(why)"

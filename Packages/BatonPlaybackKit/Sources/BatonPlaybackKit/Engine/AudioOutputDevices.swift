@@ -118,7 +118,7 @@ public enum AudioOutputDevices {
     /// A line for the UI when the wanted destination isn't in `outputs()` — an AirPlay
     /// speaker that macOS hasn't connected yet has no CoreAudio device to point at.
     public static let systemDefaultHint =
-        "AirPlay speakers appear here once macOS connects them — pick them in Control Centre first."
+        "AirPlay speakers appear here once macOS connects them: pick them in Control Centre first."
 
     // MARK: - Render quantum
 

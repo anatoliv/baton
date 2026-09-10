@@ -177,10 +177,10 @@ public struct VersionedStore<Payload: Codable> {
         case let .file(url):
             let aside = url.appendingPathExtension("corrupt-\(stamp)")
             try? data.write(to: aside)
-            log.error("store \(name, privacy: .public) was unreadable — preserved as \(aside.lastPathComponent, privacy: .public); starting empty")
+            log.error("store \(name, privacy: .public) was unreadable, preserved as \(aside.lastPathComponent, privacy: .public); starting empty")
         case let .defaults(defaults, key):
             defaults.set(data, forKey: "\(key).corrupt-\(stamp)")
-            log.error("store \(name, privacy: .public) was unreadable — preserved under \(key, privacy: .public).corrupt-\(stamp, privacy: .public); starting empty")
+            log.error("store \(name, privacy: .public) was unreadable, preserved under \(key, privacy: .public).corrupt-\(stamp, privacy: .public); starting empty")
         }
     }
 

@@ -826,7 +826,7 @@ public final class EnginePlaybackController {
             let shortBy = expected - currentTime
             let attempt = spuriousEndRecoveries
             engineLog.notice(
-                "engine: stream ended \(shortBy, format: .fixed(precision: 1))s early — re-requesting from the playhead (attempt \(attempt))"
+                "engine: stream ended \(shortBy, format: .fixed(precision: 1))s early, re-requesting from the playhead (attempt \(attempt))"
             )
             load(track: track, startingAt: currentTime, autoplay: state == .playing)
             return
@@ -928,14 +928,14 @@ public final class EnginePlaybackController {
     private func recoverFromPlayheadStall() {
         playheadStall.reset()
         guard playheadRecoveries < Self.maxPlayheadRecoveries else {
-            engineLog.error("engine: playhead still frozen after \(Self.maxPlayheadRecoveries) I/O restarts — falling through to the retry ladder")
+            engineLog.error("engine: playhead still frozen after \(Self.maxPlayheadRecoveries) I/O restarts, falling through to the retry ladder")
             playheadRecoveries = 0
             handleLoadFailure("Playback stopped responding.", generation: loadGeneration)
             return
         }
         playheadRecoveries += 1
         let queued = Int(pipeline.aheadSeconds(on: activeDeck))
-        engineLog.error("engine: playhead frozen at \(Int(self.currentTime))s with \(queued)s queued — restarting I/O (attempt \(self.playheadRecoveries))")
+        engineLog.error("engine: playhead frozen at \(Int(self.currentTime))s with \(queued)s queued, restarting I/O (attempt \(self.playheadRecoveries))")
         guard pipeline.restartIO() else {
             playheadRecoveries = 0
             handleLoadFailure("Playback stopped responding.", generation: loadGeneration)
@@ -958,8 +958,8 @@ public final class EnginePlaybackController {
             try? await Task.sleep(for: .seconds(timeout))
             guard let self, !Task.isCancelled, isBuffering, state == .playing else { return }
             stallWatchdog = nil
-            engineLog.error("engine: buffering stalled > \(timeout)s — recovering at playhead")
-            handleLoadFailure("Playback stalled — the connection may be blocked or too slow.",
+            engineLog.error("engine: buffering stalled > \(timeout)s, recovering at playhead")
+            handleLoadFailure("Playback stalled: the connection may be blocked or too slow.",
                               generation: loadGeneration)
         }
     }
@@ -984,7 +984,7 @@ public final class EnginePlaybackController {
             let resumeAt = currentTime
             let attempt = sameTrackRetries
             state = .loading
-            engineLog.error("engine: load failure (\(message, privacy: .public)) — retry \(attempt) of episode \(self.episodeRetries) at \(Int(resumeAt))s")
+            engineLog.error("engine: load failure (\(message, privacy: .public)), retry \(attempt) of episode \(self.episodeRetries) at \(Int(resumeAt))s")
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(Double(attempt)))
                 guard let self else { return }
@@ -992,7 +992,7 @@ public final class EnginePlaybackController {
                 // here looks exactly like a track that stopped for no reason: no retry, no
                 // `.error`, nothing for the host to act on. Say so.
                 guard case .loading = state else {
-                    engineLog.error("engine: retry \(attempt) abandoned — state moved to \("\(self.state)", privacy: .public) during the backoff")
+                    engineLog.error("engine: retry \(attempt) abandoned, state moved to \("\(self.state)", privacy: .public) during the backoff")
                     return
                 }
                 load(track: track, startingAt: resumeAt, autoplay: true)
@@ -1003,7 +1003,7 @@ public final class EnginePlaybackController {
         // The end of the ladder was the one step with no log line, so a track that stopped
         // here was indistinguishable from one whose failure never arrived — which is exactly
         // the question that matters, because `.error` is what the host listens for.
-        engineLog.error("engine: giving up on this track (\(message, privacy: .public)) — reporting .error to the host")
+        engineLog.error("engine: giving up on this track (\(message, privacy: .public)), reporting .error to the host")
         state = .error(message)
         // The ladder ends here, at `.error`, which the bridge surfaces to the host through
         // `onFailure`. There used to be a tail below this that waited 1.5 s and called

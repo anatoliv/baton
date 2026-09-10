@@ -86,11 +86,24 @@ public enum JSONRPC {
         return out
     }
 
-    /// Serialize a JSON object to compact UTF-8 data. Never throws in practice — the
-    /// dictionaries built here are always JSON-legal — but falls back to an empty
-    /// object rather than crashing.
+    /// Serialize a JSON object to compact UTF-8 data.
+    ///
+    /// `JSONSerialization.data(withJSONObject:)` raises an Objective-C exception, not a
+    /// Swift error, when the object is not JSON-legal, so a `try?` around it never catches
+    /// that case: an invalid value would crash the process instead of falling through to a
+    /// fallback. Validate with `isValidJSONObject` first, and on failure encode a
+    /// well-formed JSON-RPC error object (not an empty `{}`) so a malformed tool result
+    /// degrades to an error response instead of taking the whole app down.
     public static func data(_ object: [String: Any]) -> Data {
-        (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
+        guard JSONSerialization.isValidJSONObject(object) else {
+            let fallback = error(
+                id: nil,
+                code: JSONRPCError.internalError,
+                message: "internal error: response could not be encoded as JSON"
+            )
+            return (try? JSONSerialization.data(withJSONObject: fallback)) ?? Data("{}".utf8)
+        }
+        return (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
     }
 }
 

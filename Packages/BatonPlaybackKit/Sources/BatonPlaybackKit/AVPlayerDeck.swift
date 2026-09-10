@@ -453,7 +453,7 @@ public final class AVPlayerDeck: PlaybackDeck {
                     self.onItemReady?()
                 case .failed:
                     let message = failureMessage
-                        ?? "Playback failed — the track may be an unsupported format (e.g. Ogg/Opus)."
+                        ?? "Playback failed: the track may be an unsupported format (e.g. Ogg/Opus)."
                     streamingLog.error("stream item failed: \(message, privacy: .public)")
                     self.onFailure?(message)
                 default:
@@ -523,7 +523,7 @@ public final class AVPlayerDeck: PlaybackDeck {
                     // Only "buffering" while the host actually intends to play (not paused).
                     let buffering = self.hostIntendsToPlay?() == true
                     self.onBuffering?(buffering)
-                    streamingLog.error("player: waiting to play — reason \(waitReason, privacy: .public)")
+                    streamingLog.error("player: waiting to play, reason \(waitReason, privacy: .public)")
                     // A slow-but-open connection can wait here forever (corporate proxy /
                     // VPN / TLS inspection). Arm the watchdog so playback recovers instead
                     // of spinning.
@@ -608,9 +608,9 @@ public final class AVPlayerDeck: PlaybackDeck {
             stallWatchdog = nil
             guard hostIntendsToPlay?() == true,
                   player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
-            streamingLog.error("player: buffering stalled > \(timeout, privacy: .public)s — recovering")
+            streamingLog.error("player: buffering stalled > \(timeout, privacy: .public)s, recovering")
             onFailure?(
-                "Playback stalled — the connection may be blocked or too slow (check VPN or network filtering)."
+                "Playback stalled: the connection may be blocked or too slow (check VPN or network filtering)."
             )
         }
     }

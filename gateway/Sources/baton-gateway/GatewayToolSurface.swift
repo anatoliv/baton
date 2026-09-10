@@ -34,7 +34,7 @@ final class GatewayToolSurface: RemoteToolSurface {
              "inputSchema": ["type": "object", "properties": [:]]],
             ["name": "music_random", "description": "Random songs, optionally by genre.",
              "inputSchema": ["type": "object", "properties": ["genre": ["type": "string"]]]],
-            ["name": "music_play", "description": "Play something on the user's device — pass what to play.",
+            ["name": "music_play", "description": "Play something on the user's device: pass what to play.",
              "inputSchema": ["type": "object", "properties": ["query": ["type": "string"]], "required": ["query"]]],
             ["name": "music_pause", "description": "Pause playback on the user's device.",
              "inputSchema": ["type": "object", "properties": [:]]],
@@ -50,7 +50,7 @@ final class GatewayToolSurface: RemoteToolSurface {
         case "music_search":
             let query = arguments["query"] as? String ?? ""
             guard let results = try? await client.search3(query: query) else {
-                return ("The library didn't answer — is Navidrome up?", true)
+                return ("The library didn't answer. Is Navidrome up?", true)
             }
             lastResults.remember(results.songs, for: sessionID)
             if results.songs.isEmpty { return ("Nothing matched \"\(query)\".", false) }
@@ -81,7 +81,7 @@ final class GatewayToolSurface: RemoteToolSurface {
             // if nothing is listening, say so instead of claiming success.
             let argumentsJSON = (try? JSONSerialization.data(withJSONObject: arguments)) ?? Data("{}".utf8)
             guard let result = await devices.dispatch(name: name, argumentsJSON: argumentsJSON) else {
-                return ("No Baton device is connected right now — open Baton on your phone and I'll play it there. I can still search and build you something from here.", false)
+                return ("No Baton device is connected right now: open Baton on your phone and I'll play it there. I can still search and build you something from here.", false)
             }
             return result
         default:

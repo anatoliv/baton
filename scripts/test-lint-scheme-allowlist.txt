@@ -1,0 +1,5 @@
+# Packages under Packages/ that W-22 (scripts/test.sh) will not flag for missing scheme
+# wiring, one per line as "<PackageName>: <reason>". An unlisted package with a Tests/
+# directory is a finding, not a judgement call, so keep this short and remove a line the
+# day its reason stops being true.
+

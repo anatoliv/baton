@@ -66,8 +66,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.19.3"
-    CURRENT_PROJECT_VERSION: "103"
+    MARKETING_VERSION: "0.19.4"
+    CURRENT_PROJECT_VERSION: "104"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -353,6 +353,11 @@ schemes:
         # is the same hole one layer up, which is what happened to BatonSubsonicModels.
         - package: BatonSpeech/BatonSpeechTests
         - package: BatonMCPProtocol/BatonMCPProtocolTests
+        # BatonSubsonicKitTests (added by WS3, TBX-5309) had the same hole: it ran green
+        # under `swift test` inside the package, which is how WS3 verified it, and was
+        # never added here, so the gate built the package and executed none of its tests.
+        # A suite green in one place looks identical to one that runs nowhere (TBX-5363).
+        - package: BatonSubsonicKit/BatonSubsonicKitTests
     profile:
       config: Release
     analyze:

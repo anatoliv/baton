@@ -308,12 +308,167 @@ expect_dash clean "app/Sources" "the real Mac source tree is free of prose dashe
 expect_dash clean "ios/Sources" "the real iPhone source tree is free of prose dashes" "$DASH_ALLOWLIST"
 expect_dash clean "Shared" "the real Shared tree is free of prose dashes" "$DASH_ALLOWLIST"
 
-# With BATON_DASH_LINT_SRC unset the gate scans all three roots with the real allowlist,
-# which is the shape a merge actually sees.
+# TBX-5362 widened the default roots from the two apps to also cover Packages, gateway and
+# watch/Sources: the lexer never looked past app/Sources and ios/Sources, so the Telegram and
+# Discord bot replies in Packages/BatonAgentKit (a user reads every one of those in a chat
+# window) and the gateway's own replies were unguarded. Same two checks as above, over the
+# three roots that joined the gate.
+expect_dash clean "Packages" "the real Packages tree is free of prose dashes" "$DASH_ALLOWLIST"
+expect_dash clean "gateway" "the real gateway tree is free of prose dashes" "$DASH_ALLOWLIST"
+expect_dash clean "watch/Sources" "the real watch/Sources tree is free of prose dashes" "$DASH_ALLOWLIST"
+
+# A planted violation under one of the new roots' own shape (a SwiftPM package: Sources/
+# beside Tests/, which is what Packages/ and gateway/ actually are) has to be caught, or
+# widening the default roots did nothing.
+mkdir -p "$WORK/dash-package/Sources/BatonExampleKit" "$WORK/dash-package/Tests/BatonExampleKitTests"
+cat > "$WORK/dash-package/Sources/BatonExampleKit/ExampleReply.swift" <<SWIFT
+func reply() -> String { "Linked $EM send \`help\` for the commands." }
+SWIFT
+expect_dash dirty "$WORK/dash-package" "a dash in a package's Sources is caught (the new-roots shape)"
+
+# ...but the SAME package's Tests directory must NOT be, which is the whole reason widening
+# to whole packages (rather than enumerating every Sources/ by hand) was safe: TBX-5362 left
+# test fixtures alone, same call AppStoreMetadataTests already made for its own counting, and
+# a package root always carries Tests/ beside Sources/.
+rm "$WORK/dash-package/Sources/BatonExampleKit/ExampleReply.swift"
+cat > "$WORK/dash-package/Tests/BatonExampleKitTests/ExampleReplyTests.swift" <<SWIFT
+func testReply() { XCTAssertEqual(reply(), "expected $EM not actual") }
+SWIFT
+expect_dash clean "$WORK/dash-package" "a dash inside a package's Tests directory is NOT flagged (fixtures stay)"
+
+# With BATON_DASH_LINT_SRC unset the gate scans all six roots with the real allowlist, which
+# is the shape a merge actually sees.
 if LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1; then
-  ok "the default (unscoped) dash lint covers all three roots and is clean"
+  ok "the default (unscoped) dash lint covers all six roots and is clean"
 else
-  bad "the default (unscoped) dash lint covers all three roots and is clean (expected pass, got nonzero)"
+  bad "the default (unscoped) dash lint covers all six roots and is clean (expected pass, got nonzero)"
+fi
+
+# 8. W-22, the scheme-coverage lint (TBX-5363). BatonSubsonicKitTests shipped and passed
+# under `swift test` for a full release cycle while the Mac scheme never ran it, because
+# adding the package's test target and adding it to app/project.yml's scheme are two
+# separate steps and nothing forced the second one. Three overrides point the REAL block
+# at a planted Packages/ tree, a planted project.yml and a planted allowlist, the same
+# pattern as the import and dash lints above: this drives scripts/test.sh itself, not a
+# copy of its logic.
+run_scheme_lint_over() {   # $1 = Packages dir, $2 = project.yml, $3 = allowlist ("" = none)
+  BATON_SCHEME_LINT_PACKAGES_DIR="$1" BATON_SCHEME_LINT_PROJECT_YML="$2" \
+    BATON_SCHEME_LINT_ALLOWLIST="${3:-/dev/null}" LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1
+}
+expect_scheme() {   # $1 = "clean"|"dirty", $2 = Packages dir, $3 = project.yml, $4 = name, $5 = optional allowlist
+  run_scheme_lint_over "$2" "$3" "${5:-}"; local rc=$?
+  if [ "$1" = clean ]; then
+    [ "$rc" -eq 0 ] && ok "$4" || bad "$4 (expected pass, got $rc)"
+  else
+    [ "$rc" -ne 0 ] && ok "$4" || bad "$4 (expected FAIL, lint passed)"
+  fi
+}
+
+# The defect itself: a package ships a Tests/ directory and project.yml's scheme never
+# mentions it.
+mkdir -p "$WORK/scheme-missing/Packages/FakeKit/Tests/FakeKitTests"
+echo 'final class T {}' > "$WORK/scheme-missing/Packages/FakeKit/Tests/FakeKitTests/T.swift"
+cat > "$WORK/scheme-missing/project.yml" <<'YML'
+schemes:
+  Baton:
+    test:
+      targets:
+        - BatonTests
+YML
+expect_scheme dirty "$WORK/scheme-missing/Packages" "$WORK/scheme-missing/project.yml" \
+  "a package with a Tests/ dir absent from the scheme is caught (the BatonSubsonicKit defect)"
+
+# Add the scheme line for it and the same tree passes.
+cat > "$WORK/scheme-missing/project.yml" <<'YML'
+schemes:
+  Baton:
+    test:
+      targets:
+        - BatonTests
+        - package: FakeKit/FakeKitTests
+YML
+expect_scheme clean "$WORK/scheme-missing/Packages" "$WORK/scheme-missing/project.yml" \
+  "adding the scheme line clears the same tree"
+
+# A dependency-only `package:` entry (no slash, the shape the top-level packages: block
+# uses) must not be mistaken for a scheme test-target line, or a package could dodge the
+# lint just by being a build dependency.
+mkdir -p "$WORK/scheme-dep-only/Packages/FakeKit/Tests/FakeKitTests"
+echo 'final class T {}' > "$WORK/scheme-dep-only/Packages/FakeKit/Tests/FakeKitTests/T.swift"
+cat > "$WORK/scheme-dep-only/project.yml" <<'YML'
+packages:
+  FakeKit:
+    path: ../Packages/FakeKit
+targets:
+  Baton:
+    dependencies:
+      - package: FakeKit
+schemes:
+  Baton:
+    test:
+      targets:
+        - BatonTests
+YML
+expect_scheme dirty "$WORK/scheme-dep-only/Packages" "$WORK/scheme-dep-only/project.yml" \
+  "a bare dependency 'package: FakeKit' line does not count as scheme wiring"
+
+# Two packages whose names share a prefix must not cross-satisfy each other: adding
+# BatonSubsonicKitExtra must not silence a missing BatonSubsonicKit, or vice versa.
+mkdir -p "$WORK/scheme-prefix/Packages/FakeKit/Tests/FakeKitTests" \
+         "$WORK/scheme-prefix/Packages/FakeKitExtra/Tests/FakeKitExtraTests"
+echo 'final class T {}' > "$WORK/scheme-prefix/Packages/FakeKit/Tests/FakeKitTests/T.swift"
+echo 'final class T {}' > "$WORK/scheme-prefix/Packages/FakeKitExtra/Tests/FakeKitExtraTests/T.swift"
+cat > "$WORK/scheme-prefix/project.yml" <<'YML'
+schemes:
+  Baton:
+    test:
+      targets:
+        - BatonTests
+        - package: FakeKitExtra/FakeKitExtraTests
+YML
+expect_scheme dirty "$WORK/scheme-prefix/Packages" "$WORK/scheme-prefix/project.yml" \
+  "a name-prefix match does not silence the shorter package that is actually missing"
+
+# A package left out on purpose is silenced by the allowlist, and only that package: a
+# second package with the same gap and no line of its own must still be caught, so the
+# allowlist cannot be used to quiet the lint wholesale.
+mkdir -p "$WORK/scheme-allowed/Packages/FakeKit/Tests/FakeKitTests" \
+         "$WORK/scheme-allowed/Packages/OtherKit/Tests/OtherKitTests"
+echo 'final class T {}' > "$WORK/scheme-allowed/Packages/FakeKit/Tests/FakeKitTests/T.swift"
+echo 'final class T {}' > "$WORK/scheme-allowed/Packages/OtherKit/Tests/OtherKitTests/T.swift"
+cat > "$WORK/scheme-allowed/project.yml" <<'YML'
+schemes:
+  Baton:
+    test:
+      targets:
+        - BatonTests
+YML
+cat > "$WORK/scheme-allowed.txt" <<'TXT'
+# comment lines and blanks are ignored
+
+FakeKit: excluded on purpose for this test
+TXT
+expect_scheme dirty "$WORK/scheme-allowed/Packages" "$WORK/scheme-allowed/project.yml" \
+  "both packages are caught with no allowlist" "$WORK/scheme-allowed.txt.missing"
+expect_scheme dirty "$WORK/scheme-allowed/Packages" "$WORK/scheme-allowed/project.yml" \
+  "the allowlist silences only the package it names, OtherKit still fires" "$WORK/scheme-allowed.txt"
+rm -rf "$WORK/scheme-allowed/Packages/OtherKit"
+expect_scheme clean "$WORK/scheme-allowed/Packages" "$WORK/scheme-allowed/project.yml" \
+  "with only the allowlisted package left, the same tree is clean" "$WORK/scheme-allowed.txt"
+
+# The real tree, with the real allowlist, is the shape a merge actually sees: BatonSpeech
+# is the one live exception today (TBX-5354/PR #117 added its test target; the scheme line
+# lands with TBX-5352/PR #116), and the allowlist file is what keeps this clean until then.
+expect_scheme clean "Packages" "app/project.yml" \
+  "the real Packages/ tree matches the real scheme, modulo the real allowlist" \
+  "scripts/test-lint-scheme-allowlist.txt"
+
+# With every override unset, the default run reads app/project.yml and Packages/ directly,
+# which is the shape the merge gate actually runs.
+if LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1; then
+  ok "the default (unscoped) scheme lint reads the real tree and is clean"
+else
+  bad "the default (unscoped) scheme lint reads the real tree and is clean (expected pass, got nonzero)"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

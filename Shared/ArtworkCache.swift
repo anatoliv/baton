@@ -91,12 +91,17 @@ public final class ArtworkCache {
     /// Sizes the shared `URLCache` and arms the artwork byte cache.
     ///
     /// Called once at launch by both apps. This used to raise `URLCache.shared` to 512MB on
-    /// disk on the theory that cover-art URLs are byte-identical across a run. They are not:
-    /// the Subsonic salt is stable per `NavidromeClient` instance and both apps build a
+    /// disk on the theory that cover-art URLs are byte-identical across a run. They were not:
+    /// the Subsonic salt was stable per `NavidromeClient` instance and both apps build a
     /// client per request, so 645 cover-art entries in the owner's real cache carried 645
     /// distinct salts for 456 distinct covers. The disk tier could never serve a repeat, and
     /// in exchange it wrote a username and 645 `md5(password + salt)` tokens into
     /// `Cache.db`'s `request_key` column in cleartext. Measurements are on TBX-5349.
+    ///
+    /// TBX-5359 has since moved the salt to a per-server cache, so signed URLs do repeat now.
+    /// That does not give this back to `URLCache.shared`: the key would still be a cleartext
+    /// username and a password-derived token written to disk, and it would still miss on every
+    /// password change. The auth-stripped key below holds no credential and survives one.
     ///
     /// So: `URLCache.shared` keeps a memory tier and stores nothing on disk (the JSON API
     /// bodies it held came to 217KB in total), and artwork gets its own disk cache keyed by

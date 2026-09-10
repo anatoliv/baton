@@ -746,7 +746,7 @@ public enum NavidromeError: Error, LocalizedError, Equatable, Sendable {
         case let .http(status):
             "The music server returned HTTP \(status)."
         case .unauthorized:
-            "The music server rejected your credentials. Use your Navidrome username (this is often NOT your email address) and password — check them in the Navidrome web UI."
+            "The music server rejected your credentials. Use your Navidrome username (this is often NOT your email address) and password: check them in the Navidrome web UI."
         case let .subsonic(code, message):
             "Music server error \(code): \(message)"
         case let .decoding(detail):

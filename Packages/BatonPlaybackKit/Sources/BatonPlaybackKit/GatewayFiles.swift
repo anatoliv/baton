@@ -108,7 +108,7 @@ public struct GatewayFiles: Sendable {
             let got = try Self.sha256(of: temporary)
             guard got == sha256 else {
                 try? FileManager.default.removeItem(at: temporary)
-                gatewayFilesLog.error("downloaded file failed its checksum — discarded")
+                gatewayFilesLog.error("downloaded file failed its checksum: discarded")
                 throw TransferError.corrupted(expected: sha256, got: got)
             }
         }

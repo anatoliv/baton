@@ -157,7 +157,7 @@ public final class RemoteCommandRouter {
                     return .plain("That link code isn't right. Baton → Settings → Remote shows the current one.")
                 }
                 settings.authorize(sender: inbound.senderID, on: inbound.platform)
-                return .player("Linked. You can control Baton from here now — send `help` for the commands.")
+                return .player("Linked. You can control Baton from here now: send `help` for the commands.")
             }
             remoteLog.notice("Ignoring message from unauthorized \(inbound.platform.rawValue, privacy: .public) sender")
             return .plain(
@@ -175,7 +175,7 @@ public final class RemoteCommandRouter {
 
         case .forget:
             conversation.forget(key: RemoteConversationLog.key(for: inbound))
-            return .plain("Forgotten — the next message starts fresh.")
+            return .plain("Forgotten. The next message starts fresh.")
 
         case let .malformed(_, text, hint):
             // The verb matched and its argument didn't, which almost always
@@ -224,7 +224,7 @@ public final class RemoteCommandRouter {
         case let .natural(text):
             guard settings.naturalLanguage.isConfigured else {
                 return .plain(
-                    "I don't know `\(firstWord(of: text))`. Send `help` for the command list — "
+                    "I don't know `\(firstWord(of: text))`. Send `help` for the command list, "
                         + "or turn on natural language in Baton → Settings → Remote to say it in your own words."
                 )
             }
@@ -266,7 +266,7 @@ public final class RemoteCommandRouter {
             """, true)
         }
         return ("""
-        Stored as memory \(entry.id). Now tell the owner, in your reply and in these words:         "Noted — \(entry.text). (`memories` lists what I keep, `forget \(entry.id)` deletes this one.)"
+        Stored as memory \(entry.id). Now tell the owner, in your reply and in these words: "Noted: \(entry.text). (`memories` lists what I keep, `forget \(entry.id)` deletes this one.)"
         """, false)
     }
 
@@ -409,7 +409,7 @@ public final class RemoteCommandRouter {
         } else if rating == .up, let updated = feedbackLog.exchanges.first(where: { $0.id == last.id }) {
             learning?.retireIfApproved(updated)
         }
-        return .init(text: rating == .up ? "Noted — thank you." : "Noted. I'll bear that in mind.")
+        return .init(text: rating == .up ? "Noted: thank you." : "Noted. I'll bear that in mind.")
     }
 
     /// Turn an agent result into a reply, arming the auto-pick when it ended by
@@ -479,7 +479,7 @@ public final class RemoteCommandRouter {
             return "Player state: nothing is playing right now."
         }
         let position = player.queue.isEmpty
-            ? "" : " — track \(player.currentIndex + 1) of \(player.queue.count) in the queue"
+            ? "" : ", track \(player.currentIndex + 1) of \(player.queue.count) in the queue"
         // The album is included because its absence was measured to matter:
         // "what album is this from" sent the model searching for the answer
         // instead of to music_now_playing, which displays it.
@@ -592,12 +592,12 @@ public final class RemoteCommandRouter {
     static let helpText = """
     *Baton*
 
-    *Playback* — `play <what>` · `pause` · `resume` · `next` · `prev` · `stop`
-    *Queue* — `queue <what>` · `playnext <what>` · `queue` (show it)
-    *Sound* — `vol 0–100` · `seek 1:30` · `shuffle on|off` · `repeat off|all|one`
-    *Library* — `search <what>` · `like` · `unlike` · `rate 0–5` · `playlists` · `playlist <name>`
-    *More* — `mix <vibe>` · `radio <seed>` · `sleep 30` · `np` (now playing) · `forget`
-    *Memory* — `memories` (what I keep about you) · `forget 2` · `forget everything`
+    *Playback*: `play <what>` · `pause` · `resume` · `next` · `prev` · `stop`
+    *Queue*: `queue <what>` · `playnext <what>` · `queue` (show it)
+    *Sound*: `vol 0-100` · `seek 1:30` · `shuffle on|off` · `repeat off|all|one`
+    *Library*: `search <what>` · `like` · `unlike` · `rate 0-5` · `playlists` · `playlist <name>`
+    *More*: `mix <vibe>` · `radio <seed>` · `sleep 30` · `np` (now playing) · `forget`
+    *Memory*: `memories` (what I keep about you) · `forget 2` · `forget everything`
 
     Anything I don't recognize, I'll read as plain English if natural language \
     is switched on in Baton → Settings → Remote.
@@ -654,7 +654,7 @@ public enum RemoteResultFormatter {
         case "music_play_playlist":
             guard let name = json["playing_playlist"] as? String else { return compact(json) }
             var out = "▶︎ Playlist “\(name)”"
-            if let tracks = json["tracks"] as? Int { out += " — \(tracks) track\(tracks == 1 ? "" : "s")" }
+            if let tracks = json["tracks"] as? Int { out += ", \(tracks) track\(tracks == 1 ? "" : "s")" }
             if let track = json["now_playing"] as? [String: Any] {
                 out += "\nStarting with " + describe(track)
             }
@@ -664,7 +664,7 @@ public enum RemoteResultFormatter {
             guard let mix = json["mix"] as? String ?? json["name"] as? String else { return compact(json) }
             var out = json["action"] as? String == "playlist"
                 ? "Saved mix “\(mix)”" : "▶︎ Mix “\(mix)”"
-            if let count = json["track_count"] as? Int { out += " — \(count) tracks" }
+            if let count = json["track_count"] as? Int { out += ", \(count) tracks" }
             if let minutes = json["total_minutes"] as? Int { out += ", \(minutes) min" }
             if let track = json["now_playing"] as? [String: Any] {
                 out += "\nStarting with " + describe(track)
@@ -689,7 +689,7 @@ public enum RemoteResultFormatter {
             }
             let sample = playlists.prefix(5).map(line).joined(separator: "\n")
             return """
-            *\(playlists.count) playlists* — too many to list.
+            *\(playlists.count) playlists*: too many to list.
 
             Play one by name: `playlist <name>`. Part of the name is enough, so             `playlist trance` finds the first playlist with "trance" in it.
 

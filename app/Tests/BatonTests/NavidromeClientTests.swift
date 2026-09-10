@@ -59,13 +59,21 @@ final class NavidromeClientTests: XCTestCase {
         XCTAssertFalse(url.absoluteString.contains("sesame"))
     }
 
-    ///  / NET-06: the salt is stable per client, so two URLs for the same resource are
-    /// byte-identical and URLCache/AsyncImage can cache them (was a fresh salt every call).
-    func testSaltIsStablePerClient() throws {
+    ///  / NET-06, corrected by TBX-5359: the salt has to be stable per SERVER, not per
+    /// client. Stable per client bought nothing, because nothing here keeps a client: every
+    /// call site builds one per request, and the owner's live cache held 645 cover-art
+    /// entries carrying 645 distinct salts for 456 distinct covers. The second half of this
+    /// test is the one that was red.
+    func testSaltIsStablePerServerAcrossSeparateClients() throws {
+        let cover = [URLQueryItem(name: "id", value: "art1")]
         let client = NavidromeClient(credentials: creds(.tokenSalt), session: mockSession())
-        let a = try client.makeURL("getCoverArt.view", query: [URLQueryItem(name: "id", value: "art1")], json: false)
-        let b = try client.makeURL("getCoverArt.view", query: [URLQueryItem(name: "id", value: "art1")], json: false)
+        let a = try client.makeURL("getCoverArt.view", query: cover, json: false)
+        let b = try client.makeURL("getCoverArt.view", query: cover, json: false)
         XCTAssertEqual(a.absoluteString, b.absoluteString, "same resource must yield an identical URL")
+
+        let rebuilt = NavidromeClient(credentials: creds(.tokenSalt), session: mockSession())
+        let c = try rebuilt.makeURL("getCoverArt.view", query: cover, json: false)
+        XCTAssertEqual(a.absoluteString, c.absoluteString, "a rebuilt client must sign the same cover the same way")
     }
 
     /// apiKey request carries apiKey and NOT u/t/s.

@@ -57,7 +57,7 @@ public struct FriendCorrection: Codable, Identifiable, Sendable, Equatable {
     public var promptLine: String {
         let complaint = note.map { "they said: \"\($0)\"" } ?? faultPhrase
         let did = resolution.isEmpty ? "" : " You \(resolution)."
-        return "- When they asked \"\(request)\":\(did) That was wrong — \(complaint)."
+        return "- When they asked \"\(request)\":\(did) That was wrong: \(complaint)."
     }
 
     private var faultPhrase: String {

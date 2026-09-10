@@ -293,7 +293,7 @@ extension MusicEqualizer {
     public static func scopeExplanation(experimentalEngineEnabled: Bool) -> String {
         experimentalEngineEnabled
             ? "Applies to everything Baton plays, including music streamed from your server."
-            : "Applies to downloaded tracks. Music streamed from your server is unaffected — "
+            : "Applies to downloaded tracks. Music streamed from your server is unaffected: "
               + "turn on the experimental audio engine in Advanced to equalize that too."
     }
 }

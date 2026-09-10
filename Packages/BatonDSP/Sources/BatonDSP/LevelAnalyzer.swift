@@ -170,13 +170,24 @@ public final class LevelAnalyzer: @unchecked Sendable {
         var counted = 0
         let scale = 1 / Float(channelCount)
 
-        for i in 0 ..< frames {
+        // `while` rather than `for i in 0 ..< frames` (and likewise for the channel loop
+        // inside it): without optimization, iterating a `Range` goes through
+        // `IndexingIterator` and its unspecialized `Collection` witness, which heap-allocates
+        // once per element. Release builds specialize that away, but a debug build is what a
+        // developer listens to, and this runs on the render thread for every buffer of every
+        // track. Measured with a `malloc_logger` hook: 3072 allocations per 1024-frame stereo
+        // buffer: one per frame plus one per channel per frame. Same fix as
+        // `EQCoefficients.refreshIfChanged` (S-F23) and `EQTapContext.process`.
+        var i = 0
+        while i < frames {
             // Mono sum first: one splitter chain instead of one per channel.
             var mono: Float = 0
-            for c in 0 ..< channelCount {
-                guard let p = channelPointers[c] else { continue }
-                mono += p[i]
+            var c = 0
+            while c < channelCount {
+                if let p = channelPointers[c] { mono += p[i] }
+                c += 1
             }
+            i += 1                      // before the `continue` below, so a NaN frame still advances
             mono *= scale
             guard mono.isFinite else { continue }
 

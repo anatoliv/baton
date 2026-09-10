@@ -81,7 +81,7 @@ public final class ScrobbleQueue {
         if pending.count > Self.maxEntries {
             let overflow = pending.count - Self.maxEntries
             pending.removeFirst(overflow)
-            queueLog.error("scrobble queue over \(Self.maxEntries, privacy: .public) — dropped \(overflow, privacy: .public) oldest")
+            queueLog.error("scrobble queue over \(Self.maxEntries, privacy: .public), dropped \(overflow, privacy: .public) oldest")
         }
         save()
     }
@@ -152,7 +152,7 @@ public final class ScrobbleQueue {
             // Corrupt blob: preserve it aside rather than starting empty and overwriting the
             // queued scrobbles on the next save.
             defaults.set(data, forKey: Self.storageKey + ".corrupt")
-            queueLog.error("scrobble queue was unreadable — preserved under \(Self.storageKey, privacy: .public).corrupt; starting empty")
+            queueLog.error("scrobble queue was unreadable, preserved under \(Self.storageKey, privacy: .public).corrupt; starting empty")
             return
         }
         pending = decoded

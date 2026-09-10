@@ -941,7 +941,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // Offline mode: never fall back to streaming — only downloaded content plays. Without
         // this the shipped toggle did nothing and Baton streamed anyway.
         if isOfflineMode {
-            throw NavidromeError.transport("Offline mode is on — this track isn't downloaded.")
+            throw NavidromeError.transport("Offline mode is on: this track isn't downloaded.")
         }
         // A podcast episode carries its enclosure URL as its id — play it directly.
         if MediaKind(id: songID) == .podcastEpisode, let url = URL(string: songID) {
@@ -1077,9 +1077,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     public var remoteBanHandler: (() -> Void)?
     public var remoteIsLiked: ((NavidromeSong) -> Bool)?
 
-    /// Cached Now Playing artwork URL, resolved once per cover id — the signed cover
-    /// URL embeds a fresh salt each build, so recomputing it every push would make the
-    /// OS refetch the same image on every pause/seek.
+    /// Cached Now Playing artwork URL, resolved once per cover id, so a pause or a seek
+    /// pushes the same URL rather than rebuilding one. The salt inside it used to change on
+    /// every build, which made the OS refetch the same image each push; since TBX-5359 it is
+    /// stable per server, and this cache now just saves the rebuild.
     private var nowPlayingCoverID: String?
     private var nowPlayingDirectArt: URL?
     private var nowPlayingCoverURL: URL?
@@ -1933,7 +1934,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
            spuriousEndRecoveries < Self.maxSpuriousEndRecoveries {
             spuriousEndRecoveries += 1
             streamingLog.info(
-                "ignoring end-of-stream at \(Int(self.currentTime))s of \(Int(self.duration))s — re-requesting")
+                "ignoring end-of-stream at \(Int(self.currentTime))s of \(Int(self.duration))s, re-requesting")
             reloadStream(startingAt: currentTime)
             return
         }
@@ -1961,7 +1962,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             return
         }
         if let stale = avDeck.preload {
-            streamingLog.info("gapless preload stale at boundary (index \(stale.index, privacy: .public)) — reloading instead")
+            streamingLog.info("gapless preload stale at boundary (index \(stale.index, privacy: .public)), reloading instead")
             avDeck.clearPreparedNext()
         }
         advanceAfterEnd()
@@ -2080,7 +2081,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // Respect the user's "Wi-Fi only" preference on metered connections — the streamed
         // handoff still works, it just isn't pre-cached (a small buffer at the seam).
         if !GaplessPreload.shouldPrefetch(wifiOnly: gaplessPrefetchWifiOnly, metered: networkIsMetered()) {
-            streamingLog.info("gapless prefetch skipped — metered connection (Wi-Fi only)")
+            streamingLog.info("gapless prefetch skipped: metered connection (Wi-Fi only)")
             return
         }
         gaplessPrefetcher.prefetch(songID: songID, from: streamURL, index: index) { [weak self] songID, index, local in

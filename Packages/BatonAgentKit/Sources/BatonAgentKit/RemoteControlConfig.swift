@@ -171,12 +171,12 @@ public final class RemoteControlSettings {
         public var hint: String {
             switch self {
             case .anthropic:
-                "Anthropic's Messages API. Base URL is the API root — Baton adds /v1/messages itself."
+                "Anthropic's Messages API. Base URL is the API root: Baton adds /v1/messages itself."
             case .openAICompatible:
                 """
                 The chat-completions shape, which OpenAI, Groq, Together, and self-hosted \
                 vLLM or Ollama all speak. Base URL is the root that /chat/completions hangs \
-                off — for OpenAI that's https://api.openai.com/v1.
+                off. For OpenAI that's https://api.openai.com/v1.
                 """
             }
         }

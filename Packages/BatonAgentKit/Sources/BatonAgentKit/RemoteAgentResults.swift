@@ -161,7 +161,7 @@ extension RemoteAgentResults {
         case "music_search":
             if let collision = duplicateArtistName(in: json) {
                 notes.append(
-                    "Two different artists here are both called \"\(collision)\" — genuinely "
+                    "Two different artists here are both called \"\(collision)\": genuinely "
                         + "different music. Offer the choice with ask_choice rather than picking one.")
             }
 
@@ -172,7 +172,7 @@ extension RemoteAgentResults {
                 memory.recordMention("play_count", now: now)
                 let title = playing["title"] as? String ?? "this"
                 notes.append(
-                    "Worth a mention, once: \"\(title)\" has \(plays) plays — the owner's most "
+                    "Worth a mention, once: \"\(title)\" has \(plays) plays, the owner's most "
                         + "worn-in track. Say so in passing; don't refuse or lecture, and don't "
                         + "repeat it in later replies.")
             }
@@ -181,7 +181,7 @@ extension RemoteAgentResults {
                 memory.recordMention("repeat", now: now)
                 notes.append(
                     "This is at least the second time recently for \"\(repeated)\". Fine to "
-                        + "mention lightly and offer something adjacent — but play what was asked.")
+                        + "mention lightly and offer something adjacent, but play what was asked.")
             }
 
         default:

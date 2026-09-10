@@ -95,17 +95,17 @@ public enum RemoteCommandParser {
             return .tool(.init(name: "music_queue_add", arguments: ["query": .string(rest)]))
 
         case "playnext":
-            guard !rest.isEmpty else { return malformed(verb, text, "`playnext` needs something to slot in — like `playnext dido`.") }
+            guard !rest.isEmpty else { return malformed(verb, text, "`playnext` needs something to slot in: like `playnext dido`.") }
             return .tool(.init(name: "music_play_next", arguments: ["query": .string(rest)]))
 
         // — volume & position ----------------------------------------------
         case "vol", "volume", "v":
             guard let percent = Int(rest.trimmingCharacters(in: .whitespaces)),
-                  (0...100).contains(percent) else { return malformed(verb, text, "`vol` takes a number from 0 to 100 — like `vol 40`.") }
+                  (0...100).contains(percent) else { return malformed(verb, text, "`vol` takes a number from 0 to 100: like `vol 40`.") }
             return .tool(.init(name: "music_set_volume", arguments: ["percent": .int(percent)]))
 
         case "seek":
-            guard let seconds = parseDuration(rest) else { return malformed(verb, text, "`seek` takes a position — `seek 1:30`, `seek 90`, or `seek 1m30s`.") }
+            guard let seconds = parseDuration(rest) else { return malformed(verb, text, "`seek` takes a position: `seek 1:30`, `seek 90`, or `seek 1m30s`.") }
             return .tool(.init(name: "music_seek", arguments: ["seconds": .int(seconds)]))
 
         // — status ----------------------------------------------------------
@@ -120,7 +120,7 @@ public enum RemoteCommandParser {
             // ("Forgotten Love"). Dropping a term can only widen an AND query,
             // so the thing actually wanted stays in the results.
             let query = withoutLeadingConnector(rest)
-            guard !query.isEmpty else { return malformed(verb, text, "`search` needs something to look for — like `search dido`.") }
+            guard !query.isEmpty else { return malformed(verb, text, "`search` needs something to look for: like `search dido`.") }
             return .tool(.init(name: "music_search", arguments: ["query": .string(query)]))
 
         // — library ---------------------------------------------------------
@@ -136,7 +136,7 @@ public enum RemoteCommandParser {
 
         case "rate":
             guard let stars = Int(rest.trimmingCharacters(in: .whitespaces)),
-                  (0...5).contains(stars) else { return malformed(verb, text, "`rate` takes a number from 0 to 5 — like `rate 4`.") }
+                  (0...5).contains(stars) else { return malformed(verb, text, "`rate` takes a number from 0 to 5: like `rate 4`.") }
             return .tool(.init(name: "music_rate", arguments: ["rating": .int(stars)]))
 
         case "playlists": return .tool(.init(name: "music_list_playlists"))
@@ -146,11 +146,11 @@ public enum RemoteCommandParser {
             return .tool(.init(name: "music_play_playlist", arguments: ["name": .string(rest)]))
 
         case "mix":
-            guard !rest.isEmpty else { return malformed(verb, text, "`mix` needs a vibe — like `mix upbeat focus`.") }
+            guard !rest.isEmpty else { return malformed(verb, text, "`mix` needs a vibe: like `mix upbeat focus`.") }
             return .tool(.init(name: "music_build_mix", arguments: ["prompt": .string(rest)]))
 
         case "radio":
-            guard !rest.isEmpty else { return malformed(verb, text, "`radio` needs something to seed from — or just `radio` while something plays.") }
+            guard !rest.isEmpty else { return malformed(verb, text, "`radio` needs something to seed from, or just `radio` while something plays.") }
             return .tool(.init(name: "music_start_radio", arguments: ["query": .string(rest)]))
 
         // — modes -------------------------------------------------------------
@@ -176,7 +176,7 @@ public enum RemoteCommandParser {
             if arg == "off" || arg == "cancel" {
                 return .tool(.init(name: "music_sleep_timer", arguments: ["minutes": .int(0)]))
             }
-            guard let minutes = Int(arg), minutes > 0 else { return malformed(verb, text, "`sleep` takes minutes — `sleep 30` — or `sleep off` to cancel.") }
+            guard let minutes = Int(arg), minutes > 0 else { return malformed(verb, text, "`sleep` takes minutes (`sleep 30`) or `sleep off` to cancel.") }
             return .tool(.init(name: "music_sleep_timer", arguments: ["minutes": .int(minutes)]))
 
         // — meta ---------------------------------------------------------------

@@ -18,7 +18,10 @@ line and block comments, and character escapes.
 WHAT IT DOES NOT DO. Comments and documentation are out of scope, since nobody reads them
 in the app. Arrows ("→") are out of scope too: the same glyph is prose punctuation in one
 hint and a literal menu path in the next, and a lint that cannot tell them apart would be
-noisy, and a noisy lint gets bypassed and then guards nothing.
+noisy, and a noisy lint gets bypassed and then guards nothing. A package's `Tests/`
+directory is out of scope for the same reason as comments (TBX-5362): a test fixture exists
+to plant a known value or exercise a code path, nobody reads it in the app, and rewriting one
+risks changing the very text a test asserts against.
 
 DELIBERATE GLYPHS. A dash that is typography rather than prose (a leading kicker, a
 metadata separator, a numeric range) goes in the allowlist file beside this script, with a
@@ -185,6 +188,18 @@ def swift_files(roots):
             yield root
             continue
         for dirpath, dirnames, filenames in os.walk(root):
+            # A SwiftPM package keeps `Tests/` beside `Sources/` at its own root (this is
+            # why TBX-5362 widened the default roots to whole packages, e.g. `Packages`,
+            # rather than to a per-package `Sources` list), so walking a package wholesale
+            # walks its test target too. Test fixtures are deliberately out of scope, the
+            # same call `AppStoreMetadataTests`' keyword-mention guard already made for its
+            # own counting: a fixture string exists to plant a known value or exercise a
+            # code path, not to be read by anyone, so rewriting one is either cosmetic or
+            # (worse) changes the very text a test asserts against. Comments got this
+            # exemption for the same reason ("nobody reads them in the app"); a directory
+            # named exactly `Tests` is the SwiftPM-standard, unambiguous way to say the same
+            # thing about a whole file without guessing from its name.
+            dirnames[:] = [d for d in dirnames if d != "Tests"]
             dirnames.sort()
             for name in sorted(filenames):
                 if name.endswith(".swift"):

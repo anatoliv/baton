@@ -69,17 +69,31 @@ public struct NavidromeClient: Sendable {
     private let clientName = "baton"
     #endif
 
-    /// A stable salt+token computed once per client, so repeated URLs for the same resource
-    /// (especially artwork) are byte-identical and URLCache/AsyncImage actually cache them
-    /// instead of refetching on every recomputation. Subsonic permits salt reuse.
+    /// The salt and token this client signs `.tokenSalt` requests with. Both come from
+    /// `NavidromeSaltCache`, so every client built for the same server and password signs
+    /// identically and a repeated URL for the same resource is byte-identical.
+    ///
+    /// This used to be minted per client, which was documented as "stable per client ( /
+    /// NET-06)" and read as if it were stable per server. It is not: nothing here holds a
+    /// client, every call site builds one per request, and the owner's live cache held 645
+    /// cover-art entries carrying 645 distinct salts for 456 distinct covers.
+    /// Empty in `.apiKey` mode, where no salt is sent.
     private let cachedSalt: String
     private let cachedToken: String
 
     public init(credentials: NavidromeCredentials, session: URLSession = .shared) {
         self.credentials = credentials
         self.session = session
-        self.cachedSalt = Self.makeSalt()
-        self.cachedToken = Self.token(password: credentials.secret, salt: cachedSalt)
+        switch credentials.authMode {
+        case .apiKey:
+            // The key travels alone, so there is no salt to mint and no md5 to pay for.
+            self.cachedSalt = ""
+            self.cachedToken = ""
+        case .tokenSalt:
+            let signature = NavidromeSaltCache.signature(for: credentials)
+            self.cachedSalt = signature.salt
+            self.cachedToken = signature.token
+        }
     }
 
     // MARK: - Auth primitives (pure — unit-tested directly)
@@ -101,8 +115,8 @@ public struct NavidromeClient: Sendable {
     }
 
     /// The auth + housekeeping query items shared by every request. For
-    /// `.tokenSalt` this generates a new salt each call (`u`/`t`/`s`); for
-    /// `.apiKey` it sends the key alone.
+    /// `.tokenSalt` it sends `u`/`t`/`s` with the salt this server is already using;
+    /// for `.apiKey` it sends the key alone.
     public func baseQueryItems(json: Bool) -> [URLQueryItem] {
         var items = [
             URLQueryItem(name: "v", value: apiVersion),
@@ -114,7 +128,7 @@ public struct NavidromeClient: Sendable {
             items.append(URLQueryItem(name: "apiKey", value: credentials.secret))
         case .tokenSalt:
             items.append(URLQueryItem(name: "u", value: credentials.username))
-            items.append(URLQueryItem(name: "t", value: cachedToken)) // stable per client
+            items.append(URLQueryItem(name: "t", value: cachedToken)) // stable per server
             items.append(URLQueryItem(name: "s", value: cachedSalt))
         }
         return items
@@ -635,7 +649,7 @@ public struct NavidromeClient: Sendable {
             // The server's error text is safe to log (no secrets); the username
             // lives in the query, never logged. Makes "check logs" actionable.
             log.error(
-                "\(endpoint, privacy: .public): Subsonic error \(code, privacy: .public) — \(message, privacy: .public)"
+                "\(endpoint, privacy: .public): Subsonic error \(code, privacy: .public), \(message, privacy: .public)"
             )
             // 40 wrong credentials · 41 token auth unsupported · 44 invalid creds.
             if code == 40 || code == 41 || code == 44 {

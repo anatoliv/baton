@@ -482,6 +482,11 @@ public enum NavidromeConfig {
                 "kept the unreadable server list under \(unreadableServersKey, privacy: .public) before overwriting it"
             )
         }
+        // Add, update, remove, setActive and setCustomHeaders all land here, so this is where
+        // a server that has been removed or re-pointed stops having a token held for it. A
+        // secret changed on its own is caught by the cache itself, which revalidates the
+        // stored token against the current password before reusing a salt.
+        NavidromeSaltCache.removeAll()
         do {
             defaults.set(try JSONEncoder().encode(list), forKey: serversKey)
             return true

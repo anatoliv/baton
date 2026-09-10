@@ -62,7 +62,7 @@ public enum PlaybackCPUProbe {
 
         public var summary: String {
             guard let cost = cpuMillisecondsPerAudioSecond else {
-                return "no audio played — nothing to divide by"
+                return "no audio played: nothing to divide by"
             }
             return String(format: "%.1f ms CPU per audio second (%.0f s CPU over %.0f s of audio)",
                           cost, cpuSeconds, audioSeconds)

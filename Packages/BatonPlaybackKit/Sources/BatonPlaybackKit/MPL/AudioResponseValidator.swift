@@ -30,13 +30,13 @@ public enum AudioResponseValidator {
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
 
         if size == 0 {
-            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected — empty body")
+            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected: empty body")
             throw AudioResponseRejection(check: "empty-body", detail: "0 bytes")
         }
 
         let expected = response.expectedContentLength
         if expected > 0 && size != expected {
-            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected — truncated body (expected \(expected) bytes, got \(size))")
+            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected: truncated body (expected \(expected) bytes, got \(size))")
             throw AudioResponseRejection(check: "content-length", detail: "expected \(expected) bytes, got \(size)")
         }
 
@@ -45,7 +45,7 @@ public enum AudioResponseValidator {
         // can mangle the declared mimeType.
         if let first = try firstMeaningfulByte(of: url),
            first == UInt8(ascii: "<") || first == UInt8(ascii: "{") {
-            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected — structured text body (XML/JSON error envelope)")
+            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected: structured text body (XML/JSON error envelope)")
             throw AudioResponseRejection(check: "body-sniff", detail: "body starts with structured text marker 0x\(String(first, radix: 16))")
         }
 
@@ -53,7 +53,7 @@ public enum AudioResponseValidator {
         // unknown mimeType is NOT a rejection — valid audio behind a proxy can lack it.
         if let mime = response.mimeType?.lowercased(),
            mime.hasPrefix("text/") || mime == "application/xml" || mime == "application/json" {
-            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected — non-audio content type \(mime, privacy: .public)")
+            logger.warning("[VALIDATE] '\(songId, privacy: .public)' rejected: non-audio content type \(mime, privacy: .public)")
             throw AudioResponseRejection(check: "content-type", detail: mime)
         }
     }

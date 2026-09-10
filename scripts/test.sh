@@ -775,13 +775,20 @@ fi
 # range in shipped release notes) live in the allowlist beside the script, keyed on the file
 # path plus the text of the line, so rewriting the sentence ends the exemption.
 #
+# `Packages`, `gateway` and `watch/Sources` joined the default roots in TBX-5362, a follow-up
+# to the card above: the lexer's own roots stopped at the two apps, so the Telegram/Discord
+# bot replies in `Packages/BatonAgentKit` (a user reads every one of those in a chat window)
+# and the gateway's own replies went unguarded. `Tests/` is out of scope inside a package the
+# same way comments are (see the lexer's own docstring), so widening to whole packages does
+# not touch test fixtures.
+#
 # `BATON_DASH_LINT_SRC` and `BATON_DASH_LINT_ALLOWLIST` let `scripts/test-lints.sh` drive
 # THIS block over a planted tree, the same way `BATON_IMPORT_LINT_SRC` does for W-20.
 DASH_LINT_ALLOWLIST="${BATON_DASH_LINT_ALLOWLIST:-scripts/lint-prose-dashes-allowlist.txt}"
 if [ -n "${BATON_DASH_LINT_SRC:-}" ]; then
   DASH_LINT_DIRS=("$BATON_DASH_LINT_SRC")
 else
-  DASH_LINT_DIRS=("$APP_DIR/Sources" ios/Sources Shared)
+  DASH_LINT_DIRS=("$APP_DIR/Sources" ios/Sources Shared Packages gateway watch/Sources)
 fi
 dash_lint_hits="$(python3 scripts/lint-prose-dashes.py --allowlist "$DASH_LINT_ALLOWLIST" "${DASH_LINT_DIRS[@]}" 2>/dev/null || true)"
 if [ -n "$dash_lint_hits" ]; then
@@ -790,6 +797,50 @@ if [ -n "$dash_lint_hits" ]; then
   red "  rewrite the sentence with the punctuation it wants (a period between two independent"
   red "  clauses, a colon before a definition, parentheses around an aside, a comma for a tight"
   red "  one). If the dash is typography rather than prose, add it to $DASH_LINT_ALLOWLIST."
+  lint_fail=1
+fi
+# W-22: a package under Packages/ that ships a test target but is missing from the Mac
+# scheme's `test.targets` list in app/project.yml. `BatonSubsonicKitTests` (added by WS3,
+# TBX-5309) sat in exactly this hole: it passed under `swift test` run by hand inside the
+# package, which is how WS3 verified it, and was never added to the scheme, so
+# scripts/test.sh built the package and executed none of its tests. A suite green in one
+# place looks identical to one that runs nowhere (TBX-5363). This is the rule from
+# CLAUDE.md, "check the test count, not just the tick", one level up, at the scheme itself.
+#
+# A package left out on purpose (its scheme wiring belongs to a card already in flight, or
+# its tests run a different way) goes in the allowlist file below, one line per package
+# with the reason after a colon. An unlisted package with a Tests/ directory is a finding,
+# not a judgement call, so there is no silent skip.
+#
+# `BATON_SCHEME_LINT_PACKAGES_DIR`, `BATON_SCHEME_LINT_PROJECT_YML` and
+# `BATON_SCHEME_LINT_ALLOWLIST` let `scripts/test-lints.sh` point this at a planted tree,
+# the same way `BATON_IMPORT_LINT_SRC` does for W-20.
+SCHEME_LINT_PACKAGES_DIR="${BATON_SCHEME_LINT_PACKAGES_DIR:-Packages}"
+SCHEME_LINT_PROJECT_YML="${BATON_SCHEME_LINT_PROJECT_YML:-app/project.yml}"
+SCHEME_LINT_ALLOWLIST="${BATON_SCHEME_LINT_ALLOWLIST:-scripts/test-lint-scheme-allowlist.txt}"
+scheme_lint_hits() {
+  local pkg_dir pkg scheme_pkgs allow_pkgs
+  scheme_pkgs="$(grep -oE -- '- package: [A-Za-z0-9_]+/[A-Za-z0-9_]+' "$SCHEME_LINT_PROJECT_YML" 2>/dev/null \
+    | sed -E 's#^- package: ([A-Za-z0-9_]+)/.*#\1#')"
+  allow_pkgs=""
+  if [ -f "$SCHEME_LINT_ALLOWLIST" ]; then
+    allow_pkgs="$(sed -E 's/#.*//; s/:.*//' "$SCHEME_LINT_ALLOWLIST" | tr -d ' \t' | grep -v '^$' || true)"
+  fi
+  for pkg_dir in "$SCHEME_LINT_PACKAGES_DIR"/*/Tests; do
+    [ -d "$pkg_dir" ] || continue
+    pkg="$(basename "$(dirname "$pkg_dir")")"
+    if printf '%s\n' "$allow_pkgs" | grep -qx "$pkg"; then continue; fi
+    if ! printf '%s\n' "$scheme_pkgs" | grep -qx "$pkg"; then
+      echo "$pkg has $pkg_dir but is not in $SCHEME_LINT_PROJECT_YML's scheme test targets"
+    fi
+  done
+}
+scheme_hits="$(scheme_lint_hits || true)"
+if [ -n "$scheme_hits" ]; then
+  red "  lint: a package under Packages/ ships tests the Mac scheme never runs:"
+  printf '%s\n' "$scheme_hits" | sed 's/^/    /' >&2
+  red "  add \"- package: <Pkg>/<Pkg>Tests\" to app/project.yml's Baton scheme test targets,"
+  red "  or list it in $SCHEME_LINT_ALLOWLIST with the reason if it is deliberately excluded."
   lint_fail=1
 fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
@@ -835,7 +886,11 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          not have moved if all three had been deleted (TBX-5236)
 #   test-testflight-exits  testflight.sh's exit code says the same thing as its last line —
 #                          a metadata failure exited silently because `set -e` made the
-#                          message dead code, and an unattached build exited 0 (TBX-5317)
+#                          message dead code, and an unattached build exited 0 (TBX-5317).
+#                          It also holds the phone's half of the dSYM retention: the
+#                          archive's symbols are copied to their own per-build name before
+#                          the next archive removes them, and every ending says whether
+#                          they reached Crashbox (TBX-5372)
 #   test-gate-lock         THIS script refuses a second concurrent gate and names the
 #                          holder, and a pidfile left by a killed gate does not wedge the
 #                          next run — two gates used to app-host the same Baton.app and
@@ -844,7 +899,9 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #   test-publish-guards    publish.sh's notarize wall clock is really armed, and a failed
 #                          Gatekeeper assessment stops the release — the wall clock used to
 #                          vanish silently without coreutils, and a rejected DMG published
-#                          on a yellow line (TBX-5317)
+#                          on a yellow line (TBX-5317). Plus the Mac's dSYM retention: a
+#                          release's symbols outlive the next release, and the DONE line
+#                          says whether anyone uploaded them (TBX-5372)
 for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards; do
   GUARD_LOG="$(mktemp -t "baton-$guard.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then

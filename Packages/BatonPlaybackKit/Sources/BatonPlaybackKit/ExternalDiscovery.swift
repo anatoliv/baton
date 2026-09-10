@@ -133,9 +133,9 @@ public enum ExternalDiscovery {
     static func detail(for source: Source, availability: Availability) -> String {
         switch availability {
         case .turnedOff:
-            return "Off — you switched this source off in Settings."
+            return "Off: you switched this source off in Settings."
         case .needsKey:
-            return "Off — add a \(source.label) API key to switch it on."
+            return "Off: add a \(source.label) API key to switch it on."
         case .ready:
             return keyDefaultsKey(for: source) == nil ? "No account needed." : "Ready."
         }
@@ -250,15 +250,15 @@ public enum ExternalDiscovery {
                   parseArtistMBID(data) != nil else {
                 return .unreachable("MusicBrainz did not answer a test lookup.")
             }
-            return .ready("Answering — a test lookup resolved an artist.")
+            return .ready("Answering: a test lookup resolved an artist.")
 
         case .listenBrainz:
             // Radiohead's MBID, so the request is the same shape the feature makes.
             let suggestions = await similarArtists(mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711",
                                                    session: session)
             return suggestions.isEmpty
-                ? .unreachable("ListenBrainz returned nothing for a known artist — likely down.")
-                : .ready("Answering — \(suggestions.count) similar artists for a test lookup.")
+                ? .unreachable("ListenBrainz returned nothing for a known artist: likely down.")
+                : .ready("Answering: \(suggestions.count) similar artists for a test lookup.")
 
         case .lastFM:
             guard let key = configuredKey(lastFMKeyKey) else {
@@ -283,7 +283,7 @@ public enum ExternalDiscovery {
                         ? .rateLimited("Last.fm is rate-limiting this key.")
                         : .keyRejected(decoded.message.map { "Last.fm: \($0)" } ?? "Last.fm rejected the key.")
                 }
-                return .ready("Key accepted — a test lookup returned results.")
+                return .ready("Key accepted: a test lookup returned results.")
             }
 
         case .youTube:
@@ -313,7 +313,7 @@ public enum ExternalDiscovery {
                     }
                     return .keyRejected(failure.message.map { "YouTube: \($0)" } ?? "YouTube rejected the key.")
                 }
-                return .ready("Key accepted — a test search returned results.")
+                return .ready("Key accepted: a test search returned results.")
             }
         }
     }

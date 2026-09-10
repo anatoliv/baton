@@ -247,7 +247,7 @@ final class GatewayHealthTests: XCTestCase {
                        "a week of zero polls is")
         XCTAssertNotEqual(justRestarted["summary"] as? String, upForAWeek["summary"] as? String)
         XCTAssertEqual(justRestarted["counters_since"] as? String,
-                       "started_at — they reset on restart, so read them next to uptime_seconds")
+                       "started_at: they reset on restart, so read them next to uptime_seconds")
     }
 
     /// `/health` is the one unauthenticated route (`main.swift`), so the body is pinned to an

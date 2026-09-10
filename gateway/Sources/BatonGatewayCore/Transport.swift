@@ -351,7 +351,7 @@ public struct POSIXTransport: ServerTransport {
         }
         guard bound >= 0 else {
             close(listenFD)
-            throw GatewayError.socket("bind(:\(port)) failed — is the port taken?")
+            throw GatewayError.socket("bind(:\(port)) failed. Is the port taken?")
         }
         guard listen(listenFD, 32) >= 0 else {
             close(listenFD)

@@ -47,7 +47,7 @@ public enum RemoteNaturalLanguage {
     Guidance:
     - Prefer the most direct tool. "skip"/"next one" is music_next, not a search.
     - Vibe requests ("something mellow", "focus music") are music_play with the \
-    vibe as the query, unless the person asks for a mix of a particular length — \
+    vibe as the query, unless the person asks for a mix of a particular length, \
     then use music_build_mix.
     - Playing, queueing and playing-next are three different tools, and the \
     words matter: music_play starts now and replaces the queue ("play X", "put \
@@ -61,7 +61,7 @@ public enum RemoteNaturalLanguage {
     query verbatim rather than rewriting it.
     - If the message is a question about what is playing, use music_now_playing.
     - "this song", "this artist", "more of this" refer to the player state given \
-    at the end of this prompt — use the name from there, not the words "this \
+    at the end of this prompt: use the name from there, not the words "this \
     artist", as the query.
     - Use music_search only when the person wants to SEE results ("show me", \
     "find", "do I have"). When they want to HEAR something, pick a playing tool. \
@@ -102,7 +102,7 @@ public enum RemoteNaturalLanguage {
                 "The model ran out of room before it picked a command. Try a shorter request."
             case let .localNetworkBlocked(host):
                 """
-                Couldn't reach \(host). Baton is clearly online — this message got through — \
+                Couldn't reach \(host). Baton is clearly online (this message got through), \
                 so macOS is most likely blocking access to your local network. Allow it in \
                 System Settings → Privacy & Security → Local Network.
                 """
@@ -213,7 +213,7 @@ public enum RemoteNaturalLanguage {
     public static func hint(status: Int, body: String) -> String {
         let text = body.lowercased()
         if text.contains("no connected db") || text.contains("no_db_connection") {
-            return " That's how LiteLLM reports a key it can't recognize — check you're using the key that server expects."
+            return " That's how LiteLLM reports a key it can't recognize: check you're using the key that server expects."
         }
         if status == 401 || status == 403 || text.contains("authentication") {
             return " Check the API key."
@@ -247,11 +247,11 @@ public enum RemoteNaturalLanguage {
         switch config.provider {
         case .anthropic:
             if base.contains("openai.com") || base.contains("/chat/completions") {
-                return "That's an OpenAI-style endpoint — set Provider to “OpenAI-compatible”."
+                return "That's an OpenAI-style endpoint: set Provider to “OpenAI-compatible”."
             }
         case .openAICompatible:
             if base.contains("api.anthropic.com") {
-                return "That's Anthropic's endpoint — set Provider to “Anthropic”."
+                return "That's Anthropic's endpoint: set Provider to “Anthropic”."
             }
         }
         if config.apiKey.isEmpty { return "No API key yet." }

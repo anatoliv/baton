@@ -228,9 +228,13 @@ public final class MusicLibraryStore {
     /// calling it inline stalls the main thread. Resolved once, then reused.
     @ObservationIgnored private var cachedCredentials: NavidromeCredentials?
     @ObservationIgnored private var credentialsResolved = false
-    /// Built cover-art URLs keyed by "id#size". Cached so the URL is STABLE across
-    /// renders — the signed URL contains a fresh salt each build, so without this
-    /// `AsyncImage` would treat every render as a new URL and refetch the image.
+    /// Built cover-art URLs keyed by "id#size", so a render reuses a string instead of
+    /// rebuilding and re-signing one per visible row.
+    ///
+    /// This used to be load-bearing for a second reason: the signed URL carried a fresh salt
+    /// each build, so without the cache `AsyncImage` saw a new URL every render and refetched.
+    /// Since TBX-5359 the salt is stable per server, so a rebuilt URL is byte-identical and
+    /// the cache is an optimisation rather than the thing holding the image still.
     @ObservationIgnored private var coverURLCache: [String: URL] = [:]
 
     /// A signed cover-art URL, safe to call during view rendering: no Keychain

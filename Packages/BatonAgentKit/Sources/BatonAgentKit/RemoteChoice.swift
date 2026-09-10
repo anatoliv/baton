@@ -145,21 +145,21 @@ public struct RemoteChoicePrompt: Equatable, Sendable {
             ]
             properties["command_\(index)"] = [
                 "type": "string",
-                "description": "Option \(index): what to TYPE in the chat if this is picked — a verb and its subject, like 'play DIDO', 'playlist trance', 'mix ambient 45', 'radio Armin van Buuren'. Not a tool name: write 'play DIDO', never 'music_play'.",
+                "description": "Option \(index): what to TYPE in the chat if this is picked: a verb and its subject, like 'play DIDO', 'playlist trance', 'mix ambient 45', 'radio Armin van Buuren'. Not a tool name: write 'play DIDO', never 'music_play'.",
             ]
             properties["detail_\(index)"] = [
                 "type": "string",
-                "description": "Option \(index): the fact that decides it — track count, length, why this one. A few words.",
+                "description": "Option \(index): the fact that decides it: track count, length, why this one. A few words.",
             ]
         }
         return [
             "name": toolName,
             "description": """
-            Ask the owner to choose between 2–4 genuinely different options, \
+            Ask the owner to choose between 2 to 4 genuinely different options, \
             instead of guessing. Ends your turn: the options are shown as \
             buttons and the answer arrives as a new message. Use only when the \
             answer changes what plays and you cannot settle it by looking. \
-            Always set `recommended` — if nobody answers, that option runs by \
+            Always set `recommended`: if nobody answers, that option runs by \
             itself.
             """,
             "input_schema": [

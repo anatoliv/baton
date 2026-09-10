@@ -37,7 +37,13 @@ public enum WaveformExtractor {
         let result = await extract(url: url, barCount: count)
         if let result {
             cache[id] = result
-            if let data = try? JSONEncoder().encode(result) { try? data.write(to: diskURL(id)) }
+            // `.atomic`: the cache is derived data, but a torn file is not free. The decode only
+            // runs when the read fails, so a half-written file is re-read on every launch until
+            // the track is played again, and each of those reads pays a full PCM extraction.
+            // A temporary file and a rename means the reader sees the old bars or the new ones.
+            if let data = try? JSONEncoder().encode(result) {
+                try? data.write(to: diskURL(id), options: .atomic)
+            }
         }
         return result
     }

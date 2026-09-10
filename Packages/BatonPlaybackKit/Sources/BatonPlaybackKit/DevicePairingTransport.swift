@@ -189,7 +189,7 @@ public enum PairingClient {
         public var errorDescription: String? {
             switch self {
             case .unreachable: "Couldn't reach your Mac. Both devices need to be on the same network."
-            case .refused: "Your Mac didn't accept this code. It may have expired — show a new one."
+            case .refused: "Your Mac didn't accept this code. It may have expired: show a new one."
             case .empty: "Your Mac didn't send anything back."
             }
         }

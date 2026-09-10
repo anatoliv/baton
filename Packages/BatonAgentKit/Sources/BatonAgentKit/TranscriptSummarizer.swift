@@ -176,10 +176,10 @@ public enum TranscriptSummarizer {
     // MARK: - Prompts
 
     static let sectionSystemPrompt = """
-    You summarize an excerpt from a spoken-word recording — a podcast, talk, or interview.
+    You summarize an excerpt from a spoken-word recording (a podcast, talk, or interview).
 
     Reply in exactly this shape, and nothing else:
-    TITLE: <a short, specific title for this excerpt — under 8 words>
+    TITLE: <a short, specific title for this excerpt, under 8 words>
     <two or three sentences saying what was actually discussed>
 
     Name the concrete things: who spoke, what was claimed, what was decided. Do not editorialize,

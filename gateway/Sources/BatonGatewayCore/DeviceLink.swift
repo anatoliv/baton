@@ -268,7 +268,7 @@ public enum GatewayHealth {
             "waiters_parked": polls.waitersParked,
             "peak_waiters_parked": polls.peakWaitersParked,
             "device_connected": polls.isDeviceConnected,
-            "counters_since": "started_at — they reset on restart, so read them next to uptime_seconds",
+            "counters_since": "started_at: they reset on restart, so read them next to uptime_seconds",
             "summary": summary(polls: polls, uptime: uptime, now: now),
         ]
         if let lastPollAt = polls.lastPollAt {
@@ -311,9 +311,9 @@ public enum GatewayHealth {
             return "ping answered in \(took)ms"
         case .timedOut:
             return "ping did not answer within \(bound)ms; the server may be down, or merely "
-                + "slower than the probe waits — this is not proof it is down"
+                + "slower than the probe waits: this is not proof it is down"
         case .failed:
-            return "ping failed after \(took)ms; the server refused or rejected it — that is "
+            return "ping failed after \(took)ms; the server refused or rejected it: that is "
                 + "usually unreachable, but a credential or proxy error looks the same from here"
         }
     }

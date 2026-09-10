@@ -316,6 +316,36 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.4",
+            date: "September 2026",
+            highlight: "Lyrics and artwork say why they failed, the microphone stops when you leave the friend, and a crash can no longer empty your downloads.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "The Lyrics panel now says when it could not load lyrics instead of reporting "
+                    + "that the track has none. A refused server sign-in and a rate-limited lyrics "
+                    + "service each get their own line."),
+                HelpWhatsNewChange(.fixed,
+                    "Missing album artwork now says when the server refused your sign-in instead "
+                    + "of leaving a blank grid, and a cover that fails to load once no longer keeps "
+                    + "its backdrop grey for the rest of the session."),
+                HelpWhatsNewChange(.fixed,
+                    "The music friend's microphone turns off when you switch away mid-recording, "
+                    + "and a microphone permission you granted after a refusal is picked up the "
+                    + "next time you open the friend."),
+                HelpWhatsNewChange(.fixed,
+                    "A crash while Baton was saving its list of downloaded tracks no longer makes "
+                    + "the downloaded library read as empty. The files are found again from the "
+                    + "notes Baton keeps alongside them."),
+                HelpWhatsNewChange(.improved,
+                    "Dragging an equalizer slider no longer allocates memory on the audio thread, "
+                    + "which is where a glitch in the sound comes from, and transcribing a long "
+                    + "track stages the upload on disk instead of holding a second copy in memory."),
+                HelpWhatsNewChange(.improved,
+                    "Album art is fetched once per server and reused instead of being downloaded "
+                    + "again each time the same image is asked for."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.3",
             date: "September 2026",
             highlight: "Settings, Remote and Friend Log work with the library window closed, and every control has a name for VoiceOver.",

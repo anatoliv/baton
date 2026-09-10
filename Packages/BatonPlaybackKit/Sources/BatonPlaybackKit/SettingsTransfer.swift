@@ -194,7 +194,7 @@ public enum SettingsTransfer {
             case .notABatonBackup: "This file isn't a Baton settings backup."
             case let .unsupportedVersion(v): "This backup was made by a newer version of Baton (format \(v)). Update Baton and try again."
             case .passphraseRequired: "This backup is encrypted. Enter its passphrase to import it."
-            case .wrongPassphrase: "Wrong passphrase — the backup couldn't be decrypted."
+            case .wrongPassphrase: "Wrong passphrase: the backup couldn't be decrypted."
             case .corrupt: "The backup file is damaged or incomplete."
             }
         }

@@ -139,23 +139,35 @@ public final class EQTapContext: @unchecked Sendable {
         guard bandCount > 0, let state else { return }
         let abl = UnsafeMutableAudioBufferListPointer(bufferList)
         let activeChannels = min(abl.count, channels)
-        for chIdx in 0 ..< activeChannels {
+        // `while` rather than `for ... in 0 ..< n`, on all three nesting levels: without
+        // optimization, iterating a `Range` goes through `IndexingIterator` and its
+        // unspecialized `Collection` witness, which heap-allocates once per element. Release
+        // builds specialize that away, but a debug build is what a developer listens to, and
+        // this runs on the render thread for every sample of every buffer. (TBX-5360, same
+        // finding as `EQCoefficients.refreshIfChanged` in PR #113.)
+        var chIdx = 0
+        while chIdx < activeChannels {
             let buffer = abl[chIdx]
-            guard let raw = buffer.mData else { continue }
+            guard let raw = buffer.mData else { chIdx += 1; continue }
             let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
             let samples = raw.bindMemory(to: Float.self, capacity: count)
             let st = state + chIdx * maxBands
-            for i in 0 ..< count {
+            var i = 0
+            while i < count {
                 var x = samples[i] * preGain // pre-attenuate so a combined boost can't clip
-                for b in 0 ..< bandCount {
+                var b = 0
+                while b < bandCount {
                     let c = coeffs[b]
                     let y = c.b0 * x + st[b].z1
                     st[b].z1 = c.b1 * x - c.a1 * y + st[b].z2
                     st[b].z2 = c.b2 * x - c.a2 * y
                     x = y
+                    b += 1
                 }
                 samples[i] = x
+                i += 1
             }
+            chIdx += 1
         }
     }
 
@@ -176,15 +188,21 @@ public final class EQTapContext: @unchecked Sendable {
         var used = 0
         var frames = Int.max
 
-        for index in 0 ..< min(abl.count, Self.maxMeteredChannels) {
+        // `while`, not `for index in 0 ..< n`: `meter` is called from `process(_:)` on every
+        // buffer, so it is on the same render thread and subject to the same unspecialized
+        // `IndexingIterator` allocation in debug builds.
+        var index = 0
+        let meteredChannels = min(abl.count, Self.maxMeteredChannels)
+        while index < meteredChannels {
             let buffer = abl[index]
-            guard let raw = buffer.mData else { continue }
+            guard let raw = buffer.mData else { index += 1; continue }
             let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
-            guard count > 0 else { continue }
+            guard count > 0 else { index += 1; continue }
             let perChannel = count / max(1, Int(buffer.mNumberChannels))
             channelPointers[used] = raw.bindMemory(to: Float.self, capacity: count)
             used += 1
             frames = min(frames, perChannel)
+            index += 1
         }
         guard used > 0, frames > 0, frames != .max else { return }
 

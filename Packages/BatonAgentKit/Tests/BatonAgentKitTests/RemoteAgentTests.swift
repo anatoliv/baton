@@ -355,7 +355,7 @@ final class RemoteAgentLoopTests: XCTestCase {
                     )])
                 }
                 XCTAssertTrue(
-                    messages.contains { $0.results.contains { $0.text.contains("2–4 options") } },
+                    messages.contains { $0.results.contains { $0.text.contains("2 to 4 options") } },
                     "the model should be told what was wrong"
                 )
                 return RemoteAgentStep(text: "Playing your most-played instead.")

@@ -204,7 +204,7 @@ actor TrackStreamSource {
                     if rangeStart > 0, statusCode != 206 {
                         rangeHonoured = false
                         bytesToDrop = rangeStart
-                        engineLog.info("engine: server ignored Range — dropping \(self.rangeStart) bytes to reach the seek point")
+                        engineLog.info("engine: server ignored Range, dropping \(self.rangeStart) bytes to reach the seek point")
                     }
                     if expectedLength > 0 { spool?.expectedByteCount = expectedLength }
                 case .data(let data):

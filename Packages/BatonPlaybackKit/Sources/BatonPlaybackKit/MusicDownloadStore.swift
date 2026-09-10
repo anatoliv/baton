@@ -112,6 +112,10 @@ public final class MusicDownloadStore {
         var duration: Int?
         var coverArtID: String?
         var artworkURL: URL?
+        /// The file this download was written to, recorded a second time here so the id-to-file
+        /// mapping survives the loss of the manifest. Optional because downloads saved before
+        /// this field existed have no value for it, and those fall back to matching by name.
+        var file: String?
     }
 
     // MARK: - Collection download state
@@ -312,7 +316,10 @@ public final class MusicDownloadStore {
 
     private func saveResumeData(_ data: Data, for songID: String) {
         try? FileManager.default.createDirectory(at: resumeDirectory, withIntermediateDirectories: true)
-        try? data.write(to: resumeFileURL(for: songID))
+        // `.atomic`: a resume blob written in place and interrupted is still read back on the
+        // next attempt, and URLSession answers a damaged one with a plain failure rather than
+        // restarting the download. Rename-into-place means the file is the old blob or the new.
+        try? data.write(to: resumeFileURL(for: songID), options: .atomic)
     }
 
     private func clearResumeData(for songID: String) {
@@ -416,7 +423,8 @@ public final class MusicDownloadStore {
         manifest[song.id] = name
         let entry = DownloadMeta(
             title: song.title, artist: song.artist, album: song.album, albumID: song.albumID,
-            duration: song.duration, coverArtID: song.coverArtID, artworkURL: song.artworkURL
+            duration: song.duration, coverArtID: song.coverArtID, artworkURL: song.artworkURL,
+            file: name
         )
         meta[song.id] = entry
         saveManifest()
@@ -651,16 +659,81 @@ public final class MusicDownloadStore {
         // Subsonic id — so pointing the download folder at an existing music library
         // never adopts (and later lets the user delete via Remove) their own files.
         let manifestFiles = Set(manifest.values)
-        if let files = try? FileManager.default.contentsOfDirectory(atPath: directory.path) {
-            for file in files where file.hasSuffix(".mp3") && !manifestFiles.contains(file) {
-                let id = (file as NSString).deletingPathExtension
-                if meta[id] != nil || Self.isPlausibleSubsonicID(id) {
-                    ids.insert(id)
-                }
+        let onDisk = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for file in onDisk where file.hasSuffix(".mp3") && !manifestFiles.contains(file) {
+            let id = (file as NSString).deletingPathExtension
+            if meta[id] != nil || Self.isPlausibleSubsonicID(id) {
+                ids.insert(id)
             }
         }
+        // A download the metadata sidecar still vouches for, whose manifest row is gone.
+        if readoptOrphanedDownloads(onDisk: onDisk, into: &ids) { saveManifest() }
         downloadedIDs = ids
         rebuildAggregates()
+    }
+
+    /// Give an audio file its song id back when the manifest row that named it is gone.
+    ///
+    /// The manifest is the only thing mapping a song id to a templated filename, so a torn
+    /// write that costs us that file (it is quarantined and the store starts empty) makes a
+    /// full download folder read as empty while every audio file is still sitting in it. The
+    /// metadata sidecar is a second record of what Baton downloaded, under the same ids, so it
+    /// can name the files again and the rebuilt manifest is written back.
+    ///
+    /// Three ways to pair a file with an id, most trustworthy first: the filename recorded in
+    /// the sidecar entry itself (downloads written by this build and later); the filename the
+    /// current template renders for that entry; and, for one entry only, a filename that parses
+    /// back to the same artist and title. Nothing else is claimed, which is what keeps a folder
+    /// of the user's own music from being adopted and then offered for deletion.
+    ///
+    /// Returns whether the manifest changed.
+    private func readoptOrphanedDownloads(onDisk: [String], into ids: inout Set<String>) -> Bool {
+        let audio = Set(AudioContainer.allCases.map(\.rawValue))
+        var unclaimed = Set(onDisk.filter { audio.contains(($0 as NSString).pathExtension.lowercased()) })
+        unclaimed.subtract(manifest.values)
+        let orphans = meta.keys.filter { !ids.contains($0) }.sorted()
+        guard !unclaimed.isEmpty, !orphans.isEmpty else { return false }
+
+        // Artist and title of every file still unclaimed, for the last resort. Only a name that
+        // exactly one entry could have produced is used, so an album of same-titled takes is
+        // left alone rather than paired at random.
+        var byParsedName: [String: [String]] = [:]
+        for file in unclaimed {
+            let parsed = Self.parseFilename((file as NSString).deletingPathExtension)
+            byParsedName[Self.nameKey(artist: parsed.artist, title: parsed.title), default: []].append(file)
+        }
+
+        var changed = false
+        for id in orphans {
+            guard let entry = meta[id] else { continue }
+            let candidates = [entry.file].compactMap { $0 }
+                + audio.sorted().map {
+                    Self.renderFilename(
+                        template: filenameTemplate, artist: entry.artist, album: entry.album,
+                        title: entry.title, id: id, taken: [:], ext: $0
+                    )
+                }
+            var match = candidates.first { unclaimed.contains($0) }
+            if match == nil,
+               let sameName = byParsedName[Self.nameKey(artist: entry.artist, title: entry.title)],
+               sameName.count == 1, unclaimed.contains(sameName[0]) {
+                match = sameName[0]
+            }
+            guard let match else { continue }
+            manifest[id] = match
+            unclaimed.remove(match)
+            ids.insert(id)
+            changed = true
+            downloadLog.notice("re-adopted download \(id, privacy: .public) from its file on disk")
+        }
+        return changed
+    }
+
+    /// Case- and punctuation-insensitive key for pairing a filename with a metadata entry.
+    /// Both sides go through `sanitize`, because the name on disk has already been through it.
+    private static func nameKey(artist: String?, title: String) -> String {
+        let artist = sanitize(artist ?? "").lowercased()
+        return "\(artist)\u{1F}\(sanitize(title).lowercased())"
     }
 
     /// A bare "<id>.mp3" is adopted as a legacy download only if its basename looks like

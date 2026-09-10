@@ -29,9 +29,9 @@ struct MusicAlbumDetail: View {
     let album: NavidromeAlbum
     @State private var songs: [NavidromeSong] = []
     @State private var loading = true
-    /// Hero artwork, loaded once into a decoded image (same technique as the artist page —
-    /// a computed `coverArtURL` mints a fresh salt per call, so handing one to `AsyncImage`
-    /// flashes it away on every re-render).
+    /// Hero artwork, loaded once into a decoded image (same technique as the artist page:
+    /// holding the decoded `Image` keeps the hero from flashing back to a placeholder when
+    /// the banner view is recreated).
     @State private var heroImage: Image?
     @State private var filter = ""
     @State private var layout: MusicBrowseLayout = .list
@@ -359,11 +359,12 @@ struct MusicArtistDetail: View {
     @State private var songs: [NavidromeSong] = []
     @State private var info: NavidromeArtistInfo?
     @State private var following = false
-    /// Hero artwork, loaded once into a decoded image. We deliberately do NOT hand a
-    /// URL to `AsyncImage`: `coverArtURL` mints a fresh random Subsonic salt per call
-    /// (so a computed URL differs each render), and AsyncImage re-fetches — flashing to
-    /// its empty placeholder — whenever the banner view is recreated. Fetching the
-    /// bytes once here and holding the `Image` makes the hero pop in and stay put.
+    /// Hero artwork, loaded once into a decoded image. We deliberately do NOT hand a URL to
+    /// `AsyncImage`, which re-fetches, flashing to its empty placeholder, whenever the banner
+    /// view is recreated. Fetching the bytes once here and holding the `Image` makes the hero
+    /// pop in and stay put. The original reason was sharper still: `coverArtURL` minted a
+    /// fresh Subsonic salt per call, so the URL itself differed each render. TBX-5359 made the
+    /// salt stable per server, so that half is fixed and the recreation half is not.
     @State private var heroImage: Image?
 
     @State private var filter = ""
