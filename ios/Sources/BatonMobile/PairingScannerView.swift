@@ -64,7 +64,7 @@ struct PairingScannerView: View {
                 case let .failed(message):
                     label(message, systemImage: "exclamationmark.triangle.fill")
                 case let .linked(preferences, secrets):
-                    label("Set up \u{2014} \(preferences) settings and \(secrets) accounts came across.",
+                    label("Set up: \(preferences) settings and \(secrets) accounts came across.",
                           systemImage: "checkmark.circle.fill")
                 }
             }

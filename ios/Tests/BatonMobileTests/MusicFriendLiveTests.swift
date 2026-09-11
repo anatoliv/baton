@@ -144,9 +144,17 @@ final class MusicFriendLiveTests: XCTestCase {
     /// The tab is hidden until a configuration has been tested, and the fingerprint is what
     /// makes that honest: change the model or the key and the tab must disappear until it
     /// is proven again, or the app is offering a feature against settings nobody verified.
-    func testTheFriendTabStaysHiddenUntilTheConfigurationIsProven() throws {
-        let live = try live()
-        let model = configured(live)
+    func testTheFriendTabStaysHiddenUntilTheConfigurationIsProven() {
+        // This is a local state rule. It used to call `live()`, which probes the real model
+        // host twice before constructing exactly the same AgentConfig this assertion needs.
+        // A slow provider could therefore kill this test even though no assertion below sends
+        // a request. Keep the live dependency on the tests that actually exercise the friend.
+        let model = MobileModel()
+        model.agentConfig.route = .direct
+        model.agentConfig.provider = .openAICompatible
+        model.agentConfig.baseURL = "http://agent.example.invalid/v1"
+        model.agentConfig.apiKey = "fixture-key"
+        model.agentConfig.model = "fixture-model"
 
         XCTAssertFalse(model.agentConfig.isReady, "untested configuration must not unlock the tab")
         model.agentConfig.markVerified()

@@ -318,7 +318,7 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.19.4",
             date: "September 2026",
-            highlight: "Lyrics and artwork say why they failed, the microphone stops when you leave the friend, and a crash can no longer empty your downloads.",
+            highlight: "Lyrics and artwork now say why they failed, and a crash can no longer empty your downloads.",
             changes: [
                 HelpWhatsNewChange(.fixed,
                     "The Lyrics panel now says when it could not load lyrics instead of reporting "
@@ -337,12 +337,12 @@ extension HelpWhatsNewRelease {
                     + "the downloaded library read as empty. The files are found again from the "
                     + "notes Baton keeps alongside them."),
                 HelpWhatsNewChange(.improved,
-                    "Dragging an equalizer slider no longer allocates memory on the audio thread, "
-                    + "which is where a glitch in the sound comes from, and transcribing a long "
-                    + "track stages the upload on disk instead of holding a second copy in memory."),
+                    "The equalizer no longer risks a glitch in the sound while you drag a slider. "
+                    + "Transcribing a long track no longer holds a second copy of the audio in "
+                    + "memory while it uploads."),
                 HelpWhatsNewChange(.improved,
-                    "Album art is fetched once per server and reused instead of being downloaded "
-                    + "again each time the same image is asked for."),
+                    "Album art is downloaded once and reused, instead of fetched again every time "
+                    + "the same cover comes up."),
             ]
         ),
         HelpWhatsNewRelease(

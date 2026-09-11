@@ -215,8 +215,8 @@ final class AgentClient {
             case .unreachable(let detail):
                 return .failed("Couldn't reach the gateway at that address. \(detail) The gateway listens on 8788 by default.")
             case .http(404, _):
-                return .failed("Something is running at that address, but it isn't a Baton gateway \u{2014} "
-                               + "nothing answered at /v1/agent. Check the port: the gateway listens on 8788 by default.")
+                return .failed("Something is running at that address, but it isn't a Baton gateway: "
+                               + "nothing answered at /v1/agent. Check the port. The gateway listens on 8788 by default.")
             case .http(let code, let hint) where code > 0:
                 return .failed("The gateway answered HTTP \(code). \(hint)")
             default:

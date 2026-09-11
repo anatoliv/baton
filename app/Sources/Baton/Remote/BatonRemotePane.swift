@@ -280,7 +280,7 @@ private struct RemoteSettingsForm: View {
                     testResultLabel
                 }
             }
-            Text("Sends one short request (\u{201C}pause the music\u{201D}) the same way a chat message would, so a pass means the next message will work \u{2014} not just that something answered.")
+            Text("Sends one short request (\u{201C}pause the music\u{201D}) the same way a chat message would, so a pass means the next message will work, not just that something answered.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -330,7 +330,7 @@ private struct RemoteSettingsForm: View {
 
             Label("""
             This is the setting that changes what leaves your Mac. Looking around means \
-            what it finds \u{2014} song titles, artists, genres \u{2014} goes to the model \
+            what it finds (song titles, artists, genres) goes to the model \
             provider along with your message. Point the base URL at a model running on your \
             own machine and nothing leaves it at all.
             """, systemImage: "hand.raised")

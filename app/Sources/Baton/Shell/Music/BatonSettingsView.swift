@@ -411,7 +411,7 @@ private struct BatonAgentsPane: View {
                             .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                     }
                 }
-                Text("An MCP client (Claude Desktop, an agent SDK, or Tonebox) reads this file to find the endpoint + token automatically (no manual setup).")
+                Text("An MCP client (Claude Desktop, an agent SDK, or Tonebox) reads this file to find the endpoint and token on its own, so there is nothing to set up by hand.")
                     .font(.callout).foregroundStyle(.secondary)
             }
 
@@ -925,7 +925,7 @@ private struct BatonPlaybackPane: View {
                 ForEach(StreamingPlaybackController.LoudnessMode.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.menu)
-            Text("Evens out track-to-track volume using your server's ReplayGain / R128 data (no re-encoding, no lag). **Track** levels every song the same; **Album** keeps an album's own quiet-to-loud dynamics. Needs ReplayGain tags in your library; tracks without data play at normal volume.")
+            Text("Evens out track-to-track volume using your server's ReplayGain or R128 data, without re-encoding and without delay. **Track** levels every song the same; **Album** keeps an album's own quiet-to-loud dynamics. Needs ReplayGain tags in your library; tracks without data play at normal volume.")
                 .font(.callout).foregroundStyle(.secondary)
             if player.loudnessMode != .off {
                 LabeledContent("Pre-amp") {
@@ -966,7 +966,7 @@ private struct BatonPlaybackPane: View {
             .disabled(crossfadeOn)
             Text(crossfadeOn
                 ? "Unavailable while crossfade is on: the two are mutually exclusive. Set Crossfade to Off to use gapless."
-                : "For albums recorded without gaps (live, DJ sets, classical), preloads the next track so it starts with no gap. Downloaded tracks are seamless; streamed tracks are prefetched to a small cache so their handoff is gap-free too.")
+                : "For albums recorded without gaps (live, DJ sets, classical), preloads the next track so it starts with no gap. Downloaded tracks play straight through. Streamed tracks are prefetched to a small cache so their handoff has no gap either.")
                 .font(.callout).foregroundStyle(.secondary)
             if player.gaplessEnabled, !crossfadeOn {
                 Toggle("Prefetch streamed tracks on Wi-Fi only", isOn: Binding(
