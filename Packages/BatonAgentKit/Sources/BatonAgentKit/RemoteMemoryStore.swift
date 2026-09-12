@@ -236,7 +236,7 @@ public final class RemoteMemoryStore {
         // deletion half is now impossible by construction — see `publishToLedger` — and this flag
         // is the second layer: a store that could not read its own file has nothing trustworthy
         // to say about what this device holds.
-        lastLoadSucceeded = result.outcome != .quarantined
+        lastLoadSucceeded = result.outcome != .quarantined && result.outcome != .quarantineFailed
         guard let decoded = result.payload else { return }
         contents = decoded
         // Enforce the cap here rather than only on write. `entryLimit` is the bound the prompt

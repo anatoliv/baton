@@ -263,6 +263,34 @@ mkdir -p "$WORK/dash-raw"
 echo "let s = #\"Set a 1${EN}5 star rating.\"#" > "$WORK/dash-raw/Rating.swift"
 expect_dash dirty "$WORK/dash-raw" "an en dash inside a raw string literal is caught"
 
+# Unicode escapes render as dashes too. Plant all three spellings named by the copy rule so
+# adding one to new source cannot evade the guard just because the glyph is not in the file.
+mkdir -p "$WORK/dash-escaped-figure" "$WORK/dash-escaped-en" "$WORK/dash-escaped-em"
+cat > "$WORK/dash-escaped-figure/Figure.swift" <<'SWIFT'
+let s = "A figure \u{2012} dash."
+SWIFT
+expect_dash dirty "$WORK/dash-escaped-figure" "an escaped U+2012 figure dash is caught"
+cat > "$WORK/dash-escaped-en/Range.swift" <<'SWIFT'
+let s = "An escaped \u{2013} dash."
+SWIFT
+expect_dash dirty "$WORK/dash-escaped-en" "an escaped U+2013 en dash is caught"
+cat > "$WORK/dash-escaped-em/Aside.swift" <<'SWIFT'
+let s = "An escaped \u{2014} dash."
+SWIFT
+expect_dash dirty "$WORK/dash-escaped-em" "an escaped U+2014 em dash is caught"
+
+# A raw string needs a pound in the escape before Swift interprets it. The inactive form
+# stays literal text; the active form renders an em dash and must be caught.
+mkdir -p "$WORK/dash-escaped-raw-inactive" "$WORK/dash-escaped-raw-active"
+cat > "$WORK/dash-escaped-raw-inactive/Raw.swift" <<'SWIFT'
+let s = #"The text \u{2014} is written out."#
+SWIFT
+expect_dash clean "$WORK/dash-escaped-raw-inactive" "an inactive escape in a raw string is not flagged"
+cat > "$WORK/dash-escaped-raw-active/Raw.swift" <<'SWIFT'
+let s = #"An active \#u{2014} dash."#
+SWIFT
+expect_dash dirty "$WORK/dash-escaped-raw-active" "an active escaped dash in a raw string is caught"
+
 # A string nested inside an interpolation inside another string: the case a scanner without
 # a stack loses, and from there it reads code as text and text as code.
 mkdir -p "$WORK/dash-nested"
@@ -301,6 +329,68 @@ expect_dash clean "$WORK/dash-allowed" "an allowlisted line passes" "$WORK/dash-
 # ...and only that line. The exemption is for this text, not for this file.
 echo "let hint = \"Off by default $EM it needs an API key.\"" >> "$WORK/dash-allowed/Row.swift"
 expect_dash dirty "$WORK/dash-allowed" "an allowlisted file is not a blanket exemption" "$WORK/dash-allowed.txt"
+
+# Shipped release notes can carry a boundary exemption. It starts at one exact version
+# marker in a newest-first list, so historical prose below it passes while new prose above
+# it remains guarded.
+mkdir -p "$WORK/dash-history"
+cat > "$WORK/dash-history/ReleaseNotes.swift" <<'SWIFT'
+let releases = [
+    ReleaseNote(
+        version: "1.1",
+        highlight: "Current copy follows the rule."
+    ),
+    ReleaseNote(
+        version: "1.0",
+        highlight: "Historical copy \u{2014} kept as shipped."
+    ),
+]
+// END RELEASES
+let liveUI = "Current UI copy follows the rule."
+SWIFT
+printf '%s\thistory-from\t%s\t%s\n' "$WORK/dash-history/ReleaseNotes.swift" 'version: "1.0",' '// END RELEASES' \
+  > "$WORK/dash-history.txt"
+expect_dash clean "$WORK/dash-history" "a history marker allows escaped dashes below it" "$WORK/dash-history.txt"
+
+cat > "$WORK/dash-history/ReleaseNotes.swift" <<'SWIFT'
+let releases = [
+    ReleaseNote(
+        version: "1.1",
+        highlight: "New copy \u{2014} still checked."
+    ),
+    ReleaseNote(
+        version: "1.0",
+        highlight: "Historical copy \u{2014} kept as shipped."
+    ),
+]
+// END RELEASES
+let liveUI = "Current UI copy follows the rule."
+SWIFT
+expect_dash dirty "$WORK/dash-history" "a history marker does not exempt new entries above it" "$WORK/dash-history.txt"
+
+cat > "$WORK/dash-history/ReleaseNotes.swift" <<'SWIFT'
+let releases = [
+    ReleaseNote(
+        version: "1.1",
+        highlight: "Current copy follows the rule."
+    ),
+    ReleaseNote(
+        version: "1.0",
+        highlight: "Historical copy \u{2014} kept as shipped."
+    ),
+]
+// END RELEASES
+let liveUI = "New UI copy \u{2014} still checked."
+SWIFT
+expect_dash dirty "$WORK/dash-history" "a history range does not exempt UI code after it" "$WORK/dash-history.txt"
+
+# The boundary must keep naming exactly one source line. If it is renamed or duplicated,
+# the allowlist itself fails instead of silently widening or dropping the policy.
+mkdir -p "$WORK/dash-history-stale"
+printf 'let current = "No dashes here."\n' > "$WORK/dash-history-stale/ReleaseNotes.swift"
+printf '%s\thistory-from\t%s\n' "$WORK/dash-history-stale/ReleaseNotes.swift" 'version: "1.0",' \
+  > "$WORK/dash-history-stale.txt"
+expect_dash dirty "$WORK/dash-history-stale" "a stale history marker fails the lint" "$WORK/dash-history-stale.txt"
 
 # The real trees must be clean against the real allowlist, which is also the check that the
 # lexer still matches the code's shape rather than having rotted into matching nothing.

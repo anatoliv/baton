@@ -316,6 +316,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.5",
+            date: "September 2026",
+            highlight: "Waveforms stay accurate at every size, and Baton preserves damaged settings before starting over.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "A waveform requested at one size no longer gets reused at a different size. "
+                    + "Track rows and larger waveform views now keep the right number of bars."),
+                HelpWhatsNewChange(.fixed,
+                    "If a saved settings file is damaged, Baton now preserves the original file "
+                    + "before it creates a clean replacement."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.4",
             date: "September 2026",
             highlight: "Lyrics and artwork now say why they failed, and a crash can no longer empty your downloads.",

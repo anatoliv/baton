@@ -46,7 +46,144 @@ ok()  { PASS=$((PASS+1)); printf '\033[32mok    %s\033[0m\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '\033[31mFAIL  %s\033[0m\n' "$1"; }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+TMP_RELEASE="$(mktemp -d /private/tmp/baton-publish-checkout-test.XXXXXX)"
+trap 'rm -rf "$WORK" "$TMP_RELEASE"' EXIT
+
+# --- TBX-5386: the release cannot start in the primary checkout -------------------------
+
+# Drive the same shared function publish.sh calls. BATON_PRIMARY_CHECKOUT plants a
+# primary at a throwaway path, while TMP_RELEASE proves an independent checkout under
+# /private/tmp is admitted.
+. "$ROOT/scripts/release-checkout.sh"
+
+git init -q -b main "$WORK/primary"
+git -C "$WORK/primary" config user.email t@example.com
+git -C "$WORK/primary" config user.name t
+printf 'primary\n' >"$WORK/primary/README"
+git -C "$WORK/primary" add README
+git -C "$WORK/primary" commit -qm primary
+
+out="$(
+  export BATON_PRIMARY_CHECKOUT="$WORK/primary"
+  unset ALLOW_PRIMARY_CHECKOUT
+  release_checkout_assert_not_primary "$WORK/primary" 2>&1
+)"
+rc=$?
+if [ "$rc" = 0 ]; then
+  bad "TBX-5386: publish guard admitted the planted primary checkout"
+elif ! printf '%s' "$out" | grep -qF '/private/tmp/baton-rel'; then
+  bad "TBX-5386: refusal did not name the Mac release checkout. Got: $out"
+elif ! printf '%s' "$out" | grep -qF '/private/tmp/baton-release-tf'; then
+  bad "TBX-5386: refusal did not name the iPhone release checkout. Got: $out"
+elif ! printf '%s' "$out" | grep -qF 'git clone --branch main'; then
+  bad "TBX-5386: refusal did not give the one-line Mac recovery command. Got: $out"
+elif ! printf '%s' "$out" | grep -qF 'checkout --detach origin/main'; then
+  bad "TBX-5386: refusal did not give the one-line iPhone recovery command. Got: $out"
+else
+  ok "TBX-5386 publish guard refuses a planted primary checkout and names both recoveries"
+fi
+
+git init -q -b main "$TMP_RELEASE/release"
+if (
+  export BATON_PRIMARY_CHECKOUT="$WORK/primary"
+  unset ALLOW_PRIMARY_CHECKOUT
+  release_checkout_assert_not_primary "$TMP_RELEASE/release"
+); then
+  ok "TBX-5386 publish guard admits an independent checkout under /private/tmp"
+else
+  bad "TBX-5386: publish guard refused the dedicated checkout under /private/tmp"
+fi
+
+if (
+  export BATON_PRIMARY_CHECKOUT="$WORK/primary" ALLOW_PRIMARY_CHECKOUT=1
+  release_checkout_assert_not_primary "$WORK/primary" >/dev/null 2>&1
+); then
+  ok "TBX-5386 ALLOW_PRIMARY_CHECKOUT=1 permits and records an intentional override"
+else
+  bad "TBX-5386: ALLOW_PRIMARY_CHECKOUT=1 did not permit the documented override"
+fi
+
+if grep -qF 'release_checkout_assert_not_primary "$PWD"' "$SUBJECT"; then
+  ok "TBX-5386 wiring: publish.sh calls the primary-checkout guard"
+else
+  bad "TBX-5386 wiring: publish.sh no longer calls the primary-checkout guard"
+fi
+
+# --- TBX-5386: one command recreates both release checkouts -----------------------------
+
+SOURCE="$WORK/source"
+ORIGIN="$WORK/origin.git"
+MAC_CLONE="$WORK/baton-rel"
+IOS_CLONE="$WORK/baton-release-tf"
+mkdir -p "$SOURCE/app/Config" "$SOURCE/ios/Config"
+git init -q -b main "$SOURCE"
+git -C "$SOURCE" config user.email t@example.com
+git -C "$SOURCE" config user.name t
+printf 'app/Config/Crashbox.local.xcconfig\nios/Config/Crashbox.local.xcconfig\n' >"$SOURCE/.gitignore"
+printf 'tracked\n' >"$SOURCE/README"
+printf 'MAC_DSN\n' >"$SOURCE/app/Config/Crashbox.local.xcconfig"
+printf 'IOS_DSN\n' >"$SOURCE/ios/Config/Crashbox.local.xcconfig"
+chmod 600 "$SOURCE/app/Config/Crashbox.local.xcconfig" "$SOURCE/ios/Config/Crashbox.local.xcconfig"
+git -C "$SOURCE" add .gitignore README
+git -C "$SOURCE" commit -qm initial
+git init -q --bare "$ORIGIN"
+git -C "$SOURCE" remote add origin "$ORIGIN"
+git -C "$SOURCE" push -q -u origin main
+
+prepare_out="$(
+  BATON_PRIMARY_CHECKOUT="$SOURCE" \
+  BATON_RELEASE_ORIGIN="$ORIGIN" \
+  BATON_MAC_RELEASE_CHECKOUT="$MAC_CLONE" \
+  BATON_IOS_RELEASE_CHECKOUT="$IOS_CLONE" \
+    "$ROOT/scripts/prepare-release-checkouts.sh" 2>&1
+)"
+prepare_rc=$?
+if [ "$prepare_rc" != 0 ]; then
+  bad "TBX-5386: preparation script could not recreate both missing checkouts. Got: $prepare_out"
+elif [ ! -d "$MAC_CLONE/.git" ] || [ ! -d "$IOS_CLONE/.git" ]; then
+  bad "TBX-5386: preparation script did not create both Git clones"
+elif [ ! -f "$MAC_CLONE/app/Config/Crashbox.local.xcconfig" ] || \
+     [ ! -f "$IOS_CLONE/ios/Config/Crashbox.local.xcconfig" ]; then
+  bad "TBX-5386: preparation script did not copy both Crashbox configurations"
+elif [ "$(stat -f '%Lp' "$MAC_CLONE/app/Config/Crashbox.local.xcconfig")" != 600 ] || \
+     [ "$(stat -f '%Lp' "$IOS_CLONE/ios/Config/Crashbox.local.xcconfig")" != 600 ]; then
+  bad "TBX-5386: copied Crashbox configurations are not mode 0600"
+elif [ "$(git -C "$MAC_CLONE" branch --show-current)" != main ]; then
+  bad "TBX-5386: Mac release clone is not on main"
+elif git -C "$IOS_CLONE" symbolic-ref -q HEAD >/dev/null; then
+  bad "TBX-5386: iPhone release clone is not detached at origin/main"
+else
+  ok "TBX-5386 preparation recreates both clones from nothing with mode-0600 configs"
+fi
+
+printf 'refreshed\n' >>"$SOURCE/README"
+git -C "$SOURCE" add README
+git -C "$SOURCE" commit -qm refreshed
+git -C "$SOURCE" push -q origin main
+prepare_out="$(
+  BATON_PRIMARY_CHECKOUT="$SOURCE" \
+  BATON_RELEASE_ORIGIN="$ORIGIN" \
+  BATON_MAC_RELEASE_CHECKOUT="$MAC_CLONE" \
+  BATON_IOS_RELEASE_CHECKOUT="$IOS_CLONE" \
+    "$ROOT/scripts/prepare-release-checkouts.sh" 2>&1
+)"
+prepare_rc=$?
+SOURCE_HEAD="$(git -C "$SOURCE" rev-parse HEAD)"
+if [ "$prepare_rc" != 0 ]; then
+  bad "TBX-5386: preparation script could not refresh both checkouts. Got: $prepare_out"
+elif [ "$(git -C "$MAC_CLONE" rev-parse HEAD)" != "$SOURCE_HEAD" ] || \
+     [ "$(git -C "$IOS_CLONE" rev-parse HEAD)" != "$SOURCE_HEAD" ]; then
+  bad "TBX-5386: refreshed release checkouts did not reach origin/main"
+else
+  ok "TBX-5386 preparation refreshes both clean release checkouts to origin/main"
+fi
+
+if grep -qF 'does not push the tag' "$SUBJECT" && \
+   grep -qF 'does not commit or push them' "$SUBJECT"; then
+  ok "TBX-5386 publish.sh states plainly that its tag and metadata changes remain local"
+else
+  bad "TBX-5386: publish.sh is ambiguous about whether it pushes the tag and release metadata"
+fi
 
 # --- the real blocks, by anchor ---------------------------------------------------------
 
@@ -321,7 +458,12 @@ fi
 
 PINNED_COMMIT="914dff0c6f9a1b2c3d4e5f60718293a4b5c6d7e8"
 
-make_fixture() {   # $1 = CFBundleShortVersionString, $2 = CFBundleVersion, $3 = BatonSourceCommit
+make_fixture() {   # $1 = version, $2 = build, $3 = commit, $4 = reporting provider (optional)
+  local provider="${4-crashbox}" environment="" dsn=""
+  if [ "$provider" = crashbox ]; then
+    environment=production
+    dsn=public@crash.example.invalid/42
+  fi
   rm -rf "$WORK/fixture"; mkdir -p "$WORK/fixture/Baton.app/Contents"
   cat >"$WORK/fixture/Baton.app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -330,6 +472,9 @@ make_fixture() {   # $1 = CFBundleShortVersionString, $2 = CFBundleVersion, $3 =
   <key>CFBundleShortVersionString</key><string>$1</string>
   <key>CFBundleVersion</key><string>$2</string>
   <key>BatonSourceCommit</key><string>$3</string>
+  <key>CrashReportingProvider</key><string>$provider</string>
+  <key>CrashReportingEnvironment</key><string>$environment</string>
+  <key>CrashReportingDSN</key><string>$dsn</string>
 </dict></plist>
 EOF
 }
@@ -355,8 +500,8 @@ EOF
   chmod +x "$WORK/rbin/hdiutil" "$WORK/rbin/xcrun"
 }
 
-run_resume() {   # $1 = version, $2 = build, $3 = commit in the fixture, $4 = stapler status
-  make_fixture "$1" "$2" "$3"; make_resume_stubs "$4"
+run_resume() {   # $1 = version, $2 = build, $3 = commit, $4 = stapler status, $5 = provider
+  make_fixture "$1" "$2" "$3" "${5-crashbox}"; make_resume_stubs "$4"
   rm -rf "$WORK/dist"; mkdir -p "$WORK/dist"; echo "not really a dmg" >"$WORK/dist/Baton-0.19.3.dmg"
   { printf '%s' "$PRELUDE"
     echo ". '$ROOT/scripts/release-identity.sh'"
@@ -402,6 +547,15 @@ elif ! printf '%s' "$out" | grep -q "no stapled ticket"; then
   bad "TBX-5357: an unstapled DMG was refused without saying why. Got: $out"
 else
   ok "TBX-5357 resume refuses a DMG with no stapled ticket"
+fi
+
+out="$(run_resume 0.19.3 103 "$PINNED_COMMIT" 0 "")"
+if printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+  bad "TBX-5304: resumed onto a reporting-disabled artifact and allowed it to publish. Got: $out"
+elif ! printf '%s' "$out" | grep -q "reporting-disabled"; then
+  bad "TBX-5304: a reporting-disabled resume was refused without naming the reason. Got: $out"
+else
+  ok "TBX-5304 resume refuses a reporting-disabled public artifact"
 fi
 
 # Wiring: the skip has to be real, and the pre-publish identity check has to be the DMG's

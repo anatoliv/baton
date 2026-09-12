@@ -5,9 +5,20 @@ import Foundation
 /// Builds a normalized amplitude envelope (0…1 bars) for a **local** audio file so the
 /// scrubber can show a real waveform. Only works on downloaded tracks — a live stream
 /// can't be analyzed ahead of the playhead — so callers fall back to a plain bar when this
-/// returns nil. Results are cached per song id.
+/// returns nil. Results are cached per song id and requested bar count.
 public enum WaveformExtractor {
-    @MainActor private static var cache: [String: [Float]] = [:]
+    private struct CacheKey: Hashable, Sendable {
+        let songID: String
+        let barCount: Int
+    }
+
+    @MainActor private static var cache: [CacheKey: [Float]] = [:]
+    @MainActor private static var inFlight: [CacheKey: Task<[Float]?, Never>] = [:]
+
+#if DEBUG
+    typealias Extraction = @Sendable (URL, Int) async -> [Float]?
+    @MainActor private static var extractionOverrideForTesting: Extraction?
+#endif
 
     /// Where computed waveforms persist so a downloaded track keeps an instant waveform
     /// across launches (the extraction is the expensive part).
@@ -19,34 +30,82 @@ public enum WaveformExtractor {
         return dir
     }
 
-    private nonisolated static func diskURL(_ id: String) -> URL {
+    private nonisolated static func diskURL(_ key: CacheKey) -> URL {
+        let id = key.songID.replacingOccurrences(of: "/", with: "_")
+        return diskDir.appendingPathComponent("\(id)-\(key.barCount).json")
+    }
+
+    private nonisolated static func legacyDiskURL(_ id: String) -> URL {
         diskDir.appendingPathComponent(id.replacingOccurrences(of: "/", with: "_") + ".json")
+    }
+
+    private nonisolated static func cachedBars(at url: URL, count: Int) -> [Float]? {
+        guard let data = try? Data(contentsOf: url),
+              let bars = try? JSONDecoder().decode([Float].self, from: data),
+              bars.count == count
+        else { return nil }
+        return bars
+    }
+
+    private nonisolated static func persist(_ bars: [Float], at url: URL) {
+        // `.atomic`: the cache is derived data, but a torn file is not free. The decode only
+        // runs when the read fails, so a half-written file is re-read on every launch until
+        // the track is played again, and each of those reads pays a full PCM extraction.
+        // A temporary file and a rename means the reader sees the old bars or the new ones.
+        guard let data = try? JSONEncoder().encode(bars) else { return }
+        try? data.write(to: url, options: .atomic)
     }
 
     /// Cached bars for a song: memory → disk → compute (off the main actor) + persist.
     /// Returns nil if the file can't be read.
     @MainActor
     public static func bars(forSongID id: String, url: URL, count: Int = 120) async -> [Float]? {
-        if let cached = cache[id] { return cached }
+        guard count > 0 else { return nil }
+        let key = CacheKey(songID: id, barCount: count)
+        if let cached = cache[key] { return cached }
         // Disk cache (survives relaunches for downloaded tracks).
-        if let data = try? Data(contentsOf: diskURL(id)),
-           let bars = try? JSONDecoder().decode([Float].self, from: data), !bars.isEmpty {
-            cache[id] = bars
+        if let bars = cachedBars(at: diskURL(key), count: count) {
+            cache[key] = bars
             return bars
         }
-        let result = await extract(url: url, barCount: count)
+        // One release of Baton wrote `<song>.json`. It is safe to migrate that value only
+        // when its shape happens to match this request; otherwise recompute at the requested
+        // resolution instead of stretching or collapsing the old waveform.
+        if let bars = cachedBars(at: legacyDiskURL(id), count: count) {
+            cache[key] = bars
+            persist(bars, at: diskURL(key))
+            return bars
+        }
+        if let work = inFlight[key] { return await work.value }
+
+#if DEBUG
+        let extraction = extractionOverrideForTesting
+#endif
+        let work = Task {
+#if DEBUG
+            if let extraction { return await extraction(url, count) }
+#endif
+            return await extract(url: url, barCount: count)
+        }
+        inFlight[key] = work
+        let result = await work.value
+        inFlight[key] = nil
         if let result {
-            cache[id] = result
-            // `.atomic`: the cache is derived data, but a torn file is not free. The decode only
-            // runs when the read fails, so a half-written file is re-read on every launch until
-            // the track is played again, and each of those reads pays a full PCM extraction.
-            // A temporary file and a rename means the reader sees the old bars or the new ones.
-            if let data = try? JSONEncoder().encode(result) {
-                try? data.write(to: diskURL(id), options: .atomic)
-            }
+            cache[key] = result
+            persist(result, at: diskURL(key))
         }
         return result
     }
+
+#if DEBUG
+    @MainActor
+    static func resetForTesting(extraction: Extraction? = nil) {
+        for work in inFlight.values { work.cancel() }
+        inFlight.removeAll()
+        cache.removeAll()
+        extractionOverrideForTesting = extraction
+    }
+#endif
 
     /// Read PCM, reduce to `barCount` peak-amplitude buckets, and normalize to 0…1.
     /// `nonisolated async` so the blocking sample read runs off the main actor.

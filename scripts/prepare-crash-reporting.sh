@@ -4,7 +4,12 @@
 # echoed. No hosted-provider input is read or accepted.
 set -euo pipefail
 
-[ "$#" -eq 2 ] || { echo "usage: $0 <app-or-ios-dir> <output-xcconfig>" >&2; exit 64; }
+REQUIRE_CRASHBOX=0
+if [ "${1:-}" = "--require-crashbox" ]; then
+  REQUIRE_CRASHBOX=1
+  shift
+fi
+[ "$#" -eq 2 ] || { echo "usage: $0 [--require-crashbox] <app-or-ios-dir> <output-xcconfig>" >&2; exit 64; }
 ROOT="$1"
 OUTPUT="$2"
 CONFIG="$ROOT/Config"
@@ -70,6 +75,10 @@ dsn=""
 if [ -n "$crashbox" ]; then
   provider="crashbox"
   dsn="$crashbox"
+fi
+
+if [ "$REQUIRE_CRASHBOX" = 1 ] && [ "$provider" != crashbox ]; then
+  die "Crashbox is required for a public release; install $CRASHBOX_FILE as an invoking-user-owned mode-0600 file"
 fi
 
 umask 077

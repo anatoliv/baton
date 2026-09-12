@@ -22,7 +22,8 @@ VERBOSE=0
 . "${RELEASE_GUARD_PATH:-$DIR/release-guard.sh}"
 
 WORK="$(mktemp -d -t baton-release-guard-test)"
-trap 'rm -rf "$WORK"' EXIT
+TMP_RELEASE="$(mktemp -d /private/tmp/baton-ios-checkout-test.XXXXXX)"
+trap 'rm -rf "$WORK" "$TMP_RELEASE"' EXIT
 OUT="$WORK/out.txt"
 PASS=0
 FAIL=0
@@ -159,6 +160,38 @@ expect_saying() {
     echo
   fi
 }
+
+# TBX-5386: testflight.sh calls this shared admission guard before it reads release
+# credentials. Plant a primary checkout and separately prove a clone under
+# /private/tmp stays green.
+. "$DIR/../../scripts/release-checkout.sh"
+
+git init -q -b main "$WORK/primary"
+git -C "$WORK/primary" config user.email t@example.com
+git -C "$WORK/primary" config user.name t
+printf 'primary\n' >"$WORK/primary/README"
+git -C "$WORK/primary" add README
+git -C "$WORK/primary" commit -qm primary
+
+expect_saying red "TBX-5386 testflight guard refuses a planted primary checkout" \
+  "/private/tmp/baton-release-tf" -- \
+  env BATON_PRIMARY_CHECKOUT="$WORK/primary" bash -c \
+    '. "$1"; release_checkout_assert_not_primary "$2"' _ \
+    "$DIR/../../scripts/release-checkout.sh" "$WORK/primary"
+
+git init -q -b main "$TMP_RELEASE/release"
+expect green "TBX-5386 testflight guard admits a checkout under /private/tmp" -- \
+  env BATON_PRIMARY_CHECKOUT="$WORK/primary" bash -c \
+    '. "$1"; release_checkout_assert_not_primary "$2"' _ \
+    "$DIR/../../scripts/release-checkout.sh" "$TMP_RELEASE/release"
+
+if grep -qF 'release_checkout_assert_not_primary "$REPO"' "$DIR/testflight.sh"; then
+  echo "PASS  [green] TBX-5386 wiring: testflight.sh calls the primary-checkout guard"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL  expected testflight.sh to call the primary-checkout guard"
+  FAIL=$((FAIL + 1))
+fi
 
 echo "=== release guard: does it actually fire? ==============================="
 echo

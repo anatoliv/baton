@@ -403,7 +403,7 @@ if [ -n "${BATON_COUNT_BUNDLE:-}" ]; then
   exit 0
 fi
 
-# --- One gate at a time on this machine ------------------------------------
+# --- One gate or release at a time on this machine -------------------------
 #
 # WHY THIS EXISTS. On 2026-09-08 at 17:20 a gate died at the Mac suite with the
 # `BATON-DIAG` runner-death signature, and the backtrace named `_handleAEQuit`: a Quit
@@ -439,70 +439,17 @@ fi
 # debris and it is cleared.
 #
 # LINT_ONLY is exempt on purpose: that mode is a text pass over a planted tree, it hosts no
-# app, and the guard loop below runs `test-lints.sh` from **inside** a gate that already
-# holds this lock.
-GATE_LOCK="${BATON_GATE_LOCK:-/tmp/baton-gate.lock}"
-GATE_LOCK_HELD=""
-
-# The lock's own record of who holds it. `ps -o lstart=` rather than a timestamp we write
-# ourselves: it comes from the kernel, so it is the one field a recycled pid cannot fake.
-gate_lock_holder_start() {   # $1 = pid
-  ps -o lstart= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-}
-
-gate_lock_release() {
-  [ -n "$GATE_LOCK_HELD" ] || return 0
-  # Only if it is still ours. A run that lost its lock to a stale-clear should not delete
-  # the successor's.
-  if [ "$(sed -n '1p' "$GATE_LOCK" 2>/dev/null)" = "$$" ]; then
-    rm -f "$GATE_LOCK"
-  fi
-  GATE_LOCK_HELD=""
-}
-
-gate_lock_acquire() {
-  local attempt pid started cwd derived live
-  for attempt in 1 2 3; do
-    # `set -o noclobber` makes the redirect itself the atomic test-and-set, so two runs
-    # starting in the same millisecond cannot both believe they created the file.
-    if ( set -o noclobber; printf '%s\n%s\n%s\n%s\n' \
-           "$$" "$(gate_lock_holder_start $$)" "$PWD" "$DERIVED" >"$GATE_LOCK" ) 2>/dev/null; then
-      GATE_LOCK_HELD=1
-      trap gate_lock_release EXIT INT TERM
-      return 0
-    fi
-    pid="$(sed -n '1p' "$GATE_LOCK" 2>/dev/null || true)"
-    started="$(sed -n '2p' "$GATE_LOCK" 2>/dev/null || true)"
-    cwd="$(sed -n '3p' "$GATE_LOCK" 2>/dev/null || true)"
-    derived="$(sed -n '4p' "$GATE_LOCK" 2>/dev/null || true)"
-    live=""
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      # Same pid AND the same start time. A pid alone would refuse forever the moment the
-      # number came round again, which is precisely the wedge this must not create.
-      [ "$(gate_lock_holder_start "$pid")" = "$started" ] && live=1
-    fi
-    if [ -z "$live" ]; then
-      yellow "  clearing a stale gate lock (pid ${pid:-?} is gone): $GATE_LOCK"
-      rm -f "$GATE_LOCK"
-      continue
-    fi
-    red "✗ another Baton gate is running (pid $pid, started ${started:-unknown}, ${cwd:-unknown})"
-    red "  Its derived data: ${derived:-unknown}"
-    red "  Two gates on this machine app-host the same Baton.app, and launching the second"
-    red "  makes LaunchServices quit the first. The victim reports a runner death against an"
-    red "  unrelated test, which is why this refuses instead of racing. (TBX-5291)"
-    red "  Wait for it, or stop it, then run again. BATON_ALLOW_CONCURRENT_GATE=1 overrides."
-    exit 1
-  done
-  # Three stale clears in a row means something is recreating the file faster than this can
-  # clear it. Say so rather than looping.
-  red "✗ could not take the gate lock at $GATE_LOCK after three attempts"
-  red "  Something is recreating it. Remove it by hand if no gate is running."
-  exit 1
-}
+# app, and the guard loop below runs `test-lints.sh` from inside a gate that already holds
+# this lock. A release takes the same lock before it can reap a test host. Its direct child
+# gate inherits that live parent-owned lock, so the release does not deadlock itself.
+# shellcheck source=scripts/gate-lock.sh
+. "$(dirname "$0")/gate-lock.sh"
 
 if [ -z "${LINT_ONLY:-}" ] && [ -z "${BATON_ALLOW_CONCURRENT_GATE:-}" ]; then
-  gate_lock_acquire
+  if ! gate_lock_inherit_parent; then
+    gate_lock_acquire gate "$DERIVED"
+    trap gate_lock_release EXIT INT TERM
+  fi
 fi
 
 # `BATON_GATE_LOCK_PROBE` exists so `scripts/test-gate-lock.sh` can drive the acquire above
@@ -514,7 +461,11 @@ fi
 # It holds the lock for `BATON_GATE_LOCK_PROBE` seconds so a second shell can contend with
 # a genuinely live holder, which is the case that matters.
 if [ -n "${BATON_GATE_LOCK_PROBE:-}" ]; then
-  echo "GATE LOCK: acquired by $$"
+  if [ -n "$GATE_LOCK_PARENT_KIND" ]; then
+    echo "GATE LOCK: inherited from $GATE_LOCK_PARENT_KIND parent $PPID"
+  else
+    echo "GATE LOCK: acquired by $$"
+  fi
   sleep "$BATON_GATE_LOCK_PROBE"
   exit 0
 fi

@@ -7,14 +7,30 @@
 # two metadata fields, a range of keys or letters. Those belong here, each under a line
 # saying why, rather than being rewritten into something worse.
 #
-# FORMAT: one entry per line, the repo-relative path, a TAB, then the trimmed text of the
-# source line. Deliberately not a line number, which rots the moment anything above it moves;
-# deliberately not the path alone, so a file with one allowed glyph does not become a file
-# where any new dash passes. Rewriting the sentence stops the entry matching, which is the
-# point: the exemption is for this text, not for this file.
+# POLICY FOR SHIPPED HISTORY: old What's New entries keep the prose that shipped. A
+# `history-from` entry names the first old release by its exact version line. An optional end
+# marker limits the exemption to the release-note array when other UI code follows it. Release
+# lists are newest first, so new notes inserted above the start marker remain subject to the
+# lint. Every marker must match exactly once or the lint fails.
+#
+# FORMAT: the usual form is the repo-relative path, a TAB, then the trimmed text of one source
+# line. A history boundary is path, TAB, `history-from`, TAB, then the trimmed version line.
+# It can add a TAB and a trimmed end marker; the end marker itself is not exempt.
+# Neither form uses a line number, which would rot the moment anything above it moved, and
+# neither exempts a whole file. Rewriting an exact line or moving a history marker stops the
+# entry matching, which is the point: each exemption stays tied to the text it was granted to.
 #
 # Adding an entry is a copy decision. If the dash is doing the work of a period, a colon, a
 # pair of parentheses or a comma, it is prose and belongs in the sentence, not in here.
+
+# --- Shipped What's New history -----------------------------------------------
+# The Mac's no-dash copy policy starts at 0.19.0. Entries from 0.18.1 back have already
+# shipped in the author's original voice and are not rewritten after the fact.
+app/Sources/Baton/Shell/Music/BatonHelpContent.swift	history-from	version: "0.18.1",	// MARK: - Open-Settings button
+
+# The iPhone's current 1.1 notes follow the copy policy. The 1.0.x notes and the older
+# TestFlight history below them keep the prose that shipped.
+ios/Sources/BatonMobile/HelpView.swift	history-from	version: "1.0.13",
 
 # --- The "no value yet" glyph -------------------------------------------------
 # An em dash in a table cell where a number has not loaded or does not exist. It is the
@@ -63,13 +79,6 @@ gateway/Sources/baton-gateway/GatewayToolSurface.swift	.map { "\($0.offset + 1).
 gateway/Sources/baton-gateway/GatewayToolSurface.swift	return ("Similar to \(seed.title):\n" + similar.prefix(10).map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
 gateway/Sources/baton-gateway/GatewayToolSurface.swift	return (songs.map { "• \($0.title) — \($0.artist ?? "?")" }.joined(separator: "\n"), false)
 
-# --- Ranges in shipped What's New entries -------------------------------------
-# A range of keyboard shortcuts and a range of letters. Both are ranges, where the en dash is
-# the correct typography and "to" would be wrong ("an A to Z rail"). Both also sit in release
-# history that has already shipped, which is not rewritten after the fact.
-app/Sources/Baton/Shell/Music/BatonHelpContent.swift	HelpWhatsNewChange(.added, "A Go menu to jump to any section (⌘1–8), plus Now "
-ios/Sources/BatonMobile/HelpView.swift	.init(.added, "An A–Z rail on Albums, Artists and Folders. Drag it to jump: 2,604 albums is no longer a flick marathon."),
-
 # --- Characters needed to parse or trim text, not prose -----------------------
 # The literal dash glyphs are members of a CharacterSet used to strip dangling separator
 # punctuation from a downloaded filename ("{artist} - {title}" with no artist becomes
@@ -77,6 +86,10 @@ ios/Sources/BatonMobile/HelpView.swift	.init(.added, "An A–Z rail on Albums, A
 # sentence, the characters themselves are the thing being matched, and removing either one
 # from the set would leave that punctuation in a filename it should have been trimmed from.
 Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/MusicDownloadStore.swift	let trimSet = CharacterSet(charactersIn: " -_.–—").union(.whitespaces)
+
+# A transcript search term is stripped of trailing sentence punctuation before matching.
+# The escaped em dash is one of the characters to strip, not punctuation in displayed copy.
+Packages/BatonSubsonicModels/Sources/BatonSubsonicModels/Transcript.swift	.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?\u{2026}\u{2014}- "))
 
 # --- Generates a Swift comment, not prose --------------------------------------
 # This string is written verbatim into a generated `.swift` fixture file as a `//` or

@@ -95,6 +95,8 @@ public struct VersionedStore<Payload: Codable> {
         case fresh
         /// Unreadable; the bytes were preserved as `<name>.corrupt-<timestamp>`.
         case quarantined
+        /// Unreadable, and the rescue copy could not be written. The original remains in place.
+        case quarantineFailed
         /// Written by a build that stamps a higher version than this one understands.
         case newerThanThisBuild(found: Int)
     }
@@ -131,7 +133,8 @@ public struct VersionedStore<Payload: Codable> {
             log.notice("migrating unversioned store \(name, privacy: .public) → v\(currentVersion)")
             return (migrate(legacy, 1), .loaded)
         }
-        preserveCorrupt(data)
+        guard preserveCorrupt(data) else { return (nil, .quarantineFailed) }
+        discardQuarantinedOriginal()
         return (nil, .quarantined)
     }
 
@@ -150,6 +153,13 @@ public struct VersionedStore<Payload: Codable> {
                 build writes \(currentVersion). Overwriting would downgrade it.
                 """)
             return false
+        }
+        if let unreadable = unreadableStoredBytes() {
+            guard preserveCorrupt(unreadable) else {
+                log.error("refusing to replace unreadable store \(name, privacy: .public) because its rescue copy failed")
+                return false
+            }
+            discardQuarantinedOriginal()
         }
         do {
             let data = try encoder.encode(Envelope(version: currentVersion, payload: payload))
@@ -171,16 +181,45 @@ public struct VersionedStore<Payload: Codable> {
         return stamp.version
     }
 
-    private func preserveCorrupt(_ data: Data) {
+    private func unreadableStoredBytes() -> Data? {
+        guard let data = readBytes(),
+              (try? decoder.decode(Envelope.self, from: data)) == nil,
+              (try? decoder.decode(Payload.self, from: data)) == nil
+        else { return nil }
+        return data
+    }
+
+    @discardableResult
+    private func preserveCorrupt(_ data: Data) -> Bool {
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         switch backing {
         case let .file(url):
             let aside = url.appendingPathExtension("corrupt-\(stamp)")
-            try? data.write(to: aside)
-            log.error("store \(name, privacy: .public) was unreadable, preserved as \(aside.lastPathComponent, privacy: .public); starting empty")
+            do {
+                try data.write(to: aside, options: .atomic)
+                log.error("store \(name, privacy: .public) was unreadable, preserved as \(aside.lastPathComponent, privacy: .public); starting empty")
+                return true
+            } catch {
+                log.error("store \(name, privacy: .public) was unreadable and its rescue copy could not be written; leaving the original in place: \(error.localizedDescription, privacy: .public)")
+                return false
+            }
         case let .defaults(defaults, key):
             defaults.set(data, forKey: "\(key).corrupt-\(stamp)")
             log.error("store \(name, privacy: .public) was unreadable, preserved under \(key, privacy: .public).corrupt-\(stamp, privacy: .public); starting empty")
+            return true
+        }
+    }
+
+    private func discardQuarantinedOriginal() {
+        switch backing {
+        case let .file(url):
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                log.error("preserved unreadable store \(name, privacy: .public), but could not remove the quarantined original: \(error.localizedDescription, privacy: .public)")
+            }
+        case let .defaults(defaults, key):
+            defaults.removeObject(forKey: key)
         }
     }
 

@@ -370,7 +370,7 @@ public final class FriendLearningStore {
         // refuses to write over a file from a newer build rather than downgrading it. The
         // hand-rolled version also lost the previous quarantine on each failure, so a second
         // corrupt file destroyed the evidence from the first (S-F2, S-F14).
-        lastLoadSucceeded = result.outcome != .quarantined
+        lastLoadSucceeded = result.outcome != .quarantined && result.outcome != .quarantineFailed
         guard let decoded = result.payload else { return }
         // Capped here, not only in `learn`. The type doc promises the prompt is bounded, and
         // trimming lived on the write path alone — so a `music-friend-learned.json` arriving

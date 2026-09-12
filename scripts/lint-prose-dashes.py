@@ -25,9 +25,11 @@ risks changing the very text a test asserts against.
 
 DELIBERATE GLYPHS. A dash that is typography rather than prose (a leading kicker, a
 metadata separator, a numeric range) goes in the allowlist file beside this script, with a
-line of reasoning above it. The allowlist matches on the file path plus the trimmed text of
-the source line, not on a line number, so it does not rot silently as the file moves around
-and it does stop matching if the sentence itself is rewritten.
+line of reasoning above it. The allowlist normally matches on the file path plus the trimmed
+text of the source line, not on a line number, so it does not rot silently as the file moves
+around and it does stop matching if the sentence itself is rewritten. Shipped release-note
+history can instead name an exact marker; only that marker and the older entries below it
+are exempt, so a new entry at the top of the list is still checked.
 
 Usage:
     scripts/lint-prose-dashes.py [--allowlist FILE] [--print-allowlist] [ROOT ...]
@@ -45,6 +47,12 @@ DASHES = {
     "‒": "U+2012 figure dash",
     "–": "U+2013 en dash",
     "—": "U+2014 em dash",
+}
+
+ESCAPED_DASHES = {
+    "u{2012}": "‒",
+    "u{2013}": "–",
+    "u{2014}": "—",
 }
 
 DEFAULT_ALLOWLIST = os.path.join(
@@ -149,9 +157,17 @@ def scan_string_literals(src):
                 advance(len(escape) + 1)
                 stack.append(("code", 0))
                 continue
-            # An ordinary escape: skip the backslash and whatever it escapes, so a
-            # \" does not read as the end of the string.
-            advance(len(escape) + (1 if after < n else 0))
+            # Unicode escapes render as the same forbidden dash as a literal glyph. This
+            # also handles raw strings, whose active escape prefix includes their pounds.
+            for escaped, rendered in ESCAPED_DASHES.items():
+                if src.startswith(escaped, after):
+                    hits.append((line, col, rendered))
+                    advance(len(escape) + len(escaped))
+                    break
+            else:
+                # An ordinary escape: skip the backslash and whatever it escapes, so a
+                # \" does not read as the end of the string.
+                advance(len(escape) + (1 if after < n else 0))
             continue
         if src.startswith(closer, i):
             advance(len(closer))
@@ -166,20 +182,27 @@ def scan_string_literals(src):
 
 
 def load_allowlist(path):
-    """path -> set of trimmed source lines that are allowed to carry a dash."""
-    allow = {}
+    """Return exact-line exemptions and release-history marker ranges by path."""
+    exact = {}
+    history = {}
     if not path or not os.path.exists(path):
-        return allow
+        return exact, history
     with open(path, encoding="utf-8") as f:
         for raw in f:
             entry = raw.rstrip("\n")
             if not entry.strip() or entry.lstrip().startswith("#"):
                 continue
-            if "\t" not in entry:
-                continue
-            file_part, text = entry.split("\t", 1)
-            allow.setdefault(file_part.strip(), set()).add(text.strip())
-    return allow
+            parts = entry.split("\t")
+            if len(parts) == 2:
+                file_part, text = parts
+                exact.setdefault(file_part.strip(), set()).add(text.strip())
+            elif len(parts) in (3, 4) and parts[1].strip() == "history-from":
+                file_part, _, start_marker = parts[:3]
+                end_marker = parts[3].strip() if len(parts) == 4 else None
+                history.setdefault(file_part.strip(), set()).add(
+                    (start_marker.strip(), end_marker)
+                )
+    return exact, history
 
 
 def swift_files(roots):
@@ -218,8 +241,9 @@ def main(argv):
     args = ap.parse_args(argv)
     roots = args.roots or ["app/Sources", "ios/Sources", "Shared"]
 
-    allow = load_allowlist(args.allowlist)
+    exact_allow, history_allow = load_allowlist(args.allowlist)
     findings = []
+    allowlist_errors = []
     allowed = 0
 
     for path in swift_files(roots):
@@ -229,21 +253,58 @@ def main(argv):
         except (OSError, UnicodeDecodeError) as exc:
             print("%s: could not read (%s)" % (path, exc), file=sys.stderr)
             continue
-        hits = scan_string_literals(src)
-        if not hits:
-            continue
         lines = src.splitlines()
         rel = os.path.relpath(path)
         # An entry may name the file the way the repo does (the normal case) or the way the
         # scan was invoked, which for a planted tree in scripts/test-lints.sh is an absolute
         # path outside the repo. Accept either, so the guard tests the same code the gate runs.
         keys = {rel, path, os.path.abspath(path)}
-        allowed_here = set()
+        exact_here = set()
+        history_rules = set()
         for key in keys:
-            allowed_here |= allow.get(key, set())
+            exact_here |= exact_allow.get(key, set())
+            history_rules |= history_allow.get(key, set())
+
+        history_ranges = []
+        for start_marker, end_marker in history_rules:
+            start_lines = [
+                number
+                for number, text in enumerate(lines, start=1)
+                if text.strip() == start_marker
+            ]
+            if len(start_lines) != 1:
+                allowlist_errors.append(
+                    "%s: history start marker must match exactly once, found %d: %s"
+                    % (rel, len(start_lines), start_marker)
+                )
+                continue
+
+            end_line = len(lines) + 1
+            if end_marker is not None:
+                end_lines = [
+                    number
+                    for number, text in enumerate(lines, start=1)
+                    if text.strip() == end_marker
+                ]
+                if len(end_lines) != 1:
+                    allowlist_errors.append(
+                        "%s: history end marker must match exactly once, found %d: %s"
+                        % (rel, len(end_lines), end_marker)
+                    )
+                    continue
+                end_line = end_lines[0]
+                if end_line <= start_lines[0]:
+                    allowlist_errors.append(
+                        "%s: history end marker must follow its start marker: %s"
+                        % (rel, end_marker)
+                    )
+                    continue
+            history_ranges.append((start_lines[0], end_line))
+
+        hits = scan_string_literals(src)
         for line, col, ch in hits:
             text = lines[line - 1].strip() if line - 1 < len(lines) else ""
-            if text in allowed_here:
+            if text in exact_here or any(start <= line < end for start, end in history_ranges):
                 allowed += 1
                 continue
             findings.append((rel, line, col, ch, text))
@@ -251,10 +312,17 @@ def main(argv):
     if args.print_allowlist:
         for rel, line, col, ch, text in findings:
             print("%s\t%s" % (rel, text))
-        return 1 if findings else 0
+        for error in allowlist_errors:
+            print(error)
+        return 1 if findings or allowlist_errors else 0
 
     for rel, line, col, ch, text in findings:
         print("%s:%d:%d: %s in a user-facing string: %s" % (rel, line, col, DASHES[ch], text))
+
+    for error in allowlist_errors:
+        # scripts/test.sh treats any stdout as a lint finding, so a stale policy boundary
+        # fails the same gate as a dash instead of disappearing with diagnostic stderr.
+        print(error)
 
     if findings:
         print(
@@ -271,6 +339,19 @@ def main(argv):
             ),
             file=sys.stderr,
         )
+
+    if allowlist_errors:
+        print(
+            "\n%d invalid history marker%s in %s. Markers must match once and form a valid range."
+            % (
+                len(allowlist_errors),
+                "" if len(allowlist_errors) == 1 else "s",
+                os.path.relpath(args.allowlist),
+            ),
+            file=sys.stderr,
+        )
+
+    if findings or allowlist_errors:
         return 1
     return 0
 
