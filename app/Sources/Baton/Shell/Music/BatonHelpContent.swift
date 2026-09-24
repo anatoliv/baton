@@ -323,6 +323,17 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.9",
+            date: "September 2026",
+            highlight: "A maintenance update that locks in the last two fixes.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Nothing changes in how Baton works. This update adds checks that catch the two problems fixed in "
+                    + "0.19.7 and 0.19.8 if they ever come back: the menu bar menu freezing the app, and "
+                    + "\u{201C}Continue where you left off?\u{201D} asking again after you said Not now."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.8",
             date: "September 2026",
             highlight: "Not now means not now: Baton stops asking to continue a queue you already turned down.",
