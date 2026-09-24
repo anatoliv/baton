@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import BatonSubsonicKit
@@ -23,6 +24,17 @@ public final class QueueHandoff {
     @ObservationIgnored private let controller: StreamingPlaybackController
     @ObservationIgnored private let server: Server
     @ObservationIgnored private var lastSavedSignature: String?
+    /// Where the answered-snapshot digest lives. Device-local on purpose: it is not in
+    /// `PreferenceSync.syncedKeys`, because declining on the Mac says nothing about the phone.
+    @ObservationIgnored private let defaults: UserDefaults
+
+    /// Digest of the last server snapshot this device answered, by Continue or by Not now.
+    ///
+    /// Declining used to be in-memory only, and the slot keeps holding the other device's queue
+    /// until this device next pauses, so the same offer came back at every launch.
+    /// A snapshot that has been answered is not offered again. A new save from the other device
+    /// changes the digest and is offered normally.
+    public static let answeredSnapshotKey = "baton.handoff.answeredSnapshot"
 
     /// Everything this type needs from the outside world, in one injectable value.
     ///
@@ -62,9 +74,34 @@ public final class QueueHandoff {
         )
     }
 
-    public init(controller: StreamingPlaybackController, server: Server = .live) {
+    public init(
+        controller: StreamingPlaybackController,
+        server: Server = .live,
+        defaults: UserDefaults = BatonStorage.defaults
+    ) {
         self.controller = controller
         self.server = server
+        self.defaults = defaults
+    }
+
+    /// Identifies one saved snapshot: who saved it, what it holds, and where it stood.
+    ///
+    /// The play-queue response carries no save timestamp, so identity is the content. Any new
+    /// save that moved the playhead, changed the current song or edited the queue differs; a
+    /// byte-identical re-save of the same queue is the same offer and stays answered.
+    static func snapshotDigest(_ queue: NavidromePlayQueue) -> String {
+        var parts: [String] = [
+            queue.changedBy?.lowercased() ?? "-",
+            queue.currentID ?? "-",
+            queue.positionMs.map(String.init) ?? "-",
+        ]
+        parts.append(contentsOf: queue.songs.map(\.id))
+        let digest = SHA256.hash(data: Data(parts.joined(separator: "\u{1F}").utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func markAnswered(_ queue: NavidromePlayQueue) {
+        defaults.set(Self.snapshotDigest(queue), forKey: Self.answeredSnapshotKey)
     }
 
     /// The `c` client name this device saves under — offers from the same name are
@@ -101,7 +138,8 @@ public final class QueueHandoff {
         guard mayUseServerSlot else { return }
         guard let saved = await server.fetchQueue(),
               !saved.songs.isEmpty,
-              saved.changedBy?.lowercased() != Self.ownClientName
+              saved.changedBy?.lowercased() != Self.ownClientName,
+              Self.snapshotDigest(saved) != defaults.string(forKey: Self.answeredSnapshotKey)
         else { return }
         offer = Offer(queue: saved)
     }
@@ -110,6 +148,9 @@ public final class QueueHandoff {
     public func acceptOffer() {
         guard let queue = offer?.queue else { return }
         offer = nil
+        // Adopted counts as answered: if this device quits before it next pauses, the slot
+        // still holds this snapshot, and offering the queue already playing would be absurd.
+        markAnswered(queue)
         let startIndex = queue.currentID.flatMap { id in queue.songs.firstIndex { $0.id == id } } ?? 0
         controller.play(queue.songs, startAt: startIndex, source: .init(label: "Continued", kind: .playlist))
         if let ms = queue.positionMs, ms > 1000 {
@@ -117,7 +158,10 @@ public final class QueueHandoff {
         }
     }
 
-    public func declineOffer() { offer = nil }
+    public func declineOffer() {
+        if let queue = offer?.queue { markAnswered(queue) }
+        offer = nil
+    }
 
     /// Drops a pending handoff offer.
     ///
