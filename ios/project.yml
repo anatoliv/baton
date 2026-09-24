@@ -61,6 +61,7 @@ settings:
     # whose baked value is missing, empty, unexpanded, abbreviated, uppercase or
     # non-hex. (TBX-5102)
     BATON_SOURCE_COMMIT: ""
+    BATON_INTERNAL_DIAGNOSTICS: NO
     CRASH_REPORTING_DSN: ""
     CRASH_REPORTING_PROVIDER: ""
     CRASH_REPORTING_ENVIRONMENT: ""
@@ -151,6 +152,7 @@ targets:
         # Brand orange (#E98345) as the global accent, so `.tint`/`Color.accentColor`
         # resolve to Baton's identity everywhere — the design doc's Brand rule.
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/BatonMobile/BatonMobile-Bridging-Header.h
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
@@ -190,6 +192,7 @@ targets:
         CrashReportingDSN: "$(CRASH_REPORTING_DSN)"
         CrashReportingProvider: "$(CRASH_REPORTING_PROVIDER)"
         CrashReportingEnvironment: "$(CRASH_REPORTING_ENVIRONMENT)"
+        BatonInternalDiagnostics: "$(BATON_INTERNAL_DIAGNOSTICS)"
         # Same media-only ATS shape as the Mac app: plain-HTTP internet-radio
         # streams may play; cleartext NSURLSession is allowed only to LAN hosts
         # (self-hosted Navidrome/TTS on RFC-1918 addresses).

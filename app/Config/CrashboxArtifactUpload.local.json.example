@@ -1,0 +1,11 @@
+{
+  "dsym_url": "https://ingest.crashbox.dev/artifacts/v1/dsym",
+  "expires_at": "REPLACE_WITH_ISSUED_EXPIRY",
+  "label": "baton-publish",
+  "project_id": "REPLACE_WITH_ISSUED_PROJECT_UUID",
+  "project_slug": "baton-macos",
+  "scope": "upload",
+  "source_map_url": "https://ingest.crashbox.dev/artifacts/v1/source-map",
+  "token": "REPLACE_WITH_ISSUED_TOKEN",
+  "version": 1
+}

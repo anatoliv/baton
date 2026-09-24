@@ -73,7 +73,11 @@ extension ReleaseNote.Kind {
 extension HelpTour {
     /// The guided tours offered in the Help sidebar. Each is a short,
     /// linear walkthrough that ends with the reader able to do the thing.
-    static let all: [HelpTour] = [
+    ///
+    /// Computed rather than stored because the MCP tour quotes the endpoint the server is on
+    /// right now, and that can move off 8787. Tours are identified by their string
+    /// id and steps by index, so rebuilding the array costs nothing in identity.
+    static var all: [HelpTour] { [
         HelpTour(
             id: "get-connected",
             title: "Get connected and playing",
@@ -177,8 +181,11 @@ extension HelpTour {
                     body: """
                     Baton writes a discovery file at \
                     `~/Library/Application Support/Baton/mcp.json` while it's \
-                    running. It holds the **endpoint URL** (something like \
-                    `http://127.0.0.1:8787/mcp`) and the **token**.
+                    running. It holds the **endpoint URL** (right now \
+                    `\(AgentAccessInfo.liveEndpointURL)`) and the **token**. \
+                    The port is 8787 unless something else already had it, in \
+                    which case Baton takes the next free one and shows it in \
+                    Settings > Agents.
                     """
                 ),
                 HelpTourStep(
@@ -302,7 +309,7 @@ extension HelpTour {
                 ),
             ]
         ),
-    ]
+    ] }
 }
 
 // MARK: - What's New content
@@ -315,6 +322,19 @@ extension HelpWhatsNewRelease {
     /// enforced it. `WhatsNewFreshnessTests` now fails when the newest entry falls behind
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
+        HelpWhatsNewRelease(
+            version: "0.19.6",
+            date: "September 2026",
+            highlight: "You can choose the MCP server port, and Baton tells you when it had to move.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Settings now has a field for the port the MCP server listens on. "
+                    + "Baton starts from that port and keeps the setting in step with the port it is on."),
+                HelpWhatsNewChange(.improved,
+                    "If the port you chose is already in use, Baton moves to the next free one, "
+                    + "saves it, and posts a notice naming both ports so you can update your MCP client."),
+            ]
+        ),
         HelpWhatsNewRelease(
             version: "0.19.5",
             date: "September 2026",

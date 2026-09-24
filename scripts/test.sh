@@ -853,7 +853,11 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          on a yellow line (TBX-5317). Plus the Mac's dSYM retention: a
 #                          release's symbols outlive the next release, and the DONE line
 #                          says whether anyone uploaded them (TBX-5372)
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards; do
+#   test-crashbox-artifact-upload
+#                          the generated mode-0600 credential is bounded and never
+#                          reaches argv/output, and a response must match this exact
+#                          project, release and archive before it becomes a receipt
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload; do
   GUARD_LOG="$(mktemp -t "baton-$guard.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then
     guard_cmd=("scripts/$guard.sh")

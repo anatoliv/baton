@@ -76,8 +76,15 @@ Baton writes, at startup (after it binds a port):
 
 - File perms are `0600` (the token is a secret). A client (or Tonebox) reads this
   file to self-configure — no manual token copying.
-- The default port is `8787`; if it's taken the server walks upward
-  (`BatonMCPConstants.portScanRange`) and writes whatever port it actually bound.
+- The port is the user's preferred one (`baton.mcp.preferredPort` in UserDefaults,
+  default `8787`, editable in Settings → Agents → Port). If it's taken the server walks
+  upward (`BatonMCPPortScan`, `portScanRange` candidates, skipping the sibling defaults
+  8765 Tonebox / 8784 Threadstow / 8789 Seedbed), writes whatever port it actually bound
+  into `mcp.json` **and back into the preferred-port setting**, keeps a
+  `BatonMCPPortNotice` for Settings and posts a macOS user notification ("Port 8787 was in
+  use. Baton is on 8788. Update your MCP client, or use mcp.json."). Changing the port in
+  Settings stops and restarts the listener; re-applying the port it is already on is a no-op,
+  which is what stops the persist-back from looping.
 - The token is generated once (~256-bit hex) and persisted in `UserDefaults`
   (`baton.mcp.token`); the discovery file is the bootstrap that makes Baton "just
   work" for agents.
@@ -561,7 +568,8 @@ Or point a helper at `~/Library/Application Support/Baton/mcp.json` to read `url
 Every request carries `Authorization: Bearer <token>` (or `?token=` for a
 discovery-style GET); a bad/missing token → `401`. The token is in the discovery file
 (`0600`) and Baton's Settings. The default port is `8787`, but always read the actual
-port from `mcp.json` — the server walks upward if `8787` is taken.
+port from `mcp.json` — the server walks upward if the preferred port is taken, and
+Settings → Agents shows the port it is on.
 
 ---
 

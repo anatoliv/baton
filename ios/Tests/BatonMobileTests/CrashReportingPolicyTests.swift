@@ -17,6 +17,17 @@ final class CrashReportingPolicyTests: XCTestCase {
         ]
     }
 
+    private func source(_ relativePath: String) throws -> String {
+        let ios = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(
+            contentsOf: ios.appendingPathComponent(relativePath),
+            encoding: .utf8
+        )
+    }
+
     func testConfigurationRequiresOneNamedProviderAndExactIdentity() {
         let configuration = CrashReporting.configuration(from: validInfo)
         XCTAssertEqual(configuration?.provider, "crashbox")
@@ -52,6 +63,14 @@ final class CrashReportingPolicyTests: XCTestCase {
         XCTAssertEqual(options.maxCacheItems, UInt(CrashReporting.perLaunchBudget))
         XCTAssertEqual(options.tracesSampleRate?.doubleValue, 0)
 
+        let freshScope = Scope()
+        XCTAssertNil(freshScope.serialize()["environment"])
+        let configuredScope = options.initialScope(freshScope)
+        XCTAssertEqual(
+            configuredScope.serialize()["environment"] as? String,
+            configuration.environment
+        )
+
         let transport = options.urlSession!.configuration
         XCTAssertFalse(transport.waitsForConnectivity)
         XCTAssertEqual(transport.timeoutIntervalForRequest, CrashReporting.requestTimeout)
@@ -74,5 +93,132 @@ final class CrashReportingPolicyTests: XCTestCase {
         XCTAssertTrue(budget.admit())
         XCTAssertTrue(budget.admit())
         XCTAssertFalse(budget.admit())
+    }
+
+    func testCrashCanaryRequiresAllThreeExplicitGates() {
+        XCTAssertTrue(CrashReporting.canTriggerTestCrash(
+            optedIn: true,
+            configured: true,
+            isInternalBuild: true
+        ))
+        XCTAssertFalse(CrashReporting.canTriggerTestCrash(
+            optedIn: false,
+            configured: true,
+            isInternalBuild: true
+        ))
+        XCTAssertFalse(CrashReporting.canTriggerTestCrash(
+            optedIn: true,
+            configured: false,
+            isInternalBuild: true
+        ))
+        XCTAssertFalse(CrashReporting.canTriggerTestCrash(
+            optedIn: true,
+            configured: true,
+            isInternalBuild: false
+        ))
+    }
+
+    func testRecoveredNativeCrashGetsOneReleaseBoundFingerprint() {
+        let release = "io.tonebox.baton@1.1+123.\(commit)"
+        let crashTime = Date(timeIntervalSince1970: 1000)
+        let pending = CrashReporting.PendingTestCrash(
+            release: release,
+            timestamp: crashTime
+        )
+
+        XCTAssertEqual(
+            CrashReporting.recoveredTestCrashFingerprint(
+                eventRelease: release,
+                eventEnvironment: "production",
+                eventTimestamp: crashTime.addingTimeInterval(1),
+                pending: pending,
+                expectedRelease: release,
+                expectedEnvironment: "production",
+                hasUnhandledMainThreadMachBadAccess: true
+            ),
+            ["baton-ios-deliberate-crash", release]
+        )
+
+        XCTAssertNil(CrashReporting.recoveredTestCrashFingerprint(
+            eventRelease: release,
+            eventEnvironment: "production",
+            eventTimestamp: crashTime.addingTimeInterval(61),
+            pending: pending,
+            expectedRelease: release,
+            expectedEnvironment: "production",
+            hasUnhandledMainThreadMachBadAccess: true
+        ))
+        XCTAssertNil(CrashReporting.recoveredTestCrashFingerprint(
+            eventRelease: release,
+            eventEnvironment: "production",
+            eventTimestamp: crashTime,
+            pending: pending,
+            expectedRelease: release,
+            expectedEnvironment: "production",
+            hasUnhandledMainThreadMachBadAccess: false
+        ))
+        XCTAssertNil(CrashReporting.recoveredTestCrashFingerprint(
+            eventRelease: "io.tonebox.baton@1.1+124.\(commit)",
+            eventEnvironment: "production",
+            eventTimestamp: crashTime,
+            pending: pending,
+            expectedRelease: release,
+            expectedEnvironment: "production",
+            hasUnhandledMainThreadMachBadAccess: true
+        ))
+    }
+
+    func testPendingNativeCrashIdentityIsBoundedAndPayloadFree() throws {
+        let suite = "CrashReportingPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let release = "io.tonebox.baton@1.1+123.\(commit)"
+        let crashTime = Date(timeIntervalSince1970: 1000)
+
+        XCTAssertTrue(CrashReporting.persistPendingTestCrash(
+            release: release,
+            timestamp: crashTime,
+            defaults: defaults
+        ))
+        XCTAssertEqual(
+            CrashReporting.pendingTestCrash(defaults: defaults),
+            CrashReporting.PendingTestCrash(release: release, timestamp: crashTime)
+        )
+        let record = try XCTUnwrap(defaults.dictionary(
+            forKey: CrashReporting.pendingTestCrashKey
+        ))
+        XCTAssertEqual(
+            Set(record.keys),
+            ["release", "timestamp"]
+        )
+    }
+
+    func testCrashCanaryKeepsOneNativeSymbolicationLineAndSafeOrdering() throws {
+        let crashSource = try source("Sources/BatonMobile/CrashCanary/CrashCanary.c")
+        XCTAssertTrue(crashSource.contains("__attribute__((noinline, optnone, noreturn))"))
+        XCTAssertTrue(crashSource.contains("*invalid_address = 0x42;"))
+
+        let reportingSource = try source("../Shared/CrashReporting.swift")
+        XCTAssertTrue(reportingSource.contains(
+            "guard isEnabled, isInternalTestFlightBuild, let configuration else {"
+        ))
+        let marker = try XCTUnwrap(reportingSource.range(
+            of: "Baton deliberate crash test starting"
+        ))
+        let flush = try XCTUnwrap(reportingSource.range(
+            of: "SentrySDK.flush(timeout: 2)"
+        ))
+        let persistence = try XCTUnwrap(reportingSource.range(
+            of: "persistPendingTestCrash(",
+            range: marker.upperBound ..< reportingSource.endIndex
+        ))
+        let crash = try XCTUnwrap(reportingSource.range(
+            of: "baton_ios_trigger_test_crash()",
+            range: marker.upperBound ..< reportingSource.endIndex
+        ))
+        XCTAssertLessThan(marker.lowerBound, flush.lowerBound)
+        XCTAssertLessThan(flush.lowerBound, persistence.lowerBound)
+        XCTAssertLessThan(persistence.lowerBound, crash.lowerBound)
+        XCTAssertFalse(reportingSource.contains("fatalError("))
     }
 }

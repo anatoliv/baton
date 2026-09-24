@@ -30,8 +30,15 @@ final class BatonMCPServer {
 
     /// The bearer token every request must carry. Generated once, persisted.
     private(set) var token: String
-    /// The port the listener actually bound (may differ from the default if taken).
+    /// The port the listener actually bound (may differ from the preferred port if taken).
     private(set) var boundPort: UInt16?
+    /// Set when the listener bound a port other than the one the user asked for, cleared on the
+    /// next start that lands on the preferred port. Settings shows it; a macOS user notification
+    /// carries the same sentence.
+    private(set) var portNotice: BatonMCPPortNotice?
+    /// How many times a listener reached `.ready`. Lets a test prove that re-applying the port
+    /// the server is already on does not restart it (the persist-back must not loop).
+    private(set) var bindCount = 0
     /// Whether the listener is currently up.
     private(set) var isRunning = false
     private(set) var lastError: String?
@@ -58,11 +65,29 @@ final class BatonMCPServer {
     /// Overridable for hermetic tests so the discovery file + second-instance guard use a temp
     /// dir instead of the shared app-support location (which a running app owns).
     @ObservationIgnored private let discoveryDirOverride: URL?
+    /// Where the preferred port lives. The app's own domain in a normal launch; a throwaway
+    /// suite under tests, so a test that moves off a taken port never writes the moved port
+    /// into the owner's real preferences.
+    @ObservationIgnored private let defaults: UserDefaults
+    /// Posts the "port moved" user notification. Injected so tests record it instead of
+    /// touching `UNUserNotificationCenter`.
+    @ObservationIgnored private let portNotifier: @Sendable (BatonMCPPortNotice) async -> Void
+    /// The in-flight bind scan, so `restart` can wait for a scan it interrupted rather than run
+    /// two scans that both publish a port.
+    @ObservationIgnored private var scanTask: Task<Void, Never>?
 
-    init(music: MusicModel, focus: BatonAudioFocusRegistry = BatonAudioFocusRegistry(), discoveryDirectory: URL? = nil) {
+    init(
+        music: MusicModel,
+        focus: BatonAudioFocusRegistry = BatonAudioFocusRegistry(),
+        discoveryDirectory: URL? = nil,
+        defaults: UserDefaults = BatonStorage.defaults,
+        portNotifier: @escaping @Sendable (BatonMCPPortNotice) async -> Void = { await MCPPortNotifier.post($0) }
+    ) {
         self.music = music
         self.focus = focus
         self.discoveryDirOverride = discoveryDirectory
+        self.defaults = defaults
+        self.portNotifier = portNotifier
         // The bearer token grants full remote control, so it lives in the Keychain, not
         // plaintext UserDefaults (migrate-on-read handles existing installs).
         if let existing = NavidromeKeychain.secret(account: BatonMCPConstants.tokenDefaultsKey) {
@@ -76,10 +101,15 @@ final class BatonMCPServer {
 
     // MARK: - Lifecycle
 
-    /// Starts the listener (scanning upward from the default port if it's taken),
+    /// The port the user asked for (Settings > Agents > Port), or the default. After a scan
+    /// that moved, this is the moved port: the server writes the bound port back so the field
+    /// shows the live value and the next launch starts from it.
+    var preferredPort: UInt16 { BatonMCPPortScan.preferredPort(from: defaults) }
+
+    /// Starts the listener (scanning upward from the preferred port if it's taken),
     /// begins the change-poll, and writes the discovery file. Idempotent.
     func start() {
-        guard listener == nil else { return }
+        guard listener == nil, scanTask == nil else { return }
         // Don't steal a live instance's control surface: if another Baton process already
         // owns the endpoint (its pid is alive), refuse rather than overwrite its mcp.json /
         // control.sock and cause split-brain control. A dead pid means a stale file — proceed.
@@ -88,33 +118,94 @@ final class BatonMCPServer {
             batonServerLog.error("MCP server not started: pid \(pid) already owns the endpoint")
             return
         }
-        Task { @MainActor in await self.startScanning() }
+        scanTask = Task { @MainActor in
+            await self.startScanning()
+            self.scanTask = nil
+        }
     }
 
-    /// Bind the first free port, walking upward on a conflict. Awaits the listener actually
-    /// reaching `.ready` before declaring success and advertising it — NWListener.start is
-    /// async, so the old synchronous "return true" could publish a port the server never
+    /// The user chose a port in Settings. Persists it and moves the listener there: stop, then
+    /// start, so the old port is released before the new one is bound.
+    ///
+    /// Re-applying the port the server is already on is a no-op. That is what keeps the
+    /// persist-back from looping: a scan that moved off 8787 writes 8788 into the setting, the
+    /// Settings field re-renders with 8788, and if anything then applies 8788 the server is
+    /// already there and stays put.
+    func apply(preferredPort port: UInt16) async {
+        guard BatonMCPConstants.validPortRange.contains(port) else { return }
+        defaults.set(Int(port), forKey: BatonMCPConstants.preferredPortDefaultsKey)
+        if port == boundPort, isRunning {
+            portNotice = nil // the user accepted the port the server is on
+            return
+        }
+        await restart()
+    }
+
+    /// Stop and start again, reading the preferred port afresh. Waits out an in-flight scan
+    /// first so two scans never race to publish a port.
+    func restart() async {
+        if let scanTask {
+            scanTask.cancel()
+            await scanTask.value
+        }
+        stop()
+        start()
+        await scanTask?.value
+    }
+
+    /// Bind the first free port, walking upward from the preferred one on a conflict and
+    /// stepping over the sibling apps' defaults (`BatonMCPPortScan`). Awaits the listener
+    /// actually reaching `.ready` before declaring success and advertising it — NWListener.start
+    /// is async, so the old synchronous "return true" could publish a port the server never
     /// owned.
+    ///
+    /// When the bound port is not the preferred one, the bound port is written back into the
+    /// setting (so Settings shows it and the next launch starts from it), a notice is kept for
+    /// Settings, and a user notification goes out, because a client configured with a fixed URL
+    /// has just stopped working and nothing else would tell the user why.
     private func startScanning() async {
-        for offset in 0 ..< BatonMCPConstants.portScanRange {
-            let port = BatonMCPConstants.defaultPort + UInt16(offset)
+        let preferred = preferredPort
+        var bound: NWListener?
+        var boundOn: UInt16?
+        for port in BatonMCPPortScan.candidates(preferred: preferred) {
+            if Task.isCancelled { return }
             if let listener = await bind(port: port) {
-                self.listener = listener
-                boundPort = port
-                isRunning = true
-                lastError = nil
-                startPolling()
-                writeDiscoveryFile(port: port)
-                batonServerLog.info("MCP server listening on 127.0.0.1:\(port)")
-                return
+                if Task.isCancelled { listener.cancel(); return }
+                bound = listener
+                boundOn = port
+                break
             }
         }
-        isRunning = false
-        lastError = "No free port in \(BatonMCPConstants.defaultPort)…\(BatonMCPConstants.defaultPort + UInt16(BatonMCPConstants.portScanRange))."
-        batonServerLog.error("MCP server failed to bind any port")
+        guard let bound, let port = boundOn else {
+            isRunning = false
+            let last = BatonMCPPortScan.lastCandidate(preferred: preferred)
+            lastError = "No free port between \(preferred) and \(last)."
+            batonServerLog.error("MCP server failed to bind any port from \(preferred)")
+            return
+        }
+        listener = bound
+        boundPort = port
+        bindCount += 1
+        isRunning = true
+        lastError = nil
+        startPolling()
+        writeDiscoveryFile(port: port)
+        batonServerLog.info("MCP server listening on 127.0.0.1:\(port)")
+        if port != preferred {
+            let notice = BatonMCPPortNotice(preferred: preferred, bound: port)
+            portNotice = notice
+            defaults.set(Int(port), forKey: BatonMCPConstants.preferredPortDefaultsKey)
+            batonServerLog.notice("MCP port \(preferred) was in use; moved to \(port) and persisted it")
+            let notify = portNotifier
+            Task { await notify(notice) }
+        } else {
+            portNotice = nil
+        }
     }
 
     func stop() {
+        // A scan still in flight must not publish a port after the stop; `restart` awaits it.
+        scanTask?.cancel()
         pollTask?.cancel()
         pollTask = nil
         for (_, conn) in streams { conn.cancel() }
@@ -137,7 +228,10 @@ final class BatonMCPServer {
     private func bind(port: UInt16) async -> NWListener? {
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback // loopback-only: unreachable off-device
-        params.allowLocalEndpointReuse = true
+        // No SO_REUSEADDR/SO_REUSEPORT: with reuse on, a bind can land on a port another
+        // app's listener already holds, and the scan then reports a port it does not own.
+        // Tonebox, Seedbed and Threadstow bind the same way.
+        params.allowLocalEndpointReuse = false
         guard let nwPort = NWEndpoint.Port(rawValue: port),
               let listener = try? NWListener(using: params, on: nwPort)
         else { return nil }
@@ -530,7 +624,7 @@ final class BatonMCPServer {
             "schemaVersion": 1,
             "name": BatonMCPConstants.serverName,
             "transport": "streamable-http",
-            "url": "http://127.0.0.1:\(port)/mcp",
+            "url": AgentAccessInfo.endpointURL(port: port),
             "token": token,
             "pid": ProcessInfo.processInfo.processIdentifier,
             "app": [

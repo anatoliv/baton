@@ -1813,10 +1813,12 @@ straight out of `mcp.json`. The token above is shortened for display, and **app.
 whichever build of Baton is running: yours will show its real values.
 
 > [!NOTE]
-> The port is `8787` by default, but if something else already has it, Baton uses the next
-> free port (up to 16 above it) and writes the real one into `mcp.json`. Always read the
+> The port is `8787` by default. You can change it in **Settings, Agents, Port**. If
+> something else already has the port Baton wants, Baton takes the next free one, writes it
+> into `mcp.json`, shows it in the Port field and posts a notification saying which port it
+> moved to. The moved port is remembered, so the next launch starts from it. Always read the
 > current `url` and `token` from the file rather than hard-coding them; the token is
-> regenerated only if you reset it, but the port can change between launches.
+> regenerated only if you reset it.
 
 **Claude Code.** Add Baton in one command (paste the token from `mcp.json`):
 
@@ -2443,6 +2445,9 @@ Whether an AI agent can drive Baton, and everything it needs to:
 
 - **Connection.** Whether the control server is running, its endpoint address, and the access
   token, with a button to copy each.
+- **Port.** The port the server starts on (8787 unless you change it), the address it is
+  listening on right now, and a notice when the two differ because the port you asked for was
+  already taken. Changing the port restarts the server on the new one.
 - **Discovery.** The file an MCP client reads to find that endpoint and token by itself, so
   there is nothing to paste.
 - **Client configuration.** The same settings written out as a config snippet, with a button

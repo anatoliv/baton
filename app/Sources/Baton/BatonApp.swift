@@ -38,7 +38,10 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
 
     /// The MCP control server (Streamable HTTP on loopback). Lets agents — and Tonebox —
     /// drive playback, read now-playing/queue, and duck audio via owner-token focus.
-    private var mcp: BatonMCPServer?
+    private var mcp: BatonMCPServer? { mcpHost.server }
+    /// Same shape as `remoteHost`, for the same reason: Settings > Agents reads the server's
+    /// bound port and notice live, and the server only exists after launch.
+    let mcpHost = MCPServerHost()
     /// The native fast-path listener (Unix socket) for latency-critical audio ducking.
     /// Shares the MCP server's audio-focus registry so socket + MCP focus interoperate (§7).
     private var controlSocket: BatonControlSocket?
@@ -110,7 +113,7 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         scheduler.start()
         syncScheduler = scheduler
 
-        let s = BatonMCPServer(music: music); s.start(); mcp = s
+        let s = BatonMCPServer(music: music); s.start(); mcpHost.server = s
         // Start the fast-path listener sharing the server's focus registry.
         let sock = BatonControlSocket(focus: s.focus, music: music); sock.start()
         controlSocket = sock
@@ -163,6 +166,14 @@ final class RemoteControlHost {
     var service: RemoteControlService?
 }
 
+/// The one place the app's `BatonMCPServer` lives, so that Settings > Agents can watch it bind.
+/// See `RemoteControlHost` for why a never-replaced box rather than `.environment(appDelegate.mcp)`.
+@MainActor
+@Observable
+final class MCPServerHost {
+    var server: BatonMCPServer?
+}
+
 /// Puts the app's `RemoteControlService` into the environment from inside a view body.
 ///
 /// The one line that matters is in `body`: every window that shows a remote-control surface
@@ -170,10 +181,14 @@ final class RemoteControlHost {
 /// scene builder. See `RemoteControlHost`.
 struct RemoteControlScope<Content: View>: View {
     let host: RemoteControlHost
+    /// Optional because only the Settings window shows an MCP surface.
+    var mcp: MCPServerHost? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
-        content.environment(host.service)
+        content
+            .environment(host.service)
+            .environment(mcp?.server)
     }
 }
 
@@ -382,7 +397,7 @@ struct BatonApp: App {
         // Servers and Equalizer windows into sidebar panes, alongside Playback
         // and About. ⌥⌘E deep-links to the Equalizer pane (see BatonAppCommands).
         Window("Settings", id: BatonSettingsView.windowID) {
-            RemoteControlScope(host: appDelegate.remoteHost) {
+            RemoteControlScope(host: appDelegate.remoteHost, mcp: appDelegate.mcpHost) {
                 BatonSettingsView()
                     .environment(music)
                     .tint(.batonOrange)

@@ -15,6 +15,18 @@ enum CrashReporting {
     static let requestTimeout: TimeInterval = 2
     static let resourceTimeout: TimeInterval = 5
 
+    #if os(iOS)
+        static let pendingTestCrashKey = "baton.pendingTestCrash"
+        static let testCrashEventWindow: TimeInterval = 60
+
+        private static let pendingTestCrashLock = NSLock()
+
+        struct PendingTestCrash: Equatable, Sendable {
+            let release: String
+            let timestamp: Date
+        }
+    #endif
+
     private static let log = Logger(subsystem: "io.tonebox.baton", category: "crash-reporting")
     private static let attemptGate = ReportingAttemptGate()
     private static let budget = ReportingBudget(limit: perLaunchBudget)
@@ -132,6 +144,14 @@ enum CrashReporting {
         options.dsn = configuration.dsn
         options.releaseName = configuration.release
         options.environment = configuration.environment
+        let environment = configuration.environment
+        options.initialScope = { scope in
+            // Native crashes persist this scope before a later launch can
+            // enrich the recovered event. Options.environment alone is only
+            // the ordinary event-processing fallback.
+            scope.setEnvironment(environment)
+            return scope
+        }
         options.sendDefaultPii = false
         options.shutdownTimeInterval = 0
         options.sampleRate = 1
@@ -164,9 +184,163 @@ enum CrashReporting {
         options.beforeBreadcrumb = { Self.scrubBreadcrumb($0) }
         options.beforeSend = { event in
             guard budget.admit() else { return nil }
+            #if os(iOS)
+                let event = applyPendingTestCrashFingerprint(
+                    to: event,
+                    expectedRelease: configuration.release,
+                    expectedEnvironment: configuration.environment
+                )
+            #endif
             return Self.scrub(event)
         }
     }
+
+    #if os(iOS)
+        /// True only for an explicitly marked internal archive. App Store and
+        /// ordinary development builds leave the setting false.
+        static var isInternalTestFlightBuild: Bool {
+            let raw = Bundle.main.object(forInfoDictionaryKey: "BatonInternalDiagnostics")
+            if let value = raw as? Bool {
+                return value
+            }
+            return (raw as? String)?.caseInsensitiveCompare("YES") == .orderedSame
+        }
+
+        static func canTriggerTestCrash(
+            optedIn: Bool,
+            configured: Bool,
+            isInternalBuild: Bool
+        ) -> Bool {
+            optedIn && configured && isInternalBuild
+        }
+
+        static func testCrashFingerprint(release: String) -> [String] {
+            ["baton-ios-deliberate-crash", release]
+        }
+
+        static func recoveredTestCrashFingerprint(
+            eventRelease: String?,
+            eventEnvironment: String?,
+            eventTimestamp: Date?,
+            pending: PendingTestCrash?,
+            expectedRelease: String,
+            expectedEnvironment: String,
+            hasUnhandledMainThreadMachBadAccess: Bool
+        ) -> [String]? {
+            guard
+                let eventRelease,
+                eventRelease == expectedRelease,
+                eventEnvironment == expectedEnvironment,
+                let pending,
+                eventRelease == pending.release,
+                let eventTimestamp,
+                eventTimestamp.timeIntervalSince(pending.timestamp) >= -1,
+                eventTimestamp.timeIntervalSince(pending.timestamp) <= testCrashEventWindow,
+                hasUnhandledMainThreadMachBadAccess
+            else { return nil }
+            return testCrashFingerprint(release: eventRelease)
+        }
+
+        static func pendingTestCrash(
+            defaults: UserDefaults = BatonStorage.defaults
+        ) -> PendingTestCrash? {
+            guard
+                let record = defaults.dictionary(forKey: pendingTestCrashKey),
+                let release = record["release"] as? String,
+                let timestamp = record["timestamp"] as? TimeInterval
+            else { return nil }
+            return PendingTestCrash(
+                release: release,
+                timestamp: Date(timeIntervalSince1970: timestamp)
+            )
+        }
+
+        static func persistPendingTestCrash(
+            release: String,
+            timestamp: Date = Date(),
+            defaults: UserDefaults = BatonStorage.defaults
+        ) -> Bool {
+            pendingTestCrashLock.lock()
+            defer { pendingTestCrashLock.unlock() }
+            defaults.set(
+                [
+                    "release": release,
+                    "timestamp": timestamp.timeIntervalSince1970,
+                ],
+                forKey: pendingTestCrashKey
+            )
+            guard defaults.synchronize() else {
+                defaults.removeObject(forKey: pendingTestCrashKey)
+                _ = defaults.synchronize()
+                return false
+            }
+            return true
+        }
+
+        static func applyPendingTestCrashFingerprint(
+            to event: Event,
+            defaults: UserDefaults = BatonStorage.defaults,
+            expectedRelease: String,
+            expectedEnvironment: String
+        ) -> Event {
+            pendingTestCrashLock.lock()
+            defer { pendingTestCrashLock.unlock() }
+
+            let pending = pendingTestCrash(defaults: defaults)
+            let exceptions = event.exceptions ?? []
+            let fingerprint = recoveredTestCrashFingerprint(
+                eventRelease: event.releaseName,
+                eventEnvironment: event.environment,
+                eventTimestamp: event.timestamp,
+                pending: pending,
+                expectedRelease: expectedRelease,
+                expectedEnvironment: expectedEnvironment,
+                hasUnhandledMainThreadMachBadAccess: exceptions.contains { exception in
+                    guard
+                        exception.type == "EXC_BAD_ACCESS",
+                        exception.mechanism?.type == "mach",
+                        exception.mechanism?.handled?.boolValue == false,
+                        let exceptionThreadID = exception.threadId
+                    else { return false }
+                    return event.threads?.contains {
+                        $0.threadId == exceptionThreadID
+                            && $0.crashed?.boolValue == true
+                            && $0.isMain?.boolValue == true
+                    } == true
+                }
+            )
+
+            guard let fingerprint else { return event }
+
+            event.fingerprint = fingerprint
+            if pending != nil {
+                defaults.removeObject(forKey: pendingTestCrashKey)
+                _ = defaults.synchronize()
+            }
+            return event
+        }
+
+        /// Called only from the internal, opted-in Settings affordance after a
+        /// destructive confirmation. The marker separates transport failure
+        /// from native crash recovery failure without carrying user data.
+        @inline(never)
+        @_optimize(none)
+        static func triggerTestCrash() {
+            guard isEnabled, isInternalTestFlightBuild, let configuration else {
+                return
+            }
+            SentrySDK.capture(message: "Baton deliberate crash test starting")
+            SentrySDK.flush(timeout: 2)
+
+            guard persistPendingTestCrash(
+                release: configuration.release
+            ) else {
+                log.error("Could not persist deliberate crash identity; leaving app running")
+                return
+            }
+            baton_ios_trigger_test_crash()
+        }
+    #endif
 
     /// Runs only on the private utility queue. A failed attempt fuses retries
     /// until the user explicitly disables and re-enables reporting.

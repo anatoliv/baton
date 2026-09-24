@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BatonInternalDiagnostics</key>
+	<string>$(BATON_INTERNAL_DIAGNOSTICS)</string>
 	<key>BatonSourceCommit</key>
 	<string>$(BATON_SOURCE_COMMIT)</string>
 	<key>CFBundleDevelopmentRegion</key>
@@ -33,6 +35,12 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CrashReportingDSN</key>
+	<string>$(CRASH_REPORTING_DSN)</string>
+	<key>CrashReportingEnvironment</key>
+	<string>$(CRASH_REPORTING_ENVIRONMENT)</string>
+	<key>CrashReportingProvider</key>
+	<string>$(CRASH_REPORTING_PROVIDER)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationCategoryType</key>
@@ -54,12 +62,6 @@
 	<string>Speech recognition turns what you say into a request for your music friend. On-device where available.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>CrashReportingDSN</key>
-	<string>$(CRASH_REPORTING_DSN)</string>
-	<key>CrashReportingEnvironment</key>
-	<string>$(CRASH_REPORTING_ENVIRONMENT)</string>
-	<key>CrashReportingProvider</key>
-	<string>$(CRASH_REPORTING_PROVIDER)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

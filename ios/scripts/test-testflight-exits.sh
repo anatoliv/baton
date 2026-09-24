@@ -394,10 +394,24 @@ if [ "$dsym_endings" -ge 4 ]; then
 else
   bad "TBX-5372 wiring: only $dsym_endings of the endings say whether the dSYM was uploaded; expected 4"
 fi
-if grep -q 'upload-dsym.sh' "$SUBJECT" && ! grep -q 'crashbox-artifact-upload' "$SUBJECT"; then
-  ok "TBX-5372 testflight.sh points at the upload command without ever running one itself"
+artifact_upload_line="$(grep -n 'crashbox-artifact-upload.py" upload' "$SUBJECT" | awk -F: 'NR == 1 { print $1 }')"
+testflight_upload_line="$(grep -n 'xcrun altool --upload-app' "$SUBJECT" | awk -F: 'NR == 1 { print $1 }')"
+if [ -n "$artifact_upload_line" ] && [ -n "$testflight_upload_line" ] && \
+   [ "$artifact_upload_line" -lt "$testflight_upload_line" ] && \
+   grep -q -- '--project baton-ios' "$SUBJECT" && \
+   grep -qF 'iPhone Crashbox artifact credential is required before a TestFlight upload' "$SUBJECT" && \
+   grep -qF 'TestFlight was not contacted' "$SUBJECT"; then
+  ok "TBX-5498 testflight.sh uploads the exact iPhone dSYM before contacting TestFlight"
 else
-  bad "TBX-5372: testflight.sh either stopped naming upload-dsym.sh or now uploads implicitly"
+  bad "TBX-5498: the iPhone dSYM no longer gates the TestFlight upload"
+fi
+
+if grep -q 'BATON_INTERNAL_DIAGNOSTICS="$INTERNAL_DIAGNOSTICS"' "$SUBJECT" && \
+   grep -q 'ENABLE_CRASH_CANARY must be 0 or 1' "$SUBJECT" && \
+   grep -q 'ENABLE_CRASH_CANARY=1 requires a Crashbox-backed TestFlight upload' "$SUBJECT"; then
+  ok "TBX-5498 the destructive canary is explicit, bounded to Crashbox TestFlight, and off by default"
+else
+  bad "TBX-5498: the destructive canary build flag is no longer fail-closed"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

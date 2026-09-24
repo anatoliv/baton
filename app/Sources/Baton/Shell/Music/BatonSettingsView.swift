@@ -337,10 +337,44 @@ private struct BatonServersPane: View {
 private struct BatonAgentsPane: View {
     @State private var info: AgentAccessInfo?
     @State private var revealToken = false
+    /// The live server, when this window is hosted by the running app (nil in previews and in a
+    /// test host). The Port field and the moved-port notice read it directly rather than the
+    /// discovery file, because the notice is not in the file.
+    @Environment(BatonMCPServer.self) private var server: BatonMCPServer?
+    /// The port the user asked for. The server writes the bound port back into this key when
+    /// the two differ, so the field always shows the live value.
+    @AppStorage(BatonMCPConstants.preferredPortDefaultsKey)
+    private var preferredPort = Int(BatonMCPConstants.defaultPort)
+    /// What the field shows while being edited. Committed on Return or focus loss, not per
+    /// keystroke, so typing "87" on the way to "8790" never restarts the server on port 87.
+    @State private var portText = ""
+    @State private var portError: String?
+    @FocusState private var portFieldFocused: Bool
 
     private func copy(_ value: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    /// Parse the field, persist it and move the server. An out-of-range entry is refused with a
+    /// caption and the field snaps back to the stored port.
+    private func commitPort() {
+        let trimmed = portText.trimmingCharacters(in: .whitespaces)
+        guard let value = UInt16(trimmed), BatonMCPConstants.validPortRange.contains(value) else {
+            portError = "Enter a port between \(BatonMCPConstants.validPortRange.lowerBound) and \(BatonMCPConstants.validPortRange.upperBound)."
+            portText = String(preferredPort)
+            return
+        }
+        portError = nil
+        // Already stored and already bound: nothing to do. (Re-submitting the stored port while
+        // the server sits on a different one is a retry, and goes through.)
+        if value == UInt16(preferredPort), value == server?.boundPort { return }
+        preferredPort = Int(value)
+        guard let server else { return }
+        Task { @MainActor in
+            await server.apply(preferredPort: value)
+            info = AgentAccessInfo.loadCurrent()
+        }
     }
 
     var body: some View {
@@ -403,6 +437,40 @@ private struct BatonAgentsPane: View {
                 }
             }
 
+            Section("Port") {
+                LabeledContent("Port") {
+                    TextField("Port", text: $portText, prompt: Text(String(BatonMCPConstants.defaultPort)))
+                        .labelsHidden()
+                        .font(.callout.monospaced())
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 90)
+                        .focused($portFieldFocused)
+                        .onSubmit(commitPort)
+                        .accessibilityLabel("MCP port")
+                }
+                LabeledContent("Listening on") {
+                    if let bound = server?.boundPort ?? info?.port {
+                        Text(AgentAccessInfo.endpointURL(port: bound))
+                            .font(.callout.monospaced()).foregroundStyle(.secondary)
+                            .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                    } else {
+                        Text("Not running").foregroundStyle(.secondary)
+                    }
+                }
+                if let notice = server?.portNotice {
+                    Label(notice.message, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Color.warningTint)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("mcp-port-notice")
+                }
+                if let portError {
+                    Text(portError).font(.callout).foregroundStyle(Color.warningTint)
+                }
+                Text("Baton starts on this port. If something else already has it, Baton takes the next free port, shows it here and in mcp.json, and lets you know. Changing the port restarts the server.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+
             Section("Discovery") {
                 if let dir = AgentAccessInfo.discoveryDirectory {
                     LabeledContent("Agents look in") {
@@ -431,7 +499,20 @@ private struct BatonAgentsPane: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { info = AgentAccessInfo.loadCurrent() }
+        .onAppear {
+            info = AgentAccessInfo.loadCurrent()
+            portText = String(preferredPort)
+        }
+        // The server writes the bound port back into the setting when it moves; mirror it into
+        // the field unless the user is mid-edit. This is display only: nothing here applies the
+        // port back to the server, which is what keeps the persist-back from looping.
+        .onChange(of: preferredPort) { _, stored in
+            if !portFieldFocused { portText = String(stored) }
+        }
+        .onChange(of: portFieldFocused) { _, focused in
+            if !focused { commitPort() }
+        }
+        .onChange(of: server?.boundPort) { _, _ in info = AgentAccessInfo.loadCurrent() }
     }
 
 }

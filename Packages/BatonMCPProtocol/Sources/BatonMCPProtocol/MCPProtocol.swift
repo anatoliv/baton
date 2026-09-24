@@ -32,10 +32,18 @@ public enum BatonMCPConstants {
     /// Reject any single HTTP request body larger than this (defensive; the tool
     /// payloads are tiny).
     public static let maxRequestBytes = 1_048_576 // 1 MB
-    /// First port to try; the server walks upward if it's taken.
+    /// The port the server starts from when the user has not chosen one; the scan walks
+    /// upward from the preferred port if it is taken (`BatonMCPPortScan`).
     public static let defaultPort: UInt16 = 8787
-    /// How many consecutive ports to try before giving up.
+    /// How many candidate ports to try before giving up. Sibling defaults are skipped without
+    /// shrinking this count.
     public static let portScanRange = 16
+    /// UserDefaults key holding the port the user asked for. The server writes the port it
+    /// actually bound back into it when the two differ, so the Settings field always shows
+    /// the live value.
+    public static let preferredPortDefaultsKey = "baton.mcp.preferredPort"
+    /// Ports a user may type into the Settings field. Below 1024 needs root; above is not a port.
+    public static let validPortRange: ClosedRange<UInt16> = 1024 ... 65535
     /// UserDefaults key holding the persisted bearer token.
     public static let tokenDefaultsKey = "baton.mcp.token"
     /// Resource URIs.

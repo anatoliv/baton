@@ -40,6 +40,8 @@ ORIGIN="${BATON_RELEASE_ORIGIN:-}"
 
 MAC_CONFIG="$PRIMARY/app/Config/Crashbox.local.xcconfig"
 IOS_CONFIG="$PRIMARY/ios/Config/Crashbox.local.xcconfig"
+MAC_ARTIFACT_CREDENTIAL="$PRIMARY/app/Config/CrashboxArtifactUpload.local.json"
+IOS_ARTIFACT_CREDENTIAL="$PRIMARY/ios/Config/CrashboxArtifactUpload.local.json"
 for config in "$MAC_CONFIG" "$IOS_CONFIG"; do
   [ -f "$config" ] || {
     echo "ERROR: required release configuration is missing: $config" >&2
@@ -82,6 +84,24 @@ prepare_mac() {
   fi
   mkdir -p "$MAC_RELEASE/app/Config"
   install -m 600 "$MAC_CONFIG" "$MAC_RELEASE/app/Config/Crashbox.local.xcconfig"
+  if [ -e "$MAC_ARTIFACT_CREDENTIAL" ] || [ -L "$MAC_ARTIFACT_CREDENTIAL" ]; then
+    [ -f "$MAC_ARTIFACT_CREDENTIAL" ] && [ ! -L "$MAC_ARTIFACT_CREDENTIAL" ] || {
+      echo "ERROR: artifact credential is not a regular, non-symlink file" >&2
+      return 1
+    }
+    [ "$(stat -f '%Lp' "$MAC_ARTIFACT_CREDENTIAL")" = 600 ] || {
+      echo "ERROR: artifact credential must have mode 0600" >&2
+      return 1
+    }
+    [ "$(stat -f '%u' "$MAC_ARTIFACT_CREDENTIAL")" = "$(id -u)" ] || {
+      echo "ERROR: artifact credential must be owned by the release user" >&2
+      return 1
+    }
+    install -m 600 "$MAC_ARTIFACT_CREDENTIAL" \
+      "$MAC_RELEASE/app/Config/CrashboxArtifactUpload.local.json"
+  else
+    rm -f "$MAC_RELEASE/app/Config/CrashboxArtifactUpload.local.json"
+  fi
 }
 
 prepare_ios() {
@@ -95,6 +115,24 @@ prepare_ios() {
   git -C "$IOS_RELEASE" reset --quiet --hard origin/main
   mkdir -p "$IOS_RELEASE/ios/Config"
   install -m 600 "$IOS_CONFIG" "$IOS_RELEASE/ios/Config/Crashbox.local.xcconfig"
+  if [ -e "$IOS_ARTIFACT_CREDENTIAL" ] || [ -L "$IOS_ARTIFACT_CREDENTIAL" ]; then
+    [ -f "$IOS_ARTIFACT_CREDENTIAL" ] && [ ! -L "$IOS_ARTIFACT_CREDENTIAL" ] || {
+      echo "ERROR: iPhone artifact credential is not a regular, non-symlink file" >&2
+      return 1
+    }
+    [ "$(stat -f '%Lp' "$IOS_ARTIFACT_CREDENTIAL")" = 600 ] || {
+      echo "ERROR: iPhone artifact credential must have mode 0600" >&2
+      return 1
+    }
+    [ "$(stat -f '%u' "$IOS_ARTIFACT_CREDENTIAL")" = "$(id -u)" ] || {
+      echo "ERROR: iPhone artifact credential must be owned by the release user" >&2
+      return 1
+    }
+    install -m 600 "$IOS_ARTIFACT_CREDENTIAL" \
+      "$IOS_RELEASE/ios/Config/CrashboxArtifactUpload.local.json"
+  else
+    rm -f "$IOS_RELEASE/ios/Config/CrashboxArtifactUpload.local.json"
+  fi
 }
 
 prepare_mac
@@ -103,3 +141,13 @@ prepare_ios
 echo "Prepared Mac release checkout: $MAC_RELEASE ($(git -C "$MAC_RELEASE" rev-parse --short=12 HEAD))"
 echo "Prepared iPhone release checkout: $IOS_RELEASE ($(git -C "$IOS_RELEASE" rev-parse --short=12 HEAD), detached)"
 echo "Installed both Crashbox.local.xcconfig files with mode 0600."
+if [ -f "$MAC_RELEASE/app/Config/CrashboxArtifactUpload.local.json" ]; then
+  echo "Installed the optional macOS Crashbox artifact credential with mode 0600."
+else
+  echo "No macOS Crashbox artifact credential configured; automatic dSYM upload stays off."
+fi
+if [ -f "$IOS_RELEASE/ios/Config/CrashboxArtifactUpload.local.json" ]; then
+  echo "Installed the optional iPhone Crashbox artifact credential with mode 0600."
+else
+  echo "No iPhone Crashbox artifact credential configured; automatic dSYM upload stays off."
+fi

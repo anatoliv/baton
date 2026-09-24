@@ -119,11 +119,16 @@ mkdir -p "$SOURCE/app/Config" "$SOURCE/ios/Config"
 git init -q -b main "$SOURCE"
 git -C "$SOURCE" config user.email t@example.com
 git -C "$SOURCE" config user.name t
-printf 'app/Config/Crashbox.local.xcconfig\nios/Config/Crashbox.local.xcconfig\n' >"$SOURCE/.gitignore"
+printf 'app/Config/Crashbox.local.xcconfig\napp/Config/CrashboxArtifactUpload.local.json\nios/Config/Crashbox.local.xcconfig\nios/Config/CrashboxArtifactUpload.local.json\n' >"$SOURCE/.gitignore"
 printf 'tracked\n' >"$SOURCE/README"
 printf 'MAC_DSN\n' >"$SOURCE/app/Config/Crashbox.local.xcconfig"
 printf 'IOS_DSN\n' >"$SOURCE/ios/Config/Crashbox.local.xcconfig"
-chmod 600 "$SOURCE/app/Config/Crashbox.local.xcconfig" "$SOURCE/ios/Config/Crashbox.local.xcconfig"
+printf 'FAKE_ARTIFACT_CREDENTIAL\n' >"$SOURCE/app/Config/CrashboxArtifactUpload.local.json"
+printf 'FAKE_IOS_ARTIFACT_CREDENTIAL\n' >"$SOURCE/ios/Config/CrashboxArtifactUpload.local.json"
+chmod 600 "$SOURCE/app/Config/Crashbox.local.xcconfig" \
+  "$SOURCE/app/Config/CrashboxArtifactUpload.local.json" \
+  "$SOURCE/ios/Config/Crashbox.local.xcconfig" \
+  "$SOURCE/ios/Config/CrashboxArtifactUpload.local.json"
 git -C "$SOURCE" add .gitignore README
 git -C "$SOURCE" commit -qm initial
 git init -q --bare "$ORIGIN"
@@ -143,17 +148,21 @@ if [ "$prepare_rc" != 0 ]; then
 elif [ ! -d "$MAC_CLONE/.git" ] || [ ! -d "$IOS_CLONE/.git" ]; then
   bad "TBX-5386: preparation script did not create both Git clones"
 elif [ ! -f "$MAC_CLONE/app/Config/Crashbox.local.xcconfig" ] || \
-     [ ! -f "$IOS_CLONE/ios/Config/Crashbox.local.xcconfig" ]; then
-  bad "TBX-5386: preparation script did not copy both Crashbox configurations"
+     [ ! -f "$MAC_CLONE/app/Config/CrashboxArtifactUpload.local.json" ] || \
+     [ ! -f "$IOS_CLONE/ios/Config/Crashbox.local.xcconfig" ] || \
+     [ ! -f "$IOS_CLONE/ios/Config/CrashboxArtifactUpload.local.json" ]; then
+  bad "TBX-5386/TBX-5483: preparation script did not copy the Crashbox inputs"
 elif [ "$(stat -f '%Lp' "$MAC_CLONE/app/Config/Crashbox.local.xcconfig")" != 600 ] || \
-     [ "$(stat -f '%Lp' "$IOS_CLONE/ios/Config/Crashbox.local.xcconfig")" != 600 ]; then
-  bad "TBX-5386: copied Crashbox configurations are not mode 0600"
+     [ "$(stat -f '%Lp' "$MAC_CLONE/app/Config/CrashboxArtifactUpload.local.json")" != 600 ] || \
+     [ "$(stat -f '%Lp' "$IOS_CLONE/ios/Config/Crashbox.local.xcconfig")" != 600 ] || \
+     [ "$(stat -f '%Lp' "$IOS_CLONE/ios/Config/CrashboxArtifactUpload.local.json")" != 600 ]; then
+  bad "TBX-5386/TBX-5483: copied Crashbox inputs are not mode 0600"
 elif [ "$(git -C "$MAC_CLONE" branch --show-current)" != main ]; then
   bad "TBX-5386: Mac release clone is not on main"
 elif git -C "$IOS_CLONE" symbolic-ref -q HEAD >/dev/null; then
   bad "TBX-5386: iPhone release clone is not detached at origin/main"
 else
-  ok "TBX-5386 preparation recreates both clones from nothing with mode-0600 configs"
+  ok "TBX-5386/TBX-5483 preparation recreates both clones with mode-0600 Crashbox inputs"
 fi
 
 printf 'refreshed\n' >>"$SOURCE/README"
@@ -176,6 +185,29 @@ elif [ "$(git -C "$MAC_CLONE" rev-parse HEAD)" != "$SOURCE_HEAD" ] || \
   bad "TBX-5386: refreshed release checkouts did not reach origin/main"
 else
   ok "TBX-5386 preparation refreshes both clean release checkouts to origin/main"
+fi
+
+# An intentionally absent optional credential must remove a stale one from the release
+# clone. Leaving it behind would turn an unconfigured future release into a configured
+# upload using an obsolete capability.
+rm -f "$SOURCE/app/Config/CrashboxArtifactUpload.local.json"
+rm -f "$SOURCE/ios/Config/CrashboxArtifactUpload.local.json"
+prepare_out="$(
+  BATON_PRIMARY_CHECKOUT="$SOURCE" \
+  BATON_RELEASE_ORIGIN="$ORIGIN" \
+  BATON_MAC_RELEASE_CHECKOUT="$MAC_CLONE" \
+  BATON_IOS_RELEASE_CHECKOUT="$IOS_CLONE" \
+    "$ROOT/scripts/prepare-release-checkouts.sh" 2>&1
+)"
+prepare_rc=$?
+if [ "$prepare_rc" != 0 ]; then
+  bad "TBX-5483: preparation could not refresh after removing the optional credential. Got: $prepare_out"
+elif [ -e "$MAC_CLONE/app/Config/CrashboxArtifactUpload.local.json" ]; then
+  bad "TBX-5483: preparation left a stale artifact credential in the Mac release clone"
+elif [ -e "$IOS_CLONE/ios/Config/CrashboxArtifactUpload.local.json" ]; then
+  bad "TBX-5498: preparation left a stale artifact credential in the iPhone release clone"
+else
+  ok "TBX-5483/TBX-5498 preparation removes stale optional artifact credentials"
 fi
 
 if grep -qF 'does not push the tag' "$SUBJECT" && \
@@ -734,10 +766,56 @@ if [ "$(grep -c '^  dsym_state_line$' "$SUBJECT")" -ge 2 ]; then
 else
   bad "TBX-5372 wiring: an ending of publish.sh no longer says whether the dSYM was uploaded"
 fi
-if grep -q 'upload-dsym.sh' "$SUBJECT" && ! grep -q 'crashbox-artifact-upload' "$SUBJECT"; then
-  ok "TBX-5372 publish.sh points at the upload command without ever running one itself"
+UPLOAD_FN="$(awk '/^crashbox_upload_dsym\(\) \{$/,/^\}$/' "$SUBJECT")"
+UPLOAD_BLOCK="$(awk '/^  # TBX-5483:/,/^  # End TBX-5483\.$/' "$SUBJECT")"
+if [ -z "$UPLOAD_FN" ] || [ -z "$UPLOAD_BLOCK" ]; then
+  bad "TBX-5483: the configured artifact-upload anchors are missing"
+elif ! printf '%s' "$UPLOAD_FN" | grep -qF 'io.tonebox.baton@${VERSION}+${BUILD}.${MACREL_COMMIT}'; then
+  bad "TBX-5483: the upload no longer uses the SDK's exact source-qualified release"
 else
-  bad "TBX-5372: publish.sh either stopped naming upload-dsym.sh or now uploads implicitly"
+  ok "TBX-5483 upload derives the exact source-qualified SDK release"
+fi
+
+retain_line="$(grep -n 'retain_dsym \"\$APP\"' "$SUBJECT" | awk -F: 'NR == 1 { print $1 }')"
+upload_line="$(grep -n '^    crashbox_upload_dsym || {' "$SUBJECT" | awk -F: 'NR == 1 { print $1 }')"
+publish_line="$(grep -n '^  step \"6/6 Publish' "$SUBJECT" | awk -F: 'NR == 1 { print $1 }')"
+if [ -n "$retain_line" ] && [ -n "$upload_line" ] && [ -n "$publish_line" ] \
+   && [ "$retain_line" -lt "$upload_line" ] && [ "$upload_line" -lt "$publish_line" ]; then
+  ok "TBX-5483 wiring is after dSYM retention and before remote publication"
+else
+  bad "TBX-5483: configured upload moved outside the retained/pre-publication window"
+fi
+
+{ echo 'set -uo pipefail'
+  echo 'step() { :; }; warn() { :; }'
+  echo 'CRASHBOX_ARTIFACT_CREDENTIAL=configured'
+  echo 'crashbox_upload_dsym() { return 1; }'
+  printf '%s\n' "$UPLOAD_BLOCK"
+  echo 'echo PUBLICATION_REACHED'; } >"$WORK/t5483.sh"
+out="$(bash "$WORK/t5483.sh" 2>&1)"
+rc=$?
+if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -qF PUBLICATION_REACHED; then
+  bad "TBX-5483: a configured upload failure did not stop publication"
+elif ! printf '%s' "$out" | grep -qF 'nothing was published or tagged'; then
+  bad "TBX-5483: configured upload refusal does not state the publication boundary"
+else
+  ok "TBX-5483 a configured upload failure exits before publication or tag"
+fi
+
+{ echo 'set -uo pipefail'
+  echo 'step() { :; }; warn() { printf "%s\n" "$*"; }'
+  echo 'CRASHBOX_ARTIFACT_CREDENTIAL='
+  echo 'crashbox_upload_dsym() { return 99; }'
+  printf '%s\n' "$UPLOAD_BLOCK"
+  echo 'echo PUBLICATION_REACHED'; } >"$WORK/t5483-off.sh"
+out="$(bash "$WORK/t5483-off.sh" 2>&1)"
+rc=$?
+if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qF PUBLICATION_REACHED; then
+  bad "TBX-5483: an intentionally unconfigured release cannot retain the manual flow"
+elif ! printf '%s' "$out" | grep -qF 'not configured'; then
+  bad "TBX-5483: the unconfigured path does not say automatic upload is off"
+else
+  ok "TBX-5483 unconfigured releases preserve the explicit manual-upload flow"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

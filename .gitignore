@@ -7,7 +7,9 @@ DerivedData/
 app/Info.plist
 # Protected Crashbox DSNs. Hosted-provider inputs are deliberately unsupported.
 app/Config/Crashbox.local.xcconfig
+app/Config/CrashboxArtifactUpload.local.json
 ios/Config/Crashbox.local.xcconfig
+ios/Config/CrashboxArtifactUpload.local.json
 website/appcast.xml
 
 # Playwright CLI session artifacts — page snapshots capture whatever is on screen,

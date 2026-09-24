@@ -9,13 +9,19 @@ final class MCPServerE2ETests: XCTestCase {
     private var model: MusicModel!
     private var server: BatonMCPServer!
     private var tempDir: URL!
+    private var suiteName: String!
 
     override func setUp() async throws {
         NavidromeKeychain.inMemoryStore = [:] // the bearer token routes to the in-memory keychain
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("mcp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         model = MusicModel()
-        server = BatonMCPServer(music: model, discoveryDirectory: tempDir)
+        // Isolated preferences: with the owner's Baton live on 8787 this server moves to the
+        // next free port and persists it, and that must land in a throwaway suite, not in the
+        // real preferences domain. The notifier is a no-op for the same reason.
+        suiteName = "MCPServerE2ETests-\(UUID().uuidString)"
+        server = BatonMCPServer(music: model, discoveryDirectory: tempDir,
+                                defaults: UserDefaults(suiteName: suiteName)!, portNotifier: { _ in })
         server.start()
         // start() binds asynchronously (awaits the listener reaching .ready — ); poll.
         let deadline = Date().addingTimeInterval(5)
@@ -27,6 +33,7 @@ final class MCPServerE2ETests: XCTestCase {
 
     override func tearDown() {
         server?.stop()
+        if let suiteName { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
         NavidromeKeychain.inMemoryStore = nil
         if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
     }

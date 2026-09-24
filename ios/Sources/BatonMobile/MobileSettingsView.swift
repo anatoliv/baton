@@ -34,6 +34,7 @@ struct MobileSettingsView: View {
     /// In-app, not a Safari bounce — App Review's 5.1.1 wants the policy readable
     /// without leaving the app.
     @State private var showsPrivacyPolicy = false
+    @State private var showsCrashConfirmation = false
     /// Whether the server is answering. Checked on appear, and on tap.
     /// Set when the Keychain refuses to hand over saved passwords, as opposed to holding none.
     /// Without it this screen shows an address and a username with no hint that the password
@@ -521,6 +522,15 @@ struct MobileSettingsView: View {
                         set: { sendsCrashReports = $0; CrashReporting.apply(enabled: $0) }
                     ))
                     .disabled(!CrashReporting.isConfigured)
+                    if CrashReporting.canTriggerTestCrash(
+                        optedIn: sendsCrashReports,
+                        configured: CrashReporting.isConfigured,
+                        isInternalBuild: CrashReporting.isInternalTestFlightBuild
+                    ) {
+                        Button("Test crash reporting…", role: .destructive) {
+                            showsCrashConfirmation = true
+                        }
+                    }
                 } header: {
                     Text("Diagnostics")
                 } footer: {
@@ -589,6 +599,18 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showsPrivacyPolicy) {
                 SafariView(url: URL(string: "https://batonmusic.app/privacy.html")!)
                     .ignoresSafeArea()
+            }
+            .confirmationDialog(
+                "Crash Baton now?",
+                isPresented: $showsCrashConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Crash and send report", role: .destructive) {
+                    CrashReporting.triggerTestCrash()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Baton will close immediately. Reopen it afterward so the test report can finish sending to Crashbox.")
             }
             .confirmationDialog(
                 "Disconnect from this server?",

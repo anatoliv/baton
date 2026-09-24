@@ -31,6 +31,24 @@ struct AgentAccessInfo: Equatable {
         )
     }
 
+    /// The port in `url`, when it parses as one.
+    var port: UInt16? {
+        URL(string: url)?.port.flatMap { UInt16(exactly: $0) }
+    }
+
+    /// The endpoint URL for a given port. One spelling, shared by the discovery file, the
+    /// Settings status line and the help copy, so they cannot disagree.
+    static func endpointURL(port: UInt16) -> String {
+        "http://127.0.0.1:\(port)/mcp"
+    }
+
+    /// The endpoint an agent would reach right now: the `url` in the live discovery file, or
+    /// the default port's URL when the server is not running. Help copy quotes this so it
+    /// names the port the server is actually on rather than a port it may have moved off.
+    static var liveEndpointURL: String {
+        loadCurrent()?.url ?? endpointURL(port: BatonMCPConstants.defaultPort)
+    }
+
     /// The discovery directory agents look in — `~/Library/Application Support/Baton`.
     static var discoveryDirectory: URL? { BatonStorage.supportDirectory() }
 
