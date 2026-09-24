@@ -323,6 +323,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.10",
+            date: "September 2026",
+            highlight: "Agents and Shortcuts now see and control the music you are actually hearing.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "Since 0.19.0, Baton quietly started two players when it launched. The window used one, and "
+                    + "everything that controls Baton from outside used the other: agents over MCP, Shortcuts, and "
+                    + "the Telegram and Discord bridges. Asking what was playing could get \u{201C}Nothing is playing\u{201D} "
+                    + "while music played, and a command could reach a player you were not hearing. "
+                    + "Baton now starts one player, and everything shares it."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.9",
             date: "September 2026",
             highlight: "A maintenance update that locks in the last two fixes.",

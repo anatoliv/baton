@@ -12,7 +12,8 @@
 #
 #   A. phone saves queue 1  -> launch: offer shown -> Not now -> quit
 #   B. relaunch             -> NO offer (the bug: it came back at every launch)
-#   C. phone saves queue 2  -> launch: offer shown -> Continue -> the probe plays queue 2
+#   C. phone saves queue 2  -> launch: offer shown -> Continue -> the probe plays queue 2,
+#      and its MCP server reports the same song (TBX-7371)
 #   D. relaunch, slot unchanged -> NO offer (Continue counts as an answer)
 #
 # Tracks are three minutes of silence, so the saved positions (0:42, 1:35) fall inside them.
@@ -148,9 +149,11 @@ streamed="$(/usr/bin/log show --last 30s --info --style compact \
   --predicate "processIdentifier == $PID AND subsystem == \"io.tonebox.baton\" AND category == \"StreamingPlayback\"" 2>/dev/null |
   sed -n 's/.*streaming song id \([A-Za-z0-9]*\).*/\1/p' | tail -1)"
 [ "$streamed" = "$ID3" ]; verdict "Continue resumed the phone's current song (streamed ${streamed:-nothing}, expected $ID3)" $?
-# Not asserted: the probe's MCP `music_now_playing` has been seen reporting "Nothing is playing"
-# while the probe's window played the adopted queue (TBX-7371). The streamed id above and the
-# C-continued screenshot are the evidence for this step.
+# The agent-facing view must agree with the window: MCP acts on the same model the user hears.
+# Before TBX-7371 it answered from a second MusicModel and said "Nothing is playing" here.
+np="$(probe_mcp_tool "$SUITE" music_now_playing 2>/dev/null)"
+case "$np" in *"Handoff Track 3"*) r=0;; *) r=1;; esac
+verdict "MCP now playing agrees with the window ($(printf '%s' "$np" | tr '\n' ' ' | cut -c1-110))" $r
 shot C-continued
 relaunch_quit
 

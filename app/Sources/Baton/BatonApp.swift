@@ -59,11 +59,15 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
     /// simply never arrived.
     private var syncScheduler: PreferenceSyncScheduler?
 
-    /// Set by `BatonApp.init()` immediately after this delegate is created. SwiftUI
+    /// Set by `BatonApp.init()` to the same instance the scene's `@State` holds. SwiftUI
     /// constructs the `@NSApplicationDelegateAdaptor`-backed delegate before `init()`'s own
-    /// body runs — the same "defaults are applied before the body starts" rule that makes
-    /// `@State private var music = MusicModel()` already readable there — so this is always
-    /// assigned well before AppKit can call `applicationDidFinishLaunching`.
+    /// body runs, so this is always assigned before AppKit can call
+    /// `applicationDidFinishLaunching`.
+    ///
+    /// It must be the scene's instance, not merely *a* `MusicModel`. Everything this delegate
+    /// starts (the MCP server, the control socket, the chat bridges, Shortcuts) acts on it, so
+    /// a second model means an agent's "pause" or "what's playing" reaches a player nobody is
+    /// listening to. See `BatonApp.init()` and TBX-7371.
     var music: MusicModel!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -200,7 +204,10 @@ struct RemoteControlScope<Content: View>: View {
 /// player. (An MCP control server + menu-bar controller arrive in later waves.)
 @main
 struct BatonApp: App {
-    @State private var music = MusicModel()
+    /// Assigned once in `init()`, never with an initial-value expression here. SwiftUI's
+    /// `@State` evaluates `= MusicModel()` lazily: reading it inside `init()` built one model
+    /// for the delegate, and installing the state built a second for the scene.
+    @State private var music: MusicModel
 
     /// Owns the MCP server, the chat-bridge remote control, read-aloud, and preference sync —
     /// see the type's own doc for why this composition root is a delegate rather than
@@ -244,8 +251,16 @@ struct BatonApp: App {
             MainActor.assumeIsolated { _ = SparkleUpdater.shared }
         }
 
-        // Hand the composition-root delegate the model it needs, before AppKit can possibly
-        // call `applicationDidFinishLaunching` on it. See `BatonAppDelegate`.
+        // One model, built once, after the migrations above, and the same instance handed to
+        // the scene and to the composition-root delegate (before AppKit can call
+        // `applicationDidFinishLaunching` on it). `@State private var music = MusicModel()`
+        // built it twice: the read here forced SwiftUI's lazy initial value into a temporary,
+        // which went to the delegate, and installing the state ran the initializer again for
+        // the scene. Two players then restored the same queue, and the MCP server, control
+        // socket, chat bridges and Shortcuts all drove the one the user could not hear
+        //. The iPhone's `BatonMobileApp` has always done it this way.
+        let music = MusicModel()
+        _music = State(initialValue: music)
         appDelegate.music = music
     }
 
