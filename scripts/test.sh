@@ -861,6 +861,11 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          a credential-looking file that is untracked and not ignored is
 #                          refused, on planted fakes including the exact .gitignore that let
 #                          a live upload credential sit unprotected in ios/Config/ (TBX-7289)
+#   test-probe-lock        the probe checks (scripts/probe-*.sh) run one at a time: a second
+#                          run waits and names the holder, a killed run's lock is reclaimed,
+#                          a live holder past the timeout gives status 3, and only the holder
+#                          can release. Two agents' probes on one screen failed each other
+#                          (TBX-7383)
 #
 # The guard itself then runs over THIS tree: a gate that goes green with a live
 # credential lying where `git add -A` would take it has certified the wrong thing.
@@ -868,7 +873,7 @@ if ! scripts/check-untracked-credentials.sh "$PWD"; then
   red "✗ credential-looking file in the working tree (see above)"
   exit 1
 fi
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials; do
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock; do
   GUARD_LOG="$(mktemp -t "baton-$guard.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then
     guard_cmd=("scripts/$guard.sh")

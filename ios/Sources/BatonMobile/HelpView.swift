@@ -333,7 +333,7 @@ struct WhatsNewView: View {
                 .init(.fixed, "Clearing a shared setting now clears it on your Mac too, instead of coming back from it at the next sync. Two devices whose clocks disagree no longer let the one that is ahead win every argument about a setting."),
                 .init(.fixed, "Asking the music friend for something like that now means what your own conversation searched for, not what another conversation on your household's gateway looked up most recently."),
                 .init(.improved, "A failed API key connection now hints that the server may not offer API key sign-in, if that is why it failed."),
-                .init(.fixed, "Answering \u{201C}Continue where you left off?\u{201D} with Not now used to be forgotten, so the same queue from your Mac was offered again every time you opened Baton. Your answer now sticks, and Baton asks again only when your Mac saves a different queue."),
+                .init(.fixed, "Baton used to forget when you answered \u{201C}Continue where you left off?\u{201D} with Not now, so it offered the same queue from your Mac every time you opened the app. It now remembers, and asks again only when your Mac saves a different queue."),
             ]
         ),
         ReleaseNote(

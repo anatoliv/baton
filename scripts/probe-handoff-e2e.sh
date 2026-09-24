@@ -11,13 +11,15 @@
 # under the client name `baton-ios`, then drives only the probe's alert, by process id.
 #
 #   A. phone saves queue 1  -> launch: offer shown -> Not now -> quit
-#   B. relaunch             -> NO offer (the bug: it came back at every launch)
+#   B. relaunch             -> NO offer (the bug: it came back at every launch), and the probe
+#      did fetch the queue on that launch, so the silence is an answer, not a disconnection
 #   C. phone saves queue 2  -> launch: offer shown -> Continue -> the probe plays queue 2,
 #      and its MCP server reports the same song (TBX-7371)
 #   D. relaunch, slot unchanged -> NO offer (Continue counts as an answer)
 #
 # Tracks are three minutes of silence, so the saved positions (0:42, 1:35) fall inside them.
-# Exit 0 only if all four hold. Red on v0.19.7 (step B), green from 0.19.8.
+# Exit 0 only if all four hold. Exit 3 if another probe run held the machine-wide probe lock past
+# the timeout. Red on v0.19.7 (step B), green from 0.19.8.
 set -uo pipefail
 
 [ "$#" -ge 1 ] || { echo "usage: $0 <Baton.app> [evidence-dir]" >&2; exit 64; }
@@ -34,12 +36,18 @@ PID=""
 fail=0
 
 cleanup() {
+  # The server's own request log, for reading a mismatch rather than guessing at it. Navidrome
+  # redacts the auth parameters itself.
+  [ -n "$EVIDENCE" ] && docker logs "$NAME" > "$EVIDENCE/navidrome.log" 2>&1
   probe_quit "$PID"
   probe_cleanup "$SUITE"
   docker rm -f "$NAME" >/dev/null 2>&1
   rm -rf "$WORK"
+  probe_lock_release
 }
 trap cleanup EXIT
+# One probe run at a time on this machine (TBX-7383): the screen and keyboard are shared.
+probe_lock_acquire || exit 3
 
 say_step() { echo "-- $*"; }
 verdict() {   # $1 = description, $2 = 0 for pass
@@ -53,7 +61,7 @@ for i in 1 2 3; do
     -metadata title="Handoff Track $i" -metadata artist="Handoff Probe" \
     -metadata album="Handoff E2E" -metadata track="$i" -q:a 9 "$WORK/music/track$i.mp3" || exit 2
 done
-docker run -d --name "$NAME" -p "127.0.0.1:$PORT:4533" -e ND_LOGLEVEL=warn \
+docker run -d --name "$NAME" -p "127.0.0.1:$PORT:4533" -e ND_LOGLEVEL=debug \
   -v "$WORK/music:/music:ro" -v "$WORK/data:/data" deluan/navidrome:latest >/dev/null || exit 2
 for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$PORT/ping" >/dev/null && break; sleep 1; done
 
@@ -89,6 +97,21 @@ phone_saves() {   # $1 = current song id, $2 = position ms
 }
 slot() { sub getPlayQueue probe-check | json "q=d.get('playQueue',{}); print(q.get('changedBy'), q.get('current'), q.get('position'))"; }
 
+# Successful getPlayQueue fetches (the app calls the `.view` form) made by the probe (every client except this script's own
+# `baton-ios` and `probe-check`), from the server's debug log, paired by request id. A "no offer"
+# step only means something if this rose during that launch: otherwise the probe may simply
+# never have reached the server, and no offer is what a disconnected app shows too (TBX-7376).
+probe_queue_fetches() {
+  docker logs "$NAME" 2>&1 | awk '
+    /API: New request \/rest\/getPlayQueue(\.view)?"/ && !/client=(baton-ios|probe-check) / {
+      for (i = 1; i <= NF; i++) if ($i ~ /^requestId=/) asked[substr($i, 11)] = 1
+    }
+    /API: Successful response" endpoint=\/rest\/getPlayQueue(\.view)?( |$)/ {
+      for (i = 1; i <= NF; i++) if ($i ~ /^requestId=/ && (substr($i, 11) in asked)) n++
+    }
+    END { print n + 0 }'
+}
+
 # ---- a probe pointed at it ------------------------------------------------------------------
 # The legacy single-server keys: the app migrates them into its server list on first launch and
 # moves the plaintext secret into the probe's own Keychain service (NavidromeConfig).
@@ -111,6 +134,31 @@ wait_for_offer() {   # $1 = pid, $2 = seconds; prints yes/no
   for i in $(seq 1 "$2"); do [ "$(offer_visible "$1")" = yes ] && { echo yes; return; }; sleep 1; done
   echo no
 }
+# A "no offer" step that means something (TBX-7376). While this step watches (up to 25 s), the
+# probe must fetch the server's queue, and then show no offer for NO_OFFER_SETTLE seconds after
+# that fetch. An offer at any point fails it. A fetch that completes only after the watch (a
+# paused server resuming, a slow network) is not counted, because every count happens here,
+# before the caller does anything else; and silence from a probe that never asked fails too.
+NO_OFFER_SETTLE=8
+expect_no_offer() {   # $1 = fetch count read before launch, $2 = how the offer was answered
+  local got="" n i
+  for i in $(seq 1 25); do
+    if [ "$(offer_visible "$PID")" = yes ]; then
+      verdict "no offer for the queue already $2 (an offer appeared)" 1
+      return
+    fi
+    n="$(probe_queue_fetches)"
+    if [ "$n" -gt "$1" ]; then got="$n"; break; fi
+    sleep 1
+  done
+  if [ -z "$got" ]; then
+    verdict "the probe fetched the server's queue while this step watched (fetches $1 -> $1 within 25 s)" 1
+    return
+  fi
+  verdict "the probe fetched the server's queue while this step watched (fetches $1 -> $got)" 0
+  [ "$(wait_for_offer "$PID" "$NO_OFFER_SETTLE")" = no ]
+  verdict "no offer for the queue already $2, ${NO_OFFER_SETTLE} s after that fetch" $?
+}
 launch() {
   PID="$(probe_launch "$APP" "$SUITE")" || { echo "probe did not start" >&2; exit 2; }
 }
@@ -131,9 +179,16 @@ echo "   slot after quit: $(slot)"
 
 say_step "B. relaunch with the same queue still on the server"
 case "$(slot)" in baton-ios*) ;; *) echo "   INCONCLUSIVE: the probe overwrote the slot, so step B cannot test anything"; fail=1;; esac
+before="$(probe_queue_fetches)"
+# Self-test of the guard: HANDOFF_E2E_SELFTEST_DISCONNECT=1 pauses the server for this whole
+# step, so "no offer" would be vacuous and the fetch check has to catch it (the run must FAIL).
+# The server resumes only after expect_no_offer has done all its counting (TBX-7376: resuming
+# first let the probe's queued request complete and be counted).
+[ "${HANDOFF_E2E_SELFTEST_DISCONNECT:-0}" = 1 ] && docker pause "$NAME" >/dev/null
 launch
-[ "$(wait_for_offer "$PID" 20)" = no ]; verdict "no offer for the queue already declined" $?
+expect_no_offer "$before" declined
 shot B-relaunch
+[ "${HANDOFF_E2E_SELFTEST_DISCONNECT:-0}" = 1 ] && docker unpause "$NAME" >/dev/null
 relaunch_quit
 
 say_step "C. the phone saves a different queue: Handoff Track 3, 1:35"
@@ -163,8 +218,9 @@ case "$(slot)" in
   *) echo "   the probe saved its own queue on quit; the phone re-saves queue 2 unchanged"
      phone_saves "$ID3" 95000;;
 esac
+before="$(probe_queue_fetches)"
 launch
-[ "$(wait_for_offer "$PID" 20)" = no ]; verdict "no offer for the queue already continued" $?
+expect_no_offer "$before" continued
 relaunch_quit
 
 if [ "$fail" = 0 ]; then echo "RESULT: PASS"; else echo "RESULT: FAIL"; fi

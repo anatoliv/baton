@@ -11,6 +11,101 @@
 
 PROBE_SUPPORT_ROOT="$HOME/Library/Application Support/Baton Probes"
 
+# ---- one probe run at a time on this machine (TBX-7383) --------------------------------------
+# Separate suites, ports and containers keep state apart, but the screen, the frontmost app and
+# the keyboard are shared: two agents running probe checks at once made each other fail (a
+# System Events click landing mid-launch of the other's probe) and put each other's windows in
+# their screenshots. Every probe script takes this lock before its first launch and releases it
+# on exit. The path is machine-wide on purpose, not per-$TMPDIR, since agents may not share one.
+PROBE_LOCK="${BATON_PROBE_LOCK:-/tmp/baton-probe.lock}"
+PROBE_LOCK_HELD=0
+
+# Wait for the lock and take it. Exit status 3 on timeout. Messages go to stderr and name the
+# holder, so a waiting run says what it is waiting on rather than looking hung.
+probe_lock_acquire() {   # [$1 = timeout seconds; default $BATON_PROBE_LOCK_TIMEOUT or 1800]
+  local timeout="${1:-${BATON_PROBE_LOCK_TIMEOUT:-1800}}"
+  local grace="${BATON_PROBE_LOCK_GRACE:-10}"   # an ownerless lock older than this is stale
+  local waited=0 ownerless=0 holder="" who="" told="" ident="" last_ident="" reclaimed=""
+  while :; do
+    if mkdir "$PROBE_LOCK" 2>/dev/null; then
+      printf '%s %s\n' "$$" "$(basename "$0")" > "$PROBE_LOCK/owner"
+      PROBE_LOCK_HELD=1
+      [ -n "$told" ] && echo "probe lock: acquired after waiting ${waited}s for pid $told" >&2
+      return 0
+    fi
+    # Which lock directory this is (inode and birth time), read with the owner, so a reclaim
+    # can later prove it is still the same directory and not a fresh one (TBX-7388).
+    ident="$(stat -f '%i:%B' "$PROBE_LOCK" 2>/dev/null)"
+    holder="$(cut -d' ' -f1 "$PROBE_LOCK/owner" 2>/dev/null)"
+    who="$(cut -d' ' -f2- "$PROBE_LOCK/owner" 2>/dev/null)"
+    [ "$ident" != "$last_ident" ] && ownerless=0
+    last_ident="$ident"
+    if [ -z "$holder" ]; then
+      # Between another run's mkdir and its owner write, or a run that died right there.
+      ownerless=$((ownerless + 1))
+    else
+      ownerless=0
+    fi
+    if [ -n "$ident" ] && { { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } || [ "$ownerless" -gt "$grace" ]; }; then
+      # Stale. Test-only: widen the gap between judging it stale and reclaiming it (TBX-7388).
+      [ -n "${BATON_PROBE_LOCK_TEST_RECLAIM_DELAY:-}" ] && sleep "$BATON_PROBE_LOCK_TEST_RECLAIM_DELAY"
+      reclaimed="$(probe_lock_reclaim "$ident" "$([ "$ownerless" -gt "$grace" ] && echo 1 || echo 0)")"
+      [ -n "$reclaimed" ] && echo "probe lock: reclaimed a stale lock left by pid $reclaimed" >&2
+      ownerless=0
+      continue
+    fi
+    if [ -n "$holder" ] && [ "$told" != "$holder" ]; then
+      echo "probe lock: waiting for pid $holder ($who) to finish its probe run" >&2
+      told="$holder"
+    fi
+    if [ "$waited" -ge "$timeout" ]; then
+      echo "probe lock: gave up after ${timeout}s; still held by pid ${holder:-unknown} (${who:-?})" >&2
+      return 3
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+# Remove the lock directory, but only if it is still the stale one the caller judged. Prints
+# "<pid> (<script>)" when it reclaimed, nothing when it backed off.
+#
+# The judgement and the removal used to be two steps (a `kill -0`, then a `mv`), so a second
+# waiter that judged the same dead lock could, a moment later, move aside the FRESH lock the
+# first waiter had just taken, and both runs drove the screen at once (TBX-7388). Now the
+# removal runs in a critical section under `flock` on a side file, which the kernel releases if
+# the holder dies, so the section itself can never go stale; and inside it the directory must
+# still have the inode and birth time the caller read, and its owner must still be dead (or
+# still unwritten, for an ownerless lock past its grace). A fresh lock is a new directory, so it
+# fails that check and the waiter goes back to waiting.
+probe_lock_reclaim() {   # $1 = "inode:birthtime" read with the stale judgement, $2 = 1 if ownerless past grace
+  /usr/bin/perl -MFcntl=:flock -e '
+      $^F = 255;                         # keep the lock fd open across exec: held until bash exits
+      open(my $m, ">>", shift) or exit 0;
+      flock($m, LOCK_EX) or exit 0;
+      exec @ARGV or exit 0;' "$PROBE_LOCK.reclaim" \
+    /bin/bash -c '
+      lock="$1"; ident="$2"; ownerless_expired="$3"; me="$4"
+      [ "$(stat -f "%i:%B" "$lock" 2>/dev/null)" = "$ident" ] || exit 0
+      h="$(cut -d" " -f1 "$lock/owner" 2>/dev/null)"
+      w="$(cut -d" " -f2- "$lock/owner" 2>/dev/null)"
+      if [ -n "$h" ]; then
+        kill -0 "$h" 2>/dev/null && exit 0
+      else
+        [ "$ownerless_expired" = 1 ] || exit 0
+      fi
+      mv "$lock" "$lock.stale.$me" 2>/dev/null || exit 0
+      rm -rf "$lock.stale.$me"
+      printf "%s (%s)\n" "${h:-unknown}" "${w:-no owner written}"' _ "$PROBE_LOCK" "$1" "$2" "$$"
+}
+
+# Release the lock, and only if this process holds it. Safe to call more than once.
+probe_lock_release() {
+  [ "$PROBE_LOCK_HELD" = 1 ] || return 0
+  [ "$(cut -d' ' -f1 "$PROBE_LOCK/owner" 2>/dev/null)" = "$$" ] && rm -rf "$PROBE_LOCK"
+  PROBE_LOCK_HELD=0
+}
+
 # A fresh, unused suite name. Lower-case letters, digits and dashes only (BatonStorage refuses
 # anything else).
 probe_new_suite() {   # $1 = short label

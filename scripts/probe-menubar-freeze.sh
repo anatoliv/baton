@@ -16,15 +16,25 @@
 #      probe's MCP server is asked `initialize`. A healthy app answers 200 because the main
 #      queue still runs during menu tracking; the frozen app cannot answer.
 #
-# Exit 0 only if every launch passes both. Red on v0.19.6 (the shipped bug), green from 0.19.7.
+# The freeze needs the crash-reporting SDK to start on its background queue, so a launch where
+# reporting did not start cannot show it and proves nothing (TBX-7376). Such a launch is
+# INCONCLUSIVE, never PASS. That is what a probe built without app/Config/Crashbox.local.xcconfig
+# gives you: scripts/probe-build.sh warns on stderr, which `| tail -1` hides.
+#
+# Exit 0: every launch PASS. Exit 1: any launch FAIL. Exit 2: no FAIL, but at least one launch
+# INCONCLUSIVE. Exit 3: another probe run held the machine-wide probe lock past the timeout. Red on v0.19.6 (the shipped bug), green from 0.19.7.
 set -uo pipefail
 
 [ "$#" -ge 1 ] || { echo "usage: $0 <Baton.app> [launches] [evidence-dir]" >&2; exit 64; }
 APP="$1"; LAUNCHES="${2:-3}"; EVIDENCE="${3:-}"
 . "$(dirname "$0")/probe-lib.sh"
 [ -n "$EVIDENCE" ] && mkdir -p "$EVIDENCE"
+# One probe run at a time on this machine (TBX-7383): the screen and keyboard are shared.
+probe_lock_acquire || exit 3
+trap probe_lock_release EXIT
 
 fail=0
+inconclusive=0
 for n in $(seq 1 "$LAUNCHES"); do
   SUITE="$(probe_new_suite menubar)"
   defaults write "$SUITE" baton.crashUploadEnabled -bool true
@@ -55,13 +65,25 @@ for n in $(seq 1 "$LAUNCHES"); do
   after="$(probe_mcp_status "$SUITE")"
   kill "$press" 2>/dev/null; wait "$press" 2>/dev/null
 
-  verdict="PASS"
-  [ "$modes_ok" = yes ] && [ "$during" = 200 ] && [ "$after" = 200 ] || { verdict="FAIL"; fail=1; }
+  if ! { [ "$modes_ok" = yes ] && [ "$during" = 200 ] && [ "$after" = 200 ]; }; then
+    verdict="FAIL"; fail=1
+  elif [ "$started" != yes ]; then
+    verdict="INCONCLUSIVE"; inconclusive=$((inconclusive + 1))
+  else
+    verdict="PASS"
+  fi
   echo "launch $n: $verdict  reporting-started=$started  common-modes=[$common]  mcp-while-menu-open=$during  mcp-after=$after"
 
   probe_quit "$PID"
   probe_cleanup "$SUITE"
 done
 
-if [ "$fail" = 0 ]; then echo "RESULT: PASS ($LAUNCHES/$LAUNCHES launches)"; else echo "RESULT: FAIL"; fi
-exit "$fail"
+if [ "$fail" != 0 ]; then
+  echo "RESULT: FAIL"
+  exit 1
+elif [ "$inconclusive" != 0 ]; then
+  echo "RESULT: INCONCLUSIVE ($inconclusive/$LAUNCHES launches): crash reporting never started, so the freeze this checks for could not happen. Build the probe with app/Config/Crashbox.local.xcconfig present."
+  exit 2
+fi
+echo "RESULT: PASS ($LAUNCHES/$LAUNCHES launches)"
+exit 0

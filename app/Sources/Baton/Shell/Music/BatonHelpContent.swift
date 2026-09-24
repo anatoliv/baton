@@ -323,6 +323,16 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.11",
+            date: "September 2026",
+            highlight: "Clearer release notes.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "The notes for 0.19.6, 0.19.7 and 0.19.8 are rewritten in plainer words. Nothing else changes "
+                    + "in how Baton works."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.10",
             date: "September 2026",
             highlight: "Agents and Shortcuts now see and control the music you are actually hearing.",
@@ -349,7 +359,7 @@ extension HelpWhatsNewRelease {
         HelpWhatsNewRelease(
             version: "0.19.8",
             date: "September 2026",
-            highlight: "Not now means not now: Baton stops asking to continue a queue you already turned down.",
+            highlight: "Baton stops asking to continue a queue you already turned down.",
             changes: [
                 HelpWhatsNewChange(.fixed,
                     "When you answered \u{201C}Continue where you left off?\u{201D} with Not now, Baton asked again at every launch "
@@ -363,8 +373,8 @@ extension HelpWhatsNewRelease {
             highlight: "Clicking Baton in the menu bar no longer freezes the app.",
             changes: [
                 HelpWhatsNewChange(.fixed,
-                    "With crash reporting turned on, clicking the Baton icon in the menu bar could open an empty menu "
-                    + "that never appeared, and the whole app stopped responding until you quit it. "
+                    "With crash reporting turned on, clicking the Baton icon in the menu bar could freeze the app. "
+                    + "The menu never appeared, and Baton stopped responding until you quit it. "
                     + "The menu now opens normally."),
             ]
         ),
@@ -375,7 +385,7 @@ extension HelpWhatsNewRelease {
             changes: [
                 HelpWhatsNewChange(.added,
                     "Settings now has a field for the port the MCP server listens on. "
-                    + "Baton starts from that port and keeps the setting in step with the port it is on."),
+                    + "Baton starts on that port, and the field shows the port it is actually using."),
                 HelpWhatsNewChange(.improved,
                     "If the port you chose is already in use, Baton moves to the next free one, "
                     + "saves it, and posts a notice naming both ports so you can update your MCP client."),
