@@ -323,6 +323,17 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.7",
+            date: "September 2026",
+            highlight: "Clicking Baton in the menu bar no longer freezes the app.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "With crash reporting turned on, clicking the Baton icon in the menu bar could open an empty menu "
+                    + "that never appeared, and the whole app stopped responding until you quit it. "
+                    + "The menu now opens normally."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.6",
             date: "September 2026",
             highlight: "You can choose the MCP server port, and Baton tells you when it had to move.",

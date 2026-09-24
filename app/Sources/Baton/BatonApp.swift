@@ -214,6 +214,14 @@ struct BatonApp: App {
     static let aboutWindowID = "baton-about"
 
     init() {
+        // Create the shared NSApplication here, on the main thread, before anything can start
+        // work on another thread. `CrashReporting.startIfEnabled()` starts the SDK on a
+        // background queue, and if that reaches `NSApplication.shared` first, AppKit
+        // initialises on that thread and registers its menu-tracking and modal-panel run loop
+        // modes as common modes there instead of on the main run loop. The main queue then
+        // never runs while a menu is open, so the menu bar menu opens empty and invisible and
+        // the whole app stops responding.
+        _ = NSApplication.shared
         // Start opt-in crash reporting if (and only if) the user turned it on
         // and release packaging supplied a complete Crashbox configuration.
         // No-op otherwise. See CrashReporting.

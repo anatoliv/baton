@@ -857,7 +857,18 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          the generated mode-0600 credential is bounded and never
 #                          reaches argv/output, and a response must match this exact
 #                          project, release and archive before it becomes a receipt
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload; do
+#   test-untracked-credentials
+#                          a credential-looking file that is untracked and not ignored is
+#                          refused, on planted fakes including the exact .gitignore that let
+#                          a live upload credential sit unprotected in ios/Config/ (TBX-7289)
+#
+# The guard itself then runs over THIS tree: a gate that goes green with a live
+# credential lying where `git add -A` would take it has certified the wrong thing.
+if ! scripts/check-untracked-credentials.sh "$PWD"; then
+  red "✗ credential-looking file in the working tree (see above)"
+  exit 1
+fi
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials; do
   GUARD_LOG="$(mktemp -t "baton-$guard.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then
     guard_cmd=("scripts/$guard.sh")

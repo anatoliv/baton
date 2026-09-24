@@ -144,10 +144,10 @@ echo "Installed both Crashbox.local.xcconfig files with mode 0600."
 if [ -f "$MAC_RELEASE/app/Config/CrashboxArtifactUpload.local.json" ]; then
   echo "Installed the optional macOS Crashbox artifact credential with mode 0600."
 else
-  echo "No macOS Crashbox artifact credential configured; automatic dSYM upload stays off."
+  echo "No in-tree macOS Crashbox artifact credential; pass CRASHBOX_ARTIFACT_CREDENTIAL_FILE to publish.sh to upload the dSYM."
 fi
 if [ -f "$IOS_RELEASE/ios/Config/CrashboxArtifactUpload.local.json" ]; then
   echo "Installed the optional iPhone Crashbox artifact credential with mode 0600."
 else
-  echo "No iPhone Crashbox artifact credential configured; automatic dSYM upload stays off."
+  echo "No in-tree iPhone Crashbox artifact credential; testflight.sh needs CRASHBOX_ARTIFACT_CREDENTIAL_FILE (see docs/CRASHBOX-REPORTING.md)."
 fi

@@ -10,6 +10,13 @@ app/Config/Crashbox.local.xcconfig
 app/Config/CrashboxArtifactUpload.local.json
 ios/Config/Crashbox.local.xcconfig
 ios/Config/CrashboxArtifactUpload.local.json
+# Every protected local input under any Config directory, not only the files named
+# above. On 2026-09-23 a live upload credential was found untracked and NOT ignored at
+# ios/Config/, because this file then listed the two xcconfigs by name and nothing else
+# (TBX-7289). The committed `.example` templates stay trackable.
+# scripts/check-untracked-credentials.sh refuses anything credential-shaped this misses.
+**/Config/*.local.*
+!**/Config/*.example
 website/appcast.xml
 
 # Playwright CLI session artifacts — page snapshots capture whatever is on screen,
