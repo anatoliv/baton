@@ -16,7 +16,7 @@ final class MultiServerTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "MultiServerTests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("MultiServerTests")
         defaults = UserDefaults(suiteName: suiteName)
         savedDefaults = NavidromeConfig.defaults
         NavidromeConfig.defaults = defaults

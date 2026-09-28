@@ -93,7 +93,7 @@ final class ProbeStorageTests: XCTestCase {
     /// `UserDefaults` instances for identity would pass even if they were separate objects over
     /// separate suites.
     func testPreferenceSyncAndTheFriendStoresShareOneDomainUnderARedirect() throws {
-        let suite = "io.tonebox.tests.probe.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.suite("probe").name
         let redirect = BatonStorage.Redirect(suiteName: suite)
         defer { UserDefaults().removePersistentDomain(forName: suite) }
 
@@ -122,7 +122,7 @@ final class ProbeStorageTests: XCTestCase {
     /// restored the owner's real 44-track queue and its playhead, and `persistQueue()` — which
     /// fires from eighteen call sites — wrote the probe's queue back over it.
     @MainActor func testThePlaybackQueueStoreFollowsAProbeRedirect() {
-        let suite = "io.tonebox.tests.probe.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.suite("probe").name
         defer { UserDefaults().removePersistentDomain(forName: suite) }
         let store = StreamingPlaybackController.defaultStore(
             environment: .production, redirect: .init(suiteName: suite))
@@ -135,7 +135,7 @@ final class ProbeStorageTests: XCTestCase {
 
     /// The EQ store, same shape: a probe used to read the owner's curve and overwrite it.
     @MainActor func testTheEqualizerStoreFollowsAProbeRedirect() {
-        let suite = "io.tonebox.tests.probe.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.suite("probe").name
         defer { UserDefaults().removePersistentDomain(forName: suite) }
         let store = MusicEqualizer.defaultStore(environment: .production,
                                                 redirect: .init(suiteName: suite))
@@ -294,7 +294,7 @@ private enum FriendLedgerStoreProbe {
                          environment: BatonEnvironment = .current) -> UserDefaults {
         if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }
         guard environment.isTesting else { return .standard }
-        return UserDefaults(suiteName: "io.tonebox.tests.friendledger.\(UUID().uuidString)") ?? .standard
+        return ThrowawayDefaults.make("friendledger")
     }
 }
 
@@ -341,7 +341,7 @@ extension ProbeStorageTests {
             """)
 
         var offences: [String] = []
-        for resolver in resolvers where resolver.file != Self.theOnePlaceThatDecides {
+        for resolver in resolvers where !Self.notResolvers.contains(resolver.file) {
             if !resolver.declaration.contains("redirect") {
                 offences.append("\(resolver.file):\(resolver.line): \(resolver.name) takes no "
                                 + "`redirect`, so it cannot have a probe branch")
@@ -372,6 +372,14 @@ extension ProbeStorageTests {
     /// that may name `.standard` without asking anyone.
     private static let theOnePlaceThatDecides =
         "Packages/BatonSubsonicKit/Sources/BatonSubsonicKit/BatonStorage.swift"
+
+    /// Files whose `UserDefaults`-returning functions are not resolvers. `BatonStorage` decides the
+    /// probe branch for everyone else. `ThrowawayDefaults` only mints a test suite, and every
+    /// resolver calls it after its own `redirect.isActive` branch, never instead of one.
+    private static let notResolvers: Set<String> = [
+        theOnePlaceThatDecides,
+        "Packages/BatonSubsonicKit/Sources/BatonSubsonicKit/ThrowawayDefaults.swift",
+    ]
 
     private struct Resolver {
         var file: String

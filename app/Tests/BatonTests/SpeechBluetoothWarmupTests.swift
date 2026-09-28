@@ -1,5 +1,6 @@
 import AVFoundation
 import BatonPlaybackKit
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -23,7 +24,7 @@ final class SpeechBluetoothWarmupTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: "baton.tests.bluetooth.\(UUID().uuidString)")
+        defaults = UserDefaults(suiteName: ThrowawayDefaults.name("baton.tests.bluetooth"))
         SpeechConfig.defaults = defaults
     }
 

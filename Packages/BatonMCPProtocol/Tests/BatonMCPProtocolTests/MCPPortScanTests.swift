@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonMCPProtocol
 
@@ -59,7 +60,7 @@ final class MCPPortScanTests: XCTestCase {
     }
 
     func testPreferredPortReadsAStoredValueAndFallsBackOnJunk() {
-        let defaults = UserDefaults(suiteName: "MCPPortScanTests-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("MCPPortScanTests"))!
         defer { defaults.removePersistentDomain(forName: defaults.description) }
         XCTAssertEqual(BatonMCPPortScan.preferredPort(from: defaults), BatonMCPConstants.defaultPort)
         defaults.set(9123, forKey: BatonMCPConstants.preferredPortDefaultsKey)

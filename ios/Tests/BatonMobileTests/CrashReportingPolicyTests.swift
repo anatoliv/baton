@@ -1,5 +1,6 @@
 import Foundation
 import Sentry
+import BatonSubsonicKit
 import XCTest
 @testable import BatonMobile
 
@@ -169,7 +170,7 @@ final class CrashReportingPolicyTests: XCTestCase {
     }
 
     func testPendingNativeCrashIdentityIsBoundedAndPayloadFree() throws {
-        let suite = "CrashReportingPolicyTests.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("CrashReportingPolicyTests")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let release = "io.tonebox.baton@1.1+123.\(commit)"

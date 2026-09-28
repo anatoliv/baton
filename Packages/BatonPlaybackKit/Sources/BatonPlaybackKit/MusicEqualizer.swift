@@ -63,7 +63,7 @@ public final class MusicEqualizer {
         // a probe used to read and overwrite the owner's real EQ curve (M-F1).
         if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }
         guard environment.isTesting else { return .standard }
-        return UserDefaults(suiteName: "io.tonebox.tests.eq.\(UUID().uuidString)") ?? .standard
+        return ThrowawayDefaults.make("eq")   // removed at exit
     }
 
     @ObservationIgnored public static let enabledKey = "tonebox.music.eq.enabled"

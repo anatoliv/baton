@@ -1,4 +1,5 @@
 import AVFoundation
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -13,7 +14,7 @@ import XCTest
 @MainActor
 final class CrossfadeLeakTests: XCTestCase {
     private func makeController() -> StreamingPlaybackController {
-        StreamingPlaybackController(defaults: UserDefaults(suiteName: "eq.xfade.\(UUID().uuidString)")!)
+        StreamingPlaybackController(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("eq.xfade"))!)
     }
 
     /// The exact stuck state: a ramp is live while the flag says otherwise.

@@ -15,7 +15,7 @@ final class SessionPurgeTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.purge.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.purge.tests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

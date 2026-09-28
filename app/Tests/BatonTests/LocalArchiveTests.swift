@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -13,8 +14,8 @@ private func freshHistory() -> MusicPlayHistory {
     // Inject a unique directory: the archive is an on-disk JSONL, so without this every
     // test would share ~/Library/Application Support/Baton/play-history.jsonl and see each other's
     // entries.
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hist-\(UUID())", isDirectory: true)
-    return MusicPlayHistory(defaults: UserDefaults(suiteName: "hist-\(UUID())")!,
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(ThrowawayDefaults.name("hist"), isDirectory: true)
+    return MusicPlayHistory(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("hist"))!,
                             clock: { Date(timeIntervalSince1970: 1_700_000_000) },
                             directory: dir)
 }
@@ -158,7 +159,7 @@ struct ScrobbleServiceArchiveTests {
     @Test("a completed library track is logged locally at its start time; podcasts are not")
     func recordsLibraryNotPodcast() {
         let spy = RecordingSpy()
-        let suite = UserDefaults(suiteName: "svc-arch-\(UUID())")!
+        let suite = UserDefaults(suiteName: ThrowawayDefaults.name("svc-arch"))!
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let service = ScrobbleService(
             listenBrainz: InactiveDestination(), lastfm: InactiveDestination(), navidrome: InactiveDestination(),

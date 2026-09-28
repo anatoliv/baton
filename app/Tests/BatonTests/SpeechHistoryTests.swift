@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -10,8 +11,7 @@ final class SpeechHistoryTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "io.tonebox.tests.speechhistory.\(UUID().uuidString)"
-        suite = UserDefaults(suiteName: suiteName)
+        (suiteName, suite) = ThrowawayDefaults.suite("speechhistory")
     }
 
     override func tearDown() {

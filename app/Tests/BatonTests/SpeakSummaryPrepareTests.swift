@@ -1,4 +1,5 @@
 import BatonSpeech
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -15,7 +16,7 @@ final class SpeakSummaryPrepareTests: XCTestCase {
     private var suite: UserDefaults!
 
     override func setUp() {
-        suite = UserDefaults(suiteName: "speak-prepare-\(UUID().uuidString)")!
+        suite = UserDefaults(suiteName: ThrowawayDefaults.name("speak-prepare"))!
         SpeechConfig.defaults = suite
         // A closed port, so synthesis fails immediately rather than waiting on a connect
         // timeout, and the native fallback carries the utterance without touching the network.

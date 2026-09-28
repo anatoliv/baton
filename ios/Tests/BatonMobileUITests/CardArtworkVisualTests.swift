@@ -54,18 +54,27 @@ final class CardArtworkVisualTests: XCTestCase {
         XCTAssertTrue(app.scrollViews.firstMatch.waitForExistence(timeout: 30),
                       "the Albums grid must appear")
 
+        // The failure this guards: artwork driving cell width. Every cell in a row must
+        // share a width, and cells must not exceed the screen. Wait for *album cells*, not
+        // generic images: the tab bar alone satisfies an image-count threshold before the
+        // asynchronous library load has returned. That made a healthy slow/demo-server
+        // launch fail in under ten seconds with an empty grid.
+        let populationDeadline = Date().addingTimeInterval(30)
+        while Date() < populationDeadline,
+              app.scrollViews.buttons.allElementsBoundByIndex.count < 2 {
+            usleep(400_000)
+        }
+        let cells = app.scrollViews.buttons.allElementsBoundByIndex.prefix(6)
+        XCTAssertGreaterThan(cells.count, 1, "expected a populated grid")
+
         // Give artwork a chance to arrive before capturing. Deliberately *not* asserted
         // on: `app.images` counts chrome as well as covers, so any threshold here passes
         // whether or not a single cover loaded — which is worse than no assertion, because
         // it reads like proof. Judging the artwork is the screenshot's job and a human's.
-        let deadline = Date().addingTimeInterval(25)
-        while Date() < deadline, app.images.count < 3 { usleep(400_000) }
+        let artworkDeadline = Date().addingTimeInterval(10)
+        while Date() < artworkDeadline, app.images.count < 3 { usleep(400_000) }
         capture("album-grid-whole-covers")
 
-        // The failure this guards: artwork driving cell width. Every cell in a row must
-        // share a width, and cells must not exceed the screen.
-        let cells = app.scrollViews.buttons.allElementsBoundByIndex.prefix(6)
-        XCTAssertGreaterThan(cells.count, 1, "expected a populated grid")
         let widths = Set(cells.map { ($0.frame.width * 10).rounded() })
         XCTAssertLessThanOrEqual(widths.count, 2,
                                  "cells must share a width — artwork must not size its own cell")

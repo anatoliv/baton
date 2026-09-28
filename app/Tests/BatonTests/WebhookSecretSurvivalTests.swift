@@ -25,7 +25,7 @@ final class WebhookSecretSurvivalTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "WebhookSecretSurvival.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("WebhookSecretSurvival")
         defaults = UserDefaults(suiteName: suiteName)
         NavidromeKeychain.inMemoryStore = [:]
     }

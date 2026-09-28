@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 @testable import BatonAgentKit
@@ -12,7 +13,7 @@ final class RemoteAuthorizationTests: XCTestCase {
         // so nothing here touches the login Keychain or real preferences.
         let settings = RemoteControlSettings(
             environment: .testing,
-            defaults: UserDefaults(suiteName: "baton.remote.tests.\(UUID().uuidString)")!,
+            defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.remote.tests"))!,
             secrets: InMemorySecretStore()
         )
         let music = MusicModel(environment: .testing)
@@ -617,7 +618,7 @@ final class RemoteAuthorizationTests: XCTestCase {
             tools: MCPToolSurface(music: music, focus: focus),
             settings: RemoteControlSettings(
                 environment: .testing,
-                defaults: UserDefaults(suiteName: "baton.sink.tests.\(UUID().uuidString)")!,
+                defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.sink.tests"))!,
                 secrets: InMemorySecretStore()
             )
         )

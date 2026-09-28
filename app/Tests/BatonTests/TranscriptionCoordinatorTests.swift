@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -12,7 +13,7 @@ final class TranscriptionCoordinatorTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        SpeechConfig.defaults = UserDefaults(suiteName: "coordinator-\(UUID().uuidString)")!
+        SpeechConfig.defaults = UserDefaults(suiteName: ThrowawayDefaults.name("coordinator"))!
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("baton-coordinator-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

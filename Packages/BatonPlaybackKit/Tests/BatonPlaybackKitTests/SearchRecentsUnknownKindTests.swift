@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -43,7 +44,7 @@ final class SearchRecentsUnknownKindTests: XCTestCase {
 
     /// The store itself, not just the decoder: this is the path that then persists.
     func testReloadKeepsTheEntriesItCanRead() throws {
-        let suite = "baton.searchrecents.tests.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("baton.searchrecents.tests")
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(try storedList(), forKey: SearchRecents.storageKey)

@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 import BatonDSP
 @testable import BatonPlaybackKit
@@ -11,7 +12,7 @@ import BatonDSP
 @MainActor
 final class AudioLevelMonitorTests: XCTestCase {
     private func makeMonitor() -> AudioLevelMonitor {
-        AudioLevelMonitor(defaults: UserDefaults(suiteName: "baton.levels.\(UUID().uuidString)")!)
+        AudioLevelMonitor(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.levels"))!)
     }
 
     func testItIsOnByDefault() {
@@ -19,7 +20,7 @@ final class AudioLevelMonitorTests: XCTestCase {
     }
 
     func testDisablingIsRemembered() {
-        let defaults = UserDefaults(suiteName: "baton.levels.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("baton.levels"))!
         let monitor = AudioLevelMonitor(defaults: defaults)
         monitor.isEnabled = false
         XCTAssertFalse(AudioLevelMonitor(defaults: defaults).isEnabled)

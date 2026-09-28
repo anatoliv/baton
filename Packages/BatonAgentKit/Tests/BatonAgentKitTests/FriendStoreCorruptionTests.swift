@@ -29,9 +29,9 @@ final class FriendStoreCorruptionTests: XCTestCase {
     }
 
     private func suite() -> UserDefaults {
-        let name = "io.tonebox.tests.friendcorrupt.\(UUID().uuidString)"
+        let (name, defaults) = ThrowawayDefaults.suite("friendcorrupt")
         suiteNames.append(name)
-        return UserDefaults(suiteName: name)!
+        return defaults
     }
 
     private var memoryURL: URL { directory.appendingPathComponent("remote-memory.json") }

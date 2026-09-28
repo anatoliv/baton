@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonMobile
 
@@ -20,7 +21,7 @@ final class GatewayDeviceLinkTests: XCTestCase {
         super.setUp()
         // An isolated suite, so configuring a stub gateway is not a side effect on the
         // app's own agent settings.
-        suiteName = "baton.devicelink.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.devicelink.tests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

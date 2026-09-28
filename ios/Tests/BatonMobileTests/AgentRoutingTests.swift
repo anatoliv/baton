@@ -14,7 +14,7 @@ final class AgentRoutingTests: XCTestCase {
         super.setUp()
         // An isolated suite: these used to run against `UserDefaults.standard` and
         // wrote the app's own agent settings as a side effect.
-        suiteName = "baton.agentrouting.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.agentrouting.tests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

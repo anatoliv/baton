@@ -1,6 +1,7 @@
 import AppKit
 @testable import BatonAgentKit
 import SwiftUI
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -27,7 +28,7 @@ final class RemoteControlScopeTests: XCTestCase {
             tools: MCPToolSurface(music: music, focus: BatonAudioFocusRegistry()),
             settings: RemoteControlSettings(
                 environment: .testing,
-                defaults: UserDefaults(suiteName: "baton.remote.scope.tests.\(UUID().uuidString)")!,
+                defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.remote.scope.tests"))!,
                 secrets: InMemorySecretStore()
             )
         )
@@ -59,7 +60,7 @@ final class RemoteControlScopeTests: XCTestCase {
     /// The real Settings root, on the Remote pane, renders the form rather than the fallback
     /// sentence a user was actually seeing.
     func testSettingsRemotePaneRendersTheFormRatherThanTheFallback() throws {
-        let defaults = UserDefaults(suiteName: "baton.remote.pane.tests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("baton.remote.pane.tests"))!
         defaults.set(BatonSettingsCategory.remote.rawValue, forKey: BatonSettingsView.selectionKey)
         let host = RemoteControlHost()
         let music = MusicModel(environment: .testing)

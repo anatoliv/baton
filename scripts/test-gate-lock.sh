@@ -12,7 +12,7 @@
 # unrelated test, so the diagnosis cost an afternoon and landed on innocent code.
 #
 # The guard in scripts/test.sh refuses the second run and names the holder. This proves it
-# does, and proves the harder half: that the pidfile a killed gate leaves behind does not
+# does, and proves the harder half: that metadata a killed gate leaves behind does not
 # block every later run. A lock that survives a `pkill` and wedges the machine would be
 # worse than the bug.
 #
@@ -35,7 +35,15 @@ bad() { FAIL=$((FAIL+1)); printf '\033[31mFAIL  %s\033[0m\n' "$1"; }
 WORK="$(mktemp -d)"
 LOCK="$WORK/gate.lock"
 HOLDER=""
-cleanup() { [ -n "$HOLDER" ] && kill -9 "$HOLDER" 2>/dev/null; rm -rf "$WORK"; }
+LAUNCHER=""
+RACER_A=""; RACER_B=""
+cleanup() {
+  [ -z "$HOLDER" ] || kill -9 "$HOLDER" 2>/dev/null
+  [ -z "$LAUNCHER" ] || kill -9 "$LAUNCHER" 2>/dev/null
+  [ -z "$RACER_A" ] || kill -9 "$RACER_A" 2>/dev/null
+  [ -z "$RACER_B" ] || kill -9 "$RACER_B" 2>/dev/null
+  rm -rf "$WORK"
+}
 trap cleanup EXIT INT TERM
 
 # Record any release-side process scan. While another owner holds the lock, publish.sh
@@ -62,11 +70,14 @@ contend_release() {   # prints the refusal, returns its status
 start_holder() {   # $1 = seconds to hold
   BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-holder" \
     BATON_GATE_LOCK_PROBE="$1" "$GATE" >"$WORK/holder.out" 2>&1 &
-  HOLDER=$!
+  LAUNCHER=$!
   # Wait for the lock to appear rather than sleeping a guessed interval.
   local _
   for _ in $(seq 1 100); do
-    [ -s "$LOCK" ] && return 0
+    if [ -s "$LOCK" ]; then
+      HOLDER="$(sed -n '1p' "$LOCK")"
+      [ -n "$HOLDER" ] && return 0
+    fi
     sleep 0.05
   done
   return 1
@@ -75,10 +86,13 @@ start_holder() {   # $1 = seconds to hold
 start_release_holder() {   # $1 = seconds to hold
   BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-release-holder" \
     ALLOW_PRIMARY_CHECKOUT=1 BATON_GATE_LOCK_PROBE="$1" "$RELEASE" >"$WORK/holder.out" 2>&1 &
-  HOLDER=$!
+  LAUNCHER=$!
   local _
   for _ in $(seq 1 100); do
-    [ -s "$LOCK" ] && return 0
+    if [ -s "$LOCK" ]; then
+      HOLDER="$(sed -n '1p' "$LOCK")"
+      [ -n "$HOLDER" ] && return 0
+    fi
     sleep 0.05
   done
   return 1
@@ -150,19 +164,20 @@ fi
 # no trap runs and the pidfile is left exactly as a `pkill` leaves it.
 
 kill -9 "$HOLDER" 2>/dev/null
-wait "$HOLDER" 2>/dev/null
+wait "$LAUNCHER" 2>/dev/null
 HOLDER=""
+LAUNCHER=""
 
 if [ ! -s "$LOCK" ]; then
-  bad "the killed gate's pidfile is gone, so the stale case is not being tested"
+  bad "the killed gate left no metadata, so the stale case is not being tested"
 else
   out="$(contend)"; rc=$?
   if [ "$rc" != 0 ]; then
-    bad "a stale pidfile from a killed gate blocked the next run. Got: $out"
+    bad "stale metadata from a killed gate blocked the next run. Got: $out"
   elif ! printf '%s' "$out" | grep -q "clearing a stale gate lock"; then
     bad "the stale gate lock was cleared without saying so. Got: $out"
   else
-    ok "a pidfile left by a SIGKILLed gate is cleared, and the next gate proceeds"
+    ok "metadata left by a SIGKILLed gate is cleared, and the next gate proceeds"
   fi
 fi
 
@@ -189,75 +204,153 @@ fi
 # Kill the release holder without running its trap. The stale path below must recover
 # from this exact operational case too, not only from a killed ad-hoc gate.
 kill -9 "$HOLDER" 2>/dev/null
-wait "$HOLDER" 2>/dev/null
+wait "$LAUNCHER" 2>/dev/null
 HOLDER=""
+LAUNCHER=""
 
 if [ ! -s "$LOCK" ]; then
-  bad "the killed release's pidfile is gone, so the stale case is not being tested"
+  bad "the killed release left no metadata, so the stale case is not being tested"
 else
   out="$(contend)"; rc=$?
   if [ "$rc" != 0 ]; then
-    bad "a stale pidfile from a killed release blocked the next run. Got: $out"
+    bad "stale metadata from a killed release blocked the next run. Got: $out"
   elif ! printf '%s' "$out" | grep -q "clearing a stale gate lock"; then
     bad "the stale lock was cleared without saying so. Got: $out"
   else
-    ok "a pidfile left by a SIGKILLed release is cleared, and the next gate proceeds"
+    ok "metadata left by a SIGKILLed release is cleared, and the next gate proceeds"
   fi
 fi
 
-# --- 6. A release's child gate inherits instead of deadlocking --------------------------
+# --- 6. Two stale reclaimers cannot delete each other's successor lock -----------------
+
+rm -f "$LOCK" "$WORK"/reclaim.ready.* "$WORK/reclaim.go"
+printf '%s\n%s\n%s\n%s\n%s\n' \
+  "999999" "Mon Jan  1 00:00:00 2001" "/tmp/old-gate" "/tmp/baton-dd" "gate" >"$LOCK"
+BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-racer-a" \
+  BATON_GATE_LOCK_TEST_BARRIER="$WORK/reclaim" BATON_GATE_LOCK_PROBE=3 \
+  "$GATE" >"$WORK/racer-a.out" 2>&1 &
+RACER_A=$!
+BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-racer-b" \
+  BATON_GATE_LOCK_TEST_BARRIER="$WORK/reclaim" BATON_GATE_LOCK_PROBE=3 \
+  "$GATE" >"$WORK/racer-b.out" 2>&1 &
+RACER_B=$!
+
+ready=0
+for _ in $(seq 1 200); do
+  ready="$(find "$WORK" -maxdepth 1 -name 'reclaim.ready.*' | wc -l | tr -d ' ')"
+  [ "$ready" = 2 ] && break
+  sleep 0.01
+done
+if [ "$ready" != 2 ]; then
+  bad "the two stale reclaimers did not reach the deterministic barrier"
+  : >"$WORK/reclaim.go"
+else
+  : >"$WORK/reclaim.go"
+  winner_pid=""
+  for _ in $(seq 1 200); do
+    candidate="$(sed -n '1p' "$LOCK" 2>/dev/null || true)"
+    if [ -n "$candidate" ] && [ "$candidate" != 999999 ] \
+       && kill -0 "$candidate" 2>/dev/null; then
+      winner_pid="$candidate"
+      break
+    fi
+    sleep 0.01
+  done
+  for _ in $(seq 1 200); do
+    if grep -q "GATE LOCK: acquired by $winner_pid" "$WORK/racer-a.out" 2>/dev/null \
+       || grep -q "GATE LOCK: acquired by $winner_pid" "$WORK/racer-b.out" 2>/dev/null; then
+      break
+    fi
+    sleep 0.01
+  done
+  if grep -q "GATE LOCK: acquired by $winner_pid" "$WORK/racer-a.out" 2>/dev/null; then
+    loser_out="$WORK/racer-b.out"
+  else
+    loser_out="$WORK/racer-a.out"
+  fi
+  for _ in $(seq 1 200); do
+    grep -q "another Baton gate is running" "$loser_out" 2>/dev/null && break
+    sleep 0.01
+  done
+  if [ -z "$winner_pid" ]; then
+    bad "neither stale reclaimer established itself as the one owner"
+  elif ! kill -0 "$winner_pid" 2>/dev/null; then
+    bad "the losing stale reclaimer removed or disrupted the winner"
+  elif [ "$(sed -n '1p' "$LOCK" 2>/dev/null)" != "$winner_pid" ]; then
+    bad "the lock no longer names the stale-reclamation winner"
+  elif ! grep -q "pid $winner_pid" "$loser_out" 2>/dev/null; then
+    bad "the losing stale reclaimer did not name and refuse the new live owner"
+  else
+    ok "two simultaneous stale reclaimers produce one live owner and one named refusal"
+  fi
+fi
+
+wait "$RACER_A" 2>/dev/null; racer_a_rc=$?
+wait "$RACER_B" 2>/dev/null; racer_b_rc=$?
+RACER_A=""; RACER_B=""
+if { [ "$racer_a_rc" = 0 ] && [ "$racer_b_rc" != 0 ]; } \
+   || { [ "$racer_a_rc" != 0 ] && [ "$racer_b_rc" = 0 ]; }; then
+  ok "exactly one simultaneous stale reclaimer acquires the kernel lock"
+else
+  bad "expected one stale reclaimer to pass and one to refuse, got $racer_a_rc and $racer_b_rc"
+fi
+
+# --- 7. A release's child gate inherits instead of deadlocking --------------------------
 
 rm -f "$LOCK"
 out="$(BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-nested" \
-  bash -c '
-    set -euo pipefail
-    cd "$1"
-    red() { printf "%s\n" "$*" >&2; }
-    yellow() { printf "%s\n" "$*"; }
-    . scripts/gate-lock.sh
-    gate_lock_acquire release "$2"
-    trap gate_lock_release EXIT INT TERM
-    BATON_GATE_LOCK_PROBE=0 BATON_DERIVED_DATA="$2" scripts/test.sh
-    [ "$(sed -n "1p" "$GATE_LOCK")" = "$$" ]
-  ' bash "$ROOT" "$WORK/dd-nested" 2>&1)"; rc=$?
+  ALLOW_PRIMARY_CHECKOUT=1 BATON_GATE_LOCK_CHILD_PROBE=1 "$RELEASE" 2>&1)"; rc=$?
 if [ "$rc" != 0 ]; then
-  bad "a release deadlocked against its own child gate, or the child released its lock. Got: $out"
+  bad "a release deadlocked against its own child gate. Got: $out"
 elif ! printf '%s' "$out" | grep -q "inherited from release parent"; then
   bad "the child gate passed without proving it inherited the release lock. Got: $out"
 else
   ok "a release's child gate inherits the lock and leaves the parent owning it"
 fi
 
-# --- 7. A clean release exit removes its lock -------------------------------------------
+# --- 8. A clean release exit clears its lock record -------------------------------------
 
 rm -f "$LOCK"
 out="$(BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-release-exit" \
   ALLOW_PRIMARY_CHECKOUT=1 BATON_GATE_LOCK_PROBE=0 "$RELEASE" 2>&1)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "a release lock probe could not complete. Got: $out"
-elif [ -e "$LOCK" ]; then
-  bad "publish.sh left its lock behind after a normal exit"
+elif [ -s "$LOCK" ]; then
+  bad "publish.sh left live-looking lock metadata behind after a normal exit"
 else
-  ok "a normal release exit removes its lock"
+  ok "a normal release exit clears its lock record and releases the kernel lock"
 fi
 
-# --- 8. A recycled pid is not mistaken for a live holder --------------------------------
+# --- 9. A live legacy pidfile is honored during migration -------------------------------
+
+printf '%s\n%s\n%s\n%s\n' \
+  "$$" "$(ps -o lstart= -p $$ 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')" \
+  "/tmp/legacy-gate" "/tmp/baton-dd" >"$LOCK"
+out="$(contend)"; rc=$?
+if [ "$rc" = 0 ]; then
+  bad "the kernel-lock migration ignored a live gate using the old pidfile guard"
+elif ! printf '%s' "$out" | grep -q "pid $$"; then
+  bad "the migration refusal did not name the live legacy holder. Got: $out"
+else
+  ok "a live gate using the old pidfile guard is still refused during migration"
+fi
+
+# --- 10. A recycled pid in stale metadata cannot wedge the kernel lock ------------------
 #
-# A pidfile holding a pid that has come round again is the way a liveness check on the pid
-# alone would wedge the machine for good. The start time is what separates them, so this
-# plants THIS shell's own pid with somebody else's start time: alive, and not the holder.
+# This plants THIS shell's live pid with somebody else's start time. The metadata lies,
+# but the kernel lock is free, so the next gate must acquire without caring about pid reuse.
 
 printf '%s\n%s\n%s\n%s\n' "$$" "Mon Jan  1 00:00:00 2001" "/tmp/some-old-gate" "/tmp/baton-dd" >"$LOCK"
 out="$(contend)"; rc=$?
 if [ "$rc" != 0 ]; then
-  bad "a recycled pid was treated as a live gate, which wedges every later run. Got: $out"
+  bad "a recycled pid in stale metadata wedged the free kernel lock. Got: $out"
 elif ! printf '%s' "$out" | grep -q "clearing a stale gate lock"; then
   bad "the recycled-pid lock was cleared without saying so. Got: $out"
 else
-  ok "a live pid with the wrong start time is debris, not a holder"
+  ok "a live recycled pid in metadata cannot impersonate a kernel lock owner"
 fi
 
-# --- 9. An empty or truncated lockfile is debris ----------------------------------------
+# --- 11. An empty or truncated lockfile is harmless -------------------------------------
 
 : >"$LOCK"
 out="$(contend)"; rc=$?
@@ -267,7 +360,7 @@ else
   ok "an empty lockfile does not block a run"
 fi
 
-# --- 10. Wiring: both entry points lock before anything dangerous -----------------------
+# --- 12. Wiring: both entry points lock before anything dangerous -----------------------
 #
 # The guard is only worth anything if it comes before the build. If it drifts below
 # xcodegen or the lints, a refused run starts costing minutes.

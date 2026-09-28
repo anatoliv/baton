@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -35,7 +36,7 @@ final class PreferenceSyncDeletionTests: XCTestCase {
 
     /// One device, with its own settings store and its own session pointed at the fake gateway.
     private func device(_ name: String) -> (sync: PreferenceSync, defaults: UserDefaults) {
-        let suite = "baton.prefsync.deletion.\(name).\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("baton.prefsync.deletion.\(name)")
         suites.append(suite)
         let defaults = UserDefaults(suiteName: suite)!
         let configuration = URLSessionConfiguration.ephemeral

@@ -257,7 +257,7 @@ final class EngineLiveNavidromeTests: XCTestCase {
         let harness = try EngineRenderHarness(sampleRate: 44_100)
         defer { harness.shutdown() }
 
-        let monitor = AudioLevelMonitor(defaults: UserDefaults(suiteName: "baton.live.bars.\(UUID().uuidString)")!)
+        let monitor = AudioLevelMonitor(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.live.bars"))!)
         harness.controller.startMetering(into: monitor.snapshot)
         monitor.retain()
 

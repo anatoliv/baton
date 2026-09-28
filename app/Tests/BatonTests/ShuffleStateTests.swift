@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 import BatonPlaybackKit
@@ -13,7 +14,7 @@ import BatonSubsonicModels
 @MainActor
 final class ShuffleStateTests: XCTestCase {
     private func controller() -> StreamingPlaybackController {
-        StreamingPlaybackController(defaults: UserDefaults(suiteName: "shuffle.\(UUID().uuidString)")!)
+        StreamingPlaybackController(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("shuffle"))!)
     }
 
     private func songs(_ n: Int) -> [NavidromeSong] {
@@ -46,7 +47,7 @@ final class ShuffleStateTests: XCTestCase {
     }
 
     func testShuffleSurvivesRelaunch() {
-        let suite = "shuffle.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("shuffle")
         let defaults = UserDefaults(suiteName: suite)!
         let player = StreamingPlaybackController(defaults: defaults)
         player.toggleShuffle()

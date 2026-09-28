@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonMobile
 
@@ -19,7 +20,7 @@ final class WhatsNewGateTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.whatsnew.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.whatsnew.tests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

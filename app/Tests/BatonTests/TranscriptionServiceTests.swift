@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -7,7 +8,7 @@ import XCTest
 final class TranscriptionServiceTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        SpeechConfig.defaults = UserDefaults(suiteName: "transcribe-\(UUID().uuidString)")!
+        SpeechConfig.defaults = UserDefaults(suiteName: ThrowawayDefaults.name("transcribe"))!
         SpeechConfig.whisperBaseURL = "https://asr.example.com"
     }
 

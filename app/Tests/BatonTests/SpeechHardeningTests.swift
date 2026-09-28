@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -5,7 +6,7 @@ import XCTest
 @MainActor
 final class SpeechHardeningTests: XCTestCase {
     override func setUp() {
-        SpeechConfig.defaults = UserDefaults(suiteName: "speech-test-\(UUID().uuidString)")!
+        SpeechConfig.defaults = UserDefaults(suiteName: ThrowawayDefaults.name("speech-test"))!
     }
     override func tearDown() { SpeechConfig.defaults = .standard }
 

@@ -13,7 +13,7 @@ final class NavidromeConfigRecoveryTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "io.tonebox.baton.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("io.tonebox.baton.tests")
         defaults = UserDefaults(suiteName: suiteName)!
         realDefaults = NavidromeConfig.defaults
         NavidromeConfig.defaults = defaults

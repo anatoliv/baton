@@ -76,8 +76,7 @@ final class PodcastCapabilityTests: XCTestCase {
     // MARK: - Helpers
 
     private func makeDefaults() throws -> UserDefaults {
-        let suite = "io.tonebox.tests.podcast.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let (suite, defaults) = ThrowawayDefaults.suite("podcast")
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         return defaults
     }

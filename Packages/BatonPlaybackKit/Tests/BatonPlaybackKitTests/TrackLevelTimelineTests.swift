@@ -1,5 +1,6 @@
 #if !os(watchOS)
 import AVFoundation
+import BatonSubsonicKit
 import XCTest
 import BatonDSP
 @testable import BatonPlaybackKit
@@ -116,7 +117,7 @@ final class TrackLevelTimelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         await TrackLevelTimeline.analyzeLocal(id: "fb", url: url)
 
-        let monitor = AudioLevelMonitor(defaults: UserDefaults(suiteName: "baton.fb.\(UUID().uuidString)")!)
+        let monitor = AudioLevelMonitor(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.fb"))!)
         monitor.playheadProvider = { ("fb", 0.3, true) }
         monitor.retain()
 

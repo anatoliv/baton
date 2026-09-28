@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -7,7 +8,7 @@ import XCTest
 final class MusicPersonalizationTests: XCTestCase {
 
     private func isolatedHistory() -> MusicPlayHistory {
-        let suite = UserDefaults(suiteName: "personalization-test-\(UUID().uuidString)")!
+        let suite = UserDefaults(suiteName: ThrowawayDefaults.name("personalization-test"))!
         // Inject a unique directory too: the archive persists to an on-disk JSONL, so
         // sharing the default file would let other tests' plays leak in and skew the profile.
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("perso-\(UUID())", isDirectory: true)
@@ -53,7 +54,7 @@ final class MusicPersonalizationTests: XCTestCase {
 
     func testApplyWritesToPlayer() {
         let model = MusicModel()
-        let suite = UserDefaults(suiteName: "personalization-apply-\(UUID().uuidString)")!
+        let suite = UserDefaults(suiteName: ThrowawayDefaults.name("personalization-apply"))!
         let rec = MusicPersonalization.Recommendation(
             gaplessEnabled: true, crossfadeSeconds: 0, autoplayEnabled: false, rationale: "test")
         MusicPersonalization.apply(rec, to: model, defaults: suite)
@@ -65,7 +66,7 @@ final class MusicPersonalizationTests: XCTestCase {
 
     func testFirstRunSetsFlagAndIsIdempotent() {
         let model = MusicModel()
-        let suite = UserDefaults(suiteName: "personalization-firstrun-\(UUID().uuidString)")!
+        let suite = UserDefaults(suiteName: ThrowawayDefaults.name("personalization-firstrun"))!
         // Seed enough history on the model, then run first-run personalization.
         for i in 0 ..< 25 { model.musicHistory.record(song("\(i)", album: "One Album")) }
         MusicPersonalization.applyFirstRunIfNeeded(model, defaults: suite)

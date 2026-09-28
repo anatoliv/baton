@@ -57,13 +57,13 @@ final class QueueHandoffTests: XCTestCase {
     /// A throwaway suite per handoff. Declining writes the answered digest, and a test that
     /// fell through to `BatonStorage.defaults` would write it into the owner's real domain.
     private func makeDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "handoff.answered.\(UUID().uuidString)")!
+        UserDefaults(suiteName: ThrowawayDefaults.name("handoff.answered"))!
     }
 
     private func makeController() -> StreamingPlaybackController {
         StreamingPlaybackController(
             streamURLProvider: { URL(string: "file:///dev/null?id=\($0)")! },
-            defaults: UserDefaults(suiteName: "handoff.\(UUID().uuidString)")!,
+            defaults: UserDefaults(suiteName: ThrowawayDefaults.name("handoff"))!,
             systemNowPlaying: false
         )
     }

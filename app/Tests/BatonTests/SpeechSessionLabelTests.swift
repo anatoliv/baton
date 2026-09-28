@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -142,7 +143,7 @@ struct SpeechSessionLabelTests {
 
     @Test("The spoken summary records which session said it")
     func historyKeepsTheLabel() {
-        let defaults = UserDefaults(suiteName: "baton.tests.speechlabels.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("baton.tests.speechlabels"))!
         let store = SpeechHistoryStore(defaults: defaults)
         _ = store.record(
             text: "Env labels shipped.",

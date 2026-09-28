@@ -20,7 +20,7 @@ final class FriendVerificationObservableTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.agentconfig.observable.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.agentconfig.observable")
         defaults = UserDefaults(suiteName: suiteName)
         secrets = InMemorySecretStore()
     }

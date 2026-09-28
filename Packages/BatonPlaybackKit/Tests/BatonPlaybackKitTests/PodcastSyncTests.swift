@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -11,7 +12,7 @@ import XCTest
 @MainActor
 final class PodcastSyncTests: XCTestCase {
     private func makeDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "baton.podcastsync.\(UUID().uuidString)")!
+        UserDefaults(suiteName: ThrowawayDefaults.name("baton.podcastsync"))!
     }
 
     func testTheFeedListIsCarriedByOngoingSync() {

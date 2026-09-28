@@ -19,7 +19,7 @@ final class MCPServerE2ETests: XCTestCase {
         // Isolated preferences: with the owner's Baton live on 8787 this server moves to the
         // next free port and persists it, and that must land in a throwaway suite, not in the
         // real preferences domain. The notifier is a no-op for the same reason.
-        suiteName = "MCPServerE2ETests-\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("MCPServerE2ETests")
         server = BatonMCPServer(music: model, discoveryDirectory: tempDir,
                                 defaults: UserDefaults(suiteName: suiteName)!, portNotifier: { _ in })
         server.start()

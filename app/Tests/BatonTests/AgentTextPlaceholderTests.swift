@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 @testable import BatonAgentKit
@@ -23,7 +24,7 @@ final class AgentTextPlaceholderTests: XCTestCase {
     private func makeRouter(playing song: NavidromeSong) -> (RemoteCommandRouter, MusicModel) {
         let settings = RemoteControlSettings(
             environment: .testing,
-            defaults: UserDefaults(suiteName: "baton.agenttext.tests.\(UUID().uuidString)")!,
+            defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.agenttext.tests"))!,
             secrets: InMemorySecretStore()
         )
         let music = MusicModel(environment: .testing)

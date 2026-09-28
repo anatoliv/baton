@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -19,7 +20,7 @@ final class DuckRampTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suite = UserDefaults(suiteName: "duck-ramp-\(UUID().uuidString)")!
+        suite = UserDefaults(suiteName: ThrowawayDefaults.name("duck-ramp"))!
     }
 
     private func makeController() -> StreamingPlaybackController {

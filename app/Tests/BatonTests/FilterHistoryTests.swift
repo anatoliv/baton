@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -6,7 +7,7 @@ import XCTest
 final class FilterHistoryTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        FilterHistory.defaults = UserDefaults(suiteName: "filterhist-\(UUID().uuidString)")!
+        FilterHistory.defaults = UserDefaults(suiteName: ThrowawayDefaults.name("filterhist"))!
     }
     override func tearDown() {
         FilterHistory.defaults = .standard

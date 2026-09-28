@@ -1004,6 +1004,12 @@ public final class EnginePlaybackController {
         // here was indistinguishable from one whose failure never arrived — which is exactly
         // the question that matters, because `.error` is what the host listens for.
         engineLog.error("engine: giving up on this track (\(message, privacy: .public)), reporting .error to the host")
+        // Nothing will read this track's stream again: the host's answer to `.error` is a
+        // fresh load. Leaving the source up kept its download running to the end of the
+        // file, a whole 128 MB one after the live seek test, in the gate run where every
+        // streaming test that followed started slowly (TBX-7506, TBX-7480).
+        teardownDeck(activeDeck)
+        teardownDeck(otherDeck)
         state = .error(message)
         // The ladder ends here, at `.error`, which the bridge surfaces to the host through
         // `onFailure`. There used to be a tail below this that waited 1.5 s and called

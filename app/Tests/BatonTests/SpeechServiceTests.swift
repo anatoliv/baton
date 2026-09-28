@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 import BatonSpeech
 @testable import Baton
@@ -7,7 +8,7 @@ import BatonSpeech
 final class SpeechServiceTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        SpeechConfig.defaults = UserDefaults(suiteName: "speech-svc-\(UUID().uuidString)")!
+        SpeechConfig.defaults = UserDefaults(suiteName: ThrowawayDefaults.name("speech-svc"))!
         SpeechConfig.kokoroBaseURL = "https://tts.example.com"
     }
 

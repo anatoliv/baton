@@ -16,7 +16,7 @@ final class FriendConfigMigrationTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.friendconfig.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.friendconfig")
         defaults = UserDefaults(suiteName: suiteName)
         secrets = InMemorySecretStore()
     }

@@ -27,7 +27,7 @@ final class MCPPortSurfacingTests: XCTestCase {
         NavidromeKeychain.inMemoryStore = [:]
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("mcp-port-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        suiteName = "MCPPortSurfacingTests-\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("MCPPortSurfacingTests")
         defaults = UserDefaults(suiteName: suiteName)
         model = MusicModel()
         box = NoticeBox()

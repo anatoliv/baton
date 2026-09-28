@@ -56,6 +56,13 @@ final class EngineHTTPServer: @unchecked Sendable {
         return accepted
     }
 
+    /// Connections still being served. A client that hangs up ends its connection at the
+    /// next send, so this is how a test sees whether a download was actually abandoned.
+    var openConnections: Int {
+        lock.lock(); defer { lock.unlock() }
+        return connectionFDs.count
+    }
+
     private var rangeRequests: [Int] = []
     /// The `Range` starts the client asked for, in order. What makes "did the seek re-fetch
     /// the whole prefix, or ask for the bytes it wanted?" answerable rather than inferred.
@@ -254,7 +261,8 @@ final class EngineHTTPServer: @unchecked Sendable {
         while offset < data.count, !isStopped {
             let end = min(offset + slice, data.count)
             let sent = end - offset
-            sendAll(fd, Data(data[data.startIndex + offset ..< data.startIndex + end]))
+            // The client hung up: stop, rather than sleep through the rest of the payload.
+            guard sendAll(fd, Data(data[data.startIndex + offset ..< data.startIndex + end])) else { return }
             offset = end
             if bytesPerSecond > 0 {
                 Thread.sleep(forTimeInterval: Double(sent) / Double(bytesPerSecond))
@@ -266,14 +274,16 @@ final class EngineHTTPServer: @unchecked Sendable {
         sendAll(fd, Data(string.utf8))
     }
 
-    private func sendAll(_ fd: Int32, _ data: Data) {
+    @discardableResult
+    private func sendAll(_ fd: Int32, _ data: Data) -> Bool {
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             var sent = 0
             while sent < raw.count {
                 let n = Darwin.send(fd, raw.baseAddress! + sent, raw.count - sent, 0)
-                guard n > 0 else { return }
+                guard n > 0 else { return false }
                 sent += n
             }
+            return true
         }
     }
 }

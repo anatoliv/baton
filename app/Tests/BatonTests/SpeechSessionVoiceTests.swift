@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -18,7 +19,7 @@ struct SpeechSessionVoiceTests {
 
     @discardableResult
     private func isolatedDefaults() -> UserDefaults {
-        let d = UserDefaults(suiteName: "baton.tests.voices.\(UUID().uuidString)")!
+        let d = UserDefaults(suiteName: ThrowawayDefaults.name("baton.tests.voices"))!
         SpeechConfig.defaults = d
         return d
     }

@@ -5,7 +5,8 @@
 # WHY THIS EXISTS. Both defects had the same shape as the ones in testflight.sh: a
 # protection that stopped protecting without the log looking any different.
 #
-#   D-F8  The notarize wall clock was armed by
+#   D-F8  (Since TBX-7519 the clock is the release kit's rk_notarize; below proves wiring.)
+#         The notarize wall clock was armed by
 #             command -v timeout >/dev/null || timeout() { shift; "$@"; }   # run bare
 #         `timeout` is not a macOS builtin; it comes from Homebrew's coreutils. On a Mac
 #         without it the shim ate the `900` and ran `xcrun notarytool submit` unbounded,
@@ -210,23 +211,25 @@ else
   ok "TBX-5483/TBX-5498 preparation removes stale optional artifact credentials"
 fi
 
-if grep -qF 'does not push the tag' "$SUBJECT" && \
+# Since the release kit (TBX-7519) the tag is pushed, on the build commit, by
+# rk_tag_release; the release metadata (cask, site) still stays local for the mirror step.
+if grep -qE '^  RK_RETAG=1 rk_tag_release "\$VERSION" "\$MACREL_COMMIT"' "$SUBJECT" && \
+   grep -qF 'push the tag' "$SUBJECT" && \
    grep -qF 'does not commit or push them' "$SUBJECT"; then
-  ok "TBX-5386 publish.sh states plainly that its tag and metadata changes remain local"
+  ok "TBX-5386 publish.sh states plainly that it pushes the tag and leaves release metadata local"
 else
   bad "TBX-5386: publish.sh is ambiguous about whether it pushes the tag and release metadata"
 fi
 
 # --- the real blocks, by anchor ---------------------------------------------------------
 
-TIMEOUT_BLOCK="$(awk '/^if command -v timeout >\/dev\/null; then$/,/^fi$/' "$SUBJECT")"
 NOTARIZE_FN="$(awk '/^notarize\(\) \{$/,/^\}$/' "$SUBJECT")"
 SPCTL_BLOCK="$(awk '/^  if ! spctl -a -t open /,/^  fi$/' "$SUBJECT")"
 DETACH_FN="$(awk '/^detach_image\(\) \{$/,/^\}$/' "$SUBJECT")"
 DETACH_FAIL_FN="$(awk '/^detach_failed_after_staple\(\) \{$/,/^\}$/' "$SUBJECT")"
 RESUME_FN="$(awk '/^resume_assert_stapled_dmg\(\) \{$/,/^\}$/' "$SUBJECT")"
 
-for name in TIMEOUT_BLOCK NOTARIZE_FN SPCTL_BLOCK DETACH_FN DETACH_FAIL_FN RESUME_FN; do
+for name in NOTARIZE_FN SPCTL_BLOCK DETACH_FN DETACH_FAIL_FN RESUME_FN; do
   eval "body=\$$name"
   if [ -z "$body" ]; then
     bad "$name: anchor not found in publish.sh; the script was restructured"
@@ -250,69 +253,31 @@ bare_path() {   # $@ = names to provide from the real PATH
   printf '%s' "$WORK/bin"
 }
 
-# --- D-F8: no coreutils, and perl is there ----------------------------------------------
+# --- D-F8: the notarize wall clock -----------------------------------------------------
 #
-# The fallback has to do the job, not merely exist. `sleep 30` stands in for a hung
-# `notarytool submit`: with a working wall clock it dies in about a second, and without one
-# this case would take thirty and then pass, which is the whole difference.
-
-{ printf '%s' "$PRELUDE"; printf '%s\n' "$TIMEOUT_BLOCK"
-  echo 'timeout 1 sleep 30; echo "rc=$?"'; } >"$WORK/t8.sh"
-
-P="$(bare_path perl)"
-start_s=$(date +%s)
-out="$(PATH="$P" bash "$WORK/t8.sh" 2>&1)"
-elapsed=$(( $(date +%s) - start_s ))
-
-if ! printf '%s' "$out" | grep -q "using perl's alarm"; then
-  bad "D-F8: no coreutils and no warning that the fallback is in use. Got: $out"
-elif printf '%s' "$out" | grep -q "rc=0"; then
-  bad "D-F8: the perl fallback let a hanging command finish, so it is not a wall clock"
-elif [ "$elapsed" -gt 5 ]; then
-  bad "D-F8: the fallback took ${elapsed}s to stop a 1-second timeout; it is not bounding anything"
+# Since TBX-7519 the clock is the release kit's rk_notarize. Its own tests (run by
+# scripts/test.sh as release-kit/check, on these vendored bytes) prove what this section
+# used to prove about the local shim, and more strictly: a timeout that does not interrupt
+# is refused, no clock at all refuses and submits nothing (the old perl-alarm fallback and
+# the loud unbounded run are both gone), attempts are bounded and reaped, and no pkill.
+# What is left to prove here is the wiring.
+if printf '%s' "$NOTARIZE_FN" | grep -q 'rk_notarize "\$file" "\$NOTARY_PROFILE"'; then
+  ok "D-F8 wiring: notarize() submits through the kit's bounded rk_notarize"
 else
-  ok "D-F8 without coreutils the perl alarm bounds the submit (killed in ${elapsed}s) and says so"
+  bad "D-F8 wiring: notarize() no longer goes through rk_notarize"
 fi
-
-# --- D-F8: nothing to arm it with at all -------------------------------------------------
-#
-# Running bare is then the only option left, and the point of the fix is that it stops
-# being silent about it.
-
-P="$(bare_path)"
-out="$(PATH="$P" bash "$WORK/t8.sh" 2>&1)"
-if ! printf '%s' "$out" | grep -q "NO WALL CLOCK ON NOTARIZATION"; then
-  bad "D-F8: with no timeout, gtimeout or perl the submit runs unbounded silently. Got: $out"
-elif ! printf '%s' "$out" | grep -q "notarytool history"; then
-  bad "D-F8: the warning does not say how to watch the submit by hand. Got: $out"
+if grep -qE '^\. "\$PWD/scripts/release-kit/lib/notarize\.sh"$' "$SUBJECT"; then
+  ok "D-F8 wiring: publish.sh sources the vendored kit's notarize.sh"
 else
-  ok "D-F8 with nothing to arm it, the missing wall clock is stated loudly"
+  bad "D-F8 wiring: publish.sh does not source scripts/release-kit/lib/notarize.sh"
 fi
-
-# --- D-F8: with coreutils present, nothing is shadowed -----------------------------------
-
-P="$(bare_path timeout)"
-if [ ! -e "$WORK/bin/timeout" ]; then
-  ok "D-F8 (skipped: no coreutils timeout on this machine to check the happy path with)"
+# Count rather than `grep -q`: under pipefail, grep -q exiting early can SIGPIPE the grep
+# feeding it on a file publish.sh's size, and the pipeline then reports failure for a
+# match. Threadstow's identical check passed a script that submitted directly that way.
+if [ "$(grep -vE '^[[:space:]]*#' "$SUBJECT" | grep -cE 'notarytool submit')" != 0 ]; then
+  bad "D-F8: publish.sh calls notarytool submit directly, outside the bounded rk_notarize"
 else
-  out="$(PATH="$P" bash "$WORK/t8.sh" 2>&1)"
-  if printf '%s' "$out" | grep -q "perl's alarm\|NO WALL CLOCK"; then
-    bad "D-F8: a machine that HAS coreutils took a fallback anyway. Got: $out"
-  elif printf '%s' "$out" | grep -q "rc=0"; then
-    bad "D-F8: the real timeout let a hanging command finish. Got: $out"
-  else
-    ok "D-F8 with coreutils present the real timeout is used and nothing is printed"
-  fi
-fi
-
-# --- D-F8: the notarize retry loop still passes the wall clock ---------------------------
-#
-# The shim can be perfect and unreferenced. This is the assertion that would catch the
-# `900` being dropped from the call.
-if printf '%s' "$NOTARIZE_FN" | grep -q 'timeout 900 xcrun notarytool submit'; then
-  ok "D-F8 wiring: notarize() still calls the submit through a 900-second wall clock"
-else
-  bad "D-F8 wiring: notarize() no longer wraps the submit in a wall clock"
+  ok "D-F8: publish.sh has no direct notarytool submit left to run unbounded"
 fi
 
 # --- D-F9: a failed assessment stops the release -----------------------------------------

@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -11,7 +12,7 @@ struct MusicPlayHistoryTests {
         return d
     }
     private func make(clock: @escaping () -> Date = { Date(timeIntervalSince1970: 1_000_000) }, dir: URL? = nil) -> MusicPlayHistory {
-        MusicPlayHistory(defaults: UserDefaults(suiteName: "t.\(UUID())")!, clock: clock, directory: dir ?? tempDir())
+        MusicPlayHistory(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("t"))!, clock: clock, directory: dir ?? tempDir())
     }
     private func song(_ id: String, artist: String? = nil) -> NavidromeSong {
         NavidromeSong(id: id, title: "T\(id)", artist: artist, album: nil, albumID: nil, duration: nil, coverArtID: nil)

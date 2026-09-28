@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -28,7 +29,7 @@ struct MusicEqualizerTests {
     func usesInjectedStoreNotStandard() {
         let key = MusicEqualizer.enabledKey
         let before = UserDefaults.standard.bool(forKey: key)
-        let suite = UserDefaults(suiteName: "eq-test-\(UUID().uuidString)")!
+        let suite = UserDefaults(suiteName: ThrowawayDefaults.name("eq-test"))!
         let eq = MusicEqualizer(defaults: suite)
         eq.isEnabled = true
         #expect(suite.bool(forKey: key), "the toggle must persist to the injected store")

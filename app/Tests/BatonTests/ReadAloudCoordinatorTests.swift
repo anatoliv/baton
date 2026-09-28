@@ -1,4 +1,5 @@
 import BatonSpeech
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -14,7 +15,7 @@ final class ReadAloudCoordinatorTests: XCTestCase {
     private var suite: UserDefaults!
 
     override func setUp() {
-        suite = UserDefaults(suiteName: "read-aloud-coord-\(UUID().uuidString)")!
+        suite = UserDefaults(suiteName: ThrowawayDefaults.name("read-aloud-coord"))!
         SpeechConfig.defaults = suite
         ReadAloudSettings.defaults = suite
         SpeechConfig.fallbackEnabled = false   // no native voice in tests

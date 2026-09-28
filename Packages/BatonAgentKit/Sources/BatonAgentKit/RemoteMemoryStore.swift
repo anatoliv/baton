@@ -429,7 +429,7 @@ public enum FriendLedgerStore {
         // by two call sites agreeing.
         if redirect.isActive { return BatonStorage.resolvedDefaults(for: redirect) }
         guard environment.isTesting else { return .standard }
-        return UserDefaults(suiteName: "io.tonebox.tests.friendledger.\(UUID().uuidString)") ?? .standard
+        return ThrowawayDefaults.make("friendledger")   // removed at exit
     }
 }
 

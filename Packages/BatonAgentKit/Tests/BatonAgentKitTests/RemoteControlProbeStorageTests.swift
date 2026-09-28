@@ -16,7 +16,7 @@ import XCTest
 /// `ProbeStorageTests` matches on the return type rather than on any of the spellings.
 final class RemoteControlProbeStorageTests: XCTestCase {
     @MainActor func testTheRemoteControlStoreFollowsAProbeRedirect() {
-        let suite = "io.tonebox.tests.probe.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.suite("probe").name
         defer { UserDefaults().removePersistentDomain(forName: suite) }
 
         let store = RemoteControlSettings.defaultStore(environment: .production,

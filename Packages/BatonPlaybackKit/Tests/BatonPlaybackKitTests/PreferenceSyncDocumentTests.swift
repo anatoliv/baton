@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -20,7 +21,7 @@ final class PreferenceSyncDocumentTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.prefsync.doc.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.prefsync.doc.tests")
         defaults = UserDefaults(suiteName: suiteName)
         GatewayStub.reset()
     }
@@ -164,7 +165,7 @@ final class PreferenceSyncObserverTests: XCTestCase {
     /// wakes on every `UserDefaults` change, finds nil, and does nothing. Forever, once per
     /// instance ever built. Counting the registrations is the only way to see it.
     func testTheObserverIsRemovedWhenTheSyncGoesAway() {
-        let suite = "baton.prefsync.observer.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("baton.prefsync.observer")
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
 
@@ -182,7 +183,7 @@ final class PreferenceSyncObserverTests: XCTestCase {
 
     /// Stopping explicitly must not then double-count when `deinit` runs.
     func testStoppingAndThenDeallocatingCountsOnce() {
-        let suite = "baton.prefsync.observer.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("baton.prefsync.observer")
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
 

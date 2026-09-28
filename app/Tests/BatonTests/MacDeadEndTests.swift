@@ -116,7 +116,7 @@ struct MacDeadEndTests {
 
     @Test("Connecting a server clears a playback error left over from having none")
     func connectClearsTheStaleBanner() async throws {
-        let suite = "MacDeadEnd.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("MacDeadEnd")
         let defaults = try #require(UserDefaults(suiteName: suite))
         let savedDefaults = NavidromeConfig.defaults
         NavidromeConfig.defaults = defaults
@@ -170,7 +170,7 @@ struct MacDeadEndTests {
 
     @Test("A TTS host nobody has entered reads as unconfigured, not unreachable")
     func speechHostsStartUnconfigured() throws {
-        let suite = "MacDeadEndSpeech.\(UUID().uuidString)"
+        let suite = ThrowawayDefaults.name("MacDeadEndSpeech")
         let defaults = try #require(UserDefaults(suiteName: suite))
         let saved = SpeechConfig.defaults
         SpeechConfig.defaults = defaults

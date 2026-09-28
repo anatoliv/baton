@@ -21,7 +21,7 @@ final class AgentConfigReloadTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.agentconfig.reload.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.agentconfig.reload.tests")
         defaults = UserDefaults(suiteName: suiteName)
         secrets = InMemorySecretStore()
     }

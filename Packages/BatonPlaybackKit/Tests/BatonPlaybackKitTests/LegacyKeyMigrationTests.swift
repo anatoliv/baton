@@ -1,10 +1,11 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
 /// The migration must be safe, idempotent, and must not touch what it must not touch.
 final class LegacyKeyMigrationTests: XCTestCase {
     private func store() -> UserDefaults {
-        UserDefaults(suiteName: "legacy.migration.\(UUID().uuidString)")!
+        UserDefaults(suiteName: ThrowawayDefaults.name("legacy.migration"))!
     }
 
     func testAnOldValueIsCopiedToItsNewKey() {

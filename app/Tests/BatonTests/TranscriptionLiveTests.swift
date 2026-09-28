@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -46,7 +47,7 @@ final class TranscriptionLiveTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        SpeechConfig.defaults = UserDefaults(suiteName: "asr-live-\(UUID().uuidString)")!
+        SpeechConfig.defaults = UserDefaults(suiteName: ThrowawayDefaults.name("asr-live"))!
     }
 
     override func tearDown() {

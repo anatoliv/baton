@@ -26,7 +26,7 @@ final class SilentFailureTests: XCTestCase {
     }
 
     private func suite() -> UserDefaults {
-        UserDefaults(suiteName: "io.tonebox.baton.tests.\(UUID().uuidString)")!
+        UserDefaults(suiteName: ThrowawayDefaults.name("io.tonebox.baton.tests"))!
     }
 
     private func song(_ id: String) -> NavidromeSong {

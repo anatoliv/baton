@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -329,8 +330,7 @@ final class WebhookActionsTests: XCTestCase {
     }
 
     private func freshDefaults() -> UserDefaults {
-        let suite = "io.tonebox.tests.webhook.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let (suite, defaults) = ThrowawayDefaults.suite("webhook")
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         return defaults
     }

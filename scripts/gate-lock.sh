@@ -20,9 +20,10 @@ gate_lock_holder_start() {   # $1 = pid
 
 gate_lock_release() {
   [ -n "$GATE_LOCK_HELD" ] || return 0
-  # A process that lost a stale lock race must not delete its successor's lock.
+  # Keep the inode forever. `lockf -k` relies on every contender opening the same
+  # file; unlinking it would let a new inode and a second independent lock appear.
   if [ "$(sed -n '1p' "$GATE_LOCK" 2>/dev/null)" = "$$" ]; then
-    rm -f "$GATE_LOCK"
+    : >"$GATE_LOCK"
   fi
   GATE_LOCK_HELD=""
 }
@@ -40,47 +41,96 @@ gate_lock_inherit_parent() {
   [ "$(gate_lock_holder_start "$pid")" = "$started" ] || return 1
   kind="$(sed -n '5p' "$GATE_LOCK" 2>/dev/null || true)"
   [ "$kind" = "release" ] || return 1
+  [ "${BATON_GATE_LOCK_ACTIVE_OWNER_PID:-}" = "$pid" ] || return 1
   # shellcheck disable=SC2034 # consumed by the sourcing test.sh
   GATE_LOCK_PARENT_KIND="$kind"
   return 0
 }
 
-gate_lock_acquire() {   # $1 = owner kind, $2 = derived-data path
-  local owner_kind="${1:-gate}" owner_derived="${2:-unknown}"
-  local attempt pid started cwd derived kind live
-  for attempt in 1 2 3; do
-    # noclobber makes the redirect the atomic test-and-set. Two shells cannot both
-    # believe they created the same lock, even when they start in the same instant.
-    if ( set -o noclobber; printf '%s\n%s\n%s\n%s\n%s\n' \
-           "$$" "$(gate_lock_holder_start $$)" "$PWD" "$owner_derived" "$owner_kind" \
-           >"$GATE_LOCK" ) 2>/dev/null; then
-      GATE_LOCK_HELD=1
-      return 0
-    fi
+gate_lock_refusal() {
+  local pid="" started="" cwd derived kind _
+  # The winner writes its record immediately after taking the kernel lock. Give it a
+  # bounded instant to replace stale metadata so the refusal names the actual owner.
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     pid="$(sed -n '1p' "$GATE_LOCK" 2>/dev/null || true)"
     started="$(sed -n '2p' "$GATE_LOCK" 2>/dev/null || true)"
-    cwd="$(sed -n '3p' "$GATE_LOCK" 2>/dev/null || true)"
-    derived="$(sed -n '4p' "$GATE_LOCK" 2>/dev/null || true)"
-    kind="$(sed -n '5p' "$GATE_LOCK" 2>/dev/null || true)"
-    kind="${kind:-gate}"
-    live=""
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      [ "$(gate_lock_holder_start "$pid")" = "$started" ] && live=1
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null \
+       && [ "$(gate_lock_holder_start "$pid")" = "$started" ]; then
+      break
     fi
-    if [ -z "$live" ]; then
-      yellow "  clearing a stale gate lock (attempt $attempt, pid ${pid:-?} is gone): $GATE_LOCK"
-      rm -f "$GATE_LOCK"
-      continue
-    fi
-    red "✗ another Baton $kind is running (pid $pid, started ${started:-unknown}, ${cwd:-unknown})"
-    red "  Its derived data: ${derived:-unknown}"
-    red "  Baton gates and releases app-host the same Baton.app. Starting or reaping a"
-    red "  second copy makes the other run report a runner death against an unrelated test."
-    red "  This run stopped before it could share derived data or kill that host. (TBX-5291)"
-    red "  Wait for it, or stop it, then run again. BATON_ALLOW_CONCURRENT_GATE=1 overrides."
-    return 1
+    sleep 0.01
   done
-  red "✗ could not take the gate lock at $GATE_LOCK after three attempts"
-  red "  Something is recreating it. Remove it by hand if no gate or release is running."
-  return 1
+  cwd="$(sed -n '3p' "$GATE_LOCK" 2>/dev/null || true)"
+  derived="$(sed -n '4p' "$GATE_LOCK" 2>/dev/null || true)"
+  kind="$(sed -n '5p' "$GATE_LOCK" 2>/dev/null || true)"
+  kind="${kind:-gate or release}"
+  red "✗ another Baton $kind is running (pid ${pid:-unknown}, started ${started:-unknown}, ${cwd:-unknown})"
+  red "  Its derived data: ${derived:-unknown}"
+  red "  Baton gates and releases app-host the same Baton.app. Starting or reaping a"
+  red "  second copy makes the other run report a runner death against an unrelated test."
+  red "  This run stopped before it could share derived data or kill that host. (TBX-5291)"
+  red "  Wait for it, or stop it, then run again. BATON_ALLOW_CONCURRENT_GATE=1 overrides."
+}
+
+gate_lock_acquire() {   # $1 = owner kind, $2 = derived-data path, $3 = script, rest = args
+  local owner_kind="${1:-gate}" owner_derived="${2:-unknown}"
+  local entrypoint="${3:-}" previous_pid previous_started marker state rc
+  shift 3
+
+  # lockf has acquired the kernel lock and invoked this fresh copy of the script.
+  # Its parent retains the locked descriptor, so no child command inherits it and a
+  # SIGKILL of this script makes lockf release ownership immediately.
+  if [ "${BATON_GATE_LOCK_ACTIVE:-}" = 1 ] \
+     && [ -z "${BATON_GATE_LOCK_ACTIVE_OWNER_PID:-}" ] \
+     && [ -n "${BATON_GATE_LOCK_MARKER:-}" ] \
+     && [ "$(sed -n '1p' "$BATON_GATE_LOCK_MARKER" 2>/dev/null)" = waiting ]; then
+    previous_pid="$(sed -n '1p' "$GATE_LOCK" 2>/dev/null || true)"
+    previous_started="$(sed -n '2p' "$GATE_LOCK" 2>/dev/null || true)"
+    # A gate from a checkout with the older pidfile implementation may still be
+    # running. It cannot hold this kernel lock, so honor its live metadata during
+    # the transition instead of racing it the first time the new guard runs.
+    if [ -n "$previous_pid" ] && kill -0 "$previous_pid" 2>/dev/null \
+       && [ "$(gate_lock_holder_start "$previous_pid")" = "$previous_started" ]; then
+      printf 'active\n' >"$BATON_GATE_LOCK_MARKER"
+      gate_lock_refusal
+      return 1
+    fi
+    if [ -n "$previous_pid" ] && [ "$previous_pid" != "$$" ]; then
+      yellow "  clearing a stale gate lock (recorded pid $previous_pid): $GATE_LOCK"
+    fi
+    : >"$GATE_LOCK"
+    printf '%s\n%s\n%s\n%s\n%s\n' \
+      "$$" "$(gate_lock_holder_start $$)" "$PWD" "$owner_derived" "$owner_kind" >"$GATE_LOCK"
+    printf 'active\n' >"$BATON_GATE_LOCK_MARKER"
+    BATON_GATE_LOCK_ACTIVE_OWNER_PID="$$"
+    export BATON_GATE_LOCK_ACTIVE_OWNER_PID
+    GATE_LOCK_HELD=1
+    return 0
+  fi
+
+  [ -n "$entrypoint" ] || { red "✗ gate lock has no script to run"; return 1; }
+  marker="$(mktemp -t baton-gate-lock.XXXXXX)"
+  printf 'waiting\n' >"$marker"
+
+  # Test-only barrier for the deterministic two-contender proof. Both wrappers stop
+  # here, then the harness releases them into lockf together against the same inode.
+  if [ -n "${BATON_GATE_LOCK_TEST_BARRIER:-}" ]; then
+    : >"${BATON_GATE_LOCK_TEST_BARRIER}.ready.$$"
+    while [ ! -e "${BATON_GATE_LOCK_TEST_BARRIER}.go" ]; do sleep 0.01; done
+  fi
+
+  if BATON_GATE_LOCK_ACTIVE=1 BATON_GATE_LOCK_ACTIVE_OWNER_PID='' \
+       BATON_GATE_LOCK_MARKER="$marker" \
+       /usr/bin/lockf -s -t 0 -k "$GATE_LOCK" "$entrypoint" "$@"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  state="$(sed -n '1p' "$marker" 2>/dev/null || true)"
+  rm -f "$marker"
+  if [ "$state" != active ]; then
+    gate_lock_refusal
+    exit 1
+  fi
+  exit "$rc"
 }

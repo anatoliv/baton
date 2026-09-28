@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -83,7 +84,7 @@ private func makeService(
     lb: MockDestination, fm: MockDestination, nav: MockDestination,
     source: ScrobbleService.ExternalSource = .baton
 ) -> (ScrobbleService, ScrobbleQueue) {
-    let defaults = UserDefaults(suiteName: "scrobble-test-\(UUID().uuidString)")!
+    let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("scrobble-test"))!
     let queue = ScrobbleQueue(defaults: defaults)
     let service = ScrobbleService(
         listenBrainz: lb, lastfm: fm, navidrome: nav, queue: queue, defaults: defaults,
@@ -271,7 +272,7 @@ struct ScrobbleServiceTests {
         let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm")
         // Two transient failures: the first backs off by zero, the second schedules a wait.
         let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 2)
-        let defaults = UserDefaults(suiteName: "scrobble-retry-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("scrobble-retry"))!
         let service = ScrobbleService(
             listenBrainz: lb, lastfm: fm, navidrome: nav,
             queue: ScrobbleQueue(defaults: defaults), defaults: defaults,
@@ -318,7 +319,7 @@ struct ScrobbleQueueTests {
 
     @Test("take returns oldest-first per destination; resolve removes exactly those")
     func fifoResolve() {
-        let queue = ScrobbleQueue(defaults: UserDefaults(suiteName: "q-\(UUID())")!)
+        let queue = ScrobbleQueue(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("q"))!)
         queue.enqueue(scrobble("a"), destination: "lastfm")
         queue.enqueue(scrobble("b"), destination: "listenbrainz")
         queue.enqueue(scrobble("c"), destination: "lastfm")
@@ -333,7 +334,7 @@ struct ScrobbleQueueTests {
 
     @Test("a failed item is retried in place until maxAttempts, then retired")
     func retiresAfterMaxAttempts() {
-        let queue = ScrobbleQueue(defaults: UserDefaults(suiteName: "q-\(UUID())")!)
+        let queue = ScrobbleQueue(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("q"))!)
         queue.enqueue(scrobble("a"), destination: "lastfm")
 
         for _ in 0 ..< (ScrobbleQueue.maxAttempts - 1) {
@@ -350,7 +351,7 @@ struct ScrobbleQueueTests {
 
     @Test("queued scrobbles survive a fresh queue backed by the same store")
     func persistsAcrossInstances() {
-        let defaults = UserDefaults(suiteName: "q-\(UUID())")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("q"))!
         let first = ScrobbleQueue(defaults: defaults)
         first.enqueue(scrobble("a"), destination: "lastfm")
 
@@ -360,7 +361,7 @@ struct ScrobbleQueueTests {
 
     @Test("the backlog is bounded — oldest entries drop past the cap")
     func boundedGrowth() {
-        let queue = ScrobbleQueue(defaults: UserDefaults(suiteName: "q-\(UUID())")!)
+        let queue = ScrobbleQueue(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("q"))!)
         for i in 0 ..< (ScrobbleQueue.maxEntries + 10) {
             queue.enqueue(scrobble("s\(i)"), destination: "lastfm")
         }

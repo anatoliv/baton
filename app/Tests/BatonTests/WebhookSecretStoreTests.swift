@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -16,7 +17,7 @@ final class WebhookSecretStoreTests: XCTestCase {
     }
 
     func testHeaderValueGoesToTheSecretStoreNotPlaintextDefaults() {
-        let defaults = UserDefaults(suiteName: "wh-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("wh"))!
         let secrets = InMemorySecretStore()
         let s = store(defaults, secrets)
         let a = action(headerValue: "Bearer super-secret-token")
@@ -31,7 +32,7 @@ final class WebhookSecretStoreTests: XCTestCase {
     }
 
     func testReloadReinjectsHeaderValue() {
-        let defaults = UserDefaults(suiteName: "wh-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("wh"))!
         let secrets = InMemorySecretStore()
         let a = action(headerValue: "Bearer tok")
         store(defaults, secrets).upsert(a)
@@ -42,7 +43,7 @@ final class WebhookSecretStoreTests: XCTestCase {
     }
 
     func testDeleteRemovesHeaderSecret() {
-        let defaults = UserDefaults(suiteName: "wh-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("wh"))!
         let secrets = InMemorySecretStore()
         let s = store(defaults, secrets)
         let a = action(headerValue: "v")

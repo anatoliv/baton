@@ -25,10 +25,40 @@ final class EngineTransportIntentTests: XCTestCase {
         return .init(id: id, url: server.url, duration: 30, song: song, supportsTimeOffset: false)
     }
 
-    private func waitUntilPlaying(_ engine: EnginePlaybackController, timeout: TimeInterval = 15) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+    /// Getting to `.playing` is this suite's precondition, not its claim, so the deadline is
+    /// set by how starved the test process can get rather than by how long a load takes.
+    ///
+    /// A healthy load of this local WAV lands in milliseconds and the loop exits at once, so
+    /// the long deadline costs nothing. In the gate on 2026-09-25 the first load
+    /// did not even create its download for 24 s: the hop onto the `TrackStreamSource` actor
+    /// waited on a starved cooperative pool while the main actor polled on schedule, every
+    /// streaming test after the live seek test paid 1–3 s the same way, and the engine logged
+    /// no retry at all. Fifteen seconds read that as a broken engine. A load that never lands
+    /// still fails, and the message says whether the engine was retrying (loads and
+    /// connections above what the test asked for) or never got to run.
+    private func waitUntilPlaying(_ engine: EnginePlaybackController, _ server: EngineHTTPServer,
+                                  _ step: String, timeout: TimeInterval = 60,
+                                  file: StaticString = #filePath, line: UInt = #line) async throws {
+        let started = Date()
+        let deadline = started.addingTimeInterval(timeout)
+        // The longest the main actor went between polls meant 50 ms apart. Near 50 ms with a
+        // load still pending means the main actor was free and the load was stuck elsewhere
+        // (the cooperative pool, as in TBX-7480); seconds means the main actor itself starved.
+        var lastPoll = started
+        var longestGap: TimeInterval = 0
         while engine.state != .playing {
-            guard Date() < deadline else { return XCTFail("never started playing (state: \(engine.state))") }
+            let now = Date()
+            longestGap = max(longestGap, now.timeIntervalSince(lastPoll))
+            lastPoll = now
+            guard now < deadline else {
+                return XCTFail("""
+                    \(step): never started playing after \(String(format: "%.1f", now.timeIntervalSince(started))) s \
+                    (state: \(engine.state), buffering: \(engine.isBuffering), \
+                    loads: \(engine.loadCountForTesting), retries: \(engine.sameTrackRetriesForTesting) \
+                    of episode \(engine.episodeRetriesForTesting), connections: \(server.acceptedConnections), \
+                    longest poll gap: \(Int(longestGap * 1000)) ms)
+                    """, file: file, line: line)
+            }
             try await Task.sleep(for: .milliseconds(50))
         }
     }
@@ -45,13 +75,13 @@ final class EngineTransportIntentTests: XCTestCase {
 
         engine.volumePercent = 100
         engine.play(track("1", server), atTime: 0, autoplay: true)
-        try await waitUntilPlaying(engine)
+        try await waitUntilPlaying(engine, server, "first track")
 
         engine.pause()
         // Well inside the 280 ms the fade owes its pause.
         try await Task.sleep(for: .milliseconds(60))
         engine.play(track("2", server), atTime: 0, autoplay: true)
-        try await waitUntilPlaying(engine)
+        try await waitUntilPlaying(engine, server, "second track, inside the fade")
 
         // Past where the old owed pause would have landed.
         try await Task.sleep(for: .milliseconds(500))
@@ -104,7 +134,7 @@ final class EngineTransportIntentTests: XCTestCase {
         engine.pause()
         engine.resume()
 
-        try await waitUntilPlaying(engine)
+        try await waitUntilPlaying(engine, server, "resume during load")
         XCTAssertEqual(engine.state, .playing,
                        "resume during the load did not withdraw the latched pause")
     }

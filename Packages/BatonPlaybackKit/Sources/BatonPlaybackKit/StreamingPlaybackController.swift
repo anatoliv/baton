@@ -910,7 +910,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // leak between tests that each build their own controller or MusicModel (a shared suite let
         // one test's seeded queue restore into the next, e.g. "seek with nothing playing"). Tests
         // that deliberately verify cross-instance restore inject a shared `defaults:`.
-        return UserDefaults(suiteName: "io.tonebox.tests.music.\(UUID().uuidString)") ?? .standard
+        return ThrowawayDefaults.make("music")   // removed at exit
     }
 
     /// The URL to DOWNLOAD a track for offline use: the original file for a library track

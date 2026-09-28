@@ -1,5 +1,6 @@
 import BatonSubsonicModels
 import Foundation
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -42,7 +43,7 @@ final class ListenArchiveFixtureTests: XCTestCase {
     }
 
     private func history() -> MusicPlayHistory {
-        MusicPlayHistory(defaults: UserDefaults(suiteName: "archive-\(UUID().uuidString)")!,
+        MusicPlayHistory(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("archive"))!,
                          directory: dir)
     }
 

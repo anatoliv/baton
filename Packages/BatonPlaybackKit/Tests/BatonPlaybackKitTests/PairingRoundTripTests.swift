@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -14,7 +15,7 @@ final class PairingRoundTripTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.pairing.roundtrip.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.pairing.roundtrip")
         defaults = UserDefaults(suiteName: suiteName)
     }
 
@@ -38,8 +39,9 @@ final class PairingRoundTripTests: XCTestCase {
 
         // Phone side: the invitation came from parsing the scanned string, nothing else.
         let scanned = try XCTUnwrap(DevicePairing.parse(invitation.url))
-        let target = UserDefaults(suiteName: "\(suiteName!).target")!
-        defer { target.removePersistentDomain(forName: "\(suiteName!).target") }
+        let targetName = ThrowawayDefaults.name("baton.pairing.target")
+        let target = UserDefaults(suiteName: targetName)!
+        defer { target.removePersistentDomain(forName: targetName) }
 
         let result = try SettingsTransfer.applyImport(
             payload,

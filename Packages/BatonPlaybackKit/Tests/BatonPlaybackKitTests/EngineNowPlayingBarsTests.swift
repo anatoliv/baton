@@ -1,4 +1,5 @@
 import AVFoundation
+import BatonSubsonicKit
 import XCTest
 import BatonDSP
 @testable import BatonPlaybackKit
@@ -25,7 +26,7 @@ import BatonDSP
 final class EngineNowPlayingBarsTests: XCTestCase {
 
     private func makeMonitor() -> AudioLevelMonitor {
-        AudioLevelMonitor(defaults: UserDefaults(suiteName: "baton.bars.\(UUID().uuidString)")!)
+        AudioLevelMonitor(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("baton.bars"))!)
     }
 
     /// A single WAV whose first half is quiet and second half loud — a 24 dB step inside

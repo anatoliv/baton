@@ -432,11 +432,10 @@ fi
 # carries the holder's derived data path so a reader can see whether it is the same
 # bundle.
 #
-# STALE LOCKS MUST NOT WEDGE THE MACHINE. A gate killed by hand leaves the file behind, and
-# a lock that survives a `pkill` and blocks every later run is worse than the bug it
-# guards. So the holder is checked for liveness, and the recorded start time is compared
-# against the live process's, since pids are reused. Either mismatch means the file is
-# debris and it is cleared.
+# STALE LOCKS MUST NOT WEDGE THE MACHINE. The file stays in place, but ownership is a
+# kernel `lockf` lock held through an open descriptor. A normal exit closes it, SIGKILL
+# closes it, and pid reuse is irrelevant. Keeping one inode also prevents two concurrent
+# stale reclaimers from deleting each other's successor lock.
 #
 # LINT_ONLY is exempt on purpose: that mode is a text pass over a planted tree, it hosts no
 # app, and the guard loop below runs `test-lints.sh` from inside a gate that already holds
@@ -447,7 +446,7 @@ fi
 
 if [ -z "${LINT_ONLY:-}" ] && [ -z "${BATON_ALLOW_CONCURRENT_GATE:-}" ]; then
   if ! gate_lock_inherit_parent; then
-    gate_lock_acquire gate "$DERIVED"
+    gate_lock_acquire gate "$DERIVED" "$0" "$@"
     trap gate_lock_release EXIT INT TERM
   fi
 fi
@@ -866,6 +865,13 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          a live holder past the timeout gives status 3, and only the holder
 #                          can release. Two agents' probes on one screen failed each other
 #                          (TBX-7383)
+#   release-kit/check      the vendored release kit is exactly its pinned version, and its
+#                          tests pass on those bytes: the main guard (TBX-7466), bounded
+#                          notarization without pkill, tags, live checks (TBX-7514)
+#   test-ship-main-guard   and every ship path is wired to it: publish.sh, testflight.sh,
+#                          publish-site.sh, publish-repo.sh and the gateway deploy each
+#                          refuse a planted unmerged commit before touching a stubbed tool.
+#                          Production ran fixes main did not have in six projects (E19)
 #
 # The guard itself then runs over THIS tree: a gate that goes green with a live
 # credential lying where `git add -A` would take it has certified the wrong thing.
@@ -873,8 +879,11 @@ if ! scripts/check-untracked-credentials.sh "$PWD"; then
   red "✗ credential-looking file in the working tree (see above)"
   exit 1
 fi
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock; do
-  GUARD_LOG="$(mktemp -t "baton-$guard.XXXXXX").log"
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard; do
+  # A guard named by path (release-kit/check) must not put its slash into the log name:
+  # mktemp -t then targets a subdirectory of $TMPDIR that does not exist, and the gate died
+  # here on every run from the release kit's adoption until 0.19.12 (TBX-8023).
+  GUARD_LOG="$(mktemp -t "baton-${guard//\//-}.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then
     guard_cmd=("scripts/$guard.sh")
   elif [ -x "ios/scripts/$guard.sh" ]; then

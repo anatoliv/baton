@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -15,7 +16,7 @@ final class PreferenceSyncTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.prefsync.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.prefsync.tests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

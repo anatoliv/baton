@@ -12,8 +12,7 @@ final class SettingsTransferTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "io.tonebox.tests.settingstransfer.\(UUID().uuidString)"
-        suite = UserDefaults(suiteName: suiteName)
+        (suiteName, suite) = ThrowawayDefaults.suite("settingstransfer")
         NavidromeKeychain.inMemoryStore = [:]
     }
 
@@ -25,8 +24,7 @@ final class SettingsTransferTests: XCTestCase {
     }
 
     private func freshSuite() -> UserDefaults {
-        let name = "io.tonebox.tests.settingstransfer.dest.\(UUID().uuidString)"
-        let store = UserDefaults(suiteName: name)!
+        let (name, store) = ThrowawayDefaults.suite("settingstransfer.dest")
         store.removePersistentDomain(forName: name)
         return store
     }

@@ -1,5 +1,6 @@
 import AppKit
 import BatonSpeech
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -13,7 +14,7 @@ import XCTest
 final class ScreenTextReaderTests: XCTestCase {
 
     override func setUp() {
-        ReadAloudSettings.defaults = UserDefaults(suiteName: "read-aloud-test-\(UUID().uuidString)")!
+        ReadAloudSettings.defaults = UserDefaults(suiteName: ThrowawayDefaults.name("read-aloud-test"))!
     }
     override func tearDown() {
         ReadAloudSettings.defaults = .standard

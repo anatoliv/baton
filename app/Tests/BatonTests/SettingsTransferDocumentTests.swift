@@ -21,8 +21,7 @@ final class SettingsTransferDocumentTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "io.tonebox.tests.transferdocs.\(UUID().uuidString)"
-        suite = UserDefaults(suiteName: suiteName)
+        (suiteName, suite) = ThrowawayDefaults.suite("transferdocs")
         NavidromeKeychain.inMemoryStore = [:]
         source = makeDirectory("source")
         destination = makeDirectory("destination")

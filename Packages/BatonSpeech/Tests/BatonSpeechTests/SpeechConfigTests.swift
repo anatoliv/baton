@@ -1,4 +1,5 @@
 import BatonSubsonicModels
+import BatonSubsonicKit
 import XCTest
 @testable import BatonSpeech
 
@@ -14,7 +15,7 @@ final class SpeechConfigTests: XCTestCase {
     private var saved: UserDefaults!
 
     override func setUpWithError() throws {
-        suiteName = "BatonSpeechTests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("BatonSpeechTests")
         suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         saved = SpeechConfig.defaults
         SpeechConfig.defaults = suite

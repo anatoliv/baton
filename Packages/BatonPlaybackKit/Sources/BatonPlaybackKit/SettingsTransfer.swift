@@ -118,13 +118,47 @@ public enum SettingsTransfer {
     /// `MusicEqualizer.defaultStore` and the in-memory Keychain. Without
     /// this every existing `SettingsTransfer` test would read the developer's own friend
     /// memory into a backup and, on import, write one back over it.
+    ///
+    /// Each call still gets its own directory, so one test's import can never show up in the
+    /// next test's export. They all sit under one root per test process, which is removed when
+    /// the process exits. Before that, every call left an `io.tonebox.tests.documents.<UUID>`
+    /// folder in `$TMPDIR` for good: 45 had piled up by 2026-09-24, and 18 more within a day of
+    /// clearing them.
     public static func documentsDirectory(environment: BatonEnvironment = .current) -> URL? {
         if environment.isTesting {
-            return URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("io.tonebox.tests.documents.\(UUID().uuidString)",
-                                        isDirectory: true)
+            return testDocumentsRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         }
         return BatonStorage.supportDirectory()
+    }
+
+    /// `$TMPDIR/io.tonebox.tests.documents.<pid>`, registered for removal at exit the first
+    /// time it is used. A process that dies without running `atexit` leaves its root behind,
+    /// so the next test process removes any root whose pid is no longer running.
+    static let testDocumentsRoot: URL = {
+        let temp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        sweepStaleTestDocumentRoots(in: temp)
+        atexit { SettingsTransfer.removeTestDocumentsRoot() }
+        return temp.appendingPathComponent("\(testDocumentsPrefix)\(getpid())", isDirectory: true)
+    }()
+
+    static let testDocumentsPrefix = "io.tonebox.tests.documents."
+
+    /// Remove every `<prefix><pid>` root in `directory` whose process has gone. A root whose
+    /// name is not a pid, or whose process is still running, is left alone: another test
+    /// process may be using it right now.
+    static func sweepStaleTestDocumentRoots(in directory: URL) {
+        let fm = FileManager.default
+        for name in (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        where name.hasPrefix(testDocumentsPrefix) {
+            guard let pid = Int32(name.dropFirst(testDocumentsPrefix.count)), pid != getpid(),
+                  kill(pid, 0) != 0, errno == ESRCH else { continue }
+            try? fm.removeItem(at: directory.appendingPathComponent(name, isDirectory: true))
+        }
+    }
+
+    /// What `atexit` runs. Separate so a test can prove the root really goes.
+    static func removeTestDocumentsRoot() {
+        try? FileManager.default.removeItem(at: testDocumentsRoot)
     }
 
     /// Each portable document that exists, as raw bytes.

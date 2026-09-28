@@ -16,8 +16,7 @@ final class ImportSecretHonestyTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "io.tonebox.tests.importhonesty.\(UUID().uuidString)"
-        suite = UserDefaults(suiteName: suiteName)
+        (suiteName, suite) = ThrowawayDefaults.suite("importhonesty")
         NavidromeKeychain.inMemoryStore = [:]
     }
 

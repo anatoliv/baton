@@ -149,7 +149,7 @@ final class SearchHistorySyncTests: XCTestCase {
     /// fingerprint. Two devices that never share a scope never share a list: the sync
     /// runs, reports success, and moves nothing.
     func testTheFingerprintComesFromTheServerListNotTheLegacyKeys() {
-        let defaults = store("fp.\(UUID().uuidString)")   // no legacy keys, as on any current install
+        let defaults = store(ThrowawayDefaults.name("fp"))   // no legacy keys, as on any current install
         let entry = NavidromeServerEntry(displayName: "Home",
                                          urlString: "https://music.example.com",
                                          username: "anatoli", authMode: .tokenSalt)
@@ -165,7 +165,7 @@ final class SearchHistorySyncTests: XCTestCase {
 
     /// Falling back is still right for an install that predates the server list.
     func testTheLegacyKeysStillWorkWhenThereIsNoServerEntry() {
-        let defaults = store("fp.\(UUID().uuidString)")
+        let defaults = store(ThrowawayDefaults.name("fp"))
         defaults.set("https://old.example.com", forKey: NavidromeConfig.urlKey)
         defaults.set("anatoli", forKey: NavidromeConfig.usernameKey)
 
@@ -175,12 +175,12 @@ final class SearchHistorySyncTests: XCTestCase {
     }
 
     func testNoConfigurationMeansNoFingerprint() {
-        let defaults = store("fp.\(UUID().uuidString)")
+        let defaults = store(ThrowawayDefaults.name("fp"))
         XCTAssertNil(SearchRecents.currentServerFingerprint(defaults: defaults, server: nil))
     }
 
     func testOnlyTheCurrentServersEntriesAreVisible() {
-        let defaults = store("recents.\(UUID().uuidString)")
+        let defaults = store(ThrowawayDefaults.name("recents"))
         let recents = SearchRecents(defaults: defaults, serverID: "one")
         recents.record(album: .init(id: "a", name: "Here"))
         recents.setServer("two")
@@ -192,7 +192,7 @@ final class SearchHistorySyncTests: XCTestCase {
     }
 
     func testClearingOnlyDiscardsTheCurrentServer() {
-        let defaults = store("recents.\(UUID().uuidString)")
+        let defaults = store(ThrowawayDefaults.name("recents"))
         let recents = SearchRecents(defaults: defaults, serverID: "one")
         recents.record(album: .init(id: "a", name: "Here"))
         recents.setServer("two")
@@ -209,7 +209,7 @@ final class SearchHistorySyncTests: XCTestCase {
     /// them as unscoped would give them the legacy "visible everywhere" rule, so demo
     /// albums would follow you onto a real server as rows that open onto errors.
     func testDemoEntriesDoNotFollowYouOntoARealServer() {
-        let defaults = store("recents.\(UUID().uuidString)")
+        let defaults = store(ThrowawayDefaults.name("recents"))
         let recents = SearchRecents(defaults: defaults, serverID: nil)   // no server configured
         recents.record(album: .init(id: "demo-1", name: "Demo Album"))
         XCTAssertEqual(recents.entries.map(\.id), ["demo-1"], "visible while in the demo")
@@ -223,7 +223,7 @@ final class SearchHistorySyncTests: XCTestCase {
     /// Entries written before scoping existed have no server. Hiding them would look like
     /// data loss on upgrade.
     func testEntriesFromBeforeScopingStayVisible() {
-        let defaults = store("recents.\(UUID().uuidString)")
+        let defaults = store(ThrowawayDefaults.name("recents"))
         let legacy = SearchRecents.Entry(kind: .album, id: "old", title: "Old", serverID: nil)
         defaults.set(try! JSONEncoder().encode([legacy]), forKey: SearchRecents.storageKey)
 

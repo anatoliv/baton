@@ -1,5 +1,6 @@
 import BatonSubsonicModels
 import Foundation
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -452,7 +453,7 @@ final class ClippingReconcileTests: XCTestCase {
     override func setUpWithError() throws {
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("baton-recon-\(UUID().uuidString)")
-        let name = "baton.reconcile.\(UUID().uuidString)"
+        let name = ThrowawayDefaults.name("baton.reconcile")
         suite = UserDefaults(suiteName: name)!
         store = ClippingStore(directory: dir, defaults: suite)
     }
@@ -609,7 +610,7 @@ final class ClippingPersistenceTests: XCTestCase {
     override func setUpWithError() throws {
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("baton-clip-store-\(UUID().uuidString)")
-        suite = UserDefaults(suiteName: "baton.clipstore.\(UUID().uuidString)")!
+        suite = UserDefaults(suiteName: ThrowawayDefaults.name("baton.clipstore"))!
         store = ClippingStore(directory: dir, defaults: suite)
     }
 

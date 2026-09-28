@@ -1,4 +1,5 @@
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -57,7 +58,7 @@ struct ScrobbleClassificationTests {
 
     @Test("transient fails leave attempts untouched; permanent fails burn and eventually retire")
     func queueFailFlag() {
-        let defaults = UserDefaults(suiteName: "scrobble-cls-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("scrobble-cls"))!
         let queue = ScrobbleQueue(defaults: defaults)
         let s = Scrobble(
             song: NavidromeSong(id: "x", title: "x", artist: "A", album: nil, albumID: nil, duration: 100, coverArtID: nil),

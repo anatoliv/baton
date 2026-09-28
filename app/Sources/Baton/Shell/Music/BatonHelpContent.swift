@@ -323,6 +323,17 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.12",
+            date: "September 2026",
+            highlight: "A song that fails to load stops downloading.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "When Baton gave up on a song it could not load, it told you so but carried on downloading the "
+                    + "file in the background, all the way to the end of it. It now stops that download the moment it "
+                    + "gives up, so a failed song no longer uses your network or slows down the one that plays next."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.11",
             date: "September 2026",
             highlight: "Clearer release notes.",

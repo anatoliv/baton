@@ -18,7 +18,7 @@ final class AgentConfigTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        suiteName = "baton.agentconfig.tests.\(UUID().uuidString)"
+        suiteName = ThrowawayDefaults.name("baton.agentconfig.tests")
         defaults = UserDefaults(suiteName: suiteName)
     }
 

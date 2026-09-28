@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 import BatonSubsonicModels
 @testable import BatonAgentKit
@@ -32,9 +33,9 @@ final class FriendSyncTests: XCTestCase {
     }
 
     private func suite(_ label: String) -> UserDefaults {
-        let name = "io.tonebox.tests.friendsync.\(label).\(UUID().uuidString)"
+        let (name, defaults) = ThrowawayDefaults.suite("friendsync.\(label)")
         names.append(name)
-        return UserDefaults(suiteName: name)!
+        return defaults
     }
 
     private func memoryStore(_ label: String, _ defaults: UserDefaults) -> RemoteMemoryStore {

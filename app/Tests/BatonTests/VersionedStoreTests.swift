@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
@@ -107,8 +108,7 @@ final class VersionedStoreTests: XCTestCase {
     /// this type was written for: a truncated blob read as "no queue", and the next
     /// `persistQueue()` wrote an empty one over it, so a long set vanished at launch.
     func testADefaultsBackedStoreRoundTripsAndPreservesCorruptBytes() throws {
-        let suiteName = "io.tonebox.tests.vstore.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let (suiteName, defaults) = ThrowawayDefaults.suite("vstore")
         defer { UserDefaults().removePersistentDomain(forName: suiteName) }
 
         let store = VersionedStore<[String]>(backing: .defaults(defaults, key: "queue"),
@@ -127,8 +127,7 @@ final class VersionedStoreTests: XCTestCase {
     /// The forward guard has to work over defaults too, or the queue keeps the hole the files
     /// no longer have.
     func testADefaultsBackedStoreAlsoRefusesToDowngrade() throws {
-        let suiteName = "io.tonebox.tests.vstore.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let (suiteName, defaults) = ThrowawayDefaults.suite("vstore")
         defer { UserDefaults().removePersistentDomain(forName: suiteName) }
 
         VersionedStore<[String]>(backing: .defaults(defaults, key: "queue"),

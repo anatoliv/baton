@@ -1,5 +1,6 @@
 import BatonPlaybackKit
 import BatonSubsonicModels
+import BatonSubsonicKit
 import XCTest
 @testable import BatonMobile
 
@@ -34,7 +35,7 @@ final class AlphabetIndexTests: XCTestCase {
 @MainActor
 final class SearchRecentsTests: XCTestCase {
     private func makeStore() -> (SearchRecents, UserDefaults) {
-        let defaults = UserDefaults(suiteName: "recents.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("recents"))!
         return (SearchRecents(defaults: defaults), defaults)
     }
 
@@ -66,7 +67,7 @@ final class SearchRecentsTests: XCTestCase {
     }
 
     func testRecentsSurviveARelaunch() {
-        let defaults = UserDefaults(suiteName: "recents.persist.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("recents.persist"))!
         SearchRecents(defaults: defaults).record(artist: NavidromeArtist(id: "ar1", name: "Dido", albumCount: 3))
 
         let reloaded = SearchRecents(defaults: defaults)
@@ -91,7 +92,7 @@ final class SearchRecentsTests: XCTestCase {
 @MainActor
 final class LibraryLayoutTests: XCTestCase {
     private func makeLayout() -> (LibraryLayout, UserDefaults) {
-        let defaults = UserDefaults(suiteName: "layout.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("layout"))!
         return (LibraryLayout(defaults: defaults), defaults)
     }
 
@@ -118,7 +119,7 @@ final class LibraryLayoutTests: XCTestCase {
     }
 
     func testHidingPersistsAcrossRelaunch() {
-        let defaults = UserDefaults(suiteName: "layout.persist.\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: ThrowawayDefaults.name("layout.persist"))!
         LibraryLayout(defaults: defaults).setVisible(.radio, false)
 
         let reloaded = LibraryLayout(defaults: defaults)

@@ -1,6 +1,7 @@
 import BatonAgentKit
 import BatonSubsonicModels
 import Foundation
+import BatonSubsonicKit
 import Testing
 @testable import Baton
 
@@ -42,7 +43,7 @@ struct MacFriendMemoryTests {
     }
 
     private func scratchDefaults() throws -> (UserDefaults, String) {
-        let name = "MacFriendMemory.\(UUID().uuidString)"
+        let name = ThrowawayDefaults.name("MacFriendMemory")
         return (try #require(UserDefaults(suiteName: name)), name)
     }
 

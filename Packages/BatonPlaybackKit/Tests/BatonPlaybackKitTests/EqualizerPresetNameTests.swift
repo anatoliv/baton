@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 import BatonDSP
 @testable import BatonPlaybackKit
@@ -13,7 +14,7 @@ import BatonDSP
 @MainActor
 final class EqualizerPresetNameTests: XCTestCase {
     private func makeEQ() -> MusicEqualizer {
-        MusicEqualizer(defaults: UserDefaults(suiteName: "eq.tests.\(UUID().uuidString)")!)
+        MusicEqualizer(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("eq.tests"))!)
     }
 
     // MARK: - The reported bug

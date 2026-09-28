@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -10,7 +11,7 @@ import XCTest
 @MainActor
 final class EqualizerPersistenceTests: XCTestCase {
     private func suite() -> UserDefaults {
-        UserDefaults(suiteName: "io.tonebox.tests.eqstore.\(UUID().uuidString)")!
+        ThrowawayDefaults.make("eqstore")
     }
 
     /// Exactly what the pre-`VersionedStore` `persistAndPublish()` wrote: a bare array under
