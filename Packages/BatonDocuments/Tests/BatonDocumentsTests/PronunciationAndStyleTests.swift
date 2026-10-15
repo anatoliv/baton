@@ -174,6 +174,62 @@ final class SpeechStyleTests: XCTestCase {
         XCTAssertEqual(seen.paths, ["/tts", "/v1/audio/speech"])
         XCTAssertEqual((try? JSONSerialization.jsonObject(with: seen.bodies[0]) as? [String: Any])?["exaggeration"] as? Double, 0.7)
     }
+
+    /// The product path (M8.7): the plan the import sheet builds from a voice suggestion. Its
+    /// tone styles a Chatterbox narrator whichever voice is chosen; the speed stays with the
+    /// suggested voice; a Kokoro narrator's plan is exactly what it was before styles existed.
+    func testThePlanTakesTheBooksToneForAChatterboxNarrator() {
+        let dramatic = VoiceSuggestion(primary: "chatterbox:Emily.wav", alternates: ["kokoro:bf_emma"], rationale: "",
+                                       tone: "dark, ominous", speed: 0.95, source: "a test model", fallbackReason: nil)
+        let plan = VoicePlan.forBook(narrator: "chatterbox:Emily.wav", suggestion: dramatic)
+        XCTAssertEqual(plan.style, SpeechStyle(exaggeration: 0.7, cfgWeight: 0.3))
+        XCTAssertEqual(plan.speed, 0.95)
+
+        let other = VoicePlan.forBook(narrator: "chatterbox:Gabriel.wav", suggestion: dramatic)
+        XCTAssertEqual(other.style, SpeechStyle(exaggeration: 0.7, cfgWeight: 0.3), "the tone is the book's, not the voice's")
+        XCTAssertNil(other.speed, "the suggested speed belongs to the suggested voice")
+
+        XCTAssertEqual(VoicePlan.forBook(narrator: "kokoro:bf_emma", suggestion: dramatic),
+                       VoicePlan(narrator: "kokoro:bf_emma"), "Kokoro has no style, and its book keeps its id")
+        XCTAssertNil(VoicePlan.forBook(narrator: "chatterbox:Emily.wav", suggestion: nil).style)
+        XCTAssertEqual(VoicePlan.forBook(narrator: "chatterbox:Emily.wav", tone: "calm, measured").style,
+                       SpeechStyle(exaggeration: 0.35, cfgWeight: 0.5), "an agent's tone when there is no suggestion")
+        var fallback = dramatic
+        fallback.fallbackReason = "no model is set up"
+        XCTAssertNil(VoicePlan.forBook(narrator: "chatterbox:Emily.wav", suggestion: fallback).speed)
+    }
+
+    /// End to end: a dramatic suggestion's book, rendered by the shared renderer, sends every
+    /// chunk to Chatterbox's `/tts` with exaggeration 0.7 (the audit's confirming test).
+    func testADramaticSuggestionsBookSendsTheStyleToTTS() async throws {
+        let seen = Recorded()
+        let server = try TinyHTTPServer { path, body in
+            seen.add(path, body)
+            return FakeSynthesizer.tone(seconds: 0.05)
+        }
+        defer { server.stop() }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let r = BookRenderer(store: store, cacheDirectory: dir.appendingPathComponent("cache"),
+                             synthesizer: HTTPSpeechSynthesizer(engines: ["chatterbox": server.baseURL]),
+                             muxer: CopyMuxer(), concurrency: 1, retry: .init(initialDelay: 0.01, maximumDelay: 0.02))
+        let dramatic = VoiceSuggestion(primary: "chatterbox:Emily.wav", alternates: [], rationale: "",
+                                       tone: "tense, dramatic", source: "a test model", fallbackReason: nil)
+        let b = DocumentSpeech.prepare(ImportedDocument(sourceSHA256: "s", sourceKind: .text, title: "T", chapters: [
+            DocumentChapter(index: 0, title: "One", paragraphs: ["The machine stopped, and nobody knew why."]),
+        ]), voices: .forBook(narrator: "chatterbox:Emily.wav", suggestion: dramatic))
+        _ = try await r.submit(b, id: BookJob.id(for: b))
+        await r.waitUntilIdle()
+        XCTAssertEqual(store.load(BookJob.id(for: b))?.status, .ready)
+        XCTAssertFalse(seen.paths.isEmpty)
+        XCTAssertEqual(Set(seen.paths), ["/tts"])
+        for body in seen.bodies {
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            XCTAssertEqual(json["exaggeration"] as? Double, 0.7)
+            XCTAssertEqual(json["cfg_weight"] as? Double, 0.3)
+        }
+    }
 }
 
 final class Recorded: @unchecked Sendable {

@@ -110,6 +110,29 @@ final class VoiceSuggestionsTests: XCTestCase {
         XCTAssertEqual(listed, ["kokoro:af_heart", "kokoro:bf_emma"])
     }
 
+    /// TBX-10916 under Voice engine for books: Emma narrates a British book with no
+    /// suggestion only when the engine that will render has her. Built-in counts only the built-in
+    /// voices; Voice server only the server's.
+    func testTheNarratorDefaultFollowsTheVoiceEngineForBooks() async {
+        var british = document()
+        british.languageRegion = "gb"
+        let serverBody = #"{"voices": ["af_heart", "bm_george"]}"#
+        let up: DocumentImporter.Fetch = { request in
+            (Data(serverBody.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let builtIn = ["kokoro:af_heart", "kokoro:bf_emma", "kokoro:bm_george"]
+        func narrator(_ engine: BookVoiceSettings.Engine) async -> String {
+            let list = await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", builtIn: builtIn,
+                                                              engine: engine, fetch: up)
+            return await VoiceSuggestions.suggest(for: british, languageDefault: "kokoro:bm_george", sources: [],
+                                                  available: list, executor: { _, _, _ in "" }).primary
+        }
+        let onBuiltIn = await narrator(.builtIn)
+        XCTAssertEqual(onBuiltIn, "kokoro:bf_emma")
+        let onServer = await narrator(.server)
+        XCTAssertEqual(onServer, "kokoro:bm_george", "the server has no Emma: the configured default")
+    }
+
     func testThePreviewIsTheBooksOpeningWithoutAnySecret() {
         let text = VoiceSuggestions.previewText(for: document())
         XCTAssertTrue(text.hasPrefix("Imagine, if you can, a small room"))
@@ -126,5 +149,92 @@ final class VoiceSuggestionsTests: XCTestCase {
         let sources = VoiceSuggestions.sources(agent: agent(base: "http://10.0.0.8:8000/v1", provider: .openAICompatible),
                                                ollamaModel: "qwen3:8b", saved: saved)
         XCTAssertEqual(sources.map(\.name), ["qwen3:8b on this Mac", "LM Studio", "the home server"])
+    }
+}
+
+/// The import sheet's Hear buttons (M4.4): one preview at a time, Hear then Stop then Hear again,
+/// and a second voice stops the first. A fake voice server and a fake speaker stand in for Kokoro
+/// and the Mac's audio, so the states are asserted without a sound.
+@MainActor
+final class VoicePreviewPlayerTests: XCTestCase {
+
+    /// What the fake speaker was asked to do.
+    @MainActor
+    final class Speaker {
+        var played: [Data] = []
+        var stopped: [Data] = []
+        var duration: TimeInterval = 60
+
+        func play(_ wav: Data) -> VoicePreviewPlayer.Sound {
+            played.append(wav)
+            return .init(duration: duration, stop: { [weak self] in self?.stopped.append(wav) })
+        }
+    }
+
+    private func player(_ speaker: Speaker, failing: Bool = false) -> VoicePreviewPlayer {
+        VoicePreviewPlayer(synthesize: { _, voice in
+            if failing { throw SynthesisError.transient("kokoro did not answer: offline") }
+            return Data(voice.utf8)
+        }, play: { speaker.play($0) })
+    }
+
+    private func until(_ condition: @MainActor () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(condition(), "timed out", file: file, line: line)
+    }
+
+    func testHearThenStopThenHearAgain() async {
+        let speaker = Speaker()
+        let preview = player(speaker)
+
+        preview.toggle("kokoro:bf_isabella", text: "Imagine a small room.")
+        XCTAssertEqual(preview.playing, "kokoro:bf_isabella", "the button reads Stop at once")
+        await until { speaker.played.count == 1 }
+        XCTAssertEqual(speaker.played, [Data("kokoro:bf_isabella".utf8)])
+
+        preview.toggle("kokoro:bf_isabella", text: "Imagine a small room.")
+        XCTAssertNil(preview.playing, "pressed again, it stops and the button reads Hear")
+        XCTAssertEqual(speaker.stopped, [Data("kokoro:bf_isabella".utf8)])
+
+        preview.toggle("kokoro:bf_isabella", text: "Imagine a small room.")
+        XCTAssertEqual(preview.playing, "kokoro:bf_isabella")
+        await until { speaker.played.count == 2 }
+        // The first, cancelled preview must not clear the second one's state as it unwinds.
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(preview.playing, "kokoro:bf_isabella", "still playing: Stop, not Hear")
+        XCTAssertNil(preview.failure)
+    }
+
+    func testASecondVoiceStopsTheFirst() async {
+        let speaker = Speaker()
+        let preview = player(speaker)
+
+        preview.toggle("kokoro:bf_isabella", text: "Opening.")
+        await until { speaker.played.count == 1 }
+        preview.toggle("kokoro:bm_george", text: "Opening.")
+        XCTAssertEqual(preview.playing, "kokoro:bm_george", "only the second reads Stop")
+        XCTAssertEqual(speaker.stopped, [Data("kokoro:bf_isabella".utf8)], "the first is cut short")
+        await until { speaker.played.count == 2 }
+        XCTAssertEqual(speaker.played.last, Data("kokoro:bm_george".utf8))
+    }
+
+    func testThePreviewEndsByItselfAndTheButtonReadsHearAgain() async {
+        let speaker = Speaker()
+        speaker.duration = 0.05
+        let preview = player(speaker)
+        preview.toggle("kokoro:bf_alice", text: "Opening.")
+        await until { preview.playing == nil }
+        XCTAssertEqual(speaker.played.count, 1)
+        XCTAssertNil(preview.failure)
+    }
+
+    func testAVoiceThatCannotBePlayedSaysSo() async {
+        let speaker = Speaker()
+        let preview = player(speaker, failing: true)
+        preview.toggle("kokoro:bf_alice", text: "Opening.")
+        await until { preview.failure != nil }
+        XCTAssertNil(preview.playing)
+        XCTAssertEqual(preview.failure, "That voice could not be played: the voice server isn't answering.")
+        XCTAssertTrue(speaker.played.isEmpty)
     }
 }

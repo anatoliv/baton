@@ -119,6 +119,28 @@ final class HTTPModelClientTests: XCTestCase {
         XCTAssertEqual(text, "hello")
     }
 
+    /// LM Studio with Qwen3 on a small budget, as captured live on 2026-10-15.
+    func testAnEmptyReplyWhoseReasoningUsedTheBudgetSaysSo() {
+        let body = #"{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"","reasoning_content":"Okay, the user wants"}}]}"#
+        XCTAssertThrowsError(try HTTPModelClient.text(from: Data(body.utf8), provider: .openAICompatible)) { error in
+            XCTAssertEqual(error as? HTTPModelClient.Failure, .reasoningUsedTheBudget)
+        }
+    }
+
+    func testAReplyAfterReasoningIsReturnedAndAnEmptyFinishedReplyStaysEmpty() throws {
+        let answered = #"{"choices":[{"finish_reason":"stop","message":{"content":"{\"ready\": true}","reasoning_content":"thinking"}}]}"#
+        XCTAssertEqual(try HTTPModelClient.text(from: Data(answered.utf8), provider: .openAICompatible), #"{"ready": true}"#)
+        // Empty but finished, or cut off with no reasoning: the caller judges an empty answer.
+        let emptyStop = #"{"choices":[{"finish_reason":"stop","message":{"content":"","reasoning_content":"x"}}]}"#
+        XCTAssertEqual(try HTTPModelClient.text(from: Data(emptyStop.utf8), provider: .openAICompatible), "")
+        let cutNoReasoning = #"{"choices":[{"finish_reason":"length","message":{"content":""}}]}"#
+        XCTAssertEqual(try HTTPModelClient.text(from: Data(cutNoReasoning.utf8), provider: .openAICompatible), "")
+    }
+
+    func testTheModelTestLeavesRoomToReason() {
+        XCTAssertGreaterThanOrEqual(LocalModelTest.maxTokens, 512)
+    }
+
     func testSendReportsAFailedStatusWithTheServersMessage() async throws {
         ModelStubProtocol.respond(401, #"{"error":{"message":"bad key"}}"#)
         let request = try HTTPModelClient.request(for: source(.anthropic, "http://h"), system: "s", user: "u", apiKey: "k")
@@ -168,6 +190,47 @@ final class HTTPModelClientTests: XCTestCase {
         let sent = try XCTUnwrap(ModelStubProtocol.requests.first)
         XCTAssertEqual(sent.url?.absoluteString, "http://h/v1/chat/completions")
         XCTAssertEqual(sent.value(forHTTPHeaderField: "Authorization"), "Bearer k")
+    }
+}
+
+extension HTTPModelClientTests {
+    /// TBX-10894: the executor asks for the running task's reply budget, as `max_tokens` and as
+    /// Ollama's `num_predict`, so a model repeating itself stops at the budget.
+    func testTheExecutorAsksForTheTasksReplyBudget() async throws {
+        ModelStubProtocol.reset()
+        defer { ModelStubProtocol.reset() }
+        let executor = HTTPModelClient.executor(session: ModelStubProtocol.session(), apiKey: { _ in nil })
+        func sentBody() throws -> [String: Any] {
+            let request = try XCTUnwrap(ModelStubProtocol.requests.last)
+            var data = request.httpBody ?? Data()
+            if data.isEmpty, let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 4_096)
+                while stream.hasBytesAvailable {
+                    let n = stream.read(&buffer, maxLength: buffer.count)
+                    if n <= 0 { break }
+                    data.append(buffer, count: n)
+                }
+            }
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+
+        ModelStubProtocol.respond(200, #"{"message": {"role": "assistant", "content": "ok"}}"#)
+        let ollama = ModelRouter(sources: [ModelSource(name: "o", provider: .ollama, baseURL: "http://127.0.0.1:11434", model: "m", contextTokens: 8_192)])
+        _ = try await ollama.complete(.castSheet, system: "s", user: "u", executor: executor)
+        XCTAssertEqual((try sentBody()["options"] as? [String: Any])?["num_predict"] as? Int, 2_048)
+        _ = try await ollama.complete(.voiceSuggestion, system: "s", user: "u", executor: executor)
+        XCTAssertEqual((try sentBody()["options"] as? [String: Any])?["num_predict"] as? Int, 1_024)
+
+        ModelStubProtocol.respond(200, #"{"choices": [{"message": {"content": "ok"}}]}"#)
+        let home = ModelRouter(sources: [ModelSource(name: "h", provider: .openAICompatible, baseURL: "http://192.168.4.21:8000/v1", model: "chat", contextTokens: 8_192)])
+        _ = try await home.complete(.castSheet, system: "s", user: "u", executor: executor)
+        XCTAssertEqual(try sentBody()["max_tokens"] as? Int, 2_048)
+        _ = try await home.complete(.dialogueCast, system: "s", user: "u", executor: executor)
+        XCTAssertEqual(try sentBody()["max_tokens"] as? Int, 1_536)
+        _ = try await home.complete(.recap, system: "s", user: "u", executor: executor)
+        XCTAssertEqual(try sentBody()["max_tokens"] as? Int, 1_024, "the default, as before")
     }
 }
 

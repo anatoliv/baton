@@ -65,17 +65,36 @@ public struct GatewayBookClient: Sendable {
     }
 
     /// `GET /v1/books/{id}/export.m4b`: the whole book as one audiobook with chapter marks,
-    /// written only when its digest matches. 409 until every chapter is ready.
-    public func exportAudiobook(_ id: String, to directory: URL) async throws -> Chapter {
+    /// written to `destination` (the file the person chose) only when its digest matches. The
+    /// bytes go to a private temporary file first and are then moved onto `destination`, so no
+    /// other file in that folder is touched, whatever name the server suggests. 409 until every
+    /// chapter is ready. The server's suggested name comes back in `name`.
+    public func exportAudiobook(_ id: String, to destination: URL) async throws -> Chapter {
         let (data, response) = try await send("GET", "v1/books/\(id)/export.m4b")
         let digest = SHA256Digest.hex(of: data)
         let expected = response.value(forHTTPHeaderField: "X-Baton-SHA256")
         guard let expected, expected.lowercased() == digest else {
             throw GatewayBookError.digestMismatch(expected: expected, actual: digest)
         }
-        let name = response.value(forHTTPHeaderField: "X-Baton-Name").map { ($0 as NSString).lastPathComponent } ?? "\(id.prefix(12)).m4b"
-        let destination = directory.appendingPathComponent(name.isEmpty ? "\(id.prefix(12)).m4b" : name)
-        try data.write(to: destination, options: .atomic)
+        let fm = FileManager.default
+        // A private folder on the destination's volume, so the final step is a rename.
+        let staging: URL
+        if let replacement = try? fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                         appropriateFor: destination, create: true) {
+            staging = replacement
+        } else {
+            staging = fm.temporaryDirectory.appendingPathComponent("baton-export-\(UUID().uuidString)", isDirectory: true)
+            try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        }
+        defer { try? fm.removeItem(at: staging) }
+        let temporary = staging.appendingPathComponent("export.m4b")
+        try data.write(to: temporary)
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: temporary)
+        } else {
+            try fm.moveItem(at: temporary, to: destination)
+        }
+        let name = response.value(forHTTPHeaderField: "X-Baton-Name").map { ($0 as NSString).lastPathComponent }
         return Chapter(url: destination, sha256: digest, bytes: data.count, seconds: nil, name: name)
     }
 

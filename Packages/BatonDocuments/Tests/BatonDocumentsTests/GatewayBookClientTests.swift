@@ -191,6 +191,19 @@ final class AudiobookExportTests: XCTestCase {
         XCTAssertEqual(AudiobookExport.chapterFiles(j), ["chapter-1.m4a", "chapter-2.m4a"])
     }
 
+    /// TBX-10845: marks move onto the joined lengths, titles kept; a count mismatch changes nothing.
+    func testMarksArePlacedOnTheMuxedLengths() {
+        let rendered = [AudiobookExport.Mark(title: "One", start: 0, end: 2), AudiobookExport.Mark(title: "Two", start: 2, end: 5),
+                        AudiobookExport.Mark(title: "Three", start: 5, end: 6.5)]
+        let placed = AudiobookExport.placed(rendered, muxedLengths: [2.0427, 3.0427, 1.5427])
+        XCTAssertEqual(placed.map(\.title), ["One", "Two", "Three"])
+        for (mark, (start, end)) in zip(placed, [(0, 2.0427), (2.0427, 5.0854), (5.0854, 6.6281)]) {
+            XCTAssertEqual(mark.start, start, accuracy: 1e-9)
+            XCTAssertEqual(mark.end, end, accuracy: 1e-9)
+        }
+        XCTAssertEqual(AudiobookExport.placed(rendered, muxedLengths: [1, 2]), rendered)
+    }
+
     func testMetadataAndFileName() {
         let j = job()
         let meta = AudiobookExport.ffmetadata(book: j.book, marks: [AudiobookExport.Mark(title: "One; two", start: 0, end: 12.5)])
@@ -211,9 +224,37 @@ final class AudiobookExportTests: XCTestCase {
             return (audio, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
                                            headerFields: ["X-Baton-SHA256": SHA256Digest.hex(of: audio), "X-Baton-Name": "../T - A.m4b"])!)
         }
-        let file = try await client.exportAudiobook("abc", to: dir)
-        XCTAssertEqual(file.url.lastPathComponent, "T - A.m4b", "a name from the server never leaves the directory")
-        XCTAssertEqual(file.url.deletingLastPathComponent().standardizedFileURL.path, dir.standardizedFileURL.path)
-        XCTAssertEqual(try Data(contentsOf: file.url), audio)
+        // A file that happens to carry the server's suggested name is someone else's: untouched.
+        let unrelated = dir.appendingPathComponent("T - A.m4b")
+        let theirs = Data("an older export the person kept".utf8)
+        try theirs.write(to: unrelated)
+        let chosen = dir.appendingPathComponent("My Book.m4b")
+        let file = try await client.exportAudiobook("abc", to: chosen)
+        XCTAssertEqual(file.url, chosen)
+        XCTAssertEqual(file.name, "T - A.m4b", "a name from the server never leaves the directory")
+        XCTAssertEqual(try Data(contentsOf: chosen), audio)
+        XCTAssertEqual(try Data(contentsOf: unrelated), theirs, "an unrelated file in the folder is untouched")
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: dir.path)), ["T - A.m4b", "My Book.m4b"],
+                       "nothing else is left behind")
+
+        // Choosing an existing file (confirmed in the save panel) replaces that file only.
+        let replaced = try await client.exportAudiobook("abc", to: unrelated)
+        XCTAssertEqual(replaced.url, unrelated)
+        XCTAssertEqual(try Data(contentsOf: unrelated), audio)
+    }
+
+    func testADamagedExportWritesNothing() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let client = GatewayBookClient(baseURL: URL(string: "http://gateway.test")!, token: "t") { request in
+            (Data("bytes".utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                                 headerFields: ["X-Baton-SHA256": String(repeating: "0", count: 64)])!)
+        }
+        do {
+            _ = try await client.exportAudiobook("abc", to: dir.appendingPathComponent("Book.m4b"))
+            XCTFail("a digest mismatch must throw")
+        } catch GatewayBookError.digestMismatch {}
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [])
     }
 }

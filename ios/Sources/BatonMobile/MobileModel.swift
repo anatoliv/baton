@@ -59,6 +59,11 @@ final class MobileModel {
     /// is not the "small bespoke surface" the card originally proposed: a second player path
     /// would have to be maintained forever for content that needs none.
     let clippings = ClippingStore()
+    /// The Clippings filter's index (M8.9), kept here so leaving Clippings does not throw away the
+    /// folded text. The iPhone's list searches a clipping's title, its book's title, its source
+    /// and its words.
+    let clippingSearch = ClippingSearch(fields: MobileModel.clippingSearchFields)
+    static let clippingSearchFields: ClippingSearch.Fields = [.title, .documentTitle, .source, .text]
 
     let radio = InternetRadioStore()
     let radioBans = MusicRadioBans()
@@ -77,8 +82,29 @@ final class MobileModel {
     @ObservationIgnored private(set) lazy var books: HomeServerBooks = HomeServerBooks(
         directory: BatonStorage.supportSubdirectory("Books"), clippings: clippings,
         gateway: { [weak self] in self?.gatewayBookClient() }, log: documentsLog)
+    /// `baton.documents.enabled`, read live: Clippings shows or hides books and the
+    /// import menu the moment the Settings switch moves, with no relaunch.
+    let documentsSwitch = DefaultsSwitch(key: MobileDocuments.enabledKey, defaultValue: true)
     /// A file or link waiting for the import screen (Files "Open in", a pasted link, M5.2).
-    var pendingDocumentImport: URL?
+    /// Set through `offerImport(_:)` it is kept on disk until the screen closes.
+    var pendingDocumentImport: URL? {
+        didSet { if pendingDocumentImport == nil { PendingImportStore.shared.clear() } }
+    }
+
+    /// Offer a document from outside the app (the share sheet, Files, a picked file, a pasted
+    /// link) to the import screen, kept on disk so a force-quit before the screen closes does
+    /// not lose it: a shared file has already left the share inbox by now.
+    func offerImport(_ url: URL) {
+        pendingDocumentImport = PendingImportStore.shared.keep(url)
+    }
+    /// This phone's book storage: rules, Keep, Remove Download, Recently removed and the weekly
+    /// suggestion (M6.3 to M6.5), the same code as the Mac's.
+    @ObservationIgnored private(set) lazy var bookCleanup: BookCleanup = {
+        let cleanup = BookCleanup(directory: BatonStorage.supportSubdirectory("Books"), clippings: clippings,
+                                  homeServer: books, log: documentsLog)
+        cleanup.dropFromQueue = { [weak self] ids in self?.music.dropFromQueue(ids: Set(ids)) }
+        return cleanup
+    }()
     @ObservationIgnored private(set) lazy var agent: AgentClient = {
         let client = AgentClient(tools: AgentTools(model: self), player: music, config: agentConfig)
         // The loop was open here: corrections were being written and never sent, so the
@@ -312,6 +338,12 @@ final class MobileModel {
         // Before the first sync, so this device's existing clippings are in the first merge.
         clippings.seedLedgerIfNeeded()
 
+        // A document handed over before the app was quit is offered again. After the
+        // DEBUG reset above, which forgets it, and before a UI test's own document below.
+        if MobileDocuments.isEnabled(), let kept = PendingImportStore.shared.restore() {
+            pendingDocumentImport = kept
+        }
+
         #if DEBUG
         if ProcessInfo.processInfo.environment[Self.seedClippingArgument] != nil {
             seedClippingForUITests()
@@ -327,13 +359,12 @@ final class MobileModel {
             agentConfig.gatewayToken = token
         }
         if let file = launch["uitestImportFile"], FileManager.default.fileExists(atPath: file) {
-            BatonStorage.defaults.set(true, forKey: MobileDocuments.enabledKey)
             pendingDocumentImport = URL(fileURLWithPath: file)
         }
-        // A UI test walks the import screen offline: the flag on, and the document's words
-        // handed over in the environment, written to a file the screen reads like any other.
+        // A UI test walks the import screen offline: the document's words handed over in the
+        // environment, written to a file the screen reads like any other. Documents are on by
+        // default, so nothing here has to turn the flag on.
         if let text = ProcessInfo.processInfo.environment[Self.importTextArgument], !text.isEmpty {
-            BatonStorage.defaults.set(true, forKey: MobileDocuments.enabledKey)
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("uitest-import-\(UUID().uuidString.prefix(8)).txt")
             if (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil {
                 pendingDocumentImport = file
@@ -874,7 +905,7 @@ extension MobileModel {
     /// front: "Chapter 1 is ready" is how a book made while the phone was in a pocket announces
     /// itself (M5.4). In the foreground the row in Clippings says it instead.
     func collectBooks(announcing: Bool) async {
-        guard MobileDocuments.isEnabled() else { return }
+        guard documentsSwitch.isOn else { return }
         let arrived = await books.collect()
         guard announcing else { return }
         for arrival in arrived where arrival.chapterIndex == 0 {

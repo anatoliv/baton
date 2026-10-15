@@ -6,7 +6,8 @@ final class VoiceCatalogueTests: XCTestCase {
     func testKokoroIdsDescribeThemselves() {
         let emma = VoiceCatalogue.describe("kokoro:bf_emma")
         XCTAssertEqual(emma, VoiceDescriptor(spec: "kokoro:bf_emma", language: "en", accent: "british",
-                                             gender: "female", grade: "B-"))
+                                             gender: "female", grade: "B-",
+                                             tags: ["clear", "bright", "crisp", "lively", "youthful", "good for narration and dialogue"]))
         XCTAssertEqual(VoiceCatalogue.describe("am_michael").spec, "kokoro:am_michael")
         XCTAssertEqual(VoiceCatalogue.describe("kokoro:ef_dora").language, "es")
         // A voice the table has never heard of still gets what its id says.
@@ -28,6 +29,68 @@ final class VoiceCatalogueTests: XCTestCase {
         XCTAssertEqual(english, ["kokoro:af_heart", "kokoro:bf_emma", "kokoro:bm_george"])
         XCTAssertEqual(VoiceCatalogue.candidates(language: "es", available: available).map(\.spec), [])  // ungraded
     }
+
+    /// TBX-10916: the voices heard as good for narration lead, then narration-and-dialogue, then
+    /// the dialogue-only ones, best grade first within each.
+    func testNarrationVoicesLeadTheCandidates() {
+        let available = ["kokoro:af_bella", "kokoro:am_santa", "kokoro:bm_george", "kokoro:am_adam", "kokoro:bf_emma",
+                         "kokoro:af_heart", "kokoro:bm_lewis"]
+        XCTAssertEqual(VoiceCatalogue.candidates(language: "en", available: available).map(\.spec),
+                       ["kokoro:af_heart", "kokoro:am_adam", "kokoro:bf_emma", "kokoro:bm_george",
+                        "kokoro:af_bella", "kokoro:am_santa"])
+    }
+
+    /// TBX-10916: Heart for American or unspecified English, Emma for British, only when the
+    /// engine offers it; nothing for other languages, so the configured default stands.
+    func testTheEnglishNarratorDefault() {
+        let both = ["kokoro:af_heart", "kokoro:bf_emma", "kokoro:bm_george"]
+        XCTAssertEqual(VoiceCatalogue.narratorDefault(language: "en", region: nil, available: both), "kokoro:af_heart")
+        XCTAssertEqual(VoiceCatalogue.narratorDefault(language: nil, region: nil, available: both), "kokoro:af_heart")
+        XCTAssertEqual(VoiceCatalogue.narratorDefault(language: "en", region: "us", available: both), "kokoro:af_heart")
+        XCTAssertEqual(VoiceCatalogue.narratorDefault(language: "en", region: "GB", available: both), "kokoro:bf_emma")
+        XCTAssertNil(VoiceCatalogue.narratorDefault(language: "en", region: "gb", available: ["kokoro:af_heart"]),
+                     "no Emma on this engine: not Heart either, the configured default")
+        XCTAssertNil(VoiceCatalogue.narratorDefault(language: "en", region: nil, available: ["kokoro:bf_emma"]))
+        XCTAssertNil(VoiceCatalogue.narratorDefault(language: "en", region: "au", available: both))
+        XCTAssertNil(VoiceCatalogue.narratorDefault(language: "es", region: nil, available: both + ["kokoro:ef_dora"]))
+    }
+
+    func testLanguageTagsSplitIntoLanguageAndRegion() {
+        XCTAssertTrue(LanguageTag.split("en-GB") == ("en", "gb"))
+        XCTAssertTrue(LanguageTag.split("en_us") == ("en", "us"))
+        XCTAssertTrue(LanguageTag.split("en") == ("en", nil))
+        XCTAssertTrue(LanguageTag.split("zh-Hant-TW") == ("zh", "tw"))
+        XCTAssertTrue(LanguageTag.split("es-419") == ("es", "419"))
+        XCTAssertTrue(LanguageTag.split(" ") == (nil, nil))
+    }
+
+    /// The region a file declares reaches the document; the language stays the two-letter code
+    /// everything else keys on.
+    func testADeclaredBritishLanguageReachesTheDocument() throws {
+        let page = "<html lang=\"en-GB\"><head><title>Colour</title></head><body><h1>Colour</h1><p>The colour of the sky was grey.</p></body></html>"
+        let british = try DocumentImporter.importHTML(data: Data(page.utf8), contentType: "text/html", digest: "d",
+                                                      kind: .html, fileName: nil, fallbackTitle: "x")
+        XCTAssertEqual(british.language, "en")
+        XCTAssertEqual(british.languageRegion, "gb")
+        let plain = try DocumentImporter.importHTML(data: Data(page.replacingOccurrences(of: "en-GB", with: "en").utf8),
+                                                    contentType: "text/html", digest: "d", kind: .html, fileName: nil, fallbackTitle: "x")
+        XCTAssertEqual(plain.language, "en")
+        XCTAssertNil(plain.languageRegion)
+    }
+}
+
+final class VoiceTagsTests: XCTestCase {
+    /// The listening pass (M4.7, 2026-10-15): every graded English Kokoro voice was heard and
+    /// described; the two the owner ruled out are never suggested, though they stay describable.
+    func testHeardTagsDescribeTheVoicesAndAvoidedOnesAreNeverOffered() {
+        XCTAssertEqual(VoiceCatalogue.describe("kokoro:af_heart").tags, ["warm", "bright", "soft", "lively", "good for narration"])
+        XCTAssertTrue(VoiceCatalogue.describe("kokoro:bm_george").tags.contains("good for narration and dialogue"))
+        XCTAssertEqual(VoiceCatalogue.curatedTags.count, 26)
+        let available = ["kokoro:af_aoede", "kokoro:bm_lewis", "kokoro:af_heart", "kokoro:bm_george"]
+        let offered = VoiceCatalogue.candidates(language: "en", available: available).map(\.spec)
+        XCTAssertEqual(Set(offered), ["kokoro:af_heart", "kokoro:bm_george"])
+        XCTAssertFalse(offered.contains("kokoro:bm_lewis"), "graded B-, but heard as robotic")
+    }
 }
 
 final class VoiceCasterTests: XCTestCase {
@@ -48,7 +111,7 @@ final class VoiceCasterTests: XCTestCase {
         XCTAssertTrue(prompt.contains("AUTHOR: E. M. Forster"))
         XCTAssertTrue(prompt.contains("November 1909"))
         XCTAssertTrue(prompt.contains("[...]"), "an excerpt from the middle as well as the opening")
-        XCTAssertTrue(prompt.contains("- kokoro:bf_emma: british English, female, quality B-"))
+        XCTAssertTrue(prompt.contains("- kokoro:bf_emma: british English, female, quality B-, clear, bright, crisp, lively, youthful, good for narration and dialogue"))
         XCTAssertFalse(prompt.contains("bm_daniel"))
         XCTAssertLessThan(prompt.count, 5_000)
     }
@@ -77,7 +140,8 @@ final class VoiceCasterTests: XCTestCase {
         let s = await VoiceCaster.suggest(for: book(), available: available, languageDefault: "kokoro:af_heart",
                                           complete: { _, _ in (#"{"primary_voice": "bf_nobody"}"#, "the home server") })
         XCTAssertEqual(s.primary, "kokoro:af_heart")
-        XCTAssertEqual(s.alternates, ["kokoro:af_bella", "kokoro:bf_emma"])
+        XCTAssertEqual(s.alternates, ["kokoro:bf_emma", "kokoro:am_michael"],
+                       "narration-and-dialogue voices before Bella, who was heard as a dialogue voice")
         XCTAssertEqual(s.fallbackReason, "the home server answered, but not with a voice from the list")
     }
 
@@ -85,12 +149,42 @@ final class VoiceCasterTests: XCTestCase {
         struct Down: Error {}
         let none = await VoiceCaster.suggest(for: book(), available: available, languageDefault: "kokoro:bm_george",
                                              complete: nil)
-        XCTAssertEqual(none.primary, "kokoro:bm_george")
+        XCTAssertEqual(none.primary, "kokoro:af_heart", "an English book without a suggestion is read by Heart")
         XCTAssertEqual(none.fallbackReason, "no model is set up")
         let down = await VoiceCaster.suggest(for: book(), available: available, languageDefault: "kokoro:bm_george",
                                              complete: { _, _ in throw Down() })
         XCTAssertTrue(down.fallbackReason?.hasPrefix("no model answered") == true)
         XCTAssertTrue(([down.primary] + down.alternates).allSatisfy(available.contains))
+    }
+
+    /// TBX-10916: with no model, Emma for a book that declared British English, Heart for any
+    /// other English, each only when offered; otherwise, and for other languages, the configured
+    /// default as before.
+    func testTheNarratorDefaultWhenNoModelSuggestsOne() async {
+        var british = book()
+        british.languageRegion = "gb"
+        let emma = await VoiceCaster.suggest(for: british, available: available, languageDefault: "kokoro:bm_george", complete: nil)
+        XCTAssertEqual(emma.primary, "kokoro:bf_emma")
+        XCTAssertFalse(emma.alternates.contains("kokoro:bf_emma"))
+
+        let noEmma = available.filter { $0 != "kokoro:bf_emma" }
+        let configured = await VoiceCaster.suggest(for: british, available: noEmma, languageDefault: "kokoro:bm_george", complete: nil)
+        XCTAssertEqual(configured.primary, "kokoro:bm_george", "Emma is not on this engine, so the configured default")
+
+        let noHeart = available.filter { $0 != "kokoro:af_heart" }
+        let american = await VoiceCaster.suggest(for: book(), available: noHeart, languageDefault: "kokoro:bm_fable", complete: nil)
+        XCTAssertEqual(american.primary, "kokoro:bm_fable")
+
+        var spanish = book()
+        spanish.language = "es"
+        let dora = await VoiceCaster.suggest(for: spanish, available: available + ["kokoro:ef_dora"],
+                                             languageDefault: "kokoro:ef_dora", complete: nil)
+        XCTAssertEqual(dora.primary, "kokoro:ef_dora", "a book in another language is unchanged")
+
+        // A model's own choice of an offered voice stands.
+        let chosen = await VoiceCaster.suggest(for: british, available: available, languageDefault: "kokoro:af_heart",
+                                               complete: { _, _ in (#"{"primary_voice": "bm_fable"}"#, "m") })
+        XCTAssertEqual(chosen.primary, "kokoro:bm_fable")
     }
 
     func testSecretsInTheBookNeverReachTheModel() async {

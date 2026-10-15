@@ -73,6 +73,8 @@ struct BatonSettingsView: View {
             BatonActionsPane()
         case .speech:
             BatonSpeechPane()
+        case .storage:
+            BatonStoragePane()
         case .agents:
             BatonAgentsPane()
         case .remote:
@@ -92,6 +94,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case equalizer
     case actions
     case speech
+    case storage
     case agents
     case remote
     case friendLog
@@ -106,6 +109,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .equalizer: "Equalizer"
         case .actions: "Actions"
         case .speech: "Speech"
+        case .storage: "Storage"
         case .agents: "Agents"
         case .remote: "Remote"
         case .friendLog: "Friend Log"
@@ -120,6 +124,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .equalizer: "slider.horizontal.3"
         case .actions: "bolt.horizontal.circle"
         case .speech: "waveform"
+        case .storage: "internaldrive"
         case .agents: "sparkles"
         case .remote: "antenna.radiowaves.left.and.right"
         case .friendLog: "list.bullet.rectangle"
@@ -497,6 +502,9 @@ private struct BatonAgentsPane: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
+
+            // What document features may send to a cloud model (M4.6, TBX-10851).
+            CloudModelConsentSection()
         }
         .formStyle(.grouped)
         .onAppear {

@@ -224,10 +224,20 @@ final class LocalModelServersTests: XCTestCase {
         XCTAssertTrue(KokoroPlacement.none.summary(localVoices: nil).hasPrefix("No Kokoro is set up"))
     }
 
+    /// TBX-10854: with no Kokoro server, the row says what reads a book: the built-in voices when
+    /// they are downloaded, and how to get them when they are not.
+    func testKokoroSummaryNamesTheBuiltInVoicesWhenNoServerIsSetUp() {
+        XCTAssertEqual(KokoroPlacement.none.summary(localVoices: nil, builtInVoicesReady: true),
+                       "No Kokoro is set up, and none is running on this Mac. Books made on this Mac read with the built-in voices above, in English.")
+        XCTAssertEqual(KokoroPlacement.none.summary(localVoices: nil, builtInVoicesReady: false),
+                       "No Kokoro is set up, and none is running on this Mac. Books made on this Mac need one, or the built-in voices above once they are downloaded.")
+    }
+
     /// : what a person reads has no em or en dashes.
     func testUserFacingSentencesHaveNoDashes() {
         let placements: [KokoroPlacement] = [.thisMac, .network("h"), .elsewhere("h"), .none]
-        var sentences = placements.flatMap { [$0.summary(localVoices: nil), $0.summary(localVoices: 3)] }
+        var sentences = placements.flatMap { [$0.summary(localVoices: nil), $0.summary(localVoices: 3),
+                                               $0.summary(localVoices: nil, builtInVoicesReady: true)] }
         sentences.append(RecommendedModel.pullRefusal(downloadBytes: 9_000_000_000, freeBytes: 1_000_000_000) ?? "")
         sentences.append(OllamaPullProgress.Failure.server("x").description)
         for sentence in sentences {

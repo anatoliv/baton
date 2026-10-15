@@ -75,7 +75,16 @@ enum MobileBookShelf {
 
         /// Where the book's audio is: here once every chapter has come down, on the home server
         /// while it is still being made or collected there.
-        var storedText: String { isComplete ? "On this phone" : "On the home server" }
+        var storedText: String {
+            if isOffloaded { return "Download removed" }
+            return isComplete ? "On this phone" : "On the home server"
+        }
+
+        /// Every chapter was made, and none of their audio is on this phone now (M6.3).
+        var isOffloaded: Bool { !chapters.isEmpty && chapters.allSatisfy { $0.state == .removed } }
+
+        /// Chapters made once whose audio is not on this phone now.
+        var missing: [Int] { chapters.filter { $0.state == .removed }.map(\.index) }
 
         /// One line under the book: why it is waiting, or what it is making.
         var statusLine: (text: String, isProblem: Bool)? {

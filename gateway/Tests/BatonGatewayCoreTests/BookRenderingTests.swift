@@ -3,6 +3,9 @@ import BatonMCPProtocol
 import Foundation
 import XCTest
 @testable import BatonGatewayCore
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
 
 // The gateway's half of books: the real ffmpeg encoder and the HTTP routes. The render loop
 // itself is shared and tested in BatonDocuments (`BookRenderingTests` there).
@@ -127,6 +130,122 @@ final class FFmpegMuxerTests: XCTestCase {
         XCTAssertTrue(text.contains("TAG:album=A Small Room"), text)
         XCTAssertTrue(text.contains("TAG:title=Part 1"), text)
         XCTAssertTrue(text.contains("TAG:track=1/1"), text)
+    }
+
+    /// TBX-10845: every chapter mark lands where its chapter starts in the joined file. Twelve
+    /// chapters of real AAC from the gateway's own `encode`, each 0.25 s of silence then a tone
+    /// of its own, joined by `exportM4B` with marks from the rendered lengths. Checked three
+    /// ways: each chapter's first packet in the joined file sits on its mark; the joined file
+    /// holds every chapter's packets in full, none overlapped away; and, where AVFoundation is
+    /// there, each tone is heard on its mark when Apple's decoder plays the file, as Books does.
+    /// Before the fix the joined file lost about 0.04 s per chapter and AVFoundation heard the
+    /// tones up to 0.46 s after their marks by chapter 12. Main-actor so that the assertions
+    /// after AVFoundation's `await` are recorded: on another thread XCTest dropped them.
+    @MainActor
+    func testExportedMarksLandWhereEachChapterStarts() async throws {
+        guard let ffmpeg = FFmpegMuxer.locate() else { throw XCTSkip("ffmpeg is not installed") }
+        let muxer = FFmpegMuxer(executable: ffmpeg)
+        guard let ffprobe = FFmpegMuxer.locate(muxer.probeExecutable) else { throw XCTSkip("ffprobe is not installed beside ffmpeg") }
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let lengths = [3.349, 2.801, 2.357, 3.006, 3.526, 2.444, 3.461, 2.974, 1.775, 1.020, 1.168, 2.400]
+        var files: [URL] = []
+        var marks: [AudiobookExport.Mark] = []
+        var rendered = 0.0
+        for (index, seconds) in lengths.enumerated() {
+            let wav = dir.appendingPathComponent("chapter-\(index + 1).wav")
+            let m4a = dir.appendingPathComponent("chapter-\(index + 1).m4a")
+            _ = try Self.tool(ffmpeg, ["-nostdin", "-v", "error", "-y", "-f", "lavfi",
+                                       "-i", "sine=frequency=\(400 + 150 * index):sample_rate=24000:duration=\(seconds - 0.25)",
+                                       "-af", "adelay=250:all=1", "-ac", "1", wav.path])
+            try await muxer.encode(wav: wav, to: m4a, bitrate: 48_000, channels: 1, tags: [:])
+            files.append(m4a)
+            marks.append(AudiobookExport.Mark(title: "Part \(index + 1)", start: rendered, end: rendered + seconds))
+            rendered += seconds
+        }
+        let out = dir.appendingPathComponent("book.m4b")
+        try await muxer.exportM4B(chapters: files, book: sampleBook(chapters: lengths.count), marks: marks, to: out)
+
+        let chapterJSON = try Self.tool(ffprobe, ["-v", "error", "-show_chapters", "-of", "json", out.path])
+        let chapters = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(chapterJSON.utf8)) as? [String: Any])["chapters"] as? [[String: Any]]
+        let starts = try XCTUnwrap(chapters).map { Double($0["start_time"] as? String ?? "") ?? -1 }
+        XCTAssertEqual(try XCTUnwrap(chapters).compactMap { ($0["tags"] as? [String: Any])?["title"] as? String },
+                       (1...lengths.count).map { "Part \($0)" })
+        XCTAssertEqual(starts.count, lengths.count)
+
+        // Each chapter's packets, in order, and the joined file's: chapter k begins at the packet
+        // after all of the earlier chapters' packets.
+        func packets(_ url: URL) throws -> [(pts: Double, duration: Double)] {
+            try Self.tool(ffprobe, ["-v", "error", "-select_streams", "a:0", "-show_entries", "packet=pts_time,duration_time",
+                                    "-of", "csv=p=0", url.path])
+                .split(whereSeparator: \.isNewline).map { line in
+                    let fields = line.split(separator: ",").compactMap { Double($0) }
+                    return (fields.first ?? .nan, fields.count > 1 ? fields[1] : .nan)
+                }
+        }
+        let joined = try packets(out)
+        var first = 0
+        var chapterPackets = 0.0
+        for (index, file) in files.enumerated() {
+            let own = try packets(file)
+            XCTAssertEqual(starts[index], joined[first].pts - joined[0].pts, accuracy: 0.05, "chapter \(index + 1)'s first packet")
+            first += own.count
+            chapterPackets += own.reduce(0) { $0 + $1.duration }
+        }
+        XCTAssertEqual(joined.count, first, "every chapter's packets are in the joined file")
+        XCTAssertEqual(joined.reduce(0) { $0 + $1.duration }, chapterPackets, accuracy: 0.05,
+                       "no chapter's packets were overlapped away")
+
+        #if canImport(AVFoundation)
+        // Where each tone is heard as Apple's decoder plays the file: the first sound after at
+        // least 0.15 s of quiet. Chapter 1's tone is the reference, since every chapter opens the same way.
+        let asset = AVURLAsset(url: out)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        let track = try XCTUnwrap(tracks.first)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false, AVNumberOfChannelsKey: 1, AVSampleRateKey: 24_000,
+        ])
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+        var onsets: [Double] = []
+        var quiet = 3600
+        while let buffer = output.copyNextSampleBuffer() {
+            let at = CMSampleBufferGetPresentationTimeStamp(buffer).seconds
+            let count = CMSampleBufferGetNumSamples(buffer)
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+            var samples = [Int16](repeating: 0, count: count)
+            CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * 2, destination: &samples)
+            for (i, sample) in samples.enumerated() {
+                if abs(Int(sample)) < 100 { quiet += 1; continue }
+                if quiet >= 3600 { onsets.append(at + Double(i) / 24_000) }
+                quiet = 0
+            }
+        }
+        XCTAssertEqual(onsets.count, lengths.count, "one tone per chapter")
+        for (index, (start, onset)) in zip(starts, onsets).enumerated() {
+            XCTAssertEqual(start, onset - onsets[0], accuracy: 0.05, "chapter \(index + 1) as AVFoundation plays it")
+        }
+        #endif
+    }
+
+    /// Runs ffmpeg or ffprobe and returns what it printed, failing on a non-zero exit.
+    private static func tool(_ path: String, _ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        let capture = FileManager.default.temporaryDirectory.appendingPathComponent("tool-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: capture.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: capture) }
+        let handle = try FileHandle(forWritingTo: capture)
+        process.standardOutput = handle
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        try handle.close()
+        guard process.terminationStatus == 0 else { throw SynthesisError.permanent("\(path) exited \(process.terminationStatus)") }
+        return try String(contentsOf: capture, encoding: .utf8)
     }
 }
 
@@ -326,6 +445,55 @@ final class BookRoutesTests: XCTestCase {
         XCTAssertFalse(synth.calls.contains { $0.text.contains(key) })
         let r12 = await preview(String(repeating: "a", count: 601))
         XCTAssertEqual(status(r12), "413 Payload Too Large")
+    }
+
+    /// TBX-10902: a cast book's id carries who speaks each line. The gateway recomputes it, so
+    /// it takes a cast book under the id with the attribution, refuses the id the same book had
+    /// before (what a gateway without this change computes, and so the answer such a gateway
+    /// gives a client with it: 400, "book id does not match its content"), and treats the same
+    /// voices with a line given to someone else as a book of its own.
+    @MainActor
+    func testACastBookIsTakenUnderTheIdThatCarriesItsAttribution() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let synth = FakeSynthesizer()
+        let renderer = BookRenderer(store: store, cacheDirectory: dir.appendingPathComponent("cache"),
+                                    synthesizer: synth, muxer: CopyMuxer(), retry: .init(initialDelay: 0.01, maximumDelay: 0.02))
+        let routes = BookRoutes(renderer: renderer, store: store, synthesizer: synth, unavailableReason: nil)
+
+        func castBook(_ secondLine: String?) -> PreparedBook {
+            PreparedBook(documentID: String(repeating: "5a", count: 32), title: "The Room", author: nil, language: "en",
+                         voices: VoicePlan(narrator: "kokoro:bf_isabella",
+                                           characters: ["Mary": "kokoro:bf_emma", "Tom": "kokoro:bm_george"]),
+                         chapters: [PreparedChapter(index: 0, title: "Chapter 1", segments: [
+                             SpeechSegment(text: "Who is it at this hour?", kind: .quote, speaker: "Mary", pauseBeforeMs: 0, paragraph: 0),
+                             SpeechSegment(text: "Only me.", kind: .quote, speaker: secondLine, pauseBeforeMs: 300, paragraph: 1),
+                             SpeechSegment(text: "I came to see the surface.", kind: .quote, speaker: "Tom", pauseBeforeMs: 300, paragraph: 2),
+                         ])])
+        }
+        let rules = castBook(nil), filled = castBook("Tom")
+        let rulesID = BookJob.id(for: rules), filledID = BookJob.id(for: filled)
+        XCTAssertNotEqual(rulesID, filledID, "the same voices, a line given to someone else")
+        // The id before TBX-10902: the document, the voices, no lexicon. Both books had it.
+        let previousID = SHA256Digest.hex(of: Data("book-v1|\(rules.documentID)|".utf8) + (try BookJSON.encoder.encode(rules.voices)))
+        XCTAssertNotEqual(previousID, rulesID)
+
+        let refused = await upload(routes, dir, id: previousID, body: try filled.encoded())
+        XCTAssertEqual(status(refused), "400 Bad Request")
+        XCTAssertEqual(String(data: body(refused), encoding: .utf8), #"{"error":"book id does not match its content"}"#)
+        let crossed = await upload(routes, dir, id: rulesID, body: try filled.encoded())
+        XCTAssertEqual(status(crossed), "400 Bad Request", "another attribution's id")
+
+        let first = await upload(routes, dir, id: rulesID, body: try rules.encoded())
+        XCTAssertEqual(status(first), "201 Created")
+        let second = await upload(routes, dir, id: filledID, body: try filled.encoded())
+        XCTAssertEqual(status(second), "201 Created", "a book of its own, not the first one found again")
+        await renderer.waitUntilIdle()
+        XCTAssertEqual(store.load(rulesID)?.status, .ready)
+        XCTAssertEqual(store.load(filledID)?.status, .ready)
+        XCTAssertTrue(synth.calls.contains { $0.text == "Only me." && $0.voice == "kokoro:bm_george" })
+        XCTAssertTrue(synth.calls.contains { $0.text == "Only me." && $0.voice == "kokoro:bf_isabella" })
     }
 
     @MainActor

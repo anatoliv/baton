@@ -55,9 +55,28 @@ final class MusicModel {
     /// playing. Surfaced in Clippings, and played through the ordinary player: a clipping's id is
     /// its file URL, which `MediaKind` already treats as `.localFile`.
     let clippings = ClippingStore()
+    /// The Clippings filter's index (M8.9). Kept here so leaving Clippings does not throw away the
+    /// folded text. The Mac's list searches a clipping's title, source and words.
+    let clippingSearch = ClippingSearch(fields: MusicModel.clippingSearchFields)
+    static let clippingSearchFields: ClippingSearch.Fields = [.title, .source, .text]
+    /// `baton.documents.enabled`, read live: the File menu, Clippings and the book
+    /// renderer follow the Settings switch at once instead of at the next launch.
+    let documentsSwitch = DefaultsSwitch(key: DocumentLibrary.enabledKey, defaultValue: true)
+    /// Whether `documents` already follows the switch; until documents are first on, the
+    /// library is not even created.
+    @ObservationIgnored private var documentsFollowSwitch = false
+    /// Documents sent from the iPhone with "Send to my Mac", picked up from the
+    /// gateway while Documents is on. Lazy for the same reason as `documents`.
+    @ObservationIgnored lazy var documentInbox = DocumentInbox(documentsOn: { [documentsSwitch] in documentsSwitch.isOn })
     /// Books narrated on this Mac, each chapter landing in `clippings` (document clippings, M3).
     /// Lazy, so nothing is created on disk while `baton.documents.enabled` is off.
-    @ObservationIgnored lazy var documents = DocumentLibrary(clippings: clippings)
+    @ObservationIgnored lazy var documents: DocumentLibrary = {
+        let library = DocumentLibrary(clippings: clippings)
+        // A chapter whose audio leaves (Remove Download, a storage rule, Delete Book) leaves
+        // the queue too, rather than playing on into a file that is gone.
+        library.cleanup.dropFromQueue = { [music] ids in music.dropFromQueue(ids: Set(ids)) }
+        return library
+    }()
     /// One-off spoken task summaries (the `speak_summary` MCP tool) + in-app banner state.
     let speech = SpeechPlaybackEngine()
     let interpretation = BatonInterpreterHub()
@@ -173,9 +192,27 @@ final class MusicModel {
         // sections without a music server depends on whether there are any (F1). A directory
         // listing and a sidecar per clipping.
         if !environment.isTesting { clippings.loadIfNeeded() }
-        // Resume a book left rendering when Baton quit. Off unless the flag is on (M1–M3).
-        if !environment.isTesting, DocumentLibrary.isEnabled() {
-            documents.start()
+        // Resume a book left rendering when Baton quit, and from then on start and stop with
+        // the Documents switch (M1–M3, TBX-10801).
+        if !environment.isTesting {
+            if documentsSwitch.isOn { followDocumentsSwitch() }
+            documentsSwitch.onChange { [weak self] on in
+                guard let self, on, !self.documentsFollowSwitch else { return }
+                self.followDocumentsSwitch()
+            }
+        }
+    }
+
+    /// Create the library (if it is not yet), start it, and hand it the switch, so turning
+    /// documents off stops it and on again resumes it.
+    private func followDocumentsSwitch() {
+        documentsFollowSwitch = true
+        documents.follow(documentsSwitch)
+        documents.start(force: true)
+        documentInbox.start()
+        documentsSwitch.onChange { [weak self] on in
+            guard let self else { return }
+            if on { self.documentInbox.start() } else { self.documentInbox.stop() }
         }
     }
 
@@ -336,7 +373,7 @@ final class MusicModel {
             // there), and the end of the last chapter finishes the book.
             if MediaKind(id: song.id) == .localFile {
                 guard let self, let documentID = clippings.item(forSongID: song.id)?.clipping.documentID else { return }
-                let count = DocumentLibrary.isEnabled() ? self.documents.job(forDocument: documentID)?.summary.chapters.count : nil
+                let count = self.documentsSwitch.isOn ? self.documents.job(forDocument: documentID)?.summary.chapters.count : nil
                 if let finished = BookPlayback.record(song, time: time, duration: duration,
                                                       chapterCount: count, clippings: clippings) {
                     Task { await self.documents.markFinished(documentID: finished) }

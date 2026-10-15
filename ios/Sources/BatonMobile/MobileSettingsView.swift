@@ -1,3 +1,5 @@
+import BatonPlaybackKit
+import BatonSubsonicKit
 import SwiftUI
 
 /// Minimal first-cut settings: the connected server, playback preferences that the
@@ -30,6 +32,9 @@ struct MobileSettingsView: View {
     /// who never opens this screen.
     @AppStorage(StreamQuality.cellularKey) private var cellularQuality = StreamQuality.high.rawValue
     @AppStorage(MobileModel.experimentalEngineKey) private var experimentalEngine = false
+    /// Document clippings, on by default since TBX-10801. Read through `MobileDocuments` rather
+    /// than `@AppStorage` so the switch and the feature agree on what an absent key means.
+    @State private var documentsEnabled = MobileDocuments.isEnabled()
     @State private var showsWhatsNew = false
     /// A footer's "Learn more" opens Help at the topic it just requested.
     @State private var showsHelp = false
@@ -392,6 +397,49 @@ struct MobileSettingsView: View {
                 }
 
                 transcriptionSection
+
+                // Books from Files, the share sheet or the + menu on Clippings. One switch:
+                // off hides the import items and the book rows, and refuses "Open in Baton".
+                Section {
+                    Toggle("Documents", isOn: $documentsEnabled)
+                        .onChange(of: documentsEnabled) { _, on in
+                            BatonStorage.defaults.set(on, forKey: MobileDocuments.enabledKey)
+                        }
+                    // Where book audio lives, how big it is, and the cleanup rules (M6.4).
+                    if documentsEnabled {
+                        // TBX-10909: no engine choice here, only what makes the books.
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Where books are made")
+                            Text(MobileDocuments.whereBooksAreMade)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("settings-documents-voices")
+                        Button {
+                            HelpGuide.requestTopic(SettingsHelpTopic.voices)
+                            showsHelp = true
+                        } label: {
+                            Label("Voices: on this Mac or on a server", systemImage: "questionmark.circle")
+                        }
+                        .accessibilityIdentifier("settings-documents-voices-help")
+                        NavigationLink {
+                            MobileStorageView(model: model)
+                        } label: {
+                            Label("Storage", systemImage: "internaldrive")
+                        }
+                        .accessibilityIdentifier("settings-storage")
+                    }
+                } header: {
+                    Text("Documents")
+                } footer: {
+                    SettingsFooter(
+                        text: "Turn documents into audiobooks from Clippings, Files or the share sheet.",
+                        topic: SettingsHelpTopic.documents,
+                        onOpenHelp: { showsHelp = true }
+                    )
+                }
 
                 Section {
                     Toggle("Gapless playback", isOn: Binding(

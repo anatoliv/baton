@@ -363,6 +363,8 @@ public enum TranscriptSummarizer {
                 throw SummaryError(message: "Unexpected response from the summarizing model.")
             case .unreadable, .notHTTP, .badURL:
                 throw SummaryError(message: "The summarizing model replied with nothing usable.")
+            case .reasoningUsedTheBudget:
+                throw SummaryError(message: "The summarizing model spent its whole reply budget reasoning and never answered.")
             }
         } catch {
             throw SummaryError(message: "The summarizing model couldn't be reached: \(error.localizedDescription)")

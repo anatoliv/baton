@@ -54,6 +54,52 @@ final class DialogueCastTests: XCTestCase {
         XCTAssertEqual(looseQuotes[3].method, "alternation")
     }
 
+    /// TBX-10894: a title's full stop no longer ends the tag, and the verbs the held-out texts
+    /// use ("returned", "rejoined") are read as speech.
+    func testATitledNameAfterTheVerbAndTheNewVerbsAreTags() {
+        let bennets = [
+            DialogueCast.Character(name: "Mr. Bennet", gender: "m", age: "old", aliases: ["her father"]),
+            DialogueCast.Character(name: "Mrs. Bennet", gender: "f", age: "old", aliases: ["her mother"]),
+            DialogueCast.Character(name: "Elizabeth", gender: "f", age: "young", aliases: ["lizzy"]),
+        ]
+        var spans = DialogueCast.segment(doc([
+            "The family sat at breakfast.",
+            "\u{201C}I have no objection to hearing it,\u{201D} said Mr. Bennet.",
+            "\u{201C}Then you shall hear it,\u{201D} returned Mrs. Bennet. \u{201C}All of it.\u{201D}",
+            "\u{201C}Must we?\u{201D} rejoined Elizabeth.",
+            "\u{201C}You must,\u{201D} said Dr. Jones, who was not on the cast.",
+        ]))
+        DialogueCast.attributeRules(&spans, cast: bennets)
+        let quotes = spans.filter { $0.kind == .quote }
+        XCTAssertEqual(quotes.map(\.speaker), ["Mr. Bennet", "Mrs. Bennet", "Mrs. Bennet", "Elizabeth", nil])
+        XCTAssertEqual(quotes.map(\.method), ["tag", "tag", "paragraph", "tag", nil])
+        XCTAssertEqual(DialogueCast.tagPhrases(after: "said Mr. Bennet.", before: nil), ["Mr. Bennet"])
+        XCTAssertEqual(DialogueCast.tagPhrases(after: "said St. John, smiling.", before: nil), ["St. John"])
+    }
+
+    /// TBX-10894: a short beat about someone outside the two-person exchange brings them in, so
+    /// turn-taking stops guessing there (Austen, *Pride and Prejudice* ch. 2: Mrs. Bennet scolds
+    /// Kitty after an exchange between Elizabeth and Mr. Bennet).
+    func testABeatAboutSomeoneElseEndsTheExchange() {
+        let family = [
+            DialogueCast.Character(name: "Mr. Bennet", gender: "m", age: "old"),
+            DialogueCast.Character(name: "Mrs. Bennet", gender: "f", age: "old"),
+            DialogueCast.Character(name: "Elizabeth", gender: "f", age: "young"),
+        ]
+        let paragraphs = [
+            "\u{201C}But you forget,\u{201D} said Elizabeth.",
+            "\u{201C}No more have I,\u{201D} said Mr. Bennet.",
+            "Mrs. Bennet deigned not to make any reply, but began scolding.",
+            "\u{201C}Do not keep coughing so!\u{201D}",
+            "\u{201C}She times them ill,\u{201D} said Mr. Bennet.",
+            "\u{201C}Kitty has no discretion,\u{201D} said Elizabeth.",
+        ]
+        var spans = DialogueCast.segment(doc(paragraphs))
+        DialogueCast.attributeRules(&spans, cast: family)
+        XCTAssertNil(spans.first { $0.text.hasPrefix("Do not keep") }?.speaker,
+                     "Elizabeth by turn-taking before the fix; Mrs. Bennet in the book")
+    }
+
     func testNumberingMatchesDocumentSpeechSoTheCastLandsOnTheRightLines() {
         let d = doc(exchange)
         var spans = DialogueCast.segment(d)
@@ -112,6 +158,31 @@ final class DialogueCastTests: XCTestCase {
         XCTAssertFalse(voices.values.contains("kokoro:bf_emma"))
     }
 
+    /// The listening pass: characters get the voices heard as good for dialogue
+    /// first, then the narration-and-dialogue ones, of their own gender, and never a ruled-out one.
+    func testCharactersGetTheDialogueVoicesFirstAndNeverAnAvoidedOne() {
+        var spans = DialogueCast.segment(doc(exchange))
+        DialogueCast.attributeRules(&spans, cast: cast)
+        let narrator = "kokoro:af_heart"
+        let both = DialogueCast.assignVoices(spans, cast: cast, narrator: narrator, available: [
+            "kokoro:af_heart", "kokoro:bf_emma", "kokoro:af_nicole", "kokoro:bm_lewis", "kokoro:am_michael", "kokoro:am_santa",
+        ])
+        XCTAssertEqual(both["Mary"], "kokoro:af_nicole", "good for dialogue, ahead of Emma, who narrates as well")
+        XCTAssertEqual(both["Tom"], "kokoro:am_santa", "good for dialogue, though graded D-")
+
+        // No dialogue voice of his gender left: narration-and-dialogue next, the avoided Lewis never.
+        let rest = DialogueCast.assignVoices(spans, cast: cast, narrator: narrator, available: [
+            "kokoro:af_heart", "kokoro:af_bella", "kokoro:bm_lewis", "kokoro:am_adam", "kokoro:bm_daniel",
+        ])
+        XCTAssertEqual(rest["Mary"], "kokoro:af_bella")
+        XCTAssertEqual(rest["Tom"], "kokoro:bm_daniel", "narration and dialogue, ahead of Adam's narration-only voice")
+        XCTAssertFalse(rest.values.contains("kokoro:bm_lewis"))
+
+        let onlyAvoided = DialogueCast.assignVoices(spans, cast: cast, narrator: narrator,
+                                                    available: ["kokoro:af_heart", "kokoro:bm_lewis", "kokoro:af_aoede"])
+        XCTAssertTrue(onlyAvoided.isEmpty, "the narrator reads them rather than a voice ruled out")
+    }
+
     // MARK: - The sample
 
     struct Gold: Decodable {
@@ -137,13 +208,14 @@ final class DialogueCastTests: XCTestCase {
     /// Precision and coverage against the hand labels. Quotes are matched to labels by chapter
     /// and the label's opening characters, in order: the importer keeps two lines of quoted verse
     /// inside their sentence where the POC split them, so ids drift after that point.
-    private func score(_ spans: [DialogueCast.Span]) throws -> (correct: Int, assigned: Int, labelled: Int, unmatched: Int) {
+    private func score(_ spans: [DialogueCast.Span]) throws -> (correct: Int, assigned: Int, labelled: Int, unmatched: Int, wrong: [String]) {
         let gold = try fixture("machine-stops.gold", as: Gold.self).labels
         func key(_ id: String) -> (Int, Int) {
             let parts = id.dropFirst().split(separator: "q")
             return (Int(parts[0])!, Int(parts[1])!)
         }
         var correct = 0, assigned = 0, labelled = 0, unmatched = 0
+        var wrong: [String] = []
         var cursor: [Int: Int] = [:]
         let quotes = spans.filter { $0.kind == .quote }
         for (id, label) in gold.sorted(by: { key($0.key) < key($1.key) }) {
@@ -156,10 +228,10 @@ final class DialogueCastTests: XCTestCase {
             labelled += 1
             if let who = hit.element.speaker {
                 assigned += 1
-                if who == label.speaker { correct += 1 }
+                if who == label.speaker { correct += 1 } else { wrong.append("\(id) \(who)≠\(label.speaker) (\(hit.element.method ?? "-"))") }
             }
         }
-        return (correct, assigned, labelled, unmatched)
+        return (correct, assigned, labelled, unmatched, wrong)
     }
 
     func testRulesAloneReproduceThePOCOnTheSample() throws {
@@ -174,6 +246,47 @@ final class DialogueCastTests: XCTestCase {
         XCTAssertLessThanOrEqual(r.unmatched, 4, "segmentation drifted from the POC's")
         XCTAssertGreaterThanOrEqual(precision, 0.98)
         XCTAssertGreaterThanOrEqual(coverage, 0.35)
+    }
+
+    /// Rules, then a live model for the quotes they leave, on the sample. Opt-in
+    /// (`LiveModel`); `BATON_FILL_DIR` keeps the answers for rescoring.
+    func testRulesThenModelFillOnTheSampleWithALiveModel() async throws {
+        let document = try sample()
+        guard let live = LiveModel.complete(.dialogueCast) else {
+            throw XCTSkip("set BATON_LIVE_AGENT_FILE or BATON_LIVE_OLLAMA_MODEL to measure the model fill")
+        }
+        let sheet = try fixture("machine-stops.cast", as: DialogueCast.CastSheet.self)
+        let saved = ProcessInfo.processInfo.environment["BATON_FILL_DIR"].map { URL(fileURLWithPath: $0).appendingPathComponent("machine-stops.fill.json") }
+        let fill: DialogueCast.Fill
+        if let saved, let data = try? Data(contentsOf: saved) {
+            fill = try JSONDecoder().decode(DialogueCast.Fill.self, from: data)
+        } else {
+            let started = Date()
+            fill = await DialogueCast.fill(document, cast: sheet, complete: live.complete)
+            print("CAST fill: \(fill.answered)/\(fill.asked) prompts answered by \(fill.source ?? "nobody") in \(Int(Date().timeIntervalSince(started))) s")
+            if let saved {
+                try FileManager.default.createDirectory(at: saved.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(fill).write(to: saved)
+            }
+        }
+        var rules = DialogueCast.segment(SecretRedactor.redact(document))
+        DialogueCast.attributeRules(&rules, cast: sheet.characters)
+        var filled = rules
+        DialogueCast.applyFill(fill, to: &filled, cast: sheet.characters)
+        var oneWay = DialogueCast.segment(SecretRedactor.redact(document))
+        DialogueCast.attributeRules(&oneWay, cast: sheet.characters, agreeBothWays: false)
+        let turn = Dictionary(uniqueKeysWithValues: oneWay.filter { $0.method == "alternation" }.map { ($0.id, $0.speaker ?? "") })
+        var vetoed = filled
+        for i in vetoed.indices where vetoed[i].method == "model" {
+            if let t = turn[vetoed[i].id], t != vetoed[i].speaker { vetoed[i].speaker = nil; vetoed[i].method = "model-vetoed" }
+        }
+        for (policy, spans) in [("rules", rules), ("rules+model", filled), ("rules+model-veto", vetoed)] {
+            let r = try score(spans)
+            print("CAST fill \(policy) (\(live.name)): \(r.correct)/\(r.assigned) precision "
+                  + String(format: "%.3f", Double(r.correct) / Double(max(r.assigned, 1)))
+                  + ", coverage \(r.assigned)/\(r.labelled) " + String(format: "%.3f", Double(r.assigned) / Double(max(r.labelled, 1))))
+            if policy != "rules" { for w in r.wrong { print("   wrong (\(policy)): \(w)") } }
+        }
     }
 
     func testTheAgreementPolicyReproducesThePOCWithARecordedModel() async throws {
@@ -247,6 +360,74 @@ final class CastSheetGeneratorTests: XCTestCase {
         let reply = #"{"characters": [{"name": "Mary", "gender": "f", "aliases": ["his mother"]}, {"name": "Tom", "gender": "m", "aliases": ["his mother"]}]}"#
         let sheet = CastSheetGenerator.parse(reply, document: doc)
         XCTAssertEqual(sheet.characters.map(\.aliases), [[], []])
+    }
+
+    /// TBX-10926: an alias that is another character's name goes, and a repeated alias is kept once.
+    func testAnAliasThatIsAnotherCharactersNameIsDropped() {
+        let reply = #"{"characters": [{"name": "Mary", "gender": "f", "aliases": ["tom", "his mother", "His Mother"]}, {"name": "Tom", "gender": "m", "aliases": ["mary"]}]}"#
+        let sheet = CastSheetGenerator.parse(reply, document: doc)
+        XCTAssertEqual(sheet.characters.map(\.name), ["Mary", "Tom"])
+        XCTAssertEqual(sheet.characters.map(\.aliases), [["his mother"], []])
+    }
+
+    /// TBX-10894: ways of addressing someone are not names for them. "my dear" as Mrs. Bennet's
+    /// phrase would make every "my dear" a line spoken to her; the home model listed it until
+    /// its reply was cut off.
+    func testWaysOfAddressingSomeoneAreDroppedAndTheListIsBounded() {
+        let talk = ImportedDocument(sourceSHA256: "g", sourceKind: .text, title: "T", chapters: [
+            DocumentChapter(index: 0, title: "One", paragraphs: [
+                "\u{201C}My dear, sir, madam, my love, your honour,\u{201D} said his mother. Mary, the old woman, the cook, the maid, the nurse and Tom were there.",
+            ]),
+        ])
+        let reply = #"{"characters": [{"name": "Mary", "gender": "f", "aliases": ["my dear", "sir", "madam", "my love", "your honour", "his mother", "the old woman", "the cook", "the maid", "the nurse"]}]}"#
+        let sheet = CastSheetGenerator.parse(reply, document: talk)
+        XCTAssertEqual(sheet.characters.first?.aliases, ["his mother", "the old woman", "the cook", "the maid"],
+                       "forms of address dropped, at most four phrases")
+        XCTAssertTrue(CastSheetGenerator.isAddress("my dear mr. bennet"))
+        XCTAssertFalse(CastSheetGenerator.isAddress("her mother"))
+
+        let many = (1...40).map { #"{"name": "Mary \#($0)", "gender": "f"}"# }
+        let crowd = ImportedDocument(sourceSHA256: "h", sourceKind: .text, title: "T", chapters: [
+            DocumentChapter(index: 0, title: "One", paragraphs: ["Tom " + (1...40).map { "Mary \($0)" }.joined(separator: ", ")]),
+        ])
+        XCTAssertEqual(CastSheetGenerator.parse(#"{"characters": ["# + many.joined(separator: ",") + "]}", document: crowd).characters.count,
+                       CastSheetGenerator.maxCharacters)
+    }
+
+    func testANameInLowerCaseTakesTheBooksSpelling() {
+        let sheet = CastSheetGenerator.parse(#"{"characters": [{"name": "mary", "gender": "f", "aliases": ["his mother"]}, {"name": "tom", "gender": "m"}]}"#, document: doc)
+        XCTAssertEqual(sheet.characters.map(\.name), ["Mary", "Tom"])
+    }
+
+    /// A reply cut off at the reply budget (the home model repeating an alias) still gives the
+    /// people it finished.
+    func testAReplyCutOffKeepsThePeopleItFinished() {
+        let cut = #"{"characters": [{"name": "Mary", "gender": "f", "age": "old", "aliases": ["his mother"]}, "#
+            + #"{"name": "Tom", "gender": "m", "aliases": ["her son"]}, {"name": "Mrs. Bennet", "aliases": ["my dear", "my dear", "my de"#
+        let sheet = CastSheetGenerator.parse(cut, document: doc)
+        XCTAssertEqual(sheet.characters.map(\.name), ["Mary", "Tom"])
+        XCTAssertEqual(sheet.characters[0].aliases, ["his mother"])
+    }
+
+    /// However long the book, the prompt stays about the same size: the passages are sampled
+    /// across it, not taken from the start until they run out.
+    func testAWholeNovelsPromptIsSampledToAModestSize() async {
+        let novel = ImportedDocument(sourceSHA256: "n", sourceKind: .text, title: "Novel", chapters: (0..<60).map { c in
+            DocumentChapter(index: c, title: "Chapter \(c + 1)", paragraphs: (0..<60).map { k in
+                "\u{201C}This is part \(c)-\(k) of a long talk,\u{201D} said his mother, and Tom nodded at the window for a while."
+            })
+        })
+        let seen = Recorder()
+        let made = await CastSheetGenerator.generate(for: novel) { _, user in
+            seen.add(user)
+            return (#"{"characters": [{"name": "Mary", "gender": "f", "aliases": ["his mother"]}, {"name": "Tom", "gender": "m"}]}"#, "a test model")
+        }
+        XCTAssertEqual(made.sheet.characters.map(\.name), ["Mary", "Tom"])
+        let prompt = seen.all[0]
+        XCTAssertLessThan(prompt.count, CastSheetGenerator.passageBudget + 2_000, "3,600 talking paragraphs, a prompt of a few thousand characters")
+        XCTAssertTrue(prompt.contains("part 0-0 of"), "from the start")
+        XCTAssertTrue((50..<60).contains { c in prompt.contains("part \(c)-") }, "and from the end of the book")
+        XCTAssertEqual(ModelTask.castSheet.replyTokens, 2_048, "a reply budget above the 1,024 default, and a bound")
     }
 
     func testTheGeneratedSheetDrivesTheRules() async {

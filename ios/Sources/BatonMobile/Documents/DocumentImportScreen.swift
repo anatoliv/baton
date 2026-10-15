@@ -23,6 +23,8 @@ struct DocumentImportScreen: View {
     @State private var phase = Phase.reading
     @State private var submitting = false
     @State private var homeServer: Bool?   // nil until asked
+    /// What the home server said, for what to offer instead when it cannot make the book.
+    @State private var availability: HomeServerBooks.Availability?
     @State private var preview: AVAudioPlayer?
     @State private var previewing = false
 
@@ -50,7 +52,11 @@ struct DocumentImportScreen: View {
             }
         }
         .task { await read() }
-        .task { homeServer = await model.books.available() }
+        .task {
+            let answer = await model.books.availability()
+            availability = answer
+            homeServer = answer == .available
+        }
         .onDisappear { preview?.stop() }
         .interactiveDismissDisabled(submitting)
     }
@@ -132,13 +138,9 @@ struct DocumentImportScreen: View {
                     .disabled(submitting)
                     .accessibilityIdentifier("make-audiobook")
                 case .some(false):
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Making a book needs your home server", systemImage: "server.rack")
-                        Text(model.books.problem.map { "It is not available: \($0)." }
-                             ?? "Set it up under Settings, Music Friend, Home server, then try again. Or import the file on your Mac.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    .accessibilityIdentifier("needs-home-server")
+                    // Send to my Mac, or AirDrop to it.
+                    SendToMacSection(offer: ImportOffer(availability), source: url, title: document.title,
+                                     problem: model.books.problem, model: model, onDone: onDone)
                 }
             } footer: {
                 if homeServer == true {
@@ -157,14 +159,17 @@ struct DocumentImportScreen: View {
         } catch let failure as DocumentImporter.Failure {
             phase = .failed(failure.description)
         } catch {
-            phase = .failed("The file could not be read: \(error.localizedDescription)")
+            let what = MobileDocuments.isWebLink(url) ? "link" : "file"
+            phase = .failed("The \(what) could not be read: \(error.localizedDescription)")
         }
     }
 
     private func submit(_ document: ImportedDocument, voice: String) {
         submitting = true
         preview?.stop()
-        let book = DocumentSpeech.prepare(document, voices: VoicePlan(narrator: voice))
+        // The phone has no voice suggestion yet, so no tone to style a Chatterbox narrator with;
+        // the shared plan carries one the day it does (M8.7).
+        let book = DocumentSpeech.prepare(document, voices: .forBook(narrator: voice))
         Task {
             do {
                 try await model.books.submit(book)

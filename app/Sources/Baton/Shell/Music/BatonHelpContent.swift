@@ -323,6 +323,70 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.0",
+            date: "October 2026",
+            highlight: "Turn a document into an audiobook that plays in Clippings.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Turn a PDF, an EPUB, a web page, or a text or Markdown file into a narrated "
+                    + "book. Choose File, Import Document or File, Import Link, or drag the file "
+                    + "onto Clippings. Baton shows the chapters it found and lets you hear the "
+                    + "narrator first. Chapter 1 is usually ready in a minute or two, and the rest "
+                    + "follows while you listen."),
+                HelpWhatsNewChange(.added,
+                    "Documents are on for everyone. If you have no use for them, turn off "
+                    + "Documents in Settings, Speech. The import items and book rows go away at "
+                    + "once, and you do not need to relaunch."),
+                HelpWhatsNewChange(.added,
+                    "Built-in voices let this Mac make books without a voice server, offline and "
+                    + "privately. In a side-by-side listening test they sounded the same as the "
+                    + "server. Download them once in Settings, Speech. They take 342 MB, need a "
+                    + "Mac with Apple silicon, and nothing downloads until you ask."),
+                HelpWhatsNewChange(.added,
+                    "Voice engine for books, in Settings, Speech, chooses what reads a book made "
+                    + "on this Mac: the built-in voices, your voice server, or Automatic, which "
+                    + "uses the built-in voices when they have the book's voice. Each choice says "
+                    + "what it needs and whether it is ready. Make books on decides whether a new "
+                    + "book is made on this Mac or your home server, or asks each time."),
+                HelpWhatsNewChange(.added,
+                    "Voice the dialogue gives each speaking character a voice of their own. It is "
+                    + "off for your first book, then starts the way you last left it. Turn it on "
+                    + "in the import sheet and check the "
+                    + "cast a model proposes. Baton then works out who speaks each line, first "
+                    + "from the speech tags and then with a model for the lines without one."),
+                HelpWhatsNewChange(.added,
+                    "Remove Download frees a book's space and keeps your place. Download Again "
+                    + "or Render Again brings the audio back, and a deleted book waits in "
+                    + "Recently Removed for a week. The new Storage pane in Settings shows what "
+                    + "each book takes and holds the cleanup rules. Nothing is removed until "
+                    + "you choose a rule."),
+                HelpWhatsNewChange(.added,
+                    "At most once a week, Clippings may suggest removing the download of a book "
+                    + "you finished. Answer Keep or Remove, or Always Do This to make it a rule."),
+                HelpWhatsNewChange(.added,
+                    "Baton asks before any of a book's text goes to a cloud model. You can change "
+                    + "your answers in Settings, Agents, under Book text and cloud models. Models "
+                    + "on this Mac and on your home server never need asking."),
+                HelpWhatsNewChange(.added,
+                    "Apple Intelligence on this Mac can suggest a narrator, propose how names "
+                    + "are said and write a recap, and the book never leaves your Mac."),
+                HelpWhatsNewChange(.added,
+                    "When you come back to a book after a day or more, Baton offers a short "
+                    + "recap of what you have heard so far. You can also export a finished book as one "
+                    + "audiobook file with chapter marks, and correct how the narrator says a "
+                    + "name."),
+                HelpWhatsNewChange(.added,
+                    "A document you send from your iPhone with Send to my Mac opens here in the "
+                    + "import sheet. Any you set aside wait at the top of Clippings."),
+                HelpWhatsNewChange(.improved,
+                    "Searching Clippings stays quick with long books, and it ignores accents, so "
+                    + "cafe finds Café."),
+                HelpWhatsNewChange(.fixed,
+                    "An LM Studio model that thinks before it answers now passes the model test "
+                    + "in Settings. If the thinking uses up the whole reply, Baton says so."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.16",
             date: "October 2026",
             highlight: "Song sharing, meeting interpretation, and settings that stay put.",

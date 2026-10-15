@@ -1,3 +1,4 @@
+import BatonSubsonicKit
 import SwiftUI
 
 /// Settings → Speech: configure the `speak_summary` feature. Two self-hosted TTS hosts
@@ -29,6 +30,9 @@ struct BatonSpeechPane: View {
         var voice: String
     }
     @State private var transcriptionEnabled = SpeechConfig.transcriptionEnabled
+    // Document clippings (specs/document-clippings.md): on by default since TBX-10801, and this
+    // is the one place it is turned off. The flag is this Mac's own, not a synced setting.
+    @State private var documentsEnabled = DocumentLibrary.isEnabled()
     @State private var whisperHost = SpeechConfig.whisperBaseURL
     @State private var whisperModel = SpeechConfig.whisperModel
     @State private var whisperStatus: ServiceStatus = .unknown
@@ -75,9 +79,15 @@ struct BatonSpeechPane: View {
             // the pane to change belongs where the pane opens.
             hostsSection
             voicesSection
-            // Document clippings (M7.2 to M7.4): the models and voices this Mac can run itself.
-            // Under the servers, because it answers the same question for this machine.
-            if DocumentLibrary.isEnabled() {
+            // Document clippings: the switch, then (M7.2 to M7.4) the models and voices this Mac
+            // can run itself. Under the servers, because it answers the same question for this
+            // machine.
+            documentsSection
+            if documentsEnabled {
+                // TBX-10909: which engine reads a book made here (built on TBX-10854's
+                // download), with the Services probe's answers for its server lines.
+                BookVoiceEngineSection(kokoro: loadState[.kokoro] ?? .unknown,
+                                       chatterbox: loadState[.chatterbox] ?? .unknown)
                 LocalModelsSection()
             }
             deliverySection
@@ -128,6 +138,7 @@ struct BatonSpeechPane: View {
         .confirmationDialog("Reset Speech settings to defaults?", isPresented: $showResetConfirm) {
             Button("Reset to Defaults", role: .destructive) {
                 SpeechConfig.resetToDefaults()
+                BookVoiceSettings.reset()
                 fallbackEnabled = SpeechConfig.fallbackEnabled
                 announceImmediately = SpeechConfig.announceImmediately
                 alertNotification = SpeechConfig.alertWithNotification
@@ -139,7 +150,7 @@ struct BatonSpeechPane: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Restores the default category → voice map, the fallback toggle, and delivery preferences. Your server addresses are kept.")
+            Text("Restores the default category → voice map, the fallback toggle, delivery preferences, and the voice engine for books. Your server addresses are kept.")
         }
     }
 
@@ -327,6 +338,23 @@ struct BatonSpeechPane: View {
             Toggle("Fall back to the system voice", isOn: $fallbackEnabled)
                 .onChange(of: fallbackEnabled) { _, on in SpeechConfig.fallbackEnabled = on }
             Text("If a server is unreachable, speak the summary with the built-in macOS voice (`AVSpeechSynthesizer`) so it's never silently dropped.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The documents switch. The menu item (File → Import Document…), the drop target on
+    /// Clippings and the `import_document` agent tool all read the same flag, so turning it off
+    /// here takes the feature out of every entrance at once.
+    private var documentsSection: some View {
+        Section("Documents") {
+            Toggle("Documents", isOn: $documentsEnabled)
+                .onChange(of: documentsEnabled) { _, on in
+                    BatonStorage.defaults.set(on, forKey: DocumentLibrary.enabledKey)
+                }
+                // For scripts/probe-documents-storage.sh: a grouped Form's switch carries no
+                // label of its own in the accessibility tree.
+                .accessibilityIdentifier("documents-switch")
+            Text("Turn documents into audiobooks from Clippings or File > Import Document.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }

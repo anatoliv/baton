@@ -1,7 +1,10 @@
+import BatonDocuments
 import BatonPlaybackKit
+import BatonSpeech
 import BatonSubsonicKit
 import BatonSubsonicModels
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// **Clippings** — audio Baton made and kept: a saved reading, and in time anything clipped out
 /// of what is playing.
@@ -28,21 +31,32 @@ struct MusicClippingsView: View {
     @State private var importing: URL?
     @State private var expandedBooks: Set<String> = []
     @State private var pendingBookDelete: BookShelf.Book?
+    /// "Previously…" when a book is picked up after a break (M8.4).
+    @State private var recap = BookRecapOffer()
+    /// The book whose pronunciations are being corrected (M8.6).
+    @State private var pronouncing: BookShelf.Book?
+    /// An export in progress, or why the last one failed (M8.8).
+    @State private var exportLine: String?
+    @State private var exportFailed = false
+    /// The weekly storage suggestion, while it is on offer (M6.5).
+    @State private var suggestion: BookStorage.Suggestion?
+    /// A document sent from the iPhone, open in the import sheet.
+    @State private var sentImport: DocumentInbox.Item?
 
     private var store: ClippingStore { model.clippings }
 
-    /// Books are behind `baton.documents.enabled` until the Mac book flow is complete.
-    private var documentsOn: Bool { DocumentLibrary.isEnabled() }
+    /// `baton.documents.enabled`, read live, so the book rows, the drop target and the import
+    /// line follow the Settings switch at once.
+    private var documentsOn: Bool { model.documentsSwitch.isOn }
 
     /// Render jobs, so a book shows from the moment it is submitted. Matched by title while
     /// filtering, and by its chapters through `filtered`.
     private var jobs: [DocumentLibrary.Job] {
         guard documentsOn else { return [] }
-        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
         let all = model.documents.jobs
-        guard !query.isEmpty else { return all }
+        guard search.isFiltering else { return all }
         let matched = Set(filtered.compactMap(\.clipping.documentID))
-        return all.filter { matched.contains($0.documentID) || $0.summary.title.lowercased().contains(query) }
+        return all.filter { matched.contains($0.documentID) || search.matches(title: $0.summary.title) }
     }
 
     /// Readings as rows, and each book as one row that opens into its chapters.
@@ -61,15 +75,12 @@ struct MusicClippingsView: View {
     /// Searching the words is the point: a clipping is the only thing in Baton that knows what is
     /// said inside it, so filtering by "the bit about notarization" finds the reading rather than
     /// requiring you to remember what you called it.
-    private var filtered: [ClippingStore.Item] {
-        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return store.items }
-        return store.items.filter {
-            $0.clipping.title.lowercased().contains(query)
-                || ($0.clipping.source?.lowercased().contains(query) ?? false)
-                || ($0.clipping.text?.lowercased().contains(query) ?? false)
-        }
-    }
+    ///
+    /// Through the shared search index (M8.9), which ignores case and accents and answers a pause
+    /// in typing rather than every keystroke; a book's chapters are 70,000 characters each.
+    private var filtered: [ClippingStore.Item] { search.filter(store.items) }
+
+    private var search: ClippingSearch { model.clippingSearch }
 
     /// Only what can actually be played. A missing file in a queue is a track that stalls with no
     /// explanation, which is worse than one that is visibly unavailable in the list.
@@ -81,9 +92,12 @@ struct MusicClippingsView: View {
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
+    /// Documents sent from the iPhone and waiting here, while Documents is on.
+    private var sentItems: [DocumentInbox.Item] { documentsOn ? model.documentInbox.items : [] }
+
     var body: some View {
         Group {
-            if store.items.isEmpty && jobs.isEmpty {
+            if store.items.isEmpty && jobs.isEmpty && sentItems.isEmpty {
                 empty
             } else {
                 VStack(spacing: 0) {
@@ -108,21 +122,64 @@ struct MusicClippingsView: View {
                         },
                         sortMenu: { EmptyView() }
                     )
+                    if let suggestion, documentsOn { suggestionBanner(suggestion) }
+                    if !sentItems.isEmpty { sentBanner }
+                    if recap.offer != nil { recapBanner }
+                    if let exportLine {
+                        HStack(spacing: 8) {
+                            if !exportFailed { ProgressView().controlSize(.small) }
+                            Text(exportLine).font(.callout).foregroundStyle(exportFailed ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                            Spacer()
+                            if exportFailed { Button("Dismiss") { self.exportLine = nil } }
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                    }
                     list
                 }
             }
         }
         .task { store.loadIfNeeded() }
+        .onChange(of: filterText, initial: true) { _, text in
+            search.follow(store)
+            search.setQuery(text)
+        }
         .onAppear {
             store.reload()
-            if documentsOn { model.documents.refresh() }
+            if documentsOn {
+                model.documents.refresh()
+                // The person's storage rules, then at most one suggestion a week (M6.3, M6.5).
+                model.documents.applyStorageRules()
+                refreshSuggestion()
+            }
             takePendingImport()
+            offerNextSent()
+        }
+        .onChange(of: documentsOn ? model.documentInbox.nextOffer?.id : nil) { _, _ in offerNextSent() }
+        .onChange(of: importing == nil && pronouncing == nil) { _, free in if free { offerNextSent() } }
+        .sheet(item: $sentImport, onDismiss: offerNextSent) { item in
+            if let source = item.source {
+                DocumentImportSheet(url: source, library: model.documents, sentFrom: item.record.fromDevice,
+                                    onImported: { model.documentInbox.finish(item.id) },
+                                    onDiscard: { model.documentInbox.finish(item.id) }) {
+                    // Not Now, unless it was just imported or discarded (then it is gone already).
+                    model.documentInbox.notNow(item.id)
+                    sentImport = nil
+                }
+            }
+        }
+        .onChange(of: documentsOn) { _, on in
+            if on { model.documents.refresh(); refreshSuggestion() } else { suggestion = nil }
         }
         .onChange(of: router?.pendingDocumentImport) { _, _ in takePendingImport() }
         .modifier(DocumentDropTarget(enabled: documentsOn, importing: $importing))
         .sheet(isPresented: .init(get: { importing != nil }, set: { if !$0 { importing = nil } })) {
             if let importing {
                 DocumentImportSheet(url: importing, library: model.documents) { self.importing = nil }
+            }
+        }
+        .sheet(isPresented: .init(get: { pronouncing != nil }, set: { if !$0 { pronouncing = nil } })) {
+            if let pronouncing {
+                PronunciationSheet(book: pronouncing, library: model.documents, clippings: store) { self.pronouncing = nil }
             }
         }
         .confirmationDialog("Delete this book?", isPresented: .init(
@@ -141,7 +198,8 @@ struct MusicClippingsView: View {
         } message: {
             Text("This stops making the book and removes its chapters. Removing it here leaves "
                  + "whatever is on your iPhone. Deleting everywhere also removes it from your "
-                 + "home gateway and from your other devices.")
+                 + "home gateway and from your other devices. For a week you can restore it from "
+                 + "Recently removed in Settings, under Storage.")
         }
         .alert("Rename clipping", isPresented: .init(
             get: { renaming != nil },
@@ -269,6 +327,11 @@ struct MusicClippingsView: View {
         store.remove(id: item.id, everywhere: true)
 
         guard let digest else { return }        // never travelled; nothing shared to remove
+        removeSharedCopy(digest)
+    }
+
+    /// Remove the gateway's shared copy of a clipping, by its digest.
+    private func removeSharedCopy(_ digest: String) {
         let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "")
             .trimmingCharacters(in: .whitespaces)
         let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
@@ -338,6 +401,7 @@ struct MusicClippingsView: View {
                         Text(book.storedText)
                         if book.finished {
                             Text("Finished")
+                            if let kept = book.keptUntilText { Text(kept) }
                         } else if book.listenedFraction > 0 {
                             Text("\(Int((book.listenedFraction * 100).rounded()))% heard")
                         }
@@ -370,6 +434,13 @@ struct MusicClippingsView: View {
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([first.url]) }
                 }
                 Divider()
+                Button("Export Audiobook…") { exportAudiobook(book) }
+                    .disabled(exportLine != nil && !exportFailed || !canExport(book))
+                if model.documents.job(forDocument: book.documentID)?.renderer == .thisMac {
+                    Button("Pronunciations…") { pronouncing = book }
+                }
+                storageMenu(book)
+                Divider()
                 Button("Delete Book…", role: .destructive) { pendingBookDelete = book }
             }
 
@@ -394,6 +465,135 @@ struct MusicClippingsView: View {
         .contentShape(Rectangle())
         .opacity(chapter.item?.isPresent == true ? 1 : 0.6)
         .onTapGesture(count: 2) { play(book, fromChapter: chapter.index) }
+        .contextMenu {
+            Button("Play") { play(book, fromChapter: chapter.index) }.disabled(chapter.item?.isPresent != true)
+            if documentsOn {
+                let library = model.documents
+                if chapter.state == .removed, let title = library.getBackTitle(book) {
+                    Button(title) { getBack(book, chapters: [chapter.index]) }
+                } else if chapter.item?.isPresent == true, library.stored(book).canGetBack {
+                    Button("Remove Download") { offload(book, chapters: [chapter.index]) }
+                }
+            }
+        }
+    }
+
+    // MARK: - Storage (M6.3, M6.5)
+
+    /// Remove Download, Download Again or Render Again, and Keep, for a book's menu.
+    @ViewBuilder
+    private func storageMenu(_ book: BookShelf.Book) -> some View {
+        let library = model.documents
+        let stored = library.stored(book)
+        Divider()
+        if let title = library.getBackTitle(book) {
+            Button(title) { getBack(book) }
+        }
+        if !stored.present.isEmpty, stored.canGetBack {
+            Button("Remove Download") { offload(book) }
+        }
+        Toggle("Keep on This Mac", isOn: Binding(
+            get: { library.cleanup.isKept(book.documentID) },
+            set: { library.cleanup.setKeep($0, documentID: book.documentID) }
+        ))
+    }
+
+    private func offload(_ book: BookShelf.Book, chapters: [Int]? = nil) {
+        let bytes = model.documents.offload(book, chapters: chapters)
+        guard bytes > 0 else { return }
+        model.music.postToast("Download removed, \(BookStorage.sizeText(bytes)) freed", symbol: "internaldrive", seconds: 3)
+    }
+
+    private func getBack(_ book: BookShelf.Book, chapters: [Int]? = nil) {
+        let library = model.documents
+        Task {
+            do { try await library.getBack(book, chapters: chapters) } catch {
+                model.music.postToast("The book could not come back: \(error)", symbol: "exclamationmark.triangle", seconds: 4)
+            }
+        }
+    }
+
+    private func refreshSuggestion() {
+        let library = model.documents
+        suggestion = library.cleanup.suggestion(for: library.storedBooks,
+                                                freeBytes: BookCleanup.freeBytes(at: URL(fileURLWithPath: NSHomeDirectory())))
+    }
+
+    private func suggestionTitle(_ suggestion: BookStorage.Suggestion) -> String? {
+        guard suggestion.kind == .finishedBook, let id = suggestion.ids.first else { return nil }
+        return model.documents.shelf.first { $0.documentID == id }?.title
+    }
+
+    /// Documents sent from the iPhone that wait here: those set aside with Not Now, and those
+    /// that arrived while another sheet was open.
+    private var sentBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(sentItems) { item in
+                HStack(spacing: 10) {
+                    Image(systemName: "iphone.and.arrow.forward").foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.record.title).font(.callout).lineLimit(1)
+                        Text("Sent from \(item.record.fromDevice)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Import…") {
+                        model.documentInbox.reopen(item.id)
+                        offerNextSent()
+                    }
+                    .disabled(sentImport != nil || importing != nil)
+                    Button("Discard") { model.documentInbox.finish(item.id) }
+                }
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.quaternary.opacity(0.4))
+        .accessibilityIdentifier("sent-from-iphone")
+    }
+
+    /// Open the next document sent from the iPhone, once no other sheet is open. A short pause
+    /// lets a sheet that just closed finish leaving before the next one comes up.
+    private func offerNextSent() {
+        guard documentsOn, model.documentInbox.nextOffer != nil else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard documentsOn, importing == nil, pronouncing == nil, sentImport == nil,
+                  let next = model.documentInbox.nextOffer else { return }
+            guard next.source != nil else { model.documentInbox.notNow(next.id); return }
+            sentImport = next
+        }
+    }
+
+    private func suggestionBanner(_ suggestion: BookStorage.Suggestion) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "internaldrive").foregroundStyle(.secondary)
+            Text(BookStorage.suggestionText(suggestion, title: suggestionTitle(suggestion), device: "this Mac"))
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button(suggestion.kind == .finishedBook ? "Keep" : "Not Now") { answer(.keep, suggestion) }
+            if suggestion.kind == .finishedBook {
+                Button("Always Do This") { answer(.always, suggestion) }
+            }
+            Button("Remove") { answer(.remove, suggestion) }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.quaternary.opacity(0.4))
+        .accessibilityIdentifier("storage-suggestion")
+    }
+
+    private func answer(_ answer: BookStorage.Answer, _ suggestion: BookStorage.Suggestion) {
+        let library = model.documents
+        let bytes = library.cleanup.answer(answer, to: suggestion, books: library.storedBooks)
+        library.refresh()
+        self.suggestion = nil
+        switch answer {
+        case .always:
+            model.music.postToast(BookStorage.alwaysConfirmation(device: "this Mac"), symbol: "internaldrive", seconds: 6)
+        case .remove where bytes > 0:
+            model.music.postToast("Download removed, \(BookStorage.sizeText(bytes)) freed", symbol: "internaldrive", seconds: 3)
+        default:
+            break
+        }
     }
 
     /// One line under the book: why it is waiting, or what it is making.
@@ -426,8 +626,17 @@ struct MusicClippingsView: View {
         }
     }
 
-    /// Play from the synced position, or from a chosen chapter.
+    /// Play from the synced position, or from a chosen chapter. Picking a book up after a
+    /// break offers "Previously…" first (M8.4); the book plays once that is answered.
     private func play(_ book: BookShelf.Book, fromChapter index: Int? = nil) {
+        if index == nil, documentsOn, !book.finished, book.position != nil {
+            let prepared = BookText.preparedBook(for: book, library: model.documents)
+            if recap.consider(book, prepared: prepared, lastPlayed: store.ledger.document(book.documentID)?.positionAt) { return }
+        }
+        startPlaying(book, fromChapter: index)
+    }
+
+    private func startPlaying(_ book: BookShelf.Book, fromChapter index: Int? = nil) {
         var (songs, start) = BookPlayback.queue(for: book)
         if let index {
             let present = book.chapters.compactMap(\.item).filter(\.isPresent)
@@ -437,21 +646,131 @@ struct MusicClippingsView: View {
         model.music.play(songs, startAt: start, source: .init(label: book.title, kind: .liked, id: nil))
     }
 
-    /// Stop making the book and remove its chapters, here or everywhere.
-    private func deleteBook(_ book: BookShelf.Book, everywhere: Bool) {
-        if let job = model.documents.job(forDocument: book.documentID) {
-            let library = model.documents
-            Task { await library.cancel(job.id) }
-        }
-        for item in book.chapters.compactMap(\.item) {
-            if everywhere {
-                deleteEverywhere(item)
-            } else {
-                model.music.dropFromQueue(ids: [item.asSong.id])
-                store.remove(id: item.id)
+    // MARK: - Previously… (M8.4)
+
+    private var recapBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let offer = recap.offer {
+                HStack(spacing: 10) {
+                    Image(systemName: "text.book.closed").foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Previously…").font(.callout.weight(.semibold))
+                        switch recap.state {
+                        case .offered:
+                            Text(ResumeRecap.offerText(for: offer.book)).font(.callout)
+                        case .writing:
+                            Text("Writing the recap…").font(.callout)
+                        case .speaking:
+                            Text(recap.text ?? "").font(.callout).lineLimit(3)
+                        case let .failed(why):
+                            Text(why).font(.callout).foregroundStyle(.orange)
+                        }
+                    }
+                    Spacer()
+                    if recap.state == .offered {
+                        Button("Just Play") { recap.dismiss(); startPlaying(offer.book) }
+                        Button("Hear Recap") { hearRecap(offer.book) }.keyboardShortcut(.defaultAction)
+                    } else if recap.state == .writing || recap.state == .speaking {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Dismiss") { recap.dismiss() }
+                    }
+                }
             }
         }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.quaternary.opacity(0.4))
+    }
+
+    private func hearRecap(_ book: BookShelf.Book) {
+        Task {
+            let routing = await VoiceSuggestions.liveRouting()
+            await recap.hear(sources: routing.sources, executor: routing.executor,
+                             speak: { text in await speakRecap(text) },
+                             thenPlay: { startPlaying(book) })
+        }
+    }
+
+    /// Say the recap through the app's speech path (the configured TTS host, else the built-in
+    /// voice when fallback is on), and return once it has been said.
+    private func speakRecap(_ text: String) async -> Bool {
+        let engine = model.speech
+        let voice = SpeechConfig.resolve(category: nil, explicitVoice: nil, engineOverride: nil)
+        do {
+            let audio = try await SpeechService.synthesize(text: text, voice: voice)
+            engine.play(fileURL: try BatonMCPSpeakTools.writeTemp(audio), text: text)
+        } catch {
+            guard SpeechConfig.fallbackEnabled else { return false }
+            engine.speakNative(text)
+        }
+        let started = Date()
+        while !engine.isSpeaking, Date().timeIntervalSince(started) < 5 { try? await Task.sleep(for: .milliseconds(100)) }
+        while engine.isSpeaking { try? await Task.sleep(for: .milliseconds(200)) }
+        return true
+    }
+
+    // MARK: - Export Audiobook… (M8.8)
+
+    /// Every chapter here, or a book the home server holds whole.
+    private func canExport(_ book: BookShelf.Book) -> Bool {
+        if model.documents.job(forDocument: book.documentID)?.renderer == .homeServer { return !book.isRendering }
+        return !book.chapters.isEmpty && book.chapters.allSatisfy { $0.item?.isPresent == true }
+    }
+
+    private func exportAudiobook(_ book: BookShelf.Book) {
+        let panel = NSSavePanel()
+        panel.title = "Export Audiobook"
+        panel.nameFieldStringValue = AudiobookExporter.fileName(title: book.title, author: book.author)
+        panel.allowedContentTypes = [UTType(filenameExtension: "m4b") ?? .mpeg4Audio]
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { await runExport(book, to: url) }
+        }
+    }
+
+    private func runExport(_ book: BookShelf.Book, to url: URL) async {
+        exportFailed = false
+        exportLine = "Exporting \(book.title)…"
+        do {
+            let library = model.documents
+            if let job = library.job(forDocument: book.documentID), job.renderer == .homeServer {
+                guard let client = DocumentLibrary.configuredGateway() else { throw DocumentLibrary.HomeServerError.notConfigured }
+                // Only the file named in the save panel is written (replaced if the person
+                // confirmed that there); the server's own file name is never used here.
+                _ = try await client.exportAudiobook(job.id, to: url)
+            } else {
+                let files = try AudiobookExporter.chapterFiles(book)
+                let job = library.job(forDocument: book.documentID).flatMap { library.store.load($0.id) }
+                guard let marks = AudiobookExporter.marks(book, job: job) else { throw AudiobookExporter.ExportError.noChapters }
+                let outcome = try await AudiobookExporter.export(chapters: files, marks: marks, title: book.title, author: book.author, to: url)
+                if !outcome.hasMarks {
+                    exportFailed = true   // shown in orange with Dismiss; the file is there
+                    exportLine = "Exported without chapter marks: they need ffmpeg on this Mac (brew install ffmpeg)."
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    return
+                }
+            }
+            exportLine = nil
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            exportFailed = true
+            exportLine = "The audiobook could not be exported: \(error)."
+        }
+    }
+
+    /// Stop making the book and remove its chapters, here or everywhere. The audio waits a week
+    /// in Recently removed (M6.3), so a mistaken delete can be restored.
+    private func deleteBook(_ book: BookShelf.Book, everywhere: Bool) {
+        let library = model.documents
+        let digests = everywhere ? book.chapters.compactMap { $0.item?.clipping.sha256 } : []
+        Task {
+            await library.deleteBook(book, everywhere: everywhere)
+            for digest in digests { removeSharedCopy(digest) }
+        }
         expandedBooks.remove(book.documentID)
+        model.music.postToast("Moved to Recently removed. Restore it within a week from Settings, under Storage.",
+                              symbol: "trash", seconds: 4)
     }
 
     private var empty: some View {

@@ -169,13 +169,6 @@ final class DocumentLibraryTests: XCTestCase {
         XCTAssertEqual(voices, ["kokoro:bf_emma"])
         XCTAssertNil(library.jobs.first { $0.id == id }?.summary.pauseReason)
     }
-
-    func testOffByDefault() {
-        let defaults = ThrowawayDefaults.make("documents")
-        XCTAssertFalse(DocumentLibrary.isEnabled(in: defaults), "behind baton.documents.enabled, which defaults to off")
-        defaults.set(true, forKey: DocumentLibrary.enabledKey)
-        XCTAssertTrue(DocumentLibrary.isEnabled(in: defaults))
-    }
 }
 
 /// The Mac's encoder against a WAV of known length: duration, bitrate and the tags the player
@@ -263,6 +256,13 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         private(set) var requests: [String] = []
         let audio = Data(repeating: 0x41, count: 4_096)
 
+        /// The home server answers every DELETE with a 503, as when its disk is unavailable.
+        private var _failDeletes = false
+        var failDeletes: Bool {
+            get { lock.withLock { _failDeletes } }
+            set { lock.withLock { _failDeletes = newValue } }
+        }
+
         func setReady(_ id: String, _ count: Int) { lock.withLock { readyCount[id] = count } }
         var seen: [String] { lock.withLock { requests } }
 
@@ -280,6 +280,7 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
                 }
                 guard parts.count >= 3 else { return reply(404, Data()) }
                 let id = parts[2]
+                if method == "DELETE", _failDeletes { return reply(503, Data("unavailable".utf8)) }
                 if method == "PUT" {
                     let book = try! PreparedBook.decode(request.httpBody ?? Data())
                     jobs[id] = BookJob(id: id, book: book)
@@ -367,6 +368,27 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
 
         await relaunched.cancel(id)
         XCTAssertTrue(fake.seen.contains("DELETE /v1/books/\(id)"))
+        XCTAssertEqual(relaunched.remoteBooks, [])
+    }
+
+    /// Cancelled while the home server cannot delete: gone from the shelf at once, deleted
+    /// there by the next refresh after a relaunch, then forgotten.
+    func testACancelThatFailsIsDeletedOnALaterRefresh() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: ThrowawayDefaults.make("home"))
+        let first = library(fake, clippings: clippings)
+        let id = try await first.submit(try book(), on: .homeServer)
+
+        fake.failDeletes = true
+        await first.cancel(id)
+        XCTAssertEqual(first.remoteBooks, [])
+        XCTAssertEqual(first.homeServer.pendingDeleteIDs, [id])
+
+        fake.failDeletes = false
+        let relaunched = library(fake, clippings: clippings)
+        await relaunched.refreshHomeServer()
+        XCTAssertEqual(relaunched.homeServer.pendingDeleteIDs, [])
+        XCTAssertEqual(fake.seen.filter { $0 == "DELETE /v1/books/\(id)" }.count, 2)
         XCTAssertEqual(relaunched.remoteBooks, [])
     }
 

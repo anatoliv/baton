@@ -43,6 +43,14 @@ public struct ModelSource: Codable, Sendable, Equatable, Hashable {
         self.contextTokens = contextTokens
     }
 
+    /// What consent is recorded against: the provider and the host, not the model, so picking
+    /// another model from the same provider keeps what the person allowed it
+    /// (`"anthropic|api.anthropic.com"`).
+    public var consentID: String {
+        let host = baseURL.flatMap { URL(string: $0.trimmingCharacters(in: .whitespaces))?.host?.lowercased() }
+        return "\(provider.rawValue)|\(host ?? baseURL ?? "-")"
+    }
+
     /// Never leaves the person's machines: on-device, or a host on this Mac or the LAN.
     public var isLocal: Bool {
         if provider == .appleOnDevice { return true }
@@ -72,8 +80,14 @@ public struct ModelSource: Codable, Sendable, Equatable, Hashable {
     }
 }
 
-/// How much of a book a task sends, which is what consent is given for.
-public enum ModelContent: String, Codable, Sendable {
+/// How much of a book a task sends, which is what consent is given for (M4.6). Two kinds,
+/// because "short excerpts" and "whole chapters" are different things to agree to:
+/// - `excerpt`: the book's opening to suggest a narrator, the names to propose pronunciations
+///   for, the dialogue lines a cast sheet is drawn from;
+/// - `chapter`: the chapters already heard, for a recap, and whole chapters to cast dialogue.
+///
+/// Every excerpt and chapter goes through `SecretRedactor` before any prompt is built.
+public enum ModelContent: String, Codable, Sendable, CaseIterable {
     case excerpt
     case chapter
 }
@@ -82,20 +96,31 @@ public struct ModelTask: Sendable, Equatable {
     public var name: String
     public var minimumContextTokens: Int
     public var content: ModelContent
+    /// The most a reply may run to, in tokens: `max_tokens`, and `num_predict` for Ollama, so a
+    /// model that starts repeating itself stops there instead of running past the timeout.
+    public var replyTokens: Int
 
-    public init(name: String, minimumContextTokens: Int, content: ModelContent) {
+    public init(name: String, minimumContextTokens: Int, content: ModelContent, replyTokens: Int = 1_024) {
         self.name = name
         self.minimumContextTokens = minimumContextTokens
         self.content = content
+        self.replyTokens = replyTokens
     }
 
     /// The voice suggestion's prompt is about 3,500 characters plus the reply.
     public static let voiceSuggestion = ModelTask(name: "voice suggestion", minimumContextTokens: 2_000, content: .excerpt)
-    /// The sample's chapter prompts measured 5.8k to 6.8k tokens.
-    public static let dialogueCast = ModelTask(name: "dialogue cast", minimumContextTokens: 8_000, content: .chapter)
-    /// The cast sheet: tag phrases, names and about 9,000 characters of dialogue passages.
-    public static let castSheet = ModelTask(name: "cast sheet", minimumContextTokens: 6_000, content: .excerpt)
+    /// Placing the quotes the rules leave (`DialogueCast.fill`): passages of a chapter around
+    /// those quotes, at most about 3,500 tokens with the cast, and a JSON reply of up to 60
+    /// answers (8,000 leaves room for a long cast list). Chapter content for consent, like the
+    /// recap.
+    public static let dialogueCast = ModelTask(name: "dialogue cast", minimumContextTokens: 8_000, content: .chapter, replyTokens: 1_536)
+    /// The cast sheet: tag phrases, names and about 6,000 characters of dialogue passages. The
+    /// reply is at most 24 people with 4 phrases each; 2,048 tokens leaves room for that.
+    public static let castSheet = ModelTask(name: "cast sheet", minimumContextTokens: 6_000, content: .excerpt, replyTokens: 2_048)
     public static let recap = ModelTask(name: "recap", minimumContextTokens: 4_000, content: .chapter)
+    /// The pronunciation proposal: the candidate names with one sentence each, about 3,000
+    /// characters on the sample, plus a JSON reply.
+    public static let pronunciations = ModelTask(name: "pronunciations", minimumContextTokens: 2_000, content: .excerpt)
 }
 
 /// Consent the person gave a cloud source, per kind of content.
@@ -104,10 +129,17 @@ public struct ModelConsent: Codable, Sendable, Equatable {
 
     public init(granted: Set<String> = []) { self.granted = granted }
 
-    static func key(_ source: ModelSource, _ content: ModelContent) -> String { "\(source.id)#\(content.rawValue)" }
+    static func key(_ source: ModelSource, _ content: ModelContent) -> String { "\(source.consentID)#\(content.rawValue)" }
 
     public func allows(_ source: ModelSource, _ content: ModelContent) -> Bool {
         source.isLocal || granted.contains(Self.key(source, content))
+    }
+
+    /// This consent plus one more grant, for "Allow once": used for one call, never stored.
+    public func granting(_ source: ModelSource, _ content: ModelContent) -> ModelConsent {
+        var copy = self
+        copy.grant(source, content)
+        return copy
     }
 
     public mutating func grant(_ source: ModelSource, _ content: ModelContent) { granted.insert(Self.key(source, content)) }
@@ -147,6 +179,21 @@ public struct ModelRouter: Sendable {
 
     public typealias Executor = @Sendable (_ source: ModelSource, _ system: String, _ user: String) async throws -> String
 
+    /// The task being run while an executor is called, so an executor that can do better than
+    /// text for a known task (Apple's on-device model, which generates typed replies with
+    /// `@Generable`) can tell which one it is. Nil outside `complete`.
+    @TaskLocal public static var currentTask: ModelTask?
+
+    /// The cloud sources `task` skipped only for want of consent: the ones a person could
+    /// allow. A source too small for the task is not among them, since allowing it changes
+    /// nothing.
+    public func awaitingConsent(for task: ModelTask) -> [ModelSource] {
+        plan(for: task).skipped.compactMap { source, skip in
+            if case .needsConsent = skip { return source }
+            return nil
+        }
+    }
+
     public struct Failure: Error, Equatable, CustomStringConvertible {
         /// Each source tried or skipped, with what happened, in order.
         public var attempts: [String]
@@ -163,12 +210,13 @@ public struct ModelRouter: Sendable {
         var attempts = skipped.map { source, skip -> String in
             switch skip {
             case let .contextTooSmall(have, need): return "\(source.name): \(have) tokens of context, needs \(need)"
-            case let .needsConsent(content): return "\(source.name): not allowed to send \(content == .chapter ? "chapters" : "excerpts")"
+            case let .needsConsent(content):
+                return "\(source.name): not asked, since sending it \(content == .chapter ? "chapters" : "excerpts") is not allowed"
             }
         }
         for source in usable {
             do {
-                let text = try await executor(source, system, user)
+                let text = try await Self.$currentTask.withValue(task) { try await executor(source, system, user) }
                 if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return (text, source.name) }
                 attempts.append("\(source.name): empty answer")
             } catch {
@@ -197,6 +245,10 @@ public enum HTTPModelClient {
         /// Something answered, but not over HTTP.
         case noHTTPResponse
         case unreadable
+        /// The reply is empty because a reasoning model spent the whole `max_tokens` budget
+        /// thinking (`finish_reason: "length"` with `reasoning_content` and no `content`), which
+        /// LM Studio does with Qwen3 on a small budget.
+        case reasoningUsedTheBudget
 
         public var description: String {
             switch self {
@@ -205,6 +257,7 @@ public enum HTTPModelClient {
             case let .status(code, body): return "answered \(code): \(body)"
             case .noHTTPResponse: return "did not answer over HTTP"
             case .unreadable: return "answered with something that is not a model reply"
+            case .reasoningUsedTheBudget: return "spent its whole reply budget reasoning and never answered"
             }
         }
     }
@@ -248,7 +301,7 @@ public enum HTTPModelClient {
         var body: [String: Any]
         switch source.provider {
         case .ollama:
-            var options: [String: Any] = ["num_ctx": source.contextTokens]
+            var options: [String: Any] = ["num_ctx": source.contextTokens, "num_predict": maxTokens]
             if let temperature { options["temperature"] = temperature }
             body = ["model": source.model, "stream": false, "think": false, "options": options,
                     "messages": [["role": "system", "content": system], ["role": "user", "content": user]]]
@@ -312,8 +365,16 @@ public enum HTTPModelClient {
         case .ollama:
             if let message = json["message"] as? [String: Any], let content = message["content"] as? String { return content }
         case .openAICompatible:
-            if let choices = json["choices"] as? [[String: Any]], let message = choices.first?["message"] as? [String: Any],
-               let content = message["content"] as? String { return content }
+            if let choices = json["choices"] as? [[String: Any]], let message = choices.first?["message"] as? [String: Any] {
+                let content = message["content"] as? String ?? ""
+                if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   choices.first?["finish_reason"] as? String == "length",
+                   let reasoning = (message["reasoning_content"] ?? message["reasoning"]) as? String,
+                   !reasoning.isEmpty {
+                    throw Failure.reasoningUsedTheBudget
+                }
+                if let content = message["content"] as? String { return content }
+            }
         case .anthropic:
             if let blocks = json["content"] as? [[String: Any]] {
                 let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()
@@ -330,7 +391,8 @@ public enum HTTPModelClient {
     public static func executor(session: URLSession = .shared,
                                 apiKey: @escaping @Sendable (ModelSource) -> String?) -> ModelRouter.Executor {
         { source, system, user in
-            let request = try request(for: source, system: system, user: user, apiKey: apiKey(source))
+            let request = try request(for: source, system: system, user: user, apiKey: apiKey(source),
+                                      maxTokens: ModelRouter.currentTask?.replyTokens ?? 1_024)
             return try await send(request, provider: source.provider, session: session)
         }
     }

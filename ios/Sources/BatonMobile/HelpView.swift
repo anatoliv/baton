@@ -183,8 +183,18 @@ struct WhatsNewView: View {
         !lastShown.isEmpty && lastShown != current
     }
 
+    /// DEBUG only: launch as if updated from this version, so What's New wants the launch
+    /// sheet, without writing the marker (a written one would follow every later test on the
+    /// simulator). Environment, never a launch argument.
+    static let upgradedFromArgument = "uitestWhatsNewUpgradedFrom"
+
     static var shouldShow: Bool {
-        shouldShow(lastShown: lastShown, current: currentVersion)
+        #if DEBUG
+        if let from = ProcessInfo.processInfo.environment[upgradedFromArgument], !from.isEmpty {
+            return shouldShow(lastShown: from, current: currentVersion)
+        }
+        #endif
+        return shouldShow(lastShown: lastShown, current: currentVersion)
     }
 
     /// Records the version a fresh install started on, so a later update has something to
@@ -294,6 +304,23 @@ struct WhatsNewView: View {
     /// Newest first. `WhatsNewFreshnessTests` fails when the top entry falls behind the
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
+        ReleaseNote(
+            version: "1.4",
+            date: "October 2026",
+            highlight: "Share a document to Baton from other apps, and manage the space your books take.",
+            changes: [
+                .init(.added, "Share a PDF, an EPUB, a web page, or a text or Markdown file to Baton from another app's share sheet, Safari included, and it opens on the import screen."),
+                .init(.added, "Documents are on for everyone now. If you have no use for them, turn off Documents in Settings and they disappear at once."),
+                .init(.added, "When your home server cannot make books, the import screen offers Send to my Mac, and Baton on your Mac makes the book instead. With no home server at all, it suggests AirDropping the file or link to your Mac."),
+                .init(.added, "Remove Download frees a book's space and keeps your place. Download Again or Render Again brings the audio back, and a deleted book waits in Recently Removed for a week. Settings, Documents, Storage shows what each book takes and holds the cleanup rules. Nothing is removed until you choose a rule."),
+                .init(.added, "At most once a week, Clippings may suggest removing the download of a book you finished. Answer Keep or Remove, or Always Do This to make it a rule."),
+                .init(.improved, "Deleting a book now removes it from your home server too, whichever choice you make, so it stops taking space there."),
+                .init(.improved, "Settings, Documents now explains that your home server makes every book with its own voice server, and what that needs."),
+                .init(.improved, "Searching Clippings stays quick with long books, and it ignores accents, so cafe finds Café."),
+                .init(.fixed, "A document handed to Baton while another screen is open, What's New included, now always reaches the import screen."),
+                .init(.fixed, "When a link cannot be imported, the message talks about the link rather than a file."),
+            ]
+        ),
         ReleaseNote(
             version: "1.3",
             date: "October 2026",

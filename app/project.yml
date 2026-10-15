@@ -66,6 +66,10 @@ packages:
   # Linux only, so the app links nothing new from it.
   BatonShareKit:
     path: ../Packages/BatonShareKit
+  # Local module: the built-in "This Mac" voices, Kokoro on MLX Swift (TBX-10854). Mac only:
+  # ios/project.yml must never list it, so the iPhone app links no MLX.
+  BatonKokoroMLX:
+    path: ../Packages/BatonKokoroMLX
 
 settings:
   base:
@@ -75,8 +79,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.19.16"
-    CURRENT_PROJECT_VERSION: "116"
+    MARKETING_VERSION: "0.20.0"
+    CURRENT_PROJECT_VERSION: "117"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -116,6 +120,7 @@ targets:
       - package: BatonAgentKit
       - package: BatonDocuments
       - package: BatonShareKit
+      - package: BatonKokoroMLX
     # Remote reporting defaults off. Release packaging passes a temporary protected
     # Crashbox-only xcconfig; see CrashReporting.
     configFiles:
@@ -131,6 +136,41 @@ targets:
           set -e
           cp "$SRCROOT/../HELP.md" "$SRCROOT/Sources/Baton/Resources/HELP.md"
           cp "$SRCROOT/../FAQ.md"  "$SRCROOT/Sources/Baton/Resources/FAQ.md"
+    # MLX's shaders for the built-in voices (TBX-10854). With Xcode's Metal Toolchain installed
+    # (the owner's choice for releases, 2026-10-15), Xcode compiles them into mlx-swift_Cmlx.bundle
+    # and this does nothing. The rest is the fallback for a Mac without it: the build
+    # leaves out MLX's .metal sources (scripts/mlx-metal-build-settings.sh) and this puts MLX's
+    # published metallib of the same version there instead, checked by sha256
+    # (scripts/fetch-mlx-metallib.sh fetches it). With neither, a Debug build warns and the
+    # built-in voices say they are not available in it; a Release build fails, so an app whose
+    # voice engine cannot start never ships (TBX-10926; scripts/publish.sh checks it again).
+    postBuildScripts:
+      - name: Bundle MLX shaders
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          BUNDLE="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/mlx-swift_Cmlx.bundle"
+          if [ -f "$BUNDLE/Contents/Resources/default.metallib" ]; then
+            echo "Bundle MLX shaders: Xcode compiled MLX's shaders (Metal Toolchain); left as built"
+            exit 0
+          fi
+          SRC="${MLX_METALLIB:-$SRCROOT/../Packages/BatonKokoroMLX/Metal/mlx.metallib}"
+          if [ ! -f "$SRC" ]; then
+            if [ "$CONFIGURATION" = "Release" ]; then
+              echo "error: no MLX shaders (mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib): install the Metal Toolchain (xcodebuild -downloadComponent MetalToolchain) or run scripts/fetch-mlx-metallib.sh; a Release build without them ships a broken voice engine"
+              exit 1
+            fi
+            echo "warning: no MLX shaders: run scripts/fetch-mlx-metallib.sh, or the built-in voices are off in this build"
+            exit 0
+          fi
+          WANT="$(cat "$SRCROOT/../Packages/BatonKokoroMLX/Metal/mlx.metallib.sha256")"
+          GOT="$(shasum -a 256 "$SRC" | cut -d' ' -f1)"
+          [ "$GOT" = "$WANT" ] || { echo "error: $SRC is not mlx-metal 0.29.1's metallib"; exit 1; }
+          mkdir -p "$BUNDLE/Contents/Resources"
+          cp "$SRC" "$BUNDLE/Contents/Resources/default.metallib"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string mlx-swift.Cmlx.resources" \
+            -c "Add :CFBundlePackageType string BNDL" -c "Add :CFBundleName string mlx-swift_Cmlx" \
+            "$BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || true
     sources:
       - path: Sources/Baton
       - path: Assets.xcassets
@@ -380,6 +420,8 @@ schemes:
         # The BSH1 format and its cross-implementation vectors, the link, the wire types, the
         # client and the ledger. Also runs on Linux with the share service (gateway/).
         - package: BatonShareKit/BatonShareKitTests
+        # The built-in voices: engine contract on a stub model, chunking, the download (TBX-10854).
+        - package: BatonKokoroMLX/BatonKokoroMLXTests
     profile:
       config: Release
     analyze:

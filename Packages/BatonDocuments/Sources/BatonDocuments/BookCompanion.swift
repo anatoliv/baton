@@ -223,6 +223,11 @@ public enum BookContext {
         public var passages: [HeardText.Passage]
         /// "Chapter 2, The Mending Apparatus, about a third of the way in."
         public var position: String
+
+        public init(passages: [HeardText.Passage], position: String) {
+            self.passages = passages
+            self.position = position
+        }
     }
 
     /// Up to `budget` characters: the passages that share the most of the question's rarer
@@ -304,7 +309,7 @@ public enum BookContext {
         return out
     }
 
-    static func describe(_ position: BookPosition, in book: PreparedBook) -> String {
+    public static func describe(_ position: BookPosition, in book: PreparedBook) -> String {
         guard book.chapters.indices.contains(position.chapter) else { return "The start of the book." }
         let chapter = book.chapters[position.chapter]
         let share = chapter.segments.isEmpty ? 0 : Double(position.segment) / Double(chapter.segments.count)

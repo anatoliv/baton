@@ -124,7 +124,7 @@ public struct BookRoutes: Sendable {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("baton-export-\(UUID().uuidString).m4b")
         defer { try? FileManager.default.removeItem(at: out) }
         do {
-            try await exporter.exportM4B(chapters: urls, metadata: AudiobookExport.ffmetadata(book: job.book, marks: marks), to: out)
+            try await exporter.exportM4B(chapters: urls, book: job.book, marks: marks, to: out)
         } catch {
             return httpErrorResponse(status: "500 Internal Server Error", message: "the audiobook could not be made: \(error)")
         }

@@ -1,0 +1,6 @@
+# MLX's prebuilt shaders (101 MB, over GitHub's file limit): fetched by
+# scripts/fetch-mlx-metallib.sh and checked against Metal/mlx.metallib.sha256.
+Metal/mlx.metallib
+Package.resolved
+# The model for the gated real-render test (copy or download; never committed).
+Models/

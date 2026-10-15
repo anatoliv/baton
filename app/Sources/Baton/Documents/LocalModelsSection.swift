@@ -40,10 +40,40 @@ struct LocalModelsSection: View {
         .sheet(isPresented: $showKokoroHelp) { KokoroHelpSheet() }
     }
 
+    // MARK: - Apple on-device (M7.1)
+
+    /// Apple Intelligence: nothing to install or test, so a status and, when it is off, the way
+    /// to turn it on. Hidden on a Mac that cannot run it, where it is not an error
+    /// (`specs/local-models-on-mac.md`).
+    @ViewBuilder
+    private var appleRows: some View {
+        let availability = model.appleAvailability
+        if availability != .deviceNotEligible {
+            Group {
+                LabeledContent(AppleOnDeviceModel.sourceName) {
+                    HStack(spacing: 6) {
+                        Image(systemName: availability.isAvailable ? "checkmark.circle.fill" : "circle.dashed")
+                            .foregroundStyle(availability.isAvailable ? Color.green : Color.secondary)
+                        Text(availability.isAvailable ? "Ready" : "Not available")
+                    }
+                }
+                note(availability.isAvailable
+                     ? "It runs on this Mac with nothing to download, and document features try it first. Longer tasks, such as casting a whole chapter, go to the next model."
+                     : availability.explanation)
+                if availability == .appleIntelligenceNotEnabled {
+                    Button("Open Apple Intelligence Settings") {
+                        open("x-apple.systempreferences:com.apple.Siri-Settings.extension")
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Ollama
 
     private var ollamaSection: some View {
         Section {
+            appleRows
             serverRow("Ollama", state: model.ollama, port: 11434)
             switch model.ollama {
             case .notInstalled:
@@ -158,7 +188,8 @@ struct LocalModelsSection: View {
                     }
                 }
             }
-            note(model.kokoroPlacement.summary(localVoices: model.kokoroLocalVoices))
+            note(model.kokoroPlacement.summary(localVoices: model.kokoroLocalVoices,
+                                               builtInVoicesReady: BuiltInVoices.shared.isAvailable))
             Button("How to Run Kokoro on This Mac") { showKokoroHelp = true }
         }
     }
@@ -302,6 +333,7 @@ final class LocalModelsModel {
     private(set) var tests: [String: TestState] = [:]
     private(set) var pull: PullState?
     private(set) var freeBytes: Int64?
+    private(set) var appleAvailability = AppleOnDeviceModel.availability
 
     let recommended = RecommendedModel.forMac(physicalMemory: ProcessInfo.processInfo.physicalMemory)
     @ObservationIgnored private var pullTask: Task<Void, Never>?
@@ -343,6 +375,7 @@ final class LocalModelsModel {
                                                    hasStoredHost: SpeechConfig.hasStoredHost(for: .kokoro))
         saved = LocalModelSources.configuredSources()
         freeBytes = Self.freeSpace()
+        appleAvailability = AppleOnDeviceModel.availability
     }
 
     /// Whether a saved source's server is up and still has its model. Judged from the latest
@@ -364,7 +397,8 @@ final class LocalModelsModel {
         let start = ContinuousClock.now
         do {
             var request = try HTTPModelClient.request(for: source, system: LocalModelTest.system,
-                                                      user: LocalModelTest.user, apiKey: nil, maxTokens: 64)
+                                                      user: LocalModelTest.user, apiKey: nil,
+                                                      maxTokens: LocalModelTest.maxTokens)
             request.timeoutInterval = LocalModelTest.timeout
             let (data, response) = try await Self.session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -381,6 +415,8 @@ final class LocalModelsModel {
                 let shown = reply.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)
                 tests[source.id] = .failed("It answered, but not with the JSON it was asked for: \(shown)")
             }
+        } catch HTTPModelClient.Failure.reasoningUsedTheBudget {
+            tests[source.id] = .failed("It spent its whole reply budget thinking and never answered. Turn reasoning off for this model, or pick one that does not reason.")
         } catch let error as URLError where error.code == .timedOut {
             tests[source.id] = .failed("It did not answer within \(Int(LocalModelTest.timeout)) seconds.")
         } catch {

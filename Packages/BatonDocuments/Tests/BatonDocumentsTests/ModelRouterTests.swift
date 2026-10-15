@@ -66,7 +66,7 @@ final class ModelRouterTests: XCTestCase {
         } catch let failure as ModelRouter.Failure {
             XCTAssertEqual(failure.attempts, [
                 "Apple's model on this Mac: 4096 tokens of context, needs 8000",
-                "Anthropic: not allowed to send chapters",
+                "Anthropic: not asked, since sending it chapters is not allowed",
             ])
         } catch {
             XCTFail("\(error)")
@@ -114,6 +114,47 @@ final class ModelRouterTests: XCTestCase {
 
         XCTAssertThrowsError(try HTTPModelClient.request(for: onDevice, system: "", user: "", apiKey: nil))
         XCTAssertThrowsError(try HTTPModelClient.text(from: Data("{}".utf8), provider: .anthropic))
+    }
+
+    // MARK: Consent (M4.6)
+
+    func testConsentIsPerProviderAndHostNotPerModel() {
+        var consent = ModelConsent()
+        consent.grant(cloud, .excerpt)
+        var otherModel = cloud
+        otherModel.model = "claude-opus-5"
+        XCTAssertEqual(cloud.consentID, "anthropic|api.anthropic.com")
+        XCTAssertTrue(consent.allows(otherModel, .excerpt), "another model from the same provider keeps the answer")
+        var otherHost = cloud
+        otherHost.provider = .openAICompatible
+        otherHost.baseURL = "https://api.openai.com/v1"
+        XCTAssertFalse(consent.allows(otherHost, .excerpt), "another provider is asked for itself")
+
+        consent.revoke(cloud, .excerpt)
+        XCTAssertFalse(consent.allows(otherModel, .excerpt), "revoked")
+    }
+
+    func testAllowOnceIsACopyAndTheRouterNamesWhoIsWaiting() {
+        let router = ModelRouter(sources: [onDevice, cloud])
+        XCTAssertEqual(router.awaitingConsent(for: .voiceSuggestion).map(\.name), ["Anthropic"])
+        XCTAssertEqual(router.awaitingConsent(for: .dialogueCast).map(\.name), ["Anthropic"],
+                       "the on-device model is too small for it, which consent cannot change")
+
+        let once = router.consent.granting(cloud, .excerpt)
+        XCTAssertTrue(once.allows(cloud, .excerpt))
+        XCTAssertFalse(router.consent.allows(cloud, .excerpt), "the router's own consent is untouched")
+        XCTAssertEqual(ModelRouter(sources: [cloud], consent: once).awaitingConsent(for: .voiceSuggestion), [])
+    }
+
+    func testTheExecutorKnowsWhichTaskItRuns() async throws {
+        let seen = Tried()
+        let router = ModelRouter(sources: [ollama])
+        _ = try await router.complete(.recap, system: "s", user: "u") { _, _, _ in
+            seen.add(ModelRouter.currentTask?.name ?? "none")
+            return "ok"
+        }
+        XCTAssertEqual(seen.all, ["recap"])
+        XCTAssertNil(ModelRouter.currentTask)
     }
 
     func testABaseURLWithoutV1GetsIt() throws {

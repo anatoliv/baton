@@ -340,18 +340,25 @@ final class URLImportTests: XCTestCase {
 
     func testRefusalsSayWhy() async {
         let cases: [(URL, DocumentImporter.Fetch, String)] = [
-            (URL(string: "file:///etc/passwd")!, fetch { Data() }, "Only web addresses"),
+            (URL(string: "file:///etc/passwd")!, fetch { Data() }, "not a web address"),
             (URL(string: "https://example.org/paid")!, fetch(status: 403) { Data() }, "signing in"),
             (URL(string: "https://example.org/gone")!, fetch(status: 404) { Data() }, "error 404"),
             (URL(string: "https://example.org/song.mp3")!, fetch(type: "audio/mpeg") { Data([1, 2, 3]) }, "audio/mpeg"),
             (URL(string: "https://example.org/huge")!, fetch { Data(count: DocumentImporter.maximumPageBytes + 1) }, "larger"),
+            // What the page holds is refused in the link's words too, not a file's.
+            (URL(string: "https://example.org/app")!,
+             fetch { Data("<html><head><script src=a.js></script><script src=b.js></script></head><body><div id=root></div><script>render()</script></body></html>".utf8) },
+             "JavaScript"),
+            (URL(string: "https://example.org/blank.txt")!, fetch(type: "text/plain") { Data("  \n ".utf8) }, "no text was found on the page"),
         ]
         for (url, f, expected) in cases {
             do {
                 _ = try await DocumentImporter.importURL(url, fetch: f)
                 XCTFail("\(url) should be refused")
-            } catch DocumentImporter.Failure.unreadable(let why) {
+            } catch let failure as DocumentImporter.Failure {
+                guard case .unreadableLink(let why) = failure else { return XCTFail("\(url): \(failure)") }
                 XCTAssertTrue(why.contains(expected), "\(url): \(why)")
+                XCTAssertTrue(failure.description.hasPrefix("The link could not be read: "), failure.description)
             } catch {
                 XCTFail("\(url): \(error)")
             }

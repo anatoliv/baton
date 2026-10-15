@@ -16,6 +16,9 @@ public enum DocumentImporter {
     public enum Failure: Error, Equatable, CustomStringConvertible {
         case unsupportedFormat(String)
         case unreadable(String)
+        /// A web address that could not be read: not a web address, unreachable, refused, or
+        /// not a page Baton reads. Worded for a link rather than a file.
+        case unreadableLink(String)
         case protected
         case empty
 
@@ -23,6 +26,7 @@ public enum DocumentImporter {
             switch self {
             case .unsupportedFormat(let ext): return "Baton cannot read .\(ext) files yet."
             case .unreadable(let why): return "The file could not be read: \(why)"
+            case .unreadableLink(let why): return "The link could not be read: \(why)"
             case .protected: return "This file is protected, so Baton cannot read it."
             case .empty: return "No text was found in this file."
             }
@@ -73,7 +77,10 @@ public enum DocumentImporter {
             let output = try EPUBImporter.read(data, fallbackTitle: fallbackTitle)
             var document = try assemble(output.result, digest: digest, kind: .epub, fileName: url.lastPathComponent,
                                         fallbackTitle: fallbackTitle, warnings: output.warnings)
-            if let declared = output.language { document.language = declared }
+            if let declared = output.language {
+                document.language = declared
+                document.languageRegion = output.languageRegion
+            }
             return document
         case .url, .rtf:
             throw Failure.unsupportedFormat(url.pathExtension.lowercased())
@@ -90,7 +97,10 @@ public enum DocumentImporter {
         }
         var document = try assemble(output.result, digest: digest, kind: kind, fileName: fileName,
                                     fallbackTitle: fallbackTitle, warnings: output.warnings)
-        if let declared = output.language { document.language = declared }
+        if let declared = output.language {
+            document.language = declared
+            document.languageRegion = output.languageRegion
+        }
         return document
     }
 
@@ -112,20 +122,20 @@ public enum DocumentImporter {
     /// importing the same article twice should find the existing book.
     public static func importURL(_ url: URL, fetch: Fetch) async throws -> ImportedDocument {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host != nil else {
-            throw Failure.unreadable("Only web addresses (https://...) can be read.")
+            throw Failure.unreadableLink("it is not a web address (https://...)")
         }
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.setValue("text/html,application/xhtml+xml,application/pdf,text/plain;q=0.9,*/*;q=0.5", forHTTPHeaderField: "Accept")
         let (data, response): (Data, URLResponse)
         do { (data, response) = try await fetch(request) } catch {
-            throw Failure.unreadable("the page could not be fetched (\(error.localizedDescription))")
+            throw Failure.unreadableLink("the page could not be fetched (\(error.localizedDescription))")
         }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw Failure.unreadable(http.statusCode == 401 || http.statusCode == 403 || http.statusCode == 402
+            throw Failure.unreadableLink(http.statusCode == 401 || http.statusCode == 403 || http.statusCode == 402
                 ? "the site would not show this page without signing in (error \(http.statusCode))"
                 : "the site answered with error \(http.statusCode)")
         }
-        guard data.count <= maximumPageBytes else { throw Failure.unreadable("the page is larger than Baton reads") }
+        guard data.count <= maximumPageBytes else { throw Failure.unreadableLink("the page is larger than Baton reads") }
 
         let finalURL = response.url ?? url
         let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? response.mimeType
@@ -135,22 +145,29 @@ public enum DocumentImporter {
         let fileName = finalURL.absoluteString
 
         var document: ImportedDocument
-        switch mime {
-        case "application/pdf":
-            var warnings: [ImportWarning] = []
-            let result = try readPDF(data: data, isWord: nil, warnings: &warnings)
-            document = try assemble(result, digest: SHA256Digest.hex(of: data), kind: .pdf, fileName: fileName,
-                                    fallbackTitle: fallbackTitle, warnings: warnings)
-            return document
-        case "text/plain":
-            let text = HTMLParser.decode(data, contentType: contentType)
-            document = try assemble(PlainTextImporter.read(text), digest: "", kind: .url, fileName: fileName,
-                                    fallbackTitle: fallbackTitle, warnings: [])
-        case "", "text/html", "application/xhtml+xml", "application/xml", "text/xml":
-            document = try importHTML(data: data, contentType: contentType, digest: "", kind: .url,
-                                      fileName: fileName, fallbackTitle: fallbackTitle)
-        default:
-            throw Failure.unreadable("the address serves \(mime), not a page Baton can read")
+        // What the page held, read as a file would be; its refusals are worded for the link.
+        do {
+            switch mime {
+            case "application/pdf":
+                var warnings: [ImportWarning] = []
+                let result = try readPDF(data: data, isWord: nil, warnings: &warnings)
+                document = try assemble(result, digest: SHA256Digest.hex(of: data), kind: .pdf, fileName: fileName,
+                                        fallbackTitle: fallbackTitle, warnings: warnings)
+                return document
+            case "text/plain":
+                let text = HTMLParser.decode(data, contentType: contentType)
+                document = try assemble(PlainTextImporter.read(text), digest: "", kind: .url, fileName: fileName,
+                                        fallbackTitle: fallbackTitle, warnings: [])
+            case "", "text/html", "application/xhtml+xml", "application/xml", "text/xml":
+                document = try importHTML(data: data, contentType: contentType, digest: "", kind: .url,
+                                          fileName: fileName, fallbackTitle: fallbackTitle)
+            default:
+                throw Failure.unreadableLink("the address serves \(mime), not a page Baton can read")
+            }
+        } catch Failure.unreadable(let why) {
+            throw Failure.unreadableLink(why)
+        } catch Failure.empty {
+            throw Failure.unreadableLink("no text was found on the page")
         }
         let text = document.chapters.map { ([$0.title] + $0.paragraphs).joined(separator: "\n") }.joined(separator: "\n\n")
         document.sourceSHA256 = SHA256Digest.hex(of: Data(text.utf8))

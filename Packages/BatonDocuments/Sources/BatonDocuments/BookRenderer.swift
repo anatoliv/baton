@@ -65,11 +65,16 @@ public enum SynthesisError: Error, Equatable, CustomStringConvertible {
         }
     }
 
+    /// How a refusal by the Mac's "Voice engine for books" setting starts.
+    public static let voiceEngineSettingPrefix = "Voice engine for books is set to"
+
     /// The same failure in words a listener reads ("Paused: the voice server isn't answering").
     /// `description` keeps the engine's own wording for the log, where it belongs: "kokoro did
     /// not answer: cannot parse response" is a diagnosis for a person debugging, not a status
     /// line (found in the M3 walk).
     public var listenerReason: String {
+        // The Mac's voice engine setting refuses in a listener's words already.
+        if description.hasPrefix(Self.voiceEngineSettingPrefix) { return description }
         let raw = description.lowercased()
         if raw.contains("did not answer") { return "the voice server isn't answering" }
         if raw.contains("not wav") { return "the voice server sent back audio Baton can't read" }
@@ -296,10 +301,42 @@ public actor BookRenderer {
         return true
     }
 
+    /// Put chapters back in the queue to be made again: chapters whose audio has left this
+    /// device (offloaded, M6.3) or, with `nil`, the whole book. Synthesis comes from the chunk
+    /// cache where it can, so a chapter made before is joined and encoded rather than voiced
+    /// again. Returns false when there is no such job.
+    @discardableResult
+    public func requeue(_ id: String, chapters: [Int]? = nil, now: Date = Date()) -> Bool {
+        guard var job = store.load(id) else { return false }
+        let indices = chapters ?? Array(job.chapters.indices)
+        for index in indices where job.chapters.indices.contains(index) {
+            job.chapters[index] = .queued
+        }
+        job.status = .rendering
+        job.pauseReason = nil
+        job.pauseDetail = nil
+        job.updatedAt = now
+        do { try store.save(job) } catch { return false }
+        cancelled.remove(id)
+        log("book \(id.prefix(12)): \(indices.count) chapters queued to be made again")
+        startIfNeeded()
+        poke()
+        return true
+    }
+
     /// Start the loop: on launch it resumes whatever was left unfinished.
     public func startIfNeeded() {
         guard worker == nil else { return }
         worker = Task { await self.loop() }
+    }
+
+    /// Stop the loop and leave every job as it is, mid-chapter included: the next
+    /// `startIfNeeded` picks them up again from the chunk cache. For a device that turns
+    /// documents off in Settings; nothing is marked failed or paused by stopping.
+    public func stop() {
+        worker?.cancel()
+        worker = nil
+        poke()
     }
 
     /// Wait until no job is left to render. For tests and for a graceful stop.
@@ -336,12 +373,13 @@ public actor BookRenderer {
     private func render(_ initial: BookJob) async {
         var job = initial
         for chapterIndex in job.book.chapters.indices {
-            if cancelled.contains(job.id) { return }
+            if cancelled.contains(job.id) || Task.isCancelled { return }
             if case .ready = job.chapters[chapterIndex] { continue }
             do {
                 job = try await renderChapter(job, chapterIndex)
             } catch {
-                if cancelled.contains(job.id) { return }
+                // Cancelled or stopped: the job stays as it was, to resume later.
+                if cancelled.contains(job.id) || Task.isCancelled { return }
                 job.chapters[chapterIndex] = .failed(reason: String(describing: error))
                 job.status = .failed
                 job.updatedAt = Date()
@@ -443,6 +481,8 @@ public actor BookRenderer {
                 return data
             } catch let error as SynthesisError {
                 if case .permanent = error { throw error }
+                // A request cut off by `stop()` is not the voice server failing.
+                try Task.checkCancellation()
                 if !paused {
                     paused = true
                     setPaused(jobID, error: error)

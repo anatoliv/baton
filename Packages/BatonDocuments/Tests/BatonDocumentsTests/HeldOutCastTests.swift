@@ -150,6 +150,101 @@ final class HeldOutCastTests: XCTestCase {
         }
     }
 
+    /// Rules, then a model for the quotes they leave, against a live model
+    /// (`LiveModel`). Prints precision and coverage for the rules alone, rules plus the model,
+    /// and rules plus the model where one-way turn-taking does not name someone else (a
+    /// measurement of a stricter policy, not the product's). `BATON_FILL_DIR` keeps each text's
+    /// answers so they can be rescored without asking again.
+    func testRulesThenModelFillWithALiveModel() async throws {
+        let dir = try directory()
+        guard let live = LiveModel.complete(.dialogueCast) else {
+            throw XCTSkip("set BATON_LIVE_AGENT_FILE or BATON_LIVE_OLLAMA_MODEL to measure the model fill")
+        }
+        let saveDir = ProcessInfo.processInfo.environment["BATON_FILL_DIR"]
+        let wanted = ProcessInfo.processInfo.environment["BATON_HELDOUT_TEXTS"].map { Set($0.split(separator: ",").map(String.init)) }
+        var totals: [String: (correct: Int, assigned: Int, labelled: Int)] = [:]
+        for (name, text) in try fixture().texts.sorted(by: { $0.key < $1.key }) where wanted?.contains(name) ?? true {
+            let doc = try document(text, in: dir)
+            let sheet = DialogueCast.CastSheet(characters: text.cast)
+            let saved = saveDir.map { URL(fileURLWithPath: $0).appendingPathComponent("\(name).fill.json") }
+            let fill: DialogueCast.Fill
+            if let saved, let data = try? Data(contentsOf: saved) {
+                fill = try JSONDecoder().decode(DialogueCast.Fill.self, from: data)
+                print("HELDOUT-FILL \(name): answers read from \(saved.lastPathComponent)")
+            } else {
+                let started = Date()
+                fill = await DialogueCast.fill(doc, cast: sheet, complete: live.complete)
+                print("HELDOUT-FILL \(name): \(fill.answered)/\(fill.asked) prompts answered by \(fill.source ?? "nobody") "
+                      + "in \(Int(Date().timeIntervalSince(started))) s")
+                if let saved {
+                    try FileManager.default.createDirectory(at: saved.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try JSONEncoder().encode(fill).write(to: saved)
+                }
+            }
+            var rules = DialogueCast.segment(SecretRedactor.redact(doc))
+            DialogueCast.attributeRules(&rules, cast: text.cast)
+            var filled = rules
+            DialogueCast.applyFill(fill, to: &filled, cast: text.cast)
+            var oneWay = DialogueCast.segment(SecretRedactor.redact(doc))
+            DialogueCast.attributeRules(&oneWay, cast: text.cast, agreeBothWays: false)
+            let turn = Dictionary(uniqueKeysWithValues: oneWay.filter { $0.method == "alternation" }.map { ($0.id, $0.speaker ?? "") })
+            var vetoed = filled
+            for i in vetoed.indices where vetoed[i].method == "model" {
+                if let t = turn[vetoed[i].id], t != vetoed[i].speaker { vetoed[i].speaker = nil; vetoed[i].method = "model-vetoed" }
+            }
+            for (policy, spans) in [("rules", rules), ("rules+model", filled), ("rules+model-veto", vetoed)] {
+                let quotes = Dictionary(uniqueKeysWithValues: spans.filter { $0.kind == .quote }.map { ($0.id, $0) })
+                var correct = 0, assigned = 0, labelled = 0
+                var wrong: [String] = []
+                for (id, label) in text.labels where label.speaker != "narrator" && label.speaker != "?" {
+                    guard let q = quotes[id], q.text.hasPrefix(label.starts) else { continue }
+                    labelled += 1
+                    guard let who = q.speaker else { continue }
+                    assigned += 1
+                    if who == label.speaker { correct += 1 } else { wrong.append("\(id) \(who)≠\(label.speaker) (\(q.method ?? "-"))") }
+                }
+                print("HELDOUT-FILL \(name) \(policy): \(correct)/\(assigned) precision \(String(format: "%.3f", Double(correct) / Double(max(assigned, 1)))), "
+                      + "coverage \(assigned)/\(labelled) \(String(format: "%.3f", Double(assigned) / Double(max(labelled, 1))))")
+                if policy != "rules" { for w in wrong.sorted() { print("   wrong (\(policy)): \(w)") } }
+                let t = totals[policy] ?? (0, 0, 0)
+                totals[policy] = (t.correct + correct, t.assigned + assigned, t.labelled + labelled)
+            }
+        }
+        for (policy, t) in totals.sorted(by: { $0.key < $1.key }) {
+            print("HELDOUT-FILL all \(policy) (\(live.name)): \(t.correct)/\(t.assigned) precision "
+                  + "\(String(format: "%.3f", Double(t.correct) / Double(max(t.assigned, 1)))), coverage \(t.assigned)/\(t.labelled) "
+                  + String(format: "%.3f", Double(t.assigned) / Double(max(t.labelled, 1))))
+        }
+    }
+
+    /// G3 on a whole novel: the cast sheet for all of Pride and Prejudice, asked the
+    /// way the app asks (`LiveModel`: the three-minute timeout and the task's reply budget), timed,
+    /// and checked for the people a listener would expect.
+    func testWholeNovelCastSheetWithALiveModel() async throws {
+        let dir = try directory()
+        guard let live = LiveModel.complete(.castSheet) else {
+            throw XCTSkip("set BATON_LIVE_AGENT_FILE or BATON_LIVE_OLLAMA_MODEL to write a whole novel's cast sheet")
+        }
+        let text = try XCTUnwrap(fixture().texts["austen"])
+        let data = try Data(contentsOf: URL(fileURLWithPath: dir).appendingPathComponent(text.file))
+        let chapters = HTMLImporter.read(HTMLParser.decode(data), fallbackTitle: text.file).result.chapters
+        let novel = ImportedDocument(sourceSHA256: "pg1342", sourceKind: .html, title: "Pride and Prejudice",
+                                     chapters: chapters.enumerated().map { DocumentChapter(index: $0.offset, title: $0.element.title, paragraphs: $0.element.paragraphs) })
+        let prompt = CastSheetGenerator.prompt(CastSheetGenerator.evidence(novel), title: novel.title)
+        let started = Date()
+        let made = await CastSheetGenerator.generate(for: novel, complete: live.complete)
+        let seconds = Date().timeIntervalSince(started)
+        print("WHOLE-SHEET \(live.name): \(chapters.count) chapters, prompt \(prompt.count) characters, "
+              + "\(made.sheet.characters.count) people in \(String(format: "%.1f", seconds)) s by \(made.source ?? "nobody")")
+        for c in made.sheet.characters { print("   \(c.name) [\(c.gender), \(c.age)\(c.group ? ", group" : "")] \(c.aliases)") }
+        let found = made.sheet.characters.map { ([$0.name] + $0.aliases).joined(separator: " | ").lowercased() }
+        let expected = ["mr. bennet", "mrs. bennet", "elizabeth", "jane", "darcy", "bingley", "lydia"]
+        let missing = expected.filter { want in !found.contains { $0.contains(want) } }
+        print("WHOLE-SHEET missing: \(missing)")
+        XCTAssertNotNil(made.source, "no answer within the app's timeout")
+        XCTAssertTrue(missing.isEmpty, "missing \(missing)")
+    }
+
     /// G3 end to end: a model writes each text's cast sheet from the book's evidence, the rules
     /// run with that sheet instead of the hand-written one, and the result is scored.
     ///

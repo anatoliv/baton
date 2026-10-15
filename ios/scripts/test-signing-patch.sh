@@ -25,6 +25,7 @@ IOS="$(cd "$DIR/.." && pwd)"
 IDENTITY="Apple Distribution: Anatoli Vishnyakov (Q8822GNL2H)"
 APP_PROFILE="Baton App Store"
 WIDGET_PROFILE="Baton Widgets App Store"
+SHARE_PROFILE="Baton Share App Store"
 
 WORK="$(mktemp -d -t baton-signing-patch-test)"
 trap 'rm -rf "$WORK"' EXIT
@@ -36,7 +37,7 @@ awk "/<<'PY'\$/{f=1;next} f&&/^PY\$/{exit} f" "$DIR/testflight.sh" > "$PATCH"
 [ -s "$PATCH" ] || { echo "could not extract the step-2 patch from testflight.sh" >&2; exit 1; }
 
 apply() {  # $1 = project.yml to patch in place, $2 = WITH_ENTITLEMENTS (default 1)
-  python3 "$PATCH" "$1" "$APP_PROFILE" "$WIDGET_PROFILE" "$IDENTITY" "${2:-1}" >/dev/null
+  python3 "$PATCH" "$1" "$APP_PROFILE" "$WIDGET_PROFILE" "$IDENTITY" "${2:-1}" "$SHARE_PROFILE" >/dev/null
 }
 
 count() {  # $1 = file, $2 = key -> how many lines declare it
@@ -56,7 +57,7 @@ check() {  # $1 = description, $2 = expected, $3 = actual
 single_keys() {  # $1 = description prefix, $2 = file
   check "$1: one CODE_SIGN_IDENTITY"                1 "$(count "$2" CODE_SIGN_IDENTITY)"
   check "$1: one CODE_SIGN_STYLE"                   1 "$(count "$2" CODE_SIGN_STYLE)"
-  check "$1: two PROVISIONING_PROFILE_SPECIFIER"    2 "$(count "$2" PROVISIONING_PROFILE_SPECIFIER)"
+  check "$1: three PROVISIONING_PROFILE_SPECIFIER"  3 "$(count "$2" PROVISIONING_PROFILE_SPECIFIER)"
 }
 
 signing_values() {  # $1 = description prefix, $2 = file
@@ -71,6 +72,10 @@ signing_values() {  # $1 = description prefix, $2 = file
   check "$1: widget profile" \
     "        PROVISIONING_PROFILE_SPECIFIER: \"$WIDGET_PROFILE\"" \
     "$(grep -A4 '^ *PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton.widgets$' "$2" |
+       grep -m1 'PROVISIONING_PROFILE_SPECIFIER')"
+  check "$1: share extension profile" \
+    "        PROVISIONING_PROFILE_SPECIFIER: \"$SHARE_PROFILE\"" \
+    "$(grep -A4 '^ *PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton.share$' "$2" |
        grep -m1 'PROVISIONING_PROFILE_SPECIFIER')"
 }
 

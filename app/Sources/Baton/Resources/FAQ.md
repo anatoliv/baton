@@ -464,6 +464,88 @@ It tries hard not to. Before anything is spoken, Baton strips things shaped like
 Terminal output is exactly where such things sit, which is why the check runs on every reading
 rather than only on some. Treat it as a good safety net rather than a guarantee.
 
+## Documents and audiobooks
+
+**Which documents can Baton read?**
+PDFs, EPUB books, web pages (saved as HTML, or imported from their link), Markdown files and
+plain text files. A scanned PDF, made of pictures of pages, is read with text recognition, which
+can misread a word, so Baton names those pages before you start, and any page it could not read
+at all. See [Listening to a document](HELP.md#listening-to-a-document).
+
+**How do I get a document onto my iPhone?**
+Share it to Baton from another app's share sheet (a web page in Safari works too), open it in
+Baton from Files, or use the + menu on the Clippings screen to import a file or a link. The phone makes the book on your home server, so set that up first under
+Settings, Music Friend, Home server. If the home server cannot make books, the import screen
+offers Send to my Mac, and Baton on the Mac opens the document to import; without a home server it
+suggests AirDropping the file to your Mac. A book made on the Mac arrives on the phone too when it
+was made on the home server.
+
+**Why did my book stop part way?**
+The voice host stopped answering. The book's row in Clippings says so, and the book carries on
+by itself when the host is reachable again. Check that the host is running and that its address
+in Settings → Speech on the Mac, or the home server under Settings on the phone, is right.
+
+**Does my document leave my device?**
+Only to your own machines, unless you say otherwise. The text goes, a sentence or two at a time,
+to the voice host you set in Settings → Speech, or to your home server when the book is made
+there; with the built-in voices on a Mac it never leaves the Mac. Send to my Mac leaves the file
+on your home server only until your Mac imports or discards it. The Mac's narrator suggestion,
+recap and cast list use Apple Intelligence or a model you run yourself first. A cloud model gets
+book text only if you allow it, and you can change that in Settings → Agents under Book text and
+cloud models. Anything that looks like a password or key is removed before any text is spoken or
+sent. See [Book text and cloud models](HELP.md#book-text-and-cloud-models).
+
+**Can I choose the narrator?**
+On the Mac, yes. When a model answers (Apple Intelligence, Ollama or LM Studio on this Mac, or
+your home server's), the import sheet suggests three voices and lets you hear each in the book's
+own words. Without one, and on the phone, Baton uses the default voice for the book's language,
+the one set in Settings → Speech.
+
+**Can I make books on my Mac without a voice server?**
+Yes, on a Mac with Apple silicon. Download the built-in voices once under Settings → Speech →
+Voice engine for books (342 MB). They are Kokoro's 28 English voices, run by Baton itself, and
+nothing leaves the Mac. See [Voices: on this Mac or on a
+server](HELP.md#voices-on-this-mac-or-on-a-server).
+
+**Should I use the built-in voices or a voice server?**
+On the Mac, Settings → Speech → Voice engine for books chooses. Automatic, the default, uses the
+built-in voices first whenever they are downloaded and have the book's voice, and your voice
+server for the rest. On a Mac with Apple silicon we recommend downloading them: in a
+side-by-side listening test they sounded the same as the server, they work offline, and the
+book's text stays on the Mac. They speak English only. Voice server reaches every voice your
+Kokoro or Chatterbox server has, including other languages and Chatterbox's, and needs its
+address to answer. The iPhone has no choice to make: its
+books are made on your home server with the voice server set on the gateway
+(`BATON_TTS_KOKORO_URL`). See [Voices: on this Mac or on a
+server](HELP.md#voices-on-this-mac-or-on-a-server).
+
+**Can the characters have their own voices?**
+On the Mac, yes. Turn on Voice the dialogue in the import sheet. A model proposes a cast, you
+check it and pick the voices, and Baton works out who says each line. Any line nobody can place
+stays with the narrator. It is off for your first book, then starts the way you last left it.
+See [Voice the dialogue](HELP.md#voice-the-dialogue).
+
+**How do I free the space a book takes?**
+Choose Remove Download in the book's menu in Clippings. The book keeps its row and your place,
+and Download Again or Render Again brings the audio back whenever you like. Settings → Storage on
+the Mac, or Settings → Documents → Storage on the iPhone, shows what each book takes and lets you
+set cleanup rules. Nothing is removed until you choose a rule. See
+[Book storage](HELP.md#book-storage).
+
+**I deleted a book by mistake. Can I get it back?**
+For a week, yes. Open Storage in Settings and find the book under Recently Removed, then choose
+Restore.
+
+**Why does the book have the wrong title or chapters?**
+Baton takes the title and author from the first page and finds chapters from their headings.
+Some documents lay these out in ways it cannot recognise. The import sheet shows what it found
+before you start, so you can cancel and check the file.
+
+**I never use this. Can I hide it?**
+Yes. Turn off **Documents** under Settings → Speech on the Mac, or under Settings on the iPhone.
+The import items, the drop target and the book rows go away on that device at once; the
+other device keeps its own setting.
+
 ## Your data
 
 **Where does Baton keep my listening history?**

@@ -68,9 +68,10 @@ struct BatonAppCommands: Commands {
                 }
             }
 
-            // A file in, a narrated book out (document clippings). Behind the flag until the Mac
-            // book flow is complete; the sheet opens over Clippings, where the book will appear.
-            if DocumentLibrary.isEnabled() {
+            // A file in, a narrated book out (document clippings). Shown unless Settings → Speech →
+            // Documents is off; the sheet opens over Clippings, where the book will appear.
+            // Read live: the items come and go with the switch, no relaunch.
+            if model.documentsSwitch.isOn {
                 Divider()
                 Button("Import Document…") { chooseDocument() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])

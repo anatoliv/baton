@@ -30,6 +30,13 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         private(set) var requests: [String] = []
         let audio = Data(repeating: 0x41, count: 4_096)
 
+        /// The home server answers every DELETE with a 503, as when its disk is unavailable.
+        private var _failDeletes = false
+        var failDeletes: Bool {
+            get { lock.withLock { _failDeletes } }
+            set { lock.withLock { _failDeletes = newValue } }
+        }
+
         func setReady(_ id: String, _ count: Int) { lock.withLock { readyCount[id] = count } }
         var seen: [String] { lock.withLock { requests } }
 
@@ -47,6 +54,7 @@ final class HomeServerBooksPhoneTests: XCTestCase {
                 }
                 guard parts.count >= 3 else { return reply(404, Data()) }
                 let id = parts[2]
+                if method == "DELETE", _failDeletes { return reply(503, Data("unavailable".utf8)) }
                 if method == "PUT" {
                     let book = try! PreparedBook.decode(request.httpBody ?? Data())
                     jobs[id] = BookJob(id: id, book: book)
@@ -144,6 +152,85 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         XCTAssertEqual(relaunched.records, [])
     }
 
+    /// A book stopped while the home server cannot delete it is gone here at once, remembered
+    /// across a relaunch, and deleted there on a later refresh; only then is it forgotten.
+    func testAStopThatFailsIsAskedAgainUntilTheServerDeletesIt() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: UserDefaults(suiteName: ThrowawayDefaults.name("phone-books"))!)
+        let library = books(fake, clippings: clippings)
+        let id = try await library.submit(try book())
+
+        fake.failDeletes = true
+        await library.cancel(jobID: id)
+        XCTAssertEqual(library.records, [], "the book is gone from this phone straight away")
+        XCTAssertEqual(library.pendingDeleteIDs, [id])
+        await library.collect()
+        XCTAssertEqual(fake.seen.filter { $0 == "DELETE /v1/books/\(id)" }.count, 2, "asked again on refresh")
+        XCTAssertEqual(library.pendingDeleteIDs, [id])
+        let listing = await library.listing()
+        XCTAssertNotNil(listing)
+
+        let relaunched = books(fake, clippings: clippings)
+        XCTAssertEqual(relaunched.pendingDeleteIDs, [id], "the pending delete survives a relaunch")
+        XCTAssertEqual(relaunched.records, [])
+        fake.failDeletes = false
+        await relaunched.collect()
+        XCTAssertEqual(relaunched.pendingDeleteIDs, [])
+        let deletes = fake.seen.filter { $0 == "DELETE /v1/books/\(id)" }.count
+        await relaunched.collect()
+        XCTAssertEqual(fake.seen.filter { $0 == "DELETE /v1/books/\(id)" }.count, deletes, "not asked once confirmed")
+    }
+
+    /// A 404 means the home server no longer has the book: the delete is done.
+    func testAStopTheServerAnswersWith404IsDone() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: UserDefaults(suiteName: ThrowawayDefaults.name("phone-books"))!)
+        let library = books(fake, clippings: clippings)
+        await library.cancel(jobID: "0123456789abcdef")
+        XCTAssertTrue(fake.seen.contains("DELETE /v1/books/0123456789abcdef"))
+        XCTAssertEqual(library.pendingDeleteIDs, [])
+    }
+
+    /// The watch (M5.3): while a book is still being made it asks again on its own, every
+    /// `pollInterval` (five seconds in the app; 50 ms here), stops by itself once every chapter is
+    /// here, and stops when the screen goes (`stopWatching`).
+    private var watchChanges = 0
+
+    func testTheWatchAsksUntilEveryChapterIsHereAndStopsWhenTold() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: UserDefaults(suiteName: ThrowawayDefaults.name("phone-books"))!)
+        let library = HomeServerBooks(directory: root.appendingPathComponent("Books"), clippings: clippings,
+                                      gateway: { GatewayBookClient(baseURL: URL(string: "http://gateway.test:8788")!, token: "t") { fake.answer($0) } },
+                                      pollInterval: .milliseconds(50))
+        let id = try await library.submit(try book())
+        let statusReads = { fake.seen.filter { $0 == "GET /v1/books/\(id)" }.count }
+
+        watchChanges = 0
+        library.watchIfNeeded { self.watchChanges += 1 }
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertGreaterThanOrEqual(statusReads(), 3, "a book being made is asked about again and again")
+        XCTAssertGreaterThanOrEqual(watchChanges, 3, "the screen is told after each look")
+
+        library.stopWatching()
+        try await Task.sleep(for: .milliseconds(100))
+        let stopped = statusReads()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(statusReads(), stopped, "stopped: no more asking")
+
+        // Watching again, and every chapter arrives: the watch ends by itself.
+        fake.setReady(id, 2)
+        library.watchIfNeeded { }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(clippings.items.count, 2)
+        XCTAssertTrue(library.isCollected(library.records[0]))
+        let done = statusReads()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(statusReads(), done, "nothing left to collect: the watch has ended")
+        library.watchIfNeeded { }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(statusReads(), done, "and does not start again for a book that is all here")
+    }
+
     func testWithNoGatewayConfiguredNothingIsOffered() async {
         let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: UserDefaults(suiteName: ThrowawayDefaults.name("phone-books"))!)
         let library = HomeServerBooks(directory: root.appendingPathComponent("Books"), clippings: clippings, gateway: { nil })
@@ -169,5 +256,20 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         XCTAssertEqual(DocumentImportScreen.voiceLabel("kokoro:bf_emma"), "bf_emma on Kokoro")
         XCTAssertTrue(DocumentImportScreen.estimateLine(ListeningEstimate(document)).hasPrefix("Under a minute of audio"),
                       DocumentImportScreen.estimateLine(ListeningEstimate(document)))
+    }
+
+    /// TBX-10916, the shared rule on the phone's build: Heart or Emma only when the voice list is
+    /// known and has them. The phone's import passes none (the home server does not list its
+    /// voices), so it keeps the configured default.
+    func testTheEnglishNarratorDefaultNeedsAKnownVoiceList() {
+        var book = ImportedDocument(sourceSHA256: "uk", sourceKind: .html, title: "Colour", language: "en",
+                                    languageRegion: "gb",
+                                    chapters: [DocumentChapter(index: 0, title: "One", paragraphs: ["The colour was grey."])])
+        let configured = DocumentVoices.languageDefault(for: book)
+        XCTAssertEqual(DocumentVoices.languageDefault(for: book, available: ["kokoro:af_heart", "kokoro:bf_emma"]), "kokoro:bf_emma")
+        XCTAssertEqual(DocumentVoices.languageDefault(for: book, available: ["kokoro:af_heart"]), configured)
+        book.languageRegion = nil
+        XCTAssertEqual(DocumentVoices.languageDefault(for: book, available: ["kokoro:af_heart", "kokoro:bf_emma"]), "kokoro:af_heart")
+        XCTAssertEqual(DocumentVoices.languageDefault(for: book, available: nil), configured)
     }
 }

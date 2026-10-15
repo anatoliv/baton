@@ -62,12 +62,27 @@ public struct BookJob: Codable, Sendable, Equatable {
 
     /// The job id a client should use for a book: the same document in the same voices is the
     /// same job, so submitting twice (a retry, a second device) finds the first one.
+    ///
+    /// The gateway recomputes it from the submitted book and refuses a mismatch, so a change
+    /// here reaches the home server only with a gateway that has it too.
     public static func id(for book: PreparedBook) -> String {
         let voices = (try? BookJSON.sortedKeys.encode(book.voices)) ?? Data()
         // A corrected pronunciation is a different reading, so it is a different job; a book
         // with no lexicon keeps the id it had before lexicons existed.
         let lexicon = book.lexicon.flatMap { $0.isEmpty ? nil : try? BookJSON.sortedKeys.encode($0) } ?? Data()
-        return SHA256Digest.hex(of: Data("book-v1|\(book.documentID)|".utf8) + voices + lexicon)
+        return SHA256Digest.hex(of: Data("book-v1|\(book.documentID)|".utf8) + voices + lexicon + attribution(of: book))
+    }
+
+    /// Who speaks each line, for a cast book. The same cast in the same voices with
+    /// a line given to someone else (the model placing what the rules left, a corrected cast
+    /// sheet) is a different reading, so it is a different job, and its chapters are made
+    /// again rather than found. A book in which no line has a speaker, the narrator-only book,
+    /// adds nothing and keeps the id it always had.
+    static func attribution(of book: PreparedBook) -> Data {
+        guard book.chapters.contains(where: { $0.segments.contains { $0.speaker != nil } }) else { return Data() }
+        let speakers = book.chapters.map { $0.segments.map(\.speaker) }
+        guard let encoded = try? BookJSON.sortedKeys.encode(speakers) else { return Data() }
+        return Data("|speakers-v1|\(SHA256Digest.hex(of: encoded))".utf8)
     }
 
     /// What a listing shows: everything but the text.

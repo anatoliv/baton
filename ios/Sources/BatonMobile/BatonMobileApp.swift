@@ -27,6 +27,7 @@ final class BatonAppDelegate: NSObject, UIApplicationDelegate {
 struct BatonMobileApp: App {
     @UIApplicationDelegateAdaptor(BatonAppDelegate.self) private var appDelegate
     @State private var model: MobileModel
+    @Environment(\.scenePhase) private var scenePhase
     init() {
         // No-op unless the user opted in and release packaging supplied one complete,
         // immutable provider configuration. Initialization runs off the UI thread.
@@ -41,6 +42,14 @@ struct BatonMobileApp: App {
         // stayed empty for the life of the install, so the automatic sheet could never fire
         // on any later update — which is every App Store install of 1.0.
         WhatsNewView.stampInstalledVersion()
+        #if DEBUG
+        // ShareInboxUITests: the share sheet is another app's and cannot be driven from a UI
+        // test, so the extension's own writer leaves the share in the real App Group inbox here,
+        // before the first activation picks it up. Environment only.
+        if let text = ProcessInfo.processInfo.environment["uitestSharedText"], !text.isEmpty {
+            _ = try? PendingShareInbox.shared?.writeText(text, originalName: "Shared Pages.txt")
+        }
+        #endif
         let model = MobileModel()
         _model = State(initialValue: model)
         // The refresh iOS grants while the app is closed, so "Chapter 1 is ready" can arrive
@@ -106,17 +115,19 @@ struct BatonMobileApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     Task { await model.collectBooks(announcing: false) }
                 }
-                .sheet(item: Binding(get: { model.pendingDocumentImport.map(ImportRequest.init) },
-                                     set: { if $0 == nil { model.pendingDocumentImport = nil } })) { request in
-                    DocumentImportScreen(url: request.url, model: model) { model.pendingDocumentImport = nil }
+                // Something shared to "Baton" from another app waits in the App Group inbox,
+                // since a share extension cannot open the app; the oldest opens here.
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    #if DEBUG
+                    if phase == .background { UITestShareWhenAway.writeOnce() }
+                    #endif
+                    guard phase == .active, model.pendingDocumentImport == nil, MobileDocuments.isEnabled(),
+                          let shared = MobileDocuments.claimSharedImport() else { return }
+                    model.offerImport(shared)
                 }
+                // The import screen itself is presented by `RootTabView`, in the one sheet it
+                // shares with What's New, so the two never race at launch.
         }
-    }
-
-    /// Identity for the import sheet: one request per file handed over.
-    private struct ImportRequest: Identifiable {
-        let url: URL
-        var id: String { url.absoluteString }
     }
 
     /// Acts on a `baton://` link. What the link *means* is decided by `BatonDeepLink`,
@@ -129,7 +140,7 @@ struct BatonMobileApp: App {
         // when the feature is on. Copied first, because the handed-over file is ours to read
         // only for a moment (M5.2).
         if url.isFileURL, MobileDocuments.isEnabled(), MobileDocuments.canImport(url) {
-            do { model.pendingDocumentImport = try MobileDocuments.stage(url) } catch {
+            do { model.offerImport(try MobileDocuments.stage(url)) } catch {
                 model.linkFailure = "The file could not be opened: \(error.localizedDescription)"
             }
             return
@@ -141,6 +152,24 @@ struct BatonMobileApp: App {
     }
 }
 
+
+#if DEBUG
+/// ImportOverSheetUITests: a share that arrives while Baton is away, the way the share
+/// extension leaves one when someone shares from another app with Baton's player still open. The
+/// test opens a screen, goes Home and comes back, and the real activation pickup finds it. Written
+/// by the extension's own writer on the first trip to the background, once per launch.
+/// Environment only.
+@MainActor
+enum UITestShareWhenAway {
+    static let key = "uitestSharedTextWhenAway"
+    private static var written = false
+    static func writeOnce() {
+        guard !written, let text = ProcessInfo.processInfo.environment[key], !text.isEmpty else { return }
+        written = true
+        _ = try? PendingShareInbox.shared?.writeText(text, originalName: "Shared While Away.txt")
+    }
+}
+#endif
 
 /// Carries a main-thread-only closure across a @Sendable boundary. Safe here because
 /// the engine calls it via the main actor.

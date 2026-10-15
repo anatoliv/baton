@@ -24,6 +24,8 @@ public enum HTMLImporter {
         /// The page's declared language (`<html lang>`), when it has one.
         public var language: String?
         public var warnings: [ImportWarning]
+        /// The region declared with it ("gb" for `lang="en-GB"`).
+        public var languageRegion: String? = nil
     }
 
     public static func read(_ html: String, fallbackTitle: String) -> Output {
@@ -66,7 +68,7 @@ public enum HTMLImporter {
         }
         let result = LayoutTextImporter.Result(title: title, author: author, frontMatter: frontMatter,
                                                chapters: chapters, stats: stats, foundHeadings: foundHeadings)
-        return Output(result: result, language: metadata.language, warnings: warnings)
+        return Output(result: result, language: metadata.language, warnings: warnings, languageRegion: metadata.languageRegion)
     }
 
     // MARK: - Metadata
@@ -77,6 +79,7 @@ public enum HTMLImporter {
         var siteName: String?
         var author: String?
         var language: String?
+        var languageRegion: String?
         var gutenbergTitle: String?
         var gutenbergAuthor: String?
 
@@ -96,7 +99,7 @@ public enum HTMLImporter {
                 ?? metas["article:author"].flatMap { $0.hasPrefix("http") ? nil : $0 }
             author = creator.map(HTMLImporter.personName)
             if let lang = document.first(named: "html")?.attribute("lang") ?? document.first(named: "html")?.attribute("xml:lang") {
-                language = lang.split(separator: "-").first.map { $0.lowercased() }
+                (language, languageRegion) = LanguageTag.split(lang)
             }
             // "The Project Gutenberg eBook of The Machine Stops, by E. M. Forster"
             if let t = title,

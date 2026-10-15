@@ -19,7 +19,7 @@ struct BatonMCPToolError: Error {
 enum BatonMCPToolCatalog {
     // MARK: - Definitions (tools/list)
 
-    /// - Parameter includeDocuments: list `import_document`, which is behind
+    /// - Parameter includeDocuments: list `import_document` and `document_context`, which are behind
     ///   `baton.documents.enabled`. Off under test regardless of the flag, so the published
     ///   surface the snapshot and documentation tests pin does not depend on this Mac's settings;
     ///   `MCPDocumentToolTests` pins that tool on its own.
@@ -363,7 +363,7 @@ enum BatonMCPToolCatalog {
             ),
             BatonMCPSpeakTools.definition(),
             BatonMCPReadTools.definition(),
-        ] + (includeDocuments ? [BatonMCPDocumentTools.definition()] : [])
+        ] + (includeDocuments ? [BatonMCPDocumentTools.definition(), BatonMCPBookTools.definition()] : [])
           + BatonMCPTranscriptTools.definitions() + BatonInterpreterTools.definitions())
     }
 
@@ -396,6 +396,8 @@ enum BatonMCPToolCatalog {
         // Reads a transcript already on disk. `music_summarize_track` is NOT here: with
         // create:true it spends model calls and writes a summary to the store.
         "music_transcript", "interpretation_devices", "interpretation_status",
+        // Reads a book's own text from this Mac; nothing leaves it.
+        "document_context",
     ]
 
     /// All music tools reach the Navidrome server; the audio-focus tools are local.
@@ -510,6 +512,15 @@ enum BatonMCPToolCatalog {
                 }
                 music.documents.start()
                 text = try await BatonMCPDocumentTools.run(arguments, library: music.documents)
+            case "document_context":
+                guard DocumentLibrary.isEnabled() else {
+                    throw BatonMCPToolError(message: "Document import is not switched on in this Baton.")
+                }
+                music.documents.start()
+                let playing = music.music.nowPlaying.map {
+                    BatonMCPBookTools.Playing(songID: $0.id, time: music.music.currentTime, duration: music.music.duration)
+                }
+                text = try BatonMCPBookTools.run(arguments, library: music.documents, clippings: music.clippings, playing: playing)
             case "music_transcript": text = try BatonMCPTranscriptTools.transcript(arguments, music)
             case "music_summarize_track":
                 // Read from the same store the remote-control service does, rather than

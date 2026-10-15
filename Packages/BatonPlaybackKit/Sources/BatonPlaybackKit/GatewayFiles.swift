@@ -77,16 +77,38 @@ public struct GatewayFiles: Sendable {
     public func upload(_ fileURL: URL, name: String, contentType: String,
                        origin: String) async throws -> RemoteFile {
         let digest = try Self.sha256(of: fileURL)
-        var request = self.request("PUT", "v1/files/\(digest)")
+        return try await put(fileURL, id: digest, name: name, contentType: contentType,
+                             origin: origin, sha256: digest)
+    }
+
+    /// Send a file under an id the caller chooses (hex and dashes, as the gateway's `FileStore`
+    /// allows), with or without the digest header.
+    ///
+    /// Leaving `sha256` out is how a file is kept away from the phone's clipping collector, which
+    /// takes every listed file that carries a digest. "Send to my Mac" (`PendingImportRelay`)
+    /// relies on that: its documents travel with their digest inside the relay's own record
+    /// instead, so the receiving Mac still verifies them end to end.
+    @discardableResult
+    public func put(_ fileURL: URL, id: String, name: String, contentType: String,
+                    origin: String, sha256: String?) async throws -> RemoteFile {
+        var request = self.request("PUT", "v1/files/\(id)")
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.setValue(name, forHTTPHeaderField: "X-Baton-Name")
-        request.setValue(digest, forHTTPHeaderField: "X-Baton-SHA256")
+        if let sha256 { request.setValue(sha256, forHTTPHeaderField: "X-Baton-SHA256") }
         request.setValue(origin, forHTTPHeaderField: "X-Baton-Origin")
         // `upload(fromFile:)` streams from disk rather than loading the file into memory, which
         // matters for the same reason it matters on the gateway: an article can be tens of MB.
         let (data, response) = try await session.upload(for: request, fromFile: fileURL)
         try Self.check(response, data)
         return try JSONDecoder.gatewayISO8601.decode(RemoteFile.self, from: data)
+    }
+
+    /// A header value the gateway's parser keeps intact: printable ASCII only. A device called
+    /// "Anatoli’s iPhone" or a file named in French would otherwise travel as bytes the
+    /// receiving side may not read back. For display names only; anything that must survive
+    /// exactly travels in a body (`PendingImportRelay` puts the real names in its record).
+    public static func headerSafe(_ value: String) -> String {
+        String(value.unicodeScalars.map { (0x20 ... 0x7E).contains($0.value) ? Character($0) : "_" })
     }
 
     public func list() async throws -> [RemoteFile] {

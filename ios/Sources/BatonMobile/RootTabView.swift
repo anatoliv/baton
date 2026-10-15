@@ -8,6 +8,10 @@ struct RootTabView: View {
     let model: MobileModel
     @State private var showsFullPlayer = false
     @State private var showsWhatsNew = false
+    /// When a pending document may take the launch sheet, and the watch that asks again until
+    /// it has (TBX-10889, `ImportPresentation`).
+    @State private var importPresentation = ImportPresentation()
+    @State private var importWatch: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.requestReview) private var requestReview
     #if DEBUG
@@ -131,6 +135,101 @@ struct RootTabView: View {
             }
     }
 
+    /// What the launch sheet shows: a document to import first, then What's New.
+    private enum LaunchSheet: Identifiable {
+        case importDocument(URL)
+        case whatsNew
+
+        var id: String {
+            switch self {
+            case .importDocument(let url): "import:" + url.absoluteString
+            case .whatsNew: "whats-new"
+            }
+        }
+    }
+
+    private var launchSheet: LaunchSheet? {
+        // The import only once `ImportPresentation` has handed it over: asked for while another
+        // sheet is up, UIKit drops it. Until then What's New waits too.
+        switch importPresentation.launchContent(pending: model.pendingDocumentImport, whatsNewWanted: showsWhatsNew) {
+        case .importDocument(let url): .importDocument(url)
+        case .whatsNew: .whatsNew
+        case nil: nil
+        }
+    }
+
+    /// The sheet was closed by the person (Cancel, Done or a swipe down), not swapped.
+    /// Marking What's New here rather than only in its Done button: a swipe down is how most
+    /// people close a sheet, and it used to leave the marker untouched, so the same notes
+    /// came back on every launch for as long as the version lasted.
+    private func launchSheetClosed() {
+        // Only the person closing the import screen ends the import. A sheet the app took back
+        // before it was seen leaves the document pending, to show again.
+        switch importPresentation.closed(pending: model.pendingDocumentImport, whatsNewWanted: showsWhatsNew) {
+        case .endImport:
+            model.pendingDocumentImport = nil
+        case .markWhatsNewShown:
+            showsWhatsNew = false
+            WhatsNewView.markShown()
+        case .keepImport, .nothing:
+            break
+        }
+    }
+
+    /// Moves a pending document toward the import screen: shows it when nothing is in
+    /// the way, closes what is (waiting for the setup gate and root alerts), and keeps asking
+    /// until the screen has appeared. The rules are `ImportPresentation`'s; this is the UIKit
+    /// half, which reads what is actually presented rather than what SwiftUI state says.
+    ///
+    /// Live UIKit state, not this view's `scenePhase`: the watch runs in a Task, which would hold
+    /// the value from when it started (see `askForAReviewIfEarned`).
+    private func reconcileImport(launchSheetUp: Bool = false) {
+        let root = Self.rootController()
+        let presented = root?.presentedViewController
+        let situation = ImportPresentation.Situation(
+            pending: model.pendingDocumentImport,
+            isActive: UIApplication.shared.applicationState == .active,
+            waitsForGate: model.showsSetup || model.handoff.offer != nil || model.linkFailure != nil,
+            otherPresentationUp: presented != nil && !launchSheetUp && importPresentation.shown == nil,
+            now: .now)
+        switch importPresentation.step(situation) {
+        case .idle:
+            importWatch?.cancel()
+            importWatch = nil
+            return
+        case .wait, .show:
+            break
+        case .closeOthers:
+            if showsFullPlayer || model.revealedAlbum != nil || model.revealedArtist != nil {
+                // Ours: closed through their own state, so they open again with a tap.
+                showsFullPlayer = false
+                model.revealedAlbum = nil
+                model.revealedArtist = nil
+            } else if let presented, !presented.isBeingDismissed {
+                // Anything else (Settings, a menu's sheet, a picker): the whole stack over the
+                // root, which SwiftUI reads as those sheets closing.
+                presented.presentingViewController?.dismiss(animated: true)
+            }
+        }
+        guard importWatch == nil else { return }
+        importWatch = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled else { break }
+                reconcileImport()
+            }
+        }
+    }
+
+    /// The app window's root, which every sheet in the app is presented over.
+    private static func rootController() -> UIViewController? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.session.role == .windowApplication }
+            .flatMap(\.windows)
+        return (windows.first(where: \.isKeyWindow) ?? windows.first)?.rootViewController
+    }
+
     private var tabs: some View {
         TabView {
             // Only once a connection test has passed. A Friend tab that opens on
@@ -234,18 +333,38 @@ struct RootTabView: View {
         .task {
             await model.handoff.checkForHandoff()
             // Once per version, and never on a fresh install — a new user needs
-            // onboarding, not a changelog.
-            if WhatsNewView.shouldShow { showsWhatsNew = true }
+            // onboarding, not a changelog. Not over a document someone is importing either:
+            // the notes wait for the next launch (the marker is left as it is).
+            if WhatsNewView.shouldShow, model.pendingDocumentImport == nil { showsWhatsNew = true }
         }
-        // `onDismiss`, not only the sheet's Done button: a swipe down is how most people
-        // close a sheet, and it used to leave the marker untouched, so the same notes came
-        // back on every launch for as long as the version lasted.
-        .sheet(isPresented: $showsWhatsNew, onDismiss: { WhatsNewView.markShown() }) {
-            WhatsNewView()
+        // A document to import (handed over at launch, opened from Files, shared from another
+        // app) takes the launch sheet from What's New, here or arriving later, and whatever else
+        // is on screen makes way for it.
+        .onChange(of: model.pendingDocumentImport, initial: true) { _, url in
+            let whatsNewUp = showsWhatsNew
+            if url != nil { showsWhatsNew = false }
+            reconcileImport(launchSheetUp: whatsNewUp)
+        }
+        // What's New and the import screen share one sheet. They were two: the
+        // import sheet on the App's root and What's New here, both wanting to present at
+        // launch. On a phone updated from an earlier version What's New asked after the
+        // handoff check, and whichever UIKit took first, the other was dropped without a
+        // word, so a shared document or one handed over at launch could land on Home. One
+        // item cannot race itself: the import wins, and a change of item swaps the sheets.
+        .sheet(item: Binding(get: { launchSheet }, set: { if $0 == nil { launchSheetClosed() } })) { sheet in
+            switch sheet {
+            case .importDocument(let url):
+                DocumentImportScreen(url: url, model: model) { model.pendingDocumentImport = nil }
+                    .onAppear { importPresentation.appeared(url) }
+            case .whatsNew:
+                WhatsNewView()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
+                // A document that arrived while away, or whose sheet the trip away took back.
+                reconcileImport()
                 // Become the gateway's player while we're on screen.
                 model.deviceLink.start()
                 // Reconcile shared settings on the way in — this is the moment someone
@@ -257,6 +376,7 @@ struct RootTabView: View {
                 // and an app left open never saw another.
                 model.startSyncHeartbeat()
             case .background:
+                reconcileImport()
                 model.handoff.saveNow()
                 model.deviceLink.stop()
                 model.stopSyncHeartbeat()

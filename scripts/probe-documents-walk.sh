@@ -23,7 +23,12 @@
 # service over stdin (never argv), the walk checks chapter 1 comes down into Clippings, and the
 # test book is deleted from the server at the end. Stages C and D (quit, outage) are local only.
 # The book may be a link (https://...), read as a web page. SHEET_ONLY=1 stops after the import
-# sheet's screenshot, for checking what a new source reads as without making the book.
+# sheet's screenshot, for checking what a new source reads as without making the book. HEAR=1
+# also presses each narrator's Hear button there (M4.4), then stops without making the book.
+# CAST=1 turns on "Voice the dialogue" (G4), waits for a model to write the cast list (a model
+# must be set up: Ollama on this Mac will do), screenshots the sheet and the cast editor, presses
+# Use This Cast and waits for the lines without a tag to be placed (TBX-10894), and stops
+# without making the book.
 #
 # The walk brings the probe to the front for each screenshot, so anything typed in another app at
 # that moment lands in the probe's window. Run it when nobody is typing.
@@ -291,7 +296,7 @@ say "A. import $(basename "$BOOK") through the import sheet"
 launch "$BOOK" || { echo "probe did not start"; exit 2; }
 wait_for 30 '[ "$(probe_sheet_count "$PID")" -ge 1 ] 2>/dev/null'; verdict "the import sheet opened" $?
 sleep "${SHEET_SETTLE:-4}"   # the sheet reads the file, then shows what it found (and asks a model for a narrator)
-shot A-import-sheet
+[ "${CAST:-0}" = 1 ] || shot A-import-sheet   # CAST takes its own per-window shots
 if [ "${HOME_SERVER:-0}" = 1 ] && [ "${SHEET_ONLY:-0}" != 1 ]; then
   probe_return || { verdict "Return reached the probe" 1; exit 1; }
   SUBMITTED=$(date +%s)
@@ -310,7 +315,69 @@ if [ "${HOME_SERVER:-0}" = 1 ] && [ "${SHEET_ONLY:-0}" != 1 ]; then
   [ "$fail" = 0 ] && echo "PASS (home server)" || echo "FAIL"
   exit "$fail"
 fi
-if [ "${SHEET_ONLY:-0}" = 1 ]; then
+if [ "${HEAR:-0}" = 1 ]; then
+  # M4.4: press each narrator's Hear button. The button must turn to Stop, Kokoro must be asked
+  # for the opening (counted at the relay, not taken from the app), and it must read Hear again
+  # when the preview ends. Pressed through the Accessibility API by process id (probe-ax), since
+  # AppleScript's `entire contents` does not reach the sheet. Nothing is made.
+  say "P. hear each suggested voice on the import sheet"
+  AX_BIN="${TMPDIR:-/tmp}/baton-probe-ax-$(shasum scripts/probe-ax.swift | cut -c1-12)"
+  [ -x "$AX_BIN" ] || xcrun swiftc -O -o "$AX_BIN" scripts/probe-ax.swift || { echo "could not build probe-ax"; exit 2; }
+  hears="$("$AX_BIN" texts "$PID" | sed -n 's/^\[button\] \(Hear .*\)$/\1/p')"
+  heard=0
+  while IFS= read -r label <&3; do
+    [ -n "$label" ] || continue
+    before="$(requests)"
+    "$AX_BIN" press "$PID" "$label" >/dev/null
+    wait_for 10 '"$AX_BIN" texts "$PID" | grep -qx "\[button\] Stop"'; verdict "$label: the button turned to Stop" $?
+    wait_for 30 '[ "$(requests)" -gt "$before" ]'; ok=$?
+    verdict "$label: Kokoro was asked for the opening (speech requests $before -> $(requests))" $ok
+    [ "$heard" = 0 ] && shot P-hear-playing
+    wait_for 60 '"$AX_BIN" texts "$PID" | grep -qxF "[button] $label"'; verdict "$label: Hear again when the preview ended" $?
+    if "$AX_BIN" texts "$PID" | grep -q "could not be played"; then verdict "$label: no playback failure shown" 1; fi
+    heard=$((heard + 1))
+  done 3<<< "$hears"
+  [ "$heard" -ge 1 ]; verdict "$heard Hear buttons pressed" $?
+fi
+if [ "${CAST:-0}" = 1 ]; then
+  # G4: the switch, the cast list a model writes, and the editor it is checked in. Driven through
+  # the Accessibility API by process id (probe-ax), which reaches sheets. Nothing is made.
+  # Screenshots are taken per window id (`screencapture -l`): a sheet is a window of its own, and
+  # a screen region would also capture whatever another app has on top of the probe.
+  say "G. voice the dialogue: the cast list and its editor"
+  AX_BIN="${TMPDIR:-/tmp}/baton-probe-ax-$(shasum scripts/probe-ax.swift | cut -c1-12)"
+  [ -x "$AX_BIN" ] || xcrun swiftc -O -o "$AX_BIN" scripts/probe-ax.swift || { echo "could not build probe-ax"; exit 2; }
+  window_shots() {   # $1 = name: one PNG per on-screen window of the probe, largest first
+    local n=0
+    while read -r wid w h; do
+      [ -n "$wid" ] || continue
+      n=$((n + 1))
+      screencapture -x -o -l "$wid" "$EVIDENCE/$1-$n.png" && echo "   screenshot: $EVIDENCE/$1-$n.png (${w}x${h})"
+    done < <("$AX_BIN" windows "$PID")
+  }
+  "$AX_BIN" checkboxes "$PID" | sed 's/^/   /'
+  [ "$("$AX_BIN" value "$PID" "voice-the-dialogue")" = 0 ]; verdict "Voice the dialogue is off for a new book" $?
+  "$AX_BIN" toggle "$PID" "voice-the-dialogue" >/dev/null; verdict "Voice the dialogue turned on" $?
+  wait_for "${CAST_WAIT:-240}" '"$AX_BIN" texts "$PID" | grep -qE "^\[button\] Check the Cast|narrator reads every line"'
+  verdict "a cast list was written, or the sheet says why not" $?
+  "$AX_BIN" texts "$PID" | grep -iE "cast|speaker|narrator reads" | sed 's/^/   /'
+  window_shots G-import-sheet-cast
+  "$AX_BIN" press "$PID" "Check the Cast…" >/dev/null
+  wait_for 15 '"$AX_BIN" texts "$PID" | grep -qx "\[button\] Use This Cast"'; verdict "the cast editor opened" $?
+  sleep 1
+  window_shots G-cast-editor
+  "$AX_BIN" texts "$PID" | grep -E "lines found|^\[button\] Hear" | sed 's/^/   /'
+  # TBX-10894: Use This Cast, then a model places the lines the rules leave; the sheet says what
+  # happened in one line ("... have a speaker", or why the narrator reads them).
+  "$AX_BIN" press "$PID" "Use This Cast" >/dev/null; verdict "Use This Cast pressed" $?
+  wait_for "${PLACE_WAIT:-600}" '"$AX_BIN" texts "$PID" | grep -qE "lines have a speaker|the narrator reads those"'
+  verdict "the lines without a tag were placed, or the sheet says why not" $?
+  "$AX_BIN" texts "$PID" | grep -E "have a speaker|narrator reads those|speakers," | sed 's/^/   /'
+  window_shots G-import-sheet-placed
+  [ "$fail" = 0 ] && echo "PASS (cast sheet)" || echo "FAIL"
+  exit "$fail"
+fi
+if [ "${SHEET_ONLY:-0}" = 1 ] || [ "${HEAR:-0}" = 1 ]; then
   # Only what the import sheet found (a real article, a new format): nothing is made.
   [ "$fail" = 0 ] && echo "PASS (sheet only)" || echo "FAIL"
   exit "$fail"

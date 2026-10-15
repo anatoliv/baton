@@ -44,12 +44,22 @@ enum BookShelf {
         var position: (chapterIndex: Int, seconds: Double)?
         var finished: Bool
         var madeOn: DocumentLibrary.Renderer = .thisMac
+        /// When the home server removes this finished book (M6.6), from its summary's `removesAt`.
+        var removesAt: Date?
 
         var id: String { documentID }
+
+        /// "Kept until 2 November": the home server's retention date, shown once the book is
+        /// finished, so the listener is told rather than left to work out a rule.
+        var keptUntilText: String? {
+            guard finished, let removesAt else { return nil }
+            return BookShelf.keptUntilText(removesAt)
+        }
 
         /// Where the book's audio is: here once every chapter has come down, on the home server
         /// while it is still being made or collected there.
         var storedText: String {
+            if isOffloaded { return "Download removed" }
             if madeOn == .homeServer && !chapters.allSatisfy({ $0.item != nil }) { return "On the home server" }
             return "On this Mac"
         }
@@ -59,9 +69,13 @@ enum BookShelf {
                 && lhs.chapters == rhs.chapters && lhs.createdAt == rhs.createdAt
                 && lhs.pauseReason == rhs.pauseReason && lhs.failure == rhs.failure
                 && lhs.isRendering == rhs.isRendering && lhs.finished == rhs.finished && lhs.madeOn == rhs.madeOn
+                && lhs.removesAt == rhs.removesAt
                 && lhs.position?.chapterIndex == rhs.position?.chapterIndex
                 && lhs.position?.seconds == rhs.position?.seconds
         }
+
+        /// Every chapter was made, and none of their audio is on this Mac now (M6.3).
+        var isOffloaded: Bool { !chapters.isEmpty && chapters.allSatisfy { $0.state == .removed } }
 
         /// The length of what is ready.
         var readySeconds: Double { chapters.compactMap { $0.item?.clipping.durationSeconds }.reduce(0, +) }
@@ -159,7 +173,8 @@ enum BookShelf {
                 isRendering: status == .rendering || status == .paused,
                 position: position,
                 finished: record?.finished ?? false,
-                madeOn: job?.renderer ?? .thisMac
+                madeOn: job?.renderer ?? .thisMac,
+                removesAt: job?.summary.removesAt
             )))
         }
         return entries.sorted { $0.sortDate > $1.sortDate }
@@ -169,6 +184,15 @@ enum BookShelf {
     static func entryCount(items: [ClippingStore.Item]) -> Int {
         let books = Set(items.compactMap(\.clipping.documentID))
         return items.filter { !$0.clipping.isBookChapter }.count + books.count
+    }
+
+    /// "Kept until 2 November", with the year once it is not this one.
+    static func keptUntilText(_ date: Date, now: Date = Date(), calendar: Calendar = .current,
+                              locale: Locale = .current) -> String {
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        var style: Date.FormatStyle = sameYear ? .dateTime.day().month(.wide) : .dateTime.day().month(.wide).year()
+        style.locale = locale
+        return "Kept until \(date.formatted(style))"
     }
 
     /// "1 h 22 m", "45 m", "40 s", the same shape as the import estimate.

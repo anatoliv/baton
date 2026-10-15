@@ -22,13 +22,17 @@ let documentsLog = Logger(subsystem: "io.tonebox.baton", category: "documents")
 /// voice, and moving each finished chapter into `ClippingStore` as a chapter of a book, where it
 /// plays through the ordinary player. Moved, not copied: one copy of 30 MB, not two.
 ///
-/// Behind `baton.documents.enabled` (off) until M3 is complete.
+/// On for everyone since TBX-10801 (owner decision, 2026-10-15): `baton.documents.enabled` reads
+/// an absent key as on, and the **Documents** toggle in Settings → Speech turns it off. The flag
+/// stays on this Mac (it is not a synced preference), so each device decides for itself.
 @MainActor
 @Observable
 final class DocumentLibrary {
     static let enabledKey = "baton.documents.enabled"
     static func isEnabled(in defaults: UserDefaults = BatonStorage.defaults) -> Bool {
-        defaults.bool(forKey: enabledKey)
+        // `bool(forKey:)` reads a missing key as false, which would make "on by default" a lie
+        // on a fresh install. Only a stored `false` turns documents off.
+        defaults.object(forKey: enabledKey) as? Bool ?? true
     }
 
     /// Where a book is made: here, or on the home server (the gateway's book routes, M5.6), which
@@ -70,9 +74,13 @@ final class DocumentLibrary {
     @ObservationIgnored private let clippings: ClippingStore
     @ObservationIgnored private let refreshInterval: Duration
     @ObservationIgnored private var watcher: Task<Void, Never>?
+    @ObservationIgnored private var rendererControl: Task<Void, Never>?
     /// The home server's half (M5.6), shared with the phone: what was sent there, what is ready,
     /// and bringing each chapter down once.
     let homeServer: HomeServerBooks
+    /// This Mac's book storage: rules, Keep, Remove Download, Recently removed and the weekly
+    /// suggestion (M6.3 to M6.5), shared with the phone.
+    let cleanup: BookCleanup
     /// The latest summary of each book on the home server, by job id.
     var remoteSummaries: [String: BookJob.Summary] { homeServer.summaries }
     /// Why the last attempt to reach the home server failed, in a listener's words.
@@ -85,9 +93,12 @@ final class DocumentLibrary {
          concurrency: Int = 1,
          retry: BookRenderer.Retry = BookRenderer.Retry(),
          refreshInterval: Duration = .seconds(1),
+         storageDefaults: UserDefaults = BatonStorage.defaults,
          gateway: @escaping @MainActor () -> GatewayBookClient? = DocumentLibrary.configuredGateway) {
         self.clippings = clippings
         self.homeServer = HomeServerBooks(directory: directory, clippings: clippings, gateway: gateway, log: documentsLog)
+        self.cleanup = BookCleanup(directory: directory, clippings: clippings, homeServer: homeServer,
+                                   defaults: storageDefaults, log: documentsLog)
         self.store = BookStore(directory: directory)
         // Concurrency 1: Phase 0 measured Kokoro on the LAN model host at 17.7x real time at 1, 2 and 4
         // requests alike, so more in flight only queues on the server.
@@ -99,14 +110,55 @@ final class DocumentLibrary {
 
     // MARK: - Lifecycle
 
-    /// Resume whatever was left unfinished. Called at launch when the flag is on; `force` is for
-    /// tests, which have no flag.
+    /// Resume whatever was left unfinished. Called at launch when the flag is on, and when the
+    /// **Documents** switch is turned on while Baton runs (`follow`); `force` skips reading the
+    /// flag, for tests and for a caller that already holds the live switch.
     func start(force: Bool = false) {
         guard force || Self.isEnabled(), !isStarted else { return }
         isStarted = true
-        let renderer = self.renderer
-        Task { await renderer.startIfNeeded() }
+        controlRenderer { await $0.startIfNeeded() }
         refresh()
+        // The storage rules the person chose run at launch (and when Clippings opens), never
+        // before they chose one.
+        applyStorageRules()
+        // Books on the home server are asked about once at launch, so a finished one shows its
+        // "kept until" date without a chapter still to collect (M6.6), and a book stopped while
+        // the home server was away is deleted there now.
+        if homeServer.isConfigured, !homeServer.records.isEmpty || !homeServer.pendingDeleteIDs.isEmpty {
+            Task { await refreshHomeServer() }
+        }
+    }
+
+    /// Documents turned off in Settings while Baton runs: stop making books and stop asking the
+    /// home server. Nothing is removed, and turning documents on again resumes where it stopped.
+    func stop() {
+        guard isStarted else { return }
+        isStarted = false
+        watcher?.cancel()
+        watcher = nil
+        homeServer.stopWatching()
+        controlRenderer { await $0.stop() }
+        documentsLog.notice("documents turned off: rendering and home server polling stopped")
+    }
+
+    /// Start and stop reach the renderer in the order they were asked for, so off and on again
+    /// in quick succession cannot leave it stopped.
+    private func controlRenderer(_ work: @escaping @Sendable (BookRenderer) async -> Void) {
+        let previous = rendererControl
+        let renderer = self.renderer
+        rendererControl = Task {
+            await previous?.value
+            await work(renderer)
+        }
+    }
+
+    /// Start and stop with the **Documents** switch, live: the switch in Settings
+    /// takes effect at once rather than at the next launch.
+    func follow(_ documentsSwitch: DefaultsSwitch) {
+        documentsSwitch.onChange { [weak self] on in
+            guard let self else { return }
+            if on { self.start(force: true) } else { self.stop() }
+        }
     }
 
     /// Read the jobs back from disk, and adopt every chapter that has become ready.
@@ -259,6 +311,95 @@ final class DocumentLibrary {
         refresh()
     }
 
+    // MARK: - Storage (M6.3 to M6.5)
+
+    /// Every book on this Mac as Clippings shows it.
+    var shelf: [BookShelf.Book] {
+        BookShelf.entries(items: clippings.items, jobs: jobs, ledger: clippings.ledger)
+            .compactMap { if case let .book(book) = $0 { book } else { nil } }
+    }
+
+    /// A book as storage sees it.
+    func stored(_ book: BookShelf.Book) -> StoredBook {
+        let job = job(forDocument: book.documentID)
+        let present = book.chapters.compactMap(\.item).filter(\.isPresent)
+        let listening = StoredBook.listening(book.documentID, ledger: clippings.ledger, present: present)
+        let canGetBack: Bool
+        switch job?.renderer {
+        case .thisMac?: canGetBack = store.load(job!.id) != nil
+        case .homeServer?: canGetBack = homeServer.record(forJob: job!.id).map(homeServer.canGetBack) ?? false
+        case nil: canGetBack = false
+        }
+        return StoredBook(documentID: book.documentID, title: book.title, author: book.author, present: present,
+                          missing: book.chapters.filter { $0.state == .removed }.map(\.index),
+                          createdAt: book.createdAt, finishedAt: listening.finishedAt, lastPlayedAt: listening.lastPlayedAt,
+                          inProgress: listening.inProgress,
+                          homeServerJobID: job?.renderer == .homeServer ? job?.id : nil, canGetBack: canGetBack)
+    }
+
+    var storedBooks: [StoredBook] { shelf.map(stored) }
+
+    /// Run the person's storage rules now. Returns the books whose download went.
+    @discardableResult
+    func applyStorageRules(now: Date = Date()) -> [String] {
+        let removed = cleanup.applyRules(storedBooks, now: now)
+        if !removed.isEmpty { refresh() }
+        return removed
+    }
+
+    /// What brings a book's removed audio back, in the menu's words: "Download Again" from the
+    /// home server, "Render Again" when it is made afresh (on this Mac, or on a home server
+    /// that has since removed it). Nil when nothing is missing or it cannot come back.
+    func getBackTitle(_ book: BookShelf.Book) -> String? {
+        let stored = stored(book)
+        guard stored.canGetBack, !stored.missing.isEmpty, let job = job(forDocument: book.documentID) else { return nil }
+        if job.renderer == .homeServer, homeServer.record(forJob: job.id)?.serverRemoved != true { return "Download Again" }
+        return "Render Again"
+    }
+
+    /// Bring a book's removed audio back (all of it, or `chapters`): from the home server, or
+    /// made again here from the chunk cache, which makes a chapter made before quick.
+    func getBack(_ book: BookShelf.Book, chapters: [Int]? = nil) async throws {
+        guard let job = job(forDocument: book.documentID) else { return }
+        let missing = chapters ?? book.chapters.filter { $0.state == .removed }.map(\.index)
+        switch job.renderer {
+        case .thisMac:
+            _ = await renderer.requeue(job.id, chapters: missing)
+        case .homeServer:
+            try await homeServer.downloadAgain(jobID: job.id, chapters: chapters)
+        }
+        cleanup.cameBack(book.documentID)
+        refresh()
+    }
+
+    /// Remove a book's download from this Mac (all of it, or `chapters`), keeping the book.
+    @discardableResult
+    func offload(_ book: BookShelf.Book, chapters: [Int]? = nil) -> Int {
+        let bytes = cleanup.offload(stored(book), chapters: chapters)
+        refresh()
+        return bytes
+    }
+
+    /// Delete a book, from this Mac or everywhere: it stops being made, leaves Clippings, and
+    /// waits in Recently removed for a week. A book made here keeps its render job there too,
+    /// so Restore brings back the book with its pronunciations and Render Again.
+    func deleteBook(_ book: BookShelf.Book, everywhere: Bool) async {
+        let job = job(forDocument: book.documentID)
+        let payload = job.flatMap { $0.renderer == .thisMac ? store.load($0.id) : nil }
+            .flatMap { try? BookJSON.encoder.encode($0) }
+        cleanup.delete(stored(book), everywhere: everywhere, payload: payload)
+        if let job { await cancel(job.id) }
+        refresh()
+    }
+
+    /// Bring a deleted book back from Recently removed.
+    func restore(_ entry: BookStorage.Removed) throws {
+        if let payload = try cleanup.restore(entry), let job = try? BookJSON.decoder.decode(BookJob.self, from: payload) {
+            try? store.save(job)
+        }
+        refresh()
+    }
+
     // MARK: - Chapters into Clippings
 
     private func adoptReadyChapters(_ all: [BookJob]) {
@@ -286,8 +427,29 @@ final class DocumentLibrary {
 }
 
 /// Kokoro and Chatterbox at the hosts in Settings → Speech, read per request so a host changed
-/// in Settings is used by the next chunk without a relaunch.
+/// in Settings is used by the next chunk without a relaunch, and the built-in "This Mac" engine
+/// in Baton's own process. Which of them reads a voice is Settings → Speech → Voice
+/// engine for books (TBX-10909, `BookVoiceSettings.route`), also read per request.
 struct ConfiguredSpeechSynthesizer: SpeechSynthesizing {
+    /// The built-in engine when its model is present, read per call so a download or a removal
+    /// takes effect on the next chunk. Tests replace it.
+    nonisolated(unsafe) static var builtIn: @Sendable () -> (any BuiltInSpeechEngine)? = { BuiltInVoices.shared.ifAvailable }
+    /// The Voice engine for books setting, read per call. Tests replace it.
+    nonisolated(unsafe) static var choice: @Sendable () -> BookVoiceSettings.Engine = { BookVoiceSettings.engine }
+
+    /// Per instance, so a test can route one synthesizer without touching the statics other
+    /// suites read in parallel. Production uses the statics.
+    var localEngine: @Sendable () -> (any BuiltInSpeechEngine)? = { ConfiguredSpeechSynthesizer.builtIn() }
+    var engineSetting: @Sendable () -> BookVoiceSettings.Engine = { ConfiguredSpeechSynthesizer.choice() }
+
+    /// Where a voice goes, in the order engines are offered it.
+    enum Engine: Equatable {
+        /// The built-in "This Mac" voices, in Baton's own process.
+        case thisMac
+        /// A server from Settings → Speech, by engine name.
+        case server(String)
+    }
+
     func synthesize(text: String, voice: String, speed: Double?) async throws -> Data {
         try await synthesize(text: text, voice: voice, speed: speed, style: nil)
     }
@@ -297,7 +459,39 @@ struct ConfiguredSpeechSynthesizer: SpeechSynthesizing {
     /// `cfg_weight` (confirmed against the LAN Chatterbox server on 2026-10-14). Without this overload the
     /// protocol's default dropped the style and every chapter rendered flat.
     func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data {
-        try await HTTPSpeechSynthesizer(engines: Self.engines()).synthesize(text: text, voice: voice, speed: speed, style: style)
+        let builtIn = localEngine()
+        switch BookVoiceSettings.route(voice: voice, engine: engineSetting(), builtIn: builtIn) {
+        case .builtIn:
+            guard let builtIn else { throw SynthesisError.transient(BookVoiceSettings.notReadyReason) }
+            return try await builtIn.synthesizeWAV(text: text, voice: voice, speed: speed)
+        case .server:
+            return try await HTTPSpeechSynthesizer(engines: Self.engines()).synthesize(text: text, voice: voice, speed: speed, style: style)
+        case let .refused(why):
+            // Transient, so the book pauses with this line and carries on by itself once the
+            // voices are downloaded or the setting changes, rather than failing for good.
+            throw SynthesisError.transient(why)
+        }
+    }
+
+    /// The engines in the order a voice is offered to them under the setting: the built-in one
+    /// first when its model is present (not under Voice server), then Kokoro's and Chatterbox's
+    /// servers when they have a host (not under Built-in voices on this Mac).
+    static func registeredEngines() -> [Engine] {
+        let choice = choice()
+        let servers = engines()
+        let local: [Engine] = (choice == .server || builtIn() == nil) ? [] : [.thisMac]
+        let remote: [Engine] = choice == .builtIn ? [] : ["kokoro", "chatterbox"].filter { servers[$0] != nil }.map(Engine.server)
+        return local + remote
+    }
+
+    /// The engine that reads `voice` under the setting, or its server's name when it goes to
+    /// one (so the failure names the missing host). Nil when the setting refuses it.
+    static func engine(for voice: String) -> Engine? {
+        switch BookVoiceSettings.route(voice: voice, engine: choice(), builtIn: builtIn()) {
+        case .builtIn: .thisMac
+        case let .server(name): .server(name)
+        case .refused: nil
+        }
     }
 
     /// The engines Settings → Speech names, read per call. A blank host is left out, so a voice

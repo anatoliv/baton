@@ -97,6 +97,18 @@ public struct VoicePlan: Codable, Sendable, Equatable {
         self.style = style
     }
 
+    /// The plan for a book read by `narrator` (M8.7). The suggested speed belongs to the suggested
+    /// voice, so another choice reads at its own pace. The tone belongs to the book: the
+    /// suggestion's, or `tone` when there is no suggestion (an agent's `import_document`), becomes
+    /// the style of a Chatterbox narrator. A Kokoro narrator gets none, so its book keeps the
+    /// job id and cache keys it always had.
+    public static func forBook(narrator: String, suggestion: VoiceSuggestion? = nil, tone: String? = nil) -> VoicePlan {
+        let suggested = suggestion.map { $0.primary == narrator && !$0.isFallback } ?? false
+        let engine = HTTPSpeechSynthesizer.split(narrator).engine
+        let style = engine == "chatterbox" ? SpeechStyle.forTone(suggestion?.tone ?? tone) : nil
+        return VoicePlan(narrator: narrator, speed: suggested ? suggestion?.speed : nil, style: style)
+    }
+
     /// The voice for a segment: its speaker's, or the narrator's when it has none or the
     /// speaker has no voice. An unattributed quote is read by the narrator by design.
     public func voice(for segment: SpeechSegment) -> String {

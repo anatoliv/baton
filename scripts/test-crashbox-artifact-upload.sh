@@ -109,29 +109,42 @@ set -eu
 printf '%s\n' "$@" >"$STUB_ARGS"
 config="$(/bin/cat)"
 printf '%s' "$config" >"$STUB_CONFIG"
-[ "${STUB_MODE:-ok}" != transport-fail ] || exit 22
-archive=''; release=''
+archive=''; release=''; write_out=''; previous=''
 for argument in "$@"; do
+  [ "$previous" != --write-out ] || write_out="$argument"
+  previous="$argument"
   case "$argument" in
     @/dev/fd/*) archive="${argument#@}" ;;
     X-Crashbox-Release:\ *) release="${argument#X-Crashbox-Release: }" ;;
   esac
 done
+# Like real curl, the --write-out text follows the body on success and failure.
+placeholder='%{http_code}'
+status() { printf '%b' "${write_out//"$placeholder"/$1}"; }
+[ -n "$write_out" ] || exit 65
+case "${STUB_MODE:-ok}" in
+  # No HTTP response at all (DNS, connect, TLS, timeout): curl reports 000.
+  transport-fail) status 000; exit 28 ;;
+  # --fail-with-body: the server's error body reaches stdout, then exit 22.
+  http-*) printf '{"error":"%s"}\n' "$STUB_BODY_MARKER"; status "${STUB_MODE#http-}"; exit 22 ;;
+esac
 [ -n "$archive" ] && [ -n "$release" ] || exit 64
 digest="$(/usr/bin/shasum -a 256 "$archive" | /usr/bin/awk '{print $1}')"
 [ "${STUB_MODE:-ok}" != mismatched ] || digest='ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 printf '{"artifact_id":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","project_id":"11111111-2222-4333-8444-555555555555","release":"%s","sha256":"%s","state":"ready","type":"apple_dsym"}\n' "$release" "$digest"
+status 201
 EOF
 chmod +x "$WORK/bin/curl"
 
 run_upload() {
   PATH="$WORK/bin:/usr/bin:/bin" \
   STUB_ARGS="$WORK/curl.args" STUB_CONFIG="$WORK/curl.config" \
-  STUB_MODE="${1:-ok}" \
+  STUB_MODE="${1:-ok}" STUB_BODY_MARKER="$BODY_MARKER" \
     "$PYTHON" "$HELPER" upload "$CREDENTIAL" "$ARCHIVE" "$RELEASE" \
       --project "$EXPECTED_PROJECT"
 }
 
+BODY_MARKER='server-error-body-must-not-be-printed'
 RECEIPT="$ARCHIVE.receipt.json"
 ARCHIVE_SHA="$(/usr/bin/shasum -a 256 "$ARCHIVE" | /usr/bin/awk '{print $1}')"
 printf '{"artifact_id":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","project_id":"%s","sha256":"%s","type":"apple_dsym"}\n' \
@@ -149,6 +162,8 @@ elif ! grep -qF "Authorization: Bearer $TOKEN" "$WORK/curl.config"; then
   bad "the bearer token was not passed through curl's stdin config"
 elif ! grep -qF "X-Crashbox-Release: $RELEASE" "$WORK/curl.args"; then
   bad "the upload did not use the exact SDK release string"
+elif ! grep -qxF -- '--fail-with-body' "$WORK/curl.args" || ! grep -qxF -- '--max-time' "$WORK/curl.args"; then
+  bad "the upload dropped --fail-with-body or its timeout"
 elif ! grep -qF '"state":"ready"' "$RECEIPT"; then
   bad "the upgraded receipt does not record Crashbox's ready response"
 elif ! grep -qF '"release":"io.tonebox.baton@' "$RECEIPT"; then
@@ -208,16 +223,39 @@ else
   ok "a receipt symlink is refused without touching its target"
 fi
 
+# TBX-10939: a refusal names curl's exit code, and the HTTP status when there was
+# one, so a failed release says whether the request reached Crashbox at all.
+leaked_secret() {
+  grep -qF -e "$TOKEN" -e 'Authorization' -e 'Bearer' -e "$BODY_MARKER" "$@"
+}
+
 rm -f "$RECEIPT"
 run_upload transport-fail >"$WORK/fail.out" 2>"$WORK/fail.err"
 rc=$?
 if [ "$rc" -eq 0 ] || [ -e "$RECEIPT" ]; then
   bad "a transport failure is fatal and writes no receipt"
-elif grep -qF "$TOKEN" "$WORK/fail.out" "$WORK/fail.err"; then
+elif leaked_secret "$WORK/fail.out" "$WORK/fail.err"; then
   bad "a transport failure printed its credential"
+elif ! grep -qxF 'Crashbox artifact upload refused: upload_transport_failed curl_rc=28' "$WORK/fail.err"; then
+  bad "a transport failure names curl's exit code and no HTTP status"
 else
-  ok "a transport failure is fatal, payload-free, and writes no receipt"
+  ok "a transport failure names curl_rc=28, is payload-free, and writes no receipt"
 fi
+
+for code in 401 503; do
+  rm -f "$RECEIPT"
+  run_upload "http-$code" >"$WORK/http.out" 2>"$WORK/http.err"
+  rc=$?
+  if [ "$rc" -eq 0 ] || [ -e "$RECEIPT" ]; then
+    bad "an HTTP $code is fatal and writes no receipt"
+  elif leaked_secret "$WORK/http.out" "$WORK/http.err"; then
+    bad "an HTTP $code printed the credential or the response body"
+  elif ! grep -qxF "Crashbox artifact upload refused: upload_transport_failed curl_rc=22 http_status=$code" "$WORK/http.err"; then
+    bad "an HTTP $code names curl's exit code and the status"
+  else
+    ok "an HTTP $code names curl_rc=22 http_status=$code without the body or credential"
+  fi
+done
 
 run_upload mismatched >"$WORK/mismatch.out" 2>"$WORK/mismatch.err"
 rc=$?

@@ -976,6 +976,17 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          local branch that is only BEHIND the remote, still pushes tags,
 #                          and refuses a diverged one. A bare `push --all` failed the daily
 #                          repo-backup over a stale local main with nothing missing (TBX-8430)
+#   test-offsite-backup    the home server's offsite backup and restore (gateway/deploy/backup/) refuse
+#                          without a key or a version-2 immutable helper, record the four receipt
+#                          states honestly, never put a key or transport value in a log, and
+#                          restore an older generation under the newest one's tombstones and
+#                          enforcement overlay (TBX-10672). Stubs for the helper, docker and flock
+#   test-backup-mac-native the Mac native offsite backup (scripts/backup-mac-native.sh, profile A)
+#                          refuses without a key, a loose holder or rclone config, or an existing
+#                          remote object, records the four receipt states honestly, checks in to
+#                          the deadman exactly once and only after integrity, never puts a key or
+#                          rclone token in a log, and its export round-trips through a real
+#                          `defaults import` (TBX-10829). Stubs for rclone, ssh, security, defaults
 #
 # The guard itself then runs over THIS tree: a gate that goes green with a live
 # credential lying where `git add -A` would take it has certified the wrong thing.
@@ -983,7 +994,7 @@ if ! scripts/check-untracked-credentials.sh "$PWD"; then
   red "✗ credential-looking file in the working tree (see above)"
   exit 1
 fi
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo; do
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo test-offsite-backup test-backup-mac-native; do
   # A guard named by path (release-kit/check) must not put its slash into the log name:
   # mktemp -t then targets a subdirectory of $TMPDIR that does not exist, and the gate died
   # here on every run from the release kit's adoption until 0.19.12 (TBX-8023).
@@ -1491,6 +1502,11 @@ bold "==> Running tests ($SCHEME)"
 # Sibling of the log, so the two are findable together and a fresh mktemp name each run
 # means xcodebuild never refuses an existing bundle path.
 RESULT_BUNDLE="${LOG%.log}.xcresult"
+# MLX's shaders (TBX-10854): without Xcode's Metal Toolchain they cannot compile, so they are left
+# out and the app's "Bundle MLX shaders" phase supplies MLX's published metallib instead.
+MLX_METAL_SETTINGS=()
+while IFS= read -r setting; do [ -n "$setting" ] && MLX_METAL_SETTINGS+=("$setting"); done \
+  < <("$(dirname "$0")/mlx-metal-build-settings.sh")
 set +e
 xcodebuild test \
   -project "$PROJECT" \
@@ -1498,6 +1514,7 @@ xcodebuild test \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED" \
   -resultBundlePath "$RESULT_BUNDLE" \
+  ${MLX_METAL_SETTINGS[@]+"${MLX_METAL_SETTINGS[@]}"} \
   "$@" >"$LOG" 2>&1
 status=$?
 set -e

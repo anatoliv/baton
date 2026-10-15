@@ -65,6 +65,9 @@ enum SessionPurge {
         // Which albums and artists the previous account opened from Search, and the ids
         // they resolve to. Removed for the same reason as the play history.
         SearchRecents.storageKey,
+        // This phone's book storage: its rules, the books marked Keep and the suggestions
+        // already answered (M6.3 to M6.5). Gone with the books they were about.
+        BookStorage.settingsKey,
     ]
 
     /// Clears the account's stores without needing a live `MobileModel`.
@@ -86,6 +89,8 @@ enum SessionPurge {
         PodcastSubscriptionStore().purgeLocalSubscriptions()
         removeAllClippings(ClippingStore())
         FriendFeedbackLog().clear()
+        // A document waiting for its import screen from the last session.
+        PendingImportStore.shared.clear()
         // The friend's memory and corrections too, the same way `purge` does it below
         //: tombstoned into the shared ledger first, so a reset on one device
         // cannot be undone by the next sync. This path had the same hole the card was filed
@@ -115,6 +120,11 @@ enum SessionPurge {
         for item in store.items {
             store.remove(id: item.id, dismissing: false, everywhere: false)
         }
+        // Deleted books wait a week in Recently removed with their audio held (M6.3); that
+        // audio is clipping audio too, and a purge that left it would leave a book behind.
+        let books = BatonStorage.supportSubdirectory("Books")
+        try? FileManager.default.removeItem(at: books.appendingPathComponent("recently-removed", isDirectory: true))
+        try? FileManager.default.removeItem(at: books.appendingPathComponent("recently-removed.json"))
     }
 
     /// What a purge is about to remove, so the confirmation can say it out loud.

@@ -8,6 +8,12 @@ public enum AudiobookExport {
         public var title: String
         public var start: Double
         public var end: Double
+
+        public init(title: String, start: Double, end: Double) {
+            self.title = title
+            self.start = start
+            self.end = end
+        }
     }
 
     /// Chapter marks from the rendered chapters' measured lengths, or nil while any chapter is
@@ -21,6 +27,20 @@ public enum AudiobookExport {
             at += seconds
         }
         return marks.isEmpty ? nil : marks
+    }
+
+    /// The same marks placed on each chapter's length as it is joined, not as it was rendered
+    ///. An AAC chapter carries its encoder priming and end padding, so its packets
+    /// run a little longer than its words; stream-copied end to end, chapter k begins at the sum
+    /// of the earlier chapters' packet durations. Placed on the rendered lengths the marks fall
+    /// progressively early. Unchanged when the counts differ, which is the caller's mistake.
+    public static func placed(_ marks: [Mark], muxedLengths: [Double]) -> [Mark] {
+        guard marks.count == muxedLengths.count else { return marks }
+        var at = 0.0
+        return zip(marks, muxedLengths).map { mark, length in
+            defer { at += length }
+            return Mark(title: mark.title, start: at, end: at + length)
+        }
     }
 
     /// The chapter files in order, or nil while any is not ready.

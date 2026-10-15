@@ -109,13 +109,23 @@ public enum DialogueCast {
 
     // MARK: - Rules
 
+    /// The verbs of a speech tag. The second group came from the held-out texts (G1, TBX-10894):
+    /// Austen's "returned" and "rejoined", Doyle's "ejaculated" and "interposed", Mansfield's
+    /// "wailed", "drawled" and "snapped". Verbs that are as often an action ("turned", "smiled",
+    /// "looked") stay out: a tag that is really an action would give the line to whoever acted.
     static let speechVerbs = "said|cried|called|asked|replied|exclaimed|answered|repeated|murmured|whispered|"
         + "shouted|continued|thought|added|began|interrupted|remarked|retorted|sobbed|gasped|"
         + "screamed|cried out|went on|resumed|observed|declared|asserted|protested|urged|"
         + "pleaded|explained|insisted|admitted|shrieked|whimpered|moaned|stammered|echoed|"
-        + "complained|exploded|spoke"
+        + "complained|exploded|spoke|"
+        + "returned|rejoined|responded|ejaculated|interposed|wailed|drawled|snapped|muttered|"
+        + "groaned|sighed|wheezed|snarled|growled|demanded|inquired|enquired|suggested|warned|"
+        + "faltered|persisted|pursued|mumbled|hissed|breathed|chuckled|laughed|says"
+    /// Titles written with a full stop. Without them "said Mr. Bennet." ended at "Mr", so the
+    /// tag named nobody (G4's open point, fixed in TBX-10894).
+    static let titles = #"(?:Mr|Mrs|Ms|Messrs|Mme|Mlle|Dr|St|Sr|Jr|Prof|Rev|Capt|Col|Gen|Lt|Sgt|Hon)\."#
     static let tagAfter = try! NSRegularExpression(
-        pattern: #"^[,.!?\u2014\s]*((?:\S+\s+){0,8}?)(?:"# + speechVerbs + #")\b\s*([^,.;:!?\u2014]{0,80})"#)
+        pattern: #"^[,.!?\u2014\s]*((?:\S+\s+){0,8}?)(?:"# + speechVerbs + #")\b\s*((?:"# + titles + #"|[^,.;:!?\u2014]){0,80})"#)
     static let tagBefore = try! NSRegularExpression(
         pattern: #"((?:\S+\s+){1,8}?)(?:"# + speechVerbs + #")(?:\s+\w+)?\s*[:,]?\s*$"#)
     static let reported = try! NSRegularExpression(
@@ -365,7 +375,17 @@ public enum DialogueCast {
                 for u in order {
                     let kind = units[u].0
                     if kind == .breakRun { last = nil; parties = []; distance = 0; continue }
-                    if kind == .beat { continue }
+                    if kind == .beat {
+                        // A beat about someone outside the exchange ("Mrs. Bennet deigned not
+                        // to make any reply; but ... began scolding one of her daughters.")
+                        // brings them in: the next line may be theirs, so the pair no longer
+                        // decides it (found on Austen once "said Mr. Bennet" was read, TBX-10894).
+                        if parties.count == 2,
+                           units[u].1.contains(where: { m in mentions(spans[m].text, cast: cast).contains { !parties.contains($0) && !groupNames.contains($0) } }) {
+                            last = nil; parties = []; distance = 0
+                        }
+                        continue
+                    }
                     let who = known(u)
                     if who == "?" { last = nil; parties = []; distance = 0; continue }
                     if let who {
@@ -529,20 +549,25 @@ public enum DialogueCast {
 
     // MARK: - Voices
 
-    /// A distinct voice per speaking character, never the narrator's: plausible gender first,
-    /// the narrator's accent first, best-graded first, the characters with most lines first.
+    /// A distinct voice per speaking character, never the narrator's and never one the listening
+    /// pass ruled out: plausible gender first; then the voices heard as "good for dialogue", then
+    /// "good for narration and dialogue", then the rest; then the narrator's accent,
+    /// then best-graded; the characters with most lines first.
     public static func assignVoices(_ spans: [Span], cast: [Character], narrator: String,
                                     available: [String]) -> [String: String] {
         var lines: [String: Int] = [:]
         for s in spans where s.kind == .quote { if let who = s.speaker { lines[who, default: 0] += 1 } }
         let narratorAccent = VoiceCatalogue.describe(narrator).accent
-        let pool = available.map(VoiceCatalogue.describe).filter { $0.grade != nil }
+        let pool = available.map(VoiceCatalogue.describe)
+            .filter { ($0.grade != nil || !$0.tags.isEmpty) && !VoiceCatalogue.avoided.contains($0.spec) }
         var used: Set<String> = [VoiceCatalogue.describe(narrator).spec]
         var out: [String: String] = [:]
         for c in cast.sorted(by: { (lines[$0.name] ?? 0) > (lines[$1.name] ?? 0) }) where (lines[c.name] ?? 0) > 0 {
             let wanted = c.gender == "f" ? "female" : (c.gender == "m" ? "male" : nil)
             let ranked = pool.filter { !used.contains($0.spec) && (wanted == nil || $0.gender == wanted) }
                 .sorted { a, b in
+                    let ra = VoiceCatalogue.dialogueRank(a), rb = VoiceCatalogue.dialogueRank(b)
+                    if ra != rb { return ra < rb }
                     let aa = a.accent == narratorAccent ? 1 : 0, ba = b.accent == narratorAccent ? 1 : 0
                     return aa != ba ? aa > ba : (a.gradeRank != b.gradeRank ? a.gradeRank > b.gradeRank : a.spec < b.spec)
                 }

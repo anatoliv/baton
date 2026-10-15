@@ -298,6 +298,18 @@ def _check(path: Path, expected_project: str) -> int:
     return 0
 
 
+def _split_status(stdout: bytes) -> tuple[bytes, int | None]:
+    """Separate the `--write-out` status line from the response body.
+
+    curl prints `000` when no HTTP response arrived (DNS, connect, TLS, timeout);
+    that and any malformed tail report as no status at all.
+    """
+    body, separator, tail = stdout.rpartition(b"\n")
+    if not separator or re.fullmatch(rb"[1-5][0-9]{2}", tail) is None:
+        return stdout, None
+    return body, int(tail)
+
+
 def _upload(
     credential_path: Path,
     archive_path: Path,
@@ -334,6 +346,8 @@ def _upload(
                     "300",
                     "--max-filesize",
                     str(MAX_RESPONSE_BYTES),
+                    "--write-out",
+                    "\\n%{http_code}",
                     "--config",
                     "-",
                     "--header",
@@ -353,12 +367,22 @@ def _upload(
                 check=False,
                 pass_fds=(archive_descriptor,),
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
+            raise Refused("upload_transport_failed local_timeout") from exc
+        except OSError as exc:
             raise Refused("upload_transport_failed") from exc
+        body, status = _split_status(result.stdout)
         if result.returncode != 0:
-            raise Refused("upload_transport_failed")
+            # Only curl's exit code and the numeric HTTP status leave this process:
+            # never curl's stderr, the response body, or anything from the config.
+            detail = f"upload_transport_failed curl_rc={result.returncode}"
+            if status is not None:
+                detail += f" http_status={status}"
+            raise Refused(detail)
+        if status is None:
+            raise Refused("response_invalid")
         receipt = _receipt(
-            result.stdout,
+            body,
             project_id=credential["project_id"],
             release=release,
             digest=digest,

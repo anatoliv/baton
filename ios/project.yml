@@ -56,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.3"
+    MARKETING_VERSION: "1.4"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -88,6 +88,7 @@ targets:
         com.apple.security.application-groups: [group.io.tonebox.baton]
     dependencies:
       - target: BatonWidgets
+      - target: BatonShare
       - package: Sentry
       - package: MarkdownUI
       - package: BatonDSP
@@ -139,6 +140,8 @@ targets:
       - path: ../Shared/ShareSongViews.swift
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
+      # The share extension's inbox, read here when the app becomes active (TBX-10846).
+      - path: Sources/BatonShare/PendingShareInbox.swift
       - path: Sources/Shared
       - path: Resources
     # Keep the app-bundled copies of the user guides in step with the canonical
@@ -273,6 +276,8 @@ targets:
     dependencies:
       - target: BatonMobile
       - package: BatonSubsonicKit
+      # FakeHomeServer speaks the gateway's book routes with the real types (M5.3).
+      - package: BatonDocuments
 
   BatonWidgets:
     type: app-extension
@@ -295,6 +300,64 @@ targets:
         CFBundleDisplayName: Baton Widgets
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  # "Baton" in the share sheet (TBX-10846): a document or a page's address, left in the App
+  # Group inbox for the app to open on the import screen. Signed against "Baton Share App Store"
+  # by ios/scripts/testflight.sh.
+  BatonShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/BatonShare
+    entitlements:
+      path: BatonShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.tonebox.baton]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton.share
+        PRODUCT_NAME: BatonShare
+        GENERATE_INFOPLIST_FILE: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    info:
+      path: ShareInfo.plist
+      properties:
+        CFBundleDisplayName: Baton
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            # One share is one book. A predicate replaces the dictionary form (Apple takes one or
+            # the other), so the counts are spelled out: at most one document file of the types
+            # MobileDocuments.importableTypes lists (PDF, EPUB, HTML, plain text, Markdown), at
+            # most one web address (a file URL is not one), and at least one of the two.
+            # BatonShareActivationRuleTests evaluates this string from the built extension.
+            NSExtensionActivationRule: >-
+              SUBQUERY(extensionItems, $item,
+              SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.idpf.epub-container"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.html"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "net.daringfireball.markdown"
+              ).@count <= 1
+              AND SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url"
+              AND SUBQUERY($a.registeredTypeIdentifiers, $t, $t UTI-CONFORMS-TO "public.file-url").@count == 0
+              ).@count <= 1
+              AND SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.idpf.epub-container"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.html"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "net.daringfireball.markdown"
+              OR (ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url"
+              AND SUBQUERY($a.registeredTypeIdentifiers, $t, $t UTI-CONFORMS-TO "public.file-url").@count == 0)
+              ).@count >= 1
+              ).@count == 1
 
 schemes:
   BatonMobile:

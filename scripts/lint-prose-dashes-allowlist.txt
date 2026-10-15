@@ -99,3 +99,9 @@ Packages/BatonSubsonicModels/Sources/BatonSubsonicModels/Transcript.swift	.trimm
 # is never shown to an app user, and it exists to be read by whoever is triaging eval fixtures.
 Packages/BatonAgentKit/Sources/BatonAgentKit/FriendEvalExport.swift	// actually typed, kept verbatim — tidying the phrasing would re-imagine the
 Packages/BatonAgentKit/Sources/BatonAgentKit/FriendEvalExport.swift	return "        // TODO: .plays or .answers? — Case(message: \"\(escaped)\", expect: .plays),\(why)"
+
+# --- A vault item name ----------------------------------------------------------
+# The Baton backup key's Bitwarden item is named exactly like its ClockFace and Callstow
+# siblings, with an em dash between the project and the field name. The comment quotes the
+# exact name because a restore looks the item up by it; it is an identifier, not a sentence.
+gateway/deploy/backup/offsite-backup.sh	"Baton — BACKUP_ENCRYPTION_KEY". No key, no upload.

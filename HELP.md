@@ -35,6 +35,7 @@ answer, the [FAQ](FAQ.md) is shorter. For the deeper design and architecture, se
 - [Internet radio](#internet-radio)
 - [Downloads and offline listening](#downloads-and-offline-listening)
 - [Clippings](#clippings)
+- [Listening to a document](#listening-to-a-document)
 - [Playing music](#playing-music)
 - [Adaptive artwork colors](#adaptive-artwork-colors)
 - [The queue, shuffle, repeat, and autoplay](#the-queue-shuffle-repeat-and-autoplay)
@@ -798,13 +799,14 @@ the header starts the whole list.
 
 **You can search a clipping by what is said in it.** A saved reading keeps its words, so
 typing a phrase from the middle of an article finds it, both in the Clippings filter and in
-the main Search screen alongside your library results. Nothing else in Baton can be found this
-way: your server only ever knows a track's title.
+the main Search screen alongside your library results. The Clippings filter ignores case and
+accents, so "cafe" finds "Café", and it stays quick with long books in the list. Nothing else in
+Baton can be found this way: your server only ever knows a track's title.
 
 **Renaming and deleting.** Right-click a row to rename it, reveal the file in the Finder, or
-delete it. Deleting asks first, and says plainly that there is no other copy. A clipping is
-not a cached download with an original waiting on a server. It is the only copy, and deleting
-it cannot be undone.
+delete it. Deleting asks first, and says plainly that Baton made this audio and there is no
+other copy. A clipping is not a cached download with an original waiting on a server, so
+deleting it cannot be undone.
 
 **If a file goes missing.** Move or delete a clipping's audio outside Baton and its row stays
 in the list, greyed out, saying the audio has gone. It is left out of playback rather than
@@ -825,8 +827,253 @@ chose.
 **Deleting a clipping on the phone asks which you mean.** Every device keeps its own copy of the
 file, so the two answers do different things. **Remove from this iPhone** deletes the phone's
 copy and remembers not to fetch it again; your Mac keeps its own. **Delete everywhere** also
-removes the shared copy from the gateway, so no device collects it again. Deleting on the Mac
-only ever affects the Mac.
+removes the shared copy from the gateway, so no device collects it again. The Mac asks the same
+question, with **Remove from This Mac** and **Delete Everywhere**.
+
+## Listening to a document
+
+Baton can turn a document into a narrated book in Clippings: a PDF, an EPUB, a web page (saved
+as HTML, or just its link), a Markdown file or plain text. On the Mac, choose **File → Import
+Document** (Shift-Command-O) or **File → Import Link**, or drag the file onto **Clippings**. On
+the iPhone, share the file or the web page to Baton from another app's share sheet (Safari
+works too), open it in Baton from Files, or use the **+** menu on the Clippings screen to import
+a file or a link.
+
+Before anything is made, Baton shows what it found: the title and author, the chapters, anything
+it set aside (a publication note on the title page, for example) and anything it could not read.
+It also says roughly how long the book will be and how much space it will take. A scanned PDF,
+one made of pictures of pages, is read with text recognition, and Baton names the pages it read
+that way, because recognition can misread a word. Choose **Make Audiobook** to start.
+
+**The narrator.** On the Mac, a language model suggests three voices for the book, with its
+reason, and you can hear each in the book's own words before you choose. Baton asks a model on
+your own machines: Apple Intelligence on this Mac, a model you run with Ollama or LM Studio (set
+up under **Settings → Speech → Models on this Mac**), or the one your home server uses. A cloud
+model is asked only if you allow it (see [Book text and cloud
+models](#book-text-and-cloud-models)). With no model answering, Baton uses the default voice for
+the book's language, which is also what the phone uses.
+
+**Where it is made.** The import sheet asks **Made on: Home server** or **This Mac**, unless
+**Make books on** in **Settings → Speech** already says which. Your home server makes the book
+while the Mac sleeps, with its own voice server. This Mac narrates it with the engine chosen
+under **Voice engine for books**: its built-in voices, a voice server, or Automatic, which uses
+the built-in voices when they are downloaded and have the book's voice (see [Voices: on this Mac
+or on a server](#voices-on-this-mac-or-on-a-server)). Either way it is made one chapter at a time,
+starting with chapter 1, which is usually ready in a minute or two while the rest follows as you
+listen. The phone has no voice host of its own, so it always asks your home server, and says so
+when none is set up. Page numbers, running heads and words broken across lines are tidied up
+first, and anything that looks like a password or key is left out.
+
+**When your home server cannot make books,** the iPhone offers **Send to my Mac** in place of
+Make Audiobook. Your home server holds the document until your Mac collects it, which Baton on
+the Mac does while it is open with Documents on. There the document opens in the import sheet,
+marked with the device that sent it. **Not Now** keeps it waiting in a list at the top of
+Clippings; **Make Audiobook** or **Discard** takes it off the home server. With no home server
+at all, the phone suggests AirDropping the file or link to your Mac instead.
+
+**If the voice host stops answering,** the book pauses and its row says why. It carries on by
+itself when the host is back. It never finishes in a different voice.
+
+**Quitting is fine.** If you quit Baton while a book is being made, it picks up where it stopped
+the next time Baton opens. Nothing already narrated is made again.
+
+**Listening.** A book is one row in Clippings, with its author, its length and how much of it you
+have heard. Open the row to see its chapters. **Play** starts where you left off, and the
+chapters play in order like the tracks of an album. A book made on the home server arrives on
+every device that collects clippings, chapter by chapter. Once you finish it, its row on the Mac
+says how long the home server keeps it ("Kept until 2 November").
+
+**Coming back after a break.** On the Mac, press Play on a book you last heard more than a day
+ago, once you have heard a fair part of it, and Baton offers **Hear Recap**: a short spoken
+summary of what you have heard so far, never anything past where you are, and then the book
+carries on. **Just Play** skips it. The recap is written by a model, like the narrator
+suggestion.
+
+**Exporting.** On the Mac, Control-click a book and choose **Export Audiobook…** to save it as
+one M4B file that Apple Books and other audiobook players open, with a chapter mark where each
+chapter starts. The book has to be finished being made first. For a book made on this Mac, the
+marks need ffmpeg (`brew install ffmpeg`); without it you get one file with no marks, and Baton
+says so.
+
+**Names the narrator gets wrong.** With a Kokoro narrator, the Mac's import sheet lists names it
+might stumble on, each with a pronunciation a model proposed, and you can correct any of them or
+add your own. For a book made on this Mac, **Pronunciations…** in the book's menu opens the same
+list later. Saving makes again only the chapters that say a word you changed.
+
+**Turning it off.** Documents are on for everyone. The **Documents** switch under **Settings →
+Speech** on the Mac, or **Settings → Documents** on the iPhone, takes the import items, the drop
+target and the book rows away on that device alone, at once and without a relaunch; the
+other device keeps its own setting.
+
+**For agents.** The `import_document` tool takes the path of a file on this Mac, or a link to
+one, and makes the book the same way, where **Make books on** says. With **Ask each time** it
+makes the book on this Mac unless the agent asks for the home server, and if the home server
+does not answer, this Mac makes it. Its reply says where the book is being made. `document_context` lets an agent read the passages of a
+book you have already heard, never anything past where you are, so it can answer a question
+like "who is Kuno again?" without spoiling the rest. Both are listed only while Documents is on.
+
+### Voices: on this Mac or on a server
+
+A book is read aloud by a voice engine. Baton can use one of two, and on the Mac you choose
+which under **Settings → Speech → Voice engine for books**:
+
+- **Built-in voices on this Mac.** Kokoro's English voices, run by Baton itself after a
+  one-time download. Mac only.
+- **Voice server.** A Kokoro or Chatterbox server you run, on this Mac or on another machine
+  on your network, reached by its address.
+
+| | **Built-in voices on this Mac** | **Voice server** |
+|---|---|---|
+| Where it runs | Inside Baton on this Mac | A Kokoro or Chatterbox server, on this Mac or another machine |
+| Quality | Kokoro. In a side-by-side listening test it sounded the same as the server | Kokoro sounds the same; Chatterbox adds its own voices and voice cloning |
+| Speed | About 13 times faster than real time on an M5 Max | About 17 times faster than real time for Kokoro on a home-network server |
+| Languages and voices | English only, 28 voices | Every voice the server has: Kokoro's other languages, and Chatterbox |
+| Privacy | Nothing leaves this Mac | The book's text goes to the server's address |
+| Network | None. Works offline | The server's address has to answer while the book is made |
+| What to set up | Download 342 MB once. Needs a Mac with Apple silicon | Run the server, and enter its address under **Settings → Speech → Services** |
+
+The speeds were measured once, on one Mac running a test build of Baton and one Kokoro server
+on a home network, in October 2026. Your Mac and server will differ.
+
+**Recommended on a Mac with Apple silicon: download the built-in voices.** In a side-by-side
+listening test they sounded the same as the server, and the listener could not tell which was
+which. With them, an English book is made offline and its text never leaves your Mac. Leave
+**Automatic** on and keep a voice server for other languages and Chatterbox.
+
+**Choosing on the Mac.** **Settings → Speech → Voice engine for books** has three choices.
+Each shows what it needs and how it stands right now: downloaded or not, or each server's
+address and whether it answers.
+
+- **Automatic** (the default). Whenever the built-in voices are downloaded, Baton uses them
+  first for every voice they have (their 28 English voices), and the voice server for every
+  other voice. Without the download, every voice goes to the voice server.
+- **Built-in voices on this Mac.** Only the built-in voices. A voice they do not have, such as
+  a Chatterbox voice or a Kokoro voice in another language, is not sent to a server: the book
+  pauses and its row says why, and the import sheet offers only the built-in voices. The same
+  happens if they are not downloaded yet.
+- **Voice server.** Only your voice servers, even when the built-in voices are downloaded. If
+  no server answers, the book pauses until one does.
+
+A paused book carries on by itself once the reason is gone, for example after the download
+finishes or after you change the choice. The choice is this Mac's alone: it does not travel to
+your other devices, and **Reset to Defaults** in the Speech pane puts it back to Automatic.
+Spoken summaries and Read aloud are not affected; they use the servers under **Services**.
+
+**Where a book is made.** Under the same heading, **Make books on** decides where the Mac
+makes a new book: **Ask each time** (the default) shows the choice in the import sheet,
+starting on the home server when it answers; **This Mac** or **Home server** makes it there
+without asking. If the home server is chosen and not answering, the sheet says so and the book
+is made on this Mac. The home server reads books with its own voice server, the one set on the
+gateway, not with this Mac's Voice engine for books.
+
+**On the iPhone** there is no choice to make. The phone has no voices of its own, so every book
+is made on your home server with the gateway's voice server. **Settings → Documents** says so.
+It needs the home server's address and token under **Settings → Music Friend**, and the
+gateway's voice server answering. When the home server cannot make a book, **Send to my Mac**
+hands it to Baton on your Mac instead.
+
+#### Setting up the built-in voices
+
+1. On a Mac with Apple silicon, open **Settings → Speech**. Make sure **Documents** is on.
+2. Under **Voice engine for books**, press **Download (342 MB)** below **Built-in voices on
+   this Mac**. Nothing downloads until you press it, and **Cancel** stops it; a later
+   **Download** picks up where it stopped.
+3. When the line under the choice says **Downloaded, 28 English voices**, choose **Automatic**
+   or **Built-in voices on this Mac**.
+
+**Remove** takes the download away again. An Intel Mac cannot run them, and the line says so.
+
+#### Setting up a voice server
+
+1. Run Kokoro, Chatterbox or both on this Mac or on a machine on your network. The steps are
+   under **Setting up Kokoro** and **Setting up Chatterbox** in [The voices
+   themselves](#the-voices-themselves).
+2. In **Settings → Speech → Services**, enter each address, such as `http://mybox.local:8880`
+   for Kokoro, and press **Test this connection**.
+3. Under **Voice engine for books**, the **Voice server** line shows each address and whether
+   it answers. Choose **Voice server**, or leave **Automatic**.
+
+#### Setting up the home server's voice server
+
+The home server makes books with the voice server named in the gateway's own configuration,
+whichever device sent the book.
+
+1. Run Kokoro (and Chatterbox if you want its voices) where the gateway can reach it. It can
+   be the same machine or another one on your network.
+2. In the gateway's environment, set `BATON_TTS_KOKORO_URL` to Kokoro's address, for example
+   `http://YOUR-TTS-HOST:8880`, and `BATON_TTS_CHATTERBOX_URL` to Chatterbox's if you use it.
+   Without `BATON_TTS_KOKORO_URL` the gateway looks for Kokoro on its own machine at
+   `http://127.0.0.1:8880`.
+3. Restart the gateway. Its log names the voice servers it uses (`books: …, TTS …`). The
+   gateway also needs ffmpeg to make books. See [`gateway/README.md`](gateway/README.md).
+
+### Voice the dialogue
+<!-- baton:audience mac -->
+
+Normally one narrator reads everything. Turn on **Voice the dialogue** in the Mac's import sheet
+to give each speaking character a voice of their own. It is off for the first book you import
+on a Mac. After that it starts the way you last left it.
+
+A model reads passages from across the book and proposes a cast: who speaks, the names the text
+calls them by, and a voice for each from the narrator's own set. Nothing is used until you check
+it. **Check the Cast…** lets you rename someone, merge two names for one person, mark the
+narrator, remove someone who never speaks, and choose a voice for each, with **Hear** to listen
+to them say one of their own lines. Then choose **Use This Cast**.
+
+Baton then works out who says each line. A line with a speech tag ("said Mr. Bennet") is placed
+by rules, and a model is asked about the rest, with a progress line and a **Skip** button. One
+line tells you how many have a speaker, and the narrator reads any that nobody can place. With no
+model answering, the sheet says so and the book stays with one narrator.
+
+### Book storage
+
+A book takes about a third of a megabyte for each minute of listening: a 25 page story is about
+25 MB. These are in a book's menu in Clippings:
+
+- **Remove Download** frees the space and keeps the book's row, its words, its voice and your
+  place. A single chapter can go the same way. It is only offered when the audio can come back.
+- **Download Again** brings the chapters back from your home server. **Render Again** makes them
+  again: on this Mac for a book made here, or on the home server once it has removed its copy.
+- **Keep on This Mac** (or **Keep on This iPhone**) means no rule or suggestion ever removes it.
+- **Delete Book…** asks which you mean. **Remove from This Mac** (or **Remove from this iPhone**)
+  removes it from this device; **Delete Everywhere** also removes it from your home server and
+  your other devices. On the iPhone, both answers also delete the home server's copy.
+
+A deleted book and a removed download stay in **Recently Removed** for a week. A deleted book's
+audio is kept until then, so **Restore** brings it back as it was, and **Delete Now** frees the
+space sooner.
+
+**Storage** is under **Settings → Storage** on the Mac and **Settings → Documents → Storage** on
+the iPhone. It lists this device's books with their sizes, the home server's books with how long
+it keeps finished ones, and three cleanup rules: **After I finish a book**, **Books I haven't
+played** and **Space for books**. Nothing is removed until you choose a rule. A rule removes a
+download, never the book, and never the book you are listening to or one marked Keep. Each device
+has its own rules.
+
+At most once a week, Clippings may suggest something: removing the download of a book you
+finished a while ago, or, when the device is short of space, of your largest finished books.
+**Always Do This** turns the first kind into a rule that removes a finished book's download a
+week after you finish it.
+
+### Book text and cloud models
+<!-- baton:audience mac -->
+
+Models on this Mac, on your home server and Apple Intelligence keep a book on your own machines,
+so Baton uses them without asking. A cloud model, such as the one your music friend may run on,
+gets a book's text only with your permission.
+
+The first time only a cloud model could suggest a narrator, the import sheet asks whether to
+send it the book's opening: **Not Now**, **Allow Once** or **Always**. To change your answers
+later, open **Settings → Agents** and find **Book text and cloud models**. Each cloud model you
+have set up has two switches:
+
+- **Short excerpts**: the book's opening for the narrator suggestion and the cast list, and the
+  names a voice might stumble on.
+- **Chapters**: the chapters you have already heard, for a recap, and the lines a model places
+  for Voice the dialogue.
+
+**Forget My Answers** clears them all. The answers stay on this Mac, and anything that looks
+like a password or key is taken out before any text is sent.
 
 ---
 
@@ -1987,6 +2234,13 @@ play can suggest something from your collection instead of guessing at song titl
 | `music_recent_events` | What was played recently and how long each was heard before moving on, including skips | none |
 | `music_set_eq` | Turn the equalizer on or off and apply a preset | `enabled`, `preset` |
 
+**Documents:**
+
+| Tool | What it does | Main inputs |
+|---|---|---|
+| `import_document` | Make a narrated book in Clippings from a file on this Mac or a link to one. Made where Settings → Speech → Make books on says. Listed while Settings → Speech → Documents is on. See [Listening to a document](#listening-to-a-document) | `path` or `url`, optional `where` |
+| `document_context` | Read the passages of a book in Clippings that the listener has already heard, never past their place, to answer a question about it. Listed while Settings → Speech → Documents is on | `book`, `question` |
+
 ### Meeting interpretation routes
 
 Tonebox captures and translates the call; Baton renders its two independent audio lanes.
@@ -2446,7 +2700,7 @@ same three tracks.
 
 ## Settings reference
 
-On the Mac, open Settings by pressing Command and comma. It has nine panes, and each one is
+On the Mac, open Settings by pressing Command and comma. It has ten panes, and each one is
 described below. The iPhone has no panes at all: Settings is the last tab, and it is a single
 scrolling list, so it has its own section at the end of this reference.
 
@@ -2502,7 +2756,18 @@ Your webhook actions. See [Webhook actions](#webhook-actions).
 <!-- baton:audience mac -->
 
 The text-to-speech servers and the category-to-voice map for spoken summaries. See
-[Speaking summaries aloud](#speaking-summaries-aloud).
+[Speaking summaries aloud](#speaking-summaries-aloud). The **Documents** switch here turns
+[document clippings](#listening-to-a-document) off on this Mac. Under it, **Voice engine for
+books** chooses what reads a book made on this Mac (Automatic, the built-in voices, or a voice
+server), holds the built-in voices' download and sets **Make books on**; see [Voices: on this
+Mac or on a server](#voices-on-this-mac-or-on-a-server). Below that is **Models on this Mac**:
+Apple Intelligence, Ollama and LM Studio, the models this Mac can run itself.
+
+### Storage
+<!-- baton:audience mac -->
+
+The books on this Mac with their sizes, the home server's books, the cleanup rules and
+**Recently Removed**. See [Book storage](#book-storage).
 
 ### Agents
 <!-- baton:audience mac -->
@@ -2518,6 +2783,8 @@ Whether an AI agent can drive Baton, and everything it needs to:
   there is nothing to paste.
 - **Client configuration.** The same settings written out as a config snippet, with a button
   to copy it, for a client you do have to configure by hand.
+- **Book text and cloud models.** What document features may send to each cloud model you
+  have set up. See [Book text and cloud models](#book-text-and-cloud-models).
 
 See [Letting an agent control your music](#letting-an-agent-control-your-music).
 
@@ -2598,6 +2865,12 @@ this order:
   [Scrobbling](#scrobbling).
 - **Shared Links**: the links this phone has sent, who listened, and copy, extend or revoke.
   See [Sharing a song with a friend](#sharing-a-song-with-a-friend).
+- **Documents**: whether a file from Files, the share sheet or the Clippings **+** menu can be
+  made into a book on your home server, on by default; **Where books are made**, which says the
+  home server's voice server reads them and what that needs; and **Storage**, for the books on
+  this phone and the cleanup rules. See [Listening to a document](#listening-to-a-document),
+  [Voices: on this Mac or on a server](#voices-on-this-mac-or-on-a-server) and
+  [Book storage](#book-storage).
 - **Help & FAQ** and **What's New**: this guide, and the notes for each release.
 - **Diagnostics**: the opt-in **Send crash reports** toggle, off by default.
 - **Display**: **Keep the screen awake**, for a phone propped on a dock or a counter. Off by

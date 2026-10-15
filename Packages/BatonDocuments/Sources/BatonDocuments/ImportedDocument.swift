@@ -22,6 +22,10 @@ public struct ImportedDocument: Codable, Sendable, Equatable {
     public var author: String?
     /// Lowercase BCP-47 language code (`en`, `es`), when it could be detected.
     public var language: String?
+    /// The region a file declared with its language ("gb" for `en-GB`), lowercase. Only a
+    /// British-or-not signal for the narrator default; absent from older documents,
+    /// and from any whose language was guessed rather than declared.
+    public var languageRegion: String?
     public var chapters: [DocumentChapter]
     /// Title-page lines that are neither the title nor the byline ("First published in the
     /// Oxford and Cambridge Review, November 1909"). Shown on the import sheet, not spoken.
@@ -32,7 +36,7 @@ public struct ImportedDocument: Codable, Sendable, Equatable {
     public var stats: ExtractionStats
 
     public init(sourceSHA256: String, sourceKind: SourceKind, fileName: String? = nil,
-                title: String, author: String? = nil, language: String? = nil,
+                title: String, author: String? = nil, language: String? = nil, languageRegion: String? = nil,
                 chapters: [DocumentChapter], frontMatter: [String] = [], warnings: [ImportWarning] = [],
                 stats: ExtractionStats = ExtractionStats()) {
         self.schemaVersion = Self.currentSchemaVersion
@@ -42,6 +46,7 @@ public struct ImportedDocument: Codable, Sendable, Equatable {
         self.title = title
         self.author = author
         self.language = language
+        self.languageRegion = languageRegion
         self.chapters = chapters
         self.frontMatter = frontMatter
         self.warnings = warnings

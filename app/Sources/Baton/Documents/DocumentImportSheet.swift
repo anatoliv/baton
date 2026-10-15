@@ -14,6 +14,13 @@ import SwiftUI
 struct DocumentImportSheet: View {
     let url: URL
     let library: DocumentLibrary
+    /// The device a document came from with "Send to my Mac", or nil for one opened
+    /// here. A sent one offers Not Now (keep it for later) and Discard instead of Cancel.
+    var sentFrom: String? = nil
+    /// Made into a book, for a sent document: it is then removed from the gateway.
+    var onImported: () -> Void = {}
+    /// Discarded, for a sent document.
+    var onDiscard: () -> Void = {}
     let onDone: () -> Void
 
     private enum Phase {
@@ -31,6 +38,21 @@ struct DocumentImportSheet: View {
     /// at home), otherwise this Mac.
     @State private var renderer: DocumentLibrary.Renderer = .thisMac
     @State private var homeServerAvailable = false
+    /// Settings → Speech → Make books on: Ask each time offers the choice below;
+    /// This Mac or Home server makes it without asking.
+    private let makeBooksOn = BookVoiceSettings.makeBooksOn
+    /// Names a voice might stumble on, as a model proposed them (M8.6), each in a field the
+    /// person can correct before the book is made.
+    @State private var proposedLexicon: PronunciationLexicon?
+    @State private var lexiconRows: [PronunciationEditing.Row] = []
+    @State private var lexiconLine: String?
+    /// The cloud source to ask about, when nothing local suggested a narrator (M4.6).
+    @State private var consentAsk: ModelSource?
+    /// "Allow once": this sheet's narrator suggestion may use it; nothing is recorded.
+    @State private var allowedOnce: ModelSource?
+    /// "Voice the dialogue" (G4): as the person last left it on this Mac (off the first time),
+    /// and the cast checked before use.
+    @State private var cast = DialogueCastChoice.remembered()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -47,7 +69,12 @@ struct DocumentImportSheet: View {
                     .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
                 HStack {
                     Spacer()
-                    Button("Close", action: onDone).keyboardShortcut(.cancelAction)
+                    if sentFrom != nil {
+                        Button("Discard") { onDiscard(); onDone() }
+                        Button("Not Now", action: onDone).keyboardShortcut(.cancelAction)
+                    } else {
+                        Button("Close", action: onDone).keyboardShortcut(.cancelAction)
+                    }
                 }
             case let .ready(document, voice):
                 details(document, voice: voice)
@@ -58,7 +85,7 @@ struct DocumentImportSheet: View {
         .task { await read() }
         .task {
             homeServerAvailable = await library.homeServerAvailable()
-            if homeServerAvailable { renderer = .homeServer }
+            renderer = BookVoiceSettings.initialRenderer(makeBooksOn, homeServerAvailable: homeServerAvailable)
         }
         .onDisappear { preview.stop() }
     }
@@ -70,6 +97,9 @@ struct DocumentImportSheet: View {
             Text(document.title).font(.title3.weight(.semibold)).lineLimit(2)
             if let author = document.author {
                 Text("by \(author)").foregroundStyle(.secondary)
+            }
+            if let sentFrom {
+                Text("Sent from \(sentFrom).").font(.caption).foregroundStyle(.secondary)
             }
         }
         Text("About \(estimate.durationText) of audio. About \(estimate.sizeText) on this Mac.")
@@ -111,11 +141,13 @@ struct DocumentImportSheet: View {
         }
 
         narrator(document)
+        pronunciations(document)
+        DialogueCastSection(document: document, narrator: chosen ?? voice, modelFree: lexiconLine != nil, choice: $cast)
 
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
                 Text("Made on").foregroundStyle(.secondary)
-                if homeServerAvailable {
+                if BookVoiceSettings.sheetAsks(makeBooksOn, homeServerAvailable: homeServerAvailable) {
                     Picker("Made on", selection: $renderer) {
                         Text("Home server").tag(DocumentLibrary.Renderer.homeServer)
                         Text("This Mac").tag(DocumentLibrary.Renderer.thisMac)
@@ -124,22 +156,34 @@ struct DocumentImportSheet: View {
                     .labelsHidden()
                     .fixedSize()
                 } else {
-                    Text("This Mac")
+                    HStack(spacing: 6) {
+                        Text(renderer == .homeServer ? "Home server" : "This Mac")
+                        if let note = BookVoiceSettings.sheetNote(makeBooksOn, homeServerAvailable: homeServerAvailable) {
+                            Text(note).foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
         .font(.callout)
 
         HStack {
-            Text(renderer == .homeServer
+            Text(cast.holdsTheBook
+                 ? "Check the cast before the book is made."
+                 : renderer == .homeServer
                  ? "Your home server makes it, so this Mac can sleep. Chapter 1 is ready in a minute or two."
                  : "Chapter 1 is ready in a minute or two, and the rest follows while you listen.")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
-            Button("Cancel", action: onDone).keyboardShortcut(.cancelAction)
+            if sentFrom != nil {
+                Button("Discard") { onDiscard(); onDone() }
+                Button("Not Now", action: onDone).keyboardShortcut(.cancelAction)
+            } else {
+                Button("Cancel", action: onDone).keyboardShortcut(.cancelAction)
+            }
             Button("Make Audiobook") { submit(document, voice: chosen ?? voice) }
                 .keyboardShortcut(.defaultAction)
-                .disabled(submitting || document.chapters.isEmpty)
+                .disabled(submitting || document.chapters.isEmpty || cast.holdsTheBook)
         }
     }
 
@@ -181,6 +225,9 @@ struct DocumentImportSheet: View {
                 if let failure = preview.failure {
                     Text(failure).font(.caption).foregroundStyle(.orange)
                 }
+                if let consentAsk {
+                    CloudModelConsentAsk(source: consentAsk) { answer($0, for: consentAsk, document: document) }
+                }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -190,10 +237,88 @@ struct DocumentImportSheet: View {
         }
         .task(id: document.sourceSHA256) {
             guard suggestion == nil else { return }
-            let found = await VoiceSuggestions.suggestLive(
-                for: document, languageDefault: DocumentLibrary.languageDefaultVoice(for: document))
-            suggestion = found
-            chosen = found.primary
+            await suggestNarrator(document)
+        }
+    }
+
+    private func suggestNarrator(_ document: ImportedDocument) async {
+        let found = await VoiceSuggestions.suggestLive(
+            for: document, languageDefault: DocumentLibrary.languageDefaultVoice(for: document), allowingOnce: allowedOnce)
+        suggestion = found.suggestion
+        chosen = found.suggestion.primary
+        let ledger = CloudModelConsent.ledger()
+        consentAsk = VoiceSuggestions.sourceToAsk(fellBack: found.suggestion.isFallback, routing: found.routing,
+                                                  hasAnswered: { ledger.hasAnswered($0, ModelTask.voiceSuggestion.content) })
+    }
+
+    /// The person's answer to the first-use ask. "Not now" is recorded and the default stays;
+    /// "Always" and "Allow once" ask again with that source allowed, and the pronunciation
+    /// proposal follows the new suggestion as it always does.
+    private func answer(_ answer: CloudModelConsentAsk.Answer, for source: ModelSource, document: ImportedDocument) {
+        consentAsk = nil
+        guard CloudModelConsent.record(answer, for: source, in: CloudModelConsent.ledger()) else { return }
+        if answer == .once { allowedOnce = source }
+        suggestion = nil
+        chosen = nil
+        proposedLexicon = nil
+        lexiconRows = []
+        lexiconLine = nil
+        Task { await suggestNarrator(document) }
+    }
+
+    /// The words a model thinks the voice would get wrong, proposed after the narrator is, each
+    /// correctable here; what is left when the book is made goes with it as its lexicon.
+    @ViewBuilder
+    private func pronunciations(_ document: ImportedDocument) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Pronunciations").font(.callout).foregroundStyle(.secondary)
+            if let lexiconLine {
+                Text(lexiconLine).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if lexiconLine == nil {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking for names a voice might stumble on…").font(.callout)
+                }
+            } else if lexiconRows.count > 6 {
+                // A novel's list (24 words for Pride and Prejudice) ran the sheet past the bottom
+                // of the window, taking "Voice the dialogue" and Make Audiobook with it.
+                ScrollView { PronunciationListView(rows: $lexiconRows).padding(.trailing, 12) }
+                    .frame(height: 240)
+            } else if !lexiconRows.isEmpty || suggestion != nil {
+                PronunciationListView(rows: $lexiconRows)
+            }
+        }
+        .task(id: suggestion == nil ? "" : document.sourceSHA256) {
+            // After the narrator, so the two do not queue on one small model at once.
+            guard suggestion != nil, lexiconLine == nil else { return }
+            await proposeLexicon(document)
+        }
+    }
+
+    private func proposeLexicon(_ document: ImportedDocument) async {
+        let routing = await VoiceSuggestions.liveRouting()
+        guard !Task.isCancelled else { return }
+        let router = routing.router()
+        guard !router.plan(for: PronunciationEditing.modelTask).usable.isEmpty else {
+            lexiconLine = PronunciationEditing.noModelLine(router: router)
+            return
+        }
+        let executor = routing.executor
+        let proposal = await PronunciationLexicon.propose(for: document, isWord: PronunciationEditing.isWord) { system, user in
+            try await router.complete(PronunciationEditing.modelTask, system: system, user: user, executor: executor)
+        }
+        // Superseded: the person answered the cloud ask and a new suggestion is on its way, with
+        // its own proposal after it.
+        guard !Task.isCancelled else { return }
+        proposedLexicon = proposal.lexicon.isEmpty ? nil : proposal.lexicon
+        lexiconRows = PronunciationEditing.rows(proposedLexicon)
+        if let source = proposal.source {
+            lexiconLine = lexiconRows.isEmpty
+                ? "\(source) found no names the voice would get wrong. Add any below."
+                : "Proposed by \(source). Correct any that are wrong; Kokoro reads these as written."
+        } else {
+            lexiconLine = "No model answered, so names are read as written. Add any below."
         }
     }
 
@@ -215,19 +340,30 @@ struct DocumentImportSheet: View {
         } catch let failure as DocumentImporter.Failure {
             phase = .failed(failure.description)
         } catch {
-            phase = .failed("The file could not be read: \(error.localizedDescription)")
+            let what = DocumentLibrary.isWebLink(url) ? "link" : "file"
+            phase = .failed("The \(what) could not be read: \(error.localizedDescription)")
         }
     }
 
     private func submit(_ document: ImportedDocument, voice: String) {
         submitting = true
         preview.stop()
-        // The suggested speed belongs to the suggested voice; another choice reads at its own pace.
-        let speed = voice == suggestion?.primary && suggestion?.isFallback == false ? suggestion?.speed : nil
-        let book = DocumentSpeech.prepare(document, voices: VoicePlan(narrator: voice, speed: speed))
+        // The suggested speed goes with the suggested voice; the suggestion's tone is the book's,
+        // and styles a Chatterbox narrator whichever one is chosen (M8.7).
+        // With a checked cast, each attributed quote in its speaker's voice (G4); otherwise the
+        // narrator-only book, unchanged. The rules read the whole book for a cast (seconds for a
+        // novel), so the book is shaped off the main thread.
+        let plan = VoicePlan.forBook(narrator: voice, suggestion: suggestion)
+        let choice = cast
+        let lexicon = PronunciationEditing.lexicon(from: lexiconRows, original: proposedLexicon)
         Task {
+            var book = await Task.detached(priority: .userInitiated) {
+                DialogueCastEditing.book(document, plan: plan, choice: choice)
+            }.value
+            book.lexicon = lexicon
             do {
                 try await library.submit(book, on: renderer)
+                onImported()
                 onDone()
             } catch {
                 phase = .failed("The book could not be started: \(error.localizedDescription)")

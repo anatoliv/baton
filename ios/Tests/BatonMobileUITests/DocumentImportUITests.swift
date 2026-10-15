@@ -17,6 +17,10 @@ final class DocumentImportUITests: XCTestCase {
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
+        app.launchEnvironment["BATON_DEBUG_PREFERENCE_SYNC"] = "off"
+        // As if just updated, so What's New also wants the launch sheet: the two used to race
+        // and the import screen lost.
+        app.launchEnvironment["uitestWhatsNewUpgradedFrom"] = "0.1"
         app.launchEnvironment["uitestImportText"] = """
         Two Rooms
         by Nobody in Particular
@@ -47,6 +51,15 @@ final class DocumentImportUITests: XCTestCase {
         XCTAssertTrue(needs.waitForExistence(timeout: 15) || needsText.waitForExistence(timeout: 15),
                       "the screen should say the home server is needed")
         XCTAssertFalse(app.buttons["make-audiobook"].exists, "Make Audiobook must not be offered without a home server")
+        // With no home server to use, the screen suggests AirDrop to the Mac instead,
+        // and never Send to my Mac, which needs one. "No home server" or "one that does not
+        // answer": a gateway address a UI test gave an earlier run (`uitestGatewayURL`) survives
+        // `baton.resetSession`, and both say the same thing here.
+        XCTAssertTrue(app.buttons["airdrop-to-mac"].firstMatch.waitForExistence(timeout: 5),
+                      "the screen should offer to AirDrop the file to the Mac")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "AirDrop this to")).firstMatch.exists,
+                      "and say why in a sentence")
+        XCTAssertFalse(app.buttons["send-to-mac"].exists, "Send to my Mac needs a home server")
 
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "import-screen-no-home-server"

@@ -30,30 +30,28 @@ struct ClippingsView: View {
     @State private var choosingFile = false
     @State private var askingForLink = false
     @State private var linkText = ""
+    /// The weekly storage suggestion, while it is on offer (M6.5).
+    @State private var suggestion: BookStorage.Suggestion?
+    /// A book waiting for "Delete this book?" (M6.3: it goes to Recently removed for a week).
+    @State private var pendingBookDelete: MobileBookShelf.Book?
 
     private var store: ClippingStore { model.clippings }
-    private var documentsOn: Bool { MobileDocuments.isEnabled() }
+    /// Read live through the model's switch, so turning Documents off in Settings hides the
+    /// books and the import menu at once.
+    private var documentsOn: Bool { model.documentsSwitch.isOn }
 
     /// Readings and chapters alike, filtered by what is said and what it is called. A book's
-    /// chapters are grouped below; readings keep their flat rows.
-    private var items: [ClippingStore.Item] {
-        let needle = filter.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return store.items }
-        return store.items.filter {
-            $0.clipping.title.lowercased().contains(needle)
-                || ($0.clipping.documentTitle?.lowercased().contains(needle) ?? false)
-                || ($0.clipping.source?.lowercased().contains(needle) ?? false)
-                || ($0.clipping.text?.lowercased().contains(needle) ?? false)
-        }
-    }
+    /// chapters are grouped below; readings keep their flat rows. Through the shared search index
+    /// (M8.9): case and accents are ignored, and typing is answered after a short pause.
+    private var items: [ClippingStore.Item] { model.clippingSearch.filter(store.items) }
 
     private var readings: [ClippingStore.Item] { items.filter { !$0.clipping.isBookChapter } }
 
     /// Each book once, from what has landed and what the home server says (M5.3).
     private var books: [MobileBookShelf.Book] {
         guard documentsOn else { return [] }
-        let needle = filter.trimmingCharacters(in: .whitespaces).lowercased()
-        let records = needle.isEmpty ? model.books.records : model.books.records.filter { $0.title.lowercased().contains(needle) }
+        let search = model.clippingSearch
+        let records = search.isFiltering ? model.books.records.filter { search.matches(title: $0.title) } : model.books.records
         return MobileBookShelf.books(items: items, records: records, summaries: model.books.summaries, ledger: store.ledger)
     }
 
@@ -80,6 +78,9 @@ struct ClippingsView: View {
                     )
                 }
             } else {
+                if documentsOn, let suggestion {
+                    Section { suggestionCard(suggestion) }
+                }
                 if !books.isEmpty {
                     Section("Books") {
                         ForEach(books) { book in
@@ -108,6 +109,10 @@ struct ClippingsView: View {
         }
         .navigationTitle("Clippings")
         .searchable(text: $filter, prompt: "Filter clippings")
+        .onChange(of: filter, initial: true) { _, text in
+            model.clippingSearch.follow(store)
+            model.clippingSearch.setQuery(text)
+        }
         // Pulled by hand, so say what happened: a manual pull that silently achieves nothing is
         // indistinguishable from one that failed.
         .refreshable {
@@ -124,13 +129,38 @@ struct ClippingsView: View {
             // is doing, and that is worth asking every few seconds while this screen is open.
             await model.collectBooks(announcing: false)
             model.books.watchIfNeeded { }
+            // The storage rules this phone's owner chose, then at most one suggestion a week.
+            if documentsOn {
+                model.applyStorageRules()
+                refreshSuggestion()
+            }
+        }
+        .onChange(of: documentsOn) { _, on in
+            if on { refreshSuggestion() } else { suggestion = nil }
+        }
+        .confirmationDialog("Delete this book?", isPresented: .init(
+            get: { pendingBookDelete != nil },
+            set: { if !$0 { pendingBookDelete = nil } }
+        ), titleVisibility: .visible) {
+            Button("Remove from this iPhone", role: .destructive) { deleteBook(everywhere: false) }
+            Button("Delete Everywhere", role: .destructive) { deleteBook(everywhere: true) }
+            Button("Cancel", role: .cancel) { pendingBookDelete = nil }
+        } message: {
+            Text("The home server stops keeping it and its chapters leave this iPhone. Deleting everywhere "
+                 + "also removes it from your other devices. For a week you can restore it from Recently "
+                 + "removed in Settings, under Storage.")
         }
         .onDisappear { model.books.stopWatching() }
         .toolbar {
             if documentsOn {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button { choosingFile = true } label: { Label("Import a File…", systemImage: "doc") }
+                        Button {
+                            #if DEBUG
+                            if let picked = MobileDocuments.uitestPickedFile() { importPicked(picked); return }
+                            #endif
+                            choosingFile = true
+                        } label: { Label("Import a File…", systemImage: "doc") }
                         Button { linkText = ""; askingForLink = true } label: { Label("Import a Link…", systemImage: "link") }
                     } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Import a document")
@@ -148,11 +178,7 @@ struct ClippingsView: View {
         }
         .fileImporter(isPresented: $choosingFile, allowedContentTypes: MobileDocuments.importableTypes) { result in
             switch result {
-            case let .success(url):
-                do { model.pendingDocumentImport = try MobileDocuments.stage(url) } catch {
-                    status = "The file could not be opened: \(error.localizedDescription)"
-                    Task { await clearStatus() }
-                }
+            case let .success(url): importPicked(url)
             case .failure: break
             }
         }
@@ -165,7 +191,7 @@ struct ClippingsView: View {
                 let raw = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
                 let withScheme = raw.contains("://") ? raw : "https://\(raw)"
                 if let url = URL(string: withScheme), MobileDocuments.isWebLink(url) {
-                    model.pendingDocumentImport = url
+                    model.offerImport(url)
                 } else {
                     status = "That is not a web address"
                     Task { await clearStatus() }
@@ -196,6 +222,14 @@ struct ClippingsView: View {
 
     @State private var pendingDelete: [String] = []
 
+    /// A file chosen with "Import a File…": the app's own copy goes to the import screen.
+    private func importPicked(_ url: URL) {
+        do { model.offerImport(try MobileDocuments.stage(url)) } catch {
+            status = "The file could not be opened: \(error.localizedDescription)"
+            Task { await clearStatus() }
+        }
+    }
+
     private var footerText: String? {
         guard !store.items.isEmpty else { return nil }
         let bytes = store.totalBytes
@@ -223,6 +257,9 @@ struct ClippingsView: View {
                         Spacer()
                         Text(chapter.stateText).font(.caption).foregroundStyle(.secondary)
                     }
+                    // The whole row plays: a plain button's Spacer takes no taps, so a tap between
+                    // the title and the length did nothing (found by BookRowsUITests, M5.3).
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(chapter.item?.isPresent != true)
@@ -261,22 +298,97 @@ struct ClippingsView: View {
         }
         .contextMenu {
             Button("Play") { play(book) }.disabled(book.readyChapters.isEmpty)
-            if let jobID = book.jobID, !book.isComplete {
+            if let title = model.getBackTitle(book) {
+                Button(title) { getBack(book) }
+            }
+            if !book.readyChapters.isEmpty, model.stored(book).canGetBack {
+                Button("Remove Download") { offload(book) }
+            }
+            Toggle("Keep on This iPhone", isOn: Binding(
+                get: { model.bookCleanup.isKept(book.documentID) },
+                set: { model.bookCleanup.setKeep($0, documentID: book.documentID) }
+            ))
+            if let jobID = book.jobID, book.isRendering {
                 Button("Stop Making This Book", role: .destructive) {
                     Task { await model.books.cancel(jobID: jobID) }
                 }
-            }
-            if book.isComplete && !book.readyChapters.isEmpty {
-                // Only once every chapter is here: forgetting the record earlier would orphan the
-                // chapters still on the server, never collected and never deleted. The chapters
-                // go through the same confirmation every clipping does; the record is forgotten
-                // either way, and a cancelled deletion leaves the chapters as the row's source.
-                Button("Delete Book…", role: .destructive) {
-                    if let jobID = book.jobID { model.books.forget(jobID: jobID) }
-                    pendingDelete = book.chapters.compactMap { $0.item?.id }
-                }
+            } else if !book.readyChapters.isEmpty || !book.missing.isEmpty {
+                // The home server stops keeping it either way: a book sent from this phone is
+                // only ever collected by this phone, so its chapters there would be orphaned.
+                Button("Delete Book…", role: .destructive) { pendingBookDelete = book }
             }
         }
+    }
+
+    // MARK: - Storage (M6.3, M6.5)
+
+    private func offload(_ book: MobileBookShelf.Book) {
+        let bytes = model.offload(book)
+        guard bytes > 0 else { return }
+        status = "Download removed, \(BookStorage.sizeText(bytes)) freed"
+        Task { await clearStatus() }
+    }
+
+    private func getBack(_ book: MobileBookShelf.Book) {
+        Task {
+            do { try await model.getBack(book) } catch {
+                status = "The book could not come back: \(error)"
+                await clearStatus()
+            }
+        }
+    }
+
+    private func deleteBook(everywhere: Bool) {
+        guard let book = pendingBookDelete else { return }
+        pendingBookDelete = nil
+        expandedBooks.remove(book.documentID)
+        Task {
+            await model.deleteBook(book, everywhere: everywhere)
+            status = "Moved to Recently removed for a week"
+            await clearStatus()
+        }
+    }
+
+    private func refreshSuggestion() {
+        suggestion = model.bookCleanup.suggestion(for: model.storedBooks, freeBytes: model.freeBytes)
+    }
+
+    private func suggestionCard(_ suggestion: BookStorage.Suggestion) -> some View {
+        let title = suggestion.kind == .finishedBook
+            ? suggestion.ids.first.flatMap { id in model.shelfBooks.first { $0.documentID == id }?.title } : nil
+        return VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text(BookStorage.suggestionText(suggestion, title: title, device: "this iPhone"))
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "internaldrive").foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                Button("Remove") { answer(.remove, suggestion) }
+                    .buttonStyle(.borderedProminent)
+                if suggestion.kind == .finishedBook {
+                    Button("Always Do This") { answer(.always, suggestion) }
+                        .buttonStyle(.bordered)
+                }
+                Button(suggestion.kind == .finishedBook ? "Keep" : "Not Now") { answer(.keep, suggestion) }
+                    .buttonStyle(.bordered)
+            }
+            .controlSize(.small)
+        }
+        .padding(.vertical, 4)
+        .accessibilityIdentifier("storage-suggestion")
+    }
+
+    private func answer(_ answer: BookStorage.Answer, _ suggestion: BookStorage.Suggestion) {
+        let bytes = model.bookCleanup.answer(answer, to: suggestion, books: model.storedBooks)
+        self.suggestion = nil
+        switch answer {
+        case .always: status = BookStorage.alwaysConfirmation(device: "this iPhone")
+        case .remove where bytes > 0: status = "Download removed, \(BookStorage.sizeText(bytes)) freed"
+        default: return
+        }
+        Task { await clearStatus() }
     }
 
     /// Play a book from the chosen chapter, or from its first chapter here.

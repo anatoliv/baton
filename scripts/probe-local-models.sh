@@ -77,7 +77,9 @@ defaults write "$SUITE" baton.settings.selectedCategory speech
 [ -n "${KOKORO_URL:-}" ] && defaults write "$SUITE" tonebox.speech.kokoroBaseURL "$KOKORO_URL"
 
 say "A. Settings → Speech, Models on this Mac"
-open -n -a "$APP" --args -baton.defaultsSuite "$SUITE" -baton.debugCloseMainWindow -baton.debugOpenWindow settings || exit 2
+# Preference sync off, as probe_launch does: a probe must neither adopt the owner's shared settings
+# nor push its throwaway ones into them (TBX-10854 found this launch without it).
+open -n -a "$APP" --env BATON_DEBUG_PREFERENCE_SYNC=off --args -baton.defaultsSuite "$SUITE" -baton.debugCloseMainWindow -baton.debugOpenWindow settings || exit 2
 for _ in $(seq 1 40); do PID="$(pgrep -f -- "-baton.defaultsSuite $SUITE" | head -1)"; [ -n "$PID" ] && break; sleep 0.5; done
 [ -n "$PID" ] || { echo "probe did not start"; exit 2; }
 # Section headers are not static text to Accessibility; the Ollama row and the section's footer are.

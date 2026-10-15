@@ -337,7 +337,7 @@ struct MusicView: View {
 
     private var showsSections: Bool {
         Self.showsSections(serverConfigured: library.isConfigured, hasClippings: !model.clippings.items.isEmpty,
-                           documentsOn: DocumentLibrary.isEnabled())
+                           documentsOn: model.documentsSwitch.isOn)
     }
 
     var body: some View {
@@ -422,6 +422,12 @@ struct MusicView: View {
                     tab = new
                     path = NavigationPath()
                     router.pendingTab = nil
+                }
+                // A document sent from the iPhone ("Send to my Mac", TBX-10871) opens in
+                // Clippings' import sheet, so arriving brings Clippings forward.
+                .onChange(of: model.documentsSwitch.isOn ? model.documentInbox.arrivals : 0) { old, new in
+                    guard new > old else { return }
+                    router.pendingTab = .clippings
                 }
                 .onChange(of: router.showNowPlayingToken) { _, _ in
                     guard model.music.nowPlaying != nil else { return }

@@ -5,6 +5,15 @@
 //   probe-ax show  <pid> <label>    scroll the first element labelled <label> into view
 //   probe-ax scroll <pid> <0...1>   set the largest window's first vertical scroll bar
 //   probe-ax windows <pid>          "<window id> <width> <height>" per on-screen window, largest first
+//   probe-ax toggle <pid> <label>   press the first checkbox or switch whose title or description is <label>
+//   probe-ax value <pid> <label>    print that checkbox's value (1 on, 0 off)
+//   probe-ax select <pid> <label>   select the first list or outline row showing the text <label>
+//   probe-ax window <pid> <title>   the window id (for `screencapture -l`) of the window titled <title>
+//   probe-ax focus <pid> <label>    focus the first text field whose placeholder or label is <label>
+//   probe-ax type <pid> <text>      key presses for <text>, one character at a time, posted to <pid>
+//   probe-ax clear <pid>            Command-A then Delete, posted to <pid>
+//   probe-ax set <pid> <label> <text>  set the value of the first text field whose placeholder or label is <label>
+//   probe-ax value-of <pid> <label>    print that text field's value
 //
 // AppleScript's `entire contents` of a Settings window holding a long grouped Form ran for
 // minutes and then timed out with nothing, while the same walk through AXUIElement takes well
@@ -30,7 +39,7 @@ func walk(_ root: AXUIElement, depth: Int = 0, _ visit: (AXUIElement) -> Bool) -
 }
 
 func labels(_ element: AXUIElement) -> [String] {
-    [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].compactMap { string(element, $0) }
+    [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXIdentifierAttribute].compactMap { string(element, $0) }
 }
 
 let args = CommandLine.arguments
@@ -126,6 +135,110 @@ case "scroll":
     }
     print(done ? "done" : "no scroll bar")
     exit(done ? 0 : 1)
+case "checkboxes":
+    for window in windows {
+        _ = walk(window) { element in
+            let role = string(element, kAXRoleAttribute) ?? ""
+            if role == kAXCheckBoxRole || string(element, kAXSubroleAttribute) == "AXSwitch" {
+                print("[\(role)/\(string(element, kAXSubroleAttribute) ?? "")] " + labels(element).joined(separator: " | ")
+                      + " parent: " + ((attribute(element, kAXParentAttribute)).map { labels($0 as! AXUIElement).joined(separator: " | ") } ?? ""))
+            }
+            return false
+        }
+    }
+case "toggle", "value":
+    guard args.count >= 4 else { exit(64) }
+    let label = args[3]
+    var done = false
+    for window in windows where !done {
+        done = walk(window) { element in
+            guard string(element, kAXRoleAttribute) == kAXCheckBoxRole, labels(element).contains(label) else { return false }
+            if args[1] == "value" {
+                print((attribute(element, kAXValueAttribute) as? NSNumber)?.intValue ?? -1)
+                return true
+            }
+            return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+        }
+    }
+    if args[1] == "toggle" { print(done ? "done" : "not found: \(label)") }
+    exit(done ? 0 : 1)
+case "focus", "set", "value-of":
+    guard args.count >= (args[1] == "set" ? 5 : 4) else { exit(64) }
+    let label = args[3]
+    var done = false
+    for window in windows where !done {
+        done = walk(window) { element in
+            guard string(element, kAXRoleAttribute) == kAXTextFieldRole,
+                  labels(element).contains(label) || string(element, kAXPlaceholderValueAttribute) == label else { return false }
+            if args[1] == "set" {
+                return AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, args[4] as CFString) == .success
+            }
+            if args[1] == "value-of" {
+                print(string(element, kAXValueAttribute) ?? "")
+                return true
+            }
+            return AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
+        }
+    }
+    if args[1] != "value-of" || !done { print(done ? "done" : "not found: \(label)") }
+    exit(done ? 0 : 1)
+case "type", "clear":
+    // Posted to the process rather than through System Events, which types into whatever app is
+    // in front: these reach the probe or nothing.
+    func post(_ code: CGKeyCode, _ text: String? = nil, flags: CGEventFlags = []) {
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
+            event.flags = flags
+            if let text { let units = Array(text.utf16); event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units) }
+            event.postToPid(pid)
+            usleep(40_000)
+        }
+    }
+    if args[1] == "clear" {
+        post(0, flags: .maskCommand)   // Command-A
+        post(51)                       // Delete
+    } else {
+        guard args.count >= 4 else { exit(64) }
+        for character in args[3] { post(0, String(character)) }
+    }
+    print("done")
+case "select":
+    guard args.count >= 4 else { exit(64) }
+    let label = args[3]
+    var done = false
+    for window in windows where !done {
+        done = walk(window) { element in
+            guard string(element, kAXRoleAttribute) == kAXRowRole else { return false }
+            let shows = walk(element) { inner in
+                string(inner, kAXRoleAttribute) == kAXStaticTextRole && string(inner, kAXValueAttribute) == label
+            }
+            guard shows else { return false }
+            return AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, kCFBooleanTrue) == .success
+        }
+    }
+    print(done ? "done" : "not found: \(label)")
+    exit(done ? 0 : 1)
+case "window":
+    guard args.count >= 4 else { exit(64) }
+    func rect(_ element: AXUIElement) -> CGRect? {
+        guard let p = attribute(element, kAXPositionAttribute), let s = attribute(element, kAXSizeAttribute) else { return nil }
+        var origin = CGPoint.zero, size = CGSize.zero
+        // swiftlint:disable:next force_cast
+        guard AXValueGetValue(p as! AXValue, .cgPoint, &origin), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: origin, size: size)
+    }
+    guard let wanted = windows.first(where: { string($0, kAXTitleAttribute) == args[3] }).flatMap(rect) else {
+        print("not found: \(args[3])"); exit(1)
+    }
+    let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+    for entry in info where (entry[kCGWindowOwnerPID as String] as? Int) == Int(pid) {
+        guard let id = entry[kCGWindowNumber as String] as? Int, let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+              let x = (bounds["X"] as? NSNumber)?.doubleValue, let y = (bounds["Y"] as? NSNumber)?.doubleValue,
+              let w = (bounds["Width"] as? NSNumber)?.doubleValue, let h = (bounds["Height"] as? NSNumber)?.doubleValue,
+              abs(x - wanted.minX) < 2, abs(y - wanted.minY) < 2, abs(w - wanted.width) < 2, abs(h - wanted.height) < 2 else { continue }
+        print(id); exit(0)
+    }
+    print("not on screen: \(args[3])"); exit(1)
 case "windows":
     // Window ids for `screencapture -l`, which captures that window alone: a screen region
     // also captures whatever else happens to be on top of it.

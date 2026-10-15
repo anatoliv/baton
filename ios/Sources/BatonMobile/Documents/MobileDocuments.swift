@@ -16,12 +16,19 @@ let documentsLog = Logger(subsystem: "io.tonebox.baton", category: "documents")
 /// the phone has. Chapters come down into Clippings through `HomeServerBooks`, the same code the
 /// Mac uses for "Made on: Home server".
 ///
-/// Behind `baton.documents.enabled` (off), the same flag as the Mac.
+/// `baton.documents.enabled` is the same key as the Mac's and, since TBX-10801, on unless this
+/// phone stored `false` from the **Documents** toggle in Settings. It stays on this device: it is
+/// not a synced preference, and `SessionPurge` resetting it means "on again".
 @MainActor
 enum MobileDocuments {
     static let enabledKey = "baton.documents.enabled"
+
+    /// Settings → Documents → Where books are made: read-only, because the phone
+    /// has no voice engine to choose. The Mac's Voice engine for books setting is the Mac's.
+    static let whereBooksAreMade = "Your home server makes every book from this iPhone, with its own voice server: the Kokoro or Chatterbox address set on the gateway. The phone has no voices of its own. It needs the home server's address and token under Music Friend, and the gateway's voice server answering. When the home server cannot make a book, Send to my Mac lets Baton on your Mac make it instead."
     static func isEnabled(in defaults: UserDefaults = BatonStorage.defaults) -> Bool {
-        defaults.bool(forKey: enabledKey)
+        // `bool(forKey:)` reads a missing key as false; only a stored `false` turns documents off.
+        defaults.object(forKey: enabledKey) as? Bool ?? true
     }
 
     /// What Files can hand over: PDF, EPUB, web pages saved as HTML, plain text and Markdown.
@@ -34,6 +41,20 @@ enum MobileDocuments {
         guard url.isFileURL, let kind = DocumentImporter.kind(for: url) else { return false }
         return [.pdf, .text, .markdown, .html, .epub].contains(kind)
     }
+
+    #if DEBUG
+    /// DEBUG only: the file the system picker would hand back, for a UI test of Clippings' "Import
+    /// a File…" (M5.2). The picker runs out of process and its Files locations are not something
+    /// a test can seed, so the test passes the file's words in `uitestPickedFileText` and the menu
+    /// item takes this file instead of showing the picker; everything after the pick is the real
+    /// path. Environment, never launch arguments.
+    static let pickedFileTextKey = "uitestPickedFileText"
+    static func uitestPickedFile(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        guard let text = environment[pickedFileTextKey], !text.isEmpty else { return nil }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("Picked Notes.md")
+        return (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil ? file : nil
+    }
+    #endif
 
     /// An address on the web, read as a page rather than downloaded as a file (M8.1b).
     static func isWebLink(_ url: URL) -> Bool {
@@ -54,6 +75,17 @@ enum MobileDocuments {
         // An "Open in" file lands in Documents/Inbox, which is ours to tidy: nothing else will.
         if url.path.contains("/Documents/Inbox/") { try? FileManager.default.removeItem(at: url) }
         return copy
+    }
+
+    /// The oldest document left by the Baton share extension, taken out of the App Group inbox
+    /// so it is offered exactly once. A file comes back as the app's own copy under
+    /// the temporary `imports` folder, like `stage(_:)`; a link as the page's address.
+    static func claimSharedImport(from inbox: PendingShareInbox? = .shared) -> URL? {
+        guard let inbox else { return nil }
+        let staging = FileManager.default.temporaryDirectory.appendingPathComponent("imports", isDirectory: true)
+        guard let claimed = inbox.claimOldest(into: staging) else { return nil }
+        documentsLog.info("opened a shared \(claimed.marker.kind.rawValue, privacy: .public) from the share extension")
+        return claimed.url
     }
 
     /// Read a file into a structured document, off the main thread. The spell checker breaks

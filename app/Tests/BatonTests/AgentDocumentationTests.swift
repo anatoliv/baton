@@ -121,6 +121,7 @@ final class AgentDocumentationTests: XCTestCase {
         "Internet radio": "browsing",
         "Rating, liking, and multi-select": "browsing",
         "Downloads and offline listening": "downloads",
+        "Listening to a document": "documents",
         "Playing music": "playing",
         "The queue, shuffle, repeat, and autoplay": "playing",
         "Sleep timer": "playing",

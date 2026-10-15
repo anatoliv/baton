@@ -18,6 +18,8 @@ public enum EPUBImporter {
         public var result: LayoutTextImporter.Result
         public var language: String?
         public var warnings: [ImportWarning]
+        /// The region declared with the language ("gb" for `en-GB`).
+        public var languageRegion: String? = nil
     }
 
     static let fontObfuscation: Set<String> = ["http://www.idpf.org/2008/embedding", "http://ns.adobe.com/pdf/enc#RC"]
@@ -132,7 +134,7 @@ public enum EPUBImporter {
         if let detail = skipped.detail { warnings.append(ImportWarning(.contentSkipped, detail: detail)) }
         let result = LayoutTextImporter.Result(title: title, author: author, frontMatter: frontMatter, chapters: chapters,
                                                stats: stats, foundHeadings: chapters.count >= 2)
-        return Output(result: result, language: book.language, warnings: warnings)
+        return Output(result: result, language: book.language, warnings: warnings, languageRegion: book.languageRegion)
     }
 
     /// The book's cover picture, for the shelf: the manifest item marked `cover-image`
@@ -206,6 +208,7 @@ public enum EPUBImporter {
         var title: String?
         var author: String?
         var language: String?
+        var languageRegion: String?
         var spine: [String] = []
         var contents: [ContentsEntry] = []
         var cover: (path: String, mediaType: String)?
@@ -236,7 +239,9 @@ public enum EPUBImporter {
 
             title = named("title").first?.textContent.nilIfEmpty
             author = named("creator").first?.textContent.nilIfEmpty.map(HTMLImporter.personName)
-            language = named("language").first?.textContent.split(separator: "-").first.map { $0.lowercased() }
+            if let tag = named("language").first?.textContent {
+                (language, languageRegion) = LanguageTag.split(tag)
+            }
 
             struct Item { var path: String; var mediaType: String; var properties: String }
             var manifest: [String: Item] = [:]

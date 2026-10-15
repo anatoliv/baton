@@ -10,16 +10,17 @@ import Observation
 ///
 /// The choosing is `VoiceCaster` in BatonDocuments; this is the Mac's wiring. Sources, in order:
 /// Ollama on this Mac when it answers, then the model the music friend uses (the home server, or a
-/// cloud provider). **No consent is recorded yet (M4.6)**, so `ModelRouter` skips every cloud
-/// source by itself, and nothing from a book is sent to a cloud provider. The sheet says which
-/// source answered, or why none did.
+/// cloud provider). A cloud source is used only for what the person allowed it in the consent
+/// ledger (M4.6, `ModelConsentLedger`); `ModelRouter` makes that call, and skips it otherwise.
+/// The sheet says which source answered, or why none did.
 enum VoiceSuggestions {
-    /// Where the suggestion's model calls go, built from what is configured and reachable: the
-    /// models saved in Settings → Models on this Mac (M7.2 to M7.4), in the person's order, then a
-    /// model Ollama has that is not among them, then the music friend's model.
+    /// Where the suggestion's model calls go, built from what is configured and reachable:
+    /// Apple's on-device model when it can answer (M7.1; the spec's default order puts it
+    /// first), the models saved in Settings → Models on this Mac (M7.2 to M7.4), in the person's
+    /// order, then a model Ollama has that is not among them, then the music friend's model.
     static func sources(agent: RemoteControlSettings.NaturalLanguageConfig, ollamaModel: String?,
-                        saved: [ModelSource] = []) -> [ModelSource] {
-        var sources = saved
+                        saved: [ModelSource] = [], onDevice: ModelSource? = nil) -> [ModelSource] {
+        var sources = (onDevice.map { [$0] } ?? []) + saved
         if let ollamaModel, !saved.contains(where: { $0.provider == .ollama && $0.model == ollamaModel }) {
             sources.append(ModelSource(name: "\(ollamaModel) on this Mac", provider: .ollama,
                                        baseURL: ollamaBase.absoluteString, model: ollamaModel, contextTokens: 8_192))
@@ -48,9 +49,27 @@ enum VoiceSuggestions {
             .first { !$0.contains("embed") }
     }
 
-    /// The voices the Kokoro host offers, as `kokoro:<id>` specs, or none when it does not answer.
+    /// The voices a book made on this Mac can use, as `kokoro:<id>` specs, under Voice engine for
+    /// books:
+    /// - Automatic: the Kokoro host's voices, or when none answers the built-in "This Mac" voices
+    /// if their model is downloaded, so import still offers a choice.
+    /// - Built-in voices on this Mac: the built-in voices only, never asking a server.
+    /// - Voice server: the Kokoro host's voices only.
+    /// `builtIn` defaults to what this Mac has and `engine` to the setting; tests pass their own.
     static func availableVoices(kokoroBase: String = SpeechConfig.kokoroBaseURL,
+                                builtIn: [String]? = nil,
+                                engine: BookVoiceSettings.Engine? = nil,
                                 fetch: DocumentImporter.Fetch = { try await URLSession.shared.data(for: $0) }) async -> [String] {
+        let local = builtIn ?? BuiltInVoices.shared.availableVoiceIDs
+        let engine = engine ?? BookVoiceSettings.engine
+        if engine == .builtIn { return local }
+        let server = await serverVoices(kokoroBase: kokoroBase, fetch: fetch)
+        guard server.isEmpty, engine == .automatic else { return server }
+        return local
+    }
+
+    /// The voices the Kokoro host itself lists, or none when it does not answer.
+    private static func serverVoices(kokoroBase: String, fetch: DocumentImporter.Fetch) async -> [String] {
         guard let url = URL(string: kokoroBase)?.appendingPathComponent("v1/audio/voices") else { return [] }
         guard let (data, _) = try? await fetch(URLRequest(url: url, timeoutInterval: 5)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -65,8 +84,9 @@ enum VoiceSuggestions {
     /// A suggestion for `document`. Never throws: with no source, no voices or a useless answer
     /// it is the language default, and `fallbackReason` says why.
     static func suggest(for document: ImportedDocument, languageDefault: String, sources: [ModelSource],
+                        consent: ModelConsent = ModelConsent(),
                         available: [String], executor: @escaping ModelRouter.Executor) async -> VoiceSuggestion {
-        let router = ModelRouter(sources: sources)
+        let router = ModelRouter(sources: sources, consent: consent)
         let complete: VoiceCaster.Complete? = sources.isEmpty ? nil : { @Sendable system, user in
             try await router.complete(.voiceSuggestion, system: system, user: user, executor: executor)
         }
@@ -74,21 +94,57 @@ enum VoiceSuggestions {
                                          complete: complete)
     }
 
-    /// The live path: detect, list voices, suggest. The agent's key is the only secret, read from
-    /// its own settings and handed to the HTTP client for that source alone.
+    /// Where a book task can go right now: the sources, what the person allowed the cloud ones,
+    /// and the executor that reaches them.
+    struct Routing {
+        var sources: [ModelSource]
+        var consent: ModelConsent
+        var executor: ModelRouter.Executor
+
+        func router(allowingOnce once: (source: ModelSource, content: ModelContent)? = nil) -> ModelRouter {
+            ModelRouter(sources: sources, consent: once.map { consent.granting($0.source, $0.content) } ?? consent)
+        }
+    }
+
+    /// The sources this Mac can route a book task to right now, the consent the person gave the
+    /// cloud ones on this Mac, and the executor that reaches them. The agent's key is the only
+    /// secret, read from its own settings and handed to the HTTP client for that source alone.
+    /// Shared by the voice suggestion, the pronunciation proposal (M8.6) and the resume recap
+    /// (M8.4).
     @MainActor
-    static func suggestLive(for document: ImportedDocument, languageDefault: String) async -> VoiceSuggestion {
+    static func liveRouting() async -> Routing {
         let agent = RemoteControlSettings().naturalLanguage
-        async let ollama = detectOllamaModel()
-        async let voices = availableVoices()
-        let model = await ollama
-        let list = await voices
-        let sources = sources(agent: agent, ollamaModel: model, saved: LocalModelSources.configuredSources())
+        let model = await detectOllamaModel()
+        let sources = sources(agent: agent, ollamaModel: model, saved: LocalModelSources.configuredSources(),
+                              onDevice: AppleOnDeviceModel.sourceIfAvailable())
         let agentKey = agent.apiKey
         let agentBase = agent.baseURL.trimmingCharacters(in: .whitespaces)
-        let executor = HTTPModelClient.executor(apiKey: { source in source.baseURL == agentBase ? agentKey : nil })
-        return await suggest(for: document, languageDefault: languageDefault, sources: sources,
-                             available: list, executor: executor)
+        let executor = AppleOnDeviceModel.executor(
+            otherwise: HTTPModelClient.executor(apiKey: { source in source.baseURL == agentBase ? agentKey : nil }))
+        return Routing(sources: sources, consent: CloudModelConsent.ledger().consent, executor: executor)
+    }
+
+    /// The live path: detect, list voices, suggest. `allowingOnce` is the import sheet's
+    /// "Allow once", good for this suggestion only.
+    @MainActor
+    static func suggestLive(for document: ImportedDocument, languageDefault: String,
+                            allowingOnce once: ModelSource? = nil) async -> (suggestion: VoiceSuggestion, routing: Routing) {
+        async let voices = availableVoices()
+        var routing = await liveRouting()
+        let list = await voices
+        if let once { routing.consent = routing.consent.granting(once, ModelTask.voiceSuggestion.content) }
+        let suggestion = await suggest(for: document, languageDefault: languageDefault, sources: routing.sources,
+                                       consent: routing.consent, available: list, executor: routing.executor)
+        return (suggestion, routing)
+    }
+
+    /// The cloud source to ask about on the import sheet, if any: only when nothing local gave a
+    /// suggestion (it fell back), a cloud source is waiting for consent to excerpts, and the
+    /// person has not answered for it yet.
+    static func sourceToAsk(fellBack: Bool, routing: Routing,
+                            hasAnswered: (ModelSource) -> Bool) -> ModelSource? {
+        guard fellBack else { return nil }
+        return routing.router().awaitingConsent(for: .voiceSuggestion).first { !hasAnswered($0) }
     }
 
     /// The first few sentences of the book, to hear a voice in the book's own words.
@@ -106,25 +162,52 @@ enum VoiceSuggestions {
 @MainActor
 @Observable
 final class VoicePreviewPlayer {
+    /// A sound that is playing: how long it lasts, and how to cut it short.
+    struct Sound {
+        var duration: TimeInterval
+        var stop: @MainActor () -> Void
+    }
+    typealias Synthesize = @Sendable (_ text: String, _ voice: String) async throws -> Data
+    typealias Play = @MainActor (_ wav: Data) throws -> Sound
+
     private(set) var playing: String?
     private(set) var failure: String?
-    @ObservationIgnored private var player: AVAudioPlayer?
+    @ObservationIgnored private var sound: Sound?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private let synthesize: Synthesize
+    @ObservationIgnored private let play: Play
 
+    /// The seams are for tests (M4.4): a fake voice server and a fake speaker.
+    init(synthesize: @escaping Synthesize = { text, voice in
+             try await ConfiguredSpeechSynthesizer().synthesize(text: text, voice: voice, speed: nil)
+         },
+         play: @escaping Play = VoicePreviewPlayer.playAloud) {
+        self.synthesize = synthesize
+        self.play = play
+    }
+
+    static func playAloud(_ wav: Data) throws -> Sound {
+        let player = try AVAudioPlayer(data: wav)
+        player.play()
+        return Sound(duration: player.duration, stop: { player.stop() })
+    }
+
+    /// Hear a voice; pressed again while it plays, stop it. Starting another voice stops the
+    /// one playing, so only one is ever heard.
     func toggle(_ voice: String, text: String) {
         if playing == voice { stop(); return }
         stop()
         playing = voice
         failure = nil
+        let synthesize = synthesize
         task = Task {
             do {
-                let wav = try await ConfiguredSpeechSynthesizer().synthesize(text: text, voice: voice, speed: nil)
+                let wav = try await synthesize(text, voice)
                 guard !Task.isCancelled, playing == voice else { return }
-                let player = try AVAudioPlayer(data: wav)
-                self.player = player
-                player.play()
-                try? await Task.sleep(for: .seconds(player.duration + 0.2))
-                if playing == voice { playing = nil }
+                let sound = try play(wav)
+                self.sound = sound
+                try? await Task.sleep(for: .seconds(sound.duration + 0.2))
+                if !Task.isCancelled, playing == voice { playing = nil }
             } catch {
                 if playing == voice {
                     playing = nil
@@ -137,8 +220,8 @@ final class VoicePreviewPlayer {
     func stop() {
         task?.cancel()
         task = nil
-        player?.stop()
-        player = nil
+        sound?.stop()
+        sound = nil
         playing = nil
     }
 }
