@@ -410,6 +410,7 @@ struct GenreSongsView: View {
             songs = await model.musicLibrary.songsByGenre(genre.name)
             loading = false
         }
+        .songSharePresenter(model: model)
     }
 
     private var source: QueueSource { .init(label: genre.name, kind: .search, id: genre.name) }

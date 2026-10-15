@@ -239,6 +239,54 @@ final class StreamingUploadTests: XCTestCase {
         }
     }
 
+    func testHeaderFirstUploadsReserveTheirWholeLengthUntilCancellation() throws {
+        let first = StreamingUpload(stagingDirectory: dir, maximumBodyBytes: 1000,
+                                    maximumStagingBytes: 1000)
+        let head = Data("PUT /v1/files/abc HTTP/1.1\r\nContent-Length: 600\r\n\r\n".utf8)
+        XCTAssertEqual(first.consume(head), .needMore)
+        let firstURL = try XCTUnwrap(first.stagingURL)
+        XCTAssertEqual(try Data(contentsOf: firstURL).count, 0)
+        let refused = StreamingUpload(stagingDirectory: dir, maximumBodyBytes: 1000,
+                                      maximumStagingBytes: 1000)
+        guard case let .rejected(status, _) = refused.consume(head) else {
+            return XCTFail("empty in-flight files overbooked the declared ceiling")
+        }
+        XCTAssertEqual(status, "503 Service Unavailable")
+        // Completing the body does not release its reservation while a handler still owns it.
+        guard case .complete = first.consume(Data(repeating: 0x41, count: 600)) else {
+            return XCTFail("the admitted body failed to complete")
+        }
+        let whileComplete = StreamingUpload(stagingDirectory: dir, maximumBodyBytes: 1000,
+                                            maximumStagingBytes: 1000)
+        guard case .rejected = whileComplete.consume(head) else {
+            return XCTFail("a completed file waiting for its handler lost admission coverage")
+        }
+        first.cancel()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: firstURL.path))
+        let afterCancel = StreamingUpload(stagingDirectory: dir, maximumBodyBytes: 1000,
+                                         maximumStagingBytes: 1000)
+        XCTAssertEqual(afterCancel.consume(head), .needMore)
+        afterCancel.cancel()
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path).count, 0)
+    }
+
+    func testDirectoryAliasesCannotOverbookAnEmptyReservedUpload() throws {
+        let first = StreamingUpload(stagingDirectory: dir, maximumBodyBytes: 1000,
+                                    maximumStagingBytes: 1000)
+        let head = Data("PUT /v1/files/abc HTTP/1.1\r\nContent-Length: 600\r\n\r\n".utf8)
+        XCTAssertEqual(first.consume(head), .needMore)
+        let alias = dir.appendingPathExtension("alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: dir)
+        defer { try? FileManager.default.removeItem(at: alias) }
+        let second = StreamingUpload(stagingDirectory: alias, maximumBodyBytes: 1000,
+                                     maximumStagingBytes: 1000)
+        guard case let .rejected(status, _) = second.consume(head) else {
+            return XCTFail("an alias bypassed the same directory's reservation")
+        }
+        XCTAssertEqual(status, "503 Service Unavailable")
+        first.cancel()
+    }
+
     /// A kill or a container stop mid-upload leaves a staged file nothing else can see:
     /// `FileStore.prune` filters on `.json` in the parent directory, so these were for ever.
     func testTheStartupSweepRemovesAbandonedStagingFilesAndNothingElse() throws {

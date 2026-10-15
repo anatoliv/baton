@@ -1,4 +1,5 @@
 import Foundation
+import BatonDocuments
 
 /// Turns text scraped off the screen into text worth listening to.
 ///
@@ -39,49 +40,17 @@ enum SpeakableText {
 
     // MARK: - Redaction
 
-    /// Credential shapes, replaced with a spoken placeholder rather than their value.
-    ///
-    /// Deliberately narrow: these are *known credential shapes*, not "anything that looks
-    /// random". A forty-character git SHA is not a secret, and turning it into "a redacted
-    /// token" would be both wrong and alarming — the normalizer gives it a spoken shorthand
-    /// instead. Over-redaction is a real failure mode here, not a safe default.
-    private static let secretPatterns: [(pattern: String, replacement: String)] = [
-        // A private key block, from header to footer, however long.
-        (#"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"#, "a redacted private key"),
-        // OpenAI and friends.
-        (#"\bsk-[A-Za-z0-9_-]{16,}"#, "a redacted token"),
-        // GitHub personal access / OAuth / server / user-to-server / refresh tokens.
-        (#"\bgh[pousr]_[A-Za-z0-9]{16,}"#, "a redacted token"),
-        // Sentry auth tokens, the estate's own (see the global notes on the release token).
-        (#"\bsntry[su]_[A-Za-z0-9_\-\.=]{16,}"#, "a redacted token"),
-        // Slack.
-        (#"\bxox[baprs]-[A-Za-z0-9-]{10,}"#, "a redacted token"),
-        // AWS access key ids.
-        (#"\bAKIA[0-9A-Z]{16}\b"#, "a redacted key"),
-        // Google API keys. Length is deliberately a floor rather than the documented exact 35:
-        // the `AIza` prefix is distinctive enough that a near-miss length is far likelier to be
-        // a real key than a false positive, and under-redacting is the dangerous direction.
-        (#"\bAIza[0-9A-Za-z_-]{30,}"#, "a redacted key"),
-        // JSON Web Tokens.
-        (#"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"#, "a redacted token"),
-        // Anything handed over as a bearer credential.
-        (#"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]{12,}"#, "bearer, a redacted token"),
-        // key=value and key: value assignments whose *name* says it is a secret.
-        (#"(?i)\b(api[-_]?key|secret|password|passwd|token|auth)\b\s*[:=]\s*\S+"#, "$1, a redacted value"),
-    ]
-
     /// Replace every known credential shape with a spoken placeholder. Idempotent: the
-    /// placeholders themselves match nothing here.
+    /// placeholders themselves match nothing.
+    ///
+    /// The patterns live in one place, `BatonDocuments.SecretRedactor`, so a key read aloud off
+    /// the screen and a key in an imported document are caught by the same list on the Mac, the
+    /// iPhone and the gateway. Deliberately narrow: known credential shapes, not "anything that
+    /// looks random". A forty-character git SHA is not a secret, and turning it into "a redacted
+    /// token" would be both wrong and alarming; the normalizer gives it a spoken shorthand
+    /// instead. Over-redaction is a real failure mode here, not a safe default.
     static func redact(_ text: String) -> String {
-        var out = text
-        for (pattern, replacement) in secretPatterns {
-            out = out.replacingOccurrences(
-                of: pattern,
-                with: replacement,
-                options: [.regularExpression]
-            )
-        }
-        return out
+        SecretRedactor.redact(text)
     }
 
     // MARK: - Normalization

@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import BatonShareKit
 import BatonSubsonicKit
 
 private let batonMCPLog = Logger(subsystem: "io.tonebox.baton", category: "MCPTools")
@@ -18,7 +19,13 @@ struct BatonMCPToolError: Error {
 enum BatonMCPToolCatalog {
     // MARK: - Definitions (tools/list)
 
-    static func definitions() -> [[String: Any]] {
+    /// - Parameter includeDocuments: list `import_document`, which is behind
+    ///   `baton.documents.enabled`. Off under test regardless of the flag, so the published
+    ///   surface the snapshot and documentation tests pin does not depend on this Mac's settings;
+    ///   `MCPDocumentToolTests` pins that tool on its own.
+    static func definitions(
+        includeDocuments: Bool = !BatonEnvironment.current.isTesting && DocumentLibrary.isEnabled()
+    ) -> [[String: Any]] {
         annotate([
             tool(
                 "music_search",
@@ -114,6 +121,18 @@ enum BatonMCPToolCatalog {
                 properties: [
                     "query": ["type": "string", "description": "Song to like. Searches and uses the top match. Omit to like the current track."],
                     "unlike": ["type": "boolean", "description": "Set true to remove the like instead of adding it."],
+                ],
+                required: []
+            ),
+            tool(
+                "music_share",
+                "Create a link a friend outside the home network can open to play one song in a browser, with no app and no account. The song is encrypted on this Mac and uploaded to Baton's share service; the key is in the link. Returns the link to send. Without `query`, shares the currently-playing track. Refuses until the owner has shared a song once from Baton itself, so they have seen where a shared song goes. \(ShareToolHandoff.agentInstructions)",
+                properties: [
+                    "query": ["type": "string", "description": "Song to share. Uses the top search match. Omit for the current track."],
+                    "note": ["type": "string", "description": "A short note shown with the song, up to 280 characters."],
+                    "expires_days": ["type": "integer", "description": "How long the link lasts: 1, 7 (default) or 30 days."],
+                    "hide_details": ["type": "boolean", "description": "Set true to encrypt the title, artist and artwork too, so link previews only say a song was sent."],
+                    "recipient": ["type": "string", "description": ShareToolHandoff.recipientDescription],
                 ],
                 required: []
             ),
@@ -344,7 +363,8 @@ enum BatonMCPToolCatalog {
             ),
             BatonMCPSpeakTools.definition(),
             BatonMCPReadTools.definition(),
-        ] + BatonMCPTranscriptTools.definitions())
+        ] + (includeDocuments ? [BatonMCPDocumentTools.definition()] : [])
+          + BatonMCPTranscriptTools.definitions() + BatonInterpreterTools.definitions())
     }
 
     private static func tool(
@@ -375,7 +395,7 @@ enum BatonMCPToolCatalog {
         "music_recent_events",
         // Reads a transcript already on disk. `music_summarize_track` is NOT here: with
         // create:true it spends model calls and writes a summary to the store.
-        "music_transcript",
+        "music_transcript", "interpretation_devices", "interpretation_status",
     ]
 
     /// All music tools reach the Navidrome server; the audio-focus tools are local.
@@ -392,11 +412,14 @@ enum BatonMCPToolCatalog {
         "music_start_radio", "music_sleep_timer", "music_set_eq", "music_set_crossfade",
         "music_list_genres", "music_browse_albums", "music_similar_songs", "music_liked",
         "music_random", "music_artist_info",
-        // The only tool here that reaches past the owner's own server.
-        "music_discover_external",
+        // These two reach past the owner's own server: public catalogues, and Baton's share
+        // service (an encrypted upload, specs/song-sharing.md).
+        "music_discover_external", "music_share",
         "speak_summary",
         // Reaches the TTS host to speak, and the summarizing model too when `gist` is set.
         "read_aloud",
+        // Reaches the TTS host for every chapter, and the web when handed a `url`.
+        "import_document",
         // Both reach the self-hosted recognizer / summarizing model on the LAN.
         "music_transcript", "music_summarize_track",
     ]
@@ -446,6 +469,7 @@ enum BatonMCPToolCatalog {
             case "music_play_playlist": text = try await musicPlayPlaylist(arguments, music)
             case "music_like": text = try await musicLike(arguments, music)
             case "music_rate": text = try await musicRate(arguments, music)
+            case "music_share": text = try await musicShare(arguments, music)
             case "music_create_playlist": text = try await musicCreatePlaylist(arguments, music)
             case "music_add_to_playlist": text = try await musicAddToPlaylist(arguments, music)
             case "music_delete_playlist": text = try await musicDeletePlaylist(arguments, music)
@@ -468,8 +492,24 @@ enum BatonMCPToolCatalog {
             case "music_liked": text = try await musicLiked(arguments)
             case "music_random": text = try await musicRandom(arguments)
             case "music_artist_info": text = try await musicArtistInfo(arguments)
-            case "speak_summary": text = try await BatonMCPSpeakTools.run(arguments, music, sessionID: sessionID)
-            case "read_aloud": text = try BatonMCPReadTools.run(arguments)
+            case "interpretation_devices": text = try BatonInterpreterTools.devices()
+            case "interpretation_open": text = try await music.interpretation.open(arguments, music: music, focus: focus)
+            case "interpretation_status": text = try music.interpretation.status()
+            case "interpretation_cancel": text = try music.interpretation.cancel(arguments)
+            case "interpretation_configure": text = try music.interpretation.configure(arguments)
+            case "interpretation_close": text = try music.interpretation.close(arguments)
+            case "speak_summary":
+                guard !music.interpretation.isActive else { throw BatonMCPToolError(message: "Meeting interpretation is active. Close it before playing an agent announcement.") }
+                text = try await BatonMCPSpeakTools.run(arguments, music, sessionID: sessionID)
+            case "read_aloud":
+                guard !music.interpretation.isActive else { throw BatonMCPToolError(message: "Meeting interpretation is active. Close it before reading aloud.") }
+                text = try BatonMCPReadTools.run(arguments)
+            case "import_document":
+                guard DocumentLibrary.isEnabled() else {
+                    throw BatonMCPToolError(message: "Document import is not switched on in this Baton.")
+                }
+                music.documents.start()
+                text = try await BatonMCPDocumentTools.run(arguments, library: music.documents)
             case "music_transcript": text = try BatonMCPTranscriptTools.transcript(arguments, music)
             case "music_summarize_track":
                 // Read from the same store the remote-control service does, rather than
@@ -1037,6 +1077,28 @@ enum BatonMCPToolCatalog {
             throw BatonMCPToolError(message: "Nothing is playing. Provide a 'query' to pick a song.")
         }
         return current
+    }
+
+    /// `music_share`: the composer's flow without the sheet (docs/plan-song-sharing.md). The one
+    /// guard that matters is consent: an agent must never be the first thing to send a song off
+    /// this Mac, so this refuses until the owner has shared once by hand and seen the disclosure.
+    private static func musicShare(_ args: [String: Any], _ music: MusicModel) async throws -> String {
+        guard SongSharing.hasSharedBefore else {
+            throw BatonMCPToolError(message: SongSharing.consentRequiredMessage)
+        }
+        let options = try SongSharing.toolOptions(args,
+            from: BatonStorage.defaults.string(forKey: SongSharing.fromKey) ?? "")
+        let song = try await resolveMusicSong(args, music)
+        do {
+            let record = try await SongSharing.shared.share(
+                song, options: options,
+                coverArtURL: song.coverArtID.flatMap { music.musicLibrary.coverArtURL(id: $0, size: 600) })
+            return jsonText(ShareToolHandoff.result(
+                link: record.link, title: record.title, artist: record.artist,
+                expiresAt: record.expiresAt, recipient: try ShareToolHandoff.recipient(from: args)))
+        } catch {
+            throw BatonMCPToolError(message: SongShareError(error).errorDescription ?? "Sharing didn't work.")
+        }
     }
 
     private static func musicLike(_ args: [String: Any], _ music: MusicModel) async throws -> String {

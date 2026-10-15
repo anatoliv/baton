@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" content="#171310">
+    <title>{{DOC_TITLE}}</title>
+    {{OG_TAGS}}
+    <link rel="icon" href="/s/_/icon.svg?v={{V}}" type="image/svg+xml">
+    <link rel="stylesheet" href="/s/_/player.css?v={{V}}">
+    <script type="module" src="/s/_/player.mjs?v={{V}}"></script>
+</head>
+<body data-state="{{STATE}}">
+    <script type="application/json" id="share-data">{{DATA}}</script>
+    <div class="ambient" aria-hidden="true"></div>
+    <main class="card" aria-live="polite">
+        <div class="art-wrap">
+            <div class="art-glow" aria-hidden="true"></div>
+            <img class="art" id="art" alt="" hidden>
+            <div class="art-placeholder" id="art-placeholder" aria-hidden="true">
+                <svg viewBox="0 0 1024 1024"><path d="M150 560Q330 430 512 560T874 560" stroke="currentColor" stroke-width="64" stroke-linecap="round" fill="none"/><path d="M150 792Q330 922 512 792T874 792" stroke="currentColor" stroke-width="64" stroke-linecap="round" fill="none" opacity=".6"/></svg>
+            </div>
+        </div>
+
+        <p class="eyebrow" id="eyebrow"></p>
+        <h1 class="title" id="title">{{HEADLINE}}</h1>
+        <p class="byline" id="byline">{{SUBLINE}}</p>
+        <blockquote class="note" id="note" hidden><p id="note-text"></p><cite id="note-from"></cite></blockquote>
+
+        <section class="player" id="player" hidden aria-label="Player">
+            <button class="play" id="play" type="button" aria-label="Play">
+                <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"/></svg>
+                <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>
+                <span class="ring" aria-hidden="true"></span>
+            </button>
+            <div class="scrub">
+                <canvas class="wave" id="wave" aria-hidden="true"></canvas>
+                <input class="seek" id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek" disabled>
+                <div class="times"><span id="elapsed">0:00</span><span id="remaining"></span></div>
+            </div>
+        </section>
+        <p class="status" id="status" role="status"></p>
+
+        <section class="after" id="after" hidden aria-label="Send something back">
+            <p class="after-title" id="after-title">Let them know you listened</p>
+            <div class="reactions" id="reactions" role="group" aria-label="Reactions"></div>
+            <div class="reply" id="reply" hidden>
+                <input id="reply-name" type="text" maxlength="40" autocomplete="given-name" placeholder="Your name (optional)" aria-label="Your name">
+                <input id="reply-text" type="text" maxlength="280" placeholder="Say something (optional)" aria-label="Reply">
+                <button class="send" id="send" type="button">Send</button>
+            </div>
+            <p class="sent" id="sent" hidden></p>
+        </section>
+    </main>
+
+    <footer class="foot">
+        <a class="brand" id="get-baton" href="{{ABOUT_URL}}" rel="noopener">
+            <img src="/s/_/icon.svg?v={{V}}" alt="" width="22" height="22">
+            <span><strong>Baton</strong> <span id="get-baton-text">plays the music you own, from your own server.</span></span>
+        </a>
+        <nav aria-label="Sharing policies">
+            <a class="brand" href="/terms.html">Terms</a>
+            <a class="brand" href="/privacy.html#sharing">Privacy</a>
+        </nav>
+    </footer>
+    <noscript><p class="noscript">This player needs JavaScript to unlock the song. The music is encrypted, and only your browser holds the key.</p></noscript>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{"status":"pulling manifest"}
+{"status":"pulling 8eeb52dfb3bb","digest":"sha256:8eeb52dfb3bb9aefdf9d1ef24b3bdbcfbe82238798c4b918278320b6fcef18fe","total":3400000000}
+{"status":"pulling 8eeb52dfb3bb","digest":"sha256:8eeb52dfb3bb9aefdf9d1ef24b3bdbcfbe82238798c4b918278320b6fcef18fe","total":3400000000,"completed":850000000}
+{"status":"pulling 8eeb52dfb3bb","digest":"sha256:8eeb52dfb3bb9aefdf9d1ef24b3bdbcfbe82238798c4b918278320b6fcef18fe","total":3400000000,"completed":1700000000}
+{"status":"pulling 73b313b5552d","digest":"sha256:73b313b5552dd3e4c5e1b6f2bc2a2f1f7c5f8d4d2a1c3b5e7f9a1b3c5d7e9f1a","total":1400}
+{"status":"pulling 8eeb52dfb3bb","digest":"sha256:8eeb52dfb3bb9aefdf9d1ef24b3bdbcfbe82238798c4b918278320b6fcef18fe","total":3400000000,"completed":3400000000}
+{"status":"pulling 73b313b5552d","digest":"sha256:73b313b5552dd3e4c5e1b6f2bc2a2f1f7c5f8d4d2a1c3b5e7f9a1b3c5d7e9f1a","total":1400,"completed":1400}
+{"status":"verifying sha256 digest"}
+{"status":"writing manifest"}
+{"status":"success"}

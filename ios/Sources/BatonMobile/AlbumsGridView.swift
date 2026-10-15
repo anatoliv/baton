@@ -453,6 +453,7 @@ struct AlbumDetailView: View {
             }
         }
         .task { songs = await model.musicLibrary.albumSongs(id: album.id) }
+        .songSharePresenter(model: model)
     }
 
     /// "4 tracks · 4 min · 2026 · Electronic" — whichever of those the server knows.

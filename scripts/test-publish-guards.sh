@@ -783,5 +783,13 @@ else
   ok "TBX-5483 unconfigured releases preserve the explicit manual-upload flow"
 fi
 
+# Report JSON optionals and direct NPM routing are part of publication acceptance.
+# Keep these offline regressions on the ordinary gate via this existing script.
+if python3 "$PWD/scripts/test-song-sharing-scripts.py"; then
+  ok "TBX-8675/TBX-8676 song-sharing report and origin-routing regressions"
+else
+  bad "TBX-8675/TBX-8676 song-sharing script regressions"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -47,6 +47,8 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         "music_get_queue", "music_reorder_queue", "music_remove_from_queue", "music_play_next",
         "music_start_radio", "music_sleep_timer", "music_set_eq", "music_set_crossfade",
         "audio_suspend", "audio_resume", "speak_summary",
+        "interpretation_devices", "interpretation_open", "interpretation_status",
+        "interpretation_configure", "interpretation_cancel", "interpretation_close",
         // Speaks a whole document an agent already has, rather than a one-line alert.
         "read_aloud",
         // Library discovery. Search answers "is this in here"; these answer
@@ -59,6 +61,9 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         // Spoken content: what was said, and where. Both windowed — an hour of speech
         // would otherwise spend most of an agent's context on one episode.
         "music_transcript", "music_summarize_track",
+        // A link a friend outside the LAN can play (docs/plan-song-sharing.md). Refuses until
+        // the owner has shared once by hand.
+        "music_share",
     ]
 
     func testPublishedToolNamesExactlyMatchTheSnapshot() {
@@ -150,6 +155,19 @@ final class MCPSchemaSnapshotTests: XCTestCase {
                 ann?["readOnlyHint"] as? Bool, true, "\(name) mutates and must not claim read-only"
             )
         }
+    }
+
+    /// Sharing uploads to a service that is not the owner's server, so a client must be told it
+    /// reaches the outside world, and it changes something, so it must not claim read-only.
+    func testShareIsOpenWorldAndNotReadOnly() {
+        let ann = catalog()["music_share"]?["annotations"] as? [String: Any]
+        XCTAssertEqual(ann?["openWorldHint"] as? Bool, true)
+        XCTAssertEqual(ann?["readOnlyHint"] as? Bool, false)
+        XCTAssertEqual(required(catalog()["music_share"]!), [], "the current track is the default")
+        let schema = catalog()["music_share"]?["inputSchema"] as? [String: Any]
+        let properties = schema?["properties"] as? [String: Any]
+        let recipient = properties?["recipient"] as? [String: Any]
+        XCTAssertEqual(recipient?["type"] as? String, "string")
     }
 
     func testDeletePlaylistIsTheOnlyDestructiveTool() {

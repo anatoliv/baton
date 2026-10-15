@@ -355,6 +355,7 @@ struct FullPlayerView: View {
                 breatheScale = 1.0
             }
         }
+        .songSharePresenter(model: model)
     }
 
     /// The palette is extracted at the canonical size so this sheet, the Mac window
@@ -842,6 +843,7 @@ struct QueueSheet: View {
             }
             .accessibilityIdentifier("QueueSheet")
         }
+        .songSharePresenter(model: model)
     }
 }
 
@@ -944,6 +946,7 @@ struct RelatedSheet: View {
             related = model.radioBans.filtered(found)
             loading = false
         }
+        .songSharePresenter(model: model)
     }
 }
 

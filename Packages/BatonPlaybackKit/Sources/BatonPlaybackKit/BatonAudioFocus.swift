@@ -29,7 +29,7 @@ public final class BatonAudioFocusRegistry {
         /// auto-expire the handle when that connection drops.
         let connectionID: String?
         /// When the handle was placed — drives the time-bound auto-expiry.
-        let createdAt: Date
+        var createdAt: Date
         var resolved = false // set once resume has been attempted (idempotency)
     }
 
@@ -92,6 +92,16 @@ public final class BatonAudioFocusRegistry {
     /// Back-compat convenience: pause-mode suspend with no connection association.
     public func suspend(owner: String, on music: StreamingPlaybackController) -> [String: Any] {
         suspend(owner: owner, mode: .pause, connectionID: nil, on: music)
+    }
+
+    /// Extend a live owner's lease without changing its playback token or generation.
+    /// Renewal never takes focus back from a user or a newer owner.
+    @discardableResult
+    public func renew(handle: String) -> Bool {
+        guard var entry = entries[handle], !entry.resolved else { return false }
+        entry.createdAt = now()
+        entries[handle] = entry
+        return true
     }
 
     // MARK: - Resume

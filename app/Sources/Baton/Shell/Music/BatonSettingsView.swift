@@ -530,6 +530,8 @@ private struct BatonAboutPane: View {
 
     /// Opt-in remote crash & error reporting. Off by default. See CrashReporting.
     @AppStorage(CrashReporting.enabledKey) private var crashUploadEnabled = false
+    /// Whether the reporter actually came up, re-read after each toggle.
+    @State private var crashStatus = CrashReporting.currentStatus
 
     private var version: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -621,12 +623,17 @@ private struct BatonAboutPane: View {
                 }
             }
 
+            Section("Shared Links") {
+                BatonSharedLinksControls()
+            }
+
             Section("Back up & restore") {
                 BatonSettingsBackupControls()
             }
 
             Section("Diagnostics") {
                 Toggle("Send crash & error reports", isOn: $crashUploadEnabled)
+                    .accessibilityIdentifier("crash-reporting-toggle")
                     .disabled(!CrashReporting.isConfigured)
                     .onChange(of: crashUploadEnabled) { _, newValue in
                         CrashReporting.apply(enabled: newValue)
@@ -635,6 +642,11 @@ private struct BatonAboutPane: View {
                     ? "Off by default. When on, Baton sends crash and error reports to its developer to help fix bugs. It never sends your music, library, server address, or account, and no IP or identifiers."
                     : "This build has no reporting endpoint configured, so nothing can be sent.")
                     .font(.callout).foregroundStyle(.secondary)
+                if crashStatus == .unavailable {
+                    Text(CrashReporting.unavailableMessage)
+                        .accessibilityIdentifier("crash-reporting-unavailable")
+                        .font(.callout).foregroundStyle(Color.warningTint)
+                }
 
                 Divider()
                 LabeledContent("Logs") {
@@ -650,6 +662,9 @@ private struct BatonAboutPane: View {
             }
         }
         .formStyle(.grouped)
+        .task(id: crashUploadEnabled) {
+            crashStatus = await CrashReporting.settledStatus()
+        }
     }
 }
 
@@ -807,6 +822,42 @@ private struct BatonSettingsBackupControls: View {
 
 /// A `FileDocument` so a settings backup saves via the system Save panel. The bytes are the JSON
 /// envelope from `SettingsTransfer` — plain, or AES-GCM-encrypted when it carries secrets.
+/// "Shared Links": the songs this Mac has shared, who listened, and revoke or extend
+/// (docs/plan-song-sharing.md). The list itself is the same view the phone shows.
+struct BatonSharedLinksControls: View {
+    @State private var showsList = false
+
+    var body: some View {
+        let records = SongSharing.shared.ledger.records
+        let live = records.filter { $0.isLive() }.count
+        Group {
+            LabeledContent("Links you've shared") {
+                Button("Show Shared Links…") { showsList = true }
+                    .accessibilityIdentifier("shared-links-show")
+            }
+            Text(records.isEmpty
+                ? "None yet. Choose Share… on any song to send a link a friend can play in a browser, with no app and no account."
+                : "\(live) live, \(records.count) in all. Each one is encrypted, ends on its own, and can be revoked from the list.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+        .sheet(isPresented: $showsList) {
+            // No NavigationStack: nothing in the list pushes, and this directory keeps to the
+            // one MusicView owns (AmbientNavigationTests). A plain footer, as other Mac sheets do.
+            VStack(spacing: 0) {
+                SharedLinksView()
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("Done") { showsList = false }
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding(12)
+            }
+            .frame(minWidth: 520, minHeight: 460)
+        }
+    }
+}
+
 struct SettingsBackupDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json] }
     var data: Data

@@ -266,6 +266,7 @@ struct LikedView: View {
             emptyMessage: "Tap the heart on a track, album or artist and it turns up here.",
             emptySymbol: "heart"
         )
+        .songSharePresenter(model: model)
     }
 
     @ViewBuilder
@@ -816,6 +817,7 @@ struct PlaylistDetailView: View {
             }
         }
         .task { songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? [] }
+        .songSharePresenter(model: model)
     }
 
     private var source: QueueSource { .init(label: playlist.name, kind: .playlist, id: playlist.id) }
@@ -937,6 +939,7 @@ struct DownloadsView: View {
             emptyMessage: "Download an album or a song and it plays without a connection.",
             emptySymbol: "arrow.down.circle"
         )
+        .songSharePresenter(model: model)
     }
 
     /// How many, and how much of the phone they're using. A count alone doesn't answer the

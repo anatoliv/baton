@@ -68,14 +68,53 @@ public final class StreamingUpload: @unchecked Sendable {
     /// The per-file cap is per *connection*, so it bounds one upload and nothing else: enough
     /// simultaneous uploads, or enough abandoned ones, fill the disk a file at a time while every
     /// individual request stays inside the rules. Four full-size uploads at once is a generous
-    /// ceiling for a household gateway and a cheap one to check — a directory listing, once per
-    /// upload, before a byte is written.
+    /// ceiling for a household gateway. Reserve the declared size before creating a file: counting
+    /// only bytes already written lets concurrent header-first uploads overbook the same space.
+    /// The reservation covers this process's connections; separate processes must not share a
+    /// staging directory.
     public static let defaultMaximumStagingBytes = 4 * FileStore.defaultMaximumFileBytes
 
     /// The prefix every staged file carries, so a sweep can tell its own litter from anything else
     /// that might one day share the directory.
     static let stagingPrefix = "upload-"
 
+    /// Admission is atomic across sinks using the same directory, without a waiting queue.
+    /// Unowned files (including leftovers from a stopped process) still count against the ceiling.
+    private final class StagingReservations: @unchecked Sendable {
+        private let lock = NSLock()
+        private var active: [String: [String: Int]] = [:]
+
+        func take(directory: URL, bytes: Int, ceiling: Int) -> URL? {
+            lock.lock(); defer { lock.unlock() }
+            guard bytes >= 0, ceiling >= bytes else { return nil }
+            let path = directory.path
+            let reservations = active[path] ?? [:]
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
+            var available = ceiling - bytes
+            for reserved in reservations.values {
+                guard reserved <= available else { return nil }
+                available -= reserved
+            }
+            for name in names where name.hasPrefix(StreamingUpload.stagingPrefix) {
+                let file = directory.appendingPathComponent(name)
+                if reservations[file.path] != nil { continue }
+                guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+                      let size = attributes[.size] as? Int, size >= 0, size <= available else { return nil }
+                available -= size
+            }
+            let url = directory.appendingPathComponent("upload-\(UUID().uuidString)")
+            active[path, default: [:]][url.path] = bytes
+            return url
+        }
+
+        func release(directory: URL, file: URL) {
+            lock.lock(); defer { lock.unlock() }
+            active[directory.path]?.removeValue(forKey: file.path)
+            if active[directory.path]?.isEmpty == true { active.removeValue(forKey: directory.path) }
+        }
+    }
+
+    private static let reservations = StagingReservations()
     private let stagingDirectory: URL
     private let maximumBodyBytes: Int
     private let maximumStagingBytes: Int
@@ -87,11 +126,13 @@ public final class StreamingUpload: @unchecked Sendable {
 
     public init(stagingDirectory: URL, maximumBodyBytes: Int,
                 maximumStagingBytes: Int = StreamingUpload.defaultMaximumStagingBytes) {
-        self.stagingDirectory = stagingDirectory
+        self.stagingDirectory = stagingDirectory.resolvingSymlinksInPath().standardizedFileURL
         self.maximumBodyBytes = maximumBodyBytes
         self.maximumStagingBytes = maximumStagingBytes
         try? FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
     }
+
+    deinit { cancel() }
 
     /// Where the body is being written, so a caller that gives up can clean up after itself.
     public var stagingURL: URL? { stagedURL }
@@ -152,11 +193,14 @@ public final class StreamingUpload: @unchecked Sendable {
             // Checked against what is already in flight, from the declared length, before a byte
             // is written. Refusing after the fact would make the ceiling a way to fill the disk
             // rather than a guard against it — the same argument as the per-file cap above.
-            guard Self.stagedBytes(in: stagingDirectory) + parsed.contentLength <= maximumStagingBytes else {
+            guard let reserved = Self.reservations.take(directory: stagingDirectory,
+                                                       bytes: parsed.contentLength,
+                                                       ceiling: maximumStagingBytes) else {
                 request = parsed
                 return reject("503 Service Unavailable", "too many uploads in flight")
             }
             request = parsed
+            stagedURL = reserved
             guard open() else { return reject("500 Internal Server Error", "could not stage upload") }
 
             // Whatever of the body arrived alongside the headers.
@@ -171,7 +215,10 @@ public final class StreamingUpload: @unchecked Sendable {
     public func cancel() {
         try? handle?.close()
         handle = nil
-        if let stagedURL { try? FileManager.default.removeItem(at: stagedURL) }
+        if let stagedURL {
+            try? FileManager.default.removeItem(at: stagedURL)
+            Self.reservations.release(directory: stagingDirectory, file: stagedURL)
+        }
         stagedURL = nil
     }
 
@@ -201,7 +248,7 @@ public final class StreamingUpload: @unchecked Sendable {
     }
 
     private func open() -> Bool {
-        let url = stagingDirectory.appendingPathComponent("upload-\(UUID().uuidString)")
+        guard let url = stagedURL else { return false }
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else { return false }
         guard let handle = try? FileHandle(forWritingTo: url) else { return false }
         self.stagedURL = url

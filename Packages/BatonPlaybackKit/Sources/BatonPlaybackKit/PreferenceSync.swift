@@ -151,7 +151,9 @@ public final class PreferenceSync {
                 ClippingLedger.decode(value as? Data) ?? .init()
             }
             let merged = ClippingLedger.merged(decode(local), decode(remote))
-            guard !merged.records.isEmpty else { return nil }
+            // Books count too: a ledger that holds only a book's position (M3.3) is something
+            // to say, and dropping it here meant the position never reached the other device.
+            guard !merged.records.isEmpty || !merged.documents.isEmpty else { return nil }
             return merged.encoded()
         }
         // The friend's memory and corrections merge per *entry*, keyed on the text both
@@ -336,6 +338,21 @@ public final class PreferenceSync {
     }
 
     static let timestampsKey = "baton.sync.localTimestamps"
+
+    /// The synced keys this device still held a value for when its last sync finished.
+    ///
+    /// A deletion is announced only for a key in this set. The stamp map alone cannot tell a
+    /// setting the user cleared from one a fresh install wrote and removed at startup, and the
+    /// second kind travelled on 2026-10-14: a simulator phone that had never synced announced
+    /// seven of the owner's settings as deleted, and the Mac cleared them. A key this
+    /// device did not hold the last time it looked at the shared document is one it has no
+    /// deletion to report; if the user really cleared it, it simply stays clear here.
+    private var keysHeldAtLastSync: Set<String> {
+        get { Set(defaults.stringArray(forKey: Self.heldKeysKey) ?? []) }
+        set { defaults.set(newValue.sorted(), forKey: Self.heldKeysKey) }
+    }
+
+    static let heldKeysKey = "baton.sync.keysHeldAtLastSync"
 
     /// `defaults` defaults to `BatonStorage.defaults`, which is `.standard` in every normal run
     /// and the throwaway suite in a probe launch. It is the same expression
@@ -533,6 +550,7 @@ public final class PreferenceSync {
     private func reconcile(gatewayURL: URL, token: String) async throws {
         var remote = try await fetch(gatewayURL: gatewayURL, token: token)
         let stamps = localTimestamps
+        let held = keysHeldAtLastSync
 
         // Every timestamp in the shared document is in the gateway's clock, and every stamp in
         // `localTimestamps` is in this device's. These two convert between them, and when the
@@ -550,13 +568,22 @@ public final class PreferenceSync {
                                    now: sharedNow) else { continue }
             // A tombstone says the setting was cleared, which is a thing to do rather than a
             // value to write. Without this the removal never travelled at all.
+            // Adopting is not editing. The change observer stamps whatever differs from its
+            // snapshot, so the snapshot takes the adopted value first; otherwise every key this
+            // device pulled was re-stamped as its own edit and pushed back under its name on
+            // the next sync, which is how one fresh simulator rewrote the whole shared document
+            //. Before the write, because the notification can arrive synchronously.
             if entry.isTombstone {
-                if defaults.object(forKey: key) != nil { defaults.removeObject(forKey: key) }
+                if defaults.object(forKey: key) != nil {
+                    snapshot[key] = nil
+                    defaults.removeObject(forKey: key)
+                }
                 continue
             }
             if let value = try? PropertyListSerialization.propertyList(
                 from: entry.value, options: [], format: nil
             ) {
+                snapshot[key] = value
                 defaults.set(value, forKey: key)
             }
         }
@@ -579,6 +606,10 @@ public final class PreferenceSync {
                 // hands the old value straight back. A key with no stamp is simply one this
                 // device never had an opinion about, and saying nothing is right.
                 guard let stamp = stamps[key] else { continue }
+                // And only a key this device held when it last synced: a value written and
+                // removed before the shared document was ever read is startup churn, not a
+                // decision against anything shared (see `keysHeldAtLastSync`).
+                guard held.contains(key) else { continue }
                 // Already recorded as cleared. Rewriting it would move the timestamp forward on
                 // every sync, for a fact that has not changed.
                 guard remote[key]?.isTombstone != true else { continue }
@@ -604,7 +635,10 @@ public final class PreferenceSync {
             }
             guard let merged = Self.mergedValue(key: key, local: localValue, remote: remoteValue)
             else { continue }
-            if !equalValues(merged, localValue) { defaults.set(merged, forKey: key) }
+            if !equalValues(merged, localValue) {
+                snapshot[key] = merged
+                defaults.set(merged, forKey: key)
+            }
             // Only push when the shared copy would actually change. Without this an
             // idempotent merge still rewrites the document on every sync, and two
             // devices ping-pong pushes forever over a list neither of them edited.
@@ -618,6 +652,7 @@ public final class PreferenceSync {
         }
 
         if changed { try await push(remote, gatewayURL: gatewayURL, token: token) }
+        keysHeldAtLastSync = Set(currentValues().keys)
     }
 
     // MARK: - Transport

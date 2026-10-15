@@ -1,3 +1,4 @@
+import BatonDocuments
 import Foundation
 import BatonSubsonicKit
 import BatonSubsonicModels
@@ -530,11 +531,7 @@ public enum RemoteNaturalLanguage {
 
     public static func errorBody(from data: Data) -> String { errorMessage(from: data) }
 
-    private static func errorMessage(from data: Data) -> String {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let error = root["error"] as? [String: Any],
-              let message = error["message"] as? String
-        else { return String(data: data.prefix(200), encoding: .utf8) ?? "" }
-        return message
-    }
+    /// The server's own words for a failure. One rule, in `HTTPModelClient`, which the
+    /// summarizer and the document router read errors with too.
+    private static func errorMessage(from data: Data) -> String { HTTPModelClient.errorMessage(from: data) }
 }

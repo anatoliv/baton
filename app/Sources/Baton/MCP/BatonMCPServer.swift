@@ -17,7 +17,7 @@ private let batonServerLog = Logger(subsystem: "io.tonebox.baton", category: "MC
 /// server→client notifications as an SSE (`text/event-stream`) stream. Multi-client:
 /// every open SSE stream gets track/queue-change notifications.
 ///
-/// Auth is a bearer token (persisted in UserDefaults, generated on first run);
+/// Auth is a bearer token (kept in the Keychain and in the 0600 `mcp.json`, generated on first run);
 /// discovery is an `mcp.json` file in Application Support. The listener binds
 /// loopback-only so it's unreachable off-device.
 @MainActor
@@ -204,6 +204,7 @@ final class BatonMCPServer {
     }
 
     func stop() {
+        music.interpretation.close()
         // A scan still in flight must not publish a port after the stop; `restart` awaits it.
         scanTask?.cancel()
         pollTask?.cancel()

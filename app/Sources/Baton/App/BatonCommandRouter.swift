@@ -22,6 +22,9 @@ final class BatonCommandRouter {
     /// queue's source (album / playlist / artist). `MusicView` resolves it to the matching
     /// section + detail view, then clears it.
     var pendingSourceNavigation: StreamingPlaybackController.QueueSource?
+    /// A file **Import Document…** (⇧⌘O) chose. `MusicClippingsView` presents the import sheet
+    /// for it and clears it (document clippings, M3.4).
+    var pendingDocumentImport: URL?
 }
 
 /// The **Go** menu: jump to any left-rail section (⌘1…⌘8), Find (⌘F → Search + focus),

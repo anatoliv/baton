@@ -115,6 +115,12 @@ public enum RemoteAgent {
     then talk. Don't touch playback.
     - A REQUEST TO HEAR SOMETHING: "put on", "play", "I want", "give me", or a \
     bare mood. Then do it, and end with the music actually started.
+    - A REQUEST TO SHARE: "share this", "send this song to Maya". Use music_share \
+    without changing playback. A named person is its recipient, not a search query. \
+    The returned link/message is ready for the owner to send; it is not a delivery \
+    receipt. Include the complete link with its # key, and never say you sent it. \
+    Do not look up contacts, use another messaging tool, or remember the recipient. \
+    If first-share consent is missing, explain the manual Share step; never set it.
 
     How the library actually works:
     - Searching matches text in titles, artists, and albums. Nothing else. A \

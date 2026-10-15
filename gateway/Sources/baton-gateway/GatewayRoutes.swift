@@ -26,6 +26,7 @@ struct GatewayRoutes {
     let fileStore: FileStore
     let surface: GatewayToolSurface
     let llmConfig: RemoteControlSettings.NaturalLanguageConfig
+    let books: BookRoutes
 
     /// The table, in priority order. `/v1/files` is listed before the `/v1/files/` prefix so
     /// the exact row wins; every other row is an exact path and order does not matter.
@@ -52,7 +53,7 @@ struct GatewayRoutes {
                          handler: { request, _ in await self.deviceResult(request) }),
             Router.Route(methods: ["POST"], pattern: .exact("/v1/agent"),
                          handler: { request, _ in await self.agent(request) }),
-        ])
+        ] + books.routes())
     }
 
     // MARK: - Health
@@ -183,6 +184,9 @@ struct GatewayRoutes {
     /// code, which is worse. What keeps it safe is that the staging file is deleted on every
     /// path out of here, so nothing accumulates.
     func handleUpload(_ request: StreamingUpload.Request, _ staged: URL) async -> Data {
+        if BookRoutes.isBookUpload(request) {
+            return await books.handleUpload(request, staged, token: token)
+        }
         func fail(_ status: String, _ message: String) -> Data {
             try? FileManager.default.removeItem(at: staged)
             return httpErrorResponse(status: status, message: message)

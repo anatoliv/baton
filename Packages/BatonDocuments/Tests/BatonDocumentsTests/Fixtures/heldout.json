@@ -1,0 +1,1736 @@
+{
+ "texts": {
+  "austen": {
+   "file": "pg1342.html",
+   "source": "Pride and Prejudice, Jane Austen (1813), Project Gutenberg #1342, https://www.gutenberg.org/cache/epub/1342/pg1342-images.html",
+   "chapters": [
+    "Chapter I",
+    "Chapter II"
+   ],
+   "cast": [
+    {
+     "name": "Mr. Bennet",
+     "gender": "m",
+     "age": "old",
+     "aliases": [
+      "mr. bennet",
+      "her father",
+      "their father",
+      "his father",
+      "the father"
+     ]
+    },
+    {
+     "name": "Mrs. Bennet",
+     "gender": "f",
+     "age": "old",
+     "aliases": [
+      "mrs. bennet",
+      "his lady",
+      "his wife",
+      "her mother",
+      "their mother",
+      "the mother"
+     ]
+    },
+    {
+     "name": "Elizabeth",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "elizabeth",
+      "lizzy",
+      "eliza"
+     ]
+    },
+    {
+     "name": "Kitty",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "kitty",
+      "catherine"
+     ]
+    },
+    {
+     "name": "Lydia",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "lydia"
+     ]
+    },
+    {
+     "name": "Mary",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "mary"
+     ]
+    }
+   ],
+   "labels": {
+    "c1q1": {
+     "speaker": "Mrs. Bennet",
+     "starts": "My dear Mr. Be"
+    },
+    "c1q2": {
+     "speaker": "Mrs. Bennet",
+     "starts": "have you heard"
+    },
+    "c1q3": {
+     "speaker": "Mrs. Bennet",
+     "starts": "But it is,"
+    },
+    "c1q4": {
+     "speaker": "Mrs. Bennet",
+     "starts": "for Mrs. Long "
+    },
+    "c1q5": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Do not you wan"
+    },
+    "c1q6": {
+     "speaker": "Mr. Bennet",
+     "starts": "You want to te"
+    },
+    "c1q7": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Why, my dear, "
+    },
+    "c1q8": {
+     "speaker": "Mr. Bennet",
+     "starts": "What is his na"
+    },
+    "c1q9": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Bingley."
+    },
+    "c1q10": {
+     "speaker": "Mr. Bennet",
+     "starts": "Is he married "
+    },
+    "c1q11": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Oh, single, my"
+    },
+    "c1q12": {
+     "speaker": "Mr. Bennet",
+     "starts": "How so? how ca"
+    },
+    "c1q13": {
+     "speaker": "Mrs. Bennet",
+     "starts": "My dear Mr. Be"
+    },
+    "c1q14": {
+     "speaker": "Mrs. Bennet",
+     "starts": "how can you be"
+    },
+    "c1q15": {
+     "speaker": "Mr. Bennet",
+     "starts": "Is that his de"
+    },
+    "c1q16": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Design? Nonsen"
+    },
+    "c1q17": {
+     "speaker": "Mr. Bennet",
+     "starts": "I see no occas"
+    },
+    "c1q18": {
+     "speaker": "Mrs. Bennet",
+     "starts": "My dear, you f"
+    },
+    "c1q19": {
+     "speaker": "Mr. Bennet",
+     "starts": "In such cases,"
+    },
+    "c1q20": {
+     "speaker": "Mrs. Bennet",
+     "starts": "But, my dear, "
+    },
+    "c1q21": {
+     "speaker": "Mr. Bennet",
+     "starts": "It is more tha"
+    },
+    "c1q22": {
+     "speaker": "Mrs. Bennet",
+     "starts": "But consider y"
+    },
+    "c1q23": {
+     "speaker": "Mr. Bennet",
+     "starts": "You are over s"
+    },
+    "c1q24": {
+     "speaker": "Mrs. Bennet",
+     "starts": "I desire you w"
+    },
+    "c1q25": {
+     "speaker": "Mr. Bennet",
+     "starts": "They have none"
+    },
+    "c1q26": {
+     "speaker": "Mr. Bennet",
+     "starts": "they are all s"
+    },
+    "c1q27": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Mr. Bennet, ho"
+    },
+    "c1q28": {
+     "speaker": "Mr. Bennet",
+     "starts": "You mistake me"
+    },
+    "c1q29": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Ah, you do not"
+    },
+    "c1q30": {
+     "speaker": "Mr. Bennet",
+     "starts": "But I hope you"
+    },
+    "c1q31": {
+     "speaker": "Mrs. Bennet",
+     "starts": "It will be no "
+    },
+    "c1q32": {
+     "speaker": "Mr. Bennet",
+     "starts": "Depend upon it"
+    },
+    "c2q1": {
+     "speaker": "Mr. Bennet",
+     "starts": "I hope Mr. Bin"
+    },
+    "c2q2": {
+     "speaker": "Mrs. Bennet",
+     "starts": "We are not in "
+    },
+    "c2q3": {
+     "speaker": "Mrs. Bennet",
+     "starts": "since we are n"
+    },
+    "c2q4": {
+     "speaker": "Elizabeth",
+     "starts": "But you forget"
+    },
+    "c2q5": {
+     "speaker": "Elizabeth",
+     "starts": "that we shall "
+    },
+    "c2q6": {
+     "speaker": "Mrs. Bennet",
+     "starts": "I do not belie"
+    },
+    "c2q7": {
+     "speaker": "Mr. Bennet",
+     "starts": "No more have I"
+    },
+    "c2q8": {
+     "speaker": "Mr. Bennet",
+     "starts": "and I am glad "
+    },
+    "c2q9": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Don’t keep cou"
+    },
+    "c2q10": {
+     "speaker": "Mr. Bennet",
+     "starts": "Kitty has no d"
+    },
+    "c2q11": {
+     "speaker": "Mr. Bennet",
+     "starts": "she times them"
+    },
+    "c2q12": {
+     "speaker": "Kitty",
+     "starts": "I do not cough"
+    },
+    "c2q13": {
+     "speaker": "Kitty",
+     "starts": "When is your n"
+    },
+    "c2q14": {
+     "speaker": "Elizabeth",
+     "starts": "To-morrow fort"
+    },
+    "c2q15": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Ay, so it is,"
+    },
+    "c2q16": {
+     "speaker": "Mrs. Bennet",
+     "starts": "and Mrs. Long "
+    },
+    "c2q17": {
+     "speaker": "Mr. Bennet",
+     "starts": "Then, my dear,"
+    },
+    "c2q18": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Impossible, Mr"
+    },
+    "c2q19": {
+     "speaker": "Mr. Bennet",
+     "starts": "I honour your "
+    },
+    "c2q20": {
+     "speaker": "Mrs. Bennet",
+     "starts": "Nonsense, nons"
+    },
+    "c2q21": {
+     "speaker": "Mr. Bennet",
+     "starts": "What can be th"
+    },
+    "c2q22": {
+     "speaker": "Mr. Bennet",
+     "starts": "Do you conside"
+    },
+    "c2q23": {
+     "speaker": "Mr. Bennet",
+     "starts": "While Mary is "
+    },
+    "c2q24": {
+     "speaker": "Mr. Bennet",
+     "starts": "let us return "
+    },
+    "c2q25": {
+     "speaker": "Mrs. Bennet",
+     "starts": "I am sick of M"
+    },
+    "c2q26": {
+     "speaker": "Mr. Bennet",
+     "starts": "I am sorry to "
+    },
+    "c2q27": {
+     "speaker": "Mrs. Bennet",
+     "starts": "How good it wa"
+    },
+    "c2q28": {
+     "speaker": "Mr. Bennet",
+     "starts": "Now, Kitty, yo"
+    },
+    "c2q29": {
+     "speaker": "Mrs. Bennet",
+     "starts": "What an excell"
+    },
+    "c2q30": {
+     "speaker": "Mrs. Bennet",
+     "starts": "I do not know "
+    },
+    "c2q31": {
+     "speaker": "Lydia",
+     "starts": "Oh,"
+    },
+    "c2q32": {
+     "speaker": "Lydia",
+     "starts": "I am not afrai"
+    }
+   }
+  },
+  "doyle": {
+   "file": "pg1661.html",
+   "source": "The Adventures of Sherlock Holmes, Arthur Conan Doyle (1892), Project Gutenberg #1661, https://www.gutenberg.org/cache/epub/1661/pg1661-images.html",
+   "chapters": [
+    "A SCANDAL IN BOHEMIA"
+   ],
+   "cast": [
+    {
+     "name": "Holmes",
+     "gender": "m",
+     "age": "adult",
+     "aliases": [
+      "holmes",
+      "sherlock holmes",
+      "my companion",
+      "my friend"
+     ]
+    },
+    {
+     "name": "Watson",
+     "gender": "m",
+     "age": "adult",
+     "aliases": [
+      "watson",
+      "doctor",
+      "i"
+     ]
+    },
+    {
+     "name": "The King",
+     "gender": "m",
+     "age": "adult",
+     "aliases": [
+      "the king",
+      "our visitor",
+      "our strange visitor",
+      "the count",
+      "the man",
+      "his majesty"
+     ]
+    }
+   ],
+   "labels": {
+    "c1q1": {
+     "speaker": "Holmes",
+     "starts": "Wedlock suits "
+    },
+    "c1q2": {
+     "speaker": "Holmes",
+     "starts": "I think, Watso"
+    },
+    "c1q3": {
+     "speaker": "Watson",
+     "starts": "Seven!"
+    },
+    "c1q4": {
+     "speaker": "Holmes",
+     "starts": "Indeed, I shou"
+    },
+    "c1q5": {
+     "speaker": "Watson",
+     "starts": "Then, how do y"
+    },
+    "c1q6": {
+     "speaker": "Holmes",
+     "starts": "I see it, I de"
+    },
+    "c1q7": {
+     "speaker": "Watson",
+     "starts": "My dear Holmes"
+    },
+    "c1q8": {
+     "speaker": "Watson",
+     "starts": "this is too mu"
+    },
+    "c1q9": {
+     "speaker": "Holmes",
+     "starts": "It is simplici"
+    },
+    "c1q10": {
+     "speaker": "Holmes",
+     "starts": "my eyes tell m"
+    },
+    "c1q11": {
+     "speaker": "Watson",
+     "starts": "When I hear yo"
+    },
+    "c1q12": {
+     "speaker": "Watson",
+     "starts": "the thing alwa"
+    },
+    "c1q13": {
+     "speaker": "Holmes",
+     "starts": "Quite so,"
+    },
+    "c1q14": {
+     "speaker": "Holmes",
+     "starts": "You see, but y"
+    },
+    "c1q15": {
+     "speaker": "Watson",
+     "starts": "Frequently."
+    },
+    "c1q16": {
+     "speaker": "Holmes",
+     "starts": "How often?"
+    },
+    "c1q17": {
+     "speaker": "Watson",
+     "starts": "Well, some hun"
+    },
+    "c1q18": {
+     "speaker": "Holmes",
+     "starts": "Then how many "
+    },
+    "c1q19": {
+     "speaker": "Watson",
+     "starts": "How many? I do"
+    },
+    "c1q20": {
+     "speaker": "Holmes",
+     "starts": "Quite so! You "
+    },
+    "c1q21": {
+     "speaker": "Holmes",
+     "starts": "It came by the"
+    },
+    "c1q22": {
+     "speaker": "Holmes",
+     "starts": "Read it aloud."
+    },
+    "c1q23": {
+     "speaker": "narrator",
+     "starts": "There will cal"
+    },
+    "c1q24": {
+     "speaker": "narrator",
+     "starts": "a gentleman wh"
+    },
+    "c1q25": {
+     "speaker": "Watson",
+     "starts": "This is indeed"
+    },
+    "c1q26": {
+     "speaker": "Watson",
+     "starts": "What do you im"
+    },
+    "c1q27": {
+     "speaker": "Holmes",
+     "starts": "I have no data"
+    },
+    "c1q28": {
+     "speaker": "Watson",
+     "starts": "The man who wr"
+    },
+    "c1q29": {
+     "speaker": "Watson",
+     "starts": "Such paper cou"
+    },
+    "c1q30": {
+     "speaker": "Holmes",
+     "starts": "Peculiar — tha"
+    },
+    "c1q31": {
+     "speaker": "Holmes",
+     "starts": "It is not an E"
+    },
+    "c1q32": {
+     "speaker": "narrator",
+     "starts": "E"
+    },
+    "c1q33": {
+     "speaker": "narrator",
+     "starts": "g,"
+    },
+    "c1q34": {
+     "speaker": "narrator",
+     "starts": "P,"
+    },
+    "c1q35": {
+     "speaker": "narrator",
+     "starts": "G"
+    },
+    "c1q36": {
+     "speaker": "narrator",
+     "starts": "t"
+    },
+    "c1q37": {
+     "speaker": "Holmes",
+     "starts": "What do you ma"
+    },
+    "c1q38": {
+     "speaker": "Watson",
+     "starts": "The name of th"
+    },
+    "c1q39": {
+     "speaker": "Holmes",
+     "starts": "Not at all. Th"
+    },
+    "c1q40": {
+     "speaker": "Holmes",
+     "starts": "Eglow, Eglonit"
+    },
+    "c1q41": {
+     "speaker": "Watson",
+     "starts": "The paper was "
+    },
+    "c1q42": {
+     "speaker": "Holmes",
+     "starts": "Precisely. And"
+    },
+    "c1q43": {
+     "speaker": "Holmes",
+     "starts": "A pair, by the"
+    },
+    "c1q44": {
+     "speaker": "Holmes",
+     "starts": "Yes,"
+    },
+    "c1q45": {
+     "speaker": "Holmes",
+     "starts": "A nice little "
+    },
+    "c1q46": {
+     "speaker": "Watson",
+     "starts": "I think that I"
+    },
+    "c1q47": {
+     "speaker": "Holmes",
+     "starts": "Not a bit, Doc"
+    },
+    "c1q48": {
+     "speaker": "Watson",
+     "starts": "But your clien"
+    },
+    "c1q49": {
+     "speaker": "Holmes",
+     "starts": "Never mind him"
+    },
+    "c1q50": {
+     "speaker": "Holmes",
+     "starts": "Come in!"
+    },
+    "c1q51": {
+     "speaker": "The King",
+     "starts": "You had my not"
+    },
+    "c1q52": {
+     "speaker": "The King",
+     "starts": "I told you tha"
+    },
+    "c1q53": {
+     "speaker": "Holmes",
+     "starts": "Pray take a se"
+    },
+    "c1q54": {
+     "speaker": "Holmes",
+     "starts": "This is my fri"
+    },
+    "c1q55": {
+     "speaker": "The King",
+     "starts": "You may addres"
+    },
+    "c1q56": {
+     "speaker": "Holmes",
+     "starts": "It is both, or"
+    },
+    "c1q57": {
+     "speaker": "Holmes",
+     "starts": "You may say be"
+    },
+    "c1q58": {
+     "speaker": "The King",
+     "starts": "Then I must be"
+    },
+    "c1q59": {
+     "speaker": "The King",
+     "starts": "by binding you"
+    },
+    "c1q60": {
+     "speaker": "Holmes",
+     "starts": "I promise,"
+    },
+    "c1q61": {
+     "speaker": "Watson",
+     "starts": "And I."
+    },
+    "c1q62": {
+     "speaker": "The King",
+     "starts": "You will excus"
+    },
+    "c1q63": {
+     "speaker": "The King",
+     "starts": "The august per"
+    },
+    "c1q64": {
+     "speaker": "Holmes",
+     "starts": "I was aware of"
+    },
+    "c1q65": {
+     "speaker": "The King",
+     "starts": "The circumstan"
+    },
+    "c1q66": {
+     "speaker": "Holmes",
+     "starts": "I was also awa"
+    },
+    "c1q67": {
+     "speaker": "Holmes",
+     "starts": "If your Majest"
+    },
+    "c1q68": {
+     "speaker": "Holmes",
+     "starts": "I should be be"
+    },
+    "c1q69": {
+     "speaker": "The King",
+     "starts": "You are right,"
+    },
+    "c1q70": {
+     "speaker": "The King",
+     "starts": "I am the King."
+    },
+    "c1q71": {
+     "speaker": "Holmes",
+     "starts": "Why, indeed?"
+    },
+    "c1q72": {
+     "speaker": "Holmes",
+     "starts": "Your Majesty h"
+    },
+    "c1q73": {
+     "speaker": "The King",
+     "starts": "But you can un"
+    },
+    "c1q74": {
+     "speaker": "The King",
+     "starts": "you can unders"
+    },
+    "c1q75": {
+     "speaker": "Holmes",
+     "starts": "Then, pray con"
+    },
+    "c1q76": {
+     "speaker": "The King",
+     "starts": "The facts are "
+    },
+    "c1q77": {
+     "speaker": "Holmes",
+     "starts": "Kindly look he"
+    },
+    "c1q78": {
+     "speaker": "Holmes",
+     "starts": "Let me see!"
+    },
+    "c1q79": {
+     "speaker": "Holmes",
+     "starts": "Hum! Born in N"
+    },
+    "c1q80": {
+     "speaker": "The King",
+     "starts": "Precisely so. "
+    },
+    "c1q81": {
+     "speaker": "Holmes",
+     "starts": "Was there a se"
+    },
+    "c1q82": {
+     "speaker": "The King",
+     "starts": "None."
+    },
+    "c1q83": {
+     "speaker": "Holmes",
+     "starts": "No legal paper"
+    },
+    "c1q84": {
+     "speaker": "The King",
+     "starts": "None."
+    },
+    "c1q85": {
+     "speaker": "Holmes",
+     "starts": "Then I fail to"
+    },
+    "c1q86": {
+     "speaker": "The King",
+     "starts": "There is the w"
+    },
+    "c1q87": {
+     "speaker": "Holmes",
+     "starts": "Pooh, pooh! Fo"
+    },
+    "c1q88": {
+     "speaker": "The King",
+     "starts": "My private not"
+    },
+    "c1q89": {
+     "speaker": "Holmes",
+     "starts": "Stolen."
+    },
+    "c1q90": {
+     "speaker": "The King",
+     "starts": "My own seal."
+    },
+    "c1q91": {
+     "speaker": "Holmes",
+     "starts": "Imitated."
+    },
+    "c1q92": {
+     "speaker": "The King",
+     "starts": "My photograph."
+    },
+    "c1q93": {
+     "speaker": "Holmes",
+     "starts": "Bought."
+    },
+    "c1q94": {
+     "speaker": "The King",
+     "starts": "We were both i"
+    },
+    "c1q95": {
+     "speaker": "Holmes",
+     "starts": "Oh, dear! That"
+    },
+    "c1q96": {
+     "speaker": "The King",
+     "starts": "I was mad — in"
+    },
+    "c1q97": {
+     "speaker": "Holmes",
+     "starts": "You have compr"
+    },
+    "c1q98": {
+     "speaker": "The King",
+     "starts": "I was only Cro"
+    },
+    "c1q99": {
+     "speaker": "Holmes",
+     "starts": "It must be rec"
+    },
+    "c1q100": {
+     "speaker": "The King",
+     "starts": "We have tried "
+    },
+    "c1q101": {
+     "speaker": "Holmes",
+     "starts": "Your Majesty m"
+    },
+    "c1q102": {
+     "speaker": "The King",
+     "starts": "She will not s"
+    },
+    "c1q103": {
+     "speaker": "Holmes",
+     "starts": "Stolen, then."
+    },
+    "c1q104": {
+     "speaker": "The King",
+     "starts": "Five attempts "
+    },
+    "c1q105": {
+     "speaker": "Holmes",
+     "starts": "No sign of it?"
+    },
+    "c1q106": {
+     "speaker": "The King",
+     "starts": "Absolutely non"
+    },
+    "c1q107": {
+     "speaker": "Holmes",
+     "starts": "It is quite a "
+    },
+    "c1q108": {
+     "speaker": "The King",
+     "starts": "But a very ser"
+    }
+   }
+  },
+  "mansfield": {
+   "file": "pg1429.html",
+   "source": "The Garden Party, and Other Stories, Katherine Mansfield (1922), Project Gutenberg #1429, https://www.gutenberg.org/cache/epub/1429/pg1429-images.html",
+   "chapters": [
+    "The Garden-Party"
+   ],
+   "cast": [
+    {
+     "name": "Laura",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "laura"
+     ]
+    },
+    {
+     "name": "Mrs. Sheridan",
+     "gender": "f",
+     "age": "old",
+     "aliases": [
+      "mrs. sheridan",
+      "her mother",
+      "mother",
+      "their mother"
+     ]
+    },
+    {
+     "name": "Mr. Sheridan",
+     "gender": "m",
+     "age": "old",
+     "aliases": [
+      "mr. sheridan",
+      "her father",
+      "father",
+      "daddy"
+     ]
+    },
+    {
+     "name": "Laurie",
+     "gender": "m",
+     "age": "young",
+     "aliases": [
+      "laurie",
+      "her brother"
+     ]
+    },
+    {
+     "name": "Jose",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "jose",
+      "practical jose"
+     ]
+    },
+    {
+     "name": "Meg",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "meg"
+     ]
+    },
+    {
+     "name": "Sadie",
+     "gender": "f",
+     "age": "adult",
+     "aliases": [
+      "sadie"
+     ]
+    },
+    {
+     "name": "Cook",
+     "gender": "f",
+     "age": "adult",
+     "aliases": [
+      "cook",
+      "the cook"
+     ]
+    },
+    {
+     "name": "Hans",
+     "gender": "m",
+     "age": "young",
+     "aliases": [
+      "hans"
+     ]
+    },
+    {
+     "name": "Godber's man",
+     "gender": "m",
+     "age": "adult",
+     "aliases": [
+      "godber's man",
+      "godber’s man"
+     ]
+    },
+    {
+     "name": "Tall workman",
+     "gender": "m",
+     "age": "adult",
+     "aliases": [
+      "the tall fellow",
+      "the tallest of the men"
+     ]
+    },
+    {
+     "name": "Fat workman",
+     "gender": "m",
+     "age": "adult",
+     "aliases": [
+      "a little fat chap"
+     ]
+    },
+    {
+     "name": "Pale workman",
+     "gender": "m",
+     "age": "adult",
+     "aliases": [
+      "another of the workmen"
+     ]
+    },
+    {
+     "name": "Kitty Maitland",
+     "gender": "f",
+     "age": "young",
+     "aliases": [
+      "kitty maitland"
+     ]
+    },
+    {
+     "name": "Em's sister",
+     "gender": "f",
+     "age": "adult",
+     "aliases": [
+      "em's sister",
+      "em’s sister",
+      "the little woman",
+      "the little creature",
+      "the other"
+     ]
+    }
+   ],
+   "labels": {
+    "c1q1": {
+     "speaker": "?",
+     "starts": "Where do you w"
+    },
+    "c1q2": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "My dear child,"
+    },
+    "c1q3": {
+     "speaker": "?",
+     "starts": "You’ll have to"
+    },
+    "c1q4": {
+     "speaker": "Laura",
+     "starts": "Good morning,"
+    },
+    "c1q5": {
+     "speaker": "Laura",
+     "starts": "Oh — er — have"
+    },
+    "c1q6": {
+     "speaker": "Tall workman",
+     "starts": "That’s right, "
+    },
+    "c1q7": {
+     "speaker": "Tall workman",
+     "starts": "That’s about i"
+    },
+    "c1q8": {
+     "speaker": "narrator",
+     "starts": "Cheer up, we w"
+    },
+    "c1q9": {
+     "speaker": "Laura",
+     "starts": "Well, what abo"
+    },
+    "c1q10": {
+     "speaker": "Fat workman",
+     "starts": "I don’t fancy "
+    },
+    "c1q11": {
+     "speaker": "Fat workman",
+     "starts": "Not conspicuou"
+    },
+    "c1q12": {
+     "speaker": "Fat workman",
+     "starts": "you want to pu"
+    },
+    "c1q13": {
+     "speaker": "Laura",
+     "starts": "A corner of th"
+    },
+    "c1q14": {
+     "speaker": "Laura",
+     "starts": "But the band’s"
+    },
+    "c1q15": {
+     "speaker": "Pale workman",
+     "starts": "H’m, going to "
+    },
+    "c1q16": {
+     "speaker": "Laura",
+     "starts": "Only a very sm"
+    },
+    "c1q17": {
+     "speaker": "Tall workman",
+     "starts": "Look here, mis"
+    },
+    "c1q18": {
+     "speaker": "?",
+     "starts": "Are you right "
+    },
+    "c1q19": {
+     "speaker": "narrator",
+     "starts": "Matey!"
+    },
+    "c1q20": {
+     "speaker": "?",
+     "starts": "Laura, Laura, "
+    },
+    "c1q21": {
+     "speaker": "Laura",
+     "starts": "Coming!"
+    },
+    "c1q22": {
+     "speaker": "Laurie",
+     "starts": "I say, Laura,"
+    },
+    "c1q23": {
+     "speaker": "Laurie",
+     "starts": "you might just"
+    },
+    "c1q24": {
+     "speaker": "Laura",
+     "starts": "I will,"
+    },
+    "c1q25": {
+     "speaker": "Laura",
+     "starts": "Oh, I do love "
+    },
+    "c1q26": {
+     "speaker": "Laurie",
+     "starts": "Ra-ther,"
+    },
+    "c1q27": {
+     "speaker": "Laurie",
+     "starts": "Dash off to th"
+    },
+    "c1q28": {
+     "speaker": "Laura",
+     "starts": "Yes, yes; oh y"
+    },
+    "c1q29": {
+     "speaker": "Laura",
+     "starts": "What, mother? "
+    },
+    "c1q30": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Tell her to we"
+    },
+    "c1q31": {
+     "speaker": "Laura",
+     "starts": "Mother says yo"
+    },
+    "c1q32": {
+     "speaker": "Laura",
+     "starts": "Huh,"
+    },
+    "c1q33": {
+     "speaker": "Sadie",
+     "starts": "I’m sure I don"
+    },
+    "c1q34": {
+     "speaker": "Laura",
+     "starts": "What is it, Sa"
+    },
+    "c1q35": {
+     "speaker": "Sadie",
+     "starts": "It’s the flori"
+    },
+    "c1q36": {
+     "speaker": "Laura",
+     "starts": "O-oh, Sadie!"
+    },
+    "c1q37": {
+     "speaker": "Laura",
+     "starts": "It’s some mist"
+    },
+    "c1q38": {
+     "speaker": "Laura",
+     "starts": "Nobody ever or"
+    },
+    "c1q39": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "It’s quite rig"
+    },
+    "c1q40": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Yes, I ordered"
+    },
+    "c1q41": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "I was passing "
+    },
+    "c1q42": {
+     "speaker": "Laura",
+     "starts": "But I thought "
+    },
+    "c1q43": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "My darling chi"
+    },
+    "c1q44": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Bank them up, "
+    },
+    "c1q45": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Don’t you agre"
+    },
+    "c1q46": {
+     "speaker": "Laura",
+     "starts": "Oh, I do, moth"
+    },
+    "c1q47": {
+     "speaker": "?",
+     "starts": "Now, if we put"
+    },
+    "c1q48": {
+     "speaker": "?",
+     "starts": "Quite."
+    },
+    "c1q49": {
+     "speaker": "Jose",
+     "starts": "Hans, move the"
+    },
+    "c1q50": {
+     "speaker": "Jose",
+     "starts": "Tell mother an"
+    },
+    "c1q51": {
+     "speaker": "Hans",
+     "starts": "Very good, Mis"
+    },
+    "c1q52": {
+     "speaker": "Jose",
+     "starts": "I want to hear"
+    },
+    "c1q53": {
+     "speaker": "narrator",
+     "starts": "Good-bye,"
+    },
+    "c1q54": {
+     "speaker": "Jose",
+     "starts": "Aren’t I in go"
+    },
+    "c1q55": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "What is it, Sa"
+    },
+    "c1q56": {
+     "speaker": "Sadie",
+     "starts": "If you please,"
+    },
+    "c1q57": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "The flags for "
+    },
+    "c1q58": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Let me see."
+    },
+    "c1q59": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Tell cook I’ll"
+    },
+    "c1q60": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Now, Laura,"
+    },
+    "c1q61": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "come with me i"
+    },
+    "c1q62": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "One of you chi"
+    },
+    "c1q63": {
+     "speaker": "Laura",
+     "starts": "Yes."
+    },
+    "c1q64": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Egg and —"
+    },
+    "c1q65": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "It looks like "
+    },
+    "c1q66": {
+     "speaker": "Laura",
+     "starts": "Olive, pet,"
+    },
+    "c1q67": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Yes, of course"
+    },
+    "c1q68": {
+     "speaker": "Jose",
+     "starts": "I have never s"
+    },
+    "c1q69": {
+     "speaker": "Jose",
+     "starts": "How many kinds"
+    },
+    "c1q70": {
+     "speaker": "Cook",
+     "starts": "Fifteen, Miss "
+    },
+    "c1q71": {
+     "speaker": "Jose",
+     "starts": "Well, cook, I "
+    },
+    "c1q72": {
+     "speaker": "Sadie",
+     "starts": "Godber’s has c"
+    },
+    "c1q73": {
+     "speaker": "Cook",
+     "starts": "Bring them in "
+    },
+    "c1q74": {
+     "speaker": "Laura",
+     "starts": "Don’t they car"
+    },
+    "c1q75": {
+     "speaker": "Jose",
+     "starts": "I suppose they"
+    },
+    "c1q76": {
+     "speaker": "Jose",
+     "starts": "They look beau"
+    },
+    "c1q77": {
+     "speaker": "Cook",
+     "starts": "Have one each,"
+    },
+    "c1q78": {
+     "speaker": "Cook",
+     "starts": "Yer ma won’t k"
+    },
+    "c1q79": {
+     "speaker": "Laura",
+     "starts": "Let’s go into "
+    },
+    "c1q80": {
+     "speaker": "Laura",
+     "starts": "I want to see "
+    },
+    "c1q81": {
+     "speaker": "Cook",
+     "starts": "Tuk-tuk-tuk,"
+    },
+    "c1q82": {
+     "speaker": "?",
+     "starts": "What’s the mat"
+    },
+    "c1q83": {
+     "speaker": "Cook",
+     "starts": "There’s been a"
+    },
+    "c1q84": {
+     "speaker": "Cook",
+     "starts": "A man killed."
+    },
+    "c1q85": {
+     "speaker": "?",
+     "starts": "A man killed! "
+    },
+    "c1q86": {
+     "speaker": "Godber's man",
+     "starts": "Know those lit"
+    },
+    "c1q87": {
+     "speaker": "Godber's man",
+     "starts": "Well, there’s "
+    },
+    "c1q88": {
+     "speaker": "Laura",
+     "starts": "Dead!"
+    },
+    "c1q89": {
+     "speaker": "Godber's man",
+     "starts": "Dead when they"
+    },
+    "c1q90": {
+     "speaker": "Godber's man",
+     "starts": "They were taki"
+    },
+    "c1q91": {
+     "speaker": "Godber's man",
+     "starts": "He’s left a wi"
+    },
+    "c1q92": {
+     "speaker": "Laura",
+     "starts": "Jose, come her"
+    },
+    "c1q93": {
+     "speaker": "Laura",
+     "starts": "Jose!"
+    },
+    "c1q94": {
+     "speaker": "Laura",
+     "starts": "however are we"
+    },
+    "c1q95": {
+     "speaker": "Jose",
+     "starts": "Stop everythin"
+    },
+    "c1q96": {
+     "speaker": "Jose",
+     "starts": "What do you me"
+    },
+    "c1q97": {
+     "speaker": "Laura",
+     "starts": "Stop the garde"
+    },
+    "c1q98": {
+     "speaker": "Jose",
+     "starts": "Stop the garde"
+    },
+    "c1q99": {
+     "speaker": "Laura",
+     "starts": "But we can’t p"
+    },
+    "c1q100": {
+     "speaker": "Laura",
+     "starts": "And just think"
+    },
+    "c1q101": {
+     "speaker": "Jose",
+     "starts": "Oh, Laura!"
+    },
+    "c1q102": {
+     "speaker": "Jose",
+     "starts": "If you’re goin"
+    },
+    "c1q103": {
+     "speaker": "Jose",
+     "starts": "You won’t brin"
+    },
+    "c1q104": {
+     "speaker": "Laura",
+     "starts": "Drunk! Who sai"
+    },
+    "c1q105": {
+     "speaker": "Laura",
+     "starts": "I’m going stra"
+    },
+    "c1q106": {
+     "speaker": "Jose",
+     "starts": "Do, dear,"
+    },
+    "c1q107": {
+     "speaker": "Laura",
+     "starts": "Mother, can I "
+    },
+    "c1q108": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Of course, chi"
+    },
+    "c1q109": {
+     "speaker": "Laura",
+     "starts": "Mother, a man’"
+    },
+    "c1q110": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Not in the gar"
+    },
+    "c1q111": {
+     "speaker": "Laura",
+     "starts": "No, no!"
+    },
+    "c1q112": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Oh, what a fri"
+    },
+    "c1q113": {
+     "speaker": "Laura",
+     "starts": "But listen, mo"
+    },
+    "c1q114": {
+     "speaker": "Laura",
+     "starts": "Of course, we "
+    },
+    "c1q115": {
+     "speaker": "Laura",
+     "starts": "The band and e"
+    },
+    "c1q116": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "But, my dear c"
+    },
+    "c1q117": {
+     "speaker": "Laura",
+     "starts": "yes"
+    },
+    "c1q118": {
+     "speaker": "Laura",
+     "starts": "Mother, isn’t "
+    },
+    "c1q119": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Darling!"
+    },
+    "c1q120": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "My child!"
+    },
+    "c1q121": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "the hat is you"
+    },
+    "c1q122": {
+     "speaker": "Laura",
+     "starts": "But, mother,"
+    },
+    "c1q123": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "You are being "
+    },
+    "c1q124": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "People like th"
+    },
+    "c1q125": {
+     "speaker": "Laura",
+     "starts": "I don’t unders"
+    },
+    "c1q126": {
+     "speaker": "Kitty Maitland",
+     "starts": "My dear!"
+    },
+    "c1q127": {
+     "speaker": "Kitty Maitland",
+     "starts": "aren’t they to"
+    },
+    "c1q128": {
+     "speaker": "Laura",
+     "starts": "Laurie!"
+    },
+    "c1q129": {
+     "speaker": "Laurie",
+     "starts": "Hallo!"
+    },
+    "c1q130": {
+     "speaker": "Laurie",
+     "starts": "My word, Laura"
+    },
+    "c1q131": {
+     "speaker": "Laurie",
+     "starts": "What an absolu"
+    },
+    "c1q132": {
+     "speaker": "Laura",
+     "starts": "Is it?"
+    },
+    "c1q133": {
+     "speaker": "?",
+     "starts": "Darling Laura,"
+    },
+    "c1q134": {
+     "speaker": "?",
+     "starts": "What a becomin"
+    },
+    "c1q135": {
+     "speaker": "?",
+     "starts": "Laura, you loo"
+    },
+    "c1q136": {
+     "speaker": "Laura",
+     "starts": "Have you had t"
+    },
+    "c1q137": {
+     "speaker": "Laura",
+     "starts": "Daddy darling,"
+    },
+    "c1q138": {
+     "speaker": "?",
+     "starts": "Never a more d"
+    },
+    "c1q139": {
+     "speaker": "?",
+     "starts": "The greatest s"
+    },
+    "c1q140": {
+     "speaker": "?",
+     "starts": "Quite the most"
+    },
+    "c1q141": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "All over, all "
+    },
+    "c1q142": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Round up the o"
+    },
+    "c1q143": {
+     "speaker": "Laura",
+     "starts": "Have a sandwic"
+    },
+    "c1q144": {
+     "speaker": "Mr. Sheridan",
+     "starts": "Thanks."
+    },
+    "c1q145": {
+     "speaker": "Mr. Sheridan",
+     "starts": "I suppose you "
+    },
+    "c1q146": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "My dear,"
+    },
+    "c1q147": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "we did. It nea"
+    },
+    "c1q148": {
+     "speaker": "Laura",
+     "starts": "Oh, mother!"
+    },
+    "c1q149": {
+     "speaker": "Mr. Sheridan",
+     "starts": "It was a horri"
+    },
+    "c1q150": {
+     "speaker": "Mr. Sheridan",
+     "starts": "The chap was m"
+    },
+    "c1q151": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "I know,"
+    },
+    "c1q152": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Let’s make up "
+    },
+    "c1q153": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Get me the big"
+    },
+    "c1q154": {
+     "speaker": "Laura",
+     "starts": "But, mother, d"
+    },
+    "c1q155": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Of course! Wha"
+    },
+    "c1q156": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Take it yourse"
+    },
+    "c1q157": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Run down just "
+    },
+    "c1q158": {
+     "speaker": "Jose",
+     "starts": "The stems will"
+    },
+    "c1q159": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Only the baske"
+    },
+    "c1q160": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "don’t on any a"
+    },
+    "c1q161": {
+     "speaker": "Laura",
+     "starts": "What mother?"
+    },
+    "c1q162": {
+     "speaker": "Mrs. Sheridan",
+     "starts": "Nothing! Run a"
+    },
+    "c1q163": {
+     "speaker": "narrator",
+     "starts": "Yes, it was th"
+    },
+    "c1q164": {
+     "speaker": "Laura",
+     "starts": "Is this Mrs. S"
+    },
+    "c1q165": {
+     "speaker": "?",
+     "starts": "It is, my lass"
+    },
+    "c1q166": {
+     "speaker": "Laura",
+     "starts": "Help me, God,"
+    },
+    "c1q167": {
+     "speaker": "Laura",
+     "starts": "Are you Mrs. S"
+    },
+    "c1q168": {
+     "speaker": "Em's sister",
+     "starts": "Walk in please"
+    },
+    "c1q169": {
+     "speaker": "Laura",
+     "starts": "No,"
+    },
+    "c1q170": {
+     "speaker": "Laura",
+     "starts": "I don’t want t"
+    },
+    "c1q171": {
+     "speaker": "Em's sister",
+     "starts": "Step this way,"
+    },
+    "c1q172": {
+     "speaker": "Em's sister",
+     "starts": "Em,"
+    },
+    "c1q173": {
+     "speaker": "Em's sister",
+     "starts": "Em! It’s a you"
+    },
+    "c1q174": {
+     "speaker": "Em's sister",
+     "starts": "I’m ’er sister"
+    },
+    "c1q175": {
+     "speaker": "Laura",
+     "starts": "Oh, but of cou"
+    },
+    "c1q176": {
+     "speaker": "Laura",
+     "starts": "Please, please"
+    },
+    "c1q177": {
+     "speaker": "Em's sister",
+     "starts": "All right, my "
+    },
+    "c1q178": {
+     "speaker": "Em's sister",
+     "starts": "I’ll thenk the"
+    },
+    "c1q179": {
+     "speaker": "Em's sister",
+     "starts": "You’ll excuse "
+    },
+    "c1q180": {
+     "speaker": "Em's sister",
+     "starts": "You’d like a l"
+    },
+    "c1q181": {
+     "speaker": "Em's sister",
+     "starts": "Don’t be afrai"
+    },
+    "c1q182": {
+     "speaker": "Em's sister",
+     "starts": "’e looks a pic"
+    },
+    "c1q183": {
+     "speaker": "Laura",
+     "starts": "Forgive my hat"
+    },
+    "c1q184": {
+     "speaker": "Laurie",
+     "starts": "Is that you, L"
+    },
+    "c1q185": {
+     "speaker": "Laura",
+     "starts": "Yes."
+    },
+    "c1q186": {
+     "speaker": "Laurie",
+     "starts": "Mother was get"
+    },
+    "c1q187": {
+     "speaker": "Laura",
+     "starts": "Yes, quite. Oh"
+    },
+    "c1q188": {
+     "speaker": "Laurie",
+     "starts": "I say, you’re "
+    },
+    "c1q189": {
+     "speaker": "Laurie",
+     "starts": "Don’t cry,"
+    },
+    "c1q190": {
+     "speaker": "Laurie",
+     "starts": "Was it awful?"
+    },
+    "c1q191": {
+     "speaker": "Laura",
+     "starts": "No,"
+    },
+    "c1q192": {
+     "speaker": "Laura",
+     "starts": "It was simply "
+    },
+    "c1q193": {
+     "speaker": "Laura",
+     "starts": "Isn’t life,"
+    },
+    "c1q194": {
+     "speaker": "Laura",
+     "starts": "isn’t life —"
+    },
+    "c1q195": {
+     "speaker": "Laurie",
+     "starts": "Isn’t it, darl"
+    }
+   }
+  }
+ },
+ "note": "Hand-labelled by reading each quote in context. '?' = a careful reader cannot say who (unnamed guests, 'Meg or Jose'); 'narrator' = not speech (a letter read out, letters of a monogram, a sung word, a thought). Neither is scored. Doyle: the first 108 quotes of A Scandal in Bohemia, to the King's account of the photograph."
+}

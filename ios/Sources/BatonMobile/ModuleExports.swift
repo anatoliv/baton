@@ -1,6 +1,7 @@
 /// App-wide re-exports of the shared-core packages — the same two lines the Mac app's
 /// ModuleExports.swift carries, so no file in this target needs a per-file import.
 @_exported import BatonAgentKit
+@_exported import BatonDocuments
 @_exported import BatonPlaybackKit
 // The Mac gets this from its Speech/ files; the phone had no reason to import it until
 // transcription arrived, and the iPhone build in the gate is what said so.

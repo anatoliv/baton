@@ -18,8 +18,8 @@ set -euo pipefail
 # demo.navidrome.org; a release can, and a release is where a skip actually costs something.
 #
 # THE THING THIS MUST NOT BECOME is a stage that skips everything and reads as coverage. This
-# board has been bitten twice by exactly that. So the summary always prints all three counts,
-# and a run where nothing executed is a **failure**, not a pass.
+# board has been bitten twice by exactly that. A readable summary prints all three counts;
+# unavailable counts and a run where nothing executed are **failures**, not passes.
 #
 #   ./ios/scripts/ui-tests.sh                     # pick a simulator, run everything not quarantined
 #   ./ios/scripts/ui-tests.sh -only <Suite>       # one suite
@@ -73,9 +73,10 @@ ARGS=(-project "$IOS/BatonMobile.xcodeproj" -scheme BatonMobile
       -destination "platform=iOS Simulator,id=$SIM" -derivedDataPath "$DD")
 
 echo "==> Building the phone UI tests"
-xcodebuild build-for-testing "${ARGS[@]}" >/tmp/baton-uitests-build.log 2>&1 || {
+BUILD_LOG="${UITEST_BUILD_LOG:-/tmp/baton-uitests-build.log}"
+xcodebuild build-for-testing "${ARGS[@]}" >"$BUILD_LOG" 2>&1 || {
   echo "build-for-testing failed — last 30 lines:" >&2
-  tail -30 /tmp/baton-uitests-build.log >&2
+  tail -30 "$BUILD_LOG" >&2
   exit 1
 }
 
@@ -101,7 +102,9 @@ fi
 echo "==> Running the phone UI tests on $SIM"
 LOG="$(mktemp -t baton-uitests)"
 set +e
-xcodebuild test-without-building "${ARGS[@]}" "${RUN[@]}" -resultBundlePath "$RESULTS" >"$LOG" 2>&1
+# Suppress only verbose failure diagnostics (for example sysdiagnose), which can stall
+# finalization. Tests, screenshots/attachments and the result bundle are still collected.
+xcodebuild test-without-building "${ARGS[@]}" "${RUN[@]}" -collect-test-diagnostics never -resultBundlePath "$RESULTS" >"$LOG" 2>&1
 RC=$?
 set -e
 
@@ -110,12 +113,30 @@ set -e
 # The house rule, and it is load-bearing here: this log has reported a 790-test run as
 # "Executed 4 tests" and a run with five crashes as "0 failures". `xcresulttool` is the
 # authority.
-SUMMARY="$(xcrun xcresulttool get test-results summary --path "$RESULTS" 2>/dev/null || echo '{}')"
-read -r PASSED FAILED SKIPPED <<<"$(python3 -c "
+SUMMARY_ERROR="$(mktemp -t baton-uitests-summary)"
+if SUMMARY="$(xcrun xcresulttool get test-results summary --path "$RESULTS" 2>"$SUMMARY_ERROR")" &&
+   COUNTS="$(python3 -c '
 import json, sys
-d = json.loads(sys.stdin.read() or '{}')
-print(d.get('passedTests', 0), d.get('failedTests', 0), d.get('skippedTests', 0))
-" <<<"$SUMMARY")"
+try:
+    data = json.load(sys.stdin)
+    counts = [data[name] for name in ("passedTests", "failedTests", "skippedTests")]
+    if any(type(value) is not int or value < 0 for value in counts):
+        raise ValueError("test counts must be non-negative integers")
+    print(*counts)
+except (ValueError, TypeError, KeyError) as error:
+    print("test summary unavailable: " + str(error), file=sys.stderr)
+    sys.exit(1)
+' <<<"$SUMMARY" 2>>"$SUMMARY_ERROR")"; then
+  read -r PASSED FAILED SKIPPED <<<"$COUNTS"
+else
+  echo >&2
+  echo "  phone UI tests: counts unavailable — result bundle could not be read" >&2
+  echo "  result bundle: $RESULTS" >&2
+  echo "  xcodebuild exit: $RC; run log: $LOG" >&2
+  echo "  summary diagnostics: $SUMMARY_ERROR" >&2
+  [ "$RC" -eq 0 ] || exit "$RC"
+  exit 1
+fi
 
 echo
 echo "  phone UI tests: ${PASSED} passed, ${FAILED} failed, ${SKIPPED} skipped"

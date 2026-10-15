@@ -369,6 +369,21 @@ struct BatonApp: App {
                 // The Mac end of queue handoff: ask the server once whether the phone left
                 // a queue, and offer it. Saving has always happened; asking never did.
                 .macQueueHandoffOffer(model: music)
+                #if DEBUG
+                // DEBUG only: `scripts/probe-documents-walk.sh` opens the import sheet for a file
+                // at launch, rather than driving the menus of an app that shares its bundle id
+                // with the owner's. An environment variable, never a launch argument.
+                .task {
+                    let environment = ProcessInfo.processInfo.environment
+                    guard DocumentLibrary.isEnabled() else { return }
+                    if environment["BATON_DEBUG_SHOW_CLIPPINGS"] == "1" { commandRouter.pendingTab = .clippings }
+                    if let path = environment["BATON_DEBUG_IMPORT_DOCUMENT"] {
+                        commandRouter.pendingTab = .clippings
+                        commandRouter.pendingDocumentImport = path.hasPrefix("http")
+                            ? URL(string: path) : URL(fileURLWithPath: path)
+                    }
+                }
+                #endif
                 // DEBUG only, and nothing in a release build: lends `openWindow` to the
                 // `-baton.debugOpenWindow` launch flag. See BatonDebugWindows.
                 .batonDebugWindowOpener()
@@ -381,7 +396,7 @@ struct BatonApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1120, height: 760)
         .commands {
-            BatonAppCommands(model: music)
+            BatonAppCommands(model: music, router: commandRouter)
             GoMenuCommands(router: commandRouter)
             PlaybackMenuCommands(model: music, router: commandRouter)
             // "Check for Updates…" under About (disabled until the appcast

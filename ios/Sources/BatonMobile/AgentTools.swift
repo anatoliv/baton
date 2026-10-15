@@ -1,3 +1,4 @@
+import BatonShareKit
 import Foundation
 
 /// The music friend's hands: a compact tool set bound to the phone's player and
@@ -8,9 +9,11 @@ import Foundation
 @MainActor
 final class AgentTools: RemoteToolSurface {
     private let model: MobileModel
+    private let canShare: @MainActor () -> Bool
 
-    init(model: MobileModel) {
+    init(model: MobileModel, canShare: @escaping @MainActor () -> Bool = { SongSharing.hasSharedBefore }) {
         self.model = model
+        self.canShare = canShare
     }
 
     static let systemPrompt = """
@@ -29,6 +32,10 @@ final class AgentTools: RemoteToolSurface {
     /// The kit's execution seam. `sessionID` is unused here: the phone has one
     /// player and one user, so there is no session to disambiguate.
     func run(name: String, arguments: [String: Any], sessionID: String?) async -> (text: String, isError: Bool) {
+        if name == "music_share" {
+            do { return (try await musicShare(arguments), false) }
+            catch { return (error.localizedDescription, true) }
+        }
         let text = await dispatch(name: name, input: arguments)
         return (text, false)
     }
@@ -80,6 +87,21 @@ final class AgentTools: RemoteToolSurface {
             "name": "music_start_radio",
             "description": "Start endless radio from what's currently playing (similar songs from the library).",
             "inputSchema": ["type": "object", "properties": [:]],
+        ],
+        [
+            "name": "music_share",
+            "description": "Create a link a friend outside the home network can open to play one song in a browser, with no app and no account. The song is encrypted on this iPhone and uploaded to Baton's share service; the key is in the link. Returns the link to send. Without query, shares the currently-playing track. Refuses until the owner has shared a song once from Baton itself, so they have seen where a shared song goes. \(ShareToolHandoff.agentInstructions)",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "query": ["type": "string", "description": "Song to share. Uses the top search match. Omit for the current track."],
+                    "note": ["type": "string", "description": "A short note shown with the song, up to 280 characters."],
+                    "expires_days": ["type": "integer", "description": "How long the link lasts: 1, 7 (default) or 30 days."],
+                    "hide_details": ["type": "boolean", "description": "Set true to encrypt the title, artist and artwork too, so link previews only say a song was sent."],
+                    "recipient": ["type": "string", "description": ShareToolHandoff.recipientDescription],
+                ],
+                "required": [String](),
+            ],
         ],
         [
             "name": "music_set_volume",
@@ -148,6 +170,9 @@ final class AgentTools: RemoteToolSurface {
             model.music.play([seed] + similar, source: .init(label: "\(seed.title) Radio", kind: .radio))
             return "Radio started from \(seed.title) with \(similar.count) similar songs."
 
+        case "music_share":
+            return await run(name: name, arguments: input, sessionID: nil).text
+
         case "music_set_volume":
             let percent = max(0, min(100, input["percent"] as? Int ?? 70))
             model.music.volumePercent = percent
@@ -157,4 +182,43 @@ final class AgentTools: RemoteToolSurface {
             return "Unknown tool \(name)."
         }
     }
+
+    struct ShareToolError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    static func sharingOptions(_ args: [String: Any], from: String) throws -> SongSharing.Options {
+        try SongSharing.toolOptions(args, from: from)
+    }
+
+    private func musicShare(_ args: [String: Any]) async throws -> String {
+        guard canShare() else {
+            throw ShareToolError(message: SongSharing.consentRequiredMessage)
+        }
+        let options = try Self.sharingOptions(args, from: BatonStorage.defaults.string(forKey: SongSharing.fromKey) ?? "")
+        let song: NavidromeSong
+        if let query = args["query"] as? String, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await model.musicLibrary.search(query)
+            guard let found = model.musicLibrary.searchResults.songs.first else {
+                throw ShareToolError(message: "No songs matched \"\(query)\".")
+            }
+            song = found
+        } else if let current = model.music.nowPlaying {
+            song = current
+        } else {
+            throw ShareToolError(message: "Nothing is playing. Provide a query for the song to share.")
+        }
+        do {
+            let record = try await SongSharing.shared.share(song, options: options,
+                coverArtURL: song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 600) })
+            let result = ShareToolHandoff.result(
+                link: record.link, title: record.title, artist: record.artist,
+                expiresAt: record.expiresAt, recipient: try ShareToolHandoff.recipient(from: args))
+            return String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self)
+        } catch {
+            throw ShareToolError(message: SongShareError(error).errorDescription ?? "Sharing didn't work.")
+        }
+    }
+
 }

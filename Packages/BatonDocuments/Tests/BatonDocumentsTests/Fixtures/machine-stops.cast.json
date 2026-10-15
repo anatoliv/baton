@@ -1,0 +1,90 @@
+{
+ "_comment": "Cast sheet for The Machine Stops, written the way the cast step asks a model to write one: every speaking character, with gender, age and the phrases the text uses for them. In the app this is generated once per book and shown for correction; here it is checked in so the rules can be scored without a model.",
+ "characters": [
+  {
+   "name": "Vashti",
+   "gender": "f",
+   "age": "old",
+   "aliases": [
+    "his mother",
+    "the mother",
+    "mother",
+    "the woman",
+    "vashti"
+   ],
+   "notes": "Lecturer on music, devoted to the Machine, irritable."
+  },
+  {
+   "name": "Kuno",
+   "gender": "m",
+   "age": "young",
+   "aliases": [
+    "her son",
+    "the son",
+    "kuno"
+   ],
+   "notes": "Vashti's son; rebels against the Machine and goes to the surface."
+  },
+  {
+   "name": "Attendant",
+   "gender": "f",
+   "age": "adult",
+   "aliases": [
+    "the attendant"
+   ],
+   "notes": "Air-ship attendant, rough and direct in manner."
+  },
+  {
+   "name": "Passenger",
+   "gender": "m",
+   "age": "adult",
+   "aliases": [
+    "the passenger who had dropped his book"
+   ],
+   "notes": "A man on the air-ship."
+  },
+  {
+   "name": "Lecturer",
+   "gender": "m",
+   "age": "adult",
+   "aliases": [
+    "a famous lecturer",
+    "one of the most advanced of them",
+    "the lecturer"
+   ],
+   "notes": "The celebrated lecturer on the French Revolution."
+  },
+  {
+   "name": "Friend",
+   "gender": "f",
+   "age": "adult",
+   "aliases": [
+    "her friend",
+    "the friend",
+    "a friend"
+   ],
+   "notes": "Vashti's friends, heard through the Machine."
+  },
+  {
+   "name": "Committee",
+   "gender": "x",
+   "age": "adult",
+   "aliases": [
+    "the committee of the mending apparatus",
+    "the committee"
+   ],
+   "notes": "Answers complaints; impersonal."
+  },
+  {
+   "name": "Crowd",
+   "gender": "x",
+   "age": "adult",
+   "aliases": [
+    "they",
+    "the passengers"
+   ],
+   "notes": "Many voices at once.",
+   "group": true
+  }
+ ]
+}

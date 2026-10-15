@@ -322,9 +322,27 @@ struct MusicView: View {
         }
     }
 
+    /// Whether the window shows its sections at all. With no music server it used to show only
+    /// "connect a server", which also hid Clippings, and Clippings needs no server: a kept
+    /// reading or a narrated book plays from disk (document clippings, F1). So the sections show
+    /// whenever there is something offline to show; a brand-new install with nothing still gets
+    /// the single connect screen.
+    static func showsSections(serverConfigured: Bool, hasClippings: Bool, documentsOn: Bool) -> Bool {
+        serverConfigured || hasClippings || documentsOn
+    }
+
+    /// The sections that work with no music server. Everything else shows the connect prompt in
+    /// its place, so the rail stays the same shape.
+    static func worksWithoutServer(_ tab: MusicTab) -> Bool { tab == .clippings }
+
+    private var showsSections: Bool {
+        Self.showsSections(serverConfigured: library.isConfigured, hasClippings: !model.clippings.items.isEmpty,
+                           documentsOn: DocumentLibrary.isEnabled())
+    }
+
     var body: some View {
         Group {
-            if library.isConfigured {
+            if showsSections {
                 ZStack {
                     // Whole-window color-from-artwork wash (Plexamp UltraBlur), tinted
                     // from the now-playing track; frosted so lists stay readable.
@@ -483,6 +501,16 @@ struct MusicView: View {
         .sheet(item: discoverySeedBinding) { song in
             MusicDiscoveryView(song: song)
         }
+        // "Share…": the composer for a link a friend outside the LAN can play.
+        .sheet(item: shareSongBinding) { song in
+            ShareSongSheet(song: song,
+                           coverArtURL: song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 600) })
+        }
+    }
+
+    /// Binding into the model's share-song for the "Share…" composer.
+    private var shareSongBinding: Binding<NavidromeSong?> {
+        Binding(get: { model.shareSong }, set: { model.shareSong = $0 })
     }
 
     /// Binding into the model's discovery seed for the "Find more like this" sheet.
@@ -732,7 +760,8 @@ struct MusicView: View {
         case .later:
             model.pins.pins.isEmpty ? nil : model.pins.pins.count
         case .clippings:
-            model.clippings.items.isEmpty ? nil : model.clippings.items.count
+            // A book is one entry, however many chapters it has (F3), as the list shows it.
+            { let n = BookShelf.entryCount(items: model.clippings.items); return n == 0 ? nil : n }()
         // Folders are lazy-loaded on first visit; a count here would force the fetch
         // just to draw a number nobody asked for.
         case .folders: nil
@@ -760,6 +789,15 @@ struct MusicView: View {
 
     @ViewBuilder
     private var tabContent: some View {
+        if !library.isConfigured && !Self.worksWithoutServer(tab) {
+            MusicNotConnectedView()
+        } else {
+            sectionContent
+        }
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
         switch tab {
         case .home: MusicHomeView()
         case .search: MusicSearchView()

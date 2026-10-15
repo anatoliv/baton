@@ -128,5 +128,6 @@ struct FolderDetailView: View {
             directory = await model.musicLibrary.directory(id: folder.id)
             loaded = true
         }
+        .songSharePresenter(model: model)
     }
 }

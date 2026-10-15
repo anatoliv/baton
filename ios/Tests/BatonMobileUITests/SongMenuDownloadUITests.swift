@@ -32,9 +32,9 @@ final class SongMenuDownloadUITests: XCTestCase {
     override func tearDown() { app = nil; super.tearDown() }
 
     func testTheMenuOffersNoDownloadForAFileAlreadyOnThisDevice() throws {
-        app.launch()
+        launchForReleaseNavigation(app)
 
-        app.buttons["Search"].firstMatch.tap()
+        selectReleaseTab("Search", in: app, screenTitle: "Search")
         let field = app.searchFields.firstMatch.exists
             ? app.searchFields.firstMatch
             : app.textFields.firstMatch

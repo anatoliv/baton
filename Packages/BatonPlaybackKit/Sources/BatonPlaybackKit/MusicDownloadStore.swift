@@ -170,7 +170,13 @@ public final class MusicDownloadStore {
         set { BatonStorage.defaults.set(newValue, forKey: Self.templateKey) }
     }
 
-    public init() {
+    /// Whether downloaded audio is kept out of backups: true on the iPhone, false on the Mac
+    /// (`BackupExclusion`, DOC-24). The manifest, metadata and collections files are never
+    /// excluded, because they are what names the files.
+    @ObservationIgnored private let excludesAudioFromBackup: Bool
+
+    public init(excludesAudioFromBackup: Bool = BackupExclusion.appliesOnThisPlatform) {
+        self.excludesAudioFromBackup = excludesAudioFromBackup
         let stored = BatonStorage.defaults.string(forKey: Self.folderKey)
         directory = stored.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? Self.defaultDirectory()
         ensureDirectoryAndRescan()
@@ -420,6 +426,8 @@ public final class MusicDownloadStore {
         let destination = directory.appendingPathComponent(name)
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temp, to: destination)
+        // At the final path, after the move: a download is a copy of what the server has.
+        if excludesAudioFromBackup { BackupExclusion.exclude(destination) }
         manifest[song.id] = name
         let entry = DownloadMeta(
             title: song.title, artist: song.artist, album: song.album, albumID: song.albumID,
@@ -670,6 +678,20 @@ public final class MusicDownloadStore {
         if readoptOrphanedDownloads(onDisk: onDisk, into: &ids) { saveManifest() }
         downloadedIDs = ids
         rebuildAggregates()
+        excludeOwnDownloadsFromBackup()
+    }
+
+    /// Mark downloads already on disk, which a build before DOC-24 left in the backup.
+    ///
+    /// Only files this store has claimed, never every audio file in the folder: the folder can
+    /// be one the owner picked, holding their own music, and those are not ours to drop
+    /// from a backup. Runs on every rescan rather than once behind a flag, since it costs one
+    /// resource read per download and also covers a folder switched to later.
+    private func excludeOwnDownloadsFromBackup() {
+        guard excludesAudioFromBackup else { return }
+        let owned = downloadedIDs.compactMap { localURL(for: $0) }.filter(BackupExclusion.isAudio)
+        let marked = BackupExclusion.exclude(owned)
+        if marked > 0 { downloadLog.notice("excluded \(marked) downloads from backup") }
     }
 
     /// Give an audio file its song id back when the manifest row that named it is gone.

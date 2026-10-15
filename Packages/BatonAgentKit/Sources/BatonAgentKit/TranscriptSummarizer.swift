@@ -1,3 +1,4 @@
+import BatonDocuments
 import BatonSubsonicKit
 import Foundation
 import BatonSubsonicModels
@@ -226,11 +227,6 @@ public enum TranscriptSummarizer {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
-    // MARK: - Transport
-
-    /// One prompt in, one reply out. Deliberately not `RemoteAgent`'s loop: summarizing needs
-    /// no tools, no memory, and no multi-turn browsing, and reusing the loop would drag all
-    /// three into a job that is a single completion.
     // MARK: - Plain text
 
     /// Summarize plain text that has no timestamps — a web page, a terminal buffer, anything
@@ -307,62 +303,71 @@ public enum TranscriptSummarizer {
         return windows
     }
 
+    // MARK: - Transport
+
+    /// The summarizer's settings as a `ModelSource`, so the request goes through
+    /// `HTTPModelClient`, the app's one model client (M4.2b). Only the provider, address and
+    /// model reach the wire for these two dialects; the context size is Ollama's and the router's.
+    static func modelSource(for config: RemoteControlSettings.NaturalLanguageConfig) -> ModelSource {
+        ModelSource(name: config.model, provider: modelProvider(config.provider), baseURL: config.baseURL,
+                    model: config.model, contextTokens: 8_192)
+    }
+
+    static func modelProvider(_ provider: RemoteControlSettings.LLMProvider) -> ModelSource.Provider {
+        switch provider {
+        case .anthropic: .anthropic
+        case .openAICompatible: .openAICompatible
+        }
+    }
+
+    /// How long one window may take. Two minutes, as it has always been; the router's tasks
+    /// wait longer because they send whole chapters.
+    static let requestTimeout: TimeInterval = 120
+
+    /// One prompt in, one reply out. Deliberately not `RemoteAgent`'s loop: summarizing needs
+    /// no tools, no memory, and no multi-turn browsing, and reusing the loop would drag all
+    /// three into a job that is a single completion. The errors are worded for the person
+    /// reading the transcript pane, exactly as they were before the move to `HTTPModelClient`
+    /// (`TranscriptSummarizerWireTests` holds each one).
     private static func complete(
         system: String,
         user: String,
         config: RemoteControlSettings.NaturalLanguageConfig,
         session: URLSession
     ) async throws -> String {
-        var request = URLRequest(url: try RemoteNaturalLanguage.endpoint(for: config))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var body: [String: Any]
-        switch config.provider {
-        case .anthropic:
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
-            body = [
-                "model": config.model,
-                "max_tokens": 1024,
-                "system": system,
-                "messages": [["role": "user", "content": user]],
-            ]
-        case .openAICompatible:
-            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
-            body = [
-                "model": config.model,
-                "max_tokens": 1024,
-                "messages": [
-                    ["role": "system", "content": system],
-                    ["role": "user", "content": user],
-                ],
-            ]
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let data: Data
-        let response: URLResponse
+        let source = modelSource(for: config)
+        let request: URLRequest
         do {
-            (data, response) = try await session.data(for: request)
+            // The server's own temperature, as before: the summaries must not change because
+            // the client did. The key goes as typed, empty included, as it always has.
+            request = try HTTPModelClient.request(for: source, system: system, user: user, apiKey: config.apiKey,
+                                                  maxTokens: 1024, timeout: requestTimeout, temperature: nil)
+        } catch {
+            throw RemoteNaturalLanguage.Failure.malformed("bad base URL \(config.baseURL)")
+        }
+
+        let text: String
+        do {
+            text = try await HTTPModelClient.send(request, provider: source.provider, session: session)
         } catch let error as URLError {
             let host = URLComponents(string: config.baseURL)?.host ?? config.baseURL
             throw SummaryError(message: RemoteNaturalLanguage.transportFailure(error, host: host).localizedDescription)
+        } catch let failure as HTTPModelClient.Failure {
+            switch failure {
+            case let .status(status, detail):
+                throw SummaryError(
+                    message: "The summarizing model returned HTTP \(status). \(detail)"
+                        + RemoteNaturalLanguage.hint(status: status, body: detail)
+                )
+            case .noHTTPResponse:
+                throw SummaryError(message: "Unexpected response from the summarizing model.")
+            case .unreadable, .notHTTP, .badURL:
+                throw SummaryError(message: "The summarizing model replied with nothing usable.")
+            }
         } catch {
             throw SummaryError(message: "The summarizing model couldn't be reached: \(error.localizedDescription)")
         }
-        guard let http = response as? HTTPURLResponse else {
-            throw SummaryError(message: "Unexpected response from the summarizing model.")
-        }
-        guard (200 ... 299).contains(http.statusCode) else {
-            let detail = RemoteNaturalLanguage.errorBody(from: data)
-            throw SummaryError(
-                message: "The summarizing model returned HTTP \(http.statusCode). \(detail)"
-                    + RemoteNaturalLanguage.hint(status: http.statusCode, body: detail)
-            )
-        }
-        guard let text = extractText(data, provider: config.provider), !text.isEmpty else {
+        guard !text.isEmpty else {
             throw SummaryError(message: "The summarizing model replied with nothing usable.")
         }
         return text
@@ -370,20 +375,8 @@ public enum TranscriptSummarizer {
 
     /// Pull the assistant's text out of either dialect's response shape.
     static func extractText(_ data: Data, provider: RemoteControlSettings.LLMProvider) -> String? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        switch provider {
-        case .anthropic:
-            guard let content = root["content"] as? [[String: Any]] else { return nil }
-            let text = content
-                .filter { ($0["type"] as? String) == "text" }
-                .compactMap { $0["text"] as? String }
-                .joined()
-            return text.isEmpty ? nil : text
-        case .openAICompatible:
-            guard let choices = root["choices"] as? [[String: Any]],
-                  let message = choices.first?["message"] as? [String: Any],
-                  let text = message["content"] as? String else { return nil }
-            return text.isEmpty ? nil : text
-        }
+        guard let text = try? HTTPModelClient.text(from: data, provider: modelProvider(provider)), !text.isEmpty
+        else { return nil }
+        return text
     }
 }

@@ -55,8 +55,12 @@ final class MusicModel {
     /// playing. Surfaced in Clippings, and played through the ordinary player: a clipping's id is
     /// its file URL, which `MediaKind` already treats as `.localFile`.
     let clippings = ClippingStore()
+    /// Books narrated on this Mac, each chapter landing in `clippings` (document clippings, M3).
+    /// Lazy, so nothing is created on disk while `baton.documents.enabled` is off.
+    @ObservationIgnored lazy var documents = DocumentLibrary(clippings: clippings)
     /// One-off spoken task summaries (the `speak_summary` MCP tool) + in-app banner state.
     let speech = SpeechPlaybackEngine()
+    let interpretation = BatonInterpreterHub()
     /// Bounded, persisted history of spoken summaries, so any past one can be replayed. (Speech)
     let speechHistory = SpeechHistoryStore()
     /// Which agent is talking, per MCP connection — see SpeechSessionLabels.
@@ -81,6 +85,10 @@ final class MusicModel {
     /// it as a sheet. Nil when closed, and never set at all unless the owner turned
     /// `ExternalDiscovery` on.
     var discoverySeed: NavidromeSong?
+
+    /// The track being shared with someone outside the LAN ("Share…"). `MusicView` presents the
+    /// composer as a sheet. Nil when closed.
+    var shareSong: NavidromeSong?
 
     /// Re-synthesize and play a past spoken summary from history, in its original voice. Stops any
     /// current/paused utterance first so it starts *now* rather than queuing behind it — this is a
@@ -161,6 +169,14 @@ final class MusicModel {
         // where the user left off. After wire() so track-start side effects are connected;
         // restoreQueue itself never auto-plays.
         music.restoreQueue()
+        // Clippings are read at launch, not on first visit: whether the window can show its
+        // sections without a music server depends on whether there are any (F1). A directory
+        // listing and a sidecar per clipping.
+        if !environment.isTesting { clippings.loadIfNeeded() }
+        // Resume a book left rendering when Baton quit. Off unless the flag is on (M1–M3).
+        if !environment.isTesting, DocumentLibrary.isEnabled() {
+            documents.start()
+        }
     }
 
     /// The active Navidrome server changed. Subsonic ids are per-server, so the transport queue,
@@ -257,6 +273,10 @@ final class MusicModel {
         // so both apps get it — this hook only has to do the bookkeeping.
         music.onTrackStarted = { [weak self, scrobbler, music] song in
             scrobbler.nowPlaying(song)
+            // "Last played" on a book chapter, for the book row and the storage rules.
+            if let clippings = self?.clippings, let item = clippings.item(forSongID: song.id), item.clipping.isBookChapter {
+                clippings.setLastPlayed(id: item.id)
+            }
             // Feed the now-playing bars. The live tap only works for file-based items —
             // HTTP-streamed items never invoke it (platform behaviour) — so streamed
             // tracks are analyzed offline from a bounded side-fetch of the same bytes,
@@ -301,13 +321,28 @@ final class MusicModel {
         // external scrobblers instead of over-counting skips.
         // Podcast resume: when a podcast episode starts, hand the player its saved offset so it
         // picks up where you left off. Library tracks (non-URL ids) never resume.
-        music.resumeOffsetProvider = { [podcastProgress] song in
+        // A book chapter resumes at the synced position the same way (document clippings, M3.5).
+        music.resumeOffsetProvider = { [podcastProgress, clippings] song in
+            if MediaKind(id: song.id) == .localFile {
+                return BookPlayback.resumeOffset(for: song, clippings: clippings)
+            }
             guard Self.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id) else { return nil }
             return podcastProgress.resumeOffset(id: song.id)
         }
         // Podcast progress: persist position periodically + at end. When an episode crosses
         // into "played", auto-remove its download (storage hygiene, opt-out via UserDefaults).
-        music.onProgressUpdate = { [podcastProgress] song, time, duration in
+        music.onProgressUpdate = { [weak self, podcastProgress, clippings] song, time, duration in
+            // A book chapter: the position goes in the shared ledger (so the phone opens the book
+            // there), and the end of the last chapter finishes the book.
+            if MediaKind(id: song.id) == .localFile {
+                guard let self, let documentID = clippings.item(forSongID: song.id)?.clipping.documentID else { return }
+                let count = DocumentLibrary.isEnabled() ? self.documents.job(forDocument: documentID)?.summary.chapters.count : nil
+                if let finished = BookPlayback.record(song, time: time, duration: duration,
+                                                      chapterCount: count, clippings: clippings) {
+                    Task { await self.documents.markFinished(documentID: finished) }
+                }
+                return
+            }
             guard Self.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id) else { return }
             podcastProgress.record(id: song.id, position: time, duration: duration)
             // Auto-remove the download only when the episode actually reaches its end (the

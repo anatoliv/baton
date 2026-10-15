@@ -39,12 +39,17 @@ public protocol ServerTransport: Sendable {
 
 /// Whether this request is one the streaming path should take, decided from the head alone.
 ///
-/// Deliberately narrow: only a `PUT` to a file route. Everything else — including a `GET` of a
+/// Deliberately narrow: only a `PUT` to a file route, or a book submission (a prepared novel is
+/// larger than the 1 MB the ordinary path accepts). Everything else — including a `GET` of a
 /// file, which has no body — goes the ordinary way, so the streaming path exists for exactly the
 /// case that needs it and nothing else inherits its behaviour by accident.
 public func isStreamingUpload(_ request: StreamingUpload.Request) -> Bool {
-    request.method == "PUT" && request.path.hasPrefix("/v1/files/")
+    request.method == "PUT" && (request.path.hasPrefix("/v1/files/") || BookRoutes.isBookUpload(request))
 }
+
+/// Which requests a transport streams to disk. The gateway's answer is `isStreamingUpload`; the
+/// share service (`baton-share`) passes its own, for the one route where it takes a song.
+public typealias StreamingPredicate = @Sendable (StreamingUpload.Request) -> Bool
 
 // MARK: - Responses
 
@@ -115,13 +120,16 @@ public struct NetworkTransport: ServerTransport {
     // Sendable through the protocol: every stored property is a value or a `@Sendable` closure.
     let stagingDirectory: URL
     let maximumBodyBytes: Int
+    let streamsBody: StreamingPredicate
     let log: @Sendable (String) -> Void
 
     public init(stagingDirectory: URL,
                 maximumBodyBytes: Int = FileStore.defaultMaximumFileBytes,
+                streamsBody: @escaping StreamingPredicate = isStreamingUpload,
                 log: @escaping @Sendable (String) -> Void = RequestLog.standardOutput) {
         self.stagingDirectory = stagingDirectory
         self.maximumBodyBytes = maximumBodyBytes
+        self.streamsBody = streamsBody
         self.log = log
     }
 
@@ -159,6 +167,7 @@ public struct NetworkTransport: ServerTransport {
                     receive(connection, buffer: Data(), sink: sink, started: started, handle: handle, upload: upload)
                 case let .complete(url, request):
                     Task {
+                        defer { sink.cancel() }
                         let response = await upload(request, url)
                         logUpload(request, response, started: started)
                         send(connection, response)
@@ -176,7 +185,7 @@ public struct NetworkTransport: ServerTransport {
             if buffer.isEmpty { connection.cancel(); return }
 
             // Decide, once the head has arrived, whether this belongs on the streaming path.
-            if let head = StreamingUpload.peekHead(buffer), isStreamingUpload(head) {
+            if let head = StreamingUpload.peekHead(buffer), streamsBody(head) {
                 let sink = StreamingUpload(stagingDirectory: stagingDirectory,
                                            maximumBodyBytes: maximumBodyBytes)
                 switch sink.consume(buffer) {
@@ -184,6 +193,7 @@ public struct NetworkTransport: ServerTransport {
                     receive(connection, buffer: Data(), sink: sink, started: started, handle: handle, upload: upload)
                 case let .complete(url, request):
                     Task {
+                        defer { sink.cancel() }
                         let response = await upload(request, url)
                         logUpload(request, response, started: started)
                         send(connection, response)
@@ -244,6 +254,26 @@ public typealias DefaultTransport = POSIXTransport
 /// Compiled on Apple platforms too, where `DefaultTransport` is the Network one and this is
 /// reached only by its tests. That is deliberate: this is the code that runs in production, and
 /// leaving it behind an `#else` meant a Mac could not so much as typecheck it.
+/// Derived from the accepted socket, never an HTTP header or claimed hostname.
+/// The current listener is IPv4; only the kernel-reported 127/8 peer is trusted.
+/// Unsupported address families and failed peer lookup remain unknown and denied.
+public enum ConnectionPeer: Sendable, Equatable {
+    case unknown, loopback, other
+
+    static func socketPeer(_ fd: Int32) -> ConnectionPeer {
+        var address = sockaddr_in()
+        var size = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let result = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getpeername(fd, $0, &size)
+            }
+        }
+        guard result == 0, address.sin_family == sa_family_t(AF_INET),
+              size >= socklen_t(MemoryLayout<sockaddr_in>.size) else { return .unknown }
+        return UInt32(bigEndian: address.sin_addr.s_addr) >> 24 == 127 ? .loopback : .other
+    }
+}
+
 public struct POSIXTransport: ServerTransport {
     let stagingDirectory: URL
     let maximumBodyBytes: Int
@@ -263,18 +293,54 @@ public struct POSIXTransport: ServerTransport {
     /// this many, a connection is answered `503` and closed rather than queued: a gateway for a
     /// household never reaches it, and a client that does is better told than left hanging.
     let maximumConcurrentConnections: Int
+    let loopbackOnly: Bool
+    let responseCapacity: ResponseCapacity?
+    let reserveResponseBytes: @Sendable (HTTPRequestMessage) -> Int
+    let streamsBody: StreamingPredicate
     let log: @Sendable (String) -> Void
 
     public init(stagingDirectory: URL,
                 maximumBodyBytes: Int = FileStore.defaultMaximumFileBytes,
                 readTimeout: TimeInterval = 15,
                 maximumConcurrentConnections: Int = 128,
+                loopbackOnly: Bool = false,
+                responseCapacity: ResponseCapacity? = nil,
+                reserveResponseBytes: @escaping @Sendable (HTTPRequestMessage) -> Int = { _ in 0 },
+                streamsBody: @escaping StreamingPredicate = isStreamingUpload,
                 log: @escaping @Sendable (String) -> Void = RequestLog.standardOutput) {
         self.stagingDirectory = stagingDirectory
         self.maximumBodyBytes = maximumBodyBytes
+        self.streamsBody = streamsBody
         self.readTimeout = readTimeout
         self.maximumConcurrentConnections = max(1, maximumConcurrentConnections)
+        self.loopbackOnly = loopbackOnly
+        self.responseCapacity = responseCapacity
+        self.reserveResponseBytes = reserveResponseBytes
         self.log = log
+    }
+
+    /// Nonqueueing admission BEFORE a handler can allocate a large response. The caller reserves
+    /// its worst-case retained payload, serializer copy and headers, not a client-claimed size.
+    /// A reservation survives handler return and is released only after transmission/cancellation.
+    public final class ResponseCapacity: @unchecked Sendable {
+        private let lock = NSLock()
+        private var used = 0
+        public let maximumBytes: Int
+        public let writeTimeout: TimeInterval
+        public init(maximumBytes: Int, writeTimeout: TimeInterval = 60) {
+            self.maximumBytes = max(1, maximumBytes)
+            self.writeTimeout = max(0.1, min(60, writeTimeout))
+        }
+        func take(_ bytes: Int) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard bytes > 0, bytes <= maximumBytes - used else { return false }
+            used += bytes
+            return true
+        }
+        func release(_ bytes: Int) {
+            lock.lock(); defer { lock.unlock() }
+            used -= bytes
+        }
     }
 
     /// How many connection threads are alive, so the cap above can mean something.
@@ -304,12 +370,23 @@ public struct POSIXTransport: ServerTransport {
         public func stop() { close(fileDescriptor) }
     }
 
+    public typealias PeerHandler = @Sendable (HTTPRequestMessage, ConnectionPeer) async -> Data
+
     public func serve(
         port: UInt16,
         handle: @escaping @Sendable (HTTPRequestMessage) async -> Data,
         upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data
     ) throws {
-        _ = try start(port: port, handle: handle, upload: upload)
+        try serve(port: port, handle: handle, upload: upload, peerHandle: nil)
+    }
+
+    public func serve(
+        port: UInt16,
+        handle: @escaping @Sendable (HTTPRequestMessage) async -> Data,
+        upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data,
+        peerHandle: PeerHandler?
+    ) throws {
+        _ = try start(port: port, handle: handle, upload: upload, peerHandle: peerHandle)
         dispatchMain()
     }
 
@@ -320,7 +397,8 @@ public struct POSIXTransport: ServerTransport {
     public func start(
         port: UInt16,
         handle: @escaping @Sendable (HTTPRequestMessage) async -> Data,
-        upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data
+        upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data,
+        peerHandle: PeerHandler? = nil
     ) throws -> Listener {
         // Disarm SIGPIPE before a single byte is written (TBX-5308, S-F4).
         //
@@ -342,7 +420,7 @@ public struct POSIXTransport: ServerTransport {
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = port.bigEndian
-        address.sin_addr = in_addr(s_addr: INADDR_ANY)
+        address.sin_addr = in_addr(s_addr: loopbackOnly ? inet_addr("127.0.0.1") : INADDR_ANY)
 
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -380,6 +458,9 @@ public struct POSIXTransport: ServerTransport {
         let connectionCap = maximumConcurrentConnections
         let live = LiveConnections()
         let sink = log
+        let streams = streamsBody
+        let responseLimit = responseCapacity
+        let reservation = reserveResponseBytes
         let thread = Thread {
             while true {
                 let clientFD = accept(listenFD, nil, nil)
@@ -419,7 +500,9 @@ public struct POSIXTransport: ServerTransport {
                     defer { live.release() }
                     Self.handleConnection(
                         clientFD, stagingDirectory: staging, maximumBodyBytes: bodyCap,
-                        readTimeout: deadline, log: sink, handle: handle, upload: upload
+                        readTimeout: deadline, streamsBody: streams, log: sink,
+                        responseCapacity: responseLimit, reserveResponseBytes: reservation,
+                        handle: handle, upload: upload, peerHandle: peerHandle
                     )
                 }
                 worker.name = "baton-gateway-connection"
@@ -441,9 +524,13 @@ public struct POSIXTransport: ServerTransport {
         stagingDirectory: URL,
         maximumBodyBytes: Int,
         readTimeout: TimeInterval,
+        streamsBody: StreamingPredicate = isStreamingUpload,
         log: @escaping @Sendable (String) -> Void,
+        responseCapacity: ResponseCapacity? = nil,
+        reserveResponseBytes: @escaping @Sendable (HTTPRequestMessage) -> Int = { _ in 0 },
         handle: @escaping @Sendable (HTTPRequestMessage) async -> Data,
-        upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data
+        upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data,
+        peerHandle: PeerHandler? = nil
     ) {
         defer { close(fd) }
         setReadTimeout(fd, readTimeout)
@@ -454,8 +541,8 @@ public struct POSIXTransport: ServerTransport {
         // A connection that dies mid-upload must not leave its partial file behind.
         defer { sink?.cancel() }
 
-        func answer(_ response: Data, method: String, path: String, userAgent: String?) {
-            write(fd, response)
+        func answer(_ response: Data, method: String, path: String, userAgent: String?, timeout: TimeInterval? = nil) {
+            write(fd, response, timeout: timeout)
             RequestLog.write(method: method, path: path, response: response,
                              userAgent: userAgent, started: started, to: log)
         }
@@ -489,7 +576,7 @@ public struct POSIXTransport: ServerTransport {
             buffer.append(slice)
 
             // Decide, once the head has arrived, whether this belongs on the streaming path.
-            if let head = StreamingUpload.peekHead(buffer), isStreamingUpload(head) {
+            if let head = StreamingUpload.peekHead(buffer), streamsBody(head) {
                 let started = StreamingUpload(stagingDirectory: stagingDirectory,
                                               maximumBodyBytes: maximumBodyBytes)
                 sink = started
@@ -517,9 +604,26 @@ public struct POSIXTransport: ServerTransport {
                        method: "?", path: "/", userAgent: nil)
                 return
             case .complete(let request):
-                let response = awaiting { await handle(request) }
+                let bytes = reserveResponseBytes(request)
+                let capacity = bytes > 0 ? responseCapacity : nil
+                if let capacity, !capacity.take(bytes) {
+                    answer(httpResponse(status: "503 Service Unavailable", contentType: "application/json",
+                                        payload: Data(#"{"code":"capacity","error":"Too many active transfers. Try again shortly."}"#.utf8),
+                                        extraHeaders: ["Cache-Control": "private, no-store", "Retry-After": "1"]),
+                           method: request.method, path: request.path, userAgent: request.headers["user-agent"], timeout: 1)
+                    return
+                }
+                // Clearing the response precedes releasing admission, including when the peer
+                // disconnects. No large Data may outlive the reserved sending connection.
+                var response = Data()
+                defer { response = Data(); capacity?.release(bytes) }
+                let peer = ConnectionPeer.socketPeer(fd)
+                response = awaiting {
+                    if let peerHandle { return await peerHandle(request, peer) }
+                    return await handle(request)
+                }
                 answer(response, method: request.method, path: request.path,
-                       userAgent: request.headers["user-agent"])
+                       userAgent: request.headers["user-agent"], timeout: capacity?.writeTimeout)
                 return
             }
         }
@@ -573,11 +677,31 @@ public struct POSIXTransport: ServerTransport {
     }
 
     /// Writes every byte — a single `write` may be partial on a socket.
-    static func write(_ fd: Int32, _ data: Data) {
+    static func write(_ fd: Int32, _ data: Data, timeout: TimeInterval? = nil) {
+        let deadline = timeout.map { ProcessInfo.processInfo.systemUptime + $0 }
+        let originalFlags = deadline == nil ? -1 : fcntl(fd, F_GETFL, 0)
+        if deadline != nil {
+            guard originalFlags >= 0, fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) == 0 else { return }
+        }
+        defer { if originalFlags >= 0 { _ = fcntl(fd, F_SETFL, originalFlags) } }
         data.withUnsafeBytes { raw in
             guard var pointer = raw.baseAddress else { return }
             var remaining = raw.count
             while remaining > 0 {
+                if let deadline {
+                    let left = deadline - ProcessInfo.processInfo.systemUptime
+                    guard left > 0 else { return }
+                    // SO_SNDTIMEO alone is not an absolute deadline for a partial blocking
+                    // send. Poll a nonblocking socket, with the same monotonic deadline on
+                    // every iteration. Neither slow progress nor EINTR resets that clock.
+                    var event = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                    let ready = poll(&event, 1, Int32(max(1, min(1000, left * 1000))))
+                    if ready < 0 && errno == EINTR { continue }
+                    if ready == 0 { continue }
+                    guard ready > 0, event.revents & Int16(POLLERR | POLLHUP | POLLNVAL) == 0 else { return }
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { return }
+                }
+                let count = deadline == nil ? remaining : min(remaining, 65_536)
                 // `send` with MSG_NOSIGNAL rather than `write`, so a peer that has gone away
                 // surfaces as EPIPE here instead of as a signal that kills the process
                 // (TBX-5308, S-F4). The flag is Linux-only; on Apple the `signal` call in
@@ -585,10 +709,11 @@ public struct POSIXTransport: ServerTransport {
                 // conditional and why no `SO_NOSIGPIPE` is set here — the Mac tests then
                 // exercise exactly the mechanism Linux ships with.
                 #if canImport(Glibc)
-                let written = send(fd, pointer, remaining, Int32(MSG_NOSIGNAL))
+                let written = send(fd, pointer, count, Int32(MSG_NOSIGNAL))
                 #else
-                let written = send(fd, pointer, remaining, 0)
+                let written = send(fd, pointer, count, 0)
                 #endif
+                if written < 0 && (errno == EINTR || (deadline != nil && (errno == EAGAIN || errno == EWOULDBLOCK))) { continue }
                 if written <= 0 { return }
                 pointer += written
                 remaining -= written

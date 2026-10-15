@@ -44,6 +44,7 @@ answer, the [FAQ](FAQ.md) is shorter. For the deeper design and architecture, se
 - [Rating, liking, and multi-select](#rating-liking-and-multi-select)
 - [Scrobbling](#scrobbling)
 - [Finding music you don't have](#finding-music-you-dont-have)
+- [Sharing a song with a friend](#sharing-a-song-with-a-friend)
 - [Media keys and AirPlay](#media-keys-and-airplay)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Webhook actions](#webhook-actions)
@@ -1148,6 +1149,53 @@ related artists: you just don't get the YouTube links.
 
 ---
 
+## Sharing a song with a friend
+
+Send one song to someone who isn't on your network and has no account on your server. They get
+a link, open it in any browser, and listen. No app, and no sign-up.
+
+**To share**, choose **Share…** in a song's menu: right-click on the Mac, long-press on the
+iPhone. On the Mac, **Playback → Share Current Track…** does the same for what's playing. Add a
+note if you like, say who it's from, and pick how long the link lasts (1, 7 or 30 days), then
+press **Create Link**. Baton gets the song from your server, encrypts it and uploads it. Then
+**Send…** opens the share sheet, or **Copy Link** puts the link on the clipboard.
+
+**What your friend sees** is the artwork, the title, your note, and a play button, with a
+waveform in the colour of the cover. After half a minute they can send a reaction back: an
+emoji, plus a name and a reply if they want to. **Get Baton** at the bottom takes them to the
+App Store or the Mac download.
+
+**To see who listened**, open **Shared Links**: in Settings on the iPhone, and in Settings,
+About on the Mac. It lists every link this device has sent, when each one ends, how often it was
+opened and played, and any reactions. From there you can copy a link again, extend it by seven
+days, or revoke it, which stops it playing for everyone and deletes the copy straight away. A
+link is listed only on the device that made it, because only that device holds its key.
+
+**How private it is:**
+
+- The song is encrypted on your device before it leaves. The key is the part of the link after
+  the `#`, which browsers never send to a server, so Baton's share service keeps a copy it
+  cannot play. Send the whole link, or it won't open.
+- With **Show song details in link previews** on, the title, artist, artwork and your note are
+  readable by the service, so Messages and other apps can show a proper preview. Turn it off
+  and they are encrypted too, and the preview only says that someone sent a song.
+- Everything is deleted when the link ends. The service keeps counts of opens and plays, not
+  who made them, for up to 400 days.
+- A link plays up to 100 times. That makes it a way to send a song to friends, not to
+  publish one.
+
+The details are in the [privacy policy](https://batonmusic.app/privacy.html#sharing).
+
+> [!NOTE]
+> Only songs on your server can be shared, so clippings and the demo library can't. Songs over
+> 20 minutes can't be shared either. The song is sent as a 320 kbps MP3, so your server has to
+> be able to convert to MP3, which Navidrome does out of the box.
+
+The music friend can share too ("send this to Maya"), through the `music_share` tool, but only
+after you have shared a song once yourself and seen where a shared song goes.
+
+---
+
 ## Media keys and AirPlay
 
 - **Media keys and Bluetooth remotes.** The play, pause, next, previous, and seek keys on
@@ -1865,7 +1913,7 @@ background even with every window closed.
 
 ### What an agent can do
 
-The control server exposes **40 music operations**. They're the same actions Baton's own
+The control server exposes **41 music operations**. They're the same actions Baton's own
 interface uses, so anything an agent does is something you could have done by hand. Here's the
 full catalog.
 
@@ -1923,6 +1971,7 @@ play can suggest something from your collection instead of guessing at song titl
 | Tool | What it does | Main inputs |
 |---|---|---|
 | `music_like` | Like or unlike a track (the current one if no search is given) | `query`, `unlike` |
+| `music_share` | Make a link a friend outside your network can play in a browser, and return it. Refuses until you've shared a song once yourself. See [Sharing a song with a friend](#sharing-a-song-with-a-friend) | `query`, `note`, `expires_days`, `hide_details` |
 | `music_rate` | Set a 1 to 5 star rating (0 clears it) | `rating`, `query` |
 | `music_create_playlist` | Create a playlist, optionally seeded from a search | `name`, `query` |
 | `music_add_to_playlist` | Add search matches to an existing playlist | `query`, `name` or `playlist_id` |
@@ -1937,6 +1986,23 @@ play can suggest something from your collection instead of guessing at song titl
 | `music_now_playing` | Report the current track, playback state, and queue position | none |
 | `music_recent_events` | What was played recently and how long each was heard before moving on, including skips | none |
 | `music_set_eq` | Turn the equalizer on or off and apply a preset | `enabled`, `preset` |
+
+### Meeting interpretation routes
+
+Tonebox captures and translates the call; Baton renders its two independent audio lanes.
+Choose headphones and a separate installed virtual microphone, then select that virtual
+microphone in the meeting app. Audio uses authenticated local streams rather than MCP.
+Ordinary agent announcements wait while interpretation owns the routes. Stop or mute a
+lane immediately on a gap; resume creates a new generation and does not replay old speech.
+
+| Tool | What it does | Main inputs |
+|---|---|---|
+| `interpretation_devices` | List stable audio device identifiers and route capabilities | none |
+| `interpretation_open` | Open independent headphone and virtual microphone routes | incoming_device_uid, outgoing_device_uid, voice_engine, tts_url |
+| `interpretation_status` | Read connection state and lane generations | none |
+| `interpretation_configure` | Resume one stopped lane with a new generation; never replay prior speech | session_id, lane, device_uid |
+| `interpretation_cancel` | Immediately invalidate and mute one direction | session_id, lane, generation |
+| `interpretation_close` | Stop both directions and release music focus | session_id |
 
 ### Live resources an agent can read
 
@@ -2477,7 +2543,7 @@ you want to know why it answered the way it did. See [The music friend](#the-mus
 ### About
 <!-- baton:audience mac -->
 
-Baton's version, its license (MIT), and a link to the website, then seven sections:
+Baton's version, its license (MIT), and a link to the website, then eight sections:
 
 - **Support Baton**: the tip jar. Baton is free and stays free, and a tip unlocks nothing.
 - **Lyrics**: **Look up missing lyrics**, which asks LRCLIB for words your server doesn't
@@ -2490,6 +2556,9 @@ Baton's version, its license (MIT), and a link to the website, then seven sectio
   straight away.
 - **Updates**: the auto-update feed, its status, an "automatically check for updates" toggle,
   and a **Check for Updates Now** button. See [Updates](#updates).
+- **Shared Links**: the songs you have shared with friends outside your network, and
+  **Show Shared Links…**, which lists who listened and lets you copy, extend or revoke a link.
+  See [Sharing a song with a friend](#sharing-a-song-with-a-friend).
 - **Back up & restore**: **Export…** writes your settings to a file, with or without your
   accounts, and **Import…** reads one back. This is also one of the three ways to get your
   setup onto a phone. See
@@ -2527,6 +2596,8 @@ this order:
   [The queue, shuffle, repeat, and autoplay](#the-queue-shuffle-repeat-and-autoplay).
 - **Scrobbling**: ListenBrainz and Last.fm. Your server's own play counts need no setup. See
   [Scrobbling](#scrobbling).
+- **Shared Links**: the links this phone has sent, who listened, and copy, extend or revoke.
+  See [Sharing a song with a friend](#sharing-a-song-with-a-friend).
 - **Help & FAQ** and **What's New**: this guide, and the notes for each release.
 - **Diagnostics**: the opt-in **Send crash reports** toggle, off by default.
 - **Display**: **Keep the screen awake**, for a phone propped on a dock or a counter. Off by
@@ -2575,10 +2646,12 @@ on GitHub.
 - **Your credentials live in the macOS Keychain**, never in a plain text file.
 - **Baton doesn't phone home by default.** It talks only to the music server you point it at,
   plus the scrobbling services and its own update feed if you turn those on, any
-  text-to-speech server you set up, and (if you connect a chat bot) Telegram or Discord. It has no catalog server of its own to call. The one
-  opt-in exception is crash reporting (Settings, About, Diagnostics, off by default): when you
-  turn it on, Baton sends crash and error data to its developer through Crashbox to help fix bugs,
-  never your music, library, server address, or account, and no IP or identifiers.
+  text-to-speech server you set up, and (if you connect a chat bot) Telegram or Discord. It has no catalog server of its own to call. There are
+  two exceptions, and both are yours to choose. When you share a song, it is encrypted on your
+  device and uploaded to Baton's share service, which counts what happens to that link; see
+  [Sharing a song with a friend](#sharing-a-song-with-a-friend). And crash reporting (Settings,
+  About, Diagnostics, off by default): when you turn it on, Baton sends crash and error data to its developer through Crashbox to help fix bugs,
+  never your music, library, server address, or account, and no IP or identifiers. Turning it on means Baton will try to send a report after a crash, but it does not confirm that the report arrived.
 - **The control server is loopback-only and token-protected.** It can't be reached from your
   network, and nothing on your Mac can drive it without the secret token. See
   [how it's secured](#letting-an-agent-control-your-music).

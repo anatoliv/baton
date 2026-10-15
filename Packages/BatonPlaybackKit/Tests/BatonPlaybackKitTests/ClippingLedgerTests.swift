@@ -194,4 +194,69 @@ final class ClippingLedgerSyncWiringTests: XCTestCase {
         XCTAssertEqual(decoded.record(for: "abc")?.title, "Mac")
         XCTAssertEqual(decoded.record(for: "abc")?.source, "Ghostty")
     }
+
+    // MARK: - Books: position and finished (document clippings, M3.3)
+
+    /// The acceptance criterion: chapter 2 at 10:00 on the Mac, then the iPhone opens the book
+    /// there. Through the sync's own merge, in both orders.
+    func testAPositionOnTheMacReachesThePhone() {
+        var mac = ClippingLedger()
+        mac.setPosition(documentID: "book", chapterIndex: 1, seconds: 600, at: t(100))
+        var phone = ClippingLedger()
+        phone.setPosition(documentID: "book", chapterIndex: 0, seconds: 30, at: t(10))
+
+        for merged in [ClippingLedger.merged(mac, phone), ClippingLedger.merged(phone, mac)] {
+            XCTAssertEqual(merged.document("book")?.chapterIndex, 1)
+            XCTAssertEqual(merged.document("book")?.seconds, 600)
+        }
+        let throughSync = PreferenceSync.mergedValue(key: ClippingLedger.storageKey,
+                                                     local: phone.encoded(), remote: mac.encoded()) as? Data
+        XCTAssertEqual(ClippingLedger.decode(throughSync)?.document("book")?.seconds, 600)
+    }
+
+    /// Finishing on the Mac, then playing chapter 1 again on the phone, moves the position and
+    /// leaves the book finished: the two facts have their own clocks.
+    func testFinishedAndPositionMergeIndependently() {
+        var mac = ClippingLedger()
+        mac.setFinished(true, documentID: "book", at: t(100))
+        var phone = ClippingLedger()
+        phone.setPosition(documentID: "book", chapterIndex: 0, seconds: 5, at: t(200))
+
+        let merged = ClippingLedger.merged(mac, phone)
+        XCTAssertEqual(merged.document("book")?.finished, true)
+        XCTAssertEqual(merged.document("book")?.chapterIndex, 0)
+        XCTAssertEqual(merged.document("book")?.seconds, 5)
+    }
+
+    func testMarkingUnfinishedLaterWins() {
+        var mac = ClippingLedger()
+        mac.setFinished(true, documentID: "book", at: t(100))
+        var phone = ClippingLedger()
+        phone.setFinished(false, documentID: "book", at: t(300))
+        XCTAssertEqual(ClippingLedger.merged(mac, phone).document("book")?.finished, false)
+        XCTAssertEqual(ClippingLedger.merged(phone, mac).document("book")?.finished, false)
+    }
+
+    /// A ledger written before books existed reads with none, and a ledger with no books encodes
+    /// exactly as before, so older builds see no change at all.
+    func testALedgerFromBeforeBooksStillReadsAndWritesTheSameBytes() throws {
+        var old = ClippingLedger()
+        old.setTitle("A reading", for: "abc", at: t(1))
+        let bytes = try XCTUnwrap(old.encoded())
+        XCTAssertFalse(String(decoding: bytes, as: UTF8.self).contains("documents"))
+        let read = try XCTUnwrap(ClippingLedger.decode(bytes))
+        XCTAssertEqual(read.documents, [])
+        XCTAssertEqual(read.record(for: "abc")?.title, "A reading")
+    }
+
+    /// An older build decodes a ledger with books (it ignores the field) and merges only what it
+    /// knows; the newer device's merge of that back keeps its own books.
+    func testAnOlderDevicesMergeDoesNotLoseBooks() throws {
+        var mac = ClippingLedger()
+        mac.setPosition(documentID: "book", chapterIndex: 2, seconds: 42, at: t(50))
+        struct OlderLedger: Codable { var records: [ClippingLedger.Record] }
+        let older = try JSONDecoder().decode(OlderLedger.self, from: XCTUnwrap(mac.encoded()))
+        let olderBack = ClippingLedger(records: older.records)
+        XCTAssertEqual(ClippingLedger.merged(mac, olderBack).document("book")?.seconds, 42)
+    }
 }

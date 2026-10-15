@@ -11,6 +11,10 @@ final class BatonAppDelegate: NSObject, UIApplicationDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
+        if identifier == BackgroundShareUploadEngine.sessionIdentifier {
+            SongSharing.shared.handleBackgroundUploadEvents(completion: completionHandler)
+            return
+        }
         guard identifier == BackgroundDownloadEngine.sessionIdentifier else { return completionHandler() }
         // UIKit's handler isn't @Sendable-annotated; it must be called on the main
         // thread, which is exactly where the engine invokes it.
@@ -32,12 +36,18 @@ struct BatonMobileApp: App {
         // size.
         ArtworkCache.configureURLCache()
         LegacyKeyMigration.run()
+        Task { await SongSharing.shared.restoreBackgroundUploads() }
         // Stamp the version a fresh install started on. Without this the What's New marker
         // stayed empty for the life of the install, so the automatic sheet could never fire
         // on any later update — which is every App Store install of 1.0.
         WhatsNewView.stampInstalledVersion()
         let model = MobileModel()
         _model = State(initialValue: model)
+        // The refresh iOS grants while the app is closed, so "Chapter 1 is ready" can arrive
+        // with the phone in a pocket (M5.4). Registered before the app finishes launching, as
+        // BGTaskScheduler requires.
+        MobileDocuments.registerRefresh(collect: { [weak model] in await model?.collectBooks(announcing: true) },
+                                        moreToCome: { [weak model] in model?.books.hasUncollected ?? false })
         // Expose the composition root to Siri/Shortcuts intents (in-process).
         AppServicesHolder.model = model
         // Wire the shared transport intents to the live engine. They are declared in
@@ -79,6 +89,9 @@ struct BatonMobileApp: App {
                     })
                 }
                 .task { await model.restoreSession() }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    Task { await SongSharing.shared.restoreBackgroundUploads() }
+                }
                 // The keep-awake preference only means anything if it survives a relaunch
                 // — a toggle that resets whenever the app restarts is a suggestion.
                 .onAppear {
@@ -88,7 +101,22 @@ struct BatonMobileApp: App {
                 .onOpenURL { url in
                     Task { await route(url) }
                 }
+                // A book that arrived while the phone was away comes down the next time it is
+                // looked at, not on a timer; the background refresh covers the pocket.
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    Task { await model.collectBooks(announcing: false) }
+                }
+                .sheet(item: Binding(get: { model.pendingDocumentImport.map(ImportRequest.init) },
+                                     set: { if $0 == nil { model.pendingDocumentImport = nil } })) { request in
+                    DocumentImportScreen(url: request.url, model: model) { model.pendingDocumentImport = nil }
+                }
         }
+    }
+
+    /// Identity for the import sheet: one request per file handed over.
+    private struct ImportRequest: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
     }
 
     /// Acts on a `baton://` link. What the link *means* is decided by `BatonDeepLink`,
@@ -97,6 +125,15 @@ struct BatonMobileApp: App {
     /// the app sitting there looking as though nothing was tapped.
     @MainActor
     private func route(_ url: URL) async {
+        // A document from Files, Mail or the share sheet ("Open in Baton"): the import screen,
+        // when the feature is on. Copied first, because the handed-over file is ours to read
+        // only for a moment (M5.2).
+        if url.isFileURL, MobileDocuments.isEnabled(), MobileDocuments.canImport(url) {
+            do { model.pendingDocumentImport = try MobileDocuments.stage(url) } catch {
+                model.linkFailure = "The file could not be opened: \(error.localizedDescription)"
+            }
+            return
+        }
         // A link this app does not claim is not a failure worth a message: it was never
         // ours, and something else on the phone may still handle it.
         guard let link = BatonDeepLink(url: url) else { return }

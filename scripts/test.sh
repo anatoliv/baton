@@ -629,6 +629,9 @@ else
     Packages/BatonSubsonicKit/Sources
     Packages/BatonSubsonicModels/Sources
     Packages/BatonMCPProtocol/Sources
+    Packages/BatonDocuments/Sources
+    # The song-sharing kit: the gateway package depends on it for baton-share (Linux).
+    Packages/BatonShareKit/Sources
     gateway/Sources
   )
 fi
@@ -793,6 +796,103 @@ if [ -n "$scheme_hits" ]; then
   red "  or list it in $SCHEME_LINT_ALLOWLIST with the reason if it is deliberately excluded."
   lint_fail=1
 fi
+
+# W-23: every place that copies the gateway's sibling packages copies all of them.
+#
+# The gateway package reaches `../Packages/*` by path, and SwiftPM resolves every declared
+# dependency whichever product is built. Five places copy that set by hand: both Dockerfiles,
+# both deploy scripts, and the Linux build further down this file. The document-clippings
+# merge added BatonDocuments to three of them; baton-share's image then failed at
+# `swift build` with "the package at '/src/Packages/BatonDocuments' cannot be accessed",
+# which nothing noticed until a deploy was about to run from that main.
+#
+# The set is read from the manifests (gateway/Package.swift, then each package's own, so a
+# transitive path dependency counts too). An unreadable manifest is a finding, not an empty
+# set, so this cannot pass by finding nothing. `BATON_GATEWAY_PKG_LINT_ROOT` points it at a
+# planted tree for `scripts/test-lints.sh`.
+GATEWAY_PKG_LINT_ROOT="${BATON_GATEWAY_PKG_LINT_ROOT:-.}"
+gateway_pkg_lint_hits() {
+  python3 - "$GATEWAY_PKG_LINT_ROOT" <<'PYEOF'
+import os, re, shlex, sys
+root = sys.argv[1]
+path_dep = re.compile(r'\.package\(\s*path:\s*"([^"]+)"')
+
+def reached(manifest_dir, seen):
+    manifest = os.path.join(manifest_dir, "Package.swift")
+    try:
+        text = open(manifest, encoding="utf-8").read()
+    except OSError:
+        print(f"cannot read {os.path.relpath(manifest, root)}")
+        return
+    for rel in path_dep.findall(text):
+        dep = os.path.normpath(os.path.join(manifest_dir, rel))
+        if dep not in seen:
+            seen.add(dep)
+            reached(dep, seen)
+
+seen = set()
+reached(os.path.join(root, "gateway"), seen)
+names = sorted(os.path.basename(d) for d in seen)
+if not names:
+    print("gateway/Package.swift declares no path packages, which cannot be right")
+
+def copy_line(name):    # Dockerfile: COPY Packages/<name> ...
+    return lambda line: re.match(rf"COPY\s+Packages/{name}\s", line)
+def deploy_packages(lines, place):
+    # Parse the actual copy commands, including continued archive arguments. A
+    # comment, echo or later ssh command mentioning a path cannot supply a package.
+    # Keep this to the two supported deployment forms; never evaluate shell text.
+    copied = set()
+    logical_lines = "\n".join(lines).replace("\\\n", "").splitlines()
+    for line in logical_lines:
+        if not re.match(r"\s*(?:git|rsync)\s", line):
+            continue
+        try:
+            lexer = shlex.shlex(line, posix=True, punctuation_chars="|;&")
+            lexer.whitespace_split = True
+            words = list(lexer)
+        except ValueError:
+            print(f"cannot parse copy command in {place}")
+            continue
+        words = words[:next((i for i, word in enumerate(words)
+                             if word and all(c in "|;&" for c in word)), len(words))]
+        if words[:5] == ["git", "-C", "$REPO", "archive", "$REVISION"]:
+            copied.update(word for word in words[5:]
+                          if re.fullmatch(r"Packages/[A-Za-z0-9_]+", word))
+        elif words[:1] == ["rsync"]:
+            copied.update(word.removeprefix("$REPO/") for word in words[1:]
+                          if re.fullmatch(r"\$REPO/Packages/[A-Za-z0-9_]+", word))
+    return copied
+def linux_build(name):  # this file's Linux build: one rsync line listing Packages/<name> ...
+    return lambda line: line.lstrip().startswith("Packages/") and line.rstrip().endswith("\\") \
+        and f"Packages/{name} " in line
+places = {
+    "gateway/deploy/Dockerfile": copy_line,
+    "gateway/deploy/share.Dockerfile": copy_line,
+    "gateway/deploy/deploy.sh": None,
+    "gateway/deploy/deploy-share.sh": None,
+    "scripts/test.sh": linux_build,
+}
+for place, matcher in places.items():
+    try:
+        lines = open(os.path.join(root, place), encoding="utf-8").read().splitlines()
+    except OSError:
+        print(f"cannot read {place}")
+        continue
+    copied = deploy_packages(lines, place) if matcher is None else None
+    for name in names:
+        included = f"Packages/{name}" in copied if copied is not None else any(matcher(name)(line) for line in lines)
+        if not included:
+            print(f"{place} does not copy Packages/{name}")
+PYEOF
+}
+gateway_pkg_hits="$(gateway_pkg_lint_hits 2>&1 || true)"
+if [ -n "$gateway_pkg_hits" ]; then
+  red "  lint: a gateway build or deploy leaves out a package gateway/Package.swift reaches:"
+  printf '%s\n' "$gateway_pkg_hits" | sed 's/^/    /' >&2
+  red "  SwiftPM resolves every declared path package, so the image build fails without it."
+  lint_fail=1
+fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 [ "$lint_fail" -eq 0 ] && green "  lints clean" || { red "✗ LINT FAILED"; exit 1; }
 
@@ -872,6 +972,10 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          publish-site.sh, publish-repo.sh and the gateway deploy each
 #                          refuse a planted unmerged commit before touching a stubbed tool.
 #                          Production ran fixes main did not have in six projects (E19)
+#   test-backup-repo       the private backup pushes branches the remote lacks, accepts a
+#                          local branch that is only BEHIND the remote, still pushes tags,
+#                          and refuses a diverged one. A bare `push --all` failed the daily
+#                          repo-backup over a stale local main with nothing missing (TBX-8430)
 #
 # The guard itself then runs over THIS tree: a gate that goes green with a live
 # credential lying where `git add -A` would take it has certified the wrong thing.
@@ -879,7 +983,7 @@ if ! scripts/check-untracked-credentials.sh "$PWD"; then
   red "✗ credential-looking file in the working tree (see above)"
   exit 1
 fi
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard; do
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo; do
   # A guard named by path (release-kit/check) must not put its slash into the log name:
   # mktemp -t then targets a subdirectory of $TMPDIR that does not exist, and the gate died
   # here on every run from the release kit's adoption until 0.19.12 (TBX-8023).
@@ -1080,11 +1184,16 @@ for runtime, entries in devices.items():
     fi
 
     bold "==> iPhone tests on $IOS_SIM (shared-package guard)"
+    # Xcode 26.6 collected a simulator sysdiagnose after a green 240-test run,
+    # then waited for simctl's full 600-second timeout. A fresh simulator boot
+    # reproduced it; this option removed the wait in the same test command.
+    # The result bundle and xcodebuild log still report test failures.
     xcodebuild test \
       -project ios/BatonMobile.xcodeproj \
       -scheme BatonMobile \
       -destination "id=$IOS_SIM_UDID" \
       -only-testing:BatonMobileTests \
+      -collect-test-diagnostics never \
       -derivedDataPath "${DERIVED}-ios" \
       -resultBundlePath "$IOS_RESULT_BUNDLE" >"$IOS_LOG" 2>&1
     ios_status=$?
@@ -1351,7 +1460,7 @@ if [ -z "${SKIP_IOS:-}" ]; then
 set -euo pipefail
 ssh "$LINUX_GATEWAY_HOST" "mkdir -p ~/$LINUX_REMOTE_DIR/Packages"
 rsync -a --delete --exclude '.build' --exclude '.git' \\
-  Packages/BatonAgentKit Packages/BatonSubsonicKit Packages/BatonSubsonicModels Packages/BatonMCPProtocol \\
+  Packages/BatonAgentKit Packages/BatonSubsonicKit Packages/BatonSubsonicModels Packages/BatonMCPProtocol Packages/BatonDocuments Packages/BatonShareKit \\
   "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/Packages/"
 rsync -a --delete --exclude '.build' gateway/ "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/gateway/"
 ssh "$LINUX_GATEWAY_HOST" "cd ~/$LINUX_REMOTE_DIR && cp gateway/deploy/Dockerfile . && docker build -f Dockerfile -t baton-gateway:gate ."

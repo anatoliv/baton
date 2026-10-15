@@ -84,6 +84,14 @@ final class PreferenceSyncSchedulerTests: XCTestCase {
 
     /// Someone typing a host with no scheme should not produce a URL that fails later at a
     /// layer with no way to explain itself.
+    /// A probe sharing the owner's gateway must not sync: the shared document carries the
+    /// gateway address itself, so the probe would adopt the owner's address over its own.
+    func testAProbeCanSwitchSyncOffThroughTheEnvironment() {
+        XCTAssertTrue(PreferenceSyncScheduler.isSwitchedOff(by: ["BATON_DEBUG_PREFERENCE_SYNC": "off"]))
+        XCTAssertFalse(PreferenceSyncScheduler.isSwitchedOff(by: ["BATON_DEBUG_PREFERENCE_SYNC": "on"]))
+        XCTAssertFalse(PreferenceSyncScheduler.isSwitchedOff(by: [:]))
+    }
+
     func testAnUnusableURLIsRejected() {
         XCTAssertNil(PreferenceSyncScheduler.gateway(urlString: "baton.home.example",
                                                      token: "s3cret"),

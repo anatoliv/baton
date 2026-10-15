@@ -51,6 +51,10 @@ cp -R "$ROOT/gateway/deploy" "$SRC/gateway/deploy"
 cp "$ROOT/app/project.yml" "$SRC/app/project.yml"
 cp "$ROOT/ios/project.yml" "$SRC/ios/project.yml"
 cp "$ROOT/.gitignore" "$SRC/.gitignore"
+# publish-site checks that a site exists before reaching the main guard.
+# A minimal page keeps this fixture focused on the guard, with no asset links.
+mkdir -p "$SRC/website"
+printf '<!doctype html><title>Release guard fixture</title>\n' >"$SRC/website/index.html"
 # Gitignored files in the copied dirs (a local env file, caches) never reach the commit.
 git -C "$SRC" init -q
 git -C "$SRC" add -A

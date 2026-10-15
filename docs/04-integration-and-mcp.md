@@ -85,9 +85,12 @@ Baton writes, at startup (after it binds a port):
   use. Baton is on 8788. Update your MCP client, or use mcp.json."). Changing the port in
   Settings stops and restarts the listener; re-applying the port it is already on is a no-op,
   which is what stops the persist-back from looping.
-- The token is generated once (~256-bit hex) and persisted in `UserDefaults`
-  (`baton.mcp.token`); the discovery file is the bootstrap that makes Baton "just
-  work" for agents.
+- The token is generated once (~256-bit hex) and kept in the Keychain (account
+  `baton.mcp.token`; older installs had it in `UserDefaults` and are migrated on read).
+  It is **also written to `mcp.json`** (mode `0600`), because that file is how a local
+  client finds both the port and the token. So "in the Keychain" does not mean "not on
+  disk": anything that can read the user's files can read `mcp.json`. The discovery
+  file is the bootstrap that makes Baton "just work" for agents.
 
 ### 2.3 Security model
 

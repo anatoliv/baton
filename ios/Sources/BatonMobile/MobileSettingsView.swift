@@ -15,6 +15,8 @@ struct MobileSettingsView: View {
     /// life of the process.
     @State private var credentialsUnlocked = false
     @AppStorage(CrashReporting.enabledKey) private var sendsCrashReports = false
+    /// Whether the reporter actually came up, re-read after each toggle.
+    @State private var crashStatus = CrashReporting.currentStatus
     @AppStorage("baton.display.keepAwake") private var keepAwake = false
     /// Defaults to Dark, which is what the app has always been — so this setting appearing
     /// changes nothing until somebody moves it.
@@ -505,6 +507,23 @@ struct MobileSettingsView: View {
                     Text("Send your plays to ListenBrainz and Last.fm. Your server's own play counts need no setup.")
                 }
 
+                // The songs this phone has shared, who listened, and revoke or extend
+                // (docs/plan-song-sharing.md). The same list the Mac shows.
+                Section {
+                    NavigationLink {
+                        SharedLinksView()
+                    } label: {
+                        LabeledContent {
+                            let live = SongSharing.shared.ledger.records.filter { $0.isLive() }.count
+                            Text(live == 0 ? "None" : "\(live) live").foregroundStyle(.secondary)
+                        } label: {
+                            Label("Shared Links", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                } footer: {
+                    Text("Links to songs you've shared with friends outside your network. Each one is encrypted and ends on its own.")
+                }
+
                 Section {
                     Button { showsHelp = true } label: {
                         Label("Help & FAQ", systemImage: "questionmark.circle")
@@ -521,6 +540,7 @@ struct MobileSettingsView: View {
                         get: { sendsCrashReports },
                         set: { sendsCrashReports = $0; CrashReporting.apply(enabled: $0) }
                     ))
+                    .accessibilityIdentifier("crash-reporting-toggle")
                     .disabled(!CrashReporting.isConfigured)
                     if CrashReporting.canTriggerTestCrash(
                         optedIn: sendsCrashReports,
@@ -534,9 +554,19 @@ struct MobileSettingsView: View {
                 } header: {
                     Text("Diagnostics")
                 } footer: {
-                    Text(CrashReporting.isConfigured
-                         ? "Off by default. Crash reports carry no server address, credentials or track names. The Subsonic auth parameters are stripped before anything is sent."
-                         : "This build has no reporting endpoint compiled in, so nothing can be sent.")
+                    VStack(alignment: .leading, spacing: 6) {
+                        if crashStatus == .unavailable {
+                            Text(CrashReporting.unavailableMessage)
+                        .accessibilityIdentifier("crash-reporting-unavailable")
+                                .foregroundStyle(Color.warningTint)
+                        }
+                        Text(CrashReporting.isConfigured
+                             ? "Off by default. Crash reports carry no server address, credentials or track names. The Subsonic auth parameters are stripped before anything is sent."
+                             : "This build has no reporting endpoint compiled in, so nothing can be sent.")
+                    }
+                }
+                .task(id: sendsCrashReports) {
+                    crashStatus = await CrashReporting.settledStatus()
                 }
 
                 Section {

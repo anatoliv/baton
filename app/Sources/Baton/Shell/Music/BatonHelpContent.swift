@@ -323,6 +323,58 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.19.16",
+            date: "October 2026",
+            highlight: "Song sharing, meeting interpretation, and settings that stay put.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Coming from 0.19.12, this update brings the 0.19.13 through 0.19.15 cards below with it: share a song with a friend as a temporary encrypted link and manage those links, and play both directions of Tonebox meeting interpretation."),
+                HelpWhatsNewChange(.fixed,
+                    "Settings shared with your phone are no longer re-published by a device that merely received them, and a fresh install no longer clears settings it never held."),
+                HelpWhatsNewChange(.improved,
+                    "Clippings made from a document narrate with the suggested tone when the voice runs on a Chatterbox server, and the pronunciation list reaches Kokoro as written."),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.19.15",
+            date: "October 2026",
+            highlight: "Send a friend a song they can play in their browser.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Share a song using a temporary encrypted link. Add a note, choose when it expires, and let your friend listen in their browser and send a reaction."),
+                HelpWhatsNewChange(.added,
+                    "Manage your links in Shared Links: copy a link again, see listening counts, extend it or revoke it."),
+                HelpWhatsNewChange(.improved,
+                    "This update also includes the meeting interpretation changes described in the 0.19.13 and 0.19.14 cards below. Meeting interpretation remains experimental; verify it in a test call."),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.19.14",
+            date: "September 2026",
+            highlight: "Play both directions of Tonebox meeting interpretation.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Tonebox can stream translated meeting voices to headphones and translated microphone speech to a virtual meeting microphone independently, including overlapping speech."),
+                HelpWhatsNewChange(.added,
+                    "Interpreter playback reports device and stream failures, supports per-direction cancellation and resume, and keeps ordinary agent announcements from interrupting the call. Use Tonebox’s Setup & help before a test call."),
+                HelpWhatsNewChange(.improved,
+                    "Use with Tonebox 0.1.353. Meeting interpretation is experimental; verify audio delivery and translation quality in a test call."),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.19.13",
+            date: "September 2026",
+            highlight: "Play both directions of Tonebox meeting interpretation.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Tonebox can stream translated meeting voices to headphones and translated microphone speech to a virtual meeting microphone independently, including overlapping speech."),
+                HelpWhatsNewChange(.added,
+                    "Interpreter playback reports device and stream failures, supports per-direction cancellation and resume, and keeps ordinary agent announcements from interrupting the call. Use Tonebox’s Setup & help before a test call."),
+                HelpWhatsNewChange(.improved,
+                    "This is a companion test release for Tonebox 0.1.352. Physical meeting delivery and bilingual fidelity still need validation."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.19.12",
             date: "September 2026",
             highlight: "A song that fails to load stops downloading.",

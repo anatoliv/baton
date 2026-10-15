@@ -227,6 +227,11 @@ func songPlaybackMenuItems(_ song: NavidromeSong, _ model: MusicModel,
         }
     }
     songAddToPlaylistMenu([song], model)
+    // A link a friend outside the LAN can play (docs/plan-song-sharing.md). Only for songs on
+    // the server: a clipping has no server copy to fetch.
+    if !song.isLocalOnly {
+        Button(SongAction.share.sheetLabel, systemImage: SongAction.share.symbol) { model.shareSong = song }
+    }
 }
 
 /// "Add to Playlist ▸" submenu — a **New Playlist…** (created from the tracks, named after

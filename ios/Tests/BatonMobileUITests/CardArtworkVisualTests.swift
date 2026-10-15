@@ -48,9 +48,9 @@ final class CardArtworkVisualTests: XCTestCase {
     /// artwork actually loaded.
     func testTheAlbumGridStillLaysOutWithWholeCovers() throws {
         try Self.skipUnlessDemoServerIsUp()
-        app.launch()
+        launchForReleaseNavigation(app)
 
-        app.buttons["Albums"].firstMatch.tap()
+        selectReleaseTab("Albums", in: app, screenTitle: "Albums")
         XCTAssertTrue(app.scrollViews.firstMatch.waitForExistence(timeout: 30),
                       "the Albums grid must appear")
 
@@ -87,10 +87,9 @@ final class CardArtworkVisualTests: XCTestCase {
     /// The mix cards' backdrops. Unlike cover art these are *bundled* assets, so they
     /// render without a server and the capture is worth looking at whatever the library.
     func testMixCardsDrawTheSharedBackdrops() throws {
-        app.launch()
+        launchForReleaseNavigation(app)
 
-        XCTAssertTrue(app.buttons["Home"].firstMatch.waitForExistence(timeout: 30))
-        app.buttons["Home"].firstMatch.tap()
+        selectReleaseTab("Home", in: app, screenTitle: "Home")
 
         // "Most Played" is the first auto-mix and carries MixArtMostPlayed.
         let mix = app.staticTexts["Most Played"]

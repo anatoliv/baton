@@ -147,6 +147,7 @@ struct HistoryView: View {
             emptyMessage: "Play something and it'll show up here.",
             emptySymbol: "clock.arrow.circlepath"
         )
+        .songSharePresenter(model: model)
     }
 
     private func loadServerRecentIfNeeded() async {

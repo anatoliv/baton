@@ -103,6 +103,15 @@ struct PlaybackMenuCommands: Commands {
                 .keyboardShortcut("i", modifiers: .command)
                 .disabled(player.nowPlaying == nil)
 
+            // The same composer as the song menus' "Share…", for whatever is playing. Not for a
+            // radio station or a clipping: neither has a server copy to send.
+            Button("Share Current Track…") {
+                openWindow(id: MusicWindowView.windowID)
+                model.shareSong = player.nowPlaying
+            }
+                .disabled(player.nowPlaying == nil || player.nowPlaying?.isLocalOnly == true
+                    || model.internetRadio.onAirStation != nil)
+
             Button(currentIsLiked ? "Unlike Current Track" : "Like Current Track") {
                 if let song = player.nowPlaying { Task { await model.musicLibrary.toggleLike(song) } }
             }

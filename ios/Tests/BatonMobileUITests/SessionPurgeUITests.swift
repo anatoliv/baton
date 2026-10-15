@@ -42,7 +42,7 @@ final class SessionPurgeUITests: XCTestCase {
 
 
     func testDisconnectConfirmationNamesWhatItRemoves() {
-        app.launch()
+        launchForReleaseNavigation(app)
 
         openSettings()
 
@@ -72,7 +72,7 @@ final class SessionPurgeUITests: XCTestCase {
     /// Confirming must actually land back at setup. The previous implementation cleared
     /// in-memory state and left the app in a half-configured limbo.
     func testDisconnectReturnsToSetup() {
-        app.launch()
+        launchForReleaseNavigation(app)
 
         openSettings()
 
@@ -104,9 +104,7 @@ final class SessionPurgeUITests: XCTestCase {
     /// exists, and failed with "app should reach its tab bar" as though the app had not
     /// launched.
     private func openSettings() {
-        let home = app.tabBars.buttons["Home"]
-        XCTAssertTrue(home.waitForExistence(timeout: 30), "app should reach its tab bar")
-        home.tap()
+        selectReleaseTab("Home", in: app, screenTitle: "Home")
         let gear = app.buttons["Settings"]
         XCTAssertTrue(gear.waitForExistence(timeout: 20), "Home's header must offer Settings")
         gear.tap()

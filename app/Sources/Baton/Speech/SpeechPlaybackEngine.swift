@@ -197,12 +197,15 @@ final class SpeechPlaybackEngine {
     /// Enqueues and plays in order; starting from idle ducks the music for the whole session.
     /// `text` (when known) labels the speaking HUD; `sessionLabel` names the agent it came
     /// from, shown above the transcript and deliberately never spoken.
+    var interpretationActive = false
+
     func play(
         _ utterance: Utterance,
         text: String? = nil,
         documentRange: NSRange? = nil,
         sessionLabel: String? = nil
     ) {
+        guard !interpretationActive else { return }
         utteranceQueue.append((utterance, text, documentRange, sessionLabel))
         if !isSpeaking { startNextUtterance() }
     }
@@ -210,6 +213,7 @@ final class SpeechPlaybackEngine {
     /// Play audio `data` immediately (the in-app pane's manual "play this clip"). A one-off that
     /// replaces any queued utterances; still ducks the music for its duration.
     func play(data: Data) {
+        guard !interpretationActive else { return }
         utteranceQueue.removeAll()
         currentText = nil
         currentSessionLabel = nil

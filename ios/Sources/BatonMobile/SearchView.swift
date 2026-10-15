@@ -184,6 +184,7 @@ struct SearchView: View {
                 await model.musicLibrary.search(query)
             }
         }
+        .songSharePresenter(model: model)
     }
 
     /// The Mac keeps filter history per screen under stable keys; Search's is "search", and

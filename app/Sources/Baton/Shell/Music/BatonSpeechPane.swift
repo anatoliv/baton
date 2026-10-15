@@ -75,6 +75,11 @@ struct BatonSpeechPane: View {
             // the pane to change belongs where the pane opens.
             hostsSection
             voicesSection
+            // Document clippings (M7.2 to M7.4): the models and voices this Mac can run itself.
+            // Under the servers, because it answers the same question for this machine.
+            if DocumentLibrary.isEnabled() {
+                LocalModelsSection()
+            }
             deliverySection
             mapSection
             transcriptionSection

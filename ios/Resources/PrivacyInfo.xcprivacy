@@ -11,9 +11,8 @@
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
-	<!-- Crash reports are the one collected data type, and they are opt-in
-	     (Settings → Diagnostics, default off), scrubbed of URLs/IPs/paths, and
-	     never linked to an identity — Baton has no identities to link to. -->
+	<!-- Crash reports are opt-in (Settings → Diagnostics, default off), scrubbed of
+	     URLs/IPs/paths, and never linked to an identity. -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
 		<dict>
@@ -21,6 +20,126 @@
 			<string>NSPrivacyCollectedDataTypeCrashData</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- Song sharing (docs/song-sharing-privacy-audit.md, privacy.html#sharing).
+		     Collected when a link is created, including assistant shares after first manual consent.
+		     Declared as linked: each share is
+		     stored against a random install key made for sharing only, and Apple counts a
+		     device-level identifier as linking, even one tied to no account or name.
+		     Other user content: readable title, artist, album, note and waveform when previews are on.
+		     Explicit From names and readable artwork have their own categories below.
+		     The encrypted song is never readable on the server; this declaration does not
+		     describe ciphertext as collected readable Audio Data.
+		     Product interaction: the counts the share service keeps per link.
+		     Device ID: the install key/derived identifier, including optional App Attest key IDs.
+		     Technical sharing failure reasons are retained with that identifier. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<!-- Optional recipient-browser replies are private messages delivered to
+		     the sharer in the native Shared Links list; previews do not encrypt them. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailsOrTextMessages</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<!-- The optional configured music friend sends search queries and library
+		     results in model turns (AgentClient, AgentTools and RemoteAgent).
+		     The shipped direct-provider default is Anthropic with the user's key;
+		     its standard API handling retains inputs/outputs beyond the request.
+		     Declared linked conservatively because requests are account-authenticated.
+		     BYO transcription and Apple-only recognition boundaries are recorded in
+		     docs/song-sharing-app-privacy-release-checklist.md. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeSearchHistory</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>
 			<false/>
 			<key>NSPrivacyCollectedDataTypePurposes</key>

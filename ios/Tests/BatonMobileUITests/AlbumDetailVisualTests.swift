@@ -34,9 +34,9 @@ final class AlbumDetailVisualTests: XCTestCase {
 
     func testCaptureTheAlbumPage() throws {
         try Self.skipUnlessDemoServerIsUp()
-        app.launch()
+        launchForReleaseNavigation(app)
 
-        app.buttons["Albums"].firstMatch.tap()
+        selectReleaseTab("Albums", in: app, screenTitle: "Albums")
         let album = app.scrollViews.buttons.firstMatch
         XCTAssertTrue(album.waitForExistence(timeout: 40), "expected an album")
         // Existing is not the same as tappable. A cell can be laid out while its artwork

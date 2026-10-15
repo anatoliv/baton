@@ -1,3 +1,4 @@
+import BatonDocuments
 import BatonSubsonicKit
 import Foundation
 import OSLog
@@ -14,6 +15,10 @@ enum CrashReporting {
     static let perLaunchBudget = 20
     static let requestTimeout: TimeInterval = 2
     static let resourceTimeout: TimeInterval = 5
+    /// The ceiling on waiting for the SDK's main-thread setup to run after
+    /// `SentrySDK.start`. Normally it runs within milliseconds; only a main
+    /// thread stuck this long reaches it. The wait runs on `queue`, never main.
+    static let setupWait: TimeInterval = 10
 
     #if os(iOS)
         static let pendingTestCrashKey = "baton.pendingTestCrash"
@@ -44,8 +49,64 @@ enum CrashReporting {
     /// valid configuration and immutable source identity.
     static var isConfigured: Bool { configuration != nil }
 
+    /// What Settings shows, derived from the same gates the SDK start uses.
+    enum Status: Equatable {
+        case notConfigured
+        case off
+        case on
+        case unavailable
+    }
+
+    /// `.unavailable` means the reporter did not come up in this session (see
+    /// `startReporter`). It says nothing about the collector: an unreachable or
+    /// rejecting Crashbox still reads `.on`, because finding that out would take
+    /// traffic Baton does not send. A start still in progress reads `.on`.
+    static func status(
+        enabled: Bool,
+        configured: Bool,
+        outcome: ReportingAttemptGate.Outcome
+    ) -> Status {
+        guard configured else { return .notConfigured }
+        guard enabled else { return .off }
+        return outcome == .failed ? .unavailable : .on
+    }
+
+    static var currentStatus: Status {
+        status(enabled: isEnabled, configured: isConfigured, outcome: attemptGate.current())
+    }
+
+    /// Whether the start outcome is final for what Settings shows. Enabled and
+    /// configured with no attempt yet means the toggle's start is still queued.
+    static func isSettled(
+        enabled: Bool,
+        configured: Bool,
+        outcome: ReportingAttemptGate.Outcome
+    ) -> Bool {
+        guard enabled, configured else { return true }
+        return outcome == .started || outcome == .failed
+    }
+
+    /// The status Settings shows, re-read until the start attempt settles
+    /// (bounded by `setupWait` plus a second), so a reporter that does not come
+    /// up shows as unavailable without reopening Settings.
+    static func settledStatus() async -> Status {
+        let deadline = Date().addingTimeInterval(setupWait + 1)
+        while !Task.isCancelled, Date() < deadline,
+              !isSettled(enabled: isEnabled, configured: isConfigured, outcome: attemptGate.current()) {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return currentStatus
+    }
+
+    /// The line both Settings screens show when the status is `.unavailable`.
+    static let unavailableMessage =
+        "Crash reporting could not start in this session. Baton keeps working. Turn it off and on again to retry."
+
     /// Launch never waits for SDK or network work.
     static func startIfEnabled() {
+        #if DEBUG
+            prepareAcceptanceFixture()
+        #endif
         guard isEnabled, let configuration else { return }
         queue.async {
             guard isEnabled else { return }
@@ -60,6 +121,9 @@ enum CrashReporting {
             queue.async { startSDKOnce(configuration) }
         } else {
             queue.async {
+                // Unconditional on purpose: a start that timed out can still
+                // finish later on the main thread, so close whatever is running,
+                // not only a recorded start.
                 SentrySDK.close()
                 attemptGate.resetAfterExplicitDisable()
                 log.notice("Remote crash reporting disabled by user")
@@ -118,8 +182,65 @@ enum CrashReporting {
     }
 
     private static var configuration: Configuration? {
-        configuration(from: Bundle.main.infoDictionary ?? [:])
+        #if DEBUG
+            if let mode = acceptanceMode {
+                return mode == "unconfigured" ? nil : Configuration(
+                    dsn: mode == "rejected" ? "http://127.0.0.1:9/1" : "http://examplePublicKey@127.0.0.1:9/1",
+                    provider: "crashbox",
+                    release: "baton-acceptance@1+1",
+                    environment: "preproduction"
+                )
+            }
+        #endif
+        return configuration(from: Bundle.main.infoDictionary ?? [:])
     }
+
+    #if DEBUG
+        /// Real SDK fixtures require both a separately identified app and the
+        /// existing full preferences/file redirect. Release apps cannot enter.
+        private static var acceptanceMode: String? {
+            guard Bundle.main.bundleIdentifier?.hasSuffix(".acceptance") == true,
+                  BatonStorage.isProbe,
+                  let mode = ProcessInfo.processInfo.environment["BATON_CRASH_REPORTING_ACCEPTANCE"],
+                  ["unconfigured", "rejected", "failure", "recovery"].contains(mode)
+            else { return nil }
+            return mode
+        }
+
+        private static let acceptanceLock = NSLock()
+        private nonisolated(unsafe) static var acceptanceAttempts = 0
+        private static var acceptanceCache: URL {
+            FileManager.default.temporaryDirectory.appendingPathComponent("tbx-8557-acceptance-\(getpid())")
+        }
+
+        private static func prepareAcceptanceFixture() {
+            guard let mode = acceptanceMode else { return }
+            BatonStorage.defaults.set(true, forKey: enabledKey)
+            BatonStorage.defaults.set("about", forKey: "baton.settings.selectedCategory")
+            acceptanceLock.lock()
+            acceptanceAttempts = 0
+            acceptanceLock.unlock()
+            if mode == "failure" || mode == "recovery" {
+                try? Data("cache directory blocked by a file".utf8).write(to: acceptanceCache)
+            }
+        }
+
+        private static func configureAcceptanceOptions(_ options: Options) {
+            guard let mode = acceptanceMode else { return }
+            // Always loopback, even if a private packaging config is present.
+            options.dsn = mode == "rejected"
+                ? "http://127.0.0.1:9/1"
+                : "http://examplePublicKey@127.0.0.1:9/1"
+            options.cacheDirectoryPath = acceptanceCache.path
+            acceptanceLock.lock()
+            let attempt = acceptanceAttempts
+            acceptanceAttempts += 1
+            acceptanceLock.unlock()
+            if mode == "recovery", attempt > 0 {
+                try? FileManager.default.removeItem(at: acceptanceCache)
+            }
+        }
+    #endif
 
     // MARK: - Bounded, event-only SDK policy
 
@@ -342,25 +463,90 @@ enum CrashReporting {
         }
     #endif
 
+    /// Why the reporter is unavailable in this session.
+    enum StartFailure: Error, Equatable {
+        /// The SDK's own DSN parser refused the configuration, so the SDK was not started.
+        case configurationRejected
+        /// The SDK's main-thread setup did not run within `setupWait`.
+        case setupTimedOut
+        /// The SDK's setup ran but left no client running.
+        case didNotEnable
+    }
+
+    /// Starts the reporter and reports whether it actually came up (TBX-8557,
+    /// ported from MenuBurrow TBX-8547). `SentrySDK.start` cannot throw and,
+    /// called off the main thread, finishes its setup asynchronously on the main
+    /// queue, so success is judged by the result, not by the call returning.
+    /// It fails when
+    /// - the SDK parses the DSN itself and refuses it (checked before starting,
+    ///   so a refused configuration never starts a client), or
+    /// - the SDK's main-thread setup does not run within `setupWait`, or
+    /// - it ran and no client is running (`SentrySDK.isEnabled` is false).
+    /// It deliberately does not contact the collector: whether Crashbox is
+    /// reachable is not knowable without traffic, so that case reads "on".
+    /// `start`, `waitForSetup` and `isEnabled` are injected so tests drive this
+    /// exact decision with the real `Options` without starting the SDK.
+    static func startReporter(
+        _ configuration: Configuration,
+        start: (Options) -> Void,
+        waitForSetup: () -> Bool,
+        isEnabled: () -> Bool
+    ) throws {
+        let options = Options()
+        configure(options, configuration: configuration)
+        #if DEBUG
+            configureAcceptanceOptions(options)
+        #endif
+        guard options.enabled, options.parsedDsn != nil else {
+            throw StartFailure.configurationRejected
+        }
+        start(options)
+        guard waitForSetup() else { throw StartFailure.setupTimedOut }
+        guard isEnabled() else { throw StartFailure.didNotEnable }
+    }
+
+    /// `SentrySDK.start` called off the main thread queues its setup with
+    /// `dispatch_async` on the main queue, which is FIFO. A marker queued after
+    /// it runs only once that setup has, so reading `isEnabled` then is neither
+    /// early nor a guess about timing. On the main thread the SDK sets up inline.
+    static func mainQueueCaughtUp(within wait: TimeInterval) -> Bool {
+        if Thread.isMainThread { return true }
+        let marker = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async { marker.signal() }
+        return marker.wait(timeout: .now() + wait) == .success
+    }
+
     /// Runs only on the private utility queue. A failed attempt fuses retries
     /// until the user explicitly disables and re-enables reporting.
     private static func startSDKOnce(_ configuration: Configuration) {
         let outcome = attemptGate.runOnce {
-            SentrySDK.start { options in Self.configure(options, configuration: configuration) }
+            do {
+                try startReporter(
+                    configuration,
+                    start: { SentrySDK.start(options: $0) },
+                    waitForSetup: { mainQueueCaughtUp(within: setupWait) },
+                    isEnabled: { SentrySDK.isEnabled }
+                )
+            } catch {
+                log.error("Remote crash reporting unavailable (\(String(describing: error), privacy: .public)); Baton continues")
+                throw error
+            }
         }
         switch outcome {
         case .started: log.notice("Remote crash reporting started")
-        case .failed: log.error("Remote crash reporting unavailable; Baton continues")
-        case .idle: break
+        case .failed, .idle, .starting: break
         }
     }
 
     // MARK: - Scrubbing — pure, unit-tested in CrashReportingScrubberTests
 
     /// Redacts anything that could identify the user's server or machine: URLs,
-    /// RFC-1918 / link-local IPs, `*.local` hosts, Subsonic auth params, and home paths.
+    /// RFC-1918 / link-local IPs, `*.local` hosts, Subsonic auth params, and home paths, and
+    /// first every credential shape read-aloud also refuses to speak (API keys, bearer tokens,
+    /// private keys, `password=` assignments). One list, `BatonDocuments.SecretRedactor`, so a
+    /// key in a crash message is caught by the same rule as a key on the screen.
     static func redact(_ s: String) -> String {
-        var out = s
+        var out = SecretRedactor.redact(s, placeholder: "<redacted-secret>")
         let rules: [(String, String)] = [
             ("https?://[^\\s\"'<>]+", "<redacted-url>"),
             ("\\b(?:10|127)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b", "<redacted-ip>"),

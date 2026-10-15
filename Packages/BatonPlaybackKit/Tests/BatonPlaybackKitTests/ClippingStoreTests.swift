@@ -1,6 +1,7 @@
 import BatonSubsonicModels
 import Foundation
 import BatonSubsonicKit
+import AVFoundation
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -734,4 +735,119 @@ final class ClippingPersistenceTests: XCTestCase {
                                   "the damaged tombstones were not kept: \(names)")
         XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(aside)), damaged)
     }
+}
+
+// MARK: - Book chapters (document clippings, M3.2)
+
+/// A narrated book is a group of clippings, one per chapter (`specs/document-clippings.md`,
+/// *A book is a group of clippings*). What has to hold: an old sidecar still reads, a chapter
+/// plays as a track of an album named after the book, and every clipping knows its length, which
+/// readings never recorded.
+@MainActor
+final class ClippingStoreBookTests: XCTestCase {
+
+    private var dir: URL!
+    private var store: ClippingStore!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("baton-clips-\(UUID().uuidString)")
+        store = ClippingStore(directory: dir)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private let chapter = ClippingStore.BookChapter(documentID: "doc-1", documentTitle: "The Machine Stops",
+                                                   author: "E. M. Forster", chapterIndex: 1,
+                                                   chapterTitle: "The Mending Apparatus")
+
+    /// A real audio file of a known length, because the duration is measured from the file.
+    private func tone(seconds: Double, ext: String = "wav") throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("tone-\(UUID().uuidString).\(ext)")
+        let format = AVAudioFormat(standardFormatWithSampleRate: 24_000, channels: 1)!
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(24_000 * seconds))!
+        buffer.frameLength = buffer.frameCapacity
+        try file.write(from: buffer)
+        return url
+    }
+
+    func testAChapterPlaysAsATrackOfAnAlbumNamedAfterTheBook() throws {
+        let item = try store.adopt(try tone(seconds: 1), title: "The Mending Apparatus", sourceName: "Document",
+                                   chapter: chapter)
+        let song = item.asSong
+        XCTAssertEqual(song.album, "The Machine Stops")
+        XCTAssertEqual(song.artist, "E. M. Forster")
+        XCTAssertEqual(song.track, 2, "chapter index 1 is the second chapter")
+        XCTAssertEqual(song.title, "The Mending Apparatus")
+        XCTAssertEqual(MediaKind(id: song.id), .localFile, "a chapter must still play as a local file")
+    }
+
+    func testAReadingIsStillFiledUnderClippings() throws {
+        let item = try store.adopt(try tone(seconds: 1), title: "Google Chrome 09.15", sourceName: "Google Chrome")
+        XCTAssertEqual(item.asSong.album, "Clippings")
+        XCTAssertEqual(item.asSong.artist, "Google Chrome")
+        XCTAssertNil(item.asSong.track)
+        XCTAssertNil(item.clipping.documentID)
+    }
+
+    func testTheChapterFieldsSurviveAReopen() throws {
+        try store.adopt(try tone(seconds: 1), title: "The Mending Apparatus", chapter: chapter)
+        let clip = try XCTUnwrap(ClippingStore(directory: dir).reloaded().items.first?.clipping)
+        XCTAssertEqual(clip.documentID, "doc-1")
+        XCTAssertEqual(clip.documentTitle, "The Machine Stops")
+        XCTAssertEqual(clip.author, "E. M. Forster")
+        XCTAssertEqual(clip.chapterIndex, 1)
+        XCTAssertEqual(clip.chapterTitle, "The Mending Apparatus")
+    }
+
+    /// Readings never set a duration (`ReadAloudCoordinator`), so the player and the book row had
+    /// nothing to show. The file knows, so the store asks it.
+    func testTheDurationIsMeasuredFromTheFileWhenNotGiven() throws {
+        let item = try store.adopt(try tone(seconds: 2.5), title: "A reading")
+        XCTAssertEqual(try XCTUnwrap(item.clipping.durationSeconds), 2.5, accuracy: 0.05)
+        XCTAssertEqual(item.asSong.duration, 2)
+    }
+
+    func testAGivenDurationIsKept() throws {
+        let item = try store.adopt(try tone(seconds: 1), title: "A reading", durationSeconds: 371)
+        XCTAssertEqual(item.clipping.durationSeconds, 371)
+    }
+
+    func testAChapterIsFoundByBookAndIndex() throws {
+        try store.adopt(try tone(seconds: 1), title: "The Mending Apparatus", chapter: chapter)
+        XCTAssertNotNil(store.item(documentID: "doc-1", chapterIndex: 1))
+        XCTAssertNil(store.item(documentID: "doc-1", chapterIndex: 0))
+        XCTAssertNil(store.item(documentID: "doc-2", chapterIndex: 1))
+        XCTAssertEqual(store.chapters(ofDocument: "doc-1").count, 1)
+    }
+
+    func testLastPlayedIsRecordedAndSurvivesAReopen() throws {
+        let item = try store.adopt(try tone(seconds: 1), title: "The Mending Apparatus", chapter: chapter)
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        store.setLastPlayed(id: item.id, at: when)
+        XCTAssertEqual(ClippingStore(directory: dir).reloaded().item(id: item.id)?.clipping.lastPlayedAt, when)
+    }
+
+    /// A sidecar written by this build is stamped v2, so a downgraded build reads it but refuses
+    /// to write over it: an old build's rename would otherwise drop the chapter fields it does not
+    /// know about.
+    func testSidecarsAreWrittenAtVersionTwoAndAVersionOneEnvelopeStillReads() throws {
+        let item = try store.adopt(try tone(seconds: 1), title: "The Mending Apparatus", chapter: chapter)
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent("\(item.id).json"))) as? [String: Any]
+        XCTAssertEqual(raw?["version"] as? Int, 2)
+
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let v1 = #"{"version":1,"payload":{"id":"0c1d2e3f","title":"Old","createdAt":\#(created.timeIntervalSinceReferenceDate)}}"#
+        try Data(v1.utf8).write(to: dir.appendingPathComponent("0c1d2e3f.json"))
+        try Data(repeating: 0x41, count: 64).write(to: dir.appendingPathComponent("0c1d2e3f.m4a"))
+        let old = try XCTUnwrap(ClippingStore(directory: dir).reloaded().item(id: "0c1d2e3f")?.clipping)
+        XCTAssertEqual(old.title, "Old")
+        XCTAssertNil(old.documentID)
+    }
+}
+
+private extension ClippingStore {
+    func reloaded() -> ClippingStore { reload(); return self }
 }

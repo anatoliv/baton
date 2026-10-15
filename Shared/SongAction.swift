@@ -18,7 +18,7 @@ import Foundation
 public enum SongAction: String, CaseIterable, Sendable {
     case getInfo, play, playNext, addToQueue, startRadio, findMoreLikeThis
     case like, unlike, rate, goToAlbum, goToArtist
-    case addToPlaylist, download, banFromRadio, allowInRadio, markForRemoval
+    case addToPlaylist, share, download, banFromRadio, allowInRadio, markForRemoval
 
     public var label: String {
         switch self {
@@ -38,6 +38,9 @@ public enum SongAction: String, CaseIterable, Sendable {
         case .addToPlaylist: "Add to Playlist"
         case .goToAlbum: "Go to Album"
         case .goToArtist: "Go to Artist"
+        // Always opens the composer, so both menus use `sheetLabel` ("Share…"). Sends a link
+        // to someone outside the LAN: docs/plan-song-sharing.md.
+        case .share: "Share"
         case .download: "Download"
         case .banFromRadio: "Never Play in Radio"
         case .allowInRadio: "Allow in Radio"
@@ -59,6 +62,7 @@ public enum SongAction: String, CaseIterable, Sendable {
         case .addToPlaylist: "music.note.list"
         case .goToAlbum: "square.stack"
         case .goToArtist: "music.mic"
+        case .share: "square.and.arrow.up"
         case .download: "arrow.down.circle"
         case .banFromRadio: "hand.raised"
         case .allowInRadio: "checkmark.circle"
@@ -75,7 +79,7 @@ public enum SongAction: String, CaseIterable, Sendable {
     public static let order: [SongAction] = [
         .getInfo, .play, .playNext, .addToQueue, .startRadio, .findMoreLikeThis,
         .like, .unlike, .rate,
-        .goToAlbum, .goToArtist, .addToPlaylist,
+        .goToAlbum, .goToArtist, .addToPlaylist, .share,
         .download, .banFromRadio, .allowInRadio, .markForRemoval,
     ]
 }

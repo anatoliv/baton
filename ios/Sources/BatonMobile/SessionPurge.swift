@@ -34,6 +34,7 @@ enum SessionPurge {
     /// preferences a person sets for *their ears* rather than their account (EQ, crossfade),
     /// which survive precisely because they aren't account data.
     private static let defaultsKeys = [
+        "baton.documents.enabled",
         "baton.agent.route",
         "baton.agent.provider",
         "baton.agent.model",

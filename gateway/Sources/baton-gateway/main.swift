@@ -1,4 +1,5 @@
 import BatonAgentKit
+import BatonDocuments
 import BatonGatewayCore
 import BatonMCPProtocol
 import BatonSubsonicKit
@@ -30,6 +31,12 @@ import Foundation
 //   BATON_LLM_BASE_URL    override endpoint (e.g. a LiteLLM or Ollama box on your LAN)
 //   BATON_LLM_MODEL       model id (default claude-haiku-4-5-20251001)
 //   BATON_LLM_API_KEY     key for the provider
+//   BATON_TTS_KOKORO_URL  Kokoro for rendering books (default http://127.0.0.1:8880)
+//   BATON_TTS_CHATTERBOX_URL  Chatterbox, if a book's voices use it (optional)
+//   BATON_RENDER_CONCURRENCY  TTS requests in flight per book (default 2)
+//   BATON_BOOKS_MAX_BYTES     space for rendered books (default 4 GiB)
+//   BATON_BOOKS_KEEP_FINISHED_DAYS  how long a finished book's audio stays (default 30)
+//   BATON_FFMPEG          ffmpeg to encode chapters with (default: from PATH)
 
 let env = ProcessInfo.processInfo.environment
 
@@ -137,6 +144,35 @@ if sweptUploads > 0 {
         Data("swept \(sweptUploads) abandoned upload(s) from \(uploadStagingDirectory.path)\n".utf8))
 }
 
+/// Books (`specs/document-clippings.md`). Beside the state file like everything else persisted.
+/// Off, and saying why on every book route, when ffmpeg is missing: accepting a book that can
+/// never be encoded would be the quiet failure the rest of the design avoids.
+let booksDirectory = stateFileURL.deletingLastPathComponent().appendingPathComponent("books", isDirectory: true)
+let bookStore = BookStore(
+    directory: booksDirectory,
+    maximumBytes: Int(env["BATON_BOOKS_MAX_BYTES"] ?? "") ?? BookStore.defaultMaximumBytes,
+    keepFinished: (Double(env["BATON_BOOKS_KEEP_FINISHED_DAYS"] ?? "") ?? 30) * 86_400
+)
+var ttsEngines: [String: URL] = ["kokoro": URL(string: env["BATON_TTS_KOKORO_URL"] ?? "http://127.0.0.1:8880")!]
+if let chatterbox = env["BATON_TTS_CHATTERBOX_URL"].flatMap(URL.init(string:)) { ttsEngines["chatterbox"] = chatterbox }
+let synthesizer = HTTPSpeechSynthesizer(engines: ttsEngines)
+let ffmpegPath = FFmpegMuxer.locate(env["BATON_FFMPEG"] ?? "ffmpeg")
+let bookRenderer: BookRenderer? = ffmpegPath.map { path in
+    BookRenderer(store: bookStore, cacheDirectory: booksDirectory.appendingPathComponent("cache", isDirectory: true),
+                 synthesizer: synthesizer, muxer: FFmpegMuxer(executable: path),
+                 concurrency: Int(env["BATON_RENDER_CONCURRENCY"] ?? "") ?? 2,
+                 log: { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) })
+}
+let books = BookRoutes(renderer: bookRenderer, store: bookStore, synthesizer: synthesizer,
+                       unavailableReason: ffmpegPath == nil ? "ffmpeg is not installed on the gateway" : nil,
+                       exporter: ffmpegPath.map { FFmpegMuxer(executable: $0) })
+if let bookRenderer {
+    Task { await bookRenderer.startIfNeeded() }   // resumes any book left unfinished
+    FileHandle.standardOutput.write(Data("books: \(booksDirectory.path), TTS \(ttsEngines.mapValues(\.absoluteString))\n".utf8))
+} else {
+    FileHandle.standardOutput.write(Data("books: off (ffmpeg not found)\n".utf8))
+}
+
 let routes = GatewayRoutes(
     token: token,
     healthClient: healthClient,
@@ -146,7 +182,8 @@ let routes = GatewayRoutes(
     stateStore: stateStore,
     fileStore: fileStore,
     surface: surface,
-    llmConfig: llmConfig
+    llmConfig: llmConfig,
+    books: books
 )
 let router = routes.router()
 

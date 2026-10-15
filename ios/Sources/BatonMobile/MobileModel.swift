@@ -72,6 +72,13 @@ final class MobileModel {
     /// Where the music friend's brain lives, and whether it has been proven to work.
     /// Observable because the Friend tab appears and disappears with it.
     let agentConfig = AgentConfig()
+    /// Books made on the home server, remembered and collected the same way as on the Mac
+    /// (`Shared/HomeServerBooks.swift`, M5.3). Lazy: the gateway closure reads `agentConfig`.
+    @ObservationIgnored private(set) lazy var books: HomeServerBooks = HomeServerBooks(
+        directory: BatonStorage.supportSubdirectory("Books"), clippings: clippings,
+        gateway: { [weak self] in self?.gatewayBookClient() }, log: documentsLog)
+    /// A file or link waiting for the import screen (Files "Open in", a pasted link, M5.2).
+    var pendingDocumentImport: URL?
     @ObservationIgnored private(set) lazy var agent: AgentClient = {
         let client = AgentClient(tools: AgentTools(model: self), player: music, config: agentConfig)
         // The loop was open here: corrections were being written and never sent, so the
@@ -235,6 +242,10 @@ final class MobileModel {
     /// DEBUG-only and driven by a launch environment key no shipping build passes, like the
     /// reset above (TBX-5336: was `-baton.seedClipping`).
     static let seedClippingArgument = "baton.seedClipping"
+    /// DEBUG only: a plain-text document, handed in by a UI test as the words themselves, so the
+    /// import screen can be walked offline (`DocumentImportUITests`). Environment, never a
+    /// launch argument.
+    static let importTextArgument = "uitestImportText"
 
     init() {
         #if DEBUG
@@ -297,13 +308,36 @@ final class MobileModel {
 
         // Stamp any synced setting the moment it changes, so a foreground sync has
         // something to push. Manual instrumentation had covered 3 of 16 keys.
-        preferenceSync.startObservingChanges()
+        if !Self.isPreferenceSyncSwitchedOff() { preferenceSync.startObservingChanges() }
         // Before the first sync, so this device's existing clippings are in the first merge.
         clippings.seedLedgerIfNeeded()
 
         #if DEBUG
         if ProcessInfo.processInfo.environment[Self.seedClippingArgument] != nil {
             seedClippingForUITests()
+        }
+        // The live book walk (`DocumentImportLiveWalkUITests`, `ios/scripts/books-live-walk.sh`):
+        // a real home server the runner names, and a real file staged on the host (a simulator app
+        // reads host paths), so the import screen opens on it with the home server answering.
+        // Here in `init`, like the offline walk below: `restoreSession` is not the place, since
+        // demo mode and a configured server leave it early.
+        let launch = ProcessInfo.processInfo.environment
+        if let url = launch["uitestGatewayURL"], let token = launch["uitestGatewayToken"], !url.isEmpty, !token.isEmpty {
+            agentConfig.gatewayURL = url
+            agentConfig.gatewayToken = token
+        }
+        if let file = launch["uitestImportFile"], FileManager.default.fileExists(atPath: file) {
+            BatonStorage.defaults.set(true, forKey: MobileDocuments.enabledKey)
+            pendingDocumentImport = URL(fileURLWithPath: file)
+        }
+        // A UI test walks the import screen offline: the flag on, and the document's words
+        // handed over in the environment, written to a file the screen reads like any other.
+        if let text = ProcessInfo.processInfo.environment[Self.importTextArgument], !text.isEmpty {
+            BatonStorage.defaults.set(true, forKey: MobileDocuments.enabledKey)
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("uitest-import-\(UUID().uuidString.prefix(8)).txt")
+            if (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil {
+                pendingDocumentImport = file
+            }
         }
         #endif
 
@@ -520,7 +554,20 @@ final class MobileModel {
     ///
     /// Best-effort by construction: a gateway that is down must never change how the app
     /// behaves, so a failure here is logged and forgotten.
+    /// A test or probe instance must not take part in the owner's shared settings: its reset
+    /// state would travel as the newest word (it did, on 2026-10-14, emptying the shared agent
+    /// settings and replacing the gateway address with a loopback relay). The Mac's probes use
+    /// the same switch (`PreferenceSyncScheduler.isSwitchedOff`). DEBUG only.
+    static func isPreferenceSyncSwitchedOff(by environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        #if DEBUG
+        return environment["BATON_DEBUG_PREFERENCE_SYNC"] == "off"
+        #else
+        return false
+        #endif
+    }
+
     func syncPreferences(force: Bool = false) async {
+        if Self.isPreferenceSyncSwitchedOff() { return }
         let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty, let url = URL(string: raw), !agentConfig.gatewayToken.isEmpty else { return }
         if force {
@@ -598,7 +645,16 @@ final class MobileModel {
             if !agentConfig.isConfigured {
                 agentConfig.route = .direct
                 agentConfig.provider = .openAICompatible
-                agentConfig.baseURL = "http://127.0.0.1:1/v1"
+                // A deterministic test provider may answer on loopback. Keep the ordinary
+                // fixture unreachable, and never accept an owner/provider URL here.
+                let localBase = env["baton.agent.baseURL"].flatMap(URL.init(string:))
+                if let localBase, localBase.scheme == "http",
+                   ["localhost", "127.0.0.1", "::1", "[::1]"].contains(localBase.host ?? ""),
+                   localBase.user == nil, localBase.password == nil {
+                    agentConfig.baseURL = localBase.absoluteString
+                } else {
+                    agentConfig.baseURL = "http://127.0.0.1:1/v1"
+                }
                 agentConfig.model = "uitest"
                 agentConfig.apiKey = "uitest"
             }
@@ -799,5 +855,30 @@ final class MobileModel {
         music.attachEngineDeck(nil)
         engineBridge = nil
         installExperimentalEngineIfEnabled()
+    }
+}
+
+// MARK: - Document clippings (M5.2 to M5.4)
+
+extension MobileModel {
+    /// The gateway's book routes as Settings configures them: the same address and token kept
+    /// readings travel through. Nil until both are set.
+    func gatewayBookClient() -> GatewayBookClient? {
+        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
+        let token = agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
+        return GatewayBookClient(baseURL: url, token: token)
+    }
+
+    /// Bring down every chapter the home server has finished, and say so when the app is not in
+    /// front: "Chapter 1 is ready" is how a book made while the phone was in a pocket announces
+    /// itself (M5.4). In the foreground the row in Clippings says it instead.
+    func collectBooks(announcing: Bool) async {
+        guard MobileDocuments.isEnabled() else { return }
+        let arrived = await books.collect()
+        guard announcing else { return }
+        for arrival in arrived where arrival.chapterIndex == 0 {
+            MobileDocuments.notifyChapterReady(arrival.record, chapterIndex: arrival.chapterIndex)
+        }
     }
 }

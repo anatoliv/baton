@@ -106,6 +106,97 @@ probe_lock_release() {
   PROBE_LOCK_HELD=0
 }
 
+# Opt-in, immediate refusal without stale recovery (TBX-9558). Call directly in the
+# original Bash process, never through command substitution. Legacy APIs above are unchanged.
+PROBE_LOCK_NO_RECLAIM_HELD=0
+PROBE_LOCK_NO_RECLAIM_PROCESS=""
+PROBE_LOCK_NO_RECLAIM_IDENT=""
+PROBE_LOCK_NO_RECLAIM_OWNER=""
+
+# This helper runs inside $(...), so its parent is that substitution shell. Read that
+# shell's parent to identify the actual invoking Bash, including a forked Bash subshell.
+# $$ alone would also name the original process from a subshell and allow inherited release.
+probe_lock_no_reclaim_process() {
+  /usr/bin/perl -e '
+    open(my $p, "-|", "/bin/ps", "-p", getppid(), "-o", "ppid=") or exit 1;
+    my $pid = <$p>; close($p) or exit 1;
+    defined($pid) or exit 1; $pid =~ s/^\s+|\s+$//g;
+    $pid =~ /^\d+$/ or exit 1;
+    open(my $s, "-|", "/bin/ps", "-p", $pid, "-o", "lstart=") or exit 1;
+    my $start = <$s>; close($s) or exit 1;
+    defined($start) or exit 1; $start =~ s/^\s+|\s+$//g;
+    length($start) or exit 1; print "$pid:$start";'
+}
+
+# 0: acquired; 3: any existing object or busy critical section; 1: uncertain/error.
+# Failed metadata publication retains the exclusively created directory. Never reclaim it.
+probe_lock_try_acquire_no_reclaim() {
+  [ "$PROBE_LOCK_NO_RECLAIM_HELD" = 0 ] || return 3
+  local process="" ident="" owner="" rc=0
+  process="$(probe_lock_no_reclaim_process)" || return 1
+  owner="${process%%:*} $(basename "$0")"
+  ident="$(/usr/bin/perl -MFcntl=:flock -e '
+      $^F = 255;
+      open(my $m, ">>", shift) or exit 1;
+      flock($m, LOCK_EX | LOCK_NB) or exit 3;
+      exec @ARGV or exit 1;' "$PROBE_LOCK.reclaim" \
+    /bin/bash -c '
+      lock="$1"; process="$2"; owner="$3"
+      pid="${process%%:*}"; start="${process#*:}"
+      [ "$(/bin/ps -p "$pid" -o lstart= | sed "s/^ *//;s/ *$//")" = "$start" ] || exit 1
+      [ ! -e "$lock" ] && [ ! -L "$lock" ] || exit 3
+      mkdir "$lock" 2>/dev/null || exit 3
+      ident="$(stat -f "%i:%B" "$lock" 2>/dev/null)" || exit 1
+      [ -n "$ident" ] || exit 1
+      # No foreign writes: creation and owner publication share the reclaim flock.
+      (set -o noclobber; printf "%s\n" "$owner" > "$lock/owner") || exit 1
+      printf "%s\n" "$owner" | cmp -s "$lock/owner" - || exit 1
+      owner_ident="$(stat -f "%i:%B" "$lock/owner" 2>/dev/null)" || exit 1
+      [ -n "$owner_ident" ] || exit 1
+      printf "%s/%s\n" "$ident" "$owner_ident"' _ "$PROBE_LOCK" "$process" "$owner")" || rc=$?
+  [ "$rc" = 0 ] || return "$rc"
+  [ -n "$ident" ] || return 1
+  PROBE_LOCK_NO_RECLAIM_PROCESS="$process"
+  PROBE_LOCK_NO_RECLAIM_IDENT="$ident"
+  PROBE_LOCK_NO_RECLAIM_OWNER="$owner"
+  PROBE_LOCK_NO_RECLAIM_HELD=1
+}
+
+# Release only this original live process's exact acquired directory/owner under the same
+# flock. Refuse substitutions, inherited state, extra entries and uncertainty; never rm -rf.
+# Caller must separately prove its reserved children/resources empty before calling this.
+probe_lock_release_no_reclaim() {
+  [ "$PROBE_LOCK_NO_RECLAIM_HELD" = 1 ] || return 0
+  local process="" rc=0
+  process="$(probe_lock_no_reclaim_process)" || return 1
+  [ "$process" = "$PROBE_LOCK_NO_RECLAIM_PROCESS" ] || return 1
+  /usr/bin/perl -MFcntl=:flock -e '
+      $^F = 255;
+      open(my $m, ">>", shift) or exit 1;
+      flock($m, LOCK_EX | LOCK_NB) or exit 3;
+      exec @ARGV or exit 1;' "$PROBE_LOCK.reclaim" \
+    /bin/bash -c '
+      lock="$1"; ident="$2"; owner="$3"; process="$4"
+      pid="${process%%:*}"; start="${process#*:}"
+      [ "$(/bin/ps -p "$pid" -o lstart= | sed "s/^ *//;s/ *$//")" = "$start" ] || exit 1
+      [ -d "$lock" ] && [ ! -L "$lock" ] || exit 1
+      [ "$(stat -f "%i:%B" "$lock" 2>/dev/null)" = "${ident%%/*}" ] || exit 1
+      [ -f "$lock/owner" ] && [ ! -L "$lock/owner" ] || exit 1
+      [ "$(stat -f "%i:%B" "$lock/owner" 2>/dev/null)" = "${ident#*/}" ] || exit 1
+      printf "%s\n" "$owner" | cmp -s "$lock/owner" - || exit 1
+      # Refuse unexpected entries before altering metadata; glob includes dotfiles.
+      shopt -s nullglob dotglob
+      entries=("$lock"/*)
+      [ "${#entries[@]}" = 1 ] && [ "${entries[0]}" = "$lock/owner" ] || exit 1
+      rm "$lock/owner" && rmdir "$lock"' _ "$PROBE_LOCK" "$PROBE_LOCK_NO_RECLAIM_IDENT" \
+      "$PROBE_LOCK_NO_RECLAIM_OWNER" "$process" || rc=$?
+  [ "$rc" = 0 ] || return "$rc"
+  PROBE_LOCK_NO_RECLAIM_HELD=0
+  PROBE_LOCK_NO_RECLAIM_PROCESS=""
+  PROBE_LOCK_NO_RECLAIM_IDENT=""
+  PROBE_LOCK_NO_RECLAIM_OWNER=""
+}
+
 # A fresh, unused suite name. Lower-case letters, digits and dashes only (BatonStorage refuses
 # anything else).
 probe_new_suite() {   # $1 = short label
@@ -116,7 +207,9 @@ probe_new_suite() {   # $1 = short label
 # Baton may already be running under the same bundle identifier.
 probe_launch() {   # $1 = Baton.app, $2 = suite
   local app="$1" suite="$2" pid="" i
-  open -n -a "$app" --args -baton.defaultsSuite "$suite" || return 1
+  # Preference sync off (DEBUG builds honour it): a probe must neither adopt the owner's shared
+  # settings, which carry the gateway address, nor push its throwaway ones into them.
+  open -n -a "$app" --env BATON_DEBUG_PREFERENCE_SYNC=off --args -baton.defaultsSuite "$suite" || return 1
   for i in $(seq 1 40); do
     pid="$(pgrep -f -- "-baton.defaultsSuite $suite" | head -1)"
     [ -n "$pid" ] && break

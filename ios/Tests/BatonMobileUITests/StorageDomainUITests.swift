@@ -39,7 +39,7 @@ final class StorageDomainUITests: XCTestCase {
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
-        app.launch()
+        launchForReleaseNavigation(app)
 
         let report = app.otherElements["debug.storageDomains"].firstMatch
         let text = app.staticTexts["debug.storageDomains"].firstMatch
@@ -69,7 +69,7 @@ final class StorageDomainUITests: XCTestCase {
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["baton.defaultsSuite"] = "io.tonebox.tests.uiprobe"
-        app.launch()
+        launchForReleaseNavigation(app)
 
         let text = app.staticTexts["debug.storageDomains"].firstMatch
         let element = text.waitForExistence(timeout: 60)

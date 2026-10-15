@@ -1,3 +1,4 @@
+import AVFoundation
 import BatonSubsonicKit
 import BatonSubsonicModels
 import Foundation
@@ -47,6 +48,21 @@ public final class ClippingStore {
         /// SHA-256, when it came from or is going to another device. Opaque here.
         public var sha256: String?
 
+        // A chapter of a narrated book (`specs/document-clippings.md`). All nil for a reading.
+        // Sidecar v2: a v1 sidecar has none of these and reads unchanged.
+
+        /// The book this chapter belongs to: `PreparedBook.documentID`, the same on every device
+        /// and in every voice, which is what position and "finished" sync on.
+        public var documentID: String?
+        public var documentTitle: String?
+        public var author: String?
+        /// 0-based.
+        public var chapterIndex: Int?
+        public var chapterTitle: String?
+        public var lastPlayedAt: Date?
+
+        public var isBookChapter: Bool { documentID != nil }
+
         public init(id: String, title: String, source: String? = nil,
                     durationSeconds: Double? = nil, createdAt: Date,
                     text: String? = nil, sha256: String? = nil) {
@@ -57,6 +73,24 @@ public final class ClippingStore {
             self.createdAt = createdAt
             self.text = text
             self.sha256 = sha256
+        }
+    }
+
+    /// What `adopt` needs to file a clipping as a chapter of a book.
+    public struct BookChapter: Equatable, Sendable {
+        public var documentID: String
+        public var documentTitle: String
+        public var author: String?
+        public var chapterIndex: Int
+        public var chapterTitle: String
+
+        public init(documentID: String, documentTitle: String, author: String?, chapterIndex: Int,
+                    chapterTitle: String) {
+            self.documentID = documentID
+            self.documentTitle = documentTitle
+            self.author = author
+            self.chapterIndex = chapterIndex
+            self.chapterTitle = chapterTitle
         }
     }
 
@@ -73,15 +107,23 @@ public final class ClippingStore {
 
         /// What the player is handed. The id is the file URL, which is what makes this play
         /// through the ordinary path — see the type's note.
+        ///
+        /// A book chapter is a track of an album named after the book, by its author, so the
+        /// queue, the scrubber and now-playing show "The Machine Stops · 2" with no new UI.
         public var asSong: NavidromeSong {
-            NavidromeSong(
+            var song = NavidromeSong(
                 id: url.absoluteString,
                 title: clipping.title,
-                artist: clipping.source,
-                album: "Clippings",
+                artist: clipping.isBookChapter ? (clipping.author ?? clipping.source) : clipping.source,
+                album: clipping.isBookChapter ? (clipping.documentTitle ?? "Clippings") : "Clippings",
                 duration: clipping.durationSeconds.map { Int($0) },
                 coverArtID: nil
             )
+            if let index = clipping.chapterIndex, clipping.isBookChapter {
+                song.track = index + 1
+                song.genre = "Audiobook"
+            }
+            return song
         }
     }
 
@@ -90,11 +132,26 @@ public final class ClippingStore {
     private let directory: URL
     private let defaults: UserDefaults
     private var loaded = false
+    /// Whether clipping audio is kept out of backups: true on the iPhone, false on the Mac
+    /// (`BackupExclusion`, DOC-24). An argument rather than a check at the call site so the
+    /// iPhone's behaviour can be tested on the Mac.
+    private let excludesAudioFromBackup: Bool
 
-    public init(directory: URL? = nil, defaults: UserDefaults = BatonStorage.defaults) {
+    public init(directory: URL? = nil, defaults: UserDefaults = BatonStorage.defaults,
+                excludesAudioFromBackup: Bool = BackupExclusion.appliesOnThisPlatform) {
         self.directory = directory ?? Self.defaultDirectory()
         self.defaults = defaults
+        self.excludesAudioFromBackup = excludesAudioFromBackup
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
+        // Audio already on disk from a build that set nothing is still in the backup. Marked at
+        // launch rather than once behind a flag: it costs one resource read per file, and it also
+        // catches audio that reached this directory by any route that did not go through `adopt`.
+        // Everything in this directory is the store's own, so all of its audio qualifies; the
+        // sidecars beside it are not audio and stay backed up.
+        if excludesAudioFromBackup {
+            let marked = BackupExclusion.exclude(BackupExclusion.audioFiles(in: self.directory))
+            if marked > 0 { clippingLog.notice("excluded \(marked) clipping audio files from backup") }
+        }
     }
 
     // MARK: - Reading
@@ -119,6 +176,17 @@ public final class ClippingStore {
     }
 
     public func item(id: String) -> Item? { items.first { $0.id == id } }
+
+    /// One chapter of a book, so a chapter is never adopted twice.
+    public func item(documentID: String, chapterIndex: Int) -> Item? {
+        items.first { $0.clipping.documentID == documentID && $0.clipping.chapterIndex == chapterIndex }
+    }
+
+    /// A book's chapters, in reading order.
+    public func chapters(ofDocument documentID: String) -> [Item] {
+        items.filter { $0.clipping.documentID == documentID }
+            .sorted { ($0.clipping.chapterIndex ?? 0) < ($1.clipping.chapterIndex ?? 0) }
+    }
 
     /// The clipping a **player** id refers to, which is not the same lookup as `item(id:)`.
     ///
@@ -153,8 +221,12 @@ public final class ClippingStore {
     @discardableResult
     public func adopt(_ source: URL, title: String, sourceName: String? = nil,
                       durationSeconds: Double? = nil, text: String? = nil,
-                      sha256: String? = nil, now: Date = Date()) throws -> Item {
+                      sha256: String? = nil, chapter: BookChapter? = nil,
+                      now: Date = Date()) throws -> Item {
         loadIfNeeded()
+        // Readings never said how long they were, so the player and the list had nothing to
+        // show. The file knows.
+        let durationSeconds = durationSeconds ?? Self.measuredDuration(of: source)
         let id = UUID().uuidString.lowercased()
         let destination = audioURL(id, extension: source.pathExtension.isEmpty ? "m4a" : source.pathExtension)
         do {
@@ -177,15 +249,25 @@ public final class ClippingStore {
         let known = sha256.flatMap { ledger.record(for: $0) }
         let effectiveTitle = known?.titleAt != nil ? (known?.title ?? title) : title
         let effectiveSource = known?.sourceAt != nil ? known?.source : sourceName
-        let clipping = Clipping(id: id, title: effectiveTitle, source: effectiveSource,
+        var clipping = Clipping(id: id, title: effectiveTitle, source: effectiveSource,
                                 durationSeconds: durationSeconds, createdAt: now,
                                 text: text, sha256: sha256)
+        if let chapter {
+            clipping.documentID = chapter.documentID
+            clipping.documentTitle = chapter.documentTitle
+            clipping.author = chapter.author
+            clipping.chapterIndex = chapter.chapterIndex
+            clipping.chapterTitle = chapter.chapterTitle
+        }
         guard writeSidecar(clipping, id: id) else {
             // Do not leave audio with no record of what it is: that is a file nobody can
             // identify and nothing will ever clean up.
             try? FileManager.default.removeItem(at: destination)
             throw StoreError.couldNotStore("could not write the sidecar for \(id)")
         }
+        // After the move, at the final path: the flag belongs to the file, not to the name it
+        // was staged under. Only the audio; the sidecar just written is the record of what it is.
+        if excludesAudioFromBackup { BackupExclusion.exclude(destination) }
         // Keeping the same audio again is a deliberate act and must beat an older tombstone,
         // exactly as a re-subscribe beats an unsubscribe. Without this, a clipping deleted
         // everywhere last week could never be kept again: it would upload to the same digest and
@@ -203,6 +285,20 @@ public final class ClippingStore {
         reload()
         clippingLog.notice("kept a clipping (\(effectiveTitle, privacy: .public))")
         return Item(clipping: clipping, url: destination)
+    }
+
+    /// The length of an audio file, or nil when it cannot be read as audio.
+    nonisolated static func measuredDuration(of url: URL) -> Double? {
+        guard let file = try? AVAudioFile(forReading: url), file.processingFormat.sampleRate > 0 else { return nil }
+        return Double(file.length) / file.processingFormat.sampleRate
+    }
+
+    /// When a clipping was last played, for the book row's "last played" and storage rules.
+    public func setLastPlayed(id: String, at date: Date = Date()) {
+        guard var item = item(id: id) else { return }
+        item.clipping.lastPlayedAt = date
+        guard writeSidecar(item.clipping, id: id) else { return }
+        reload()
     }
 
     /// Record the content digest of a clipping that has since been uploaded.
@@ -478,7 +574,10 @@ public final class ClippingStore {
     /// No `.bak`: the sidecar is small and written whole on every rename, so a rolling copy
     /// would double the writes for a file whose last-good state is one edit behind anyway.
     private func sidecarStore(_ id: String) -> VersionedStore<Clipping> {
-        VersionedStore<Clipping>(fileURL: sidecarURL(id), currentVersion: 1,
+        // v2 added the book-chapter fields. All optional, so v1 reads unchanged (identity
+        // migration); the bump is so a downgraded build reads a v2 sidecar but refuses to write
+        // it, rather than dropping fields it does not know about on its next rename.
+        VersionedStore<Clipping>(fileURL: sidecarURL(id), currentVersion: 2,
                                  keepBackup: false, log: clippingLog)
     }
 

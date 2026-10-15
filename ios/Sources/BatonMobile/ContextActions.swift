@@ -12,6 +12,50 @@ import SwiftUI
 /// The engine and client methods behind every item already existed and were already
 /// proven on the Mac — until now the phone simply offered no way to reach them.
 
+// A list cell can be recycled while a menu inside its sheet opens. Presenting the
+// composer from that cell replaced its @State and silently cleared the note. Each
+// screen/sheet owns one stable presenter above its rows; nested sheets override it.
+private struct SongShareRequest: Identifiable {
+    let id = UUID()
+    let song: NavidromeSong
+    let coverArtURL: URL?
+}
+
+private struct SongSharePresentationKey: EnvironmentKey {
+    static var defaultValue: (@MainActor @Sendable (NavidromeSong) -> Void)? { nil }
+}
+
+private extension EnvironmentValues {
+    var presentSongShare: (@MainActor @Sendable (NavidromeSong) -> Void)? {
+        get { self[SongSharePresentationKey.self] }
+        set { self[SongSharePresentationKey.self] = newValue }
+    }
+}
+
+private struct SongSharePresenter: ViewModifier {
+    let model: MobileModel
+    @State private var request: SongShareRequest?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.presentSongShare, { song in
+                // Allocate identity and freeze the song/art URL only when opening.
+                request = SongShareRequest(song: song, coverArtURL: song.coverArtID.flatMap {
+                    model.musicLibrary.coverArtURL(id: $0, size: 600)
+                })
+            })
+            .sheet(item: $request) { request in
+                ShareSongSheet(song: request.song, coverArtURL: request.coverArtURL)
+            }
+    }
+}
+
+extension View {
+    func songSharePresenter(model: MobileModel) -> some View {
+        modifier(SongSharePresenter(model: model))
+    }
+}
+
 // MARK: - Songs
 
 struct SongContextMenu: ViewModifier {
@@ -19,6 +63,7 @@ struct SongContextMenu: ViewModifier {
     let model: MobileModel
     @State private var showsPlaylistPicker = false
     @State private var showsDiscovery = false
+    @Environment(\.presentSongShare) private var presentSongShare
     /// Ids awaiting the two-way delete question. Empty shows nothing.
     @State private var pendingClippingDelete: [String] = []
 
@@ -107,6 +152,14 @@ struct SongContextMenu: ViewModifier {
                     Button {
                         showsPlaylistPicker = true
                     } label: { Label("Add to Playlist…", systemImage: "music.note.list") }
+
+                    // A link a friend outside the LAN can play, with no app and no account
+                    // (docs/plan-song-sharing.md). Inside this block because it needs the server
+                    // copy: demo tracks and clippings have none.
+                    Button {
+                        presentSongShare?(song)
+                    } label: { Label(SongAction.share.sheetLabel, systemImage: SongAction.share.symbol) }
+                    .disabled(presentSongShare == nil)
 
                     Divider()
 

@@ -74,7 +74,59 @@ public struct ClippingLedger: Codable, Equatable, Sendable {
 
     public var records: [Record]
 
-    public init(records: [Record] = []) { self.records = records }
+    /// Where each book is up to, and whether it is finished, keyed by `documentID` (document
+    /// clippings, M3.3). A book is several clippings with several digests, so this is a record
+    /// per book rather than a field per clipping.
+    ///
+    /// Two facts with their own clocks, for the reason the clipping record has three: listening
+    /// to chapter 1 again on the phone after finishing on the Mac moves the position and must not
+    /// thereby decide the book is unfinished. "Unfinished" is its own statement.
+    public struct DocumentRecord: Codable, Equatable, Sendable {
+        public var documentID: String
+        /// 0-based chapter and seconds into it.
+        public var chapterIndex: Int?
+        public var seconds: Double?
+        public var positionAt: Date?
+        public var finished: Bool
+        public var finishedAt: Date?
+
+        public init(documentID: String, chapterIndex: Int? = nil, seconds: Double? = nil,
+                    positionAt: Date? = nil, finished: Bool = false, finishedAt: Date? = nil) {
+            self.documentID = documentID
+            self.chapterIndex = chapterIndex
+            self.seconds = seconds
+            self.positionAt = positionAt
+            self.finished = finished
+            self.finishedAt = finishedAt
+        }
+
+        var lastStated: Date { [positionAt, finishedAt].compactMap { $0 }.max() ?? .distantPast }
+    }
+
+    /// Books. Absent from a ledger written before books existed, which decodes as none; a build
+    /// that does not know the field ignores it, and the merge is a union, so a newer device never
+    /// loses a position to an older one.
+    public var documents: [DocumentRecord]
+
+    public init(records: [Record] = [], documents: [DocumentRecord] = []) {
+        self.records = records
+        self.documents = documents
+    }
+
+    private enum CodingKeys: String, CodingKey { case records, documents }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        records = try container.decode([Record].self, forKey: .records)
+        documents = try container.decodeIfPresent([DocumentRecord].self, forKey: .documents) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(records, forKey: .records)
+        // Omitted while empty, so a ledger with no books is byte-for-byte what older builds wrote.
+        if !documents.isEmpty { try container.encode(documents, forKey: .documents) }
+    }
 
     /// How long a tombstone is kept.
     ///
@@ -100,7 +152,38 @@ public struct ClippingLedger: Codable, Equatable, Sendable {
         Set(records.filter(\.removed).map(\.sha256))
     }
 
+    public func document(_ documentID: String) -> DocumentRecord? {
+        documents.first { $0.documentID == documentID }
+    }
+
     // MARK: - Writing
+
+    /// Note where this device is in a book.
+    public mutating func setPosition(documentID: String, chapterIndex: Int, seconds: Double, at now: Date = Date()) {
+        updateDocument(documentID) { record in
+            record.chapterIndex = chapterIndex
+            record.seconds = seconds
+            record.positionAt = now
+        }
+    }
+
+    /// Note that a book is finished, or (listening again from the start) that it is not.
+    public mutating func setFinished(_ finished: Bool, documentID: String, at now: Date = Date()) {
+        updateDocument(documentID) { record in
+            record.finished = finished
+            record.finishedAt = now
+        }
+    }
+
+    private mutating func updateDocument(_ documentID: String, _ change: (inout DocumentRecord) -> Void) {
+        if let index = documents.firstIndex(where: { $0.documentID == documentID }) {
+            change(&documents[index])
+        } else {
+            var record = DocumentRecord(documentID: documentID)
+            change(&record)
+            documents.append(record)
+        }
+    }
 
     /// Note this device's title for a clipping, replacing whatever it believed before.
     public mutating func setTitle(_ title: String, for sha256: String, at now: Date = Date()) {
@@ -200,7 +283,31 @@ public struct ClippingLedger: Codable, Equatable, Sendable {
             let dead = ordered.filter(\.removed)
             ordered = Array((live + dead).prefix(maximumRecords))
         }
-        return ClippingLedger(records: ordered.sorted { $0.sha256 < $1.sha256 })
+        return ClippingLedger(records: ordered.sorted { $0.sha256 < $1.sha256 },
+                              documents: mergedDocuments(lhs.documents + rhs.documents))
+    }
+
+    /// Books, merged per fact against its own clock, as the records are.
+    private static func mergedDocuments(_ all: [DocumentRecord]) -> [DocumentRecord] {
+        var byID: [String: DocumentRecord] = [:]
+        for record in all {
+            guard var existing = byID[record.documentID] else {
+                byID[record.documentID] = record
+                continue
+            }
+            if newer(record.positionAt, than: existing.positionAt) {
+                existing.chapterIndex = record.chapterIndex
+                existing.seconds = record.seconds
+                existing.positionAt = record.positionAt
+            }
+            if newer(record.finishedAt, than: existing.finishedAt) {
+                existing.finished = record.finished
+                existing.finishedAt = record.finishedAt
+            }
+            byID[record.documentID] = existing
+        }
+        let ordered = byID.values.sorted { $0.lastStated > $1.lastStated }.prefix(maximumRecords)
+        return ordered.sorted { $0.documentID < $1.documentID }
     }
 
     /// Nil means "never stated", which loses to any statement at all.

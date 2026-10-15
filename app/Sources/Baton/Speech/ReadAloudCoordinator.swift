@@ -290,14 +290,21 @@ final class ReadAloudCoordinator {
     /// Kept as one function so the text and the offsets cannot drift: computing the ranges
     /// separately from the join is exactly how a highlight ends up one separator out per
     /// sentence, which is invisible at chunk one and badly wrong by chunk forty.
+    ///
+    /// The offset is kept as a running UTF-16 count. Measuring the growing document on every
+    /// chunk re-counted all of it each time, which is quadratic over a book and slow for any text
+    /// that is not ASCII, where a Swift string's UTF-16 length is not stored (F6).
     static func layout(_ chunks: [String]) -> (document: String, ranges: [NSRange]) {
         var document = ""
         var ranges: [NSRange] = []
+        ranges.reserveCapacity(chunks.count)
+        var location = 0
         for (index, chunk) in chunks.enumerated() {
-            if index > 0 { document += " " }
-            let location = (document as NSString).length
+            if index > 0 { document += " "; location += 1 }
+            let length = chunk.utf16.count
+            ranges.append(NSRange(location: location, length: length))
             document += chunk
-            ranges.append(NSRange(location: location, length: (chunk as NSString).length))
+            location += length
         }
         return (document, ranges)
     }

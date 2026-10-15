@@ -26,6 +26,24 @@ final class TransportTests: XCTestCase {
 
     // MARK: - Harness
 
+    func testLoopbackListenerDoesNotBindEveryInterface() throws {
+        let transport = POSIXTransport(stagingDirectory: staging, loopbackOnly: true)
+        let started = try transport.start(port: 0,
+                                          handle: { _ in httpResponse(status: "200 OK", body: "ok") },
+                                          upload: { _, _ in Data() })
+        listener = started
+        var address = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let result = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(started.fileDescriptor, $0, &length)
+            }
+        }
+        XCTAssertEqual(result, 0)
+        XCTAssertEqual(address.sin_addr.s_addr, inet_addr("127.0.0.1"))
+        XCTAssertNotEqual(address.sin_addr.s_addr, INADDR_ANY)
+    }
+
     /// Log lines the transport wrote, collected from whichever thread wrote them.
     private final class Recorder: @unchecked Sendable {
         private let lock = NSLock()

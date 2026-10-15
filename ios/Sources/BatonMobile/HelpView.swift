@@ -295,6 +295,26 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.3",
+            date: "October 2026",
+            highlight: "Turn a document into an audiobook from your phone.",
+            changes: [
+                .init(.added, "Open a PDF, EPUB, web page, text or Markdown file in Baton from Files or the share sheet, or import a file or a link from Clippings. Baton reads it into chapters, shows what it found, and lets you hear the narrator before you commit."),
+                .init(.added, "Make Audiobook sends the book to your home server, which narrates it chapter by chapter. Each chapter lands in Clippings as soon as it is ready, and a notification tells you when the first one is there."),
+                .init(.added, "Books have their own rows in Clippings: see how far along a book is, play from any chapter, stop a book that is still being made, or delete one you are done with."),
+                .init(.fixed, "Settings shared between your Mac and your phone are no longer re-published by a device that merely received them, and a fresh install no longer clears settings it never held."),
+            ]
+        ),
+        ReleaseNote(
+            version: "1.2",
+            date: "October 2026",
+            highlight: "Send a friend a song they can play in their browser.",
+            changes: [
+                .init(.added, "Share a song using a temporary encrypted link. Add a note, choose when it expires, and let your friend listen in their browser and send a reaction."),
+                .init(.added, "Manage your links in Shared Links: copy a link again, see listening counts, extend it or revoke it."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.1",
             date: "September 2026",
             highlight: "The first update since Baton arrived on the App Store, carrying everything the TestFlight builds have had since launch.",

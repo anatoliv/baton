@@ -1,0 +1,177 @@
+import Foundation
+
+/// What one install remembers about the shares it sent (spec §1, plan §5).
+///
+/// The server never holds a share's key, so only this device can show its link again. The
+/// ledger is that memory: one record per share with the key, plus the last stats the server
+/// reported, and the failures waiting to be reported with the next create (`recentFailures`).
+/// It is a plain value saved as one JSON file, so the Mac, the iPhone and the tests all use the
+/// same code, and a corrupt file costs the list rather than a crash.
+public struct ShareLedger: Codable, Equatable, Sendable {
+    public struct Record: Codable, Equatable, Sendable, Identifiable {
+        public var id: String
+        /// The link with its key: `https://batonmusic.app/s/<id>#<key>`.
+        public var link: String
+        public var songID: String
+        public var title: String
+        public var artist: String
+        public var isPrivate: Bool
+        public var createdAt: Date
+        public var expiresAt: Date
+        /// The server's last word on this share, from `GET /v1/share/shares`. `nil` until the
+        /// list is first refreshed after sending.
+        public var summary: ShareSummary?
+
+        public init(id: String, link: String, songID: String, title: String, artist: String,
+                    isPrivate: Bool, createdAt: Date, expiresAt: Date, summary: ShareSummary? = nil) {
+            self.id = id
+            self.link = link
+            self.songID = songID
+            self.title = title
+            self.artist = artist
+            self.isPrivate = isPrivate
+            self.createdAt = createdAt
+            self.expiresAt = expiresAt
+            self.summary = summary
+        }
+
+        public var status: ShareStatus { summary?.status ?? (expiresAt <= Date() ? .expired : .ready) }
+
+        /// An owned held copy remains revocable even after its old public calendar expiry.
+        public var isHeldForReview: Bool {
+            summary?.actionRequired != nil && (status == .ready || status == .pending)
+        }
+
+        /// Whether the link can still be played, so "Copy link again" and "Extend" make sense.
+        public func isLive(now: Date = Date()) -> Bool {
+            let status = summary?.status ?? .ready
+            return !isHeldForReview && (status == .ready || status == .pending) && expiresAt > now
+        }
+    }
+
+    public private(set) var records: [Record] = []
+    public private(set) var pendingFailures: [ShareFailureReport] = []
+
+    public init() {}
+
+    /// Newest first.
+    public mutating func add(_ record: Record) {
+        records.removeAll { $0.id == record.id }
+        records.insert(record, at: 0)
+    }
+
+    public mutating func remove(id: String) {
+        records.removeAll { $0.id == id }
+    }
+
+    /// Folds the server's list into the ledger. Stats, status, expiry and reactions come from
+    /// the server; the link and the song come from here, because only here has them. A share the
+    /// server no longer lists (purged after its retention) is dropped once it has ended; a live
+    /// one is kept, since a missing row then means a server problem, not a finished share.
+    public mutating func merge(_ summaries: [ShareSummary], now: Date = Date()) {
+        let byID = Dictionary(summaries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        records = records.compactMap { record in
+            var record = record
+            if let summary = byID[record.id] {
+                record.summary = summary
+                if let expiry = ShareDate.date(summary.expiresAt) { record.expiresAt = expiry }
+                return record
+            }
+            return record.isLive(now: now) ? record : nil
+        }
+    }
+
+    /// Updates one record from a single summary (after extend or a play-cap change).
+    public mutating func update(_ summary: ShareSummary) {
+        guard let index = records.firstIndex(where: { $0.id == summary.id }) else { return }
+        records[index].summary = summary
+        if let expiry = ShareDate.date(summary.expiresAt) { records[index].expiresAt = expiry }
+    }
+
+    // MARK: - Failures waiting to be reported
+
+    /// Queues a failure that never reached the server, to be reported with the next create.
+    public mutating func noteFailure(_ reason: String) {
+        let reason = ShareFailureReport.reasons.contains(reason) ? reason : "other"
+        pendingFailures.append(ShareFailureReport(reason: reason))
+        if pendingFailures.count > ShareLimits.maxRecentFailures {
+            pendingFailures.removeFirst(pendingFailures.count - ShareLimits.maxRecentFailures)
+        }
+    }
+
+    /// The queued failures, cleared: call when a create has carried them.
+    public mutating func takeFailures() -> [ShareFailureReport] {
+        defer { pendingFailures = [] }
+        return pendingFailures
+    }
+
+    // MARK: - Persistence
+
+    public static func load(from url: URL) -> ShareLedger {
+        guard let data = try? Data(contentsOf: url) else { return ShareLedger() }
+        return (try? decoder.decode(ShareLedger.self, from: data)) ?? ShareLedger()
+    }
+
+    /// Written atomically and readable only by this user: the file holds every link's key.
+    public func save(to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.encoder.encode(self).write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    static var encoder: JSONEncoder {
+        // Dates as Foundation's own reference-date seconds: lossless, so a save and a load give
+        // back exactly what was saved (ISO 8601 drops the fraction of a second).
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    static var decoder: JSONDecoder {
+        JSONDecoder()
+    }
+}
+
+/// The small pieces of the composer and the Shared Links list that are the same on both apps.
+public enum SharePresentation {
+    /// The message the share sheet is pre-filled with (plan §1): the note, then on its own line
+    /// `"<title> by <artist> <link>"`, dropping whatever is empty.
+    public static func message(title: String, artist: String, note: String, link: URL) -> String {
+        let song = artist.isEmpty ? title : "\(title) by \(artist)"
+        let lead = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lead.isEmpty ? "\(song) \(link.absoluteString)" : "\(lead)\n\n\(song) \(link.absoluteString)"
+    }
+
+    /// Downsamples a waveform (any number of non-negative amplitudes) to the 0–255 peaks the
+    /// player draws, normalized so the loudest bucket is 255. `count` buckets, each the maximum
+    /// of its slice, so a transient is not averaged away.
+    public static func peaks(_ samples: [Float], count: Int = 200) -> [Int] {
+        guard !samples.isEmpty, count > 0 else { return [] }
+        let buckets = min(count, samples.count)
+        var maxima = [Float](repeating: 0, count: buckets)
+        for (index, sample) in samples.enumerated() {
+            let bucket = min(buckets - 1, index * buckets / samples.count)
+            maxima[bucket] = max(maxima[bucket], abs(sample.isFinite ? sample : 0))
+        }
+        let loudest = maxima.max() ?? 0
+        guard loudest > 0 else { return [Int](repeating: 0, count: buckets) }
+        return maxima.map { Int(($0 / loudest * 255).rounded()) }
+    }
+
+    /// "Expires in 6 days", "Expires in 3 hours", "Expired".
+    public static func expiry(_ date: Date, now: Date = Date()) -> String {
+        let seconds = date.timeIntervalSince(now)
+        if seconds <= 0 { return "Expired" }
+        let days = Int(seconds / 86400)
+        if days >= 1 { return "Expires in \(days) day\(days == 1 ? "" : "s")" }
+        let hours = max(1, Int(seconds / 3600))
+        return "Expires in \(hours) hour\(hours == 1 ? "" : "s")"
+    }
+
+    /// "Opened 3 · Played 2", the row's stats line, from what the server counted.
+    public static func stats(_ stats: ShareStats) -> String {
+        var parts = ["Opened \(stats.opens)", "Played \(stats.plays)"]
+        if stats.completed > 0 { parts.append("Finished \(stats.completed)") }
+        return parts.joined(separator: " · ")
+    }
+}

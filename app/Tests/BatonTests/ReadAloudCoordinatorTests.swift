@@ -634,4 +634,57 @@ final class SelectionCopyEventSourceTests: XCTestCase {
                 + "hotkey, so the target app receives ⌃⌘C rather than ⌘C and copies nothing"
         )
     }
+
+}
+
+/// Read-aloud's layout at book length (F6): the same ranges as before, in linear time.
+@MainActor
+final class ReadAloudLayoutTests: XCTestCase {
+
+    /// The layout before F6, kept as the reference the new one must match exactly.
+    private static func quadraticLayout(_ chunks: [String]) -> (document: String, ranges: [NSRange]) {
+        var document = ""
+        var ranges: [NSRange] = []
+        for (index, chunk) in chunks.enumerated() {
+            if index > 0 { document += " " }
+            let location = (document as NSString).length
+            document += chunk
+            ranges.append(NSRange(location: location, length: (chunk as NSString).length))
+        }
+        return (document, ranges)
+    }
+
+    private func bookChunks(count: Int) -> [String] {
+        (0..<count).map { i in "Chapter \(i): Vashti\u{2019}s caf\u{E9} 🚀 hums, and the Machine \u{2014} unseen \u{2014} answers." }
+    }
+
+    func testTheLayoutMatchesTheOldOneExactlyOnTextThatIsNotASCII() {
+        let chunks = bookChunks(count: 300)
+        let new = ReadAloudCoordinator.layout(chunks)
+        let old = Self.quadraticLayout(chunks)
+        XCTAssertEqual(new.document, old.document)
+        XCTAssertEqual(new.ranges, old.ranges)
+        for (chunk, range) in zip(chunks, new.ranges) {
+            XCTAssertEqual((new.document as NSString).substring(with: range), chunk)
+        }
+    }
+
+    /// 150,000 characters of non-ASCII text in 2,200 chunks. The old layout re-measured
+    /// the whole document per chunk; the bound here is generous so it cannot flake, and the
+    /// measured times go in the log.
+    func testABookLaysOutInLinearTime() {
+        let chunks = bookChunks(count: 2_200)
+        let total = chunks.reduce(0) { $0 + $1.count }
+        XCTAssertGreaterThan(total, 150_000)
+        let start = Date()
+        let result = ReadAloudCoordinator.layout(chunks)
+        let elapsed = Date().timeIntervalSince(start)
+        let oldStart = Date()
+        _ = Self.quadraticLayout(chunks)
+        let oldElapsed = Date().timeIntervalSince(oldStart)
+        print("F6 layout of \(total) characters in \(chunks.count) chunks: \(Int(elapsed * 1000)) ms (before: \(Int(oldElapsed * 1000)) ms)")
+        XCTAssertEqual(result.ranges.count, chunks.count)
+        XCTAssertLessThan(elapsed, 0.5)
+        XCTAssertLessThan(elapsed, oldElapsed, "the running offset must not be slower than re-measuring")
+    }
 }

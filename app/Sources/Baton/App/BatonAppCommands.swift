@@ -1,5 +1,6 @@
 import BatonSubsonicKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Baton's app-menu customizations: a custom About panel, the Settings item, an enriched
 /// **Audio** menu (equalizer + quick playback toggles), and suppression of the default
@@ -10,6 +11,7 @@ import SwiftUI
 /// and navigation by `GoMenuCommands`.
 struct BatonAppCommands: Commands {
     let model: MusicModel
+    let router: BatonCommandRouter
     @Environment(\.openWindow) private var openWindow
 
     private var player: StreamingPlaybackController { model.music }
@@ -65,6 +67,15 @@ struct BatonAppCommands: Commands {
                     Button("Forget Saved Readings") { unfinished?.clear() }
                 }
             }
+
+            // A file in, a narrated book out (document clippings). Behind the flag until the Mac
+            // book flow is complete; the sheet opens over Clippings, where the book will appear.
+            if DocumentLibrary.isEnabled() {
+                Divider()
+                Button("Import Document…") { chooseDocument() }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                Button("Import Link…") { chooseLink() }
+            }
         }
 
         // Standard Settings/Preferences slot (⌘,) → the unified Settings window.
@@ -112,5 +123,40 @@ struct BatonAppCommands: Commands {
                 Text("Album").tag(StreamingPlaybackController.LoudnessMode.album)
             }
         }
+    }
+
+    /// Ask for a web address, offering the one on the clipboard, and hand it to Clippings.
+    private func chooseLink() {
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = "https://"
+        if let copied = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let url = URL(string: copied), DocumentLibrary.isWebLink(url) {
+            field.stringValue = copied
+        }
+        let alert = NSAlert()
+        alert.messageText = "Import Link"
+        alert.informativeText = "Baton reads the article on the page and makes it a narrated book in Clippings."
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn,
+              let url = URL(string: field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              DocumentLibrary.isWebLink(url) else { return }
+        router.pendingTab = .clippings
+        router.pendingDocumentImport = url
+    }
+
+    /// Pick a file and hand it to Clippings, which shows what was found before anything is made.
+    private func chooseDocument() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Document"
+        panel.prompt = "Import"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = DocumentLibrary.importableTypes
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        router.pendingTab = .clippings
+        router.pendingDocumentImport = url
     }
 }

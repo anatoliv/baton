@@ -66,3 +66,9 @@ tools/storeart/out/contact-sheet.jpg
 # enough on its own: publish-repo.sh rsyncs the WORKING TREE, so it is excluded there too
 # — and it blocked a release once by making the tree dirty, which publish.sh refuses.
 AGENTS.md
+# A second SwiftPM scratch path, for checking the gateway on another toolchain.
+.build61/
+
+# Xcode rewrites a local package's Package.resolved with the whole workspace's pins, which
+# dirties the tree publish.sh refuses. The gateway keeps its own (its Docker build pins).
+Packages/*/Package.resolved

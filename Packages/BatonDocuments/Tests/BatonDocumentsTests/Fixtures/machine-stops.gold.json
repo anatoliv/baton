@@ -1,0 +1,930 @@
+{
+ "source": "The Machine Stops, E. M. Forster (1909), PDF attached to the request; ids from dialogue_cast.py segmentation",
+ "note": "Hand-labelled. '?' = ambiguous to a careful human reader, excluded from scoring. 'narrator' = not speech (scare quotes, quoted book text, a remembered phrase).",
+ "labels": {
+  "c1q1": {
+   "speaker": "Vashti",
+   "starts": "I suppose I mu"
+  },
+  "c1q2": {
+   "speaker": "Vashti",
+   "starts": "Who is it?"
+  },
+  "c1q3": {
+   "speaker": "Vashti",
+   "starts": "Very well. Let"
+  },
+  "c1q4": {
+   "speaker": "Vashti",
+   "starts": "Be quick!"
+  },
+  "c1q5": {
+   "speaker": "Vashti",
+   "starts": "Be quick, Kuno"
+  },
+  "c1q6": {
+   "speaker": "Vashti",
+   "starts": "Kuno, how slow"
+  },
+  "c1q7": {
+   "speaker": "Vashti",
+   "starts": "I really belie"
+  },
+  "c1q8": {
+   "speaker": "Kuno",
+   "starts": "I have called "
+  },
+  "c1q9": {
+   "speaker": "Vashti",
+   "starts": "What is it, de"
+  },
+  "c1q10": {
+   "speaker": "Kuno",
+   "starts": "Because I pref"
+  },
+  "c1q11": {
+   "speaker": "Vashti",
+   "starts": "Well?"
+  },
+  "c1q12": {
+   "speaker": "Kuno",
+   "starts": "I want you to "
+  },
+  "c1q13": {
+   "speaker": "Vashti",
+   "starts": "But I can see "
+  },
+  "c1q14": {
+   "speaker": "Vashti",
+   "starts": "What more do y"
+  },
+  "c1q15": {
+   "speaker": "Kuno",
+   "starts": "I want to see "
+  },
+  "c1q16": {
+   "speaker": "Kuno",
+   "starts": "I want to spea"
+  },
+  "c1q17": {
+   "speaker": "Vashti",
+   "starts": "Oh, hush!"
+  },
+  "c1q18": {
+   "speaker": "Vashti",
+   "starts": "You mustn’t sa"
+  },
+  "c1q19": {
+   "speaker": "Kuno",
+   "starts": "Why not?"
+  },
+  "c1q20": {
+   "speaker": "Vashti",
+   "starts": "One mustn’t."
+  },
+  "c1q21": {
+   "speaker": "Kuno",
+   "starts": "You talk as if"
+  },
+  "c1q22": {
+   "speaker": "Kuno",
+   "starts": "I believe that"
+  },
+  "c1q23": {
+   "speaker": "Kuno",
+   "starts": "The air-ship b"
+  },
+  "c1q24": {
+   "speaker": "Vashti",
+   "starts": "I dislike air-"
+  },
+  "c1q25": {
+   "speaker": "Kuno",
+   "starts": "Why?"
+  },
+  "c1q26": {
+   "speaker": "Vashti",
+   "starts": "I dislike seei"
+  },
+  "c1q27": {
+   "speaker": "Kuno",
+   "starts": "I do not get t"
+  },
+  "c1q28": {
+   "speaker": "Vashti",
+   "starts": "What kind of i"
+  },
+  "c1q29": {
+   "speaker": "Kuno",
+   "starts": "Do you not kno"
+  },
+  "c1q30": {
+   "speaker": "Vashti",
+   "starts": "No, I do not. "
+  },
+  "c1q31": {
+   "speaker": "Kuno",
+   "starts": "I had an idea "
+  },
+  "c1q32": {
+   "speaker": "Vashti",
+   "starts": "I do not under"
+  },
+  "c1q33": {
+   "speaker": "Kuno",
+   "starts": "The four big s"
+  },
+  "c1q34": {
+   "speaker": "Kuno",
+   "starts": "The three star"
+  },
+  "c1q35": {
+   "speaker": "Vashti",
+   "starts": "A sword?"
+  },
+  "c1q36": {
+   "speaker": "Kuno",
+   "starts": "Men carried sw"
+  },
+  "c1q37": {
+   "speaker": "Vashti",
+   "starts": "It does not st"
+  },
+  "c1q38": {
+   "speaker": "Kuno",
+   "starts": "In the air-shi"
+  },
+  "c1q39": {
+   "speaker": "narrator",
+   "starts": "good enough"
+  },
+  "c1q40": {
+   "speaker": "Kuno",
+   "starts": "The truth is,"
+  },
+  "c1q41": {
+   "speaker": "Kuno",
+   "starts": "that I want to"
+  },
+  "c1q42": {
+   "speaker": "Kuno",
+   "starts": "Mother, you mu"
+  },
+  "c1q43": {
+   "speaker": "Vashti",
+   "starts": "No harm,"
+  },
+  "c1q44": {
+   "speaker": "Vashti",
+   "starts": "But no advanta"
+  },
+  "c1q45": {
+   "speaker": "Kuno",
+   "starts": "I know; of cou"
+  },
+  "c1q46": {
+   "speaker": "Vashti",
+   "starts": "And besides —"
+  },
+  "c1q47": {
+   "speaker": "Kuno",
+   "starts": "Well?"
+  },
+  "c1q48": {
+   "speaker": "Vashti",
+   "starts": "It is contrary"
+  },
+  "c1q49": {
+   "speaker": "Kuno",
+   "starts": "Do you mean by"
+  },
+  "c1q50": {
+   "speaker": "Vashti",
+   "starts": "In a sense, bu"
+  },
+  "c1q51": {
+   "speaker": "Vashti",
+   "starts": "Kuno!"
+  },
+  "c1q52": {
+   "speaker": "Vashti",
+   "starts": "O Machine! O M"
+  },
+  "c1q53": {
+   "speaker": "Vashti",
+   "starts": "I have not the"
+  },
+  "c1q54": {
+   "speaker": "Vashti",
+   "starts": "Kuno!"
+  },
+  "c1q55": {
+   "speaker": "Kuno",
+   "starts": "I will not tal"
+  },
+  "c1q56": {
+   "speaker": "Kuno",
+   "starts": "until you come"
+  },
+  "c1q57": {
+   "speaker": "Vashti",
+   "starts": "Have you been "
+  },
+  "c1q58": {
+   "speaker": "Vashti",
+   "starts": "Kuno,"
+  },
+  "c1q59": {
+   "speaker": "Vashti",
+   "starts": "I cannot come "
+  },
+  "c1q60": {
+   "speaker": "Vashti",
+   "starts": "Better."
+  },
+  "c1q61": {
+   "speaker": "Vashti",
+   "starts": "But why do you"
+  },
+  "c1q62": {
+   "speaker": "Kuno",
+   "starts": "Because I cann"
+  },
+  "c1q63": {
+   "speaker": "Vashti",
+   "starts": "Why?"
+  },
+  "c1q64": {
+   "speaker": "Kuno",
+   "starts": "Because, any m"
+  },
+  "c1q65": {
+   "speaker": "Vashti",
+   "starts": "Have you been "
+  },
+  "c1q66": {
+   "speaker": "Kuno",
+   "starts": "Not yet."
+  },
+  "c1q67": {
+   "speaker": "Vashti",
+   "starts": "Then what is i"
+  },
+  "c1q68": {
+   "speaker": "Kuno",
+   "starts": "I will not tel"
+  },
+  "c1q69": {
+   "speaker": "narrator",
+   "starts": "Parents, dutie"
+  },
+  "c1q70": {
+   "speaker": "narrator",
+   "starts": "something trem"
+  },
+  "c1q71": {
+   "speaker": "Crowd",
+   "starts": "We shall be la"
+  },
+  "c1q72": {
+   "speaker": "Vashti",
+   "starts": "O Machine!"
+  },
+  "c1q73": {
+   "speaker": "Crowd",
+   "starts": "Are we to trav"
+  },
+  "c1q74": {
+   "speaker": "narrator",
+   "starts": "keep pace with"
+  },
+  "c1q75": {
+   "speaker": "narrator",
+   "starts": "defeat the sun"
+  },
+  "c1q76": {
+   "speaker": "Vashti",
+   "starts": "How dare you!"
+  },
+  "c1q77": {
+   "speaker": "Vashti",
+   "starts": "You forget you"
+  },
+  "c1q78": {
+   "speaker": "Vashti",
+   "starts": "Where are we n"
+  },
+  "c1q79": {
+   "speaker": "Attendant",
+   "starts": "We are over As"
+  },
+  "c1q80": {
+   "speaker": "Vashti",
+   "starts": "Asia?"
+  },
+  "c1q81": {
+   "speaker": "Attendant",
+   "starts": "You must excus"
+  },
+  "c1q82": {
+   "speaker": "Vashti",
+   "starts": "Oh, I remember"
+  },
+  "c1q83": {
+   "speaker": "Attendant",
+   "starts": "Beneath us, in"
+  },
+  "c1q84": {
+   "speaker": "Vashti",
+   "starts": "Have you ever "
+  },
+  "c1q85": {
+   "speaker": "Attendant",
+   "starts": "No."
+  },
+  "c1q86": {
+   "speaker": "Vashti",
+   "starts": "Brisbane also "
+  },
+  "c1q87": {
+   "speaker": "Attendant",
+   "starts": "Those mountain"
+  },
+  "c1q88": {
+   "speaker": "Attendant",
+   "starts": "They were once"
+  },
+  "c1q89": {
+   "speaker": "Vashti",
+   "starts": "What a foolish"
+  },
+  "c1q90": {
+   "speaker": "Attendant",
+   "starts": "You must remem"
+  },
+  "c1q91": {
+   "speaker": "Vashti",
+   "starts": "How we have ad"
+  },
+  "c1q92": {
+   "speaker": "Passenger",
+   "starts": "How we have ad"
+  },
+  "c1q95": {
+   "speaker": "Vashti",
+   "starts": "Cover the wind"
+  },
+  "c1q96": {
+   "speaker": "Attendant",
+   "starts": "We have indeed"
+  },
+  "c1q97": {
+   "speaker": "Vashti",
+   "starts": "No ideas here,"
+  },
+  "c1q98": {
+   "speaker": "Vashti",
+   "starts": "No ideas here,"
+  },
+  "c2q1": {
+   "speaker": "Vashti",
+   "starts": "Here I am. I h"
+  },
+  "c2q2": {
+   "speaker": "Kuno",
+   "starts": "I have been th"
+  },
+  "c2q3": {
+   "speaker": "Kuno",
+   "starts": "I have been th"
+  },
+  "c2q4": {
+   "speaker": "Kuno",
+   "starts": "I have been ou"
+  },
+  "c2q5": {
+   "speaker": "Vashti",
+   "starts": "But why should"
+  },
+  "c2q6": {
+   "speaker": "Vashti",
+   "starts": "It is perfectl"
+  },
+  "c2q7": {
+   "speaker": "Kuno",
+   "starts": "I did not get "
+  },
+  "c2q8": {
+   "speaker": "Vashti",
+   "starts": "Then how did y"
+  },
+  "c2q9": {
+   "speaker": "Kuno",
+   "starts": "I found out a "
+  },
+  "c2q10": {
+   "speaker": "Vashti",
+   "starts": "A way of your "
+  },
+  "c2q11": {
+   "speaker": "Vashti",
+   "starts": "But that would"
+  },
+  "c2q12": {
+   "speaker": "Kuno",
+   "starts": "Why?"
+  },
+  "c2q13": {
+   "speaker": "Kuno",
+   "starts": "You are beginn"
+  },
+  "c2q14": {
+   "speaker": "Kuno",
+   "starts": "You think it i"
+  },
+  "c2q15": {
+   "speaker": "Vashti",
+   "starts": "I worship noth"
+  },
+  "c2q16": {
+   "speaker": "Vashti",
+   "starts": "I am most adva"
+  },
+  "c2q17": {
+   "speaker": "Kuno",
+   "starts": "So it is alway"
+  },
+  "c2q18": {
+   "speaker": "Vashti",
+   "starts": "Except through"
+  },
+  "c2q19": {
+   "speaker": "Kuno",
+   "starts": "Well, the Book"
+  },
+  "c2q20": {
+   "speaker": "Kuno",
+   "starts": "You know that "
+  },
+  "c2q21": {
+   "speaker": "Kuno",
+   "starts": "This city, as "
+  },
+  "c2q22": {
+   "speaker": "Kuno",
+   "starts": "I am telling m"
+  },
+  "c2q23": {
+   "speaker": "Kuno",
+   "starts": "The tunnels, o"
+  },
+  "c2q24": {
+   "speaker": "Kuno",
+   "starts": "Then a train p"
+  },
+  "c2q25": {
+   "speaker": "Vashti",
+   "starts": "Don’t. Don’t t"
+  },
+  "c2q26": {
+   "speaker": "Kuno",
+   "starts": "But I had got "
+  },
+  "c2q27": {
+   "speaker": "Kuno",
+   "starts": "It was easy at"
+  },
+  "c2q28": {
+   "speaker": "Kuno",
+   "starts": "There was a la"
+  },
+  "c2q29": {
+   "speaker": "Kuno",
+   "starts": "I had need of "
+  },
+  "c2q30": {
+   "speaker": "Kuno",
+   "starts": "I had reached "
+  },
+  "c2q31": {
+   "speaker": "Kuno",
+   "starts": "There was a ha"
+  },
+  "c2q32": {
+   "speaker": "Kuno",
+   "starts": "I cannot descr"
+  },
+  "c2q33": {
+   "speaker": "Kuno",
+   "starts": "I knew that I "
+  },
+  "c2q34": {
+   "speaker": "Kuno",
+   "starts": "Lucky for me t"
+  },
+  "c2q35": {
+   "speaker": "Kuno",
+   "starts": "I rushed the s"
+  },
+  "c2q36": {
+   "speaker": "Kuno",
+   "starts": "I don’t think "
+  },
+  "c2q37": {
+   "speaker": "Kuno",
+   "starts": "It was evening"
+  },
+  "c2q38": {
+   "speaker": "Kuno",
+   "starts": "Cannot you see"
+  },
+  "c2q39": {
+   "speaker": "Kuno",
+   "starts": "So the sun set"
+  },
+  "c2q40": {
+   "speaker": "Vashti",
+   "starts": "Go on,"
+  },
+  "c2q41": {
+   "speaker": "Vashti",
+   "starts": "Go on. Nothing"
+  },
+  "c2q42": {
+   "speaker": "Kuno",
+   "starts": "I had meant to"
+  },
+  "c2q43": {
+   "speaker": "Vashti",
+   "starts": "This is unfair"
+  },
+  "c2q44": {
+   "speaker": "Vashti",
+   "starts": "You have calle"
+  },
+  "c2q45": {
+   "speaker": "Kuno",
+   "starts": "Oh — that!"
+  },
+  "c2q46": {
+   "speaker": "Kuno",
+   "starts": "You would like"
+  },
+  "c2q47": {
+   "speaker": "Vashti",
+   "starts": "No — but I und"
+  },
+  "c2q48": {
+   "speaker": "Kuno",
+   "starts": "By no means."
+  },
+  "c2q49": {
+   "speaker": "Kuno",
+   "starts": "My respirator "
+  },
+  "c2q50": {
+   "speaker": "Vashti",
+   "starts": "Yes."
+  },
+  "c2q51": {
+   "speaker": "Kuno",
+   "starts": "About sunset, "
+  },
+  "c2q52": {
+   "speaker": "Kuno",
+   "starts": "One other warn"
+  },
+  "c2q53": {
+   "speaker": "Kuno",
+   "starts": "At this — but "
+  },
+  "c2q54": {
+   "speaker": "Kuno",
+   "starts": "I screamed. I "
+  },
+  "c2q55": {
+   "speaker": "Vashti",
+   "starts": "It will end in"
+  },
+  "c2q56": {
+   "speaker": "Kuno",
+   "starts": "I wish it woul"
+  },
+  "c2q57": {
+   "speaker": "Vashti",
+   "starts": "The Machine ha"
+  },
+  "c2q58": {
+   "speaker": "Kuno",
+   "starts": "I prefer the m"
+  },
+  "c2q59": {
+   "speaker": "Vashti",
+   "starts": "By that supers"
+  },
+  "c2q60": {
+   "speaker": "Kuno",
+   "starts": "Yes."
+  },
+  "c2q61": {
+   "speaker": "Vashti",
+   "starts": "Have you ever "
+  },
+  "c2q62": {
+   "speaker": "Kuno",
+   "starts": "Yes."
+  },
+  "c2q63": {
+   "speaker": "Vashti",
+   "starts": "They were left"
+  },
+  "c2q64": {
+   "speaker": "Kuno",
+   "starts": "Indeed."
+  },
+  "c2q65": {
+   "speaker": "Vashti",
+   "starts": "Ferns and a li"
+  },
+  "c2q66": {
+   "speaker": "Kuno",
+   "starts": "No."
+  },
+  "c2q67": {
+   "speaker": "Vashti",
+   "starts": "Has any lectur"
+  },
+  "c2q68": {
+   "speaker": "Kuno",
+   "starts": "No."
+  },
+  "c2q69": {
+   "speaker": "Vashti",
+   "starts": "Then why this "
+  },
+  "c2q70": {
+   "speaker": "Kuno",
+   "starts": "Because I have"
+  },
+  "c2q71": {
+   "speaker": "Vashti",
+   "starts": "Seen what?"
+  },
+  "c2q72": {
+   "speaker": "Kuno",
+   "starts": "Because I have"
+  },
+  "c3q1": {
+   "speaker": "Lecturer",
+   "starts": "Beware of firs"
+  },
+  "c3q2": {
+   "speaker": "Lecturer",
+   "starts": "First-hand ide"
+  },
+  "c3q3": {
+   "speaker": "Lecturer",
+   "starts": "there will com"
+  },
+  "c3q4": {
+   "speaker": "Lecturer",
+   "starts": "‘seraphically "
+  },
+  "c3q5": {
+   "speaker": "Lecturer",
+   "starts": "From taint of "
+  },
+  "c3q6": {
+   "speaker": "Crowd",
+   "starts": "The Machine,"
+  },
+  "c3q7": {
+   "speaker": "Crowd",
+   "starts": "feeds us and c"
+  },
+  "c3q8": {
+   "speaker": "narrator",
+   "starts": "religion"
+  },
+  "c3q9": {
+   "speaker": "narrator",
+   "starts": "undenomination"
+  },
+  "c3q10": {
+   "speaker": "Vashti",
+   "starts": "Does he want m"
+  },
+  "c3q11": {
+   "speaker": "Vashti",
+   "starts": "Never again, n"
+  },
+  "c3q12": {
+   "speaker": "Kuno",
+   "starts": "The Machine st"
+  },
+  "c3q13": {
+   "speaker": "Vashti",
+   "starts": "What do you sa"
+  },
+  "c3q14": {
+   "speaker": "Kuno",
+   "starts": "The Machine is"
+  },
+  "c3q15": {
+   "speaker": "Vashti",
+   "starts": "Can you imagin"
+  },
+  "c3q16": {
+   "speaker": "Vashti",
+   "starts": "A man who was "
+  },
+  "c3q17": {
+   "speaker": "Friend",
+   "starts": "The Machine is"
+  },
+  "c3q18": {
+   "speaker": "Friend",
+   "starts": "What does that"
+  },
+  "c3q19": {
+   "speaker": "Vashti",
+   "starts": "Nor to me."
+  },
+  "c3q22": {
+   "speaker": "Friend",
+   "starts": "Have you compl"
+  },
+  "c3q23": {
+   "speaker": "Vashti",
+   "starts": "Yes, and they "
+  },
+  "c3q24": {
+   "speaker": "narrator",
+   "starts": "the Machine st"
+  },
+  "c3q25": {
+   "speaker": "Vashti",
+   "starts": "Shortly! At on"
+  },
+  "c3q26": {
+   "speaker": "Vashti",
+   "starts": "Why should I b"
+  },
+  "c3q27": {
+   "speaker": "Committee",
+   "starts": "No personal co"
+  },
+  "c3q28": {
+   "speaker": "Vashti",
+   "starts": "Through whom a"
+  },
+  "c3q29": {
+   "speaker": "Committee",
+   "starts": "Through us."
+  },
+  "c3q30": {
+   "speaker": "Vashti",
+   "starts": "I complain the"
+  },
+  "c3q31": {
+   "speaker": "Committee",
+   "starts": "Your complaint"
+  },
+  "c3q32": {
+   "speaker": "Vashti",
+   "starts": "Have others co"
+  },
+  "c3q33": {
+   "speaker": "Vashti",
+   "starts": "It is too bad!"
+  },
+  "c3q34": {
+   "speaker": "Vashti",
+   "starts": "There never wa"
+  },
+  "c3q35": {
+   "speaker": "Friend",
+   "starts": "I too have my "
+  },
+  "c3q36": {
+   "speaker": "Friend",
+   "starts": "Sometimes my i"
+  },
+  "c3q37": {
+   "speaker": "Vashti",
+   "starts": "What is it?"
+  },
+  "c3q38": {
+   "speaker": "Friend",
+   "starts": "I do not know "
+  },
+  "c3q39": {
+   "speaker": "Vashti",
+   "starts": "Complain, in e"
+  },
+  "c3q40": {
+   "speaker": "Friend",
+   "starts": "I have complai"
+  },
+  "c3q41": {
+   "speaker": "Crowd",
+   "starts": "Some one is me"
+  },
+  "c3q42": {
+   "speaker": "Crowd",
+   "starts": "Some one is tr"
+  },
+  "c3q43": {
+   "speaker": "Crowd",
+   "starts": "Punish that ma"
+  },
+  "c3q44": {
+   "speaker": "Crowd",
+   "starts": "To the rescue!"
+  },
+  "c3q45": {
+   "speaker": "Crowd",
+   "starts": "War! Kill the "
+  },
+  "c3q46": {
+   "speaker": "Lecturer",
+   "starts": "Of course,"
+  },
+  "c3q47": {
+   "speaker": "Lecturer",
+   "starts": "of course we s"
+  },
+  "c3q48": {
+   "speaker": "Lecturer",
+   "starts": "Courage! coura"
+  },
+  "c3q49": {
+   "speaker": "narrator",
+   "starts": "measures,"
+  },
+  "c3q50": {
+   "speaker": "narrator",
+   "starts": "provisional di"
+  },
+  "c3q51": {
+   "speaker": "narrator",
+   "starts": "nerve-centres"
+  },
+  "c3q52": {
+   "speaker": "narrator",
+   "starts": "The Machine st"
+  },
+  "c3q53": {
+   "speaker": "Vashti",
+   "starts": "Where are you?"
+  },
+  "c3q54": {
+   "speaker": "Kuno",
+   "starts": "Here."
+  },
+  "c3q55": {
+   "speaker": "Vashti",
+   "starts": "Is there any h"
+  },
+  "c3q56": {
+   "speaker": "Kuno",
+   "starts": "None for us."
+  },
+  "c3q57": {
+   "speaker": "Vashti",
+   "starts": "Where are you?"
+  },
+  "c3q58": {
+   "speaker": "Kuno",
+   "starts": "Quicker,"
+  },
+  "c3q59": {
+   "speaker": "Kuno",
+   "starts": "I am dying — b"
+  },
+  "c3q60": {
+   "speaker": "Kuno",
+   "starts": "We have come b"
+  },
+  "c3q61": {
+   "speaker": "Vashti",
+   "starts": "But Kuno, is i"
+  },
+  "c3q62": {
+   "speaker": "Kuno",
+   "starts": "I have seen th"
+  },
+  "c3q63": {
+   "speaker": "Vashti",
+   "starts": "Oh, to-morrow "
+  },
+  "c3q64": {
+   "speaker": "Kuno",
+   "starts": "Never,"
+  },
+  "c3q65": {
+   "speaker": "Kuno",
+   "starts": "never. Humanit"
+  }
+ }
+}

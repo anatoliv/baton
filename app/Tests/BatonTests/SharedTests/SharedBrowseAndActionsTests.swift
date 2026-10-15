@@ -80,6 +80,8 @@ final class SharedBrowseAndActionsTests: XCTestCase {
         XCTAssertEqual(SongAction.addToPlaylist.label, "Add to Playlist")
         XCTAssertEqual(SongAction.goToAlbum.label, "Go to Album")
         XCTAssertEqual(SongAction.goToArtist.label, "Go to Artist")
+        // Always opens the composer, so both menus show the sheet form.
+        XCTAssertEqual(SongAction.share.sheetLabel, "Share…")
     }
 
     /// An ellipsis is a promise that something opens. `sheetLabel` is how a platform that

@@ -61,6 +61,16 @@ final class RemoteAgentLiveTests: XCTestCase {
         return config
     }
 
+    /// A quota refusal during a live run cannot measure agent behavior. Stop rather
+    /// than hammering the provider and counting unavailable replies as wrong actions.
+    /// Other provider errors still fail normally; no response body reaches the skip.
+    static func skipIfRateLimited(_ error: Error) throws {
+        if let failure = error as? RemoteNaturalLanguage.Failure,
+           case .http(status: 429, body: _) = failure {
+            throw XCTSkip("live provider rate-limited this run (HTTP 429); conversation quality was not measured")
+        }
+    }
+
     /// Skips the test unless something answers at `base`.
     ///
     /// Deliberately cheap and permissive: any HTTP response at all counts, including 401

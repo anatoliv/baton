@@ -313,6 +313,22 @@ final class EngineLiveNavidromeTests: XCTestCase {
 
     func testSeekInSpoolThenColdTimeOffsetReload() async throws {
         let live = try await Self.liveContext()
+
+        // The library draw can be genuinely silent at the seek target. The 2026-09-28
+        // gate drew a 2 kbps Opus track: the EQ and meter checks both skipped for a
+        // silent opening, while this test called the same silence a seek failure.
+        // Establish that seconds 3–4 have audible content before testing the seek.
+        let targetRMS: Double
+        do {
+            let reference = try EngineRenderHarness(sampleRate: 44_100)
+            defer { reference.shutdown() }
+            try await playAndAwaitAudio(reference, live, minScheduled: 4.0)
+            let opening = try await reference.renderSeconds(4.0)
+            targetRMS = EngineTestSignals.rms(Array(opening.suffix(44_100)))
+        }
+        try XCTSkipIf(targetRMS < 0.003,
+                      "the randomly drawn track is silent at the 3s seek target — audio recovery is not measurable")
+
         let harness = try EngineRenderHarness(sampleRate: 44_100)
         defer { harness.shutdown() }
 

@@ -175,6 +175,27 @@ final class AudioFocusHardeningTests: XCTestCase {
         XCTAssertEqual(c.state, .playing)
     }
 
+    func testLeaseRenewalDoesNotReacquireFocusOrUndoUserChanges() {
+        var fakeNow = Date()
+        let registry = BatonAudioFocusRegistry(now: { fakeNow })
+        let controller = makeController()
+        controller.play([song("a")])
+        let result = registry.suspend(owner: "interpreter", connectionID: "meeting", on: controller)
+        let handle = result["handle"] as! String
+        XCTAssertEqual(controller.state, .paused)
+        fakeNow = fakeNow.addingTimeInterval(BatonAudioFocusRegistry.handleMaxAge - 1)
+        XCTAssertTrue(registry.renew(handle: handle))
+        fakeNow = fakeNow.addingTimeInterval(2)
+        XCTAssertEqual(registry.expireStaleHandles(on: controller), 0)
+        XCTAssertEqual(controller.state, .paused)
+        controller.stop()
+        XCTAssertTrue(registry.renew(handle: handle))
+        XCTAssertEqual(registry.resume(handle: handle, on: controller)["resumed"] as? Bool, false)
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertFalse(registry.renew(handle: handle))
+        XCTAssertFalse(registry.renew(handle: "unknown"))
+    }
+
     // MARK: - 4. Crash recovery
 
     func testCrashRecoveryRestoresStrandedDuckVolume() {

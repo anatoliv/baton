@@ -1,7 +1,9 @@
 import BatonPlaybackKit
+import BatonSubsonicKit
 import BatonSubsonicModels
 import OSLog
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Not private: `MobileModel.deleteClippingsEverywhere` logs a gateway failure under the same
 /// category, and two loggers for one subject is how their messages drift apart.
@@ -24,17 +26,35 @@ struct ClippingsView: View {
     @State private var collecting = false
     @State private var status: String?
     @State private var filter = ""
+    @State private var expandedBooks: Set<String> = []
+    @State private var choosingFile = false
+    @State private var askingForLink = false
+    @State private var linkText = ""
 
     private var store: ClippingStore { model.clippings }
+    private var documentsOn: Bool { MobileDocuments.isEnabled() }
 
+    /// Readings and chapters alike, filtered by what is said and what it is called. A book's
+    /// chapters are grouped below; readings keep their flat rows.
     private var items: [ClippingStore.Item] {
         let needle = filter.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return store.items }
         return store.items.filter {
             $0.clipping.title.lowercased().contains(needle)
+                || ($0.clipping.documentTitle?.lowercased().contains(needle) ?? false)
                 || ($0.clipping.source?.lowercased().contains(needle) ?? false)
                 || ($0.clipping.text?.lowercased().contains(needle) ?? false)
         }
+    }
+
+    private var readings: [ClippingStore.Item] { items.filter { !$0.clipping.isBookChapter } }
+
+    /// Each book once, from what has landed and what the home server says (M5.3).
+    private var books: [MobileBookShelf.Book] {
+        guard documentsOn else { return [] }
+        let needle = filter.trimmingCharacters(in: .whitespaces).lowercased()
+        let records = needle.isEmpty ? model.books.records : model.books.records.filter { $0.title.lowercased().contains(needle) }
+        return MobileBookShelf.books(items: items, records: records, summaries: model.books.summaries, ledger: store.ledger)
     }
 
     /// Only what can actually be played. A queue entry whose file has gone stalls with no
@@ -47,29 +67,42 @@ struct ClippingsView: View {
 
     var body: some View {
         List {
-            if store.items.isEmpty {
+            if store.items.isEmpty && books.isEmpty {
                 Section {
                     ContentUnavailableView(
                         "No clippings yet",
                         systemImage: "waveform.circle",
-                        description: Text("On your Mac, read something aloud and choose "
-                                          + "File → Keep Reading in Clippings. It arrives here "
-                                          + "through your home gateway.")
+                        description: Text(documentsOn
+                            ? "Open a PDF, EPUB or text file in Baton from Files, or import a link, and your home server reads it to you here. On your Mac, a reading kept with File → Keep Reading in Clippings arrives here too."
+                            : "On your Mac, read something aloud and choose "
+                              + "File → Keep Reading in Clippings. It arrives here "
+                              + "through your home gateway.")
                     )
                 }
             } else {
-                Section {
-                    ForEach(items) { item in
-                        row(item)
+                if !books.isEmpty {
+                    Section("Books") {
+                        ForEach(books) { book in
+                            bookRow(book)
+                        }
                     }
-                    .onDelete { offsets in
-                        // Deliberately not a swipe-to-delete with no confirmation elsewhere in
-                        // this app's idiom: a clipping is the only copy, so the alert below says
-                        // so before anything is removed.
-                        pendingDelete = offsets.compactMap { items[$0].id }
+                }
+                if !readings.isEmpty {
+                    Section {
+                        ForEach(readings) { item in
+                            row(item)
+                        }
+                        .onDelete { offsets in
+                            // Deliberately not a swipe-to-delete with no confirmation elsewhere in
+                            // this app's idiom: a clipping is the only copy, so the alert below says
+                            // so before anything is removed.
+                            pendingDelete = offsets.compactMap { readings[$0].id }
+                        }
+                    } header: {
+                        if !books.isEmpty { Text("Readings") }
+                    } footer: {
+                        if let text = footerText { Text(text) }
                     }
-                } footer: {
-                    if let text = footerText { Text(text) }
                 }
             }
         }
@@ -77,15 +110,33 @@ struct ClippingsView: View {
         .searchable(text: $filter, prompt: "Filter clippings")
         // Pulled by hand, so say what happened: a manual pull that silently achieves nothing is
         // indistinguishable from one that failed.
-        .refreshable { await collect(announcing: true) }
+        .refreshable {
+            await collect(announcing: true)
+            await model.collectBooks(announcing: false)
+        }
         .task {
             store.loadIfNeeded()
             // Collect on open rather than on a timer. Polling is the wrong shape for a
             // local-first app, and "when you look at the screen" is both the moment you care
             // and a moment you chose.
             await collect()
+            // A book still being made is the one exception: its row says what the home server
+            // is doing, and that is worth asking every few seconds while this screen is open.
+            await model.collectBooks(announcing: false)
+            model.books.watchIfNeeded { }
         }
+        .onDisappear { model.books.stopWatching() }
         .toolbar {
+            if documentsOn {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { choosingFile = true } label: { Label("Import a File…", systemImage: "doc") }
+                        Button { linkText = ""; askingForLink = true } label: { Label("Import a Link…", systemImage: "link") }
+                    } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Import a document")
+                        .accessibilityIdentifier("import-document")
+                }
+            }
             if !playable.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -94,6 +145,34 @@ struct ClippingsView: View {
                         .accessibilityLabel("Play all clippings")
                 }
             }
+        }
+        .fileImporter(isPresented: $choosingFile, allowedContentTypes: MobileDocuments.importableTypes) { result in
+            switch result {
+            case let .success(url):
+                do { model.pendingDocumentImport = try MobileDocuments.stage(url) } catch {
+                    status = "The file could not be opened: \(error.localizedDescription)"
+                    Task { await clearStatus() }
+                }
+            case .failure: break
+            }
+        }
+        .alert("Import a Link", isPresented: $askingForLink) {
+            TextField("https://", text: $linkText)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+            Button("Cancel", role: .cancel) {}
+            Button("Import") {
+                let raw = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let withScheme = raw.contains("://") ? raw : "https://\(raw)"
+                if let url = URL(string: withScheme), MobileDocuments.isWebLink(url) {
+                    model.pendingDocumentImport = url
+                } else {
+                    status = "That is not a web address"
+                    Task { await clearStatus() }
+                }
+            }
+        } message: {
+            Text("The page is read as an article and made into a book on your home server.")
         }
         // The wording, and the choice it offers, now live in one modifier: the player's
         // long-press menu deletes a clipping too, and this dialog is the only thing telling
@@ -124,6 +203,89 @@ struct ClippingsView: View {
         let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
         return "\(Counted.phrase(store.items.count, "clipping")), \(size). These play with no "
             + "server and no network."
+    }
+
+    @ViewBuilder
+    private func bookRow(_ book: MobileBookShelf.Book) -> some View {
+        let expanded = expandedBooks.contains(book.documentID)
+        DisclosureGroup(isExpanded: Binding(
+            get: { expanded },
+            set: { open in if open { expandedBooks.insert(book.documentID) } else { expandedBooks.remove(book.documentID) } }
+        )) {
+            ForEach(book.chapters) { chapter in
+                Button {
+                    play(book, fromChapter: chapter.index)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("\(chapter.index + 1)").monospacedDigit().foregroundStyle(.secondary)
+                            .frame(width: 24, alignment: .trailing)
+                        Text(chapter.title).lineLimit(1)
+                        Spacer()
+                        Text(chapter.stateText).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(chapter.item?.isPresent != true)
+                .opacity(chapter.item?.isPresent == true ? 1 : 0.6)
+            }
+        } label: {
+            Button {
+                play(book)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "book.closed").foregroundStyle(.secondary).frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(book.title).lineLimit(1)
+                        HStack(spacing: 6) {
+                            if let author = book.author, !author.isEmpty { Text(author) }
+                            Text(book.summaryText)
+                            Text(book.storedText)
+                            if book.finished {
+                                Text("Finished")
+                            } else if book.listenedFraction > 0 {
+                                Text("\(Int((book.listenedFraction * 100).rounded()))% heard")
+                            }
+                        }
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if let line = book.statusLine {
+                            Text(line.text).font(.caption)
+                                .foregroundStyle(line.isProblem ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(book.readyChapters.isEmpty)
+            .accessibilityIdentifier("book-\(book.documentID)")
+        }
+        .contextMenu {
+            Button("Play") { play(book) }.disabled(book.readyChapters.isEmpty)
+            if let jobID = book.jobID, !book.isComplete {
+                Button("Stop Making This Book", role: .destructive) {
+                    Task { await model.books.cancel(jobID: jobID) }
+                }
+            }
+            if book.isComplete && !book.readyChapters.isEmpty {
+                // Only once every chapter is here: forgetting the record earlier would orphan the
+                // chapters still on the server, never collected and never deleted. The chapters
+                // go through the same confirmation every clipping does; the record is forgotten
+                // either way, and a cancelled deletion leaves the chapters as the row's source.
+                Button("Delete Book…", role: .destructive) {
+                    if let jobID = book.jobID { model.books.forget(jobID: jobID) }
+                    pendingDelete = book.chapters.compactMap { $0.item?.id }
+                }
+            }
+        }
+    }
+
+    /// Play a book from the chosen chapter, or from its first chapter here.
+    private func play(_ book: MobileBookShelf.Book, fromChapter index: Int? = nil) {
+        let songs = book.chapters.compactMap { $0.item }.filter(\.isPresent).map(\.asSong)
+        guard !songs.isEmpty else { return }
+        let start = index.flatMap { wanted in songs.firstIndex { song in
+            model.clippings.item(forSongID: song.id)?.clipping.chapterIndex == wanted } } ?? 0
+        model.music.play(Array(songs[start...]), source: .init(label: book.title, kind: .song, id: book.documentID))
     }
 
     @ViewBuilder

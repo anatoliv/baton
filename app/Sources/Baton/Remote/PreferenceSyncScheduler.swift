@@ -43,8 +43,25 @@ final class PreferenceSyncScheduler {
 
     init(model: MusicModel) { self.model = model }
 
+    /// A probe instance must not take part in the owner's shared settings: it would adopt the
+    /// owner's gateway address over the harness's own (the home-server walk lost its loopback
+    /// relay that way on 2026-10-14), and its throwaway values could travel the other way.
+    /// `scripts/probe-lib.sh` launches every probe with `BATON_DEBUG_PREFERENCE_SYNC=off`.
+    /// DEBUG only, and an environment variable rather than a launch argument.
+    static func isSwitchedOff(by environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        #if DEBUG
+        return environment["BATON_DEBUG_PREFERENCE_SYNC"] == "off"
+        #else
+        return false
+        #endif
+    }
+
     func start() {
         guard loop == nil else { return }
+        if Self.isSwitchedOff() {
+            clippingSyncLog.notice("preference sync is off for this instance (BATON_DEBUG_PREFERENCE_SYNC)")
+            return
+        }
         // Stamp any synced setting the moment it changes, as the phone has always done.
         //
         // Without this the Mac held no local timestamps at all, and both halves of the sync

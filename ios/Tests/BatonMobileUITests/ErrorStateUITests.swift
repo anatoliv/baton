@@ -36,8 +36,8 @@ final class ErrorStateUITests: XCTestCase {
     }
 
     func testAlbumsSaysItCouldNotLoadRatherThanClaimingTheLibraryIsEmpty() {
-        app.launch()
-        app.buttons["Albums"].firstMatch.tap()
+        launchForReleaseNavigation(app)
+        selectReleaseTab("Albums", in: app, screenTitle: "Couldn't load", timeout: 60)
 
         // The shared placeholder's error title. Waiting generously because the failure has
         // to come back from a DNS attempt, not from a fixture.
@@ -50,8 +50,8 @@ final class ErrorStateUITests: XCTestCase {
     }
 
     func testTheRetryAffordanceIsOffered() {
-        app.launch()
-        app.buttons["Albums"].firstMatch.tap()
+        launchForReleaseNavigation(app)
+        selectReleaseTab("Albums", in: app, screenTitle: "Couldn't load", timeout: 60)
         XCTAssertTrue(app.staticTexts["Couldn't load"].firstMatch.waitForExistence(timeout: 60))
         // An error with no way out is a dead end; the placeholder takes an onRetry and every
         // browse screen now passes one.

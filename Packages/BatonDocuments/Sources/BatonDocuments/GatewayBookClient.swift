@@ -1,0 +1,186 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+/// The client half of the gateway's book routes (`gateway/README.md`, *Books*), shared by the
+/// Mac ("Render on: Home server") and the iPhone, which always renders there (board M5.1).
+///
+/// One definition of the wire format: it submits the same `PreparedBook` the local renderer
+/// takes, under the id the gateway checks (`BookJob.id(for:)`), and reads back the same
+/// `BookJob.Summary` the gateway serves. A chapter download is verified against the gateway's
+/// `X-Baton-SHA256` before it is handed over, end to end, as every file on that road is.
+public struct GatewayBookClient: Sendable {
+    public typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
+    public let baseURL: URL
+    public let token: String
+    let transport: Transport
+
+    public init(baseURL: URL, token: String, transport: Transport? = nil) {
+        self.baseURL = baseURL
+        self.token = token
+        self.transport = transport ?? { request in
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw GatewayBookError.notHTTP }
+            return (data, http)
+        }
+    }
+
+    // MARK: - Calls
+
+    /// `GET /v1/books`: every book, the space used and allowed, and whether books are on.
+    public func list() async throws -> Listing {
+        let (data, _) = try await send("GET", "v1/books")
+        return try Listing.decode(data)
+    }
+
+    /// `PUT /v1/books/{id}`. Returns the job, new or the one already there (a resubmission,
+    /// or a second device importing the same file in the same voice).
+    public func submit(_ book: PreparedBook) async throws -> BookJob.Summary {
+        let id = BookJob.id(for: book)
+        let (data, _) = try await send("PUT", "v1/books/\(id)", body: try book.encoded(),
+                                       contentType: "application/json")
+        return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
+    }
+
+    public func status(_ id: String) async throws -> BookJob.Summary {
+        let (data, _) = try await send("GET", "v1/books/\(id)")
+        return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
+    }
+
+    /// `GET /v1/books/{id}/chapters/{n}` (1-based), written to `destination` only after its
+    /// digest matches the gateway's header. A mismatch throws and leaves nothing behind.
+    public func downloadChapter(_ id: String, number: Int, to destination: URL) async throws -> Chapter {
+        let (data, response) = try await send("GET", "v1/books/\(id)/chapters/\(number)")
+        let digest = SHA256Digest.hex(of: data)
+        let expected = response.value(forHTTPHeaderField: "X-Baton-SHA256")
+        guard let expected, expected.lowercased() == digest else {
+            throw GatewayBookError.digestMismatch(expected: expected, actual: digest)
+        }
+        try data.write(to: destination, options: .atomic)
+        return Chapter(url: destination, sha256: digest, bytes: data.count,
+                       seconds: response.value(forHTTPHeaderField: "X-Baton-Duration").flatMap(Double.init),
+                       name: response.value(forHTTPHeaderField: "X-Baton-Name"))
+    }
+
+    /// `GET /v1/books/{id}/export.m4b`: the whole book as one audiobook with chapter marks,
+    /// written only when its digest matches. 409 until every chapter is ready.
+    public func exportAudiobook(_ id: String, to directory: URL) async throws -> Chapter {
+        let (data, response) = try await send("GET", "v1/books/\(id)/export.m4b")
+        let digest = SHA256Digest.hex(of: data)
+        let expected = response.value(forHTTPHeaderField: "X-Baton-SHA256")
+        guard let expected, expected.lowercased() == digest else {
+            throw GatewayBookError.digestMismatch(expected: expected, actual: digest)
+        }
+        let name = response.value(forHTTPHeaderField: "X-Baton-Name").map { ($0 as NSString).lastPathComponent } ?? "\(id.prefix(12)).m4b"
+        let destination = directory.appendingPathComponent(name.isEmpty ? "\(id.prefix(12)).m4b" : name)
+        try data.write(to: destination, options: .atomic)
+        return Chapter(url: destination, sha256: digest, bytes: data.count, seconds: nil, name: name)
+    }
+
+    /// `POST /v1/books/{id}/finished`: the listener reached the end; retention starts.
+    public func markFinished(_ id: String) async throws {
+        _ = try await send("POST", "v1/books/\(id)/finished")
+    }
+
+    public func delete(_ id: String) async throws {
+        _ = try await send("DELETE", "v1/books/\(id)")
+    }
+
+    /// `POST /v1/speech/preview`: a few seconds of `voice` reading `text`, as WAV, for the
+    /// import sheet's previews when the device has no TTS of its own (the phone, away from home).
+    public func preview(text: String, voice: String, speed: Double? = nil) async throws -> Data {
+        var body: [String: Any] = ["text": text, "voice": voice]
+        if let speed { body["speed"] = speed }
+        let (data, _) = try await send("POST", "v1/speech/preview",
+                                       body: try JSONSerialization.data(withJSONObject: body),
+                                       contentType: "application/json")
+        return data
+    }
+
+    // MARK: - Types
+
+    public struct Chapter: Sendable, Equatable {
+        public var url: URL
+        public var sha256: String
+        public var bytes: Int
+        public var seconds: Double?
+        public var name: String?
+    }
+
+    /// `GET /v1/books`'s answer.
+    public struct Listing: Sendable, Equatable {
+        public var books: [BookJob.Summary]
+        public var usedBytes: Int
+        public var maximumBytes: Int
+        public var keepFinishedDays: Int
+        public var available: Bool
+        public var unavailableReason: String?
+
+        static func decode(_ data: Data) throws -> Listing {
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw GatewayBookError.unreadable
+            }
+            let books = try ((json["books"] as? [Any]) ?? []).map { item -> BookJob.Summary in
+                try BookJSON.decoder.decode(BookJob.Summary.self, from: JSONSerialization.data(withJSONObject: item))
+            }
+            return Listing(books: books, usedBytes: json["used_bytes"] as? Int ?? 0,
+                           maximumBytes: json["maximum_bytes"] as? Int ?? 0,
+                           keepFinishedDays: json["keep_finished_days"] as? Int ?? 0,
+                           available: json["available"] as? Bool ?? false,
+                           unavailableReason: json["unavailable_reason"] as? String)
+        }
+    }
+
+    // MARK: - Transport
+
+    func request(_ method: String, _ path: String, body: Data? = nil, contentType: String? = nil) -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.httpMethod = method
+        request.timeoutInterval = 120
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+        request.httpBody = body
+        return request
+    }
+
+    func send(_ method: String, _ path: String, body: Data? = nil,
+              contentType: String? = nil) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await transport(request(method, path, body: body, contentType: contentType))
+        guard (200..<300).contains(response.statusCode) else {
+            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+            throw GatewayBookError.http(status: response.statusCode,
+                                        message: message ?? String(data: data.prefix(200), encoding: .utf8) ?? "")
+        }
+        return (data, response)
+    }
+}
+
+public enum GatewayBookError: Error, Equatable, CustomStringConvertible {
+    case notHTTP
+    case unreadable
+    case http(status: Int, message: String)
+    case digestMismatch(expected: String?, actual: String)
+
+    public var description: String {
+        switch self {
+        case .notHTTP: return "the home server's answer was not HTTP"
+        case .unreadable: return "the home server answered with something Baton can't read"
+        case let .http(status, message): return "the home server answered \(status): \(message)"
+        case let .digestMismatch(expected, actual):
+            return "a chapter arrived damaged (expected \(expected ?? "a digest"), got \(actual))"
+        }
+    }
+
+    /// The same, in a listener's words, for a status line.
+    public var listenerReason: String {
+        switch self {
+        case .http(401, _): return "the home server didn't accept Baton's token"
+        case .http(507, _): return "the home server is out of space for books"
+        case .http(503, _): return "books are off on the home server"
+        case .digestMismatch: return "a chapter arrived damaged and will be fetched again"
+        default: return "the home server isn't answering"
+        }
+    }
+}

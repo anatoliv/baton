@@ -38,6 +38,9 @@ struct SpeakingPlayerView: View {
         let action: () -> Void
     }
 
+    /// The transcript's sentences, kept across evaluations and rebuilt only when the text changes.
+    @State private var sentenceCache = TranscriptSentenceIndex.Cache()
+
     /// True when the pane's transcript is the live utterance — so its transport controls it.
     private var isLive: Bool { live ?? speech.isSpeaking }
 
@@ -155,67 +158,48 @@ struct SpeakingPlayerView: View {
     // MARK: Transcript (fills the space, auto-scrolls to the spoken sentence)
 
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(Array(sentences.enumerated()), id: \.offset) { index, sentence in
-                        Text(sentence.text)
-                            .font(.callout)
-                            .foregroundStyle(index == activeSentence ? .primary : .secondary)
-                            .fontWeight(index == activeSentence ? .semibold : .regular)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(index)
-                    }
-                }
-                .padding(.horizontal, 18) // keep text clear of any host's top-corner controls
-            }
-            .onChange(of: activeSentence) { _, i in
-                withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(i, anchor: .center) }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The live word-highlight is visual-only; expose the summary to VoiceOver as one element,
-        // announcing which sentence is speaking so it isn't silent structure.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(isLive ? "Now speaking" : "Summary transcript")
-        .accessibilityValue(text)
+        // Built once per text, not per evaluation: this body runs every 100 ms while audio plays.
+        let index = sentenceCache.index(for: text)
+        let active = activeSentence(in: index)
+        return SpeakingTranscriptList(index: index, active: active)
+            .equatable() // only a new sentence or a new text re-renders the rows, not each tick
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // The live word-highlight is visual-only; expose the transcript to VoiceOver as one element,
+            // announcing which sentence is speaking so it isn't silent structure.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(isLive ? "Now speaking" : "Summary transcript")
+            .accessibilityValue(Self.voiceOverValue(text: text, index: index, active: active))
     }
 
-    /// The summary split into sentences, each tagged with the character offset of its end — so the
-    /// spoken position (a char index) maps to the sentence to highlight and scroll to.
-    private var sentences: [(text: String, end: Int)] {
-        let s = text
-        guard !s.isEmpty else { return [] }
-        var out: [(String, Int)] = []
-        s.enumerateSubstrings(in: s.startIndex ..< s.endIndex, options: .bySentences) { sub, range, _, _ in
-            let end = s.distance(from: s.startIndex, to: range.upperBound)
-            let piece = (sub ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !piece.isEmpty { out.append((piece, end)) }
-        }
-        return out.isEmpty ? [(s, s.count)] : out
+    /// What VoiceOver reads for the transcript (F5). The whole text used to be the value, which
+    /// for a book is 70,000 characters read as one element. While speaking it is the sentence
+    /// being spoken; otherwise a short summary is read whole, as before, and a long text says how
+    /// it starts and how much follows.
+    static func voiceOverValue(text: String, index: TranscriptSentenceIndex, active: Int?,
+                               wholeTextLimit: Int = 600) -> String {
+        if let active, index.sentences.indices.contains(active) { return index.sentences[active].text }
+        if index.utf16Length <= wholeTextLimit { return text }
+        guard let first = index.sentences.first?.text else { return text }
+        let more = index.sentences.count - 1
+        return more > 0 ? "\(first) (and \(more) more \(more == 1 ? "sentence" : "sentences"))" : first
     }
 
-    /// The character index spoken so far — from the built-in voice's live word range, or (for server
-    /// audio) estimated from playback progress.
-    private var spokenCharIndex: Int {
-        // During a reading the position is the current sentence's place in the whole document,
-        // advanced by playback within that sentence — so the highlight moves smoothly rather
-        // than jumping a paragraph at a time. Estimating from overall progress (below) would be
-        // wrong here: `progress` is progress through one utterance, not through the reading.
-        if let reading = speech.reading {
-            let within = Double(reading.spokenRange.length) * (speech.progress ?? 0)
-            return reading.spokenRange.location + Int(within)
-        }
-        if let r = speech.spokenRange { return r.location + r.length }
-        if let p = speech.progress { return Int(p * Double(text.count)) }
-        return 0
-    }
-
-    private var activeSentence: Int {
-        guard isLive else { return -1 } // no word-highlight unless this pane's summary is playing
-        let idx = spokenCharIndex
-        for (i, s) in sentences.enumerated() where idx <= s.end { return i }
-        return max(0, sentences.count - 1)
+    /// The sentence to highlight and scroll to, or nil when this pane's text is not the one playing.
+    ///
+    /// The spoken position and the index are both UTF-16, the units the coordinator's ranges and
+    /// the synthesizer's word ranges arrive in, so emoji earlier in the text cannot move it.
+    private func activeSentence(in index: TranscriptSentenceIndex) -> Int? {
+        guard isLive else { return nil } // no word-highlight unless this pane's summary is playing
+        let location = TranscriptSentenceIndex.spokenLocation(
+            // During a reading the position is the current sentence's place in the whole
+            // document, advanced by playback within that sentence. `progress` is progress through
+            // one utterance, not through the reading, so it is never used against the whole text.
+            reading: speech.reading?.spokenRange,
+            wordRange: speech.spokenRange,
+            progress: speech.progress,
+            utf16Length: index.utf16Length
+        )
+        return index.sentenceIndex(containing: location)
     }
 
     // MARK: Transport (∓10s seek · Play/Pause/Replay) — copies the mini player's sizing/style
@@ -262,6 +246,39 @@ struct SpeakingPlayerView: View {
         .buttonStyle(.plain)
         .font(.title3)
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The transcript rows: lazy, so a book-length reading lays out only what is on screen, and
+/// equatable on the index and the active sentence, so the 100 ms progress ticks that do not move
+/// the highlight do not re-render it.
+private struct SpeakingTranscriptList: View, Equatable {
+    let index: TranscriptSentenceIndex
+    /// The sentence being spoken, or nil when nothing in this transcript is.
+    let active: Int?
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 3) {
+                    ForEach(index.sentences.indices, id: \.self) { i in
+                        Text(index.sentences[i].text)
+                            .font(.callout)
+                            .foregroundStyle(i == active ? .primary : .secondary)
+                            .fontWeight(i == active ? .semibold : .regular)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(i)
+                    }
+                }
+                .padding(.horizontal, 18) // keep text clear of any host's top-corner controls
+            }
+            // A pane opened part-way through a reading starts at the spoken sentence, not the top.
+            .onAppear { if let active { proxy.scrollTo(active, anchor: .center) } }
+            .onChange(of: active) { _, i in
+                guard let i else { return }
+                withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(i, anchor: .center) }
+            }
+        }
     }
 }
 

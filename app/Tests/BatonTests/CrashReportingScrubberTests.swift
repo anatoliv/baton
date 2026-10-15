@@ -9,6 +9,40 @@ final class CrashReportingScrubberTests: XCTestCase {
 
     // MARK: redact() — the core
 
+    /// F4: a credential in a crash message never reaches Crashbox. Each shape read-aloud refuses
+    /// to speak is refused here too, from the same list (`BatonDocuments.SecretRedactor`).
+    /// The sample tokens are spliced at runtime so the source never carries a literal token
+    /// shape: the public-mirror secrets guard (scripts/publish-repo.sh) scans tests too, and a
+    /// guard taught to skip tests would be the weaker thing to have.
+    func testEveryCredentialShapeIsRedacted() {
+        let secrets = [
+            "sk-proj-abcdefghijklmnopqrstuvwx1234",
+            "gh" + "p_abcdefghijklmnopqrstuvwxyz012345",
+            "xo" + "xb-123456789012-abcdefghijklmnop",
+            "AKIA" + "IOSFODNN7EXAMPLE",
+            "AIzaSyA1234567890abcdefghijklmnopqrstu",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop",
+        ]
+        for secret in secrets {
+            let out = CrashReporting.redact("request failed with key \(secret) after retry")
+            XCTAssertFalse(out.contains(secret), out)
+            XCTAssertTrue(out.contains("<redacted-secret>"), out)
+        }
+        let bearer = CrashReporting.redact("Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123")
+        XCTAssertFalse(bearer.contains("abcdefghijklmnopqrstuvwxyz0123"), bearer)
+        let assignment = CrashReporting.redact("config password=hunter2hunter2 loaded")
+        XCTAssertFalse(assignment.contains("hunter2"), assignment)
+        XCTAssertTrue(assignment.contains("password=<redacted-secret>"), "the field name stays: \(assignment)")
+        let pem = CrashReporting.redact("-----BEGIN " + "PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----")
+        XCTAssertFalse(pem.contains("MIIEvQIBADANBg"), pem)
+    }
+
+    func testOrdinaryTextAndAGitHashAreLeftAlone() {
+        let text = "decoder failed at commit 3f9a1c2e7b8d4f6a0c1e2d3b4a5f6e7d8c9b0a1f in Player.swift"
+        XCTAssertEqual(CrashReporting.redact(text), text)
+    }
+
+
     func testRedactStripsURLAuthIPAndPath() {
         let s = "GET https://music.example.com/rest/stream?u=bob&t=abc&s=xyz failed on 192.168.1.50 for /Users/bob/Music/x.flac"
         let r = CrashReporting.redact(s)

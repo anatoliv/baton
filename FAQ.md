@@ -68,10 +68,19 @@ Not by default. Baton talks only to the music server you point it at, plus the s
 services (ListenBrainz and Last.fm) if you turn them on, its own update feed for checking for
 new versions, and any speech servers you set up yourself: text-to-speech for spoken summaries,
 and transcription for reading a podcast episode. Those are machines you run and point Baton at. It has no catalog
-server of its own to call. The one opt-in exception is crash reporting: if you turn on **Send
+server of its own to call. There are two exceptions, and both are yours to choose. When you
+share a song, it is encrypted on your device and uploaded to Baton's share service, which
+counts what happens to that link (opens and plays, never who). And if you turn on **Send
 crash & error reports** (Settings, About, Diagnostics, off by default), Baton sends crash and
 error data to its developer through Crashbox to help fix bugs. It never sends your music, library,
-server address, or account, and no IP or identifiers.
+server address, or account, and no IP or identifiers. Turning it on means Baton will try to send a report after a crash, but it does not confirm that the report arrived.
+
+**Can I send a song to a friend who isn't on my server?**
+Yes. Choose **Share…** in a song's menu and Baton makes a link they can play in any browser,
+with no app and no account. The song is encrypted on your device and the key is in the link,
+so Baton's share service can't play it. Links expire after 1, 7 or 30 days, and you can see
+who listened, or revoke a link, in **Shared Links**. See
+[Sharing a song with a friend](HELP.md#sharing-a-song-with-a-friend).
 
 **Is the control server a security risk?**
 No, by design. Baton's control server listens only on your own Mac (loopback), so it isn't

@@ -57,6 +57,15 @@ packages:
   # bridges) — extracted per the Phase 1 handoff, one brain for Mac/iPhone/gateway.
   BatonAgentKit:
     path: ../Packages/BatonAgentKit
+  # Local module: document clippings' shared logic (import, shaping, the PreparedBook wire
+  # format). Foundation only and Linux-safe, so the gateway renders what the devices prepare.
+  BatonDocuments:
+    path: ../Packages/BatonDocuments
+  # Local module: song sharing's format, link, wire types and client (specs/song-sharing.md).
+  # Builds on Linux too, where the share service and its tests run; swift-crypto is linked on
+  # Linux only, so the app links nothing new from it.
+  BatonShareKit:
+    path: ../Packages/BatonShareKit
 
 settings:
   base:
@@ -66,8 +75,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.19.12"
-    CURRENT_PROJECT_VERSION: "112"
+    MARKETING_VERSION: "0.19.16"
+    CURRENT_PROJECT_VERSION: "116"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -105,6 +114,8 @@ targets:
       - package: BatonSubsonicKit
       - package: BatonPlaybackKit
       - package: BatonAgentKit
+      - package: BatonDocuments
+      - package: BatonShareKit
     # Remote reporting defaults off. Release packaging passes a temporary protected
     # Crashbox-only xcconfig; see CrashReporting.
     configFiles:
@@ -152,6 +163,11 @@ targets:
       - path: ../Shared/ReportingAttemptGate.swift
       - path: ../Shared/Color+Baton.swift
       - path: ../Shared/ArtworkPalette.swift
+      # Sharing a song with someone outside the LAN, one flow for both apps.
+      - path: ../Shared/SongSharing.swift
+      - path: ../Shared/ShareSongViews.swift
+      # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
+      - path: ../Shared/HomeServerBooks.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
@@ -315,6 +331,7 @@ targets:
         TEST_TARGET_NAME: Baton
     dependencies:
       - target: Baton
+      - package: BatonSubsonicKit
 
 schemes:
   BatonUITests:
@@ -358,9 +375,26 @@ schemes:
         # never added here, so the gate built the package and executed none of its tests.
         # A suite green in one place looks identical to one that runs nowhere (TBX-5363).
         - package: BatonSubsonicKit/BatonSubsonicKitTests
+        # In the scheme from the day the package exists, so it never joins the list above.
+        - package: BatonDocuments/BatonDocumentsTests
+        # The BSH1 format and its cross-implementation vectors, the link, the wire types, the
+        # client and the ledger. Also runs on Linux with the share service (gateway/).
+        - package: BatonShareKit/BatonShareKitTests
     profile:
       config: Release
     analyze:
       config: Debug
     archive:
       config: Release
+
+  BatonCrashReportingAcceptance:
+    build:
+      targets:
+        Baton: all
+        BatonUITests: [test]
+    test:
+      config: Debug
+      environmentVariables:
+        CRASH_REPORTING_ACCEPTANCE_TESTS: "1"
+      targets:
+        - BatonUITests

@@ -1,0 +1,9 @@
+{"status":"pulling manifest"}
+{"status":"pulling a3de86cd1c13","digest":"sha256:a3de86cd1c132c822487ededd47a324c50491393e6565cd14bafa40d0b8e686f","total":5225374496,"completed":5225374496}
+{"status":"pulling ae370d884f10","digest":"sha256:ae370d884f108d16e7cc8fd5259ebc5773a0afa6e078b11f4ed7e39a27e0dfc4","total":1723,"completed":1723}
+{"status":"pulling d18a5cc71b84","digest":"sha256:d18a5cc71b84bc4af394a31116bd3932b42241de70c77d2b76d69a314ec8aa12","total":11338,"completed":11338}
+{"status":"pulling cff3f395ef37","digest":"sha256:cff3f395ef3756ab63e58b0ad1b32bb6f802905cae1472e6a12034e4246fbbdb","total":120,"completed":120}
+{"status":"pulling 05a61d37b084","digest":"sha256:05a61d37b08453e59290add468e3bb2f688e23a01e967fecb0e2fa41218cea76","total":487,"completed":487}
+{"status":"verifying sha256 digest"}
+{"status":"writing manifest"}
+{"status":"success"}

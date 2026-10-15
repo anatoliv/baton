@@ -53,27 +53,18 @@ final class FriendMemoryUITests: XCTestCase {
     override func tearDown() { app = nil; super.tearDown() }
 
     func testTheFriendLogShowsWhatTheFriendRemembersAndForgettingOneRemovesIt() throws {
-        app.launch()
+        launchForReleaseNavigation(app)
 
         // The Friend tab only appears once a connection test has passed, which is why the
         // launch arguments stand one in. If it is absent the flag has stopped working, and
         // that is a failure rather than a reason to skip — a test that skips itself out of
         // existence on a clean machine is the thing this suite is being audited for.
-        let friendTab = app.tabBars.buttons["Friend"]
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 90), "the app must reach its tab bar")
-        XCTAssertTrue(friendTab.waitForExistence(timeout: 20),
-                      "the Friend tab is absent — `-uitestVerifiedAgent` no longer reaches markVerified()")
-        friendTab.tap()
+        selectReleaseTab("Friend", in: app, screenTitle: "Music Friend", timeout: 90)
 
-        // The log is behind the header button on the Music Friend screen — the same place the
-        // corrections have always been, which is the point: one answer to "what does it know
-        // about me" rather than two screens.
-        let log = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'log'")).firstMatch
-        if log.waitForExistence(timeout: 5) {
-            log.tap()
-        } else {
-            app.navigationBars.buttons.element(boundBy: 0).tap()
-        }
+        let log = app.buttons["Friend log"]
+        XCTAssertTrue(log.waitForExistence(timeout: 10), "Music Friend must offer its log")
+        XCTAssertTrue(log.isHittable, "the Friend log button must be visible")
+        log.tap()
 
         let header = app.staticTexts["What it remembers"]
         XCTAssertTrue(header.waitForExistence(timeout: 15),

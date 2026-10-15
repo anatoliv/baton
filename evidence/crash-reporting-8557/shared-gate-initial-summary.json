@@ -1,0 +1,18 @@
+{
+  "result": "Failed",
+  "title": "Test - Baton",
+  "totalTestCount": 2386,
+  "passedTests": 2371,
+  "failedTests": 1,
+  "skippedTests": 14,
+  "testFailures": [
+    {
+      "failureText": "XCTAssertEqual failed: (\"[\"app/Tests/BatonUITests/CrashReportingAcceptanceTests.swift:9: let suite = \\\"baton.tbx8557.\\\\(UUID().uuidString)\\\"\"]\") is not equal to (\"[]\") - \napp/Tests/BatonUITests/CrashReportingAcceptanceTests.swift:9: let suite = \"baton.tbx8557.\\(UUID().uuidString)\"\n\nUse ThrowawayDefaults.name(\"<label>\") so the suite is removed at exit.",
+      "targetName": "BatonSubsonicKitTests",
+      "testIdentifier": 2380,
+      "testIdentifierString": "ThrowawayDefaultsTests/testNoTestMintsItsOwnUUIDSuite()",
+      "testIdentifierURL": "test://com.apple.xcode/BatonSubsonicKit/BatonSubsonicKitTests/ThrowawayDefaultsTests/testNoTestMintsItsOwnUUIDSuite",
+      "testName": "testNoTestMintsItsOwnUUIDSuite()"
+    }
+  ]
+}

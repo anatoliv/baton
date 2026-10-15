@@ -65,6 +65,12 @@ Everything is an environment variable.
 | `BATON_LLM_MODEL` | `claude-haiku-4-5-20251001` | Model id. |
 | `BATON_LLM_BASE_URL` | the provider's own | Point this at a LiteLLM or Ollama box on your LAN. |
 | `BATON_LLM_API_KEY` | empty | Key for the provider. |
+| `BATON_TTS_KOKORO_URL` | `http://127.0.0.1:8880` | Kokoro, for rendering books. Any host on your LAN. |
+| `BATON_TTS_CHATTERBOX_URL` | unset | Chatterbox, only if a book's voices use it. |
+| `BATON_RENDER_CONCURRENCY` | `2` | TTS requests in flight per book. |
+| `BATON_BOOKS_MAX_BYTES` | 4 GiB | Space for rendered books, separate from parked files. |
+| `BATON_BOOKS_KEEP_FINISHED_DAYS` | `30` | How long a finished book's audio stays. |
+| `BATON_FFMPEG` | `ffmpeg` on `PATH` | The encoder for chapters. Without it, books are off and say so. |
 
 The four `BATON_LLM_*` variables are only for the music friend. Leave them unset and the
 gateway still starts and still syncs settings; only `/v1/agent` will fail.
@@ -126,6 +132,14 @@ devices.
 | `POST /v1/agent` | token | One conversation turn. Body: `{"message": "...", "player_context": "..."}`. |
 | `GET /v1/device/poll` | token | A player parks here waiting for a command. `204` when there's nothing. |
 | `POST /v1/device/result` | token | A player reports back what happened. |
+| `PUT /v1/books/{id}` | token | Submit a prepared book to render. Streamed like a file upload. |
+| `GET /v1/books` | token | Every book, its chapters' state, and the space used and allowed. |
+| `GET /v1/books/{id}` | token | One book: per chapter `queued`, `rendering`, `encoding`, `ready` or `failed`. |
+| `GET /v1/books/{id}/chapters/{n}` | token | Chapter *n*'s M4A, with `X-Baton-SHA256` and `X-Baton-Duration`. |
+| `GET /v1/books/{id}/export.m4b` | token | The whole book as one audiobook with chapter marks (ffmpeg stream copy, made on request and not kept); 409 until every chapter is ready. |
+| `POST /v1/books/{id}/finished` | token | The listener reached the end; retention starts counting, and the book's `removesAt` says when it goes. |
+| `DELETE /v1/books/{id}` | token | Stop rendering and remove it. |
+| `POST /v1/speech/preview` | token | A few seconds of a voice (`{"text","voice","speed"}`), for choosing one. |
 
 ### The shared settings document has a revision
 
@@ -147,6 +161,30 @@ syncing. It just cannot be told that it lost a race.
 The last two are how "play something mellow" reaches your speakers: the curation tools run
 on the gateway against Navidrome, and the playback verbs dispatch to whichever device is
 holding the long poll. With nothing listening, those tools say so rather than pretending.
+
+## Books
+
+The gateway renders **document clippings** (`specs/document-clippings.md`): a Mac or a phone
+imports a PDF or a text file, shapes it into a *prepared book* (chapters cut into sentence-sized
+chunks, with voices and pauses), and submits it here. The gateway asks the TTS host for each
+chunk, joins them, encodes each chapter to M4A with ffmpeg, and keeps them for both devices to
+collect. Once submitted, nothing depends on the device that sent it: a Mac can sleep and a
+phone can be locked.
+
+- **Chapter 1 first**, so listening starts while the rest renders.
+- **A TTS host that stops answering pauses the book** (its status says why) and is retried
+  with backoff. The book is never finished in another voice.
+- **Restarts resume.** Jobs and a content-addressed chunk cache live under `books/` beside the
+  state file, so a redeploy carries on where it stopped and a re-render of the same text in the
+  same voice costs no TTS at all.
+- **Space is separate from parked files** and governed differently. Parked files are evicted
+  oldest first, which would take chapter 1 of the book someone is halfway through. A finished
+  book's audio goes `BATON_BOOKS_KEEP_FINISHED_DAYS` after it was finished, or earlier, oldest
+  finished first, when space runs out. **An unfinished book is never evicted**, and a new one
+  that does not fit is refused with `507` and a reason.
+
+Synthesis and encoding need not be on the same machine: point `BATON_TTS_KOKORO_URL` at the GPU
+box's Kokoro and run the gateway wherever it already runs.
 
 ## Pointing the apps at it
 
@@ -181,3 +219,26 @@ WantedBy=multi-user.target
 Put the variables in `/etc/baton/gateway.env` (one `KEY=value` per line) and keep that file
 readable only by the service user — it holds two passwords. Build the binary with
 `swift build -c release` and copy `.build/release/baton-gateway` into place.
+
+## The second executable: `baton-share`
+
+This package also builds `baton-share`, the service behind song links for friends outside the
+LAN (`https://batonmusic.app/s/<id>#<key>`). It is a separate process and a separate container,
+on purpose: this gateway holds a Navidrome password and an LLM key and stays on the LAN, while
+`baton-share` faces the internet and holds no secret about anyone. What they share is the
+transport.
+
+- Contract: [`specs/song-sharing.md`](../specs/song-sharing.md). Why: [`docs/plan-song-sharing.md`](../docs/plan-song-sharing.md).
+  Progress: [`docs/song-sharing-todo.md`](../docs/song-sharing-todo.md).
+- Code: `Sources/BatonShareServer` (service, store, player page in `Web/`), `Sources/baton-share`.
+- Deploy: `deploy/deploy-share.sh`, then `scripts/publish-site.sh` so `baton_web` routes to it.
+
+```sh
+# Tests on Linux need Swift 6.1 or later: 6.0's XCTest discovery rejects the gateway's
+# @MainActor test classes there. 6.0 still builds the binaries (the Docker images use it).
+swift test                                           # gateway + share, 136 tests
+node --test Tests/share-player/*.test.mjs            # the browser crypto, against the shared vectors
+swift build --product baton-share
+node Tests/share-player/e2e.mjs                      # a real browser plays a shared song (~45 s)
+node Tests/share-player/e2e.mjs --nginx              # the same through deploy/nginx/default.conf
+```

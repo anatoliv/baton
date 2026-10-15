@@ -106,37 +106,200 @@ final class CrashReportingPolicyTests: XCTestCase {
         XCTAssertNil(transport.urlCredentialStorage)
     }
 
-    func testInitializationFailureIsContainedAndNotRetried() {
-        enum ExpectedFailure: Error { case unavailable }
-        let gate = ReportingAttemptGate()
-        var attempts = 0
-        XCTAssertEqual(gate.runOnce {
-            attempts += 1
-            throw ExpectedFailure.unavailable
-        }, .failed)
-        XCTAssertEqual(gate.runOnce { attempts += 1 }, .failed)
-        XCTAssertEqual(attempts, 1)
+    // MARK: - Whether the reporter came up
+    //
+    // `SentrySDK.start` cannot throw, so a test that hands the gate a throwing
+    // closure proves a contract production cannot reach. These drive the
+    // production decision (`CrashReporting.startReporter`) inside the production
+    // gate with the SDK's real `Options` and DSN parser. Only the SDK's global
+    // start and its `isEnabled` are stood in, so nothing installs a crash handler
+    // in the test process and nothing can reach the network.
+
+    private var shipped: CrashReporting.Configuration {
+        CrashReporting.configuration(from: validInfo)!
     }
 
-    func testSlowInitializationDoesNotNeedTheCallingThread() {
-        let gate = ReportingAttemptGate()
-        let background = DispatchQueue(label: "crash-reporting-policy-test", qos: .utility)
-        let entered = expectation(description: "initializer entered")
-        let finished = expectation(description: "initializer finished")
-        let release = DispatchSemaphore(value: 0)
-
-        background.async {
-            _ = gate.runOnce {
-                entered.fulfill()
-                _ = release.wait(timeout: .now() + 1)
-            }
-            finished.fulfill()
+    /// Runs the real gate around the real decision, as `startSDKOnce` does.
+    private func attempt(
+        _ gate: ReportingAttemptGate,
+        _ configuration: CrashReporting.Configuration,
+        starts: inout [Options],
+        setupRan: Bool,
+        enabled: Bool
+    ) -> ReportingAttemptGate.Outcome {
+        var started: [Options] = []
+        let outcome = gate.runOnce {
+            try CrashReporting.startReporter(
+                configuration,
+                start: { started.append($0) },
+                waitForSetup: { setupRan },
+                isEnabled: { enabled }
+            )
         }
-        wait(for: [entered], timeout: 0.5)
-        XCTAssertEqual(gate.current(), .failed)
-        release.signal()
-        wait(for: [finished], timeout: 0.5)
-        XCTAssertEqual(gate.current(), .started)
+        starts += started
+        return outcome
+    }
+
+    private func settingsStatus(_ gate: ReportingAttemptGate) -> CrashReporting.Status {
+        CrashReporting.status(enabled: true, configured: true, outcome: gate.current())
+    }
+
+    func testAReporterThatComesUpIsOnAndGetsTheShippedOptions() throws {
+        let gate = ReportingAttemptGate()
+        var starts: [Options] = []
+        XCTAssertEqual(attempt(gate, shipped, starts: &starts, setupRan: true, enabled: true), .started)
+        XCTAssertEqual(settingsStatus(gate), .on)
+        XCTAssertEqual(starts.count, 1)
+        let options = try XCTUnwrap(starts.first)
+        XCTAssertNotNil(options.parsedDsn, "the SDK's own parser accepts the shipped DSN shape")
+        XCTAssertEqual(options.parsedDsn?.url.host, "crash.example.invalid")
+        XCTAssertEqual(options.releaseName, shipped.release)
+        XCTAssertEqual(options.environment, shipped.environment)
+        XCTAssertFalse(options.enableAutoSessionTracking)
+        XCTAssertEqual(options.urlSession?.configuration.timeoutIntervalForResource, CrashReporting.resourceTimeout)
+    }
+
+    func testADSNTheSDKRefusesIsUnavailableAndNeverStarted() {
+        // No public key: the SDK's DSN parser refuses it. Built directly, since
+        // `configuration(from:)` already refuses this shape before the SDK sees it.
+        let refused = CrashReporting.Configuration(
+            dsn: "https://crash.example.invalid/42",
+            provider: shipped.provider,
+            release: shipped.release,
+            environment: shipped.environment
+        )
+        var startCalls = 0
+        XCTAssertThrowsError(try CrashReporting.startReporter(
+            refused,
+            start: { _ in startCalls += 1 },
+            waitForSetup: { true },
+            isEnabled: { true }
+        )) {
+            XCTAssertEqual($0 as? CrashReporting.StartFailure, .configurationRejected)
+        }
+        XCTAssertEqual(startCalls, 0)
+
+        let gate = ReportingAttemptGate()
+        var starts: [Options] = []
+        XCTAssertEqual(attempt(gate, refused, starts: &starts, setupRan: true, enabled: true), .failed)
+        XCTAssertTrue(starts.isEmpty)
+        XCTAssertEqual(settingsStatus(gate), .unavailable)
+    }
+
+    func testAReporterThatDoesNotEnableIsUnavailableAndDoesNotRetry() {
+        let gate = ReportingAttemptGate()
+        var starts: [Options] = []
+        XCTAssertEqual(attempt(gate, shipped, starts: &starts, setupRan: true, enabled: false), .failed)
+        XCTAssertEqual(settingsStatus(gate), .unavailable)
+        XCTAssertEqual(
+            attempt(gate, shipped, starts: &starts, setupRan: true, enabled: true), .failed,
+            "a failed start must not retry on its own"
+        )
+        XCTAssertEqual(starts.count, 1)
+        gate.resetAfterExplicitDisable()
+        XCTAssertEqual(
+            attempt(gate, shipped, starts: &starts, setupRan: true, enabled: true), .started,
+            "turning it off and on again is the retry Settings offers"
+        )
+        XCTAssertEqual(starts.count, 2)
+    }
+
+    func testASetupThatNeverRunsIsUnavailable() {
+        XCTAssertThrowsError(try CrashReporting.startReporter(
+            shipped, start: { _ in }, waitForSetup: { false }, isEnabled: { true }
+        )) {
+            XCTAssertEqual($0 as? CrashReporting.StartFailure, .setupTimedOut)
+        }
+        let gate = ReportingAttemptGate()
+        var starts: [Options] = []
+        XCTAssertEqual(attempt(gate, shipped, starts: &starts, setupRan: false, enabled: true), .failed)
+        XCTAssertEqual(settingsStatus(gate), .unavailable)
+    }
+
+    func testAStartInProgressReadsOnAndBlocksASecondClient() {
+        let gate = ReportingAttemptGate()
+        var seenDuringStart: ReportingAttemptGate.Outcome?
+        var secondCaller: ReportingAttemptGate.Outcome?
+        _ = gate.runOnce {
+            try CrashReporting.startReporter(
+                shipped,
+                start: { _ in },
+                waitForSetup: {
+                    seenDuringStart = gate.current()
+                    secondCaller = gate.runOnce { XCTFail("a concurrent caller must not start a second client") }
+                    return true
+                },
+                isEnabled: { true }
+            )
+        }
+        XCTAssertEqual(seenDuringStart, .starting)
+        XCTAssertEqual(secondCaller, .starting)
+        XCTAssertEqual(
+            CrashReporting.status(enabled: true, configured: true, outcome: .starting), .on,
+            "Settings opened mid-start must not flash the unavailable text"
+        )
+        XCTAssertFalse(CrashReporting.isSettled(enabled: true, configured: true, outcome: .starting))
+        XCTAssertFalse(CrashReporting.isSettled(enabled: true, configured: true, outcome: .idle),
+                       "a toggle's start still queued is not settled")
+        XCTAssertTrue(CrashReporting.isSettled(enabled: true, configured: true, outcome: .failed))
+        XCTAssertTrue(CrashReporting.isSettled(enabled: false, configured: true, outcome: .idle))
+        XCTAssertTrue(CrashReporting.isSettled(enabled: true, configured: false, outcome: .idle))
+    }
+
+    func testStatusNamesEveryStateSettingsShows() {
+        XCTAssertEqual(CrashReporting.status(enabled: true, configured: false, outcome: .failed), .notConfigured)
+        XCTAssertEqual(CrashReporting.status(enabled: false, configured: true, outcome: .failed), .off)
+        XCTAssertEqual(CrashReporting.status(enabled: true, configured: true, outcome: .started), .on)
+        XCTAssertEqual(CrashReporting.status(enabled: true, configured: true, outcome: .failed), .unavailable)
+        XCTAssertFalse(CrashReporting.unavailableMessage.contains("—"))
+        XCTAssertFalse(CrashReporting.unavailableMessage.contains("–"))
+    }
+
+    /// A locked value the main-queue tests share with a background thread.
+    private final class Locked<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Value
+        init(_ value: Value) { self.value = value }
+        func set(_ newValue: Value) { lock.lock(); value = newValue; lock.unlock() }
+        func get() -> Value { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
+    /// The production wait, run as production runs it (off the main thread),
+    /// against a stand-in that sets up the way the SDK does: `dispatch_async`
+    /// on the main queue from the calling thread.
+    func testTheMainQueueWaitSeesSetupQueuedBeforeIt() {
+        let enabled = Locked(false)
+        let failure = Locked<CrashReporting.StartFailure?>(nil)
+        let configuration = shipped
+        let done = expectation(description: "start finished")
+        DispatchQueue.global().async {
+            do {
+                try CrashReporting.startReporter(
+                    configuration,
+                    start: { _ in DispatchQueue.main.async { enabled.set(true) } },
+                    waitForSetup: { CrashReporting.mainQueueCaughtUp(within: 5) },
+                    isEnabled: { enabled.get() }
+                )
+            } catch {
+                failure.set(error as? CrashReporting.StartFailure)
+            }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+        XCTAssertNil(failure.get())
+        XCTAssertTrue(enabled.get())
+    }
+
+    func testTheMainQueueWaitGivesUpWhenTheMainThreadIsStuck() {
+        let finished = DispatchSemaphore(value: 0)
+        let caughtUp = Locked<Bool?>(nil)
+        DispatchQueue.global().async {
+            caughtUp.set(CrashReporting.mainQueueCaughtUp(within: 0.2))
+            finished.signal()
+        }
+        // Hold the main thread, as a hung launch would, until the wait gives up.
+        XCTAssertEqual(finished.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(caughtUp.get(), false)
     }
 
     func testBudgetHasAHardCeiling() {

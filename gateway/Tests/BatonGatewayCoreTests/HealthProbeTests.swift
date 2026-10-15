@@ -12,8 +12,11 @@ import XCTest
 /// rather than the C function, and the compiler says so.
 #if canImport(Darwin)
 private let systemBind = Darwin.bind
+private let streamSocketType = SOCK_STREAM
 #else
 private let systemBind = Glibc.bind
+/// `SOCK_STREAM` is an `Int32` on Darwin and a `__socket_type` on Glibc (as in `Transport.swift`).
+private let streamSocketType = Int32(SOCK_STREAM.rawValue)
 #endif
 
 /// The bound on `/health`'s Navidrome ping.
@@ -34,7 +37,7 @@ final class HealthProbeTests: XCTestCase {
         private let descriptor: Int32
 
         init() throws {
-            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            let fd = socket(AF_INET, streamSocketType, 0)
             guard fd >= 0 else { throw Failure.socket }
             var reuse: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))

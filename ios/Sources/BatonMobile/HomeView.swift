@@ -94,6 +94,7 @@ struct HomeView: View {
                 MixDetailView(mix: mix, model: model)
             }
         }
+        .songSharePresenter(model: model)
     }
 
     /// What counts as "a different session" for the purposes of refetching the shelves.
@@ -378,5 +379,6 @@ struct MixDetailView: View {
             songs = await mix.songs()
             loading = false
         }
+        .songSharePresenter(model: model)
     }
 }

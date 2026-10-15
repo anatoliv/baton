@@ -42,6 +42,12 @@ packages:
     path: ../Packages/BatonAgentKit
   BatonSpeech:
     path: ../Packages/BatonSpeech
+  BatonShareKit:
+    path: ../Packages/BatonShareKit
+  # Document clippings' shared logic; the crash scrubber's credential list (F4) and, with M5,
+  # importing and rendering books on the phone.
+  BatonDocuments:
+    path: ../Packages/BatonDocuments
 
 settings:
   base:
@@ -50,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.1"
+    MARKETING_VERSION: "1.3"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -90,6 +96,8 @@ targets:
       - package: BatonPlaybackKit
       - package: BatonAgentKit
       - package: BatonSpeech
+      - package: BatonShareKit
+      - package: BatonDocuments
     sources:
       - path: Sources/BatonMobile
       - path: Assets.xcassets
@@ -123,6 +131,14 @@ targets:
       - path: ../Shared/ReportingAttemptGate.swift
       - path: ../Shared/Color+Baton.swift
       - path: ../Shared/ArtworkPalette.swift
+      # Sharing a song with someone outside the LAN, one flow for both apps.
+      - path: ../Shared/BackgroundShareUploadStore.swift
+      - path: ../Shared/SongShareAppAttest.swift
+      - path: ../Shared/BackgroundShareUploadEngine.swift
+      - path: ../Shared/SongSharing.swift
+      - path: ../Shared/ShareSongViews.swift
+      # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
+      - path: ../Shared/HomeServerBooks.swift
       - path: Sources/Shared
       - path: Resources
     # Keep the app-bundled copies of the user guides in step with the canonical
@@ -179,7 +195,10 @@ targets:
         LSApplicationCategoryType: "public.app-category.music"
         # The one background mode a music player needs: keep the audio session
         # alive when the app leaves the foreground.
-        UIBackgroundModes: [audio]
+        UIBackgroundModes: [audio, fetch]
+        # The books refresh: the phone asks the home server for finished chapters a few
+        # times a day while the app is closed, and posts "Chapter 1 is ready" (M5.4).
+        BGTaskSchedulerPermittedIdentifiers: [io.tonebox.baton.books.refresh]
         NSSupportsLiveActivities: true
         # Export compliance, declared once here so every future build skips the
         # App Store Connect prompt. Baton uses only Apple-provided HTTPS/TLS and
@@ -208,6 +227,14 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: io.tonebox.baton
             CFBundleURLSchemes: [baton]
+        # Files "Open in" and the share sheet's "Open in Baton" for the documents a book can be
+        # made from (M5.2). Copied in, not opened in place: the import reads its own copy.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.adobe.pdf, org.idpf.epub-container, public.html, public.plain-text, net.daringfireball.markdown]
+        LSSupportsOpeningDocumentsInPlace: false
         # CarPlay audio-app scene. Dormant until Apple grants the
         # com.apple.developer.carplay-audio entitlement (requested in Phase 0 of
         # docs/plan-ios-app.md) — iOS only launches this scene when entitled.
@@ -245,6 +272,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: BatonMobile
+      - package: BatonSubsonicKit
 
   BatonWidgets:
     type: app-extension
@@ -284,3 +312,15 @@ schemes:
         - BatonMobileUITests
     archive:
       config: Release
+
+  BatonMobileCrashReportingAcceptance:
+    build:
+      targets:
+        BatonMobile: all
+        BatonMobileUITests: [test]
+    test:
+      config: Debug
+      environmentVariables:
+        CRASH_REPORTING_ACCEPTANCE_TESTS: "1"
+      targets:
+        - BatonMobileUITests

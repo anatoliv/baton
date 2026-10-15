@@ -17,6 +17,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+GROUP="${1:-all}"
+case "$GROUP" in all|gateway-packages) ;; *) echo "usage: $0 [gateway-packages]" >&2; exit 2 ;; esac
+
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '\033[32mok    %s\033[0m\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '\033[31mFAIL  %s\033[0m\n' "$1"; }
@@ -41,6 +44,7 @@ expect() {   # $1 = "clean"|"dirty", $2 = dir, $3 = name
   fi
 }
 
+if [ "$GROUP" = all ]; then
 # 1. A tree with nothing wrong must pass, or every later result is meaningless.
 mkdir -p "$WORK/clean"
 printf 'import OSLog\nlet log = Logger(subsystem: "io.tonebox.baton", category: "x")\n' > "$WORK/clean/Fine.swift"
@@ -560,6 +564,94 @@ if LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1; then
 else
   bad "the default (unscoped) scheme lint reads the real tree and is clean (expected pass, got nonzero)"
 fi
+
+fi
+
+# --- W-23: every gateway build and deploy copies every package the gateway reaches ----------
+#
+# The document-clippings merge added BatonDocuments to three of the five places that copy the
+# gateway's sibling packages, and baton-share's image stopped building. Plant a tree whose five
+# places agree, then take one package out of one place at a time.
+run_gateway_pkg_lint() {   # $1 = planted repo root
+  BATON_GATEWAY_PKG_LINT_ROOT="$1" LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1
+}
+expect_gateway_pkg() {   # $1 = "clean"|"dirty", $2 = root, $3 = name
+  run_gateway_pkg_lint "$2"; local rc=$?
+  if [ "$1" = clean ]; then
+    [ "$rc" -eq 0 ] && ok "$3" || bad "$3 (expected pass, got $rc)"
+  else
+    [ "$rc" -ne 0 ] && ok "$3" || bad "$3 (expected FAIL, lint passed)"
+  fi
+}
+plant_gateway() {   # $1 = root; packages A (path-depends on B) and B, copied everywhere
+  local r="$1"
+  mkdir -p "$r/gateway/deploy" "$r/scripts" "$r/Packages/AKit" "$r/Packages/BKit"
+  printf 'let p = Package(dependencies: [\n  .package(path: "../Packages/AKit"),\n])\n' > "$r/gateway/Package.swift"
+  printf 'let p = Package(dependencies: [.package(path: "../BKit")])\n' > "$r/Packages/AKit/Package.swift"
+  printf 'let p = Package()\n' > "$r/Packages/BKit/Package.swift"
+  for f in Dockerfile share.Dockerfile; do
+    printf 'COPY Packages/AKit Packages/AKit\nCOPY Packages/BKit Packages/BKit\n' > "$r/gateway/deploy/$f"
+  done
+  for f in deploy.sh deploy-share.sh; do
+    printf 'rsync -a \\\n  "$REPO/Packages/AKit" \\\n  "$REPO/Packages/BKit" \\\n  host:\n' > "$r/gateway/deploy/$f"
+  done
+  printf 'rsync -a \\\\\n  Packages/AKit Packages/BKit \\\\\n  host:\n' > "$r/scripts/test.sh"
+}
+plant_gateway "$WORK/gw-clean"
+expect_gateway_pkg clean "$WORK/gw-clean" "W-23: five places that agree with the manifests pass"
+
+plant_gateway "$WORK/gw-share-docker"
+sed -i.bak '/BKit/d' "$WORK/gw-share-docker/gateway/deploy/share.Dockerfile"
+expect_gateway_pkg dirty "$WORK/gw-share-docker" "W-23: share.Dockerfile missing a transitive package is caught (the BatonDocuments break)"
+
+plant_gateway "$WORK/gw-deploy-share"
+sed -i.bak '/AKit/d' "$WORK/gw-deploy-share/gateway/deploy/deploy-share.sh"
+expect_gateway_pkg dirty "$WORK/gw-deploy-share" "W-23: deploy-share.sh missing a direct package is caught"
+
+plant_gateway "$WORK/gw-linux-build"
+printf 'rsync -a \\\\\n  Packages/AKit \\\\\n  host:\n' > "$WORK/gw-linux-build/scripts/test.sh"
+expect_gateway_pkg dirty "$WORK/gw-linux-build" "W-23: the gate's Linux build missing one is caught"
+
+plant_gateway "$WORK/gw-no-manifest"
+rm "$WORK/gw-no-manifest/gateway/Package.swift"
+expect_gateway_pkg dirty "$WORK/gw-no-manifest" "W-23: an unreadable manifest fails closed, not as an empty set"
+
+plant_archive_gateway() {   # production's pinned archive, with direct and transitive packages
+  plant_gateway "$1"
+  cat > "$1/gateway/deploy/deploy-share.sh" <<'SH'
+git -C "$REPO" archive "$REVISION" gateway Packages/AKit \
+  Packages/BKit \
+  | ssh "$HOST" "tar -xf - -C $BUILD_DIR"
+SH
+}
+plant_archive_gateway "$WORK/gw-archive"
+expect_gateway_pkg clean "$WORK/gw-archive" "W-23: complete pinned multiline archive passes"
+
+plant_archive_gateway "$WORK/gw-archive-direct"
+sed -i.bak 's/ Packages\/AKit//' "$WORK/gw-archive-direct/gateway/deploy/deploy-share.sh"
+expect_gateway_pkg dirty "$WORK/gw-archive-direct" "W-23: archive missing its direct package is caught"
+
+plant_archive_gateway "$WORK/gw-archive-transitive"
+sed -i.bak '/Packages\/BKit/d' "$WORK/gw-archive-transitive/gateway/deploy/deploy-share.sh"
+expect_gateway_pkg dirty "$WORK/gw-archive-transitive" "W-23: archive missing its transitive package is caught"
+
+plant_archive_gateway "$WORK/gw-archive-comment"
+sed -i.bak '/Packages\/BKit/d' "$WORK/gw-archive-comment/gateway/deploy/deploy-share.sh"
+printf '# Packages/BKit\n# git -C "$REPO" archive "$REVISION" Packages/BKit\n' \
+  >> "$WORK/gw-archive-comment/gateway/deploy/deploy-share.sh"
+expect_gateway_pkg dirty "$WORK/gw-archive-comment" "W-23: commented package/archive text does not supply a missing package"
+
+plant_archive_gateway "$WORK/gw-archive-echo"
+sed -i.bak '/Packages\/BKit/d' "$WORK/gw-archive-echo/gateway/deploy/deploy-share.sh"
+printf 'echo Packages/BKit\n' >> "$WORK/gw-archive-echo/gateway/deploy/deploy-share.sh"
+expect_gateway_pkg dirty "$WORK/gw-archive-echo" "W-23: non-command package text does not supply a missing package"
+
+plant_archive_gateway "$WORK/gw-archive-invalid"
+printf 'git -C "$REPO" archive "$REVISION" "Packages/AKit Packages/BKit\n' \
+  > "$WORK/gw-archive-invalid/gateway/deploy/deploy-share.sh"
+expect_gateway_pkg dirty "$WORK/gw-archive-invalid" "W-23: unreadable archive arguments fail closed"
+
+expect_gateway_pkg clean "." "W-23: the real tree's five places agree with the real manifests"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

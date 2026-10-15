@@ -2,12 +2,15 @@ import Foundation
 
 /// A one-attempt fuse around optional diagnostics initialization.
 ///
-/// Crash reporting is never part of Baton's business path. A missing, slow, or
-/// malformed endpoint may make diagnostics unavailable, but it must not create a
-/// launch retry loop or block playback, navigation, downloads, or settings.
+/// Crash reporting is never part of Baton's business path. A reporter that does
+/// not come up (`CrashReporting.startReporter`) leaves diagnostics unavailable,
+/// but it must not create a launch retry loop or block playback, navigation,
+/// downloads, or settings.
 final class ReportingAttemptGate: @unchecked Sendable {
     enum Outcome: Equatable {
         case idle
+        /// The one attempt is running. Settings reads this as on, not unavailable.
+        case starting
         case started
         case failed
     }
@@ -23,8 +26,8 @@ final class ReportingAttemptGate: @unchecked Sendable {
             return existing
         }
         // Reserve the only attempt before calling out. A concurrent caller sees
-        // `.failed` and returns instead of creating a second SDK client.
-        outcome = .failed
+        // `.starting` and returns instead of creating a second SDK client.
+        outcome = .starting
         lock.unlock()
 
         do {
@@ -34,6 +37,9 @@ final class ReportingAttemptGate: @unchecked Sendable {
             lock.unlock()
             return .started
         } catch {
+            lock.lock()
+            outcome = .failed
+            lock.unlock()
             return .failed
         }
     }

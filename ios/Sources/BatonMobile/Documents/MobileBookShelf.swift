@@ -1,0 +1,171 @@
+import BatonDocuments
+import BatonPlaybackKit
+import Foundation
+
+/// Clippings as the phone's list shows them: readings as they always were, and each book as one
+/// row that expands into its chapters (`specs/document-clippings.md`, *A book is a group of
+/// clippings*). The Mac's `BookShelf` does the same for books it makes itself; the phone only
+/// ever has home-server books, so this reads the shared `HomeServerBooks` records and summaries.
+///
+/// Pure, so the grouping is tested without a view. A book appears as soon as it is submitted,
+/// before any chapter has landed, because "making chapter 1, 40%" is what someone who just
+/// imported a file wants to see.
+enum MobileBookShelf {
+    struct Book: Identifiable, Equatable {
+        struct Chapter: Identifiable, Equatable {
+            enum State: Equatable {
+                case ready, queued, rendering(Double), encoding, failed(String)
+                /// Rendered once, but the clipping is gone from this phone.
+                case removed
+            }
+            let index: Int
+            var title: String
+            var item: ClippingStore.Item?
+            var state: State
+            var id: Int { index }
+
+            var stateText: String {
+                switch state {
+                case .ready:
+                    if item?.isPresent == false { return "the audio file has gone" }
+                    return item?.clipping.durationSeconds.map(MobileBookShelf.durationText) ?? ""
+                case .queued: return "waiting"
+                case let .rendering(progress): return "\(Int((progress * 100).rounded()))%"
+                case .encoding: return "finishing"
+                case .failed: return "failed"
+                case .removed: return "removed from this phone"
+                }
+            }
+        }
+
+        let documentID: String
+        var jobID: String?
+        var title: String
+        var author: String?
+        var chapters: [Chapter]
+        var createdAt: Date
+        var pauseReason: String?
+        var failure: String?
+        var isRendering: Bool
+        var position: (chapterIndex: Int, seconds: Double)?
+        var finished: Bool
+
+        var id: String { documentID }
+
+        static func == (lhs: Book, rhs: Book) -> Bool {
+            lhs.documentID == rhs.documentID && lhs.jobID == rhs.jobID && lhs.title == rhs.title && lhs.author == rhs.author
+                && lhs.chapters == rhs.chapters && lhs.createdAt == rhs.createdAt
+                && lhs.pauseReason == rhs.pauseReason && lhs.failure == rhs.failure
+                && lhs.isRendering == rhs.isRendering && lhs.finished == rhs.finished
+                && lhs.position?.chapterIndex == rhs.position?.chapterIndex
+                && lhs.position?.seconds == rhs.position?.seconds
+        }
+
+        var readyChapters: [Chapter] { chapters.filter { $0.item?.isPresent == true } }
+        var readySeconds: Double { readyChapters.compactMap { $0.item?.clipping.durationSeconds }.reduce(0, +) }
+        var isComplete: Bool { chapters.allSatisfy { $0.item != nil } }
+
+        /// "3 chapters · 1 h 22 m", or while rendering "2 of 3 chapters ready · 54 m".
+        var summaryText: String {
+            let ready = chapters.filter { $0.item != nil }.count
+            let count = chapters.count == 1 ? "1 chapter" : "\(chapters.count) chapters"
+            let length = readySeconds > 0 ? " · \(MobileBookShelf.durationText(readySeconds))" : ""
+            return ready == chapters.count ? count + length : "\(ready) of \(count) ready" + length
+        }
+
+        /// Where the book's audio is: here once every chapter has come down, on the home server
+        /// while it is still being made or collected there.
+        var storedText: String { isComplete ? "On this phone" : "On the home server" }
+
+        /// One line under the book: why it is waiting, or what it is making.
+        var statusLine: (text: String, isProblem: Bool)? {
+            if let pauseReason {
+                return ("Paused: \(pauseReason). It carries on by itself when the voice server answers.", true)
+            }
+            if let failure { return ("Stopped: \(failure)", true) }
+            guard isRendering, let next = chapters.first(where: { $0.item == nil && $0.state != .removed }) else { return nil }
+            let of = "chapter \(next.index + 1) of \(chapters.count)"
+            switch next.state {
+            case let .rendering(progress): return ("Making \(of), \(Int((progress * 100).rounded()))%", false)
+            case .encoding: return ("Finishing \(of)", false)
+            default: return ("Waiting to make \(of)", false)
+            }
+        }
+
+        /// How far through the book the listener is, 0...1, from the synced position.
+        var listenedFraction: Double {
+            if finished { return 1 }
+            guard let position, readySeconds > 0 else { return 0 }
+            let before = chapters.filter { $0.index < position.chapterIndex }
+                .compactMap { $0.item?.clipping.durationSeconds }.reduce(0, +)
+            return min(1, (before + position.seconds) / readySeconds)
+        }
+    }
+
+    /// Every book this phone knows: remembered on the home server, or present as chapters in
+    /// Clippings, newest first. Readings (clippings that are not chapters) are left to the list.
+    static func books(items: [ClippingStore.Item], records: [HomeServerBooks.Record],
+                      summaries: [String: BookJob.Summary], ledger: ClippingLedger) -> [Book] {
+        let chaptersByBook = Dictionary(grouping: items.filter(\.clipping.isBookChapter)) { $0.clipping.documentID ?? "" }
+        var documentIDs = Set(chaptersByBook.keys)
+        documentIDs.formUnion(records.map(\.documentID))
+
+        var books: [Book] = []
+        for documentID in documentIDs {
+            let landed = chaptersByBook[documentID] ?? []
+            let record = records.first { $0.documentID == documentID }
+            let summary = record.flatMap { summaries[$0.jobID] }
+            let byIndex = Dictionary(landed.map { ($0.clipping.chapterIndex ?? 0, $0) }, uniquingKeysWith: { a, _ in a })
+
+            var chapters: [Book.Chapter]
+            if let summary {
+                chapters = summary.chapters.map { chapter in
+                    let item = byIndex[chapter.index]
+                    let state: Book.Chapter.State
+                    switch (item, chapter.state) {
+                    case (.some, _): state = .ready
+                    case (nil, "ready"): state = .removed
+                    case (nil, "rendering"): state = .rendering(chapter.progress)
+                    case (nil, "encoding"): state = .encoding
+                    case (nil, "failed"): state = .failed(chapter.reason ?? "failed")
+                    default: state = .queued
+                    }
+                    return Book.Chapter(index: chapter.index, title: chapter.title, item: item, state: state)
+                }
+            } else if let record {
+                // Sent, no word back yet: every chapter waits, those already here are ready.
+                chapters = record.chapterTitles.enumerated().map { index, title in
+                    Book.Chapter(index: index, title: title, item: byIndex[index], state: byIndex[index] == nil ? .queued : .ready)
+                }
+            } else {
+                chapters = landed.map { Book.Chapter(index: $0.clipping.chapterIndex ?? 0,
+                                                     title: $0.clipping.chapterTitle ?? $0.clipping.title, item: $0, state: .ready) }
+                    .sorted { $0.index < $1.index }
+            }
+
+            let first = landed.first?.clipping
+            let position = ledger.document(documentID)
+            let status = summary?.status
+            books.append(Book(
+                documentID: documentID,
+                jobID: record?.jobID,
+                title: summary?.title ?? record?.title ?? first?.documentTitle ?? first?.title ?? "Untitled",
+                author: summary?.author ?? record?.author ?? first?.author,
+                chapters: chapters,
+                createdAt: summary?.createdAt ?? record?.createdAt ?? landed.map(\.clipping.createdAt).min() ?? .distantPast,
+                pauseReason: status == .paused ? summary?.pauseReason : nil,
+                failure: status == .failed ? chapters.compactMap { if case let .failed(why) = $0.state { why } else { nil } }.first : nil,
+                isRendering: status == .rendering || status == .paused || (summary == nil && record != nil),
+                position: position.flatMap { r in r.chapterIndex.map { ($0, r.seconds ?? 0) } },
+                finished: position?.finished ?? false))
+        }
+        return books.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// "1 h 22 m", "45 m", "40 s", the same shape as the import estimate.
+    static func durationText(_ seconds: Double) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 1 { return "\(Int(seconds.rounded())) s" }
+        return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) m" : "\(minutes) m"
+    }
+}

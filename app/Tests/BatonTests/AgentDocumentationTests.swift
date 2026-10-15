@@ -124,6 +124,7 @@ final class AgentDocumentationTests: XCTestCase {
         "Playing music": "playing",
         "The queue, shuffle, repeat, and autoplay": "playing",
         "Sleep timer": "playing",
+        "Sharing a song with a friend": "sharing",
         "Sound quality: gapless, crossfade, loudness": "sound",
         "The equalizer": "sound",
         "Scrobbling": "scrobbling",

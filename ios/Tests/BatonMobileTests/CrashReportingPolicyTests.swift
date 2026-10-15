@@ -78,17 +78,108 @@ final class CrashReportingPolicyTests: XCTestCase {
         XCTAssertEqual(transport.timeoutIntervalForResource, CrashReporting.resourceTimeout)
     }
 
-    func testFailureFuseAndBudgetAreBounded() {
-        enum ExpectedFailure: Error { case unavailable }
-        let gate = ReportingAttemptGate()
-        var attempts = 0
-        XCTAssertEqual(gate.runOnce {
-            attempts += 1
-            throw ExpectedFailure.unavailable
-        }, .failed)
-        XCTAssertEqual(gate.runOnce { attempts += 1 }, .failed)
-        XCTAssertEqual(attempts, 1)
+    // MARK: - Whether the reporter came up
+    //
+    // `SentrySDK.start` cannot throw, so the old synthetic-throw test proved a
+    // contract production cannot reach. These run the production decision
+    // (`CrashReporting.startReporter`) inside the production gate with the SDK's
+    // real `Options` and DSN parser; only the SDK's global start and `isEnabled`
+    // are stood in, so nothing installs a crash handler or touches the network.
 
+    private var shipped: CrashReporting.Configuration {
+        CrashReporting.configuration(from: validInfo)!
+    }
+
+    private func attempt(
+        _ gate: ReportingAttemptGate,
+        _ configuration: CrashReporting.Configuration,
+        starts: inout [Options],
+        setupRan: Bool,
+        enabled: Bool
+    ) -> ReportingAttemptGate.Outcome {
+        var started: [Options] = []
+        let outcome = gate.runOnce {
+            try CrashReporting.startReporter(
+                configuration,
+                start: { started.append($0) },
+                waitForSetup: { setupRan },
+                isEnabled: { enabled }
+            )
+        }
+        starts += started
+        return outcome
+    }
+
+    private func settingsStatus(_ gate: ReportingAttemptGate) -> CrashReporting.Status {
+        CrashReporting.status(enabled: true, configured: true, outcome: gate.current())
+    }
+
+    func testAReporterThatComesUpIsOn() throws {
+        let gate = ReportingAttemptGate()
+        var starts: [Options] = []
+        XCTAssertEqual(attempt(gate, shipped, starts: &starts, setupRan: true, enabled: true), .started)
+        XCTAssertEqual(settingsStatus(gate), .on)
+        let options = try XCTUnwrap(starts.first)
+        XCTAssertEqual(starts.count, 1)
+        XCTAssertNotNil(options.parsedDsn, "the SDK's own parser accepts the shipped DSN shape")
+        XCTAssertFalse(options.attachScreenshot)
+    }
+
+    func testADSNTheSDKRefusesIsUnavailableAndNeverStarted() {
+        // No public key: the SDK's DSN parser refuses it. Built directly, since
+        // `configuration(from:)` already refuses this shape before the SDK sees it.
+        let refused = CrashReporting.Configuration(
+            dsn: "https://crash.example.invalid/43",
+            provider: shipped.provider,
+            release: shipped.release,
+            environment: shipped.environment
+        )
+        XCTAssertThrowsError(try CrashReporting.startReporter(
+            refused, start: { _ in XCTFail("a refused DSN must not start the SDK") },
+            waitForSetup: { true }, isEnabled: { true }
+        )) {
+            XCTAssertEqual($0 as? CrashReporting.StartFailure, .configurationRejected)
+        }
+        let gate = ReportingAttemptGate()
+        var starts: [Options] = []
+        XCTAssertEqual(attempt(gate, refused, starts: &starts, setupRan: true, enabled: true), .failed)
+        XCTAssertTrue(starts.isEmpty)
+        XCTAssertEqual(settingsStatus(gate), .unavailable)
+    }
+
+    func testAReporterThatDoesNotComeUpIsUnavailableAndDoesNotRetry() {
+        let gate = ReportingAttemptGate()
+        var starts: [Options] = []
+        XCTAssertEqual(attempt(gate, shipped, starts: &starts, setupRan: true, enabled: false), .failed)
+        XCTAssertEqual(settingsStatus(gate), .unavailable)
+        XCTAssertEqual(attempt(gate, shipped, starts: &starts, setupRan: true, enabled: true), .failed)
+        XCTAssertEqual(starts.count, 1, "a failed start must not retry on its own")
+        gate.resetAfterExplicitDisable()
+        XCTAssertEqual(attempt(gate, shipped, starts: &starts, setupRan: true, enabled: true), .started)
+        XCTAssertEqual(starts.count, 2)
+
+        let stuck = ReportingAttemptGate()
+        XCTAssertEqual(attempt(stuck, shipped, starts: &starts, setupRan: false, enabled: true), .failed)
+        XCTAssertEqual(settingsStatus(stuck), .unavailable)
+    }
+
+    func testAStartInProgressReadsOn() {
+        let gate = ReportingAttemptGate()
+        var seenDuringStart: ReportingAttemptGate.Outcome?
+        _ = gate.runOnce {
+            try CrashReporting.startReporter(
+                shipped, start: { _ in },
+                waitForSetup: { seenDuringStart = gate.current(); return true },
+                isEnabled: { true }
+            )
+        }
+        XCTAssertEqual(seenDuringStart, .starting)
+        XCTAssertEqual(CrashReporting.status(enabled: true, configured: true, outcome: .starting), .on)
+        XCTAssertFalse(CrashReporting.isSettled(enabled: true, configured: true, outcome: .starting))
+        XCTAssertTrue(CrashReporting.isSettled(enabled: true, configured: true, outcome: .failed))
+    }
+
+    func testReportingBudgetIsBounded() {
         let budget = ReportingBudget(limit: 3)
         XCTAssertTrue(budget.admit())
         XCTAssertTrue(budget.admit())

@@ -1,4 +1,5 @@
 import XCTest
+import BatonShareKit
 @testable import Baton
 @testable import BatonAgentKit
 
@@ -45,6 +46,8 @@ final class RemoteAgentConversationEval: XCTestCase {
         case runs(String)
         /// Saved for later rather than played now.
         case saves
+        /// Prepare a complete link for a named person, without playback or delivery claims.
+        case shares(recipient: String?)
     }
 
     struct Case {
@@ -57,6 +60,9 @@ final class RemoteAgentConversationEval: XCTestCase {
 
     private static let playing =
         "Player state: \"Absolutely (Original Mix)\" by DIDO, from the album \"YT Mix\" — track 3 of 25 in the queue."
+    private static let sharingLink = ShareLink(
+        id: Base64URL.encode(Data(repeating: 1, count: 16)),
+        key: Data(repeating: 2, count: ShareCrypto.keyLength)).url().absoluteString
 
     // MARK: - The corpus
 
@@ -255,6 +261,8 @@ final class RemoteAgentConversationEval: XCTestCase {
         Case(message: "i dunno, you pick", expect: .plays),
         Case(message: "sleep in 30", expect: .runs("music_sleep_timer")),
         Case(message: "turn the music off in an hour", expect: .runs("music_sleep_timer"), context: playing),
+        Case(message: "send this song to Maya", expect: .shares(recipient: "Maya"), context: playing),
+        Case(message: "make a link for this song so I can send it to a friend", expect: .shares(recipient: nil), context: playing),
     ]
 
     // MARK: - A library that behaves like a real one
@@ -308,6 +316,14 @@ final class RemoteAgentConversationEval: XCTestCase {
             }
 
             switch call.name {
+            case "music_share":
+                do {
+                    let recipient = try ShareToolHandoff.recipient(from: call.jsonArguments)
+                    let handoff = ShareToolHandoff.result(
+                        link: Self.sharingLink, title: state.title, artist: state.artist,
+                        expiresAt: Date(timeIntervalSince1970: 1_800_000_000), recipient: recipient)
+                    return (String(decoding: try JSONSerialization.data(withJSONObject: handoff), as: UTF8.self), false)
+                } catch { return (error.localizedDescription, true) }
             case "music_search":
                 // Real words in this library, and nothing else.
                 if query.contains("chill") || query.contains("lounge") || query.contains("relax") {
@@ -454,6 +470,7 @@ final class RemoteAgentConversationEval: XCTestCase {
         let text: String
         let tools: [String]
         let asked: Bool
+        var calls: [RemoteToolCall] = []
     }
 
     private func verdict(_ expect: Expectation, _ result: Result) -> String? {
@@ -477,6 +494,17 @@ final class RemoteAgentConversationEval: XCTestCase {
         case .saves:
             let saved: Set<String> = ["music_create_playlist", "music_build_mix", "music_add_to_playlist"]
             return tools.isDisjoint(with: saved) ? "nothing was saved" : nil
+        case let .shares(recipient):
+            guard tools.intersection(Self.playbackTools).isEmpty else { return "changed playback while sharing" }
+            guard let share = result.calls.first(where: { $0.name == "music_share" }) else { return "did not create a share" }
+            guard share.arguments["query"] == nil else { return "searched instead of sharing the current song" }
+            guard share.arguments["recipient"] == recipient.map(RemoteArgument.string) else { return "lost or invented the recipient" }
+            guard result.text.contains(Self.sharingLink) else { return "omitted or altered the complete link/key" }
+            let reply = result.text.lowercased()
+            if ["i sent", "i've sent", "sent it to", "just sent", "sent the song to"].contains(where: reply.contains) {
+                return "claimed message delivery without sending"
+            }
+            return nil
         }
     }
 
@@ -494,6 +522,69 @@ final class RemoteAgentConversationEval: XCTestCase {
     }
 
     // MARK: - The run
+
+    /// Recipient acceptance must not hide inside the broad corpus's failure allowance.
+    /// These use its actual catalog, agent loop, shaped tool fixture and verdict, but
+    /// do not write a whole-corpus transcript or release evaluation stamp.
+    func testNamedRecipientLinkHandoff() async throws {
+        try await verifyRecipient(try recipientCase(named: true))
+    }
+
+    func testImplicitSongRecipientLinkHandoff() async throws {
+        let original = try recipientCase(named: true)
+        try await verifyRecipient(Case(message: "send this to Maya", expect: original.expect,
+            context: original.context, history: original.history))
+    }
+
+    func testUnnamedRecipientLinkHandoff() async throws {
+        try await verifyRecipient(try recipientCase(named: false))
+    }
+
+    private func recipientCase(named: Bool) throws -> Case {
+        try XCTUnwrap(Self.cases.first {
+            guard case let .shares(recipient) = $0.expect else { return false }
+            return named ? recipient == "Maya" : recipient == nil
+        }, "The existing recipient corpus case must remain present")
+    }
+
+    private func verifyRecipient(_ testCase: Case) async throws {
+        let live = try RemoteAgentLiveTests.liveConfig()
+        let previousForcePolicy = RemoteAgent.forcesFirstToolCall
+        RemoteAgent.forcesFirstToolCall = true
+        defer { RemoteAgent.forcesFirstToolCall = previousForcePolicy }
+
+        let result: Result
+        do {
+            result = try await runCase(testCase, live: live, memory: RemoteMemoryStore(url: nil))
+        } catch {
+            try RemoteAgentLiveTests.skipIfRateLimited(error)
+            XCTFail("Configured provider did not complete the recipient conversation; provider details withheld")
+            return
+        }
+        let complaint = verdict(testCase.expect, result)
+        XCTAssertNil(complaint,
+            "Recipient intent must create the complete key-bearing link without changing playback or claiming delivery")
+    }
+
+    private func runCase(_ testCase: Case,
+                         live: RemoteControlSettings.NaturalLanguageConfig,
+                         memory: RemoteMemoryStore) async throws -> Result {
+        var calls: [RemoteToolCall] = []
+        let runner = library(memory: memory)
+        let outcome = try await RemoteAgent.run(
+            message: testCase.message,
+            history: testCase.history,
+            playerContext: testCase.context,
+            config: live,
+            tools: RemoteAgent.toolSchemas(definitions: BatonMCPToolCatalog.definitions()),
+            runTool: { call in
+                calls.append(call)
+                return await runner(call)
+            }
+        )
+        return Result(text: outcome.choice.map { $0.rendered() } ?? outcome.text,
+            tools: outcome.toolsRun, asked: outcome.choice != nil, calls: calls)
+    }
 
     func testAHundredThingsPeopleSay() async throws {
         let live = try RemoteAgentLiveTests.liveConfig()
@@ -514,32 +605,21 @@ final class RemoteAgentConversationEval: XCTestCase {
         var toolHistogram: [String: Int] = [:]
 
         for (index, testCase) in Self.cases.enumerated() {
-            let outcome: RemoteAgent.Outcome
+            let result: Result
             do {
-                outcome = try await RemoteAgent.run(
-                    message: testCase.message,
-                    history: testCase.history,
-                    playerContext: testCase.context,
-                    config: live,
-                    tools: RemoteAgent.toolSchemas(definitions: BatonMCPToolCatalog.definitions()),
-                    runTool: library(memory: memory)
-                )
+                result = try await runCase(testCase, live: live, memory: memory)
             } catch {
+                try RemoteAgentLiveTests.skipIfRateLimited(error)
                 failures.append("[\(index + 1)] “\(testCase.message)” → threw: \(error)")
                 continue
             }
 
-            let result = Result(
-                text: outcome.choice.map { $0.rendered() } ?? outcome.text,
-                tools: outcome.toolsRun,
-                asked: outcome.choice != nil
-            )
-            for tool in outcome.toolsRun { toolHistogram[tool, default: 0] += 1 }
+            for tool in result.tools { toolHistogram[tool, default: 0] += 1 }
             transcript.append([
                 "n": index + 1,
                 "message": testCase.message,
                 "context": testCase.context,
-                "tools": outcome.toolsRun,
+                "tools": result.tools,
                 "reply": result.text,
                 "asked": result.asked,
             ])
