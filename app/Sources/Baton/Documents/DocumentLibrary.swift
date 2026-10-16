@@ -88,6 +88,8 @@ final class DocumentLibrary {
     /// This Mac's book storage: rules, Keep, Remove Download, Recently removed and the weekly
     /// suggestion (M6.3 to M6.5), shared with the phone.
     let cleanup: BookCleanup
+    /// Books made here, sent to the Baton server for the iPhone as they are made.
+    let uploads: MacBookUploads
     /// The latest summary of each book on the home server, by job id.
     var remoteSummaries: [String: BookJob.Summary] { homeServer.summaries }
     /// Why the last attempt to reach the home server failed, in a listener's words.
@@ -101,6 +103,7 @@ final class DocumentLibrary {
          retry: BookRenderer.Retry = BookRenderer.Retry(),
          refreshInterval: Duration = .seconds(1),
          storageDefaults: UserDefaults = BatonStorage.defaults,
+         uploadRetry: MacBookUploads.Retry = MacBookUploads.Retry(),
          gateway: @escaping @MainActor () -> GatewayBookClient? = DocumentLibrary.configuredGateway) {
         self.clippings = clippings
         self.homeServer = HomeServerBooks(directory: directory, clippings: clippings, gateway: gateway, log: documentsLog)
@@ -113,6 +116,8 @@ final class DocumentLibrary {
                                      synthesizer: synthesizer, muxer: muxer, concurrency: concurrency,
                                      retry: retry, log: { documentsLog.notice("\($0, privacy: .public)") })
         self.refreshInterval = refreshInterval
+        self.uploads = MacBookUploads(directory: directory, books: store, clippings: clippings, homeServer: homeServer,
+                                      gateway: gateway, log: documentsLog, retry: uploadRetry)
         // A book this Mac makes itself is not adopted again from the home server in a second
         // copy when the iPhone sends the same document there.
         homeServer.isMadeHere = { [weak self] documentID in
@@ -205,6 +210,8 @@ final class DocumentLibrary {
             return kept.contains(b.id) && !kept.contains(a.id)
         }
         if fresh != jobs { jobs = fresh }
+        // A chapter finished or a book was made here: it goes to the Baton server.
+        if isStarted { uploads.jobsChanged(all) }
         homeServer.watchIfNeeded { [weak self] in self?.refresh(); self?.applyStorageRulesToNewlyGettable() }
         let busy = all.contains { $0.status == .rendering || $0.status == .paused }
         if busy { watch() } else { watcher?.cancel(); watcher = nil }
@@ -319,6 +326,9 @@ final class DocumentLibrary {
     func submit(_ book: PreparedBook) async throws -> String {
         let id = BookJob.id(for: book)
         _ = try await renderer.submit(book, id: id)
+        // Made here again after it was removed from this Mac: it is this Mac's again, and the
+        // copy sent before is replaced by this one.
+        homeServer.unhide(documentID: book.documentID)
         documentsLog.notice("submitted \"\(book.title, privacy: .public)\": \(book.chapters.count) chapters, \(book.segmentCount) chunks")
         refresh()
         return id
@@ -347,6 +357,7 @@ final class DocumentLibrary {
             await homeServer.markFinished(jobID: job.id)
         } else {
             _ = await renderer.markFinished(job.id)
+            await uploads.markFinished(jobID: job.id)
         }
         refresh()
     }
@@ -384,6 +395,8 @@ final class DocumentLibrary {
     /// ready into Clippings, checked against its digest.
     func refreshHomeServer() async {
         await homeServer.collect()
+        // A book made here that the Baton server missed while it was away goes up now.
+        if isStarted { uploads.kick(force: true) }
         refresh()
         applyStorageRulesToNewlyGettable()
     }
@@ -480,7 +493,8 @@ final class DocumentLibrary {
     /// removed for a week. A book made here stops being made, and keeps its render job in the
     /// hold, so Restore brings back the book with its pronunciations and Render Again. A book
     /// made on the home server is deleted there only by Delete Everywhere; removed from this
-    /// Mac, it stays there for the other devices and is not adopted here again.
+    /// Mac, it stays there for the other devices and is not adopted here again. A
+    /// book made here and sent to the Baton server follows the same rules for that copy.
     func deleteBook(_ book: BookShelf.Book, everywhere: Bool) async {
         let job = job(forDocument: book.documentID)
         let payload = job.flatMap { $0.renderer == .thisMac ? store.load($0.id) : nil }
@@ -491,6 +505,13 @@ final class DocumentLibrary {
             await renderer.cancel(previous)
         }
         voiceChanges.drop(book.documentID)
+        if job?.renderer == .thisMac {
+            if everywhere {
+                await uploads.deleteEverywhere(documentID: book.documentID)
+            } else {
+                uploads.keepOnServerOnly(documentID: book.documentID)
+            }
+        }
         if let job, everywhere || job.renderer == .thisMac {
             await cancel(job.id)
         } else if !everywhere {
@@ -503,6 +524,9 @@ final class DocumentLibrary {
     func restore(_ entry: BookStorage.Removed) throws {
         if let payload = try cleanup.restore(entry), let job = try? BookJSON.decoder.decode(BookJob.self, from: payload) {
             try? store.save(job)
+            // Back as if it had never gone, on the Baton server too: what it still has is found
+            // there, and only what it lacks is sent.
+            uploads.forget(jobID: job.id)
         }
         refresh()
     }

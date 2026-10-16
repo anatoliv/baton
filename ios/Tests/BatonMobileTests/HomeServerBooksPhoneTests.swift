@@ -56,6 +56,30 @@ final class HomeServerBooksPhoneTests: XCTestCase {
             return id
         }
 
+        /// A book the Mac made with its own voices and uploaded, kept as the gateway
+        /// keeps one (`BookRoutes.receiveBook`): every chapter queued until its audio arrives,
+        /// each with its own audio and read-along timing.
+        private var uploadedAudio: [String: [Int: Data]] = [:]
+        private var uploadedTiming: [String: [Int: ReadAlongTiming]] = [:]
+
+        @discardableResult
+        func upload(_ book: PreparedBook) -> String {
+            let id = BookJob.id(for: book)
+            lock.withLock {
+                var job = BookJob(id: id, book: book)
+                job.uploaded = true
+                jobs[id] = job
+            }
+            return id
+        }
+
+        func uploadChapter(_ id: String, index: Int, audio: Data, timing: ReadAlongTiming) {
+            lock.withLock {
+                uploadedAudio[id, default: [:]][index] = audio
+                uploadedTiming[id, default: [:]][index] = timing
+            }
+        }
+
         /// Books that failed for good on the home server.
         private var failed: Set<String> = []
         func fail(_ id: String) { lock.withLock { _ = failed.insert(id) } }
@@ -63,6 +87,15 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         /// The job as the home server reports it now: chapters ready up to `readyCount`.
         private func current(_ job: BookJob) -> BookJob {
             var job = job
+            if job.uploaded == true {
+                let audio = uploadedAudio[job.id] ?? [:]
+                for i in job.chapters.indices {
+                    job.chapters[i] = audio[i].map { .ready(file: "chapter-\(i + 1).m4a", bytes: $0.count, seconds: 30,
+                                                            sha256: SHA256Digest.hex(of: $0)) } ?? .queued
+                }
+                job.status = audio.count == job.chapters.count ? .ready : .rendering
+                return job
+            }
             let ready = readyCount[job.id] ?? 0
             for i in job.chapters.indices {
                 let audio = chapterAudio(for: job.id)
@@ -105,6 +138,14 @@ final class HomeServerBooksPhoneTests: XCTestCase {
                 if method == "DELETE" { jobs[id] = nil; return reply(204, Data()) }
                 if method == "POST" { return reply(204, Data()) }
                 if parts.count == 4, parts[3] == "book" { return reply(200, try! job.book.encoded()) }
+                if job.uploaded == true, parts.count >= 5, parts[3] == "chapters", let n = Int(parts[4]) {
+                    if parts.count == 6 {
+                        guard let timing = uploadedTiming[id]?[n - 1] else { return reply(404, Data()) }
+                        return reply(200, try! timing.encoded())
+                    }
+                    guard let audio = uploadedAudio[id]?[n - 1] else { return reply(409, Data()) }
+                    return reply(200, audio, ["X-Baton-SHA256": SHA256Digest.hex(of: audio), "X-Baton-Duration": "30.000"])
+                }
                 if parts.count == 5, parts[3] == "chapters", let n = Int(parts[4]) {
                     let audio = chapterAudio(for: id)
                     return reply(200, audio, ["X-Baton-SHA256": SHA256Digest.hex(of: audio), "X-Baton-Duration": "60.0",
@@ -350,6 +391,64 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         shelf = MobileBookShelf.books(items: store.items, records: library.records, summaries: library.summaries, ledger: store.ledger)
         XCTAssertEqual(shelf[0].storedText, "On this phone")
         XCTAssertFalse(fake.seen.contains { $0.hasPrefix("PUT") })
+    }
+
+    /// TBX-11017: a book the Mac made with its own voices and uploaded is adopted like one made
+    /// on the home server: listed while its chapters are still arriving, each chapter coming
+    /// down once with its own audio and read-along timing as it lands, nothing sent from the
+    /// phone, and Play starting at the Mac's place, which travels by document id.
+    func testABookTheMacMadeAndUploadedIsAdoptedWithEveryChapterItsTimingAndTheMacsPlace() async throws {
+        let fake = FakeGateway()
+        let store = clippings()
+        let library = books(fake, clippings: store)
+        let mac = try macBook()
+        let id = fake.upload(mac)
+        func timing(_ chapter: Int) -> ReadAlongTiming {
+            ReadAlongTiming(segments: mac.chapters[chapter].segments.enumerated().map { i, segment in
+                .init(text: segment.text, paragraph: segment.paragraph, start: Double(i) * 2, end: Double(i) * 2 + 1.5)
+            })
+        }
+        let first = Data(String(repeating: "the harbour ", count: 200).utf8)
+        let second = Data(String(repeating: "the squall ", count: 300).utf8)
+
+        // The shaped book is there before any chapter: the book is listed, nothing comes down.
+        var arrived = await library.collect()
+        XCTAssertEqual(library.records.map(\.jobID), [id])
+        XCTAssertEqual(library.records.first?.adopted, true)
+        XCTAssertEqual(arrived, [])
+
+        fake.uploadChapter(id, index: 0, audio: first, timing: timing(0))
+        arrived = await library.collect()
+        XCTAssertEqual(arrived.map(\.chapterIndex), [0])
+        fake.uploadChapter(id, index: 1, audio: second, timing: timing(1))
+        arrived = await library.collect()
+        XCTAssertEqual(arrived.map(\.chapterIndex), [1])
+        await library.collect()
+
+        let chapters = store.chapters(ofDocument: mac.documentID)
+        XCTAssertEqual(chapters.map(\.clipping.sha256), [SHA256Digest.hex(of: first), SHA256Digest.hex(of: second)],
+                       "each chapter is the audio the Mac made")
+        XCTAssertEqual(chapters.map(\.clipping.title), ["The Harbour", "The Squall"])
+        for (index, item) in chapters.enumerated() {
+            XCTAssertEqual(library.readAlong.load(forAudio: item.clipping.sha256), timing(index),
+                           "chapter \(index + 1) has the Mac's read-along timing")
+        }
+        XCTAssertTrue(library.isCollected(library.records[0]))
+        XCTAssertEqual(fake.seen.filter { $0 == "GET /v1/books/\(id)/chapters/1" }.count, 1)
+        XCTAssertEqual(fake.seen.filter { $0 == "GET /v1/books/\(id)/chapters/2" }.count, 1)
+        XCTAssertFalse(fake.seen.contains { $0.hasPrefix("PUT") }, "nothing is sent from the phone: \(fake.seen)")
+
+        // The Mac stopped in chapter 2 at 0:10; the ledger brings it here.
+        var ledger = store.ledger
+        ledger.setPosition(documentID: mac.documentID, chapterIndex: 1, seconds: 10)
+        store.ledger = ledger
+        let book = try XCTUnwrap(MobileBookShelf.books(items: store.items, records: library.records,
+                                                        summaries: library.summaries, ledger: store.ledger).first)
+        XCTAssertEqual(book.storedText, "On this phone")
+        let queue = MobileBookShelf.queue(for: book)
+        XCTAssertEqual(queue.songs.count, 2, "a book with all its chapters")
+        XCTAssertEqual(queue.startIndex, 1, "Play starts at the Mac's chapter")
+        XCTAssertEqual(BookPlayback.resumeOffset(for: queue.songs[1], clippings: store), 10, "inside it, at the Mac's place")
     }
 
     /// The place and "finished" travel by document id, so the phone resumes the Mac's book where

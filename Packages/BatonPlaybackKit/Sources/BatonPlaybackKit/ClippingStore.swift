@@ -430,7 +430,7 @@ public final class ClippingStore {
     /// A tombstone only has to outlive the file it is suppressing; beyond that it is dead weight,
     /// and never expiring means this list grows for the life of the install.
     public static let dismissedRetention: TimeInterval = 30 * 24 * 60 * 60
-    static let dismissedFileName = "dismissed.json"
+    public static let dismissedFileName = "dismissed.json"
 
     private var dismissedURL: URL { directory.appendingPathComponent(Self.dismissedFileName) }
 
@@ -587,7 +587,7 @@ public final class ClippingStore {
         defaults.set(true, forKey: Self.ledgerSeededKey)
     }
 
-    static let ledgerSeededKey = "tonebox.clippings.ledgerSeeded"
+    public static let ledgerSeededKey = "tonebox.clippings.ledgerSeeded"
 
     /// Bring local state into line with the shared ledger.
     ///

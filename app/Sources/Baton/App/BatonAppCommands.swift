@@ -69,7 +69,7 @@ struct BatonAppCommands: Commands {
             }
 
             // A file in, a narrated book out (document clippings). Shown unless Settings → Speech →
-            // Documents is off; the sheet opens over Clippings, where the book will appear.
+            // Documents is off; the sheet opens over Books, where the book will appear.
             // Read live: the items come and go with the switch, no relaunch.
             if model.documentsSwitch.isOn {
                 Divider()
@@ -136,7 +136,7 @@ struct BatonAppCommands: Commands {
         }
         let alert = NSAlert()
         alert.messageText = "Import Link"
-        alert.informativeText = "Baton reads the article on the page and makes it a narrated book in Clippings."
+        alert.informativeText = "Baton reads the article on the page and makes it a narrated book in Books."
         alert.accessoryView = field
         alert.addButton(withTitle: "Import")
         alert.addButton(withTitle: "Cancel")
@@ -144,11 +144,11 @@ struct BatonAppCommands: Commands {
         guard alert.runModal() == .alertFirstButtonReturn,
               let url = URL(string: field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
               DocumentLibrary.isWebLink(url) else { return }
-        router.pendingTab = .clippings
+        router.pendingTab = .books
         router.pendingDocumentImport = url
     }
 
-    /// Pick a file and hand it to Clippings, which shows what was found before anything is made.
+    /// Pick a file and hand it to Books, which shows what was found before anything is made.
     private func chooseDocument() {
         let panel = NSOpenPanel()
         panel.title = "Import Document"
@@ -157,7 +157,7 @@ struct BatonAppCommands: Commands {
         panel.canChooseDirectories = false
         panel.allowedContentTypes = DocumentLibrary.importableTypes
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        router.pendingTab = .clippings
+        router.pendingTab = .books
         router.pendingDocumentImport = url
     }
 }

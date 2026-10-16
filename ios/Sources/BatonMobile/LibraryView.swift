@@ -107,9 +107,16 @@ struct LibraryView: View {
                     .badge(MusicDownloadStore.shared.downloadedIDs.count)
             }
         case .clippings:
+            // The readings; a book's chapters are counted in Books.
             NavigationLink { ClippingsView(model: model) } label: {
                 Label("Clippings", systemImage: section.symbol)
-                    .badge(model.clippings.items.count)
+                    .badge(model.clippings.items.filter { !$0.clipping.isBookChapter }.count)
+            }
+        case .books:
+            // Narrated books made from documents, each counted once.
+            NavigationLink { BooksView(model: model) } label: {
+                Label("Books", systemImage: section.symbol)
+                    .badge(model.documentsSwitch.isOn ? model.shelfBooks.count : 0)
             }
         case .podcasts:
             NavigationLink { PodcastsInlineView(model: model) } label: {

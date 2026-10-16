@@ -57,16 +57,16 @@ final class ReadAlongUITests: XCTestCase {
     func testReadAlongFollowsTheSentenceSeeksOnTapAndShowsAnOlderChapterPlain() throws {
         app.launch()
         makeAudiobook()
-        openClippings()
+        openBooks()
         let done = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 30), "both chapters should come down")
         XCTAssertTrue(waitFor(10) { self.server.requests("GET").contains { $0.path.hasSuffix("/chapters/1/timing") } },
                       "chapter 1's timing was not asked for when it came down")
 
         // Play chapter 1 and open the full player.
-        expand("Two Rooms")
+        openBook("Two Rooms")
         let chapterOne = app.cells.containing(.staticText, identifier: "The Cell").firstMatch
-        XCTAssertTrue(chapterOne.waitForExistence(timeout: 10), "expanding the book shows no chapter 1")
+        XCTAssertTrue(chapterOne.waitForExistence(timeout: 10), "opening the book shows no chapter 1")
         chapterOne.tap()
         let bar = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 15), "playing chapter 1 started nothing")
@@ -150,25 +150,16 @@ final class ReadAlongUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    private func openClippings() {
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        if entry.waitForExistence(timeout: 10) { entry.tap() } else {
-            let fallback = app.buttons["Clippings"].firstMatch
-            XCTAssertTrue(fallback.waitForExistence(timeout: 10), "no route to Clippings")
-            fallback.tap()
-        }
+    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    private func openBooks() {
+        BooksScreen.open(app)
     }
 
-    private func expand(_ title: String) {
-        let cell = app.cells.containing(.staticText, identifier: title).firstMatch
-        XCTAssertTrue(cell.waitForExistence(timeout: 10), "no row for \(title)")
-        let chevron = cell.buttons.allElementsBoundByIndex.first { !$0.identifier.hasPrefix("book-") }
-        if let chevron, chevron.exists { chevron.tap() } else {
-            cell.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
+    /// A book's row opens the book, which lists its chapters.
+    private func openBook(_ title: String) {
+        XCTAssertTrue(app.cells.containing(.staticText, identifier: title).firstMatch.waitForExistence(timeout: 10),
+                      "no row for \(title)")
+        BooksScreen.openBook(app)
     }
 
     private func waitFor(_ seconds: TimeInterval, _ condition: () -> Bool) -> Bool {

@@ -63,6 +63,16 @@ for runtime, entries in devices.items():
 fi
 [ -n "$SIM" ] || { echo "no iPhone simulator available" >&2; exit 1; }
 
+# One run per simulator, and one writer for this DerivedData, each through its named lock
+# (scripts/native-lock.sh): a concurrent gate's iPhone step or another UI run on the same
+# device waits its turn instead of sharing it. Different devices and DerivedData run side by
+# side, so a Mac release can run while this one tests. (TBX-11003)
+# shellcheck source=scripts/native-lock.sh
+. "$REPO/scripts/native-lock.sh"
+trap native_lock_release_all EXIT
+native_lock_acquire "sim-$SIM" ui-tests "$DD" || exit 1
+native_lock_acquire "$(native_lock_derived_name "$DD")" ui-tests "$DD" || exit 1
+
 xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$SIM" -b >/dev/null 2>&1 || true
 

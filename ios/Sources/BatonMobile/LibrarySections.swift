@@ -14,7 +14,7 @@ import Foundation
 /// everyone who ever touched Edit — which is how "nobody found the Folders screen"
 /// happens two releases from now.
 enum LibrarySection: String, CaseIterable, Identifiable {
-    case liked, playlists, artists, genres, later, history, downloads, clippings, podcasts, radio, folders
+    case liked, playlists, artists, genres, later, history, downloads, clippings, books, podcasts, radio, folders
 
     var id: String { rawValue }
 
@@ -28,6 +28,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         case .history: "History"
         case .downloads: "Downloads"
         case .clippings: "Clippings"
+        case .books: "Books"
         case .podcasts: "Podcasts"
         case .radio: "Radio"
         case .folders: "Folders"
@@ -44,6 +45,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         case .history: "clock.arrow.circlepath"
         case .downloads: "arrow.down.circle"
         case .clippings: "waveform.circle"
+        case .books: "books.vertical"
         case .podcasts: "mic"
         case .radio: "dot.radiowaves.left.and.right"
         case .folders: "folder"
@@ -74,13 +76,25 @@ final class LibraryLayout {
 
     /// Saved order first (dropping ids this build no longer knows), then anything new
     /// appended visible — see the type comment for why appended-visible is load-bearing.
+    /// The one exception is a section split off another: it goes straight after the section it
+    /// came from, so Books lands next to Clippings rather than at the bottom.
     static func resolve(saved: [String]) -> [LibrarySection] {
-        var out = saved.compactMap(LibrarySection.init(rawValue:))
-        for section in LibrarySection.allCases where !out.contains(section) {
+        var out: [LibrarySection] = []
+        for section in saved.compactMap(LibrarySection.init(rawValue:)) where !out.contains(section) {
             out.append(section)
+        }
+        for section in LibrarySection.allCases where !out.contains(section) {
+            if let from = splitFrom[section], let at = out.firstIndex(of: from) {
+                out.insert(section, at: at + 1)
+            } else {
+                out.append(section)
+            }
         }
         return out
     }
+
+    /// Sections that were split off another, and the one each came from.
+    static let splitFrom: [LibrarySection: LibrarySection] = [.books: .clippings]
 
     func move(fromOffsets source: IndexSet, toOffset destination: Int) {
         order.move(fromOffsets: source, toOffset: destination)

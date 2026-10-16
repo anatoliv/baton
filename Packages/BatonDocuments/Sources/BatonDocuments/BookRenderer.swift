@@ -341,7 +341,7 @@ public actor BookRenderer {
 
     /// Wait until no job is left to render. For tests and for a graceful stop.
     public func waitUntilIdle() async {
-        while store.list().contains(where: { $0.status == .rendering || $0.status == .paused }) {
+        while store.list().contains(where: { ($0.status == .rendering || $0.status == .paused) && $0.uploaded != true }) {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }
@@ -356,7 +356,8 @@ public actor BookRenderer {
 
     private func nextJob() -> BookJob? {
         store.list()
-            .filter { ($0.status == .rendering || $0.status == .paused) && !cancelled.contains($0.id) }
+            // A book another device made and is uploading is not this loop's to make.
+            .filter { ($0.status == .rendering || $0.status == .paused) && $0.uploaded != true && !cancelled.contains($0.id) }
             .min { $0.createdAt < $1.createdAt }
     }
 

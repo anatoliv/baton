@@ -238,7 +238,7 @@ final class BookShelfTests: XCTestCase {
         let job = try job(states: [.rendering(done: 1, of: 4), .queued], status: .paused,
                           pauseReason: "kokoro did not answer: connection refused")
         let book = try onlyBook(BookShelf.entries(items: [], jobs: [job], ledger: .init()))
-        let line = try XCTUnwrap(MusicClippingsView.statusLine(book))
+        let line = try XCTUnwrap(MusicBooksView.statusLine(book))
         XCTAssertTrue(line.isProblem)
         XCTAssertTrue(line.text.hasPrefix("Paused: kokoro did not answer"), line.text)
         XCTAssertFalse(line.text.contains("\u{2014}"))
@@ -247,7 +247,7 @@ final class BookShelfTests: XCTestCase {
     func testTheRenderingLineNamesTheChapterBeingMade() throws {
         let job = try job(states: [.rendering(done: 1, of: 4), .queued], status: .rendering)
         let book = try onlyBook(BookShelf.entries(items: [], jobs: [job], ledger: .init()))
-        XCTAssertEqual(MusicClippingsView.statusLine(book)?.text, "Making chapter 1 of 2, 25%")
+        XCTAssertEqual(MusicBooksView.statusLine(book)?.text, "Making chapter 1 of 2, 25%")
     }
 }
 
@@ -264,9 +264,9 @@ final class ClippingsWithoutAServerTests: XCTestCase {
                        "a brand-new install with nothing still gets the single connect screen")
     }
 
-    func testOnlyClippingsWorksWithoutAServer() {
+    func testOnlyClippingsAndBooksWorkWithoutAServer() {
         for tab in MusicView.MusicTab.allCases {
-            XCTAssertEqual(MusicView.worksWithoutServer(tab), tab == .clippings, "\(tab)")
+            XCTAssertEqual(MusicView.worksWithoutServer(tab), tab == .clippings || tab == .books, "\(tab)")
         }
     }
 
@@ -287,6 +287,8 @@ final class ClippingsWithoutAServerTests: XCTestCase {
                                            chapterIndex: index, chapterTitle: "Chapter \(index + 1)"))
         }
         XCTAssertEqual(store.items.count, 5)
-        XCTAssertEqual(BookShelf.entryCount(items: store.items), 3, "two readings and one book")
+        // Two sections since TBX-11018: Clippings counts the readings, Books each book once.
+        XCTAssertEqual(BookShelf.readingCount(items: store.items), 2, "two readings, no chapters")
+        XCTAssertEqual(BookShelf.bookCount(items: store.items), 1, "three chapters are one book")
     }
 }

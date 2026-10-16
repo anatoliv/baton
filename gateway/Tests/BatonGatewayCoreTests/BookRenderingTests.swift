@@ -559,9 +559,262 @@ final class BookRoutesTests: XCTestCase {
         XCTAssertEqual(listing["unavailable_reason"] as? String, "ffmpeg is not installed on the gateway")
     }
 
+    // MARK: Books made on another device
+
+    @MainActor
+    private func put(_ routes: BookRoutes, _ dir: URL, _ path: String, body: Data, headers: [String: String] = [:],
+                     token: String = "correct-horse") async -> Data {
+        let staged = dir.appendingPathComponent("staged-\(UUID().uuidString)")
+        try? body.write(to: staged)
+        var all = headers.reduce(into: [String: String]()) { $0[$1.key.lowercased()] = $1.value }
+        all["authorization"] = "Bearer \(token)"
+        let req = StreamingUpload.Request(method: "PUT", path: path, headers: all, contentLength: body.count)
+        let response = await routes.handleUpload(req, staged, token: self.token)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path), "staged body must always be removed")
+        return response
+    }
+
+    private func chapterHeaders(_ audio: Data, seconds: Double = 12.5) -> [String: String] {
+        ["X-Baton-SHA256": SHA256Digest.hex(of: audio), "X-Baton-Duration": String(seconds)]
+    }
+
+    /// A book the Mac made with its own voices reaches the home server whole: its shaped book,
+    /// then each chapter's timing and audio, checked by digest. It is listed with its document
+    /// like a book made here, so the iPhone adopts it the same way, and the render loop never
+    /// tries to make it.
+    @MainActor
+    func testABookMadeOnTheMacIsUploadedChapterByChapterAndListedForTheOtherDevices() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let synth = FakeSynthesizer()
+        let renderer = BookRenderer(store: store, cacheDirectory: dir.appendingPathComponent("cache"),
+                                    synthesizer: synth, muxer: CopyMuxer(), retry: .init(initialDelay: 0.01, maximumDelay: 0.02))
+        await renderer.startIfNeeded()
+        let routes = BookRoutes(renderer: renderer, store: store, synthesizer: synth, unavailableReason: nil)
+        let router = Router(token: token, routes: routes.routes())
+        let book = sampleBook(narrator: "kokoro:af_heart")
+        let id = BookJob.id(for: book)
+        let payload = try book.encoded()
+
+        // The shaped book: behind the token, under its own id, once.
+        let refused = await put(routes, dir, "/v1/books/\(id)/upload", body: payload, token: "wrong")
+        XCTAssertEqual(status(refused), "401 Unauthorized")
+        XCTAssertNil(store.load(id), "nothing is kept from a request without the token")
+        let wrongID = await put(routes, dir, "/v1/books/\(String(repeating: "d", count: 64))/upload", body: payload)
+        XCTAssertEqual(status(wrongID), "400 Bad Request", "an id that is not the book's own is refused")
+        let notABook = await put(routes, dir, "/v1/books/\(id)/upload", body: Data("{}".utf8))
+        XCTAssertEqual(status(notABook), "400 Bad Request")
+        let created = await put(routes, dir, "/v1/books/\(id)/upload", body: payload)
+        XCTAssertEqual(status(created), "201 Created")
+        let again = await put(routes, dir, "/v1/books/\(id)/upload", body: payload)
+        XCTAssertEqual(status(again), "200 OK", "the same book again finds the job")
+        XCTAssertEqual(store.load(id)?.uploaded, true)
+
+        // Listed with its document, every chapter waiting for its audio; nothing synthesized.
+        await renderer.waitUntilIdle()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(synth.calls.isEmpty, "the render loop never makes a book another device made")
+        let listed = await router.dispatch(request("GET", "/v1/books"))
+        let listing = try XCTUnwrap(JSONSerialization.jsonObject(with: body(listed)) as? [String: Any])
+        let first = try XCTUnwrap((listing["books"] as? [[String: Any]])?.first)
+        XCTAssertEqual(first["documentID"] as? String, book.documentID)
+        XCTAssertEqual(first["status"] as? String, "rendering")
+        XCTAssertEqual((first["chapters"] as? [[String: Any]])?.compactMap { $0["state"] as? String }, ["queued", "queued"])
+
+        // Chapter 1: timing first, then the audio, which is kept only when its digest matches.
+        let timing = ReadAlongTiming(segments: book.chapters[0].segments.enumerated().map { i, segment in
+            .init(text: segment.text, paragraph: segment.paragraph, start: Double(i), end: Double(i) + 0.8)
+        })
+        let tooBig = await put(routes, dir, "/v1/books/\(id)/chapters/1/timing",
+                               body: Data(count: BookRoutes.maximumTimingBytes + 1))
+        XCTAssertEqual(status(tooBig), "413 Payload Too Large")
+        let garbage = await put(routes, dir, "/v1/books/\(id)/chapters/1/timing", body: Data("nonsense".utf8))
+        XCTAssertEqual(status(garbage), "400 Bad Request")
+        let noChapter = await put(routes, dir, "/v1/books/\(id)/chapters/9/timing", body: try timing.encoded())
+        XCTAssertEqual(status(noChapter), "404 Not Found")
+        let timed = await put(routes, dir, "/v1/books/\(id)/chapters/1/timing", body: try timing.encoded())
+        XCTAssertEqual(status(timed), "200 OK")
+
+        let audio1 = Data((0..<6_000).map { UInt8(truncatingIfNeeded: $0 * 7) })
+        let unsigned = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1)
+        XCTAssertEqual(status(unsigned), "400 Bad Request", "a chapter without its digest is refused")
+        let noLength = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1,
+                                 headers: ["X-Baton-SHA256": SHA256Digest.hex(of: audio1)])
+        XCTAssertEqual(status(noLength), "400 Bad Request", "a chapter without its duration is refused")
+        let damaged = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1 + Data([1]),
+                                headers: chapterHeaders(audio1))
+        XCTAssertEqual(status(damaged), "422 Unprocessable Entity", "a chapter damaged on the way is refused")
+        let notYet = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/1"))
+        XCTAssertEqual(status(notYet), "409 Conflict", "and not kept")
+        let one = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1, headers: chapterHeaders(audio1))
+        XCTAssertEqual(status(one), "200 OK")
+        let afterOne = try BookJSON.decoder.decode(BookJob.Summary.self, from: body(one))
+        XCTAssertEqual(afterOne.chapters.map(\.state), ["ready", "queued"])
+        XCTAssertEqual(afterOne.status, .rendering)
+        XCTAssertEqual(afterOne.documentID, book.documentID)
+
+        // What the iPhone fetches, as it does for a book made here.
+        let served = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/1"))
+        XCTAssertEqual(status(served), "200 OK")
+        XCTAssertEqual(body(served), audio1)
+        XCTAssertEqual(header("X-Baton-SHA256", served), SHA256Digest.hex(of: audio1))
+        XCTAssertEqual(header("X-Baton-Duration", served), "12.500")
+        let servedTiming = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/1/timing"))
+        XCTAssertEqual(ReadAlongTiming.decode(body(servedTiming)), timing)
+        let shaped = await router.dispatch(request("GET", "/v1/books/\(id)/book"))
+        XCTAssertEqual(try PreparedBook.decode(body(shaped)), book)
+
+        // The same chapter again changes nothing; the last one makes the book ready.
+        let modified = try XCTUnwrap(store.load(id)?.updatedAt)
+        let same = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1, headers: chapterHeaders(audio1))
+        XCTAssertEqual(status(same), "200 OK")
+        XCTAssertEqual(store.load(id)?.updatedAt, modified)
+        let audio2 = Data((0..<4_000).map { UInt8(truncatingIfNeeded: $0 * 3) })
+        let two = await put(routes, dir, "/v1/books/\(id)/chapters/2", body: audio2, headers: chapterHeaders(audio2, seconds: 8))
+        XCTAssertEqual(status(two), "200 OK")
+        let done = await router.dispatch(request("GET", "/v1/books/\(id)"))
+        let summary = try BookJSON.decoder.decode(BookJob.Summary.self, from: body(done))
+        XCTAssertEqual(summary.status, .ready)
+        XCTAssertEqual(summary.chapters.map(\.sha256), [SHA256Digest.hex(of: audio1), SHA256Digest.hex(of: audio2)])
+        XCTAssertEqual(summary.bytes, audio1.count + audio2.count)
+        let noTiming = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/2/timing"))
+        XCTAssertEqual(status(noTiming), "404 Not Found", "a chapter sent without timing shows its text without a highlight")
+        XCTAssertTrue(synth.calls.isEmpty)
+
+        // Finished and deleted like any other book.
+        let finished = await router.dispatch(request("POST", "/v1/books/\(id)/finished"))
+        XCTAssertEqual(status(finished), "200 OK")
+        let deleted = await router.dispatch(request("DELETE", "/v1/books/\(id)"))
+        XCTAssertEqual(status(deleted), "200 OK")
+        let gone = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1, headers: chapterHeaders(audio1))
+        XCTAssertEqual(status(gone), "404 Not Found", "a chapter for a book deleted meanwhile is not kept")
+        XCTAssertNil(store.load(id))
+    }
+
+    /// A book this gateway makes takes no chapters from elsewhere, and an upload is bounded by
+    /// the books' space like a submission. Uploading needs no ffmpeg: the book is only kept.
+    @MainActor
+    func testAnUploadIsRefusedForABookMadeHereAndWhenTheSpaceIsFull() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let synth = FakeSynthesizer()
+        let renderer = BookRenderer(store: store, cacheDirectory: dir.appendingPathComponent("cache"),
+                                    synthesizer: synth, muxer: CopyMuxer(), retry: .init(initialDelay: 0.01, maximumDelay: 0.02))
+        let routes = BookRoutes(renderer: renderer, store: store, synthesizer: synth, unavailableReason: nil)
+        let rendered = sampleBook()
+        let renderedID = BookJob.id(for: rendered)
+        _ = try await renderer.submit(rendered, id: renderedID)
+        await renderer.waitUntilIdle()
+        let audio = Data(repeating: 7, count: 2_000)
+        let madeHere = await put(routes, dir, "/v1/books/\(renderedID)/chapters/1", body: audio, headers: chapterHeaders(audio))
+        XCTAssertEqual(status(madeHere), "409 Conflict")
+        XCTAssertEqual(store.load(renderedID)?.uploaded, nil)
+        let existing = await put(routes, dir, "/v1/books/\(renderedID)/upload", body: try rendered.encoded())
+        XCTAssertEqual(status(existing), "200 OK", "the same book uploaded finds the job made here")
+        XCTAssertNil(store.load(renderedID)?.uploaded)
+
+        // No ffmpeg, and a space of 1 MB.
+        let small = BookStore(directory: dir.appendingPathComponent("small"), maximumBytes: 1_000_000)
+        let keeper = BookRoutes(renderer: nil, store: small, synthesizer: nil, unavailableReason: "ffmpeg is not installed on the gateway")
+        let book = sampleBook(narrator: "kokoro:af_heart", chapters: 1)
+        let id = BookJob.id(for: book)
+        let created = await put(keeper, dir, "/v1/books/\(id)/upload", body: try book.encoded())
+        XCTAssertEqual(status(created), "201 Created", "a gateway that cannot make books still keeps one made elsewhere")
+        let large = Data(repeating: 9, count: 1_100_000)
+        let full = await put(keeper, dir, "/v1/books/\(id)/chapters/1", body: large, headers: chapterHeaders(large))
+        XCTAssertEqual(status(full), "507 Insufficient Storage")
+        XCTAssertEqual(small.load(id)?.readyChapters, 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: small.jobDirectory(id)!.path), ["job.json"],
+                       "nothing of a refused chapter is left behind")
+        let unknown = await put(keeper, dir, "/v1/books/\(id)/chapters/1/extra", body: audio, headers: chapterHeaders(audio))
+        XCTAssertEqual(status(unknown), "404 Not Found")
+    }
+
+    /// The two clients end to end through the real routes: the Mac's `GatewayBookClient` sends
+    /// a book it made, and the iPhone's, which did not send it, finds it in the listing under its
+    /// document, fetches the shaped book, and downloads each chapter checked against its digest
+    /// with its read-along timing: the TBX-10985 adoption path, unchanged.
+    @MainActor
+    func testWhatTheMacUploadsTheIPhoneDownloadsThroughTheRealRoutes() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let routes = BookRoutes(renderer: nil, store: store, synthesizer: nil, unavailableReason: "ffmpeg is not installed on the gateway")
+        let router = Router(token: token, routes: routes.routes())
+        let staging = dir.appendingPathComponent("staging")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let expectedToken = token
+        // The transport as the gateway's: a PUT under /v1/books/ is streamed to disk, the rest buffered.
+        let wire: GatewayBookClient.Transport = { request in
+            var headers: [String: String] = [:]
+            for (name, value) in request.allHTTPHeaderFields ?? [:] { headers[name.lowercased()] = value }
+            let body = request.httpBody ?? Data()
+            let path = request.url!.path
+            let raw: Data
+            if request.httpMethod == "PUT" {
+                let staged = staging.appendingPathComponent("upload-\(UUID().uuidString)")
+                try body.write(to: staged)
+                raw = await routes.handleUpload(.init(method: "PUT", path: path, headers: headers, contentLength: body.count),
+                                                staged, token: expectedToken)
+            } else {
+                raw = await router.dispatch(HTTPRequestMessage(method: request.httpMethod ?? "GET", path: path, query: [:],
+                                                               headers: headers, body: body))
+            }
+            let split = try XCTUnwrap(raw.range(of: Data("\r\n\r\n".utf8)))
+            let head = String(decoding: raw[..<split.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
+            let code = Int(head[0].split(separator: " ")[1]) ?? 0
+            var fields: [String: String] = [:]
+            for line in head.dropFirst() {
+                guard let colon = line.firstIndex(of: ":") else { continue }
+                fields[String(line[..<colon])] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            }
+            return (Data(raw[split.upperBound...]), HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: "HTTP/1.1",
+                                                                     headerFields: fields)!)
+        }
+        let base = URL(string: "http://gateway.test:8788")!
+        let mac = GatewayBookClient(baseURL: base, token: token, transport: wire)
+        let phone = GatewayBookClient(baseURL: base, token: token, transport: wire)
+        let book = sampleBook(narrator: "kokoro:af_heart")
+        let id = BookJob.id(for: book)
+
+        let accepted = try await mac.upload(book)
+        XCTAssertEqual(accepted.id, id)
+        XCTAssertEqual(accepted.chapters.map(\.state), ["queued", "queued"])
+        let audio = [Data(repeating: 0x31, count: 3_000), Data(repeating: 0x32, count: 5_000)]
+        for (index, chapter) in audio.enumerated() {
+            let timing = ReadAlongTiming(segments: book.chapters[index].segments.map {
+                .init(text: $0.text, paragraph: $0.paragraph, start: 0, end: 1)
+            })
+            try await mac.uploadTiming(id, number: index + 1, timing: timing)
+            _ = try await mac.uploadChapter(id, number: index + 1, audio: chapter, seconds: 20)
+        }
+
+        let listing = try await phone.list()
+        let listed = try XCTUnwrap(listing.books.first { $0.id == id })
+        XCTAssertEqual(listed.documentID, book.documentID)
+        XCTAssertEqual(listed.status, .ready)
+        let shaped = try await phone.preparedBook(id)
+        XCTAssertEqual(shaped, book)
+        for index in audio.indices {
+            let file = dir.appendingPathComponent("phone-\(index).m4a")
+            let chapter = try await phone.downloadChapter(id, number: index + 1, to: file)
+            XCTAssertEqual(try Data(contentsOf: file), audio[index])
+            XCTAssertEqual(chapter.sha256, SHA256Digest.hex(of: audio[index]))
+            XCTAssertEqual(chapter.seconds, 20)
+            let timing = try await phone.chapterTiming(id, number: index + 1)
+            XCTAssertEqual(timing?.segments.map(\.text), book.chapters[index].segments.map(\.text))
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: staging.path), [], "no upload left behind")
+    }
+
     func testBookSubmissionTakesTheStreamingPath() {
         XCTAssertTrue(isStreamingUpload(.init(method: "PUT", path: "/v1/books/abc", headers: [:], contentLength: 1)))
         XCTAssertTrue(isStreamingUpload(.init(method: "PUT", path: "/v1/files/abc", headers: [:], contentLength: 1)))
         XCTAssertFalse(isStreamingUpload(.init(method: "GET", path: "/v1/books/abc", headers: [:], contentLength: 0)))
+        // A book made on another device and its chapters stream too.
+        XCTAssertTrue(isStreamingUpload(.init(method: "PUT", path: "/v1/books/abc/upload", headers: [:], contentLength: 1)))
+        XCTAssertTrue(isStreamingUpload(.init(method: "PUT", path: "/v1/books/abc/chapters/1", headers: [:], contentLength: 1)))
     }
 }

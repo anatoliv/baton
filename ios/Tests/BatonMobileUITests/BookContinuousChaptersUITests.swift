@@ -67,7 +67,7 @@ final class BookContinuousChaptersUITests: XCTestCase {
         server.setReadyOnSubmit(1)
         app.launch()
         makeAudiobook()
-        openClippings()
+        openBooks()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '1 of 3 chapters'")).firstMatch
             .waitForExistence(timeout: 30), "chapter 1 should come down, and only chapter 1")
         playBookAndOpenPlayer()
@@ -160,9 +160,9 @@ final class BookContinuousChaptersUITests: XCTestCase {
     }
 
     private func playBookAndOpenPlayer() {
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
-        row.tap()
+        // A book's row opens the book; its Play starts it, and the list is shown again so only
+        // the player names a chapter.
+        BooksScreen.playBookAndLeave(app)
         let title = app.staticTexts.matching(identifier: PlayerControls.miniBar).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 15), "Play started nothing")
         title.tap()
@@ -203,16 +203,9 @@ final class BookContinuousChaptersUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    private func openClippings() {
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        if entry.waitForExistence(timeout: 10) { entry.tap() } else {
-            let fallback = app.buttons["Clippings"].firstMatch
-            XCTAssertTrue(fallback.waitForExistence(timeout: 10), "no route to Clippings")
-            fallback.tap()
-        }
+    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    private func openBooks() {
+        BooksScreen.open(app)
     }
 
     private func waitFor(_ seconds: TimeInterval, _ condition: () -> Bool) -> Bool {

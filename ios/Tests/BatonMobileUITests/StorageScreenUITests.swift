@@ -1,7 +1,7 @@
 import XCTest
 
 /// The phone's book storage (TBX-10850, M6.3 and M6.4) walked on screen: a book made on a home
-/// server comes down into Clippings, Settings > Storage shows it with its size beside the home
+/// server comes down into Books, Settings > Storage shows it with its size beside the home
 /// server's own listing and the cleanup rules, and Remove Download moves it to Recently removed
 /// while the book keeps its row.
 ///
@@ -52,16 +52,12 @@ final class StorageScreenUITests: XCTestCase {
         make.tap()
         app.tap()
 
-        // Clippings collects every chapter.
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 30), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        if entry.waitForExistence(timeout: 10) { entry.tap() } else { app.buttons["Clippings"].firstMatch.tap() }
+        // Books collects every chapter (TBX-11018: books have their own section).
+        BooksScreen.open(app)
         let complete = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '3 chapters'")).firstMatch
         XCTAssertTrue(complete.waitForExistence(timeout: 60), "the book's chapters did not all come down")
         XCTAssertTrue(app.staticTexts["On this phone"].firstMatch.exists)
-        attach("phone-clippings-book")
+        attach("phone-books-book")
 
         // Settings > Storage.
         app.buttons["Home"].firstMatch.tap()

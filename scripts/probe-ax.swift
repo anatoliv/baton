@@ -1,7 +1,7 @@
 // Read and drive a probe's windows through the Accessibility API, by process id.
 //
-//   probe-ax texts <pid>            every static text and button label, one per line
-//   probe-ax press <pid> <label>    press the first button whose title or description is <label>
+//   probe-ax texts <pid>            every static text, heading and button label, one per line
+//   probe-ax press <pid> <label>    press the first button or segment whose title or description is <label>
 //   probe-ax show  <pid> <label>    scroll the first element labelled <label> into view
 //   probe-ax scroll <pid> <0...1>   set the largest window's first vertical scroll bar
 //   probe-ax windows <pid>          "<window id> <width> <height>" per on-screen window, largest first
@@ -58,6 +58,8 @@ case "texts":
         _ = walk(window) { element in
             let role = string(element, kAXRoleAttribute) ?? ""
             if role == kAXStaticTextRole, let value = string(element, kAXValueAttribute) { print(value) }
+            // A SwiftUI header (`.isHeader`) is a heading, not static text (TBX-11028: voice groups).
+            if role == "AXHeading", let title = labels(element).first(where: { !$0.isEmpty }) { print("[heading] \(title)") }
             if role == kAXButtonRole, let title = string(element, kAXTitleAttribute) ?? string(element, kAXDescriptionAttribute) {
                 print("[button] \(title)")
             }
@@ -70,7 +72,9 @@ case "press":
     var done = false
     for window in windows where !done {
         done = walk(window) { element in
-            guard string(element, kAXRoleAttribute) == kAXButtonRole, labels(element).contains(label) else { return false }
+            // A segmented picker's segments are radio buttons (TBX-11028: Made on).
+            let role = string(element, kAXRoleAttribute)
+            guard role == kAXButtonRole || role == kAXRadioButtonRole, labels(element).contains(label) else { return false }
             return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
         }
     }

@@ -323,6 +323,40 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.2",
+            date: "October 2026",
+            highlight: "Clearer names for your two servers, everywhere.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "The message shown when no music server is connected now points to Settings, "
+                    + "Music Servers, the pane's new name."),
+                HelpWhatsNewChange(.added,
+                    "Choosing a narrator now offers every voice, not only the suggested ones. All voices "
+                    + "lists what your Baton server or this Mac has, as Made on says, grouped by accent "
+                    + "and gender with names like Heart, American, female, with a search field and a "
+                    + "play button on each. Change Voice and the cast's voices use the same list."),
+                HelpWhatsNewChange(.improved,
+                    "Baton remembers the narrator you last chose for each language and starts the next "
+                    + "book in that language on it."),
+                HelpWhatsNewChange(.fixed,
+                    "A book made on this Mac with its own voices now goes to your Baton server as each "
+                    + "chapter is done, so it shows up on your iPhone with every chapter, its read-along "
+                    + "and your place. Books this Mac made before are sent once too."),
+                HelpWhatsNewChange(.improved,
+                    "With a Baton server set up, the import sheet starts on Baton server, and choosing "
+                    + "This Mac says what happens to the book."),
+                HelpWhatsNewChange(.added,
+                    "Books is a new section in the sidebar. Each book made from a document has a row "
+                    + "with its author, how far along you are and where it was made, and clicking it "
+                    + "opens the book: its chapters, Play or Resume, Read Along, Change Voice and "
+                    + "where its audio is kept."),
+                HelpWhatsNewChange(.improved,
+                    "Clippings now holds only the readings you keep, which play one after another. "
+                    + "Import Document, Import Link, a file dropped on Books, Open With and the "
+                    + "Services item all put the new book in Books."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.1",
             date: "October 2026",
             highlight: "Read along with a book, set its speed, and make one straight from Finder.",

@@ -886,14 +886,17 @@ instead, which stores it, lists it, and plays it.
 A clipping is a real file on your Mac, so it needs no server and no network. It plays through
 the ordinary player, with the same transport, now-playing bar, queue, and scrubber as anything
 else. Double-click a row to play from there onwards. With nothing playing, the play button in
-the header starts the whole list. The clipping or chapter you are listening to shows the moving
-bars and stays highlighted, the way a song does in a list, and a book shows the bars while one of
-its chapters plays.
+the header starts the whole list. The clipping you are listening to shows the moving bars and
+stays highlighted, the way a song does in a list.
+
+Clippings holds the short readings you keep. Narrated books made from documents have their own
+section, **Books**, next to Clippings (see [Listening to a document](#listening-to-a-document)).
 
 **You can search a clipping by what is said in it.** A saved reading keeps its words, so
 typing a phrase from the middle of an article finds it, both in the Clippings filter and in
 the main Search screen alongside your library results. The Clippings filter ignores case and
-accents, so "cafe" finds "Café", and it stays quick with long books in the list. Nothing else in
+accents, so "cafe" finds "Café". The Books filter works the same way, by a book's title, its
+author or something said in it, and stays quick with long books. Nothing else in
 Baton can be found this way: your server only ever knows a track's title.
 
 **Another voice.** On the Mac, **Change Voice…** in a reading's right-click menu reads its words
@@ -931,13 +934,13 @@ question, with **Remove from This Mac** and **Delete Everywhere**.
 
 ## Listening to a document
 
-Baton can turn a document into a narrated book in Clippings: a PDF, an EPUB, a web page (saved
+Baton can turn a document into a narrated book in **Books**: a PDF, an EPUB, a web page (saved
 as HTML, or just its link), a Markdown file or plain text. On the Mac, choose **File → Import
-Document** (Shift-Command-O) or **File → Import Link**, or drag the file onto **Clippings**. In
+Document** (Shift-Command-O) or **File → Import Link**, or drag the file onto **Books**. In
 Finder, Control-click the file and choose **Open With → Baton** or **Services → Make an Audiobook
 with Baton**; Baton never becomes the default app for these files. On the iPhone, share the file or the web page to Baton from another app's share sheet (Safari
-works too), open it in Baton from Files, or use the **+** menu on the Clippings screen to import
-a file or a link.
+works too), open it in Baton from Files, or use the **+** menu on the Books screen to import
+a file or a link. However it arrives, the book lands in Books.
 
 Before anything is made, Baton shows what it found: the title and author, the chapters, anything
 it set aside (a publication note on the title page, for example) and anything it could not read.
@@ -955,6 +958,16 @@ the book's language. On the iPhone, the import screen lists the same three voice
 offers without a model, from those your Baton server has (Heart first, or Emma for a book in
 British English), and you tap one to choose it and its play button to hear it.
 
+**Every voice.** The suggested voices stay on top, and **All voices** below them lists every
+voice the book can be made with: your Baton server's when it makes the book, and on the Mac this
+Mac's own when **Made on** says **This Mac**. Each voice is named in words, such as "Heart,
+American, female", and grouped by accent or language and by gender. Type in the search field to
+narrow the list, for example "british male" or "spanish", and use the play button on any row to
+hear it. Baton remembers the narrator you last chose for each language on that device, and starts
+the next book in that language on it, marked "last used", when the voices on offer include it. If
+your Baton server cannot list its voices, the suggested ones are still there, with a line saying
+why.
+
 **Where it is made.** The import sheet asks **Made on: Baton server** or **This Mac**, unless
 **Make books on** in **Settings → Speech** already says which. Your Baton server makes the book
 while the Mac sleeps, with its own voice server. This Mac narrates it with the engine chosen
@@ -962,7 +975,11 @@ under **Voice engine for books**: its built-in voices, a voice server, or Automa
 the built-in voices when they are downloaded and have the book's voice (see [Voices: on this Mac
 or on your Baton server](#voices-on-this-mac-or-on-your-baton-server)). Either way it is made one chapter at a time,
 starting with chapter 1, which is usually ready in a minute or two while the rest follows as you
-listen. The phone has no voice host of its own, so it always asks your Baton server, and says so
+listen. With a Baton server set up, the sheet starts on **Baton server**. A book made on this Mac
+is sent to your Baton server as each chapter is done, so your iPhone gets it too; the sheet says
+so under **This Mac**, and says **Only on this Mac** when no Baton server is set up. Books made
+on this Mac before Baton did this are sent once, the next time Baton opens with your Baton
+server answering. The phone has no voice host of its own, so it always asks your Baton server, and says so
 when none is set up. Page numbers, running heads and words broken across lines are tidied up
 first, and anything that looks like a password or key is left out.
 
@@ -970,7 +987,7 @@ first, and anything that looks like a password or key is left out.
 Make Audiobook. Your Baton server holds the document until your Mac collects it, which Baton on
 the Mac does while it is open with Documents on. There the document opens in the import sheet,
 marked with the device that sent it. **Not Now** keeps it waiting in a list at the top of
-Clippings; **Make Audiobook** or **Discard** takes it off the Baton server. With no Baton
+Books; **Make Audiobook** or **Discard** takes it off the Baton server. With no Baton
 server at all, the phone suggests AirDropping the file or link to your Mac instead.
 
 **If the voice host stops answering,** the book pauses and its row says why. It carries on by
@@ -979,12 +996,20 @@ itself when the host is back. It never finishes in a different voice.
 **Quitting is fine.** If you quit Baton while a book is being made, it picks up where it stopped
 the next time Baton opens. Nothing already narrated is made again.
 
-**Listening.** A book is one row in Clippings, with its author, its length and how much of it you
-have heard. Open the row to see its chapters. **Play** starts where you left off, and the
-chapters play in order like the tracks of an album. That holds on the iPhone too: Play picks up
+**Books.** Books are a section of their own: **Books** in the Mac's sidebar, and **Library →
+Books** on the iPhone, next to Clippings. Each book is one row, with its author, its length, how
+much of it you have heard and where it was made. Click or tap the row to open the book: its
+chapters, **Play** (or **Resume**, once you have a place in it), **Read Along**, **Change Voice…**
+and its storage. On the Mac, **More** holds the rest of the book's menu, the same menu you get by
+Control-clicking its row, and **Books** at the top goes back to the list (Command-[).
+
+**Listening.** **Play** starts where you left off, and the chapters play in order like the
+tracks of an album. Double-click a chapter on the Mac, or tap it on the iPhone, to start there.
+The chapter playing shows the moving bars and stays highlighted, and the book's row in the list
+shows the bars while one of its chapters plays. That holds on the iPhone too: Play picks up
 at the chapter and the moment you last heard on either device, and finishing a book on the iPhone
 marks it finished on your other devices as well. A book made on the Baton server from one
-device appears in Clippings on your others too, marked **Made on the Baton server**, without
+device appears in Books on your others too, marked **Made on the Baton server**, without
 importing the file again, and its chapters come down as they are ready. Once you finish it, its
 row on the Mac says how long the Baton server keeps it ("Kept until 2 November").
 
@@ -995,8 +1020,9 @@ normal speed. The [sleep timer](#sleep-timer) works for books too: its **End of 
 stops between chapters, so Play carries on with the next one.
 
 **Reading along.** While a book plays, its text can be on screen with the sentence you are
-hearing highlighted: on the Mac, Control-click the book and choose **Read Along**, or open the
-player's **Transcript** panel; on the iPhone, tap the book icon in the full player. Tap a sentence
+hearing highlighted: open the book and choose **Read Along**, or, on the Mac, Control-click the
+book or open the player's **Transcript** panel; on the iPhone, tap the book icon in the full
+player too. Tap a sentence
 to listen from there. Books made before this feature show their text without the highlight.
 
 **Coming back after a break.** On the Mac, press Play on a book you last heard more than a day
@@ -1009,7 +1035,8 @@ other than the narrator's. A phone that reaches a model only through your Baton 
 recap from the Baton server's model when that model is on your network, and before chapters
 would go to a cloud model the iPhone asks, then keeps your answer in **Settings → Documents**.
 
-**Exporting.** On the Mac, Control-click a book and choose **Export Audiobook…** to save it as
+**Exporting.** On the Mac, Control-click a book, or open it and choose **More**, then **Export
+Audiobook…** to save it as
 one M4B file that Apple Books and other audiobook players open, with a chapter mark where each
 chapter starts. The book has to be finished being made first. For a book made on this Mac, the
 marks need ffmpeg (`brew install ffmpeg`); without it you get one file with no marks, and Baton
@@ -1021,9 +1048,10 @@ add your own. **Pronunciations…** in the book's menu opens the same list later
 only the chapters that say a word you changed. For a book made on the Baton server, those chapters
 are made again there and replace the old ones as they arrive, and you keep your place in the book.
 
-**Changing the voice.** To hear a book in another narrator's voice, Control-click it on the Mac,
-or touch and hold it on the iPhone, and choose **Change Voice…**. The voices are listed as they
-are when you import, each with a button to hear it in the book's own words. The whole book is
+**Changing the voice.** To hear a book in another narrator's voice, open it and choose **Change
+Voice…**, or Control-click it on the Mac, or touch and hold it on the iPhone. The voices are listed
+as they are when you import: the voice it has now and the best for its language on top, every voice
+under **All voices**, each with a button to hear it in the book's own words. The whole book is
 made again where it was made before: on your Baton server, or on the Mac. Its row says "Making
 again in" the new voice, with how far it has got, and each chapter keeps playing in its old
 voice until its new one arrives and takes its place, so there is no gap and you keep your place
@@ -1148,8 +1176,8 @@ on a Mac. After that it starts the way you last left it.
 A model reads passages from across the book and proposes a cast: who speaks, the names the text
 calls them by, and a voice for each from the narrator's own set. Nothing is used until you check
 it. **Check the Cast…** lets you rename someone, merge two names for one person, mark the
-narrator, remove someone who never speaks, and choose a voice for each, with **Hear** to listen
-to them say one of their own lines. Then choose **Use This Cast**.
+narrator, remove someone who never speaks, and choose a voice for each from the same list as the
+narrator's, with **Hear** to listen to them say one of their own lines. Then choose **Use This Cast**.
 
 Baton then works out who says each line. A line with a speech tag ("said Mr. Bennet") is placed
 by rules, and a model is asked about the rest, with a progress line and a **Skip** button. One
@@ -1159,7 +1187,8 @@ model answering, the sheet says so and the book stays with one narrator.
 ### Book storage
 
 A book takes about a third of a megabyte for each minute of listening: a 25 page story is about
-25 MB. These are in a book's menu in Clippings:
+25 MB. These are in the open book, under **Storage** on the iPhone and beside its size on the
+Mac, and in the book's menu in Books:
 
 - **Remove Download** frees the space and keeps the book's row, its words, its voice and your
   place. A single chapter can go the same way. It is only offered when the audio can come back.
@@ -1169,7 +1198,8 @@ A book takes about a third of a megabyte for each minute of listening: a 25 page
 - **Delete Book…** asks which you mean. **Remove from This Mac** (or **Remove from this iPhone**)
   removes it from this device; **Delete Everywhere** also removes it from your Baton server and
   your other devices. A book made on the Baton server and removed from one device stays there for
-  your other devices, and the device you removed it from does not pick it up again.
+  your other devices, and the device you removed it from does not pick it up again. A book made on
+  this Mac and sent to your Baton server follows the same rules.
 
 A deleted book and a removed download stay in **Recently Removed** for a week. A deleted book's
 audio is kept until then, so **Restore** brings it back as it was, and **Delete Now** frees the
@@ -1182,7 +1212,7 @@ played** and **Space for books**. Nothing is removed until you choose a rule. A 
 download, never the book, and never the book you are listening to or one marked Keep. Each device
 has its own rules.
 
-At most once a week, Clippings may suggest something: removing the download of a book you
+At most once a week, Books may suggest something: removing the download of a book you
 finished a while ago, or, when the device is short of space, of your largest finished books.
 **Always Do This** turns the first kind into a rule that removes a finished book's download a
 week after you finish it.
@@ -1332,8 +1362,8 @@ when the current song finishes. For a book it says **End of chapter**, and for a
 **End of episode**. When a fixed timer is up, Baton **fades out gently** over
 about five seconds rather than cutting off mid-note. There's a **Turn off sleep timer** item
 once one is armed, and an agent can arm or cancel the timer too. The iPhone's player has the
-same choices under its moon icon, and so does the moon at the top of **Clippings** on the iPhone
-while something plays. Once a timer is set, that one shows the time left or **End of chapter**.
+same choices under its moon icon, and so does the moon at the top of **Clippings** and **Books**
+on the iPhone while something plays. Once a timer is set, that one shows the time left or **End of chapter**.
 
 ---
 
@@ -1637,7 +1667,7 @@ And for moving around your library:
 | Stop speaking | Command, Control, period |
 
 The **Go** menu lists every section the sidebar can show, including the ones with no number
-of their own: Clippings, Podcasts, Radio, Downloads and Folders. That matters if you have
+of their own: Clippings, Books, Podcasts, Radio, Downloads and Folders. That matters if you have
 hidden a row from the sidebar, because the menu is then the way back to it.
 
 The Playback menu also holds **Shuffle**, **Repeat**, and the **Sleep Timer**.
@@ -2373,8 +2403,8 @@ play can suggest something from your collection instead of guessing at song titl
 
 | Tool | What it does | Main inputs |
 |---|---|---|
-| `import_document` | Make a narrated book in Clippings from a file on this Mac or a link to one. Made where Settings → Speech → Make books on says. Listed while Settings → Speech → Documents is on. See [Listening to a document](#listening-to-a-document) | `path` or `url`, optional `where` |
-| `document_context` | Read the passages of a book in Clippings that the listener has already heard, never past their place, to answer a question about it. Listed while Settings → Speech → Documents is on | `book`, `question` |
+| `import_document` | Make a narrated book in Books from a file on this Mac or a link to one. Made where Settings → Speech → Make books on says. Listed while Settings → Speech → Documents is on. See [Listening to a document](#listening-to-a-document) | `path` or `url`, optional `where` |
+| `document_context` | Read the passages of a book in Books that the listener has already heard, never past their place, to answer a question about it. Listed while Settings → Speech → Documents is on | `book`, `question` |
 
 ### Meeting interpretation routes
 
@@ -3005,7 +3035,7 @@ this order:
   [Scrobbling](#scrobbling).
 - **Shared Links**: the links this phone has sent, who listened, and copy, extend or revoke.
   See [Sharing a song with a friend](#sharing-a-song-with-a-friend).
-- **Documents**: whether a file from Files, the share sheet or the Clippings **+** menu can be
+- **Documents**: whether a file from Files, the share sheet or the Books **+** menu can be
   made into a book on your Baton server, on by default; **Where books are made**, which says the
   Baton server's voice server reads them and what that needs; and **Storage**, for the books on
   this phone and the cleanup rules. See [Listening to a document](#listening-to-a-document),

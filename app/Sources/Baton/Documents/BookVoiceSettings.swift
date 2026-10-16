@@ -143,6 +143,26 @@ enum BookVoiceSettings {
         }
     }
 
+    /// The sheet's choice the moment it opens, before the Baton server has answered:
+    /// the Baton server whenever one is set up and the setting allows it, so a book made in the
+    /// first seconds goes there rather than to this Mac by default. `initialRenderer` then moves
+    /// it to this Mac, visibly, if the Baton server cannot take the book.
+    static func openingRenderer(_ choice: MakeBooksOn, homeServerConfigured: Bool) -> DocumentLibrary.Renderer {
+        switch choice {
+        case .ask, .homeServer: homeServerConfigured ? .homeServer : .thisMac
+        case .thisMac: .thisMac
+        }
+    }
+
+    /// What making the book on this Mac means for the iPhone, said under "Made on" when This Mac
+    /// makes it. With a Baton server the book goes there as each chapter is done
+    /// (`MacBookUploads`); without one it stays here.
+    static func thisMacNote(homeServerConfigured: Bool) -> String {
+        homeServerConfigured
+            ? "This Mac makes it and sends each chapter to your Baton server, so your iPhone gets it too."
+            : "Only on this Mac: your iPhone won't see this book."
+    }
+
     /// Whether the import sheet offers the choice at all: only for Ask each time, and only when
     /// the home server can take the book.
     static func sheetAsks(_ choice: MakeBooksOn, homeServerAvailable: Bool) -> Bool {

@@ -220,7 +220,7 @@ struct MusicView: View {
     }
 
     enum MusicTab: String, CaseIterable, Identifiable {
-        case home, search, mixes, albums, artists, playlists, starred, later, clippings, history, podcasts, radio, downloads, folders
+        case home, search, mixes, albums, artists, playlists, starred, later, clippings, books, history, podcasts, radio, downloads, folders
         var id: String {
             rawValue
         }
@@ -236,6 +236,7 @@ struct MusicView: View {
             case .starred: "Liked"
             case .later: "Later"
             case .clippings: "Clippings"
+            case .books: "Books"
             case .history: "History"
             case .podcasts: "Podcasts"
             case .radio: "Radio"
@@ -255,6 +256,7 @@ struct MusicView: View {
             case .starred: "heart"
             case .later: "bookmark"
             case .clippings: "waveform.circle"
+            case .books: "books.vertical"
             case .history: "clock.arrow.circlepath"
             case .podcasts: "mic.fill"
             case .radio: "dot.radiowaves.left.and.right"
@@ -280,7 +282,7 @@ struct MusicView: View {
             case .starred: "7"
             case .history: "8"
             case .later: "9"
-            case .clippings, .podcasts, .radio, .downloads, .folders: nil
+            case .clippings, .books, .podcasts, .radio, .downloads, .folders: nil
             }
         }
     }
@@ -332,8 +334,8 @@ struct MusicView: View {
     }
 
     /// The sections that work with no music server. Everything else shows the connect prompt in
-    /// its place, so the rail stays the same shape.
-    static func worksWithoutServer(_ tab: MusicTab) -> Bool { tab == .clippings }
+    /// its place, so the rail stays the same shape. Books play from disk as clippings do.
+    static func worksWithoutServer(_ tab: MusicTab) -> Bool { tab == .clippings || tab == .books }
 
     private var showsSections: Bool {
         Self.showsSections(serverConfigured: library.isConfigured, hasClippings: !model.clippings.items.isEmpty,
@@ -424,10 +426,10 @@ struct MusicView: View {
                     router.pendingTab = nil
                 }
                 // A document sent from the iPhone ("Send to my Mac", TBX-10871) opens in
-                // Clippings' import sheet, so arriving brings Clippings forward.
+                // Books' import sheet, so arriving brings Books forward.
                 .onChange(of: model.documentsSwitch.isOn ? model.documentInbox.arrivals : 0) { old, new in
                     guard new > old else { return }
-                    router.pendingTab = .clippings
+                    router.pendingTab = .books
                 }
                 .onChange(of: router.showNowPlayingToken) { _, _ in
                     guard model.music.nowPlaying != nil else { return }
@@ -766,8 +768,15 @@ struct MusicView: View {
         case .later:
             model.pins.pins.isEmpty ? nil : model.pins.pins.count
         case .clippings:
+            // The readings; a book's chapters are counted in Books.
+            { let n = BookShelf.readingCount(items: model.clippings.items); return n == 0 ? nil : n }()
+        case .books:
             // A book is one entry, however many chapters it has (F3), as the list shows it.
-            { let n = BookShelf.entryCount(items: model.clippings.items); return n == 0 ? nil : n }()
+            {
+                let jobs = model.documentsSwitch.isOn ? model.documents.jobs : []
+                let n = BookShelf.bookCount(items: model.clippings.items, jobs: jobs)
+                return n == 0 ? nil : n
+            }()
         // Folders are lazy-loaded on first visit; a count here would force the fetch
         // just to draw a number nobody asked for.
         case .folders: nil
@@ -815,6 +824,7 @@ struct MusicView: View {
         case .history: MusicHistoryView()
         case .later: MusicPinnedView()
         case .clippings: MusicClippingsView()
+        case .books: MusicBooksView()
         case .podcasts: MusicPodcastsView()
         case .radio: MusicRadioView()
         case .downloads: MusicDownloadsView()

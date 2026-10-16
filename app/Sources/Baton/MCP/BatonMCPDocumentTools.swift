@@ -2,14 +2,14 @@ import BatonDocuments
 import Foundation
 
 /// The `import_document` MCP tool: an agent hands Baton a file, and Baton makes it a narrated
-/// book in Clippings (document clippings, M3.6).
+/// book in Books (document clippings, M3.6; Books since TBX-11018).
 ///
 /// The counterpart of `read_aloud` for things too long to hear in one sitting. `read_aloud`
 /// takes text the agent already extracted; this takes the file itself, because Baton now
 /// extracts documents better than an agent pasting text would: page numbers, running heads and
 /// line-end hyphens removed, chapters found, the title and author taken from the first page.
 /// Nothing is read aloud now. The book renders in the background, chapter 1 first, and appears
-/// in Clippings, exactly as Import Document… does it.
+/// in Books, exactly as Import Document… does it.
 ///
 /// Listed only while `baton.documents.enabled` is on.
 @MainActor
@@ -18,7 +18,7 @@ enum BatonMCPDocumentTools {
         [
             "name": "import_document",
             "description": """
-            Turn a document into a narrated audiobook in Baton's Clippings. Pass `path` (a PDF, \
+            Turn a document into a narrated audiobook in Baton's Books. Pass `path` (a PDF, \
             EPUB, HTML, Markdown or plain text file on this Mac) or `url` (a web page, read as an \
             article without its navigation, or a link to a PDF or text file). \
             Baton finds the title, author and chapters itself, removes page numbers and running \
@@ -28,7 +28,7 @@ enum BatonMCPDocumentTools {
             books on says: on this Mac, or on the Baton server, which carries on while the Mac \
             sleeps; when that is Ask each time, on this Mac unless you pass `where`. If the Baton \
             server does not answer, this Mac makes it. Nothing is played now: the book appears \
-            in Clippings, where it plays like an album. Returns a job id, where the book is being \
+            in Books, where it plays like an album. Returns a job id, where the book is being \
             made (`made_on`), what was found (title, author, chapters, warnings) and the \
             estimated length and size. Use `read_aloud` instead to hear something right away.
             """,

@@ -62,7 +62,7 @@ final class ChangeVoiceLiveWalkUITests: XCTestCase {
         app.tap()
         XCTAssertTrue(waitUntilGone(app.staticTexts["The Lighthouse"].firstMatch, timeout: 60),
                       "the import screen should close once the book is sent")
-        openClippings()
+        openBooks()
         let made = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
         XCTAssertTrue(made.waitForExistence(timeout: 300), "the book was not made in Heart")
         mark("made-in-heart")
@@ -74,18 +74,25 @@ final class ChangeVoiceLiveWalkUITests: XCTestCase {
         app.launchEnvironment["baton.resetSession"] = nil
         app.launchEnvironment["uitestBookPosition"] = "1:5"
         app.launch()
-        openClippings()
+        openBooks()
         let row = app.buttons.containing(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 30), "the book row is not in Clippings")
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "the book row is not in Books")
         row.press(forDuration: 1.2)
         let change = app.buttons["Change Voice…"].firstMatch
         XCTAssertTrue(change.waitForExistence(timeout: 10), "the book's menu has no Change Voice…")
         attach("03-book-menu")
         change.tap()
 
-        let option = app.buttons["narrator-kokoro:\(target)"].firstMatch
-        XCTAssertTrue(option.waitForExistence(timeout: 30), "\(target) is not among the home server's voices")
-        XCTAssertTrue(app.staticTexts["Now read by af_heart on Kokoro."].firstMatch.exists, "the screen names the voice it has")
+        // Among the suggested voices, or else under All voices.
+        var option = app.buttons["narrator-kokoro:\(target)"].firstMatch
+        if !option.waitForExistence(timeout: 30) {
+            app.buttons["all-voices"].firstMatch.tap()
+            option = app.buttons["voice-kokoro:\(target)"].firstMatch
+            var scrolls = 0
+            while !option.isHittable && scrolls < 12 { app.swipeUp(); scrolls += 1 }
+        }
+        XCTAssertTrue(option.waitForExistence(timeout: 10), "\(target) is not among the home server's voices")
+        XCTAssertTrue(app.staticTexts["Now read by Heart, American, female."].firstMatch.exists, "the screen names the voice it has")
         option.tap()
         attach("04-change-voice-picker")
         app.buttons["make-again"].firstMatch.tap()
@@ -133,20 +140,9 @@ final class ChangeVoiceLiveWalkUITests: XCTestCase {
         }
     }
 
-    private func openClippings() {
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        let fallback = app.buttons["Clippings"].firstMatch
-        for _ in 0..<4 where !entry.exists && !fallback.exists {
-            if entry.waitForExistence(timeout: 5) || fallback.exists { break }
-            app.swipeUp()
-        }
-        if entry.exists { entry.tap(); return }
-        if !fallback.waitForExistence(timeout: 5) { attach("no-route-to-clippings") }
-        XCTAssertTrue(fallback.exists, "no route to Clippings")
-        fallback.tap()
+    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    private func openBooks() {
+        BooksScreen.open(app)
     }
 
     private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

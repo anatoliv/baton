@@ -197,6 +197,10 @@ final class FakeHomeServer: @unchecked Sendable {
             guard let job = jobs[id] else { return (404, [:], Data()) }
             if method == "DELETE" { jobs[id] = nil; return (204, [:], Data()) }
             if method == "POST" { return (204, [:], Data()) }
+            // The shaped book, which a device that did not send it fetches to adopt it.
+            if parts.count == 4, parts[3] == "book" {
+                return (200, ["Content-Type": "application/json"], (try? job.book.encoded()) ?? Data())
+            }
             // Read-along timing for chapter 1, its chunks spread over its 30 seconds.
             // Every other chapter answers 404, as one made before timing was kept does.
             if parts.count == 6, parts[3] == "chapters", parts[5] == "timing", let n = Int(parts[4]) {

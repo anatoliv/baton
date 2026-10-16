@@ -66,7 +66,7 @@ struct DeviceLinkPane: View {
 
     private var idle: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Show a code your iPhone can scan in Baton → Settings → Server.")
+            Text("Show a code your iPhone can scan in Baton → Settings → Music server → Set up from a Mac….")
                 .font(.callout).foregroundStyle(.secondary)
             Button("Show pairing code") { start() }
                 .disabled(!NavidromeConfig.isConfigured)

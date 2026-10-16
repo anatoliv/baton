@@ -106,8 +106,46 @@ enum SessionPurge {
         // failure that looks like a regression rather than a leftover from the first
         //. `resetForTesting()` is the seam `ReviewPromptTests` already uses.
         ReviewPrompt.resetForTesting()
+        wipeTestLeftovers()
         #endif
     }
+
+    #if DEBUG
+    /// `UserDefaults` keys a UI test changes and the next one must not inherit. Not account data,
+    /// so the user-facing `purge` keeps them; a test reset clears them.
+    static let testLeftoverDefaultsKeys = [
+        // The speed for speech. One suite chose 1.5× and the next found it there instead of 1×.
+        StreamingPlaybackController.spokenRateKey,
+        // Clipping names by audio digest, and whether the ledger was seeded from disk. The
+        // clippings themselves are removed above; their names would outlive them here.
+        ClippingLedger.storageKey,
+        ClippingStore.ledgerSeededKey,
+        // "Use this model for my books": a recap test that allows the cloud would allow it for
+        // every later test.
+        ModelConsentLedger.grantedKey,
+        ModelConsentLedger.declinedKey,
+        // The narrator last chosen per language: a suite that chose Emma would
+        // start the next suite's import on Emma.
+        VoiceChoiceMemory.storageKey,
+    ]
+
+    /// What the reset used to leave behind: the `Books` folder with every book
+    /// record sent to a home server, the books hidden from this device, deletes still owed, the
+    /// shaped books, read-along timing and voice changes; the clippings dismissed from this
+    /// device; and the defaults above. A record left from an earlier suite was asked about on
+    /// every watch round, against a home server that had never heard of it: several times the
+    /// status reads, and its error replaced the reason the next screen was meant to show.
+    private static func wipeTestLeftovers() {
+        let defaults = BatonStorage.defaults
+        for key in testLeftoverDefaultsKeys { defaults.removeObject(forKey: key) }
+        let files = FileManager.default
+        try? files.removeItem(at: BatonStorage.supportSubdirectory("Books"))
+        // Dismissed by digest, and a chapter made again from the same words has the same digest.
+        let dismissed = BatonStorage.supportSubdirectory("Clippings").appendingPathComponent(ClippingStore.dismissedFileName)
+        try? files.removeItem(at: dismissed)
+        try? files.removeItem(at: dismissed.appendingPathExtension("bak"))
+    }
+    #endif
 
     /// Deletes every clipping from *this device*.
     ///

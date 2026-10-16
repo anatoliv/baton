@@ -39,6 +39,11 @@ public struct BookJob: Codable, Sendable, Equatable {
     /// Set by a client when the listener reaches the end (synced "finished"). Retention runs
     /// on this: an unfinished book is never evicted.
     public var finishedAt: Date?
+    /// Made on another device and sent here whole, chapter by chapter: the Mac's
+    /// own renderer made it, and the home server only keeps it for the other devices. The render
+    /// loop never touches it; its chapters arrive by upload. Nil for a book made here, and in
+    /// files written before it existed.
+    public var uploaded: Bool? = nil
 
     public init(id: String, book: PreparedBook, now: Date = Date()) {
         self.id = id

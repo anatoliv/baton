@@ -49,12 +49,12 @@ final class BookRowsUITests: XCTestCase {
         app.launch()
         makeAudiobook()
 
-        // Collected on open: opening Clippings asks the home server about the book.
+        // Collected on open: opening Books asks the home server about the book.
         let opened = Date()
-        openClippings()
+        openBooks()
         let row = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'of 2 chapters ready'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
-        XCTAssertTrue(waitFor(10) { !self.server.statusReads(since: opened).isEmpty }, "opening Clippings asked nothing")
+        XCTAssertTrue(waitFor(10) { !self.server.statusReads(since: opened).isEmpty }, "opening Books asked nothing")
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Making chapter 1 of 2'")).firstMatch
             .waitForExistence(timeout: 10), "the row should say chapter 1 is being made")
 
@@ -76,10 +76,10 @@ final class BookRowsUITests: XCTestCase {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 3))
         let quietStart = Date()
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 8))
-        XCTAssertEqual(server.statusReads(since: quietStart).count, 0, "the watch should stop when Clippings closes")
+        XCTAssertEqual(server.statusReads(since: quietStart).count, 0, "the watch should stop when Books closes")
 
         // Collected on becoming active: chapter 1 is ready while the app is away, and comes down
-        // the moment it is back, with Clippings not on screen.
+        // the moment it is back, with Books not on screen.
         server.setReady(1)
         XCUIDevice.shared.press(.home)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 3))
@@ -90,15 +90,15 @@ final class BookRowsUITests: XCTestCase {
                       "chapter 1 was not collected on becoming active")
         report("active: first read \(String(format: "%.1f", server.statusReads(since: back)[0].at.timeIntervalSince(back))) s after activation")
 
-        openClippings()
+        openBooks()
         let oneReady = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '1 of 2 chapters ready'")).firstMatch
         XCTAssertTrue(oneReady.waitForExistence(timeout: 15), "the row should count chapter 1 as ready")
         attach("book-row-one-ready")
 
         // Expanding the book lists its chapters; playing from chapter 1 starts the player.
-        expand("Two Rooms")
+        openBook("Two Rooms")
         let chapter = app.buttons.containing(NSPredicate(format: "label CONTAINS 'The Cell'")).firstMatch
-        XCTAssertTrue(chapter.waitForExistence(timeout: 10), "expanding the book shows no chapter 1\n\(app.debugDescription)")
+        XCTAssertTrue(chapter.waitForExistence(timeout: 10), "opening the book shows no chapter 1\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS 'The Surface'")).firstMatch.exists,
                       "chapter 2 should be listed while it is being made")
         attach("book-expanded")
@@ -109,8 +109,10 @@ final class BookRowsUITests: XCTestCase {
         attach("playing-chapter-1")
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'The Cell'")).firstMatch.exists)
 
-        // Stop Making This Book: the home server is told to delete it.
+        // Stop Making This Book, from the row's menu in the list: the home server is told to
+        // delete it.
         let id = try XCTUnwrap(server.bookIDs.first)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         let menuAt = Date()
         longPressBook("Two Rooms")
         let stop = app.buttons["Stop Making This Book"].firstMatch
@@ -124,6 +126,56 @@ final class BookRowsUITests: XCTestCase {
         attach("book-stopped")
     }
 
+    // MARK: - Books and Clippings are two sections
+
+    /// The book is in Books and not in Clippings; a kept reading is in Clippings and not in
+    /// Books. The open book lists its chapters with Play and Read Along, and its storage.
+    func testBooksHoldTheBookAndClippingsKeepTheReadings() throws {
+        server.setReadyOnSubmit(2)
+        app.launchEnvironment["baton.seedClipping"] = "1"
+        app.launch()
+        makeAudiobook()
+        openBooks()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
+            .waitForExistence(timeout: 30), "both chapters should come down into Books")
+        XCTAssertTrue(app.staticTexts["Two Rooms"].firstMatch.exists, "the book is listed in Books")
+        XCTAssertFalse(app.staticTexts["Deploy products"].exists, "a kept reading is not a book")
+        attach("books-list")
+
+        BooksScreen.openBook(app)
+        XCTAssertTrue(app.buttons["book-read-along"].firstMatch.exists, "the open book offers Read Along")
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS 'The Cell'")).firstMatch.exists,
+                      "the open book lists chapter 1")
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS 'The Surface'")).firstMatch.exists,
+                      "the open book lists chapter 2")
+        attach("book-detail")
+
+        // A chapter played from the open book: its row carries the playing bars.
+        app.cells.containing(.staticText, identifier: "The Cell").firstMatch.tap()
+        let bar = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 15), "playing chapter 1 started nothing")
+        XCTAssertTrue(waitFor(10) {
+            self.app.buttons.containing(NSPredicate(format: "label CONTAINS 'The Cell' AND value == 'Now playing'")).firstMatch.exists
+        }, "the playing chapter's row should say Now playing")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
+        attach("book-detail-chapter-playing")
+
+        // Back to Library, then Clippings: the reading, and no book or chapter.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "no Clippings row in Library")
+        entry.tap()
+        XCTAssertTrue(app.staticTexts["Deploy products"].firstMatch.waitForExistence(timeout: 20),
+                      "the kept reading should be in Clippings")
+        // Rows only: the mini player names the chapter playing and its book.
+        XCTAssertFalse(app.cells.containing(.staticText, identifier: "Two Rooms").firstMatch.exists,
+                       "the book should not be in Clippings")
+        XCTAssertFalse(app.cells.containing(.staticText, identifier: "The Cell").firstMatch.exists,
+                       "a book's chapter should not be in Clippings")
+        attach("clippings-readings-only")
+    }
+
     // MARK: - Resuming where the other device left off
 
     /// Play on a book with no chapter chosen resumes at the synced position (TBX-10946,
@@ -134,7 +186,7 @@ final class BookRowsUITests: XCTestCase {
         server.setReadyOnSubmit(2)
         app.launch()
         makeAudiobook()
-        openClippings()
+        openBooks()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
             .waitForExistence(timeout: 30), "both chapters should come down")
 
@@ -144,18 +196,22 @@ final class BookRowsUITests: XCTestCase {
         app.launchEnvironment["uitestImportText"] = nil
         app.launchEnvironment["uitestBookPosition"] = "1:15"
         app.launch()
-        openClippings()
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
+        openBooks()
+        let row = BooksScreen.row(app)
         XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS '% heard'")).firstMatch.exists,
                       "the synced position should show as heard")
         attach("book-with-synced-position")
+        // The row opens the book; its Play (Resume, with a place) starts it. The open
+        // book lists every chapter's title, so which one plays is read from the mini player.
         row.tap()
+        XCTAssertTrue(BooksScreen.playButton(app).waitForExistence(timeout: 10), "opening the book shows no Play")
+        BooksScreen.playButton(app).tap()
 
         let bar = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 15), "Play started nothing")
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'The Surface'")).firstMatch
-            .waitForExistence(timeout: 10), "Play should start at the synced chapter 2, The Surface")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS 'The Surface'", PlayerControls.miniBar))
+            .firstMatch.waitForExistence(timeout: 10), "Play should start at the synced chapter 2, The Surface")
         XCTAssertTrue(openFullPlayer(in: app))
         let elapsed = app.staticTexts["player-elapsed"].firstMatch
         XCTAssertTrue(elapsed.waitForExistence(timeout: 10), "no elapsed time in the full player")
@@ -207,7 +263,7 @@ final class BookRowsUITests: XCTestCase {
         server.setReadyOnSubmit(3)
         app.launch()
         makeAudiobook(title: "The Clock")
-        openClippings()
+        openBooks()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '3 chapters'")).firstMatch
             .waitForExistence(timeout: 30), "all three chapters should come down")
 
@@ -217,10 +273,9 @@ final class BookRowsUITests: XCTestCase {
         app.launchEnvironment["uitestImportText"] = nil
         app.launchEnvironment["uitestBookPosition"] = "1:15:48"
         app.launch()
-        openClippings()
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
-        row.tap()
+        openBooks()
+        // A book's row opens the book; its Play starts it.
+        BooksScreen.playBook(app)
 
         let hear = app.buttons["hear-recap"].firstMatch
         XCTAssertTrue(hear.waitForExistence(timeout: 10), "Play after two days should offer Previously…\n\(app.debugDescription)")
@@ -252,8 +307,8 @@ final class BookRowsUITests: XCTestCase {
         XCTAssertTrue((speech["text"] as? String)?.hasPrefix("Previously, Ada wound the great clock") == true)
 
         XCTAssertTrue(bar.waitForExistence(timeout: 20), "the book did not play after the recap")
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'The Letter'")).firstMatch
-            .waitForExistence(timeout: 10), "the book should carry on at the synced chapter 2")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS 'The Letter'", PlayerControls.miniBar))
+            .firstMatch.waitForExistence(timeout: 10), "the book should carry on at the synced chapter 2")
         attach("previously-then-playing")
     }
 
@@ -293,7 +348,7 @@ final class BookRowsUITests: XCTestCase {
         server.setReadyOnSubmit(3)
         app.launch()
         makeAudiobook(title: "The Clock")
-        openClippings()
+        openBooks()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '3 chapters'")).firstMatch
             .waitForExistence(timeout: 30), "all three chapters should come down")
 
@@ -344,10 +399,9 @@ final class BookRowsUITests: XCTestCase {
         app.launchEnvironment["uitestImportText"] = nil
         app.launchEnvironment["uitestBookPosition"] = "1:15:48"
         app.launch()
-        openClippings()
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
-        row.tap()
+        openBooks()
+        // A book's row opens the book; its Play starts it.
+        BooksScreen.playBook(app)
         XCTAssertTrue(app.buttons["hear-recap"].firstMatch.waitForExistence(timeout: 10), "Play after two days should offer Previously…")
     }
 
@@ -363,23 +417,35 @@ final class BookRowsUITests: XCTestCase {
         attach("book-deleted-everywhere")
     }
 
-    /// Remove from this iPhone: the book leaves this phone's list and, as the question says, the
-    /// home server stops keeping it too.
+    /// Remove from this iPhone: the book leaves this phone's list and the home server keeps its
+    /// copy for the other devices. The phone hides it, so the next collection, which
+    /// lists the home server's books, does not adopt it again.
     func testAFinishedBookCanBeRemovedFromThisPhone() throws {
         let (id, menuAt) = try openDeleteQuestionOnAFinishedBook()
         app.buttons["Remove from this iPhone"].firstMatch.tap()
-        XCTAssertTrue(waitFor(10) { self.server.requests("DELETE", since: menuAt).contains { $0.path == "/v1/books/\(id)" } },
-                      "Remove from this iPhone should have the home server stop keeping the book")
         XCTAssertTrue(waitFor(10) { !self.app.staticTexts["Two Rooms"].exists }, "the removed book is still listed")
         attach("book-removed-from-phone")
+
+        // A fresh collection: leaving and opening Books again lists the home server's books.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let reopened = Date()
+        openBooks()
+        XCTAssertTrue(waitFor(15) { self.server.requests("GET", since: reopened).contains { $0.path == "/v1/books" } },
+                      "opening Books again did not list the home server's books")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 3))
+        XCTAssertFalse(app.staticTexts["Two Rooms"].exists, "the next listing adopted the removed book again")
+        XCTAssertFalse(server.requests("DELETE", since: menuAt).contains { $0.path == "/v1/books/\(id)" },
+                       "Remove from this iPhone should leave the home server's copy for the other devices")
+        XCTAssertTrue(server.bookIDs.contains(id), "the home server should still keep the book")
+        attach("book-removed-not-adopted-again")
     }
 
-    /// Make a book whose chapters are all ready, open Clippings, and press Delete Book….
+    /// Make a book whose chapters are all ready, open Books, and press Delete Book… in its row's menu.
     private func openDeleteQuestionOnAFinishedBook() throws -> (id: String, menuAt: Date) {
         server.setReadyOnSubmit(2)
         app.launch()
         makeAudiobook()
-        openClippings()
+        openBooks()
 
         let done = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 30), "both chapters should come down")
@@ -427,27 +493,16 @@ final class BookRowsUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    private func openClippings() {
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        if entry.waitForExistence(timeout: 10) { entry.tap() } else {
-            let fallback = app.buttons["Clippings"].firstMatch
-            XCTAssertTrue(fallback.waitForExistence(timeout: 10), "no route to Clippings")
-            fallback.tap()
-        }
+    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    private func openBooks() {
+        BooksScreen.open(app)
     }
 
-    /// The book's row is a disclosure group: its chevron opens the chapters, its label plays.
-    private func expand(_ title: String) {
-        let cell = app.cells.containing(.staticText, identifier: title).firstMatch
-        XCTAssertTrue(cell.waitForExistence(timeout: 10), "no row for \(title)")
-        let chevron = cell.buttons.allElementsBoundByIndex.first { !$0.identifier.hasPrefix("book-") }
-        if let chevron, chevron.exists { chevron.tap() } else {
-            // SwiftUI puts the disclosure indicator at the row's trailing edge.
-            cell.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
+    /// A book's row opens the book, which lists its chapters.
+    private func openBook(_ title: String) {
+        XCTAssertTrue(app.cells.containing(.staticText, identifier: title).firstMatch.waitForExistence(timeout: 10),
+                      "no row for \(title)")
+        BooksScreen.openBook(app)
     }
 
     private func longPressBook(_ title: String) {

@@ -48,7 +48,7 @@ final class VoiceListingTests: XCTestCase {
     }
 
     @MainActor
-    private func router(_ listing: VoiceListing?) -> Router {
+    private func router(_ listing: BatonGatewayCore.VoiceListing?) -> Router {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("voices-\(UUID().uuidString)")
         let routes = BookRoutes(renderer: nil, store: BookStore(directory: dir), synthesizer: nil,
                                 unavailableReason: nil, voices: listing)
@@ -64,7 +64,7 @@ final class VoiceListingTests: XCTestCase {
             "kokoro.test": Data(#"{"voices":[{"id":"af_heart"},{"id":"bf_emma"},{"id":"zf_xiaobei"}]}"#.utf8),
             "chatterbox.test": Data(#"{"voices":["Emily.wav"]}"#.utf8),
         ])
-        let router = router(VoiceListing(engines: engines, fetch: { try servers.fetch($0) }))
+        let router = router(BatonGatewayCore.VoiceListing(engines: engines, fetch: { try servers.fetch($0) }))
 
         let refused = await router.dispatch(request("/v1/voices", token: "wrong"))
         XCTAssertEqual(status(refused), "401 Unauthorized")
@@ -93,7 +93,7 @@ final class VoiceListingTests: XCTestCase {
     @MainActor
     func testKokorosShippedVoicesStandInWhenItDoesNotAnswer() async throws {
         let servers = StandIns(["kokoro.test": nil, "chatterbox.test": nil])
-        let answer = await router(VoiceListing(engines: engines, fetch: { try servers.fetch($0) }))
+        let answer = await router(BatonGatewayCore.VoiceListing(engines: engines, fetch: { try servers.fetch($0) }))
             .dispatch(request("/v1/voices"))
         XCTAssertEqual(status(answer), "200 OK")
         let list = try JSONDecoder().decode(GatewayVoiceList.self, from: body(answer))
@@ -111,7 +111,7 @@ final class VoiceListingTests: XCTestCase {
         let servers = StandIns(["kokoro.test": Data(#"{"voices":["af_heart"]}"#.utf8)])
         final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 0) }
         let clock = Clock()
-        let listing = VoiceListing(engines: ["kokoro": engines["kokoro"]!], ttl: 60,
+        let listing = BatonGatewayCore.VoiceListing(engines: ["kokoro": engines["kokoro"]!], ttl: 60,
                                    fetch: { try servers.fetch($0) }, now: { clock.now })
         let first = await listing.list()
         servers.set("kokoro.test", Data(#"{"voices":["af_heart","bf_emma"]}"#.utf8))

@@ -48,7 +48,7 @@ enum BatonMCPBookTools {
                                       changes: library?.voiceChanges.all ?? [])
             .compactMap { if case let .book(book) = $0 { book } else { nil } }
         guard !books.isEmpty else {
-            throw BatonMCPToolError(message: "There are no books in Clippings.")
+            throw BatonMCPToolError(message: "There are no books yet. Import a document to make one.")
         }
 
         let playingItem = playing.flatMap { clippings.item(forSongID: $0.songID) }
@@ -105,7 +105,7 @@ enum BatonMCPBookTools {
                 ?? books.first(where: { $0.title.lowercased().contains(query) }) {
                 return byTitle
             }
-            throw BatonMCPToolError(message: "No book in Clippings matches \"\(wanted)\". Books: \(books.map(\.title).joined(separator: "; ")).")
+            throw BatonMCPToolError(message: "No book in Books matches \"\(wanted)\". Books: \(books.map(\.title).joined(separator: "; ")).")
         }
         if let playingDocumentID, let playing = books.first(where: { $0.documentID == playingDocumentID }) {
             return playing

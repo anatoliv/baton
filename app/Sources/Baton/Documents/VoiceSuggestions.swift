@@ -68,6 +68,16 @@ enum VoiceSuggestions {
         return local
     }
 
+    /// `availableVoices` for the voice picker: this Mac's voices, or why there are
+    /// none.
+    static func thisMacListing() async -> VoiceListing {
+        let voices = await availableVoices()
+        guard voices.isEmpty else { return VoiceListing(voices: voices) }
+        return VoiceListing(voices: nil, problem: BookVoiceSettings.engine == .builtIn
+            ? "Only the suggested voices are here, because the built-in voices are not downloaded. Download them in Settings, under Speech."
+            : "Only the suggested voices are here, because no voice server answered. Check it in Settings, under Speech.")
+    }
+
     /// The voices the Kokoro host itself lists, or none when it does not answer.
     private static func serverVoices(kokoroBase: String, fetch: DocumentImporter.Fetch) async -> [String] {
         guard let url = URL(string: kokoroBase)?.appendingPathComponent("v1/audio/voices") else { return [] }
@@ -184,6 +194,17 @@ final class VoicePreviewPlayer {
          play: @escaping Play = VoicePreviewPlayer.playAloud) {
         self.synthesize = synthesize
         self.play = play
+    }
+
+    /// Previews made by the Baton server (`POST /v1/speech/preview`), for a book it makes: its
+    /// voices are not always this Mac's.
+    static func batonServer() -> VoicePreviewPlayer {
+        VoicePreviewPlayer(synthesize: { text, voice in
+            guard let client = await MainActor.run(body: { DocumentLibrary.configuredGateway() }) else {
+                throw SynthesisError.transient("the Baton server is not set up in Settings")
+            }
+            return try await client.preview(text: text, voice: voice)
+        })
     }
 
     static func playAloud(_ wav: Data) throws -> Sound {

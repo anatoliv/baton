@@ -1,6 +1,6 @@
 import XCTest
 
-/// Clippings' + menu (M5.2): "Import a File…" and "Import a Link…" each reach the import screen.
+/// Books' + menu (M5.2; on Clippings until TBX-11018): "Import a File…" and "Import a Link…" each reach the import screen.
 /// `DocumentImportUITests` hands its document in at launch; these press the menu a person
 /// presses.
 ///
@@ -24,21 +24,12 @@ final class DocumentImportMenuUITests: XCTestCase {
 
     override func tearDown() { app = nil; super.tearDown() }
 
-    private func openClippingsMenu() {
-        // Clippings is a row inside Library, not a tab of its own (`LibrarySection`).
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        let fallback = app.buttons["Clippings"].firstMatch
-        if entry.waitForExistence(timeout: 10) {
-            entry.tap()
-        } else {
-            XCTAssertTrue(fallback.waitForExistence(timeout: 10), "no route to Clippings")
-            fallback.tap()
-        }
+    private func openBooksMenu() {
+        // Books is a row inside Library, not a tab of its own (`LibrarySection`); its + menu
+        // imports, and the book lands there.
+        BooksScreen.open(app)
         let plus = app.buttons["import-document"].firstMatch
-        XCTAssertTrue(plus.waitForExistence(timeout: 10), "Clippings has no + menu (Documents is on by default)")
+        XCTAssertTrue(plus.waitForExistence(timeout: 10), "Books has no + menu (Documents is on by default)")
         plus.tap()
     }
 
@@ -62,7 +53,7 @@ final class DocumentImportMenuUITests: XCTestCase {
         The light at the top was grey, and the hills were bare.
         """
         app.launch()
-        openClippingsMenu()
+        openBooksMenu()
 
         let item = app.buttons["Import a File…"].firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5), "the + menu has no Import a File…")
@@ -77,12 +68,12 @@ final class DocumentImportMenuUITests: XCTestCase {
 
         app.buttons["Cancel"].firstMatch.tap()
         XCTAssertFalse(title.waitForExistence(timeout: 3), "Cancel should close the import screen")
-        XCTAssertTrue(app.buttons["import-document"].firstMatch.waitForExistence(timeout: 5), "back on Clippings")
+        XCTAssertTrue(app.buttons["import-document"].firstMatch.waitForExistence(timeout: 5), "back on Books")
     }
 
     func testImportALinkReachesTheImportScreen() throws {
         app.launch()
-        openClippingsMenu()
+        openBooksMenu()
 
         let item = app.buttons["Import a Link…"].firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5), "the + menu has no Import a Link…")
@@ -107,6 +98,6 @@ final class DocumentImportMenuUITests: XCTestCase {
         attach("import-a-link")
 
         app.buttons["Cancel"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["import-document"].firstMatch.waitForExistence(timeout: 5), "back on Clippings")
+        XCTAssertTrue(app.buttons["import-document"].firstMatch.waitForExistence(timeout: 5), "back on Books")
     }
 }

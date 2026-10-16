@@ -443,8 +443,14 @@ struct BatonApp: App {
                     let environment = ProcessInfo.processInfo.environment
                     guard DocumentLibrary.isEnabled() else { return }
                     if environment["BATON_DEBUG_SHOW_CLIPPINGS"] == "1" { commandRouter.pendingTab = .clippings }
+                    // Books, and the book probes' sheets, which live there since TBX-11018.
+                    if environment["BATON_DEBUG_SHOW_BOOKS"] == "1" || environment["BATON_DEBUG_OPEN_BOOK"] == "1"
+                        || environment["BATON_DEBUG_OPEN_CHANGE_VOICE"] == "book"
+                        || environment["BATON_DEBUG_OPEN_PRONUNCIATIONS"] == "1" {
+                        commandRouter.pendingTab = .books
+                    }
                     if let path = environment["BATON_DEBUG_IMPORT_DOCUMENT"] {
-                        commandRouter.pendingTab = .clippings
+                        commandRouter.pendingTab = .books
                         commandRouter.pendingDocumentImport = path.hasPrefix("http")
                             ? URL(string: path) : URL(fileURLWithPath: path)
                     }

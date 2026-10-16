@@ -118,6 +118,35 @@ public struct GatewayBookClient: Sendable {
         return Chapter(url: destination, sha256: digest, bytes: data.count, seconds: nil, name: name)
     }
 
+    // MARK: - A book made on this device, for the others
+
+    /// `PUT /v1/books/{id}/upload`: a book this device made itself, so the home server keeps it
+    /// for the other devices without making it. Returns the job, new or the one already there,
+    /// with the chapters it already has. A gateway older than the route answers 400 or 404.
+    public func upload(_ book: PreparedBook) async throws -> BookJob.Summary {
+        let id = BookJob.id(for: book)
+        let (data, _) = try await send("PUT", "v1/books/\(id)/upload", body: try book.encoded(),
+                                       contentType: "application/json")
+        return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
+    }
+
+    /// `PUT /v1/books/{id}/chapters/{n}/timing` (1-based): an uploaded chapter's read-along
+    /// timing, sent before its audio.
+    public func uploadTiming(_ id: String, number: Int, timing: ReadAlongTiming) async throws {
+        _ = try await send("PUT", "v1/books/\(id)/chapters/\(number)/timing", body: try timing.encoded(),
+                           contentType: "application/json")
+    }
+
+    /// `PUT /v1/books/{id}/chapters/{n}` (1-based): an uploaded chapter's audio, with the digest
+    /// of exactly the bytes sent, which the home server checks before keeping it. Returns the
+    /// job as it stands after.
+    public func uploadChapter(_ id: String, number: Int, audio: Data, seconds: Double) async throws -> BookJob.Summary {
+        let (data, _) = try await send("PUT", "v1/books/\(id)/chapters/\(number)", body: audio, contentType: "audio/mp4",
+                                       headers: ["X-Baton-SHA256": SHA256Digest.hex(of: audio),
+                                                 "X-Baton-Duration": String(format: "%.3f", seconds)])
+        return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
+    }
+
     /// `POST /v1/books/{id}/finished`: the listener reached the end; retention starts.
     public func markFinished(_ id: String) async throws {
         _ = try await send("POST", "v1/books/\(id)/finished")
@@ -182,19 +211,21 @@ public struct GatewayBookClient: Sendable {
 
     // MARK: - Transport
 
-    func request(_ method: String, _ path: String, body: Data? = nil, contentType: String? = nil) -> URLRequest {
+    func request(_ method: String, _ path: String, body: Data? = nil, contentType: String? = nil,
+                 headers: [String: String] = [:]) -> URLRequest {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = method
         request.timeoutInterval = 120
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.httpBody = body
         return request
     }
 
-    func send(_ method: String, _ path: String, body: Data? = nil,
-              contentType: String? = nil) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await transport(request(method, path, body: body, contentType: contentType))
+    func send(_ method: String, _ path: String, body: Data? = nil, contentType: String? = nil,
+              headers: [String: String] = [:]) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await transport(request(method, path, body: body, contentType: contentType, headers: headers))
         guard (200..<300).contains(response.statusCode) else {
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw GatewayBookError.http(status: response.statusCode,

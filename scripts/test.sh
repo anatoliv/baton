@@ -403,7 +403,7 @@ if [ -n "${BATON_COUNT_BUNDLE:-}" ]; then
   exit 0
 fi
 
-# --- One gate or release at a time on this machine -------------------------
+# --- One Baton.app test host at a time on this machine -----------------------
 #
 # WHY THIS EXISTS. On 2026-09-08 at 17:20 a gate died at the Mac suite with the
 # `BATON-DIAG` runner-death signature, and the backtrace named `_handleAEQuit`: a Quit
@@ -422,60 +422,161 @@ fi
 #   * The victim is arbitrary. That afternoon the release won and an ad-hoc gate lost;
 #     twenty seconds the other way and a **release** dies twelve minutes in.
 #
-# REFUSE, do not queue. Waiting would put a publish behind somebody's exploratory gate,
-# which is its own bad outcome and much harder to notice. An operator who is told which
-# run holds the lock can decide; a run that silently waits cannot be decided about.
+# THE STEP, not the whole script (TBX-11003). The collision is over the app-hosted
+# `Baton.app`, and only the Mac `xcodebuild test` of the Baton scheme hosts it, so only that
+# step takes the `mac-app-host` lock (scripts/gate-lock.sh over scripts/native-lock.sh). The
+# lints, the guard scripts, the iPhone and Watch steps and the gateway run unlocked, beside
+# another run's Mac step. Each shared writer they have gets its own lock for its own step:
+# the iPhone simulator (`sim-<UDID>`), each DerivedData directory, and the gateway's
+# directory on the Linux build host. Holding the whole run cost releases about 45 minutes
+# on 2026-10-16, queued behind steps that never touch Baton.app.
 #
-# THE WHOLE SCRIPT, not just the Mac stage. The collision is over the app-hosted
-# `Baton.app`, and every path through this script reaches it, so scoping the lock tighter
-# would only buy a refusal eight minutes later than it could have come. The message
-# carries the holder's derived data path so a reader can see whether it is the same
-# bundle.
+# WAIT, bounded. A busy lock is waited for, up to BATON_GATE_LOCK_WAIT seconds (default
+# 3600), naming the holder once and again when it changes. BATON_GATE_LOCK_WAIT=0 keeps the
+# old immediate refusal. A release that has to wait registers an intent, and ordinary runs
+# wait behind it, so a publish is not stuck behind somebody's exploratory gate.
 #
 # STALE LOCKS MUST NOT WEDGE THE MACHINE. The file stays in place, but ownership is a
-# kernel `lockf` lock held through an open descriptor. A normal exit closes it, SIGKILL
-# closes it, and pid reuse is irrelevant. Keeping one inode also prevents two concurrent
-# stale reclaimers from deleting each other's successor lock.
+# kernel `lockf` lock held by a holder process that watches its owner. A normal release
+# clears the record, an owner's death (SIGKILL included) ends the holder, and pid reuse is
+# irrelevant. Keeping one inode also prevents two concurrent stale reclaimers from deleting
+# each other's successor lock.
 #
-# LINT_ONLY is exempt on purpose: that mode is a text pass over a planted tree, it hosts no
-# app, and the guard loop below runs `test-lints.sh` from inside a gate that already holds
-# this lock. A release takes the same lock before it can reap a test host. Its direct child
-# gate inherits that live parent-owned lock, so the release does not deadlock itself.
+# NO LOCK WITHOUT Baton.app. LINT_ONLY exits after the lints and takes none. A run whose
+# `-only-testing` filters name no BatonTests target runs package suites only: it hosts no
+# Baton.app, so it takes the DerivedData writer lock and not `mac-app-host`. A release takes
+# `mac-app-host` before it can reap a test host; its direct child gate inherits that live
+# parent-owned lock, so the release does not deadlock itself. BATON_ALLOW_CONCURRENT_GATE=1
+# skips every lock in this script.
 # shellcheck source=scripts/gate-lock.sh
 . "$(dirname "$0")/gate-lock.sh"
 
-if [ -z "${LINT_ONLY:-}" ] && [ -z "${BATON_ALLOW_CONCURRENT_GATE:-}" ]; then
-  if ! gate_lock_inherit_parent; then
-    gate_lock_acquire gate "$DERIVED" "$0" "$@"
-    trap gate_lock_release EXIT INT TERM
-  fi
+# --- A receipt for a passing full run ----------------------------------------
+#
+# The Mac and iPhone releases each ran this whole gate, on the same commit, one after the
+# other (TBX-11003). A passing FULL run over a clean tree now writes a receipt
+# (scripts/gate-receipt.sh) that both releases accept for that exact commit, gate script
+# and Xcode. Anything narrower than the full gate writes none: pass-through arguments,
+# SKIP_IOS, ALLOW_NO_TESTS, the concurrency override, or a tree that was dirty or moved.
+GATE_SKIPS=""
+GATE_RECEIPT_HEAD=""
+if [ "$#" = 0 ] && [ -z "${SKIP_IOS:-}" ] && [ -z "${ALLOW_NO_TESTS:-}" ] \
+   && [ -z "${BATON_ALLOW_CONCURRENT_GATE:-}" ] && [ -z "${LINT_ONLY:-}" ] \
+   && [ -z "${BATON_GATE_LOCK_PROBE:-}" ] && [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+  GATE_RECEIPT_HEAD="$(git rev-parse HEAD 2>/dev/null || true)"
 fi
 
-# `BATON_GATE_LOCK_PROBE` exists so `scripts/test-gate-lock.sh` can drive the acquire above
-# rather than keeping a copy of it, the same hatch `BATON_COUNT_LOG` and `LINT_ONLY` open
-# and for the same reason. It stops here, having taken the lock, because the alternative
-# way to test the stale-lock path is to start a real gate and kill it, and a guard whose
-# test costs a twelve-minute build is a guard nobody runs.
+NATIVE_LOCKS=1
+if [ -n "${BATON_ALLOW_CONCURRENT_GATE:-}" ]; then NATIVE_LOCKS=""; fi
+trap native_lock_release_all EXIT INT TERM
+
+# Whether the Mac `xcodebuild test` these arguments describe launches Baton.app. Only the
+# BatonTests bundle is hosted by the app; the package suites in the scheme run in the plain
+# XCTest runner. Anything this cannot read is treated as hosting the app.
+mac_run_hosts_app() {
+  local arg target only=0 hosted=0 skipped=0
+  for arg in "$@"; do
+    case "$arg" in
+      -only-testing:*)
+        only=1
+        target="${arg#-only-testing:}"
+        target="${target%%/*}"
+        if [ "$target" = BatonTests ]; then hosted=1; fi
+        ;;
+      -skip-testing:BatonTests) skipped=1 ;;
+      -only-testing|-skip-testing|-testPlan|-xctestrun|-only-test-configuration) return 0 ;;
+    esac
+  done
+  if [ "$only" = 1 ]; then [ "$hosted" = 1 ]; return; fi
+  [ "$skipped" = 0 ]
+}
+
+# One step's lock, held until step_unlock. A refusal or a timeout ends the run here.
+step_lock() {   # $1 = resource name, $2 = derived-data path
+  [ -n "$NATIVE_LOCKS" ] || return 0
+  native_lock_acquire "$1" gate "$2" || exit 1
+}
+step_unlock() {   # $1 = resource name
+  native_lock_release "$1"
+}
+
+# The Mac app-hosted step: `mac-app-host` (inherited from a release parent, or taken here),
+# then this run's DerivedData. Same order everywhere, so nothing waits in a circle.
+MAC_DD_LOCK="$(native_lock_derived_name "$DERIVED")"
+mac_step_lock() {   # "$@" = the arguments forwarded to xcodebuild
+  [ -n "$NATIVE_LOCKS" ] || return 0
+  if mac_run_hosts_app "$@"; then
+    if ! gate_lock_inherit_parent; then
+      gate_lock_acquire gate "$DERIVED"
+    fi
+  else
+    MAC_STEP_HOSTS_APP=""
+  fi
+  step_lock "$MAC_DD_LOCK" "$DERIVED"
+}
+# This run's own Baton.app test hosts: processes whose executable lives in THIS run's
+# DerivedData. Matched on the exact path prefix, never a pattern, so another run's host is
+# never touched.
+# Both spellings of the path: macOS reports /tmp as /private/tmp in `ps`, so a DerivedData
+# under /tmp is matched by its resolved path too (TBX-11003 review 2).
+own_test_hosts() {
+  local resolved
+  resolved="$(cd "$DERIVED" 2>/dev/null && pwd -P || printf '%s' "$DERIVED")"
+  ps -axo pid=,command= 2>/dev/null | awk -v a="$DERIVED/Build/Products/" -v b="$resolved/Build/Products/" '
+    { pid = $1; $1 = ""; sub(/^ /, "") }
+    (index($0, a) == 1 || index($0, b) == 1) && index($0, "/Baton.app/Contents/MacOS/Baton") { print pid }'
+}
+# The test host does not always exit when the tests do (it is the real app: it starts the MCP
+# server and keeps its run loop alive). Before handing mac-app-host to the next run, give it a
+# moment to leave, then end it, so the next run never meets a live host from this one.
+reap_own_test_hosts() {
+  local pids _
+  for _ in $(seq 1 20); do
+    pids="$(own_test_hosts)"
+    [ -n "$pids" ] || return 0
+    sleep 0.5
+  done
+  echo "  · ending this run's leftover test host(s): $(printf '%s' "$pids" | tr '\n' ' ')"
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  sleep 1
+  pids="$(own_test_hosts)"
+  # shellcheck disable=SC2086
+  [ -z "$pids" ] || kill -9 $pids 2>/dev/null || true
+}
+mac_step_unlock() {
+  [ -n "$NATIVE_LOCKS" ] || return 0
+  if [ -n "$MAC_STEP_HOSTS_APP" ]; then reap_own_test_hosts; fi
+  step_unlock "$MAC_DD_LOCK"
+  gate_lock_release
+}
+MAC_STEP_HOSTS_APP=1
+
+# `BATON_GATE_LOCK_PROBE` exists so `scripts/test-gate-lock.sh` can drive the Mac step's
+# acquire rather than keeping a copy of it, the same hatch `BATON_COUNT_LOG` and `LINT_ONLY`
+# open and for the same reason. It takes exactly the locks the Mac step takes, for the same
+# arguments, and stops, because the alternative way to test the stale-lock path is to start
+# a real gate and kill it, and a guard whose test costs a twelve-minute build is a guard
+# nobody runs.
 #
-# It holds the lock for `BATON_GATE_LOCK_PROBE` seconds so a second shell can contend with
+# It holds the locks for `BATON_GATE_LOCK_PROBE` seconds so a second shell can contend with
 # a genuinely live holder, which is the case that matters.
 if [ -n "${BATON_GATE_LOCK_PROBE:-}" ]; then
-  if [ -n "$GATE_LOCK_PARENT_KIND" ]; then
+  mac_step_lock "$@"
+  if [ -z "$MAC_STEP_HOSTS_APP" ]; then
+    echo "GATE LOCK: not taken; this run hosts no Baton.app"
+  elif [ -n "$GATE_LOCK_PARENT_KIND" ]; then
     echo "GATE LOCK: inherited from $GATE_LOCK_PARENT_KIND parent $PPID"
   else
     echo "GATE LOCK: acquired by $$"
   fi
   sleep "$BATON_GATE_LOCK_PROBE"
+  mac_step_unlock
   exit 0
 fi
 
 bold "==> Generating Xcode project (xcodegen)"
 ( cd "$APP_DIR" && xcodegen generate >/dev/null )
-
-if [ -n "${CLEAN:-}" ]; then
-  bold "==> Wiping derived data ($DERIVED)"
-  rm -rf "$DERIVED"
-fi
 
 # --- Source lints (fast, fail before the build) ----------------------------
 bold "==> Lints"
@@ -894,6 +995,34 @@ if [ -n "$gateway_pkg_hits" ]; then
   lint_fail=1
 fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
+# The public mirror's own secrets guard, run over what this branch changed since it left
+# origin/main, so a LAN address or a house machine name is caught at merge rather than by
+# publish-repo.sh after a release has shipped (TBX-11003). The whole tree is checked by
+# scripts/release-ready.sh; publish-repo.sh keeps its guard as the final barrier.
+if [ ! -f scripts/publish-repo.sh ]; then
+  :   # the public mirror itself has no publish-repo.sh, and nothing to guard against
+elif PUBLIC_SAFE_BASE="$(git merge-base HEAD origin/main 2>/dev/null)"; then
+  if ! scripts/lint-public-safe.sh --diff "$PUBLIC_SAFE_BASE" >&2; then
+    red "  lint: this branch adds something the public mirror refuses (above)"
+    lint_fail=1
+  fi
+else
+  yellow "  public mirror guard skipped: no origin/main to compare this branch with"
+fi
+# scripts/native-lock.sh is a vendored copy of the shared helper whose canonical home is
+# _method/tools/native-lock.sh (TBX-11003). Once that exists, the two must be byte-identical,
+# so every project on this Mac speaks the same lock protocol.
+NATIVE_LOCK_CANONICAL="${BATON_NATIVE_LOCK_CANONICAL:-$HOME/Projects/_method/tools/native-lock.sh}"
+if [ -f "$NATIVE_LOCK_CANONICAL" ] && ! cmp -s "$NATIVE_LOCK_CANONICAL" scripts/native-lock.sh; then
+  red "  lint: scripts/native-lock.sh differs from the shared copy at $NATIVE_LOCK_CANONICAL"
+  red "  (sha256 $(shasum -a 256 scripts/native-lock.sh | cut -c1-12) here, $(shasum -a 256 "$NATIVE_LOCK_CANONICAL" | cut -c1-12) there)."
+  red "  Change the shared copy through _method and vendor it here byte for byte."
+  lint_fail=1
+fi
+# The release design's browser page is generated from its Markdown; keep them in step.
+if [ -f docs/release-design.md ] && ! python3 scripts/render-release-design.py --check >&2; then
+  lint_fail=1
+fi
 [ "$lint_fail" -eq 0 ] && green "  lints clean" || { red "✗ LINT FAILED"; exit 1; }
 
 # --- Release-script guards (fast, no Xcode) ---------------------------------
@@ -941,11 +1070,13 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          archive's symbols are copied to their own per-build name before
 #                          the next archive removes them, and every ending says whether
 #                          they reached Crashbox (TBX-5372)
-#   test-gate-lock         THIS script refuses a second concurrent gate and names the
-#                          holder, and a pidfile left by a killed gate does not wedge the
-#                          next run — two gates used to app-host the same Baton.app and
-#                          LaunchServices quit the first, reported as a runner death
-#                          against an unrelated test (TBX-5291)
+#   test-gate-lock         THIS script holds the Baton.app test host for its Mac step only,
+#                          waits for it (or refuses at BATON_GATE_LOCK_WAIT=0) naming the
+#                          holder, puts a waiting release first, keeps one run per simulator,
+#                          and a record left by a killed gate does not wedge the next run —
+#                          two gates used to app-host the same Baton.app and LaunchServices
+#                          quit the first, reported as a runner death against an unrelated
+#                          test (TBX-5291, TBX-11003)
 #   test-publish-guards    publish.sh's notarize wall clock is really armed, and a failed
 #                          Gatekeeper assessment stops the release — the wall clock used to
 #                          vanish silently without coreutils, and a rejected DMG published
@@ -987,6 +1118,13 @@ if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 #                          the deadman exactly once and only after integrity, never puts a key or
 #                          rclone token in a log, and its export round-trips through a real
 #                          `defaults import` (TBX-10829). Stubs for rclone, ssh, security, defaults
+#   test-gate-receipt      a passing full gate's receipt is reused by both releases only for the
+#                          same commit, gate script and Xcode on a clean tree, and every refusal
+#                          says why (TBX-11003)
+#   test-lint-public-safe  the merge-time copy of publish-repo.sh's own secrets guard still finds
+#                          its blocks, refuses what the mirror refuses and scopes --diff (TBX-11003)
+#   test-release-ready     the release-readiness report names every precondition, prints no
+#                          secret and reads the gate lock without taking it (TBX-11003)
 #
 # The guard itself then runs over THIS tree: a gate that goes green with a live
 # credential lying where `git add -A` would take it has certified the wrong thing.
@@ -994,7 +1132,7 @@ if ! scripts/check-untracked-credentials.sh "$PWD"; then
   red "✗ credential-looking file in the working tree (see above)"
   exit 1
 fi
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo test-offsite-backup test-backup-mac-native; do
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo test-offsite-backup test-backup-mac-native test-gate-receipt test-lint-public-safe test-release-ready; do
   # A guard named by path (release-kit/check) must not put its slash into the log name:
   # mktemp -t then targets a subdirectory of $TMPDIR that does not exist, and the gate died
   # here on every run from the release kit's adoption until 0.19.12 (TBX-8023).
@@ -1147,8 +1285,14 @@ if [ -z "${SKIP_IOS:-}" ]; then
   # Selected by UDID, not by name. A name is resolved by xcodebuild at launch time and
   # gives us nothing to wait on; a UDID is a device we can boot and then block until it is
   # actually ready. See the boot gate below for why that matters.
-  IOS_SIM_INFO="$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
-import sys, json
+  #
+  # BATON_IOS_SIM_UDID picks a device for this run. Each device has its own `sim-<UDID>` lock
+  # for this step, so two runs never share one simulator, and two runs given different
+  # devices (and different BATON_DERIVED_DATA) test in parallel. (TBX-11003)
+  IOS_SIM_INFO="$(xcrun simctl list devices available -j 2>/dev/null \
+    | BATON_IOS_SIM_UDID="${BATON_IOS_SIM_UDID:-}" python3 -c "
+import os, sys, json
+want = os.environ.get('BATON_IOS_SIM_UDID', '')
 try:
     devices = json.load(sys.stdin)['devices']
 except Exception:
@@ -1156,13 +1300,20 @@ except Exception:
 for runtime, entries in devices.items():
     if 'iOS' in runtime:
         for entry in entries:
-            if 'iPhone' in entry['name']:
+            if (entry['udid'] == want) if want else ('iPhone' in entry['name']):
                 print(entry['udid'] + '\t' + entry['name'])
                 sys.exit()
 " 2>/dev/null)"
+  if [ -n "${BATON_IOS_SIM_UDID:-}" ] && [ -z "$IOS_SIM_INFO" ]; then
+    red "✗ BATON_IOS_SIM_UDID=$BATON_IOS_SIM_UDID is not an available iOS simulator"
+    exit 1
+  fi
   IOS_SIM_UDID="${IOS_SIM_INFO%%$'\t'*}"
   IOS_SIM="${IOS_SIM_INFO#*$'\t'}"
+  IOS_DD_LOCK="$(native_lock_derived_name "${DERIVED}-ios")"
 
+  if [ -n "$IOS_SIM_UDID" ]; then step_lock "sim-$IOS_SIM_UDID" "${DERIVED}-ios"; fi
+  step_lock "$IOS_DD_LOCK" "${DERIVED}-ios"
   set +e
   if [ -n "$IOS_SIM_UDID" ]; then
     # --- Wait for a settled simulator, rather than racing one ------------------
@@ -1215,6 +1366,7 @@ for runtime, entries in devices.items():
     # no simulator runtime produced a log where the iPhone stage looked done. It is not:
     # the app compiles and no phone test executes. (TBX-5317, D-F7)
     yellow "==> Building iPhone app only (no simulator installed): BatonMobileTests will not run"
+    GATE_SKIPS="${GATE_SKIPS:+$GATE_SKIPS,}iphone-tests"
     xcodebuild build \
       -project ios/BatonMobile.xcodeproj \
       -scheme BatonMobile \
@@ -1225,6 +1377,8 @@ for runtime, entries in devices.items():
     ios_what="iPhone build"
   fi
   set -e
+  step_unlock "$IOS_DD_LOCK"
+  if [ -n "$IOS_SIM_UDID" ]; then step_unlock "sim-$IOS_SIM_UDID"; fi
 
   if [ "$ios_status" -eq 0 ]; then
     # The result bundle, not the log. This was `grep -hoE 'Executed [0-9]+ tests?' | tail -1`
@@ -1331,6 +1485,9 @@ for runtime, entries in devices.items():
     # a machine where an earlier run had left one behind.
     ( cd watch && xcodegen generate >/dev/null )
     WATCH_LOG="$(mktemp -t baton-watch-build.XXXXXX).log"
+    # A build for a simulator destination boots nothing, so only its DerivedData is locked.
+    WATCH_DD_LOCK="$(native_lock_derived_name "${DERIVED}-watch")"
+    step_lock "$WATCH_DD_LOCK" "${DERIVED}-watch"
     set +e
     xcodebuild build \
       -project watch/BatonWatch.xcodeproj \
@@ -1340,6 +1497,7 @@ for runtime, entries in devices.items():
       CODE_SIGNING_ALLOWED=NO >"$WATCH_LOG" 2>&1
     watch_status=$?
     set -e
+    step_unlock "$WATCH_DD_LOCK"
     if [ "$watch_status" -eq 0 ]; then
       green "  Watch builds"
     else
@@ -1367,6 +1525,7 @@ for runtime, entries in devices.items():
       exit 1
     fi
     yellow "==> Watch build skipped (no watchOS simulator installed): the parked Watch app is unverified against this shared-package change"
+    GATE_SKIPS="${GATE_SKIPS:+$GATE_SKIPS,}watch"
   fi
 else
   bold "==> Skipping iPhone and Watch checks (SKIP_IOS set)"
@@ -1476,10 +1635,13 @@ rsync -a --delete --exclude '.build' --exclude '.git' \\
 rsync -a --delete --exclude '.build' gateway/ "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/gateway/"
 ssh "$LINUX_GATEWAY_HOST" "cd ~/$LINUX_REMOTE_DIR && cp gateway/deploy/Dockerfile . && docker build -f Dockerfile -t baton-gateway:gate ."
 BUILDEOF
+    # Every gate uses the same directory and image tag on that host, so one at a time.
+    step_lock gateway-linux-build "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR"
     set +e
     timeout 600 bash "$LINUX_BUILD_SH" >"$LINUX_LOG" 2>&1
     linux_status=$?
     set -e
+    step_unlock gateway-linux-build
     rm -f "$LINUX_BUILD_SH"
     if [ "$linux_status" -eq 0 ]; then
       green "  gateway builds for Linux on $LINUX_GATEWAY_HOST"
@@ -1493,6 +1655,7 @@ BUILDEOF
       exit "$linux_status"
     fi
   else
+    GATE_SKIPS="${GATE_SKIPS:+$GATE_SKIPS,}linux-gateway"
     yellow "  Linux gateway build skipped: $LINUX_GATEWAY_HOST did not answer with a usable"
     yellow "  docker within 5 seconds. The agent layer's platform boundary is unverified."
   fi
@@ -1507,6 +1670,13 @@ RESULT_BUNDLE="${LOG%.log}.xcresult"
 MLX_METAL_SETTINGS=()
 while IFS= read -r setting; do [ -n "$setting" ] && MLX_METAL_SETTINGS+=("$setting"); done \
   < <("$(dirname "$0")/mlx-metal-build-settings.sh")
+# The one step that hosts Baton.app, so the one step that holds `mac-app-host`. The
+# CLEAN=1 wipe is inside it because this is the step that writes $DERIVED.
+mac_step_lock "$@"
+if [ -n "${CLEAN:-}" ]; then
+  bold "==> Wiping derived data ($DERIVED)"
+  rm -rf "$DERIVED"
+fi
 set +e
 xcodebuild test \
   -project "$PROJECT" \
@@ -1518,6 +1688,7 @@ xcodebuild test \
   "$@" >"$LOG" 2>&1
 status=$?
 set -e
+mac_step_unlock
 
 # --- The summary, from the result bundle -----------------------------------
 #
@@ -1663,6 +1834,12 @@ fi
 
 if [ "$status" -eq 0 ]; then
   green "✓ TESTS PASSED — ${summary:-see $LOG}"
+  # Only when the tree is still the commit the run started on and nothing was edited.
+  if [ -n "$GATE_RECEIPT_HEAD" ] && [ "$(git rev-parse HEAD 2>/dev/null)" = "$GATE_RECEIPT_HEAD" ]; then
+    scripts/gate-receipt.sh write "$PWD" --clean "$([ -n "${CLEAN:-}" ] && echo 1 || echo 0)" \
+      --mac "${summary:-}" --ios "${ios_count:-}" --gateway "${gateway_n:-}" --skips "$GATE_SKIPS" \
+      || yellow "  no gate receipt written; releases will run the gate themselves"
+  fi
 else
   red "✗ TESTS FAILED (exit $status) — ${summary:-see $LOG}"
   if [ -n "$bundle_failures" ]; then

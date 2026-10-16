@@ -22,19 +22,19 @@ final class BatonCommandRouter {
     /// queue's source (album / playlist / artist). `MusicView` resolves it to the matching
     /// section + detail view, then clears it.
     var pendingSourceNavigation: StreamingPlaybackController.QueueSource?
-    /// A file **Import Document…** (⇧⌘O) chose. `MusicClippingsView` presents the import sheet
-    /// for it and clears it (document clippings, M3.4).
+    /// A file **Import Document…** (⇧⌘O) chose. `MusicBooksView` presents the import sheet
+    /// for it and clears it (document clippings, M3.4; Books since TBX-11018).
     var pendingDocumentImport: URL?
 
     /// Files handed over from outside, by Finder's Open With or the "Make an Audiobook with
-    /// Baton" service, take the same road as Import Document…: Clippings, then the
+    /// Baton" service, take the same road as Import Document…: Books, then the
     /// import sheet. Returns the route so the caller can say why nothing opened, if it did not.
     @discardableResult
     func openDocuments(_ urls: [URL],
                        documentsEnabled: Bool = DocumentLibrary.isEnabled()) -> DocumentLibrary.OpenRoute {
         let route = DocumentLibrary.route(opening: urls, documentsEnabled: documentsEnabled)
         if case let .importSheet(url, _) = route {
-            pendingTab = .clippings
+            pendingTab = .books
             pendingDocumentImport = url
         }
         return route

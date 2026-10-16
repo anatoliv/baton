@@ -305,6 +305,18 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.1",
+            date: "October 2026",
+            highlight: "Clearer names for your two servers, everywhere.",
+            changes: [
+                .init(.fixed, "The message shown when no music server is connected now points to Settings, Music server, and the Mac's pairing hint names it the same way."),
+                .init(.added, "Choosing a narrator now offers every voice your Baton server has, not only the suggested ones. Open All voices for the full list, grouped by accent and gender with names like Heart, American, female, search it, and tap play on any voice to hear it. Change Voice uses the same list."),
+                .init(.improved, "Baton remembers the narrator you last chose for each language and starts the next book in that language on it."),
+                .init(.added, "Books is a new section in your Library. Each book made from a document has a row with its author, how far along you are and where it was made, and tapping it opens the book: its chapters, Play or Resume, Read Along, Change Voice and where its audio is kept."),
+                .init(.improved, "Clippings now holds only the readings you keep, which play one after another. A book you import from Files, the share sheet or the + menu on Books lands in Books."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5",
             date: "October 2026",
             highlight: "Read along with a book, and pick it up where you left off on your phone or your Mac.",

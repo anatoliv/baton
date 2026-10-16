@@ -22,12 +22,12 @@ final class DocumentOpenWithTests: XCTestCase {
 
     // MARK: - Routing
 
-    func testASupportedFileOpensTheImportSheetOverClippings() {
+    func testASupportedFileOpensTheImportSheetOverBooks() {
         let router = BatonCommandRouter()
         let route = router.openDocuments([pdf], documentsEnabled: true)
         XCTAssertEqual(route, .importSheet(pdf, others: 0))
         XCTAssertEqual(router.pendingDocumentImport, pdf, "the same hand-off Import Document… makes")
-        XCTAssertEqual(router.pendingTab, .clippings)
+        XCTAssertEqual(router.pendingTab, .books, "imports land in Books")
         XCTAssertNil(DocumentLibrary.openAlert(for: route), "no alert when the sheet opens")
         XCTAssertNil(DocumentLibrary.othersNotice(opened: pdf, others: 0))
     }

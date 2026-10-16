@@ -459,6 +459,18 @@ final class HomeServerBooks {
         return list.specs
     }
 
+    /// The same, with why there is no list when there is none, for the voice picker.
+    func voiceListing() async -> VoiceListing {
+        guard let client = gateway() else {
+            return VoiceListing(voices: nil, problem: "Only the suggested voices are here, because no Baton server is set up.")
+        }
+        do {
+            return VoiceListing(voices: try await client.voices().specs)
+        } catch {
+            return VoiceListing(voices: nil, problem: VoiceDirectory.unavailableLine(error))
+        }
+    }
+
     /// Keep a changed version of a book that does not have to be made again (a pronunciation
     /// for a word it never says), under the job it has.
     func replacePreparedBook(_ book: PreparedBook, jobID: String) {
@@ -713,8 +725,9 @@ final class HomeServerBooks {
     }
 
     /// Delete a job on the home server, remembered first so an absent home server is asked
-    /// again on the next refresh.
-    private func cancelRemote(jobID: String) async {
+    /// again on the next refresh. Also the Mac's way to delete a book it sent there itself
+    ///, which has no record here.
+    func cancelRemote(jobID: String) async {
         var pending = pendingDeleteIDs
         if !pending.contains(jobID) {
             pending.append(jobID)
@@ -1313,6 +1326,13 @@ final class BookVoiceChanges {
         if !kind.isEmpty { parts.append(kind.prefix(1).uppercased() + kind.dropFirst() + ".") }
         if let tag = voice.tags.first(where: { $0.hasPrefix("good for") }) { parts.append(tag.prefix(1).uppercased() + tag.dropFirst() + ".") }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    /// "Good for narration." alone, for the voice picker's rows, whose names already
+    /// say the accent and gender.
+    nonisolated static func suits(_ spec: String) -> String? {
+        guard let tag = VoiceCatalogue.describe(spec).tags.first(where: { $0.hasPrefix("good for") }) else { return nil }
+        return tag.prefix(1).uppercased() + tag.dropFirst() + "."
     }
 
     /// What the voice picker says about a book whose dialogue is voiced (G4).

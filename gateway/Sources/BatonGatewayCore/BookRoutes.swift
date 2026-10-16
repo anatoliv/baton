@@ -6,6 +6,11 @@ import Foundation
 /// can drive them through the real `Router`.
 ///
 ///     PUT    /v1/books/{id}                    submit a PreparedBook (streamed, like a file upload)
+///     PUT    /v1/books/{id}/upload             a book made on another device: its
+///                                              PreparedBook, kept as a job nothing here renders
+///     PUT    /v1/books/{id}/chapters/{n}/timing  that book's chapter n read-along timing
+///     PUT    /v1/books/{id}/chapters/{n}       that book's chapter n M4A, checked against its
+///                                              X-Baton-SHA256 before it is kept
 ///     GET    /v1/books                         list, newest first, without the text
 ///     GET    /v1/books/{id}                    one job's status, per chapter
 ///     GET    /v1/books/{id}/book               the shaped book it was made from, for another device
@@ -50,6 +55,15 @@ public struct BookRoutes: Sendable {
         self.unavailableReason = unavailableReason
         self.exporter = exporter
     }
+
+    /// Read-along timing is a few hundred entries for a long chapter; anything near this is not
+    /// timing.
+    public static let maximumTimingBytes = 2 * 1024 * 1024
+    /// The longest chapter an upload may say it is, in seconds: a day.
+    static let maximumChapterSeconds = 86_400.0
+    /// One upload changes a job at a time, so two chapters arriving together cannot each write
+    /// back a job that lacks the other.
+    private static let uploadLock = NSLock()
 
     public static func isBookUpload(_ request: StreamingUpload.Request) -> Bool {
         request.method == "PUT" && request.path.hasPrefix("/v1/books/")
@@ -191,9 +205,21 @@ public struct BookRoutes: Sendable {
         guard BatonMCPAuth.constantTimeEquals(request.bearerToken ?? "", token) else {
             return httpErrorResponse(status: "401 Unauthorized", message: "bad token")
         }
-        let id = String(request.path.dropFirst("/v1/books/".count))
-        guard let clean = FileStore.sanitize(id), clean.count == 64 else {
+        let parts = request.path.dropFirst("/v1/books/".count).split(separator: "/", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard let first = parts.first, let clean = FileStore.sanitize(first), clean.count == 64 else {
             return httpErrorResponse(status: "400 Bad Request", message: "bad book id")
+        }
+        switch parts.count {
+        case 1: break
+        case 2 where parts[1] == "upload":
+            return receiveBook(staged, id: clean)
+        case 3 where parts[1] == "chapters":
+            return receiveChapter(request, staged, id: clean, number: parts[2])
+        case 4 where parts[1] == "chapters" && parts[3] == "timing":
+            return receiveTiming(request, staged, id: clean, number: parts[2])
+        default:
+            return notFound()
         }
         guard let renderer else {
             return httpErrorResponse(status: "503 Service Unavailable",
@@ -228,6 +254,135 @@ public struct BookRoutes: Sendable {
         } catch {
             return httpErrorResponse(status: "500 Internal Server Error", message: "could not store the book")
         }
+    }
+
+    // MARK: - Books made on another device
+
+    /// `PUT /v1/books/{id}/upload`: a book the Mac made with its own voices, so the other devices
+    /// adopt it through the listing as they adopt one made here. Kept as a job the
+    /// render loop never touches, every chapter queued until its audio arrives. The same book
+    /// again finds the job already there, whichever way it came. Needs only the store, so a
+    /// gateway that cannot make books (no ffmpeg) still keeps one made elsewhere.
+    func receiveBook(_ staged: URL, id: String) -> Data {
+        let book: PreparedBook
+        do {
+            book = try PreparedBook.decode(try Data(contentsOf: staged))
+        } catch PreparedBookError.unsupportedSchema(let version) {
+            return httpErrorResponse(status: "422 Unprocessable Entity",
+                                     message: "this gateway does not know book format \(version); update it")
+        } catch {
+            return httpErrorResponse(status: "400 Bad Request", message: "body is not a prepared book")
+        }
+        guard BookJob.id(for: book) == id else {
+            return httpErrorResponse(status: "400 Bad Request", message: "book id does not match its content")
+        }
+        Self.uploadLock.lock()
+        defer { Self.uploadLock.unlock() }
+        if let existing = store.load(id) { return json(store.summary(of: existing)) }
+        let estimate = ListeningEstimate(words: book.chapters.flatMap(\.segments)
+            .reduce(0) { $0 + $1.text.split(separator: " ").count }, speed: book.voices.speed,
+            bitrate: book.audio.bitrate).bytes
+        guard store.hasRoom(for: estimate) else {
+            return httpErrorResponse(status: "507 Insufficient Storage", message:
+                "the home server's space for books is full of unfinished books; finish or delete one first")
+        }
+        var job = BookJob(id: id, book: book)
+        job.uploaded = true
+        do { try store.save(job) } catch {
+            return httpErrorResponse(status: "500 Internal Server Error", message: "could not store the book")
+        }
+        return json(store.summary(of: job), status: "201 Created")
+    }
+
+    /// `PUT /v1/books/{id}/chapters/{n}`: one chapter's M4A for an uploaded book, kept only when
+    /// its digest matches `X-Baton-SHA256`, so a chapter damaged on the way is never handed to
+    /// another device. The same audio again changes nothing. The last chapter makes the book ready.
+    func receiveChapter(_ request: StreamingUpload.Request, _ staged: URL, id: String, number: String) -> Data {
+        guard let expected = request.header("X-Baton-SHA256")?.lowercased(),
+              expected.count == 64, expected.allSatisfy({ $0.isHexDigit }) else {
+            return httpErrorResponse(status: "400 Bad Request", message: "X-Baton-SHA256 is required")
+        }
+        guard let seconds = request.header("X-Baton-Duration").flatMap(Double.init), seconds.isFinite,
+              seconds > 0, seconds <= Self.maximumChapterSeconds else {
+            return httpErrorResponse(status: "400 Bad Request", message: "X-Baton-Duration is required")
+        }
+        guard let actual = try? SHA256Digest.hex(ofFileAt: staged), actual == expected else {
+            return httpErrorResponse(status: "422 Unprocessable Entity", message: "the chapter arrived damaged; send it again")
+        }
+        let bytes = ((try? FileManager.default.attributesOfItem(atPath: staged.path))?[.size] as? Int) ?? 0
+        Self.uploadLock.lock()
+        defer { Self.uploadLock.unlock() }
+        let found = uploadedJob(id, number)
+        guard case .found(var job, let index) = found else { return found.refusal }
+        if case let .ready(_, _, _, sha) = job.chapters[index], sha == actual { return json(store.summary(of: job)) }
+        store.prune()
+        guard store.usedBytes + bytes <= store.maximumBytes else {
+            return httpErrorResponse(status: "507 Insufficient Storage", message:
+                "the home server's space for books is full of unfinished books; finish or delete one first")
+        }
+        guard let dir = store.jobDirectory(id) else { return notFound() }
+        let file = "chapter-\(index + 1).m4a"
+        let destination = dir.appendingPathComponent(file)
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: staged, to: destination)
+        } catch {
+            return httpErrorResponse(status: "500 Internal Server Error", message: "could not keep the chapter")
+        }
+        job.chapters[index] = .ready(file: file, bytes: bytes, seconds: seconds, sha256: actual)
+        job.status = job.readyChapters == job.chapters.count ? .ready : .rendering
+        job.updatedAt = Date()
+        do { try store.save(job) } catch {
+            return httpErrorResponse(status: "500 Internal Server Error", message: "could not store the book")
+        }
+        return json(store.summary(of: job))
+    }
+
+    /// `PUT /v1/books/{id}/chapters/{n}/timing`: the read-along timing of an uploaded book's
+    /// chapter, sent before its audio so the chapter is never ready without it.
+    func receiveTiming(_ request: StreamingUpload.Request, _ staged: URL, id: String, number: String) -> Data {
+        guard request.contentLength <= Self.maximumTimingBytes,
+              let data = try? Data(contentsOf: staged), data.count <= Self.maximumTimingBytes else {
+            return httpErrorResponse(status: "413 Payload Too Large", message: "that is too large to be read-along timing")
+        }
+        guard let timing = ReadAlongTiming.decode(data), let encoded = try? timing.encoded() else {
+            return httpErrorResponse(status: "400 Bad Request", message: "body is not read-along timing")
+        }
+        Self.uploadLock.lock()
+        defer { Self.uploadLock.unlock() }
+        let found = uploadedJob(id, number)
+        guard case .found(_, let index) = found else { return found.refusal }
+        guard let dir = store.jobDirectory(id),
+              let name = ReadAlongTiming.fileName(forChapterFile: "chapter-\(index + 1).m4a") else { return notFound() }
+        do {
+            try encoded.write(to: dir.appendingPathComponent(name), options: .atomic)
+        } catch {
+            return httpErrorResponse(status: "500 Internal Server Error", message: "could not keep the timing")
+        }
+        return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
+    }
+
+    private enum UploadTarget {
+        case found(BookJob, chapterIndex: Int)
+        /// No such book, or no such chapter in it.
+        case missing
+        /// A book this gateway makes itself: its chapters are not taken from elsewhere.
+        case madeHere
+
+        var refusal: Data {
+            switch self {
+            case .found, .missing: return httpErrorResponse(status: "404 Not Found", message: "no such book")
+            case .madeHere: return httpErrorResponse(status: "409 Conflict", message: "the Baton server makes this book itself")
+            }
+        }
+    }
+
+    /// The uploaded job and the 0-based index of chapter `number` (1-based) in it.
+    private func uploadedJob(_ id: String, _ number: String) -> UploadTarget {
+        guard let job = store.load(id) else { return .missing }
+        guard job.uploaded == true else { return .madeHere }
+        guard let n = Int(number), n >= 1, n <= job.chapters.count else { return .missing }
+        return .found(job, chapterIndex: n - 1)
     }
 
     func preview(_ request: HTTPRequestMessage) async -> Data {

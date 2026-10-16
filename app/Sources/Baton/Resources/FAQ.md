@@ -488,14 +488,15 @@ and it opens in the Mac's import sheet. Baton never becomes the default app for 
 
 **How do I get a document onto my iPhone?**
 Share it to Baton from another app's share sheet (a web page in Safari works too), open it in
-Baton from Files, or use the + menu on the Clippings screen to import a file or a link. The phone makes the book on your Baton server, so set that up first under
+Baton from Files, or use the + menu on the Books screen to import a file or a link. The phone makes the book on your Baton server, so set that up first under
 Settings, Music Friend, Baton server. If the Baton server cannot make books, the import screen
 offers Send to my Mac, and Baton on the Mac opens the document to import; without a Baton server it
-suggests AirDropping the file to your Mac. A book made on the Mac arrives on the phone too when it
-was made on the Baton server.
+suggests AirDropping the file to your Mac. A book made on the Mac arrives on the phone too: one
+made on the Baton server is there already, and one made on the Mac itself is sent to your Baton
+server as each chapter is done.
 
 **Why did my book stop part way?**
-The voice host stopped answering. The book's row in Clippings says so, and the book carries on
+The voice host stopped answering. The book's row in Books says so, and the book carries on
 by itself when the host is reachable again. Check that the host is running and that its address
 in Settings → Speech on the Mac, or the Baton server under Settings on the phone, is right.
 
@@ -540,7 +541,7 @@ stays with the narrator. It is off for your first book, then starts the way you 
 See [Voice the dialogue](HELP.md#voice-the-dialogue).
 
 **How do I free the space a book takes?**
-Choose Remove Download in the book's menu in Clippings. The book keeps its row and your place,
+Choose Remove Download in the open book, or in its menu in Books. The book keeps its row and your place,
 and Download Again or Render Again brings the audio back whenever you like. Settings → Storage on
 the Mac, or Settings → Documents → Storage on the iPhone, shows what each book takes and lets you
 set cleanup rules. Nothing is removed until you choose a rule. See

@@ -195,10 +195,17 @@ enum BookShelf {
         return entries.sorted { $0.sortDate > $1.sortDate }
     }
 
-    /// How many rows the list shows: each reading, and each book once.
-    static func entryCount(items: [ClippingStore.Item]) -> Int {
-        let books = Set(items.compactMap(\.clipping.documentID))
-        return items.filter { !$0.clipping.isBookChapter }.count + books.count
+    /// How many rows Clippings shows: the readings, not a book's chapters.
+    static func readingCount(items: [ClippingStore.Item]) -> Int {
+        items.filter { !$0.clipping.isBookChapter }.count
+    }
+
+    /// How many rows Books shows: each book once, whether its chapters have landed or it is
+    /// still being made.
+    static func bookCount(items: [ClippingStore.Item], jobs: [DocumentLibrary.Job] = []) -> Int {
+        var books = Set(items.filter(\.clipping.isBookChapter).compactMap(\.clipping.documentID))
+        books.formUnion(jobs.map(\.documentID))
+        return books.count
     }
 
     /// "Kept until 2 November", with the year once it is not this one.

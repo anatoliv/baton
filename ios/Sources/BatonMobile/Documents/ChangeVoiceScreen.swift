@@ -1,17 +1,20 @@
 import AVFoundation
 import BatonDocuments
+import BatonSubsonicKit
 import SwiftUI
 
 /// Change Voice… on a book: the import screen's narrator choice again, from the
 /// voices the home server offers (`GET /v1/voices`), each playable in the book's own words. The
 /// home server makes the whole book again; each chapter here plays in its old voice until its new
-/// one comes down and takes its place, and the place in the book is kept.
+/// one comes down and takes its place, and the place in the book is kept. The same picker as the
+/// import screen: the best voices for the language on top, every voice under All
+/// voices.
 struct ChangeVoiceScreen: View {
     let book: MobileBookShelf.Book
     let model: MobileModel
     let onDone: () -> Void
 
-    @State private var voices: [String]?
+    @State private var listing = VoiceListing(voices: nil)
     @State private var loaded = false
     @State private var chosen: String?
     @State private var working = false
@@ -27,7 +30,7 @@ struct ChangeVoiceScreen: View {
             List {
                 Section {
                     if let current {
-                        Text("Now read by \(DocumentImportScreen.voiceLabel(current)).").foregroundStyle(.secondary)
+                        Text("Now read by \(VoiceDirectory.entry(current).label).").foregroundStyle(.secondary)
                     }
                     if prepared?.hasCast == true {
                         Label(BookVoiceChanges.castNote, systemImage: "person.2").font(.callout)
@@ -35,26 +38,26 @@ struct ChangeVoiceScreen: View {
                 } header: {
                     Text(book.title)
                 }
-                Section {
-                    if !loaded {
+                if !loaded {
+                    Section("Narrator") {
                         HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Asking your Baton server…") }
                             .foregroundStyle(.secondary)
-                    } else if let voices, !voices.isEmpty {
-                        ForEach(voices, id: \.self) { voice in
-                            NarratorOptionRow(voice: voice, chosen: $chosen, playing: previewing == voice,
-                                              detail: BookVoiceChanges.description(voice),
-                                              tag: voice == current ? "now" : nil) {
-                                Task { await playPreview(voice) }
-                            }
-                        }
-                    } else {
+                    }
+                } else if suggested.isEmpty {
+                    Section("Narrator") {
                         Label("Your Baton server did not list its voices, so there are none to choose from.",
                               systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     }
-                } header: {
-                    Text("Narrator")
-                } footer: {
-                    Text("Choose a voice, then Make Again. Your Baton server makes the whole book again. Each chapter plays in its old voice until its new one is here, and your place is kept.")
+                } else {
+                    VoicePicker(suggested: suggested, all: listing.voices, unavailable: listing.problem,
+                                chosen: $chosen, playing: previewing, title: "Narrator",
+                                footer: "Choose a voice, then Make Again. Your Baton server makes the whole book again. Each chapter plays in its old voice until its new one is here, and your place is kept.",
+                                tag: { voice in
+                                    if voice == current { return "now" }
+                                    return voice == remembered ? "last used" : nil
+                                },
+                                detail: BookVoiceChanges.suits,
+                                onPreview: { voice in Task { await playPreview(voice) } })
                 }
                 if let failure {
                     Section { Text(failure).foregroundStyle(.orange) }
@@ -78,17 +81,30 @@ struct ChangeVoiceScreen: View {
             }
         }
         .task {
-            voices = await model.books.voices().map {
-                BookVoiceChanges.choices(current: current, language: prepared?.language, available: $0)
-            }
+            listing = await model.books.voiceListing()
             loaded = true
         }
         .onDisappear { preview?.stop() }
         .interactiveDismissDisabled(working)
     }
 
+    /// The voice it has now, then the best for its language (`BookVoiceChanges.choices`), and
+    /// the one last chosen for that language; the voice it has alone when no list came.
+    private var suggested: [String] {
+        guard let all = listing.voices, !all.isEmpty else { return current.map { [$0] } ?? [] }
+        let best = Array(BookVoiceChanges.choices(current: current, language: prepared?.language, available: all).prefix(4))
+        return VoiceDirectory.suggested(best, remembered: remembered, available: all)
+    }
+
+    private var remembered: String? {
+        guard let last = VoiceChoiceMemory(defaults: BatonStorage.defaults).last(language: prepared?.language),
+              last != current, listing.voices?.contains(last) == true else { return nil }
+        return last
+    }
+
     private func apply() {
         guard let chosen, let jobID = book.jobID else { return }
+        VoiceChoiceMemory(defaults: BatonStorage.defaults).remember(chosen, language: prepared?.language)
         working = true
         preview?.stop()
         Task {

@@ -408,7 +408,7 @@ struct MobileSettingsView: View {
 
                 transcriptionSection
 
-                // Books from Files, the share sheet or the + menu on Clippings. One switch:
+                // Books from Files, the share sheet or the + menu on Books. One switch:
                 // off hides the import items and the book rows, and refuses "Open in Baton".
                 Section {
                     Toggle("Documents", isOn: $documentsEnabled)
@@ -458,7 +458,7 @@ struct MobileSettingsView: View {
                     Text("Documents")
                 } footer: {
                     SettingsFooter(
-                        text: "Turn documents into audiobooks from Clippings, Files or the share sheet.",
+                        text: "Turn documents into audiobooks from Books, Files or the share sheet.",
                         topic: SettingsHelpTopic.documents,
                         onOpenHelp: { showsHelp = true }
                     )

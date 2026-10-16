@@ -1,7 +1,7 @@
 import XCTest
 
 /// Speed and the sleep timer on a book, the phone's walk: a two-chapter book made on
-/// `FakeHomeServer`, played from Clippings, sped up from the full player, the sleep timer opened
+/// `FakeHomeServer`, played from Books, sped up from the full player, the sleep timer opened
 /// on it, and the speed found again after a relaunch.
 ///
 /// Demo mode, no network beyond loopback. Environment, never launch arguments.
@@ -45,7 +45,7 @@ final class BookSpeedSleepUITests: XCTestCase {
         server.setReadyOnSubmit(2)
         app.launch()
         makeAudiobook()
-        openClippings()
+        openBooks()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
             .waitForExistence(timeout: 30), "both chapters should come down")
         playBookAndOpenPlayer()
@@ -84,7 +84,7 @@ final class BookSpeedSleepUITests: XCTestCase {
         app.launchEnvironment["baton.resetSession"] = nil
         app.launchEnvironment["uitestImportText"] = nil
         app.launch()
-        openClippings()
+        openBooks()
         playBookAndOpenPlayer()
         let again = app.buttons["Playback speed"].firstMatch
         XCTAssertTrue(again.waitForExistence(timeout: 10))
@@ -95,9 +95,9 @@ final class BookSpeedSleepUITests: XCTestCase {
     // MARK: - Steps
 
     private func playBookAndOpenPlayer() {
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
-        row.tap()
+        // A book's row opens the book; its Play starts it, and the list is shown again so only
+        // the player names a chapter.
+        BooksScreen.playBookAndLeave(app)
         // The bar's title, not `openFullPlayer`'s first match on the bar: for a book that match
         // can be the bar's Play button, and tapping it pauses instead of opening the player.
         let title = app.staticTexts.matching(identifier: PlayerControls.miniBar).firstMatch
@@ -138,16 +138,9 @@ final class BookSpeedSleepUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    private func openClippings() {
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        if entry.waitForExistence(timeout: 10) { entry.tap() } else {
-            let fallback = app.buttons["Clippings"].firstMatch
-            XCTAssertTrue(fallback.waitForExistence(timeout: 10), "no route to Clippings")
-            fallback.tap()
-        }
+    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    private func openBooks() {
+        BooksScreen.open(app)
     }
 
     private func waitFor(_ seconds: TimeInterval, _ condition: () -> Bool) -> Bool {

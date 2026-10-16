@@ -40,7 +40,7 @@ struct MobileStorageView: View {
         let total = stored.reduce(0) { $0 + $1.bytes }
         return Section {
             if books.isEmpty {
-                Text("No books on this iPhone yet. Import one from Clippings, Files or the share sheet.")
+                Text("No books on this iPhone yet. Import one from Books, Files or the share sheet.")
                     .foregroundStyle(.secondary)
             }
             ForEach(Array(zip(books, stored)), id: \.0.documentID) { book, item in

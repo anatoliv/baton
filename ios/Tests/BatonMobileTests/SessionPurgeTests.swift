@@ -263,6 +263,38 @@ final class SessionPurgeTests: XCTestCase {
         XCTAssertNil(FriendLearningStore().promptBlock, "the friend's corrections survived a session reset")
     }
 
+    /// What one phone UI suite left for the next on a shared simulator: book records
+    /// and the hidden list in the `Books` folder, the speed chosen for speech, clipping names in
+    /// the ledger, clipping dismissals and the cloud consent for books. A test reset clears all
+    /// of it.
+    func testResetSessionClearsWhatOneUITestLeavesForTheNext() throws {
+        let defaults = BatonStorage.defaults
+        let books = BatonStorage.supportSubdirectory("Books")
+        let leftovers = ["home-server-books.json", "home-server-books-hidden.json",
+                         "home-server-books-pending-deletes.json", "voice-changes.json"]
+        for name in leftovers { try Data("[]".utf8).write(to: books.appendingPathComponent(name)) }
+        try FileManager.default.createDirectory(at: books.appendingPathComponent("read-along"), withIntermediateDirectories: true)
+        let dismissed = BatonStorage.supportSubdirectory("Clippings").appendingPathComponent(ClippingStore.dismissedFileName)
+        try Data("{}".utf8).write(to: dismissed)
+        for key in SessionPurge.testLeftoverDefaultsKeys { defaults.set(["left over"], forKey: key) }
+        defaults.set(1.5, forKey: StreamingPlaybackController.spokenRateKey)
+
+        SessionPurge.wipeStores()
+
+        for name in leftovers {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: books.appendingPathComponent(name).path),
+                           "\(name) survived a session reset")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: books.appendingPathComponent("read-along").path),
+                       "read-along timing survived a session reset")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dismissed.path), "clipping dismissals survived a session reset")
+        for key in SessionPurge.testLeftoverDefaultsKeys {
+            XCTAssertNil(defaults.object(forKey: key), "\(key) survived a session reset")
+        }
+        XCTAssertTrue(SessionPurge.testLeftoverDefaultsKeys.contains(StreamingPlaybackController.spokenRateKey))
+        XCTAssertTrue(SessionPurge.testLeftoverDefaultsKeys.contains(ClippingLedger.storageKey))
+    }
+
     private func seedClipping(into store: ClippingStore) throws -> ClippingStore.Item {
         let source = FileManager.default.temporaryDirectory
             .appendingPathComponent("ws6-\(UUID().uuidString).m4a")

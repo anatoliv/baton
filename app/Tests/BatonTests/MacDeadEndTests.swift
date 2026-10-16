@@ -40,7 +40,8 @@ struct MacDeadEndTests {
         // only that two arrays differ.
         #expect(GoMenuCommands.sections.contains(.clippings))
         #expect(GoMenuCommands.sections.contains(.folders))
-        #expect(GoMenuCommands.sections.count == 14)
+        #expect(GoMenuCommands.sections.contains(.books))
+        #expect(GoMenuCommands.sections.count == 15)
     }
 
     /// The list has to be *derived*, not merely correct today.
@@ -75,6 +76,7 @@ struct MacDeadEndTests {
         #expect(MusicView.MusicTab.history.goShortcut?.character == "8")
         #expect(MusicView.MusicTab.later.goShortcut?.character == "9")
         #expect(MusicView.MusicTab.clippings.goShortcut == nil)
+        #expect(MusicView.MusicTab.books.goShortcut == nil)
         #expect(MusicView.MusicTab.folders.goShortcut == nil)
     }
 

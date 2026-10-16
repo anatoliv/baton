@@ -122,7 +122,7 @@ final class BookVoiceChangeTests: XCTestCase {
         XCTAssertEqual(digests(clippings, book.documentID), oldDigests)
         var making = try row(library, book.documentID)
         XCTAssertEqual(making.chapters.map { $0.item?.isPresent }, [true, true], "no silent gap")
-        XCTAssertEqual(MusicClippingsView.statusLine(making)?.text, "Making again in af_sky on Kokoro… chapter 1 of 2, 25%")
+        XCTAssertEqual(MusicBooksView.statusLine(making)?.text, "Making again in af_sky on Kokoro… chapter 1 of 2, 25%")
         XCTAssertTrue(making.canStopRemaking)
 
         // Chapter 1 lands: it replaces the old one in its row; chapter 2 is still the old voice.
@@ -135,7 +135,7 @@ final class BookVoiceChangeTests: XCTestCase {
         XCTAssertEqual(afterOne[0].clipping.voice, "kokoro:af_sky")
         XCTAssertEqual(afterOne[1].clipping.sha256, oldDigests[1])
         making = try row(library, book.documentID)
-        XCTAssertEqual(MusicClippingsView.statusLine(making)?.text, "Making again in af_sky on Kokoro… chapter 2 of 2, 25%")
+        XCTAssertEqual(MusicBooksView.statusLine(making)?.text, "Making again in af_sky on Kokoro… chapter 2 of 2, 25%")
 
         // Chapter 2 lands: the change is over and the line goes.
         fake.setReady(record.jobID, 2)
@@ -145,7 +145,7 @@ final class BookVoiceChangeTests: XCTestCase {
         XCTAssertEqual(Set(after.map(\.clipping.sha256)), [SHA256Digest.hex(of: fake.chapterAudio(for: record.jobID))])
         XCTAssertNil(library.voiceChange(for: try row(library, book.documentID)))
         let done = try row(library, book.documentID)
-        XCTAssertNil(MusicClippingsView.statusLine(done))
+        XCTAssertNil(MusicBooksView.statusLine(done))
         XCTAssertEqual(done.position?.chapterIndex, 1, "the place is kept by chapter")
         XCTAssertEqual(done.position?.seconds, 30, "and by time")
         let hold = root.appendingPathComponent("Books/voice-change-hold")

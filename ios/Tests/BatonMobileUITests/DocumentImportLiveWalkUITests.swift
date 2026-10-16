@@ -2,7 +2,7 @@ import XCTest
 
 /// The phone's book, made on the real home server (M5.2, M5.3): a PDF staged into the app's
 /// container opens the import screen, the home server answers so Make Audiobook is offered, the
-/// book is sent, and chapter 1 comes down into Clippings as "1 of 3 chapters ready". This is the
+/// book is sent, and chapter 1 comes down into Books as "1 of 3 chapters ready". This is the
 /// spec's acceptance line short of the lock screen, which a simulator cannot show.
 ///
 /// Opt-in, like the package's live tests: it skips unless the runner has
@@ -78,18 +78,10 @@ final class DocumentImportLiveWalkUITests: XCTestCase {
         app.tap()
         XCTAssertTrue(waitUntilGone(title, timeout: 60), "the import screen should close once the book is sent")
 
-        // Clippings shows the book at once, then chapter 1 when the home server has made it.
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        if entry.waitForExistence(timeout: 10) { entry.tap() } else {
-            let fallback = app.buttons["Clippings"].firstMatch
-            XCTAssertTrue(fallback.waitForExistence(timeout: 10), "no route to Clippings")
-            fallback.tap()
-        }
+        // Books shows the book at once, then chapter 1 when the home server has made it.
+        BooksScreen.open(app)
         let row = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'of 3 chapters ready'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 30), "the book row did not appear in Clippings")
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "the book row did not appear in Books")
         attach("book-row-sent")
 
         let ready = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '1 of 3 chapters ready' OR label BEGINSWITH '2 of 3 chapters ready' OR label BEGINSWITH '3 chapters'")).firstMatch

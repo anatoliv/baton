@@ -192,6 +192,21 @@ struct BookVoiceSettingsTests {
         #expect(BookVoiceSettings.sheetNote(.ask, homeServerAvailable: true) == nil)
     }
 
+    @Test("TBX-11017: with a Baton server set up the sheet opens on it, and This Mac says where the book goes")
+    func openingChoiceAndThisMacNote() {
+        // Before the Baton server has answered: set up is enough, so a quick Make goes there.
+        #expect(BookVoiceSettings.openingRenderer(.ask, homeServerConfigured: true) == .homeServer)
+        #expect(BookVoiceSettings.openingRenderer(.homeServer, homeServerConfigured: true) == .homeServer)
+        #expect(BookVoiceSettings.openingRenderer(.thisMac, homeServerConfigured: true) == .thisMac)
+        #expect(BookVoiceSettings.openingRenderer(.ask, homeServerConfigured: false) == .thisMac)
+        #expect(BookVoiceSettings.thisMacNote(homeServerConfigured: false) == "Only on this Mac: your iPhone won't see this book.")
+        #expect(BookVoiceSettings.thisMacNote(homeServerConfigured: true)
+                == "This Mac makes it and sends each chapter to your Baton server, so your iPhone gets it too.")
+        for note in [true, false].map(BookVoiceSettings.thisMacNote) {
+            #expect(!note.contains("—") && !note.contains("–") && !note.contains("home server"), "house wording: \(note)")
+        }
+    }
+
     // MARK: Status lines and the section
 
     @Test("Each server line names its address and whether it answers")

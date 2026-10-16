@@ -82,8 +82,11 @@ prepare_mac() {
     git -C "$MAC_RELEASE" checkout --quiet -B main origin/main
     git -C "$MAC_RELEASE" reset --quiet --hard origin/main
   fi
-  mkdir -p "$MAC_RELEASE/app/Config"
+  mkdir -p "$MAC_RELEASE/app/Config" "$MAC_RELEASE/ios/Config"
   install -m 600 "$MAC_CONFIG" "$MAC_RELEASE/app/Config/Crashbox.local.xcconfig"
+  # Both checkouts carry both configurations, so a gate receipt written in either one binds
+  # to the same digests and both releases can reuse it (scripts/gate-receipt.sh, TBX-11003).
+  install -m 600 "$IOS_CONFIG" "$MAC_RELEASE/ios/Config/Crashbox.local.xcconfig"
   if [ -e "$MAC_ARTIFACT_CREDENTIAL" ] || [ -L "$MAC_ARTIFACT_CREDENTIAL" ]; then
     [ -f "$MAC_ARTIFACT_CREDENTIAL" ] && [ ! -L "$MAC_ARTIFACT_CREDENTIAL" ] || {
       echo "ERROR: artifact credential is not a regular, non-symlink file" >&2
@@ -113,8 +116,9 @@ prepare_ios() {
   fi
   git -C "$IOS_RELEASE" checkout --quiet --detach origin/main
   git -C "$IOS_RELEASE" reset --quiet --hard origin/main
-  mkdir -p "$IOS_RELEASE/ios/Config"
+  mkdir -p "$IOS_RELEASE/ios/Config" "$IOS_RELEASE/app/Config"
   install -m 600 "$IOS_CONFIG" "$IOS_RELEASE/ios/Config/Crashbox.local.xcconfig"
+  install -m 600 "$MAC_CONFIG" "$IOS_RELEASE/app/Config/Crashbox.local.xcconfig"
   if [ -e "$IOS_ARTIFACT_CREDENTIAL" ] || [ -L "$IOS_ARTIFACT_CREDENTIAL" ]; then
     [ -f "$IOS_ARTIFACT_CREDENTIAL" ] && [ ! -L "$IOS_ARTIFACT_CREDENTIAL" ] || {
       echo "ERROR: iPhone artifact credential is not a regular, non-symlink file" >&2

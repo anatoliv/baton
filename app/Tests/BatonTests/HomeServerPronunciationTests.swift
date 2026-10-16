@@ -109,13 +109,13 @@ final class HomeServerPronunciationTests: XCTestCase {
         XCTAssertNil(clippings.item(documentID: book.documentID, chapterIndex: 1))
         let making = try row(library, book.documentID)
         XCTAssertTrue(making.isRendering)
-        XCTAssertEqual(MusicClippingsView.statusLine(making)?.text, "Waiting to make chapter 2 of 2")
+        XCTAssertEqual(MusicBooksView.statusLine(making)?.text, "Waiting to make chapter 2 of 2")
         XCTAssertEqual(making.position?.chapterIndex, 0)
         XCTAssertEqual(making.position?.seconds, 30, "the listening position is the book's, and stays")
 
         fake.setReady(record.jobID, 1)
         await library.refreshHomeServer()
-        XCTAssertEqual(MusicClippingsView.statusLine(try row(library, book.documentID))?.text, "Making chapter 2 of 2, 25%")
+        XCTAssertEqual(MusicBooksView.statusLine(try row(library, book.documentID))?.text, "Making chapter 2 of 2, 25%")
 
         // The home server finishes: chapter 2 comes down in its place, chapter 1 is not fetched.
         fake.setReady(record.jobID, 2)
@@ -123,7 +123,7 @@ final class HomeServerPronunciationTests: XCTestCase {
         let after = try row(library, book.documentID)
         XCTAssertEqual(after.chapters.map { $0.item != nil }, [true, true])
         XCTAssertEqual(clippings.item(documentID: book.documentID, chapterIndex: 0)?.id, chapterOne.id)
-        XCTAssertNil(MusicClippingsView.statusLine(after))
+        XCTAssertNil(MusicBooksView.statusLine(after))
         let downloads = fake.seen.filter {
             $0.hasPrefix("GET /v1/books/\(record.jobID)/chapters/") && !$0.hasSuffix("/timing")  // read-along timing, TBX-10960
         }

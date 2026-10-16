@@ -700,14 +700,14 @@ public enum NavidromeError: Error, LocalizedError, Equatable, Sendable {
     /// What to tell someone who has no server yet, in one place.
     ///
     /// It said "Settings → Music" in three files and there has never been a Music pane on
-    /// either app: the Mac's panes are Servers, Playback, Equalizer, Actions, Speech, Agents,
-    /// Remote, Friend Log and About, and the phone's section is Server. Three copies of a
+    /// either app: the Mac's panes are Music Servers, Playback, Equalizer, Actions, Speech, Agents,
+    /// Remote, Friend Log and About, and the phone's section is Music server. Three copies of a
     /// wrong route is exactly the drift this codebase keeps paying for, so there is now one.
     public static let notConfiguredMessage: String = {
         #if os(macOS)
-        return "No music server is configured. Add one in Settings, Servers."
+        return "No music server is configured. Add one in Settings, Music Servers."
         #else
-        return "No music server is configured. Add one in Settings, Server."
+        return "No music server is configured. Add one in Settings, Music server."
         #endif
     }()
 

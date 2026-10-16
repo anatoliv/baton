@@ -223,6 +223,11 @@ struct DialogueCastSection: View {
     /// in the probe walk (2026-10-15).
     let modelFree: Bool
     @Binding var choice: DialogueCastChoice
+    /// Every voice the renderer offers, the Baton server's when it makes the book;
+    /// nil keeps the voices the cast was written with.
+    var rendererVoices: [String]? = nil
+    /// Previews come from the Baton server, which makes the book.
+    var previewOnServer = false
     @State private var editing = false
     @State private var waiting = false
     @State private var placingTask: Task<Void, Never>?
@@ -256,8 +261,9 @@ struct DialogueCastSection: View {
         }
         .sheet(isPresented: $editing) {
             if case let .ready(casting) = choice.phase {
-                CastSheetEditor(casting: casting, narrator: narrator, voices: choice.voices,
-                                previewFallback: VoiceSuggestions.previewText(for: document)) { edited in
+                CastSheetEditor(casting: casting, narrator: narrator, voices: rendererVoices ?? choice.voices,
+                                previewFallback: VoiceSuggestions.previewText(for: document),
+                                preview: previewOnServer ? .batonServer() : VoicePreviewPlayer()) { edited in
                     choice.phase = .ready(edited)
                     choice.reviewed = true
                     editing = false
@@ -371,16 +377,20 @@ struct CastSheetEditor: View {
     let onDone: (DialogueCast.Casting) -> Void
     let onCancel: () -> Void
 
-    @State private var preview = VoicePreviewPlayer()
+    @State private var preview: VoicePreviewPlayer
     @State private var problem: String?
+    /// The speaker whose voice picker is open.
+    @State private var pickingVoice: String?
     /// Names and phrases as typed, applied on Return or Use This Cast: applied letter by letter,
     /// a rename would keep every half-typed name as a phrase, and a trailing comma would vanish.
     @State private var nameDrafts: [String: String] = [:]
     @State private var aliasDrafts: [String: String] = [:]
 
     init(casting: DialogueCast.Casting, narrator: String, voices: [String], previewFallback: String,
+         preview: VoicePreviewPlayer = VoicePreviewPlayer(),
          onDone: @escaping (DialogueCast.Casting) -> Void, onCancel: @escaping () -> Void) {
         _casting = State(initialValue: casting)
+        _preview = State(initialValue: preview)
         self.narrator = narrator
         self.voices = voices
         self.previewFallback = previewFallback
@@ -474,14 +484,23 @@ struct CastSheetEditor: View {
                 Text("The narrator: these lines are read in the narrator's voice.").font(.caption).foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 8) {
-                    Picker("Voice", selection: voiceBinding(speaker)) {
-                        Text("Narrator's voice").tag(String?.none)
-                        ForEach(choices, id: \.self) { voice in
-                            Text(voice == narrator ? "\(DialogueCastEditing.voiceLabel(voice)), the narrator" : DialogueCastEditing.voiceLabel(voice))
-                                .tag(String?.some(voice))
+                    // The voice picker the narrator is chosen with, in a popover.
+                    Button {
+                        pickingVoice = speaker.id
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(voiceTitle(speaker.voice)).lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down").font(.caption2)
                         }
                     }
-                    .frame(width: 300)
+                    .frame(width: 300, alignment: .leading)
+                    .accessibilityLabel("Voice for \(speaker.name)")
+                    .accessibilityValue(voiceTitle(speaker.voice))
+                    .accessibilityIdentifier("cast-voice-\(speaker.id)")
+                    .popover(isPresented: Binding(get: { pickingVoice == speaker.id },
+                                                  set: { if !$0 { pickingVoice = nil } })) {
+                        voicePicker(speaker)
+                    }
                     Button {
                         if let voice = speaker.voice { preview.toggle(voice, text: speaker.sample ?? previewFallback) }
                     } label: {
@@ -498,6 +517,48 @@ struct CastSheetEditor: View {
                 .onSubmit { _ = applyDrafts() }
                 .accessibilityLabel("Also called, for \(speaker.name)")
         }
+    }
+
+    /// "Heart, American, female", or what stands for the narrator.
+    private func voiceTitle(_ voice: String?) -> String {
+        guard let voice else { return "Narrator's voice" }
+        let label = VoiceDirectory.entry(voice).label
+        return voice == narrator ? "\(label), the narrator" : label
+    }
+
+    /// The speaker's voice now, then the voices best for dialogue in the narrator's language.
+    private func suggestions(_ speaker: DialogueCast.Casting.Speaker) -> [String] {
+        let language = VoiceCatalogue.declaredLanguage(narrator) ?? "en"
+        let best = VoiceCatalogue.candidates(language: language, available: choices)
+            .sorted { VoiceCatalogue.dialogueRank($0) < VoiceCatalogue.dialogueRank($1) }
+            .map(\.spec).filter { $0 != narrator }
+        return Array(([speaker.voice].compactMap { $0 } + best.filter { $0 != speaker.voice }).prefix(4))
+    }
+
+    private func voicePicker(_ speaker: DialogueCast.Casting.Speaker) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Voice for \(speaker.name)").font(.headline)
+            Button {
+                casting.setVoice(speaker.id, nil)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: speaker.voice == nil ? "largecircle.fill.circle" : "circle")
+                        .foregroundStyle(speaker.voice == nil ? Color.accentColor : .secondary)
+                    Text("Narrator's voice")
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .font(.callout)
+            .accessibilityAddTraits(speaker.voice == nil ? .isSelected : [])
+            VoicePicker(suggested: suggestions(speaker), all: choices, chosen: voiceBinding(speaker),
+                        playing: preview.playing,
+                        tag: { $0 == narrator ? "the narrator" : nil },
+                        onPreview: { preview.toggle($0, text: speaker.sample ?? previewFallback) })
+        }
+        .padding(14)
+        .frame(width: 400)
     }
 
     // MARK: Bindings over the editing operations

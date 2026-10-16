@@ -140,6 +140,9 @@ devices.
 | `GET /v1/device/poll` | token | A player parks here waiting for a command. `204` when there's nothing. |
 | `POST /v1/device/result` | token | A player reports back what happened. |
 | `PUT /v1/books/{id}` | token | Submit a prepared book to render. Streamed like a file upload. |
+| `PUT /v1/books/{id}/upload` | token | A book another device made itself (the Mac, with its own voices): its prepared book, kept as a job the gateway never renders, every chapter `queued` until its audio arrives. The same book again answers with the job already there. Needs no ffmpeg. |
+| `PUT /v1/books/{id}/chapters/{n}/timing` | token | That uploaded book's chapter *n* read-along timing (JSON, at most 2 MB), sent before its audio. |
+| `PUT /v1/books/{id}/chapters/{n}` | token | That uploaded book's chapter *n* M4A, with `X-Baton-SHA256` (checked against the bytes received; `422` and nothing kept on a mismatch) and `X-Baton-Duration`. Bounded by the upload size limit and the books' space (`507` when full). The last chapter makes the book `ready`. `409` for a book the gateway renders itself. |
 | `GET /v1/books` | token | Every book, its chapters' state, and the space used and allowed. |
 | `GET /v1/books/{id}` | token | One book: per chapter `queued`, `rendering`, `encoding`, `ready` or `failed`. Each summary, here and in the listing, names its `documentID`, so a device that did not send the book can adopt it. |
 | `GET /v1/books/{id}/book` | token | The prepared book the job was made from (JSON), for a device that did not send it: the chapter words for read-along, and what Render Again starts from. |

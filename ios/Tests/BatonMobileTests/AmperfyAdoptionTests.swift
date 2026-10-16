@@ -112,6 +112,18 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertTrue(resolved.contains(.folders), "a new section must not be lost to an old layout")
     }
 
+    /// Books was split off Clippings: a layout saved before it puts Books right
+    /// after Clippings, visible, and leaves everything else where it was.
+    func testBooksLandsNextToClippingsInASavedLayout() {
+        let saved = ["clippings", "liked", "radio", "playlists"]
+        let resolved = LibraryLayout.resolve(saved: saved).map(\.rawValue)
+        XCTAssertEqual(Array(resolved.prefix(5)), ["clippings", "books", "liked", "radio", "playlists"])
+        XCTAssertEqual(resolved.count, LibrarySection.allCases.count)
+        XCTAssertEqual(LibraryLayout.resolve(saved: []).firstIndex(of: .books),
+                       LibraryLayout.resolve(saved: []).firstIndex(of: .clippings).map { $0 + 1 },
+                       "the default order has Books after Clippings too")
+    }
+
     func testUnknownSavedIDsAreDroppedNotFatal() {
         let resolved = LibraryLayout.resolve(saved: ["liked", "cassettes", "radio"])
         XCTAssertFalse(resolved.map(\.rawValue).contains("cassettes"))

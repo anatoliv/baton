@@ -56,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.5"
+    MARKETING_VERSION: "1.5.1"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -142,6 +142,8 @@ targets:
       - path: ../Shared/HomeServerBooks.swift
       # Read-along for a playing book, one view for both apps (TBX-10960).
       - path: ../Shared/ReadAlongView.swift
+      # The voice picker, one for both apps: suggested voices, then every voice (TBX-11028).
+      - path: ../Shared/VoicePicker.swift
       # The share extension's inbox, read here when the app becomes active (TBX-10846).
       - path: Sources/BatonShare/PendingShareInbox.swift
       - path: Sources/Shared

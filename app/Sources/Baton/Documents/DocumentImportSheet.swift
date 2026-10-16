@@ -1,4 +1,5 @@
 import BatonDocuments
+import BatonSubsonicKit
 import SwiftUI
 
 /// What Baton found in a file, before anything is made from it (M3.4).
@@ -33,11 +34,22 @@ struct DocumentImportSheet: View {
     @State private var submitting = false
     @State private var suggestion: VoiceSuggestion?
     @State private var chosen: String?
+    /// The person picked a voice on this sheet, so a remembered one no longer takes its place.
+    @State private var personChose = false
+    /// Previews in this Mac's voices, and in the Baton server's when it makes the book.
     @State private var preview = VoicePreviewPlayer()
+    @State private var serverPreview = VoicePreviewPlayer.batonServer()
+    /// Every voice the renderer offers: the Baton server's, or this Mac's own, as
+    /// Made on says. Nil when it did not say, with why in `allVoicesProblem`.
+    @State private var allVoices: [String]?
+    @State private var allVoicesLoading = true
+    @State private var allVoicesProblem: String?
     /// Where the book is made: the home server when it answers with books on (the spec's default
     /// at home), otherwise this Mac.
     @State private var renderer: DocumentLibrary.Renderer = .thisMac
     @State private var homeServerAvailable = false
+    /// A Baton server is set up in Settings, answering or not (read once, as the sheet opens).
+    @State private var homeServerConfigured = false
     /// Settings → Speech → Make books on: Ask each time offers the choice below;
     /// This Mac or Home server makes it without asking.
     private let makeBooksOn = BookVoiceSettings.makeBooksOn
@@ -84,11 +96,26 @@ struct DocumentImportSheet: View {
         .frame(width: 480)
         .task { await read() }
         .task {
+            // The Baton server from the start when one is set up, not only once it has answered,
+            // so a book made in the first seconds goes there too.
+            homeServerConfigured = library.homeServer.isConfigured
+            renderer = BookVoiceSettings.openingRenderer(makeBooksOn, homeServerConfigured: homeServerConfigured)
             homeServerAvailable = await library.homeServerAvailable()
             renderer = BookVoiceSettings.initialRenderer(makeBooksOn, homeServerAvailable: homeServerAvailable)
         }
-        .onDisappear { preview.stop() }
+        .task(id: renderer) { await listVoices() }
+        .onChange(of: renderer) { _, _ in
+            preview.stop()
+            serverPreview.stop()
+        }
+        .onDisappear {
+            preview.stop()
+            serverPreview.stop()
+        }
     }
+
+    /// The preview that speaks in the voices of the renderer the book is made on.
+    private var activePreview: VoicePreviewPlayer { renderer == .homeServer ? serverPreview : preview }
 
     @ViewBuilder
     private func details(_ document: ImportedDocument, voice: String) -> some View {
@@ -142,7 +169,8 @@ struct DocumentImportSheet: View {
 
         narrator(document)
         pronunciations(document)
-        DialogueCastSection(document: document, narrator: chosen ?? voice, modelFree: lexiconLine != nil, choice: $cast)
+        DialogueCastSection(document: document, narrator: chosen ?? voice, modelFree: lexiconLine != nil, choice: $cast,
+                            rendererVoices: allVoices, previewOnServer: renderer == .homeServer)
 
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
@@ -162,6 +190,14 @@ struct DocumentImportSheet: View {
                             Text(note).foregroundStyle(.secondary)
                         }
                     }
+                }
+            }
+            if renderer == .thisMac {
+                GridRow {
+                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    Text(BookVoiceSettings.thisMacNote(homeServerConfigured: homeServerConfigured))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -187,7 +223,8 @@ struct DocumentImportSheet: View {
         }
     }
 
-    /// The suggested narrator and two alternates, each one click to choose and one to hear.
+    /// The suggested narrator and two alternates, then every voice the renderer offers
+    ///, each one click to choose and one to hear.
     @ViewBuilder
     private func narrator(_ document: ImportedDocument) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -197,12 +234,19 @@ struct DocumentImportSheet: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                ForEach([suggestion.primary] + suggestion.alternates, id: \.self) { voice in
-                    NarratorOptionRow(voice: voice, chosen: $chosen, preview: preview,
-                                      previewText: VoiceSuggestions.previewText(for: document),
-                                      tag: voice == suggestion.primary && !suggestion.isFallback ? "suggested" : nil)
-                }
-                if let failure = preview.failure {
+                let remembered = rememberedVoice(document)
+                let previewText = VoiceSuggestions.previewText(for: document)
+                VoicePicker(suggested: VoiceDirectory.suggested([suggestion.primary] + suggestion.alternates,
+                                                                remembered: remembered, available: allVoices),
+                            all: allVoices, loading: allVoicesLoading, unavailable: allVoicesProblem,
+                            chosen: Binding(get: { chosen }, set: { chosen = $0; personChose = true }),
+                            playing: activePreview.playing,
+                            tag: { voice in
+                                if voice == remembered { return "last used" }
+                                return voice == suggestion.primary && !suggestion.isFallback ? "suggested" : nil
+                            },
+                            onPreview: { activePreview.toggle($0, text: previewText) })
+                if let failure = activePreview.failure {
                     Text(failure).font(.caption).foregroundStyle(.orange)
                 }
                 if let consentAsk {
@@ -225,7 +269,7 @@ struct DocumentImportSheet: View {
         let found = await VoiceSuggestions.suggestLive(
             for: document, languageDefault: DocumentLibrary.languageDefaultVoice(for: document), allowingOnce: allowedOnce)
         suggestion = found.suggestion
-        chosen = found.suggestion.primary
+        if !personChose { chosen = rememberedVoice(document) ?? found.suggestion.primary }
         let ledger = CloudModelConsent.ledger()
         consentAsk = VoiceSuggestions.sourceToAsk(fellBack: found.suggestion.isFallback, routing: found.routing,
                                                   hasAnswered: { ledger.hasAnswered($0, ModelTask.voiceSuggestion.content) })
@@ -239,7 +283,7 @@ struct DocumentImportSheet: View {
         guard CloudModelConsent.record(answer, for: source, in: CloudModelConsent.ledger()) else { return }
         if answer == .once { allowedOnce = source }
         suggestion = nil
-        chosen = nil
+        if !personChose { chosen = nil }
         proposedLexicon = nil
         lexiconRows = []
         lexiconLine = nil
@@ -302,6 +346,38 @@ struct DocumentImportSheet: View {
         }
     }
 
+    /// Every voice the renderer offers: the Baton server's list (`GET /v1/voices`), or the
+    /// voices this Mac makes books with (`VoiceSuggestions.availableVoices`, under Voice engine
+    /// for books). Asked again when Made on changes.
+    private func listVoices() async {
+        allVoicesLoading = true
+        let listing = renderer == .homeServer
+            ? await library.homeServer.voiceListing()
+            : await VoiceSuggestions.thisMacListing()
+        guard !Task.isCancelled else { return }
+        allVoices = listing.voices
+        allVoicesProblem = listing.problem
+        allVoicesLoading = false
+        // A voice picked from the other renderer's list that this one does not have goes back to
+        // the suggestion, so the book is never sent with a voice its renderer cannot speak.
+        if let all = listing.voices, let picked = chosen, let suggestion, !all.contains(picked),
+           !([suggestion.primary] + suggestion.alternates).contains(picked) {
+            chosen = suggestion.primary
+            personChose = false
+        }
+        if !personChose, suggestion != nil, case let .ready(document, _) = phase, let remembered = rememberedVoice(document) {
+            chosen = remembered
+        }
+    }
+
+    /// The narrator last chosen on this Mac for a book in this one's language, when the renderer
+    /// offers it.
+    private func rememberedVoice(_ document: ImportedDocument) -> String? {
+        guard let last = VoiceChoiceMemory(defaults: BatonStorage.defaults).last(language: document.language),
+              allVoices?.contains(last) == true else { return nil }
+        return last
+    }
+
     /// One line above the three voices: who suggested it and why, or why it is the default.
     static func suggestionLine(_ suggestion: VoiceSuggestion) -> String {
         if let reason = suggestion.fallbackReason {
@@ -328,6 +404,8 @@ struct DocumentImportSheet: View {
     private func submit(_ document: ImportedDocument, voice: String) {
         submitting = true
         preview.stop()
+        serverPreview.stop()
+        VoiceChoiceMemory(defaults: BatonStorage.defaults).remember(voice, language: document.language)
         // The suggested speed goes with the suggested voice; the suggestion's tone is the book's,
         // and styles a Chatterbox narrator whichever one is chosen (M8.7).
         // With a checked cast, each attributed quote in its speaker's voice (G4); otherwise the
@@ -365,49 +443,4 @@ struct DocumentImportSheet: View {
     static func text(for warning: ImportWarning) -> String { warning.listenerText }
 
     static func pageList(_ pages: [Int]) -> String { ImportWarning.pageList(pages) }
-}
-
-/// One narrator to choose, with a button to hear it in the book's own words: the import sheet's
-/// row, and Change Voice's, so the two pick a voice the same way.
-struct NarratorOptionRow: View {
-    let voice: String
-    @Binding var chosen: String?
-    let preview: VoicePreviewPlayer
-    let previewText: String
-    /// "suggested", "now": a word after the name.
-    var tag: String? = nil
-    /// A line under the name, such as what the voice suits.
-    var detail: String? = nil
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                chosen = voice
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: chosen == voice ? "largecircle.fill.circle" : "circle")
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 6) {
-                            Text(DocumentImportSheet.voiceLabel(voice))
-                            if let tag { Text(tag).font(.caption).foregroundStyle(.secondary) }
-                        }
-                        if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(DocumentImportSheet.voiceLabel(voice))
-            .accessibilityAddTraits(chosen == voice ? .isSelected : [])
-            Spacer()
-            Button {
-                preview.toggle(voice, text: previewText)
-            } label: {
-                Image(systemName: preview.playing == voice ? "stop.circle" : "play.circle")
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(preview.playing == voice ? "Stop" : "Hear \(DocumentImportSheet.voiceLabel(voice))")
-        }
-        .font(.callout)
-    }
 }

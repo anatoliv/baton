@@ -343,7 +343,7 @@ struct BatonSpeechPane: View {
     }
 
     /// The documents switch. The menu item (File → Import Document…), the drop target on
-    /// Clippings and the `import_document` agent tool all read the same flag, so turning it off
+    /// Books and the `import_document` agent tool all read the same flag, so turning it off
     /// here takes the feature out of every entrance at once.
     private var documentsSection: some View {
         Section("Documents") {
@@ -354,7 +354,7 @@ struct BatonSpeechPane: View {
                 // For scripts/probe-documents-storage.sh: a grouped Form's switch carries no
                 // label of its own in the accessibility tree.
                 .accessibilityIdentifier("documents-switch")
-            Text("Turn documents into audiobooks from Clippings or File > Import Document.")
+            Text("Turn documents into audiobooks from Books or File > Import Document.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
