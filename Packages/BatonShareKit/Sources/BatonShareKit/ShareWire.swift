@@ -26,9 +26,11 @@ public struct ShareMetadata: Codable, Equatable, Sendable {
     public var note: String
     public var accent: String?
     public var peaks: [Int]
+    /// Optional MusicBrainz recording identity. Older shares omit it.
+    public var recordingID: String?
 
     public init(title: String, artist: String = "", album: String = "", durationSeconds: Int,
-                from: String = "", note: String = "", accent: String? = nil, peaks: [Int] = []) {
+                from: String = "", note: String = "", accent: String? = nil, peaks: [Int] = [], recordingID: String? = nil) {
         self.title = title
         self.artist = artist
         self.album = album
@@ -37,6 +39,7 @@ public struct ShareMetadata: Codable, Equatable, Sendable {
         self.note = note
         self.accent = accent
         self.peaks = peaks
+        self.recordingID = recordingID
     }
 
     /// Tolerates missing optional fields, so an older or terser client still decodes.
@@ -50,6 +53,7 @@ public struct ShareMetadata: Codable, Equatable, Sendable {
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
         accent = try c.decodeIfPresent(String.self, forKey: .accent)
         peaks = try c.decodeIfPresent([Int].self, forKey: .peaks) ?? []
+        recordingID = try c.decodeIfPresent(String.self, forKey: .recordingID)
     }
 
     /// The metadata after normalization, or the first rule it breaks.
@@ -73,6 +77,12 @@ public struct ShareMetadata: Codable, Equatable, Sendable {
         }
         guard peaks.count <= ShareLimits.maxPeaks, peaks.allSatisfy({ (0 ... 255).contains($0) }) else {
             throw ShareValidationError("peaks", "at most \(ShareLimits.maxPeaks) values, each from 0 to 255")
+        }
+        if let recordingID {
+            guard let identity = UUID(uuidString: recordingID), recordingID.count == 36 else {
+                throw ShareValidationError("recordingID", "must be a MusicBrainz recording UUID")
+            }
+            copy.recordingID = identity.uuidString.lowercased()
         }
         return copy
     }
@@ -354,7 +364,9 @@ public struct PublicShare: Codable, Equatable, Sendable {
 }
 
 public struct ShareConfig: Codable, Equatable, Sendable {
+    public var mixtapes: Int?
     public var appAttest: ShareAttestationPolicy?
+    public var reactionPush: ReactionPushAdvertisement?
     public var enabled: Bool
     public var maxAudioBytes: Int
     public var maxDurationSeconds: Int

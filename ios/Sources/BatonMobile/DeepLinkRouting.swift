@@ -1,4 +1,5 @@
 import BatonSubsonicKit
+import BatonShareKit
 import Foundation
 
 /// What became of a `baton://` link.
@@ -14,6 +15,7 @@ enum DeepLinkOutcome: Equatable {
     case notConnected
     case songUnavailable
     case albumUnavailable
+    case shareSceneUnavailable
 
     /// What to say, or nil when there is nothing to say.
     ///
@@ -30,6 +32,8 @@ enum DeepLinkOutcome: Equatable {
             "That track could not be loaded. It may have been removed, or your music server may be unreachable."
         case .albumUnavailable:
             "That album could not be loaded. It may have been removed, or your music server may be unreachable."
+        case .shareSceneUnavailable:
+            "Open this song link in a Baton window to listen."
         }
     }
 }
@@ -40,8 +44,19 @@ extension MobileModel {
     /// What a link *means* is `BatonDeepLink`'s job and is tested as a pure function; this
     /// only acts on it, and says so when it cannot.
     @MainActor
-    func open(_ link: BatonDeepLink) async -> DeepLinkOutcome {
+    func open(_ link: BatonDeepLink, incomingShareSceneID scene: UUID? = nil) async -> DeepLinkOutcome {
         switch link {
+        case let .share(id, key), let .mixtape(id, key):
+            // Internal callers must name their recipient scene; never broadcast a key.
+            guard let scene else { return .shareSceneUnavailable }
+            let kind: ShareInvitation.Kind
+            if case .mixtape = link { kind = .mixtape } else { kind = .song }
+            let invitation = ShareInvitation(id: id, key: key, kind: kind)
+            if incomingShare != invitation || incomingShareSceneID != scene {
+                incomingShareSceneID = scene
+                incomingShare = invitation
+            }
+            return .handled
         case .presentPlayer:
             requestFullPlayer()
             return .handled

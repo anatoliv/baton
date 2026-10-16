@@ -497,13 +497,16 @@ EOF
   chmod +x "$WORK/rbin/hdiutil" "$WORK/rbin/xcrun"
 }
 
-run_resume() {   # $1 = version, $2 = build, $3 = commit, $4 = stapler status, $5 = provider
+run_resume() {   # $1 = version, $2 = build, $3 = commit, $4 = stapler status, $5 = provider, $6 = association status
   make_fixture "$1" "$2" "$3" "${5-crashbox}"; make_resume_stubs "$4"
   rm -rf "$WORK/dist"; mkdir -p "$WORK/dist"; echo "not really a dmg" >"$WORK/dist/Baton-0.19.3.dmg"
   { printf '%s' "$PRELUDE"
     echo ". '$ROOT/scripts/release-identity.sh'"
     echo "DIST='$WORK/dist'; DMG_NAME=Baton-0.19.3.dmg"
     echo "MACREL_VERSION=0.19.3; MACREL_BUILD=103; MACREL_COMMIT=$PINNED_COMMIT"
+    # This harness exercises resume control flow; profile/signature claims have their
+    # own synthetic tests and actual qualification still requires a signed artifact.
+    echo "mac_association_verify() { return ${6-0}; }"
     printf '%s\n' "$DETACH_FN"
     printf '%s\n' "$RESUME_FN"
     echo 'resume_assert_stapled_dmg "before publishing" && echo "RESUME_PROCEEDS"'; } >"$WORK/t5357r.sh"
@@ -517,6 +520,13 @@ elif ! printf '%s' "$out" | grep -q "read back from Info.plist"; then
   bad "TBX-5357: the resume did not read the identity out of the bundle inside the DMG. Got: $out"
 else
   ok "TBX-5357 resume proceeds when the DMG's .app names the pinned version and commit"
+fi
+
+out="$(run_resume 0.19.3 103 "$PINNED_COMMIT" 0 crashbox 1)"
+if printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+  bad "TBX-8693: resume ignored rejected signed association qualification"
+else
+  ok "TBX-8693 resume refuses when signed association qualification fails"
 fi
 
 out="$(run_resume 0.19.2 102 "$PINNED_COMMIT" 0)"

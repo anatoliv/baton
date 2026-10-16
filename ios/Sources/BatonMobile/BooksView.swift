@@ -47,6 +47,8 @@ struct BooksView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var store: ClippingStore { model.clippings }
+    /// Book covers, while Documents is on.
+    private var covers: BookCovers? { documentsOn ? model.covers : nil }
     /// Read live through the model's switch, so turning Documents off in Settings hides the
     /// books and the import menu at once.
     private var documentsOn: Bool { model.documentsSwitch.isOn }
@@ -117,6 +119,7 @@ struct BooksView: View {
         .sheet(isPresented: $showsReadAlong) {
             MobileReadAlongSheet(model: model)
         }
+        .bookCoverSheets(covers)
         .overlay(alignment: .bottom) {
             if let status {
                 Text(status)
@@ -225,23 +228,21 @@ struct BooksView: View {
     /// One book: its mark, title, author, how far along it is and where it was made.
     private func bookRow(_ book: MobileBookShelf.Book) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "book.closed").foregroundStyle(.secondary).frame(width: 22)
+            BookCoverArt(covers: covers, documentID: book.documentID, side: 44, cornerRadius: 4)
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title).lineLimit(1)
                 HStack(spacing: 6) {
                     if let author = book.author, !author.isEmpty { Text(author) }
                     Text(book.summaryText)
                     Text(book.storedText)
-                    progressWords(book)
+                    MobileBookHeard(model: model, book: book, part: .words)
                 }
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 if let origin = book.originText {
                     Text(origin).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 statusLines(book)
-                if book.listenedFraction > 0 && !book.finished {
-                    ProgressView(value: book.listenedFraction).frame(maxWidth: 200)
-                }
+                MobileBookHeard(model: model, book: book, part: .bar(maxWidth: 200))
             }
             // The bars alone, so the list still says one of this book's chapters is the one
             // playing; the chapter row inside the book carries the accent.
@@ -251,15 +252,6 @@ struct BooksView: View {
             }
         }
         .accessibilityValue(isCurrent(book) ? (barsArePlaying ? "Now playing" : "Paused") : "")
-    }
-
-    @ViewBuilder
-    private func progressWords(_ book: MobileBookShelf.Book) -> some View {
-        if book.finished {
-            Text("Finished")
-        } else if book.listenedFraction > 0 {
-            Text("\(Int((book.listenedFraction * 100).rounded()))% heard")
-        }
     }
 
     @ViewBuilder
@@ -277,10 +269,13 @@ struct BooksView: View {
     /// The row's long-press menu: what the open book offers, without opening it.
     @ViewBuilder
     private func bookMenu(_ book: MobileBookShelf.Book) -> some View {
-        Button(playTitle(book)) { play(book) }.disabled(book.readyChapters.isEmpty)
+        Button(mainAction(book).title) { performMain(book) }.disabled(book.readyChapters.isEmpty)
         storageActions(book)
         Toggle("Keep on This iPhone", isOn: keepBinding(book))
         changeVoiceActions(book)
+        if let covers {
+            Section("Cover") { BookCoverMenu(covers: covers, book: book) }
+        }
     }
 
     // MARK: - An open book
@@ -317,6 +312,7 @@ struct BooksView: View {
             }
             .navigationTitle(book.title)
             .navigationBarTitleDisplayMode(.inline)
+            .modifier(SolidTopEdge())
             .toolbar { sleepTimerItem }
         } else {
             // Deleted, or Documents turned off, while it was open.
@@ -329,11 +325,15 @@ struct BooksView: View {
     private func detailHeader(_ book: MobileBookShelf.Book) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(.quaternary)
-                    Image(systemName: "book.closed").font(.system(size: 32)).foregroundStyle(.secondary)
+                Menu {
+                    if let covers { BookCoverMenu(covers: covers, book: book) }
+                } label: {
+                    BookCoverArt(covers: covers, documentID: book.documentID, side: 76, cornerRadius: 10, glyphSize: 32)
                 }
-                .frame(width: 76, height: 76)
+                .disabled(covers == nil)
+                .accessibilityLabel("Cover")
+                .accessibilityHint("Find, make, choose or remove this book's cover")
+                .accessibilityIdentifier("cover-menu")
                 .overlay(alignment: .bottomTrailing) {
                     if isCurrent(book) { NowPlayingBars(isPlaying: barsArePlaying).padding(6) }
                 }
@@ -344,7 +344,7 @@ struct BooksView: View {
                     }
                     HStack(spacing: 6) {
                         Text(book.summaryText)
-                        progressWords(book)
+                        MobileBookHeard(model: model, book: book, part: .words)
                     }
                     .font(.caption).foregroundStyle(.secondary)
                     if let origin = book.originText {
@@ -352,33 +352,56 @@ struct BooksView: View {
                     }
                 }
             }
-            if book.listenedFraction > 0 && !book.finished {
-                ProgressView(value: book.listenedFraction)
-            }
+            MobileBookHeard(model: model, book: book, part: .bar(maxWidth: nil))
             statusLines(book)
-            HStack(spacing: 10) {
-                Button { play(book) } label: {
-                    Label(playTitle(book), systemImage: "play.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(book.readyChapters.isEmpty)
-                .accessibilityIdentifier("book-play")
-                Button { readAlong(book) } label: {
-                    Label("Read Along", systemImage: "text.book.closed").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .disabled(book.readyChapters.isEmpty)
-                .accessibilityIdentifier("book-read-along")
+            // Side by side, one line each and the same size, while both fit; stacked, full width,
+            // when the text is too large for that or the screen too narrow (TBX-11063: "Read
+            // Along" wrapped to two lines beside a one-line "Resume").
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { mainButton(book); readAlongButton(book) }
+                VStack(spacing: 10) { mainButton(book); readAlongButton(book) }
             }
             .controlSize(.large)
         }
         .padding(.vertical, 4)
     }
 
+    /// Pause or Resume while this book is in the player, else Play or Resume from its place
+    ///, with the play/pause morph the player's own button has.
+    private func mainButton(_ book: MobileBookShelf.Book) -> some View {
+        let action = mainAction(book)
+        return Button { performMain(book) } label: {
+            BookActionLabel(title: action.title, symbol: action.symbol)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(book.readyChapters.isEmpty)
+        .accessibilityLabel(action.title)
+        .accessibilityIdentifier("book-play")
+    }
+
+    private func readAlongButton(_ book: MobileBookShelf.Book) -> some View {
+        Button { readAlong(book) } label: {
+            BookActionLabel(title: "Read Along", symbol: "text.book.closed")
+        }
+        .buttonStyle(.bordered)
+        .disabled(book.readyChapters.isEmpty)
+        .accessibilityLabel("Read Along")
+        .accessibilityIdentifier("book-read-along")
+    }
+
     private func chapterRow(_ book: MobileBookShelf.Book, _ chapter: MobileBookShelf.Book.Chapter) -> some View {
         let current = isCurrent(chapter.item)
         return Button {
-            play(book, fromChapter: chapter.index)
+            // The chapter in the player pauses or carries on, as a playing music row does;
+            // queuing it again jumped it back to its last saved place.
+            // Only while the book is the collection in the player (the shared rule); run to
+            // its end, it plays again.
+            let toggles = current && model.music.collectionState(Self.source(book)).isLoaded
+            switch BookTransport.chapterTap(isCurrentChapter: toggles, isPlaying: model.music.isPlaying) {
+            case .pause?: model.music.pause()
+            case .resumePlayer?: model.music.resume()
+            default: play(book, fromChapter: chapter.index)
+            }
         } label: {
             HStack(spacing: 8) {
                 // The bars take the chapter number's place, as in the queue.
@@ -560,9 +583,24 @@ struct BooksView: View {
 
     // MARK: - Playing
 
-    /// "Resume" when there is a place to go back to, "Play" otherwise.
-    private func playTitle(_ book: MobileBookShelf.Book) -> String {
-        !book.finished && book.position != nil ? "Resume" : "Play"
+    /// The source this book plays under, so the shared collection rule knows it.
+    static func source(_ book: MobileBookShelf.Book) -> StreamingPlaybackController.QueueSource {
+        BookTransport.source(documentID: book.documentID, title: book.title)
+    }
+
+    /// The main button, from the shared collection rule: the player's
+    /// Pause or Resume while this book is the collection in it, else Resume from the book's
+    /// place, or Play.
+    private func mainAction(_ book: MobileBookShelf.Book) -> BookTransport.Action {
+        BookTransport.action(model.music.collectionState(Self.source(book)),
+                             finished: book.finished, hasPosition: book.position != nil)
+    }
+
+    /// Toggle the player for the book in it; queue any other book from its place. A book in the
+    /// player is never queued again: its saved place trails the playhead by up to five seconds,
+    /// so that jumped it back, and it offered "Previously…" in the middle of listening.
+    private func performMain(_ book: MobileBookShelf.Book) {
+        if !model.music.toggleIfLoaded(Self.source(book)) { play(book) }
     }
 
     /// Read Along follows the chapter in the player, so a book that is not playing starts from
@@ -615,7 +653,7 @@ struct BooksView: View {
     private func startPlaying(_ book: MobileBookShelf.Book, fromChapter index: Int? = nil) {
         let (songs, start) = MobileBookShelf.queue(for: book, fromChapter: index)
         guard !songs.isEmpty else { return }
-        model.music.play(songs, startAt: start, source: .init(label: book.title, kind: .song, id: book.documentID))
+        model.music.play(songs, startAt: start, source: Self.source(book))
     }
 
     // MARK: - Previously…
@@ -707,6 +745,90 @@ struct BooksView: View {
         Task {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             if status == message { status = nil }
+        }
+    }
+}
+
+/// A book button's icon and words on one line, centred, as wide as the widest of the book
+/// buttons' labels, so the two buttons side by side are the same size whatever they
+/// say and `ViewThatFits` stacks them when that width does not fit twice.
+private struct BookActionLabel: View {
+    let title: String
+    let symbol: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let widest: [(title: String, symbol: String)] = [
+        ("Read Along", "text.book.closed"), ("Resume", "play.fill"), ("Pause", "pause.fill"),
+    ]
+
+    var body: some View {
+        ZStack {
+            ForEach(Self.widest, id: \.title) { label(title: $0.title, symbol: $0.symbol).hidden() }
+            label(title: title, symbol: symbol)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: symbol)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func label(title: String, symbol: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+            Text(title)
+        }
+        .lineLimit(1)
+        .fixedSize()
+    }
+}
+
+/// The open book scrolls under a navigation bar that hides it. iOS 26's soft edge
+/// let the header's own title, cover and progress bar show faintly behind the bar's title, and
+/// the "Making again…" line sit legible under the bar, which read as two headers over each other.
+/// iOS 18 draws the bar's material once content is under it, as before.
+private struct SolidTopEdge: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.scrollEdgeEffectStyle(.hard, for: .top)
+        } else {
+            content
+        }
+    }
+}
+
+/// How far through a book the listener is: "12% heard" or "Finished", and the bar.
+/// From the live playhead while one of the book's chapters is in the player, else from the saved
+/// place, which the shared ledger keeps in UserDefaults where observation does not see it: read
+/// alone it never redrew while the book played. A view of its own, so only this redraws with the
+/// playhead, and only for the book in the player.
+private struct MobileBookHeard: View {
+    enum Part { case words, bar(maxWidth: CGFloat?) }
+
+    let model: MobileModel
+    let book: MobileBookShelf.Book
+    let part: Part
+
+    var body: some View {
+        let loaded = model.music.collectionState(BooksView.source(book)).isLoaded
+            ? book.loadedChapter(nowPlayingID: model.music.nowPlaying?.id) : nil
+        let place = BookTransport.place(loadedChapter: loaded, playhead: loaded == nil ? 0 : model.music.currentTime,
+                                        saved: book.position)
+        let fraction = book.listenedFraction(at: place, live: loaded != nil)
+        let finished = book.finished && loaded == nil
+        switch part {
+        case .words:
+            if finished {
+                Text("Finished")
+            } else if fraction > 0 {
+                Text(BookTransport.heardText(fraction))
+            }
+        case let .bar(maxWidth):
+            if fraction > 0 && !finished {
+                ProgressView(value: fraction)
+                    .frame(maxWidth: maxWidth)
+                    .accessibilityLabel("Heard")
+                    .accessibilityValue(BookTransport.heardText(fraction))
+                    .accessibilityIdentifier("book-heard-bar")
+            }
         }
     }
 }

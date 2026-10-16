@@ -42,7 +42,13 @@ struct MusicRelatedView: View {
                     HStack(spacing: 10) {
                         Text("\(shown.count) similar").font(.caption).foregroundStyle(.secondary)
                         Spacer()
-                        Button { playRadio(startAt: 0) } label: { Label("Play all", systemImage: "play.fill") }
+                        // Pause / Resume while this related list is what plays.
+                        let state = model.music.collectionState(radioSource)
+                        Button {
+                            if !model.music.toggleIfLoaded(radioSource) { playRadio(startAt: 0) }
+                        } label: {
+                            Label(state == .idle ? "Play all" : state.title, systemImage: state.symbol)
+                        }
                         Button { model.music.enqueue(shown) } label: { Label("Queue all", systemImage: "text.append") }
                     }
                     .font(.caption).buttonStyle(.borderless)
@@ -73,8 +79,13 @@ struct MusicRelatedView: View {
         }
     }
 
+    /// Named by its seed, so this list's button can tell it is the one in the player.
+    private var radioSource: StreamingPlaybackController.QueueSource {
+        .init(label: "\(song.title) Radio", kind: .radio, id: "related-\(song.id)")
+    }
+
     private func playRadio(startAt index: Int) {
-        model.music.play(shown, startAt: index, source: .init(label: "\(song.title) Radio", kind: .radio, id: nil))
+        model.music.play(shown, startAt: index, source: radioSource)
     }
 }
 

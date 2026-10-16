@@ -116,7 +116,8 @@ struct MusicHistoryView: View {
                         }
                     },
                     leading: {
-                        MusicMiniTransport(onPlayWhenIdle: playCurrent)
+                        MusicMiniTransport(onPlayWhenIdle: { playCurrent() }, pageSource: currentSource,
+                                           onShuffleWhenIdle: { playCurrent(shuffle: true) })
                         if segment != .recent {
                             Picker("", selection: $window) {
                                 ForEach(StatWindow.allCases) { Text($0.rawValue).tag($0) }
@@ -291,12 +292,24 @@ struct MusicHistoryView: View {
 
     // MARK: - Actions
 
-    private func playCurrent() {
+    /// What the header transport plays on this segment, so it can tell that list is the one in
+    /// the player. Rankings have none.
+    private var currentSource: StreamingPlaybackController.QueueSource? {
         switch segment {
-        case .recent: model.music.play(recentSongs, source: .init(label: "History", kind: .song, id: nil))
-        case .tracks: model.music.play(topTracks.map(\.song), source: .init(label: "Top Tracks", kind: .song, id: nil))
-        case .albums, .artists: break // rankings, not concrete play queues
+        case .recent: .init(label: "History", kind: .song, id: nil)
+        case .tracks: .init(label: "Top Tracks", kind: .song, id: nil)
+        case .albums, .artists: nil
         }
+    }
+
+    private func playCurrent(shuffle: Bool = false) {
+        let list: [NavidromeSong] = switch segment {
+        case .recent: recentSongs
+        case .tracks: topTracks.map(\.song)
+        case .albums, .artists: [] // rankings, not concrete play queues
+        }
+        guard !list.isEmpty else { return }
+        if shuffle { model.music.playShuffled(list, source: currentSource) } else { model.music.play(list, source: currentSource) }
     }
 
     // MARK: - Archive menu, summary, export/import

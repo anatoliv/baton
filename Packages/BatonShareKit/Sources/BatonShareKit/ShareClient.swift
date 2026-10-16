@@ -85,6 +85,22 @@ public struct ShareClient: Sendable {
         Base64URL.encode(ShareCrypto.newKey() + ShareCrypto.newKey())
     }
 
+    public func registerReactionDevice(deviceID: UUID, token: Data, topic: String,
+                                       environment: String, proof: Data) async throws {
+        guard base.scheme == "https", (1 ... 1024).contains(token.count), (1 ... 4096).contains(proof.count),
+              ["sandbox", "production"].contains(environment) else { throw Failure.unexpected(0) }
+        let body = ["token": token.base64EncodedString(), "topic": topic,
+                    "environment": environment, "proof": proof.base64EncodedString()]
+        _ = try await reactionPushRaw("PUT", "/v1/share/owner/push-devices/\(deviceID.uuidString)",
+            body: JSONEncoder().encode(body), contentType: "application/json", authenticated: true)
+    }
+
+    public func unregisterReactionDevice(deviceID: UUID) async throws {
+        guard base.scheme == "https" else { throw Failure.unexpected(0) }
+        _ = try await reactionPushRaw("DELETE", "/v1/share/owner/push-devices/\(deviceID.uuidString)",
+                         body: nil, contentType: nil, authenticated: true)
+    }
+
     public func config() async throws -> ShareConfig {
         try await send("GET", "/v1/share/config", authenticated: false)
     }
@@ -153,6 +169,27 @@ public struct ShareClient: Sendable {
         }
     }
 
+    /// Sensitive registration bodies never follow redirects or use a shared cookie/cache jar.
+    private func reactionPushRaw(_ method: String, _ path: String, body: Data?, contentType: String?,
+                                 authenticated: Bool) async throws -> Data {
+        guard base.scheme == "https", let origin = base.host, base.user == nil, base.password == nil,
+              let url = URL(string: path, relativeTo: base), url.host == origin, url.scheme == "https",
+              (body?.count ?? 0) <= 8192 else { throw Failure.unexpected(0) }
+        let configuration = session.configuration
+        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false; configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 15
+        let transport = BoundedShareReceiverTransport(makeConfiguration: { configuration })
+        var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body
+        request.timeoutInterval = 15
+        if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+        request.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
+        let response: ShareReceiverResponse
+        do { response = try await transport.send(request, maximumBytes: 4096) }
+        catch { throw Failure.transport("reaction notification registration unavailable") }
+        guard (200 ..< 300).contains(response.status) else { throw Failure.unexpected(0) }
+        return response.body
+    }
+
     private func raw(_ method: String, _ path: String, body: Data?, contentType: String?,
                      authenticated: Bool) async throws -> Data {
         guard let url = URL(string: path, relativeTo: base) else { throw Failure.transport("bad path \(path)") }
@@ -178,4 +215,10 @@ public struct ShareClient: Sendable {
         }
         return data
     }
+}
+
+private final class ReactionPushRedirectDenial: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping @Sendable (URLRequest?) -> Void) { completionHandler(nil) }
 }

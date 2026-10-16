@@ -294,6 +294,19 @@ private struct ClientPodcastCell: View {
     let onRemove: () -> Void
     @State private var hover = false
 
+    /// The show as its page plays it, so the card's hover control is a real Play / Pause /
+    /// Resume for the show. It drew a play button that only opened the show.
+    private var showSource: StreamingPlaybackController.QueueSource {
+        .init(label: channel.title, kind: .playlist, id: channel.id)
+    }
+    private var playState: CollectionPlayState { model.music.collectionState(showSource) }
+
+    private func playShow() {
+        let songs = channel.episodes.map { $0.asSong(channelTitle: channel.title, artwork: $0.imageURL ?? channel.imageURL) }
+        guard !songs.isEmpty else { return onOpen() }
+        model.music.play(songs, source: showSource)
+    }
+
     var body: some View {
         MusicMediaCard(
             coverURL: channel.imageURL,
@@ -302,7 +315,9 @@ private struct ClientPodcastCell: View {
             title: channel.title,
             subtitle: channel.episodes.first?.title ?? "",
             isHovering: hover,
-            onPlay: onOpen
+            isSelected: playState.isLoaded,
+            isPlaying: playState == .playing,
+            onPlay: playShow
         )
         // Selection checkbox top-leading over the cover, like the Downloads grid cards.
         .overlay(alignment: .topLeading) {
@@ -489,12 +504,13 @@ private struct ClientPodcastChannelDetail: View {
                     .background(Color.secondary.opacity(0.15), in: Capsule())
             }
             if sel.isEmpty {
-                MusicMiniTransport(onPlayWhenIdle: { model.music.play(allSongs, source: queueSource) }, pageSource: queueSource)
+                MusicMiniTransport(onPlayWhenIdle: { model.music.play(allSongs, source: queueSource) }, pageSource: queueSource,
+                                   onShuffleWhenIdle: { model.music.playShuffled(allSongs, source: queueSource) })
                 MusicRowActions(actions: [
                     MusicRowAction(
                         title: "Shuffle",
-                        systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle",
-                        tint: model.music.isShuffled ? .accentColor : .secondary
+                        systemImage: model.music.isShuffling(queueSource) ? "shuffle.circle.fill" : "shuffle",
+                        tint: model.music.isShuffling(queueSource) ? .accentColor : .secondary
                     ) { shuffle() },
                     MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(allSongs) },
                 ])
@@ -620,6 +636,12 @@ private struct ClientPodcastChannelDetail: View {
     }
 
     private func play(_ episode: PodcastEpisode) {
+        // The row's glyph says Pause while this episode plays, and pressing it started the
+        // episode over. The episode in the player pauses or resumes in place.
+        if model.music.nowPlaying?.id == episode.enclosureURL.absoluteString {
+            if model.music.isPlaying { model.music.pause() } else { model.music.resume() }
+            return
+        }
         let index = channel.episodes.firstIndex(of: episode) ?? 0
         model.music.play(allSongs, startAt: index, source: queueSource)
     }

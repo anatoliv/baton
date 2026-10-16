@@ -225,4 +225,20 @@ final class QueueHandoffTests: XCTestCase {
         await elsewhere.checkForHandoff()
         XCTAssertNotNil(elsewhere.offer)
     }
+
+    /// Accepting keeps this device's shuffle setting and the sender's order: Play
+    /// now turns shuffle off for a fresh start, and a handoff is not one.
+    func testAcceptingAHandoffKeepsShuffleModeAndOrder() async {
+        let spy = ServerSpy()
+        spy.storedQueue = phoneQueue()
+        let controller = makeController()
+        if !controller.isShuffled { controller.toggleShuffle() }
+        let handoff = QueueHandoff(controller: controller, server: spy.server(), defaults: makeDefaults())
+        await handoff.checkForHandoff()
+        handoff.acceptOffer()
+        XCTAssertTrue(controller.isShuffled)
+        XCTAssertEqual(controller.queue.map(\.id), ["a", "b"])
+        XCTAssertEqual(controller.nowPlaying?.id, "b")
+        controller.toggleShuffle()
+    }
 }

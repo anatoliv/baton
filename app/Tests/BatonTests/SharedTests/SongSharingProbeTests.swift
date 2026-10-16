@@ -16,6 +16,12 @@ final class SongSharingProbeTests: XCTestCase {
                        ShareLink.defaultBase)
     }
 
+    func testOrdinaryLaunchSharesThroughThePublicService() {
+        // Not a probe, so songs and mixtapes go to the public service. The mixtape composer is
+        // always offered; it asks that service whether mixtapes are on and says so if not.
+        XCTAssertEqual(SongSharing.defaultBase, ShareLink.defaultBase)
+    }
+
     func testIsolatedProbeCanUseLocalFixture() {
         let local = URL(string: "http://127.0.0.1:8790")!
         XCTAssertEqual(SongSharing.probeBase(isProbe: true,

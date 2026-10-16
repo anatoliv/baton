@@ -6,5 +6,10 @@
 	<array>
 		<string>group.io.tonebox.baton</string>
 	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:batonmusic.app</string>
+		<string>applinks:baton.tonebox.io</string>
+	</array>
 </dict>
 </plist>

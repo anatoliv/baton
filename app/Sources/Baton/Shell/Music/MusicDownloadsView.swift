@@ -97,7 +97,8 @@ struct MusicDownloadsView: View {
                             if sel.isEmpty {
                                 MusicMiniTransport(
                                     onPlayWhenIdle: { model.music.play(filteredItems.map(\.song), source: downloadsSource) },
-                                    pageSource: downloadsSource
+                                    pageSource: downloadsSource,
+                                    onShuffleWhenIdle: { model.music.playShuffled(filteredItems.map(\.song), source: downloadsSource) }
                                 )
                                 Toggle(isOn: $offlineMode) { Text("Offline mode") }
                                     .toggleStyle(.switch).controlSize(.small)

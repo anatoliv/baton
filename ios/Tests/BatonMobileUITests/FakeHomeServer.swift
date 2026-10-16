@@ -33,6 +33,12 @@ final class FakeHomeServer: @unchecked Sendable {
     /// by digest, and one file for every chapter gave chapter 2 chapter 1's title.
     private let chapterAudio: [Data]
     private func audio(chapter n: Int) -> Data { chapterAudio[(n - 1) % chapterAudio.count] }
+    /// Real narrated chapters, when a test asks for them and the runner is given a folder of
+    /// them: `chapter-N.m4a` and `chapter-N.timing.json`, as a renderer leaves them,
+    /// through `TEST_RUNNER_BATON_UITEST_SPEECH_DIR`. Speech, not a tone, so the now-playing bars and
+    /// Read Along are seen against what a book really sounds like. Nil: the tones.
+    private let speech: (seconds: [Double], timing: [ReadAlongTiming?])?
+    private func seconds(chapter n: Int) -> Double { speech.map { $0.seconds[(n - 1) % $0.seconds.count] } ?? 30 }
     /// Whether `GET /v1/books` answers that books are on, and why not when they are off.
     private var booksOn = true
     private var booksOffReason = "no voice server is set up"
@@ -46,15 +52,33 @@ final class FakeHomeServer: @unchecked Sendable {
     /// treats as a model on the person's network; the voice is the gateway's speech preview.
     private var bodies: [String: [Data]] = [:]
     private var modelReply = "Previously, Ada wound the great clock all winter, and a letter came that was not from Tobias."
-    private let speech: Data
+    private let previewSpeech: Data
     /// `POST /v1/books/complete`: 404, like a gateway from before the route, until a
     /// test turns it on; then the home server's model answers with `homeReply`.
     private var answersBookTasks = false
     private let homeReply = "Previously, Ada wound the great clock in the hall all winter, and a letter came that was not from Tobias."
 
-    init() throws {
-        chapterAudio = try (0..<4).map { try Self.makeAudio(seconds: 30, frequency: 440 + 110 * Double($0)) }
-        speech = try Self.makeWAV(seconds: 4)
+    /// `speech`: serve the narrated chapters from `BATON_UITEST_SPEECH_DIR` when the runner has
+    /// them; otherwise, and by default, the tones.
+    init(speech useSpeech: Bool = false) throws {
+        if useSpeech, let folder = ProcessInfo.processInfo.environment["BATON_UITEST_SPEECH_DIR"], !folder.isEmpty {
+            let dir = URL(fileURLWithPath: folder)
+            let files = (1...9).map { dir.appendingPathComponent("chapter-\($0).m4a") }
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+            guard !files.isEmpty else { throw URLError(.fileDoesNotExist) }
+            chapterAudio = try files.map { try Data(contentsOf: $0) }
+            speech = (try files.map { url in
+                let file = try AVAudioFile(forReading: url)
+                return Double(file.length) / file.fileFormat.sampleRate
+            }, files.map { url in
+                (try? Data(contentsOf: url.deletingPathExtension().appendingPathExtension("timing.json")))
+                    .flatMap(ReadAlongTiming.decode)
+            })
+        } else {
+            chapterAudio = try (0..<4).map { try Self.makeAudio(seconds: 30, frequency: 440 + 110 * Double($0)) }
+            speech = nil
+        }
+        previewSpeech = try Self.makeWAV(seconds: 4)
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -166,7 +190,7 @@ final class FakeHomeServer: @unchecked Sendable {
                 let reply: [String: Any] = ["text": homeReply, "model": "fake-home-model"]
                 return (200, ["Content-Type": "application/json"], (try? JSONSerialization.data(withJSONObject: reply)) ?? Data())
             }
-            if method == "POST", path == "/v1/speech/preview" { return (200, ["Content-Type": "audio/wav"], speech) }
+            if method == "POST", path == "/v1/speech/preview" { return (200, ["Content-Type": "audio/wav"], previewSpeech) }
             if parts.count >= 2, parts[0] == "v1", parts[1] == "files" { return answerFile(method, parts, body, contentType) }
             if method == "GET", parts == ["v1", "voices"] {
                 guard let voices else { return (404, ["Content-Type": "application/json"], Data(#"{"error":"not found"}"#.utf8)) }
@@ -204,6 +228,10 @@ final class FakeHomeServer: @unchecked Sendable {
             // Read-along timing for chapter 1, its chunks spread over its 30 seconds.
             // Every other chapter answers 404, as one made before timing was kept does.
             if parts.count == 6, parts[3] == "chapters", parts[5] == "timing", let n = Int(parts[4]) {
+                if let speech {
+                    guard n <= (readyCount[id] ?? 0), let timing = speech.timing[(n - 1) % speech.timing.count] else { return (404, [:], Data()) }
+                    return (200, ["Content-Type": "application/json"], (try? timing.encoded()) ?? Data())
+                }
                 guard n == 1, n <= (readyCount[id] ?? 0), let segments = job.book.chapters.first?.segments,
                       !segments.isEmpty else { return (404, [:], Data()) }
                 let span = 30.0 / Double(segments.count)
@@ -217,7 +245,7 @@ final class FakeHomeServer: @unchecked Sendable {
                 guard n >= 1, n <= (readyCount[id] ?? 0) else { return (404, [:], Data()) }
                 let chapter = audio(chapter: n)
                 return (200, ["Content-Type": "audio/mp4", "X-Baton-SHA256": SHA256Digest.hex(of: chapter),
-                              "X-Baton-Duration": "30.0", "X-Baton-Name": "chapter-\(n).m4a"], chapter)
+                              "X-Baton-Duration": String(format: "%.3f", seconds(chapter: n)), "X-Baton-Name": "chapter-\(n).m4a"], chapter)
             }
             return (200, ["Content-Type": "application/json"], (try? BookJSON.encoder.encode(summary(job))) ?? Data())
         }
@@ -254,7 +282,7 @@ final class FakeHomeServer: @unchecked Sendable {
         let ready = readyCount[job.id] ?? 0
         for i in job.chapters.indices {
             job.chapters[i] = i < ready
-                ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio(chapter: i + 1).count, seconds: 30,
+                ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio(chapter: i + 1).count, seconds: seconds(chapter: i + 1),
                          sha256: SHA256Digest.hex(of: audio(chapter: i + 1)))
                 : (i == ready ? .rendering(done: 1, of: 4) : .queued)
         }

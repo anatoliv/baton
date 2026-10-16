@@ -255,7 +255,7 @@ try {
     ...(process.env.SHARE_E2E_BROWSER_PATH ? { executablePath: process.env.SHARE_E2E_BROWSER_PATH } : {}),
   };
   if (ownedRunID && !startupOnly) {
-    assert.ok(!publicOnly && !external && !listeners && !mediaErrorsOnly, "bounded full flow is local and standalone");
+    assert.ok(!publicOnly && !external && !mediaErrorsOnly, "bounded full flow/load is local and standalone");
     browserServer = await playwright[engine].launchServer({...launchOptions, host:"127.0.0.1"});
     const launcher=process.env.SHARE_E2E_BROWSER_PATH ?? playwright[engine].executablePath();
     const runtimeExecutable=engine === "webkit" ? join(dirname(launcher),"Playwright.app/Contents/MacOS/Playwright") : launcher;
@@ -528,8 +528,18 @@ try {
     const contexts = await Promise.all(Array.from({ length: listeners }, (_, i) => browser.newContext({
       userAgent: `BatonSyntheticListener/${i}`, viewport: { width: 390, height: 844 },
     })));
+    const decoder = Array.from({ length: listeners }, () => []);
+    if (engine === "chromium") {
+      const session = await browser.newBrowserCDPSession();
+      try {
+        const version = await session.send("Browser.getVersion");
+        writeFileSync(join(evidence, "load-runtime.json"), JSON.stringify({version, requestedLaunch:startupLaunch,
+          actualCommandLineAvailable:false, syntheticOnly:true,
+          commandLineLimitation:"No enable-automation flag or duplicate mute flag added; runtime hash/identity is in startup-process-registry.json"}, null, 2));
+      } finally { await session.detach(); }
+    }
     try {
-      const pages = await Promise.all(contexts.map(async (ctx) => {
+      const pages = await Promise.all(contexts.map(async (ctx, index) => {
         // Retain the real media element for failure evidence, with physical output muted.
         await ctx.addInitScript(() => {
           const OriginalAudio = window.Audio;
@@ -537,12 +547,26 @@ try {
             const audio = new OriginalAudio(...args);
             audio.muted = true;
             window.__loadAudio = audio;
+            window.__loadMediaEvents = [];
+            for (const type of ["playing", "pause", "waiting", "stalled", "error", "ended"])
+              audio.addEventListener(type, () => window.__loadMediaEvents.push({type, at:performance.now(),
+                currentTime:audio.currentTime, paused:audio.paused, error:audio.error?.code ?? null}));
             return audio;
           };
           window.Audio.prototype = OriginalAudio.prototype;
           Object.setPrototypeOf(window.Audio, OriginalAudio);
         });
         const listener = await ctx.newPage();
+        if (engine === "chromium") {
+          const session = await ctx.newCDPSession(listener);
+          // Record renderer errors without synthetic invitation URLs or whole event streams.
+          for (const event of ["Media.playerErrorsRaised", "Media.playerMessagesLogged"])
+            session.on(event, value => {
+              if (decoder[index].length < 128) decoder[index].push({event,
+                value:JSON.parse(JSON.stringify(value).replace(/https?:\/\/[^\s"\\]+/g, "[redacted-url]"))});
+            });
+          await session.send("Media.enable");
+        }
         monitor(listener);
         await listener.goto(load.link);
         await listener.waitForSelector("#player:not([hidden])", { timeout: 30000 });
@@ -564,6 +588,7 @@ try {
           readyState: window.__loadAudio.readyState, networkState: window.__loadAudio.networkState,
           paused: window.__loadAudio.paused, muted: window.__loadAudio.muted,
           error: window.__loadAudio.error?.code ?? null},
+        mediaEvents: window.__loadMediaEvents,
       }))));
       const passed = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
       writeFileSync(join(evidence, "load-states.json"), JSON.stringify({ listeners, passed, states: loadStates }, null, 2));
@@ -580,6 +605,7 @@ try {
       writeFileSync(join(evidence, "load.json"), JSON.stringify({ engine, listeners, physicalOutputMuted: true,
         minimumPlaybackSeconds: 30, elapsedMs: Date.now() - started, stats: counts }, null, 2));
       writeFileSync(join(evidence, "load-browser-errors.json"), JSON.stringify(problems, null, 2));
+      writeFileSync(join(evidence, "load-decoder-errors.json"), JSON.stringify(decoder, null, 2));
       assert.equal(counts.fetches, listeners);
       assert.equal(counts.opens, listeners);
       assert.equal(counts.plays, listeners);

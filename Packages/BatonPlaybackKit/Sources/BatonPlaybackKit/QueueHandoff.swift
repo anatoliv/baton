@@ -152,7 +152,11 @@ public final class QueueHandoff {
         // still holds this snapshot, and offering the queue already playing would be absurd.
         markAnswered(queue)
         let startIndex = queue.currentID.flatMap { id in queue.songs.firstIndex { $0.id == id } } ?? 0
-        controller.play(queue.songs, startAt: startIndex, source: .init(label: "Continued", kind: .playlist))
+        // The sender's order as it was playing, and this device's shuffle setting untouched:
+        // the Subsonic play queue carries song ids, the current song and a position, nothing
+        // about shuffle or where the queue came from.
+        controller.play(queue.songs, startAt: startIndex, source: .init(label: "Continued", kind: .playlist),
+                        keepingShuffleMode: true)
         if let ms = queue.positionMs, ms > 1000 {
             controller.seek(to: TimeInterval(ms) / 1000)
         }

@@ -261,9 +261,9 @@ struct AlbumContextMenu: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                Button {
+                CollectionPlayMenuItem(model: model, source: source) {
                     Task { model.music.play(await songs(), source: source) }
-                } label: { Label("Play", systemImage: "play.fill") }
+                }
 
                 Button {
                     Task { model.music.playShuffled(await songs(), source: source) }

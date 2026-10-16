@@ -108,6 +108,11 @@ public struct ReadAlong: Sendable, Equatable {
     /// the first starts, the first; past the end, the last. Nil without timing.
     public func sentenceIndex(at time: Double) -> Int? {
         guard isTimed, let first = sentences.first?.start else { return nil }
+        // A sentence counts as started a few milliseconds early: a tap seeks to its start, and
+        // the player keeps time in 1/600 s, so it lands up to 1 ms before it and lit the
+        // sentence before until the audio started again, a third of a second or more
+        //. Five milliseconds is far below anything a listener hears.
+        let time = time + Self.startTolerance
         if time < first { return 0 }
         // Binary search for the last sentence whose start <= time.
         var low = 0
@@ -118,6 +123,9 @@ public struct ReadAlong: Sendable, Equatable {
         }
         return low
     }
+
+    /// How early a sentence counts as started, for the player's 1/600 s clock (`sentenceIndex`).
+    public static let startTolerance = 0.005
 
     /// Where to seek for sentence `index`: where its speech starts. Nil without timing or for an
     /// index out of range.

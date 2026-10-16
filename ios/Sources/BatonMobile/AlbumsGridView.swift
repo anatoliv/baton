@@ -339,25 +339,11 @@ struct AlbumDetailView: View {
                                 .multilineTextAlignment(.center)
                         }
                         HStack(spacing: 10) {
-                            Button {
+                            CollectionPlayButton(model: model, source: albumSource, disabled: songs.isEmpty) {
                                 play(from: 0)
-                            } label: {
-                                Label("Play", systemImage: "play.fill")
-                                    .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(songs.isEmpty)
 
-                            Button {
-                                model.music.playShuffleToggling(songs, source: .init(label: album.name, kind: .album, id: album.id))
-                            } label: {
-                                Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
-                            .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
-                            .disabled(songs.isEmpty)
+                            CollectionShuffleButton(model: model, source: albumSource, disabled: songs.isEmpty) { songs }
                         }
                     }
                     Spacer()
@@ -481,8 +467,10 @@ struct AlbumDetailView: View {
         ])
     }
 
+    private var albumSource: QueueSource { .init(label: album.name, kind: .album, id: album.id) }
+
     private func play(from index: Int) {
-        model.music.play(songs, startAt: index, source: .init(label: album.name, kind: .album, id: album.id))
+        model.music.play(songs, startAt: index, source: albumSource)
     }
 
     private var isFullyDownloaded: Bool {

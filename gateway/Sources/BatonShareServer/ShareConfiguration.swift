@@ -17,6 +17,8 @@ public struct ShareConfiguration: Sendable {
     /// Local probes bind only loopback; containers retain the default all-interface listener.
     public var loopbackOnly: Bool
     public var enabled: Bool
+    /// Default-off until the complete workflow and release readiness are qualified.
+    public var mixtapesEnabled: Bool = false
     public var adminToken: String?
     /// A separately provisioned local-operator capability. Nil disables every operator route.
     public var enforcement: EnforcementConfiguration? = nil
@@ -76,6 +78,15 @@ public struct ShareConfiguration: Sendable {
             config.loopbackOnly = bind == "127.0.0.1"
         }
         config.enabled = env["BATON_SHARE_ENABLED"].map { $0 != "0" && $0.lowercased() != "false" } ?? true
+        // Mixtapes are off unless asked for. The server's release overlay sets this
+        // (gateway/deploy/share-image-release.py), never share.env.
+        if let value = env["BATON_SHARE_MIXTAPES"] {
+            switch value.lowercased() {
+            case "1", "true": config.mixtapesEnabled = true
+            case "0", "false", "": config.mixtapesEnabled = false
+            default: throw ConfigurationError("BATON_SHARE_MIXTAPES must be 1 or 0")
+            }
+        }
         if let token = env["BATON_SHARE_ADMIN_TOKEN"], !token.isEmpty {
             guard token.count >= 32 else {
                 throw ConfigurationError("BATON_SHARE_ADMIN_TOKEN must be at least 32 characters")

@@ -23,6 +23,8 @@ struct DocumentImportScreen: View {
 
     @State private var phase = Phase.reading
     @State private var submitting = false
+    /// The book's own cover (an EPUB's), read with the file and kept once the book is sent.
+    @State private var bookCover: Data?
     @State private var homeServer: Bool?   // nil until asked
     /// What the home server said, for what to offer instead when it cannot make the book.
     @State private var availability: HomeServerBooks.Availability?
@@ -183,6 +185,10 @@ struct DocumentImportScreen: View {
             let document = MobileDocuments.isWebLink(url)
                 ? try await MobileDocuments.importDocument(fromWeb: url)
                 : try await MobileDocuments.importDocument(at: url)
+            if !MobileDocuments.isWebLink(url) {
+                let file = url
+                bookCover = await Task.detached(priority: .utility) { BookCovers.bookCover(ofFileAt: file) }.value
+            }
             phase = .ready(document, voice: DocumentVoices.languageDefault(for: document))
         } catch let failure as DocumentImporter.Failure {
             phase = .failed(failure.description)
@@ -203,6 +209,7 @@ struct DocumentImportScreen: View {
         Task {
             do {
                 try await model.books.submit(book)
+                model.covers.adoptBookCover(bookCover, documentID: book.documentID)
                 MobileDocuments.scheduleRefresh()
                 // Asked after the book is on its way: a permission prompt must never stand
                 // between Make Audiobook and the home server.

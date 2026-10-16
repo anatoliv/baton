@@ -74,6 +74,12 @@ struct FolderDetailView: View {
     let folder: NavidromeFolder
     let model: MobileModel
 
+    /// A folder is a folder, as on the Mac: it played as an id-less playlist named after the
+    /// folder, so two folders called "CD1" were the same collection.
+    private var folderSource: StreamingPlaybackController.QueueSource {
+        .init(label: folder.name, kind: .folder, id: folder.id)
+    }
+
     @State private var directory: NavidromeDirectory?
     @State private var loaded = false
 
@@ -91,19 +97,23 @@ struct FolderDetailView: View {
                 }
                 if !directory.songs.isEmpty {
                     Section {
-                        // Play the folder as an album: top-to-bottom, in file order.
+                        // Play the folder as an album: top-to-bottom, in file order. Pause /
+                        // Resume while it is the folder in the player.
+                        let state = model.music.collectionState(folderSource)
                         Button {
-                            model.music.play(directory.songs,
-                                             source: .init(label: folder.name, kind: .playlist))
+                            if !model.music.toggleIfLoaded(folderSource) {
+                                model.music.play(directory.songs, source: folderSource)
+                            }
                         } label: {
-                            Label("Play Folder", systemImage: "play.fill")
+                            Label(state == .idle ? "Play Folder" : state.title, systemImage: state.symbol)
+                                .contentTransition(.symbolEffect(.replace.downUp))
                         }
+                        .accessibilityIdentifier("collection-play")
                         ForEach(Array(directory.songs.enumerated()), id: \.element.id) { index, song in
                             SongRow(song: song, model: model)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    model.music.play(directory.songs, startAt: index,
-                                                     source: .init(label: folder.name, kind: .playlist))
+                                    model.music.play(directory.songs, startAt: index, source: folderSource)
                                 }
                                 .songContextMenu(song, model: model)
                         }

@@ -253,6 +253,152 @@ final class MacBookUploadTests: XCTestCase {
         XCTAssertEqual(puts(server), sent, "sent once only")
     }
 
+    /// TBX-11088, seen on a probe instance: a round that ran after the job became ready but
+    /// before `refresh` moved its chapters into Clippings found none of them on this Mac and
+    /// finished the book with no chapter sent, so the Baton server kept it with every chapter
+    /// queued for ever and the iPhone waited on chapter 1. The book is finished only once its
+    /// chapters are there, and they go up as soon as they are in Clippings.
+    func testAReadyBookWhoseChaptersAreNotInClippingsYetIsNotFinishedEarly() async throws {
+        let server = FakeBatonServer()
+        let clippings = clippingStore()
+        let directory = root.appendingPathComponent("Books")
+        let book = try book()
+        let id = BookJob.id(for: book)
+        // Made by the renderer alone, as between two refreshes: ready, nothing adopted yet.
+        let store = BookStore(directory: directory)
+        let renderer = BookRenderer(store: store, cacheDirectory: directory.appendingPathComponent("cache"),
+                                    synthesizer: DocumentLibraryTests.FakeKokoro(), muxer: AVAssetWriterMuxer(), concurrency: 1)
+        _ = try await renderer.submit(book, id: id)
+        await renderer.waitUntilIdle()
+        await renderer.stop()
+        XCTAssertEqual(store.load(id)?.status, .ready)
+        XCTAssertEqual(store.load(id)?.readyChapters, book.chapters.count)
+        XCTAssertTrue(clippings.chapters(ofDocument: book.documentID).isEmpty)
+
+        let library = library(server, clippings: clippings)
+        await library.uploads.sendNow()
+        // And the round after, which asks the Baton server nothing when nothing is new here.
+        await library.uploads.sendNow()
+        let waiting = try XCTUnwrap(library.uploads.entry(forJob: id))
+        XCTAssertTrue(waiting.accepted)
+        XCTAssertFalse(waiting.done, "no chapter is on the Baton server yet")
+        XCTAssertEqual(waiting.sent, [])
+        XCTAssertFalse(puts(server).contains { $0.contains("/chapters/") })
+
+        library.refresh()
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).count, book.chapters.count)
+        await library.uploads.sendNow()
+        let sent = try XCTUnwrap(library.uploads.entry(forJob: id))
+        XCTAssertTrue(sent.done)
+        XCTAssertNil(sent.stopped)
+        XCTAssertEqual(sent.sent, Array(book.chapters.indices))
+        XCTAssertEqual(server.job(id)?.status, .ready)
+        XCTAssertEqual(server.job(id)?.readyChapters, book.chapters.count)
+    }
+
+    /// TBX-11092: what a build before TBX-11088 left behind. The record says the book is done with
+    /// no chapter sent, the Baton server holds the shaped book with every chapter queued, and the
+    /// iPhone waits on chapter 1 for ever. The next round (Baton coming to the front, a relaunch)
+    /// reopens it, asks the Baton server what it has, sends the chapters, and only then finishes.
+    func testABookMarkedSentWithNoChaptersOnTheBatonServerHealsOnTheNextRound() async throws {
+        let server = FakeBatonServer()
+        let clippings = clippingStore()
+        let directory = root.appendingPathComponent("Books")
+        let book = try book()
+        let id = BookJob.id(for: book)
+        let store = BookStore(directory: directory)
+        let renderer = BookRenderer(store: store, cacheDirectory: directory.appendingPathComponent("cache"),
+                                    synthesizer: DocumentLibraryTests.FakeKokoro(), muxer: AVAssetWriterMuxer(), concurrency: 1)
+        _ = try await renderer.submit(book, id: id)
+        await renderer.waitUntilIdle()
+        await renderer.stop()
+        // The shaped book reaches the Baton server before any chapter is in Clippings.
+        let before = library(server, clippings: clippings)
+        await before.uploads.sendNow()
+        XCTAssertEqual(server.job(id)?.readyChapters, 0)
+        // The old build's record of that moment, written as it wrote it.
+        let broken = [MacBookUploads.Entry(jobID: id, documentID: book.documentID, createdAt: Date(),
+                                           accepted: true, sent: [], done: true, stopped: nil)]
+        XCTAssertTrue(VersionedStore<[MacBookUploads.Entry]>(fileURL: directory.appendingPathComponent("mac-book-uploads.json"),
+                                                             currentVersion: 1, keepBackup: true).save(broken))
+        before.refresh()
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).count, book.chapters.count, "the chapters are on this Mac")
+
+        let after = library(server, clippings: clippings)
+        XCTAssertEqual(after.uploads.entry(forJob: id)?.done, true, "read back as the old build left it")
+        await after.uploads.sendNow()
+        let healed = try XCTUnwrap(after.uploads.entry(forJob: id))
+        XCTAssertTrue(healed.done)
+        XCTAssertNil(healed.stopped)
+        XCTAssertEqual(healed.sent, Array(book.chapters.indices))
+        XCTAssertEqual(server.job(id)?.status, .ready, "every chapter is on the Baton server now")
+        XCTAssertEqual(server.job(id)?.readyChapters, book.chapters.count)
+        XCTAssertEqual(puts(server).filter { $0.hasSuffix("/upload") }.count, 1, "the shaped book is not sent again")
+        let sent = puts(server)
+        await after.uploads.sendNow()
+        XCTAssertEqual(puts(server), sent, "healed once: nothing more goes up")
+    }
+
+    /// The healing touches only a book finished too early: one whose chapters all went up, and
+    /// one stopped on purpose (Remove from This Mac), stay as they are.
+    func testAFinishedOrStoppedBookIsNotReopened() async throws {
+        let server = FakeBatonServer()
+        let clippings = clippingStore()
+        let library = library(server, clippings: clippings)
+        library.start(force: true)
+        let book = try book()
+        let id = try await library.submit(book)
+        try await eventually(library, "sent") { library.uploads.entry(forJob: id)?.done == true }
+        library.stop()
+        let sent = puts(server)
+
+        let again = self.library(server, clippings: clippings)
+        await again.uploads.sendNow()
+        XCTAssertEqual(again.uploads.entry(forJob: id)?.done, true)
+        XCTAssertEqual(puts(server), sent, "a finished book is not sent again")
+
+        // A book stopped on purpose stays stopped, even with a chapter that never went up. Written
+        // as such a record looks (`keepOnServerOnly` marks only a book not yet done, so it cannot
+        // make this state from a finished one).
+        var entries = again.uploads.entries
+        entries[0].stopped = MacBookUploads.removedHere
+        entries[0].sent = []
+        XCTAssertTrue(VersionedStore<[MacBookUploads.Entry]>(fileURL: root.appendingPathComponent("Books/mac-book-uploads.json"),
+                                                             currentVersion: 1, keepBackup: true).save(entries))
+        let third = self.library(server, clippings: clippings)
+        await third.uploads.sendNow()
+        XCTAssertEqual(third.uploads.entry(forJob: id)?.stopped, MacBookUploads.removedHere)
+        XCTAssertEqual(third.uploads.entry(forJob: id)?.done, true)
+        XCTAssertEqual(puts(server), sent, "nothing goes up for a book removed from this Mac")
+    }
+
+    /// Remove Download on a chapter before it went up: it was removed on purpose, so the book is
+    /// finished without it rather than waiting for a chapter this Mac no longer has.
+    func testAChapterRemovedFromThisMacBeforeItWentUpDoesNotHoldTheBookBack() async throws {
+        let server = FakeBatonServer()
+        server.away = true
+        let clippings = clippingStore()
+        let library = library(server, clippings: clippings)
+        library.start(force: true)
+        defer { library.stop() }
+        let book = try book()
+        let id = try await library.submit(book)
+        try await eventually(library, "made on this Mac") {
+            library.jobs.first?.summary.status == .ready
+                && clippings.chapters(ofDocument: book.documentID).count == book.chapters.count
+        }
+        library.offload(try XCTUnwrap(library.shelf.first), chapters: [0])
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).map(\.clipping.chapterIndex), [1])
+
+        server.away = false
+        library.uploads.kick(force: true)
+        try await eventually(library, "sent without the chapter removed here") { library.uploads.entry(forJob: id)?.done == true }
+        XCTAssertEqual(library.uploads.entry(forJob: id)?.sent, [1])
+        XCTAssertNil(library.uploads.entry(forJob: id)?.stopped)
+        XCTAssertNil(server.chapter(id, 0))
+        XCTAssertNotNil(server.chapter(id, 1))
+    }
+
     /// The Baton server away, or a gateway older than the route: nothing is lost, and the book
     /// goes up when it can. A book gone from the Baton server afterwards (deleted from the
     /// iPhone) is never sent again.

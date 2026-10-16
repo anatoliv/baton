@@ -45,6 +45,9 @@ final class HomeServerBooks {
         /// Another device sent this book and this one adopted it from the home server's listing
         ///: the row says "Made on the home server". Nil for a book sent from here.
         var adopted: Bool? = nil
+        /// The adopted book was made on a Mac and uploaded whole (TBX-11017, TBX-11092), so the
+        /// row says "Made on your Mac" even before the home server answers. Nil otherwise.
+        var madeOnMac: Bool? = nil
 
         var offloaded: Set<Int> { Set(offloadedChapters ?? []) }
     }
@@ -110,6 +113,9 @@ final class HomeServerBooks {
     /// twice; whether to say it at all (never with the app in front) is the phone's to decide.
     /// Nil on the Mac, which announces nothing and keeps its records as before.
     @ObservationIgnored var firstChapterArrived: (@MainActor (Record) -> Void)?
+    /// Told each listing this device reads while collecting, after adoption, so book covers are
+    /// settled with the home server on the same round.
+    @ObservationIgnored var listed: (@MainActor (GatewayBookClient.Listing) async -> Void)?
 
     init(directory: URL, clippings: ClippingStore,
          gateway: @escaping @MainActor () -> GatewayBookClient?,
@@ -248,6 +254,7 @@ final class HomeServerBooks {
             var record = Self.record(of: book, jobID: summary.id, createdAt: summary.createdAt, adopted: true)
             // Another device made it, so this one does not say "Chapter 1 is ready" for it.
             if firstChapterArrived != nil { record.firstChapterAnnounced = true }
+            if summary.uploaded == true { record.madeOnMac = true }
             save(records.filter { $0.jobID != summary.id } + [record])
             savePreparedBook(book, jobID: summary.id)
             summaries[summary.id] = summary
@@ -256,6 +263,7 @@ final class HomeServerBooks {
             adopted.append(record)
             log.notice("book \(summary.id.prefix(12), privacy: .public): adopted from the home server, \(book.chapters.count) chapters")
         }
+        await listed?(listing)
         return adopted
     }
 
@@ -656,9 +664,15 @@ final class HomeServerBooks {
               let index = item.clipping.chapterIndex, let record = record(forDocument: documentID),
               let client = gateway(),
               let timing = try? await client.chapterTiming(record.jobID, number: index + 1) else { return nil }
-        // Only when it is this audio's: a chapter made again in another voice has other times.
-        guard summaries[record.jobID]?.chapters.first(where: { $0.index == index })?.sha256.map({ $0 == sha }) ?? true
-        else { return nil }
+        // Only when it is this audio's: a chapter made again in another voice, or made again
+        // after its download was removed, has other times, and they are kept under this audio's
+        // digest for good once accepted. The summary says which audio the job's chapter is; one
+        // not seen since launch is asked for rather than assumed to match, and only
+        // a summary from a gateway that names no digest at all is taken on trust.
+        var summary = summaries[record.jobID]
+        if summary == nil { summary = try? await client.status(record.jobID) }
+        guard let chapter = summary?.chapters.first(where: { $0.index == index }),
+              chapter.sha256.map({ $0 == sha }) ?? true else { return nil }
         try? readAlong.save(timing, forAudio: sha)
         return timing
     }
@@ -1058,10 +1072,15 @@ final class BookCleanup {
         return held.payload
     }
 
+    /// Told a book's document id once a deleted book is gone for good (purged now, or its week
+    /// over), so what else this device keeps for it (its cover, TBX-11064) can go too.
+    @ObservationIgnored var purged: ((String) -> Void)?
+
     /// Delete now what would otherwise wait out its week.
     func purgeNow(_ entry: BookStorage.Removed) {
         try? FileManager.default.removeItem(at: holdDirectory.appendingPathComponent(entry.id, isDirectory: true))
         saveRemoved(removed.filter { $0.id != entry.id })
+        if entry.kind == .deleted { purged?(entry.documentID) }
     }
 
     /// Entries a week old go, and a deleted book's held audio with them.
@@ -1073,6 +1092,7 @@ final class BookCleanup {
         }
         let gone = Set(expired.map(\.id))
         saveRemoved(removed.filter { !gone.contains($0.id) })
+        for entry in expired where entry.kind == .deleted { purged?(entry.documentID) }
         log.notice("purged \(expired.count) recently removed entries")
     }
 

@@ -1,6 +1,9 @@
 import BatonDocuments
 import BatonMCPProtocol
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // HTTPURLResponse, for the client-through-the-routes tests on Linux
+#endif
 import XCTest
 @testable import BatonGatewayCore
 #if canImport(AVFoundation)
@@ -816,5 +819,181 @@ final class BookRoutesTests: XCTestCase {
         // A book made on another device and its chapters stream too.
         XCTAssertTrue(isStreamingUpload(.init(method: "PUT", path: "/v1/books/abc/upload", headers: [:], contentLength: 1)))
         XCTAssertTrue(isStreamingUpload(.init(method: "PUT", path: "/v1/books/abc/chapters/1", headers: [:], contentLength: 1)))
+        // A book's cover streams too.
+        XCTAssertTrue(isStreamingUpload(.init(method: "PUT", path: "/v1/books/abc/cover", headers: [:], contentLength: 1)))
+    }
+
+    // MARK: Covers
+
+    /// The smallest bytes that pass for a JPEG by signature; the gateway never decodes them.
+    private let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(repeating: 0x42, count: 2_000)
+    private let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + Data(repeating: 0x07, count: 900)
+
+    /// A cover is kept for any book the home server has, checked but never decoded: behind the
+    /// token, a JPEG or PNG by its own signature, no larger than a cover, exactly the bytes its
+    /// digest names. The listing carries it so the other devices know, a removal stays listed so
+    /// they drop theirs, and the cover goes with the book.
+    @MainActor
+    func testACoverIsCheckedKeptListedAndRemovedThroughTheRoutes() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let routes = BookRoutes(renderer: nil, store: store, synthesizer: nil, unavailableReason: "ffmpeg is not installed on the gateway")
+        let router = Router(token: token, routes: routes.routes())
+        let book = sampleBook(narrator: "kokoro:af_heart")
+        let id = BookJob.id(for: book)
+        let path = "/v1/books/\(id)/cover"
+        let digest = ["X-Baton-SHA256": SHA256Digest.hex(of: jpeg)]
+
+        let r1 = await put(routes, dir, path, body: jpeg, headers: digest)
+        XCTAssertEqual(status(r1), "404 Not Found", "no such book yet")
+        let r2 = await put(routes, dir, "/v1/books/\(id)/upload", body: try book.encoded())
+        XCTAssertEqual(status(r2), "201 Created")
+
+        let r3 = await put(routes, dir, path, body: jpeg, headers: digest, token: "wrong")
+        XCTAssertEqual(status(r3), "401 Unauthorized")
+        let html = Data("<html><script>alert(1)</script></html>".utf8)
+        let r4 = await put(routes, dir, path, body: html, headers: ["X-Baton-SHA256": SHA256Digest.hex(of: html)])
+        XCTAssertEqual(status(r4), "415 Unsupported Media Type")
+        let huge = Data([0xFF, 0xD8, 0xFF]) + Data(repeating: 0, count: BookCoverImage.maximumBytes)
+        let r5 = await put(routes, dir, path, body: huge, headers: ["X-Baton-SHA256": SHA256Digest.hex(of: huge)])
+        XCTAssertEqual(status(r5), "413 Payload Too Large")
+        let r6 = await put(routes, dir, path, body: jpeg, headers: ["X-Baton-SHA256": String(repeating: "0", count: 64)])
+        XCTAssertEqual(status(r6), "422 Unprocessable Entity")
+        let r7 = await put(routes, dir, path, body: jpeg)
+        XCTAssertEqual(status(r7), "422 Unprocessable Entity", "the digest is required")
+        let r8 = await router.dispatch(request("GET", path))
+        XCTAssertEqual(status(r8), "404 Not Found", "nothing kept by a refusal")
+
+        let kept = await put(routes, dir, path, body: jpeg, headers: digest)
+        XCTAssertEqual(status(kept), "201 Created")
+        let cover = try BookJSON.decoder.decode(BookJob.Cover.self, from: body(kept))
+        XCTAssertEqual(cover.sha256, SHA256Digest.hex(of: jpeg))
+        XCTAssertEqual(cover.kind, .jpeg)
+        let r9 = await put(routes, dir, path, body: jpeg, headers: digest)
+        XCTAssertEqual(status(r9), "200 OK", "the same cover again changes nothing")
+        XCTAssertEqual(store.cover(of: id)?.changedAt, cover.changedAt)
+
+        let served = await router.dispatch(request("GET", path))
+        XCTAssertEqual(status(served), "200 OK")
+        XCTAssertEqual(body(served), jpeg)
+        XCTAssertEqual(header("X-Baton-SHA256", served), SHA256Digest.hex(of: jpeg))
+        XCTAssertEqual(header("Content-Type", served), "image/jpeg")
+        let r10 = await router.dispatch(request("GET", path, token: nil))
+        XCTAssertEqual(status(r10), "401 Unauthorized")
+
+        // The listing says which cover, so another device knows to fetch it.
+        let listing = await router.dispatch(request("GET", "/v1/books"))
+        let listed = try XCTUnwrap(JSONSerialization.jsonObject(with: body(listing)) as? [String: Any])
+        let first = try XCTUnwrap((listed["books"] as? [[String: Any]])?.first)
+        XCTAssertEqual((first["cover"] as? [String: Any])?["sha256"] as? String, SHA256Digest.hex(of: jpeg))
+
+        // A PNG replaces it, and the JPEG file goes.
+        let replaced = await put(routes, dir, path, body: png, headers: ["X-Baton-SHA256": SHA256Digest.hex(of: png)])
+        XCTAssertEqual(status(replaced), "201 Created")
+        let r11 = await router.dispatch(request("GET", path))
+        XCTAssertEqual(header("Content-Type", r11), "image/png")
+        let files = try FileManager.default.contentsOfDirectory(atPath: store.jobDirectory(id)!.path).sorted()
+        XCTAssertEqual(files.filter { $0.hasPrefix("cover") }, ["cover.json", "cover.png"])
+
+        // A cover changed on disk behind the record is not served.
+        try Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0]).write(to: store.jobDirectory(id)!.appendingPathComponent("cover.png"))
+        let r12 = await router.dispatch(request("GET", path))
+        XCTAssertEqual(status(r12), "404 Not Found")
+
+        // Removed: gone, and listed as removed so the other devices drop theirs.
+        let removed = await router.dispatch(request("DELETE", path))
+        XCTAssertEqual(status(removed), "200 OK")
+        let tombstone = try BookJSON.decoder.decode(BookJob.Cover.self, from: body(removed))
+        XCTAssertNil(tombstone.sha256)
+        XCTAssertGreaterThanOrEqual(tombstone.changedAt, cover.changedAt)
+        let r13 = await router.dispatch(request("GET", path))
+        XCTAssertEqual(status(r13), "404 Not Found")
+        let summary = try XCTUnwrap(store.list().first.map(store.summary(of:)))
+        XCTAssertEqual(summary.cover?.isRemoved, true)
+        let r14 = await router.dispatch(request("DELETE", "/v1/books/\(String(repeating: "e", count: 64))/cover"))
+        XCTAssertEqual(status(r14), "404 Not Found")
+
+        // The cover is the book's: deleting the book takes it.
+        _ = await put(routes, dir, path, body: jpeg, headers: digest)
+        let r15 = await router.dispatch(request("DELETE", "/v1/books/\(id)"))
+        XCTAssertEqual(status(r15), "200 OK")
+        XCTAssertNil(store.jobDirectory(id).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil })
+    }
+
+    /// The render loop writes `job.json` back from its own copy; a cover kept beside it in its
+    /// own file survives that, and a book made here can have a cover as well as one uploaded.
+    @MainActor
+    func testACoverOutlivesTheRenderLoopRewritingItsJob() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let book = sampleBook()
+        let id = BookJob.id(for: book)
+        var job = BookJob(id: id, book: book)
+        try store.save(job)
+        try store.setCover(jpeg, kind: .jpeg, of: id)
+        job.status = .ready
+        try store.save(job)
+        XCTAssertEqual(store.summary(of: try XCTUnwrap(store.load(id))).cover?.sha256, SHA256Digest.hex(of: jpeg))
+        XCTAssertEqual(store.coverImage(of: id)?.data, jpeg)
+    }
+
+    /// What the Mac sets, the iPhone fetches, through the real routes and the shared client.
+    @MainActor
+    func testACoverSetOnOneDeviceIsFetchedByTheOtherThroughTheClient() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let routes = BookRoutes(renderer: nil, store: store, synthesizer: nil, unavailableReason: nil)
+        let router = Router(token: token, routes: routes.routes())
+        let expectedToken = token
+        let wire: GatewayBookClient.Transport = { request in
+            var headers: [String: String] = [:]
+            for (name, value) in request.allHTTPHeaderFields ?? [:] { headers[name.lowercased()] = value }
+            let body = request.httpBody ?? Data()
+            let raw: Data
+            if request.httpMethod == "PUT" {
+                let staged = dir.appendingPathComponent("upload-\(UUID().uuidString)")
+                try body.write(to: staged)
+                raw = await routes.handleUpload(.init(method: "PUT", path: request.url!.path, headers: headers,
+                                                      contentLength: body.count), staged, token: expectedToken)
+            } else {
+                raw = await router.dispatch(HTTPRequestMessage(method: request.httpMethod ?? "GET", path: request.url!.path,
+                                                               query: [:], headers: headers, body: body))
+            }
+            let split = try XCTUnwrap(raw.range(of: Data("\r\n\r\n".utf8)))
+            let head = String(decoding: raw[..<split.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
+            var fields: [String: String] = [:]
+            for line in head.dropFirst() {
+                guard let colon = line.firstIndex(of: ":") else { continue }
+                fields[String(line[..<colon])] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            }
+            return (Data(raw[split.upperBound...]), HTTPURLResponse(url: request.url!, statusCode: Int(head[0].split(separator: " ")[1]) ?? 0,
+                                                                     httpVersion: "HTTP/1.1", headerFields: fields)!)
+        }
+        let base = URL(string: "http://gateway.test:8788")!
+        let mac = GatewayBookClient(baseURL: base, token: token, transport: wire)
+        let phone = GatewayBookClient(baseURL: base, token: token, transport: wire)
+        let book = sampleBook()
+        let id = BookJob.id(for: book)
+        _ = try await mac.upload(book)
+
+        let nothing = try await phone.cover(id)
+        XCTAssertNil(nothing, "no cover yet reads as none, not as a failure")
+        let kept = try await mac.uploadCover(id, image: png)
+        let phoneListing = try await phone.list()
+        let listed = try XCTUnwrap(phoneListing.books.first { $0.id == id })
+        XCTAssertEqual(listed.cover, kept)
+        let fetched = try await phone.cover(id)
+        XCTAssertEqual(fetched, png)
+        let removed = try await phone.removeCover(id)
+        XCTAssertTrue(removed.isRemoved)
+        let macListing = try await mac.list()
+        XCTAssertEqual(macListing.books.first { $0.id == id }?.cover?.isRemoved, true)
+        do {
+            _ = try await mac.uploadCover(id, image: Data("not a picture".utf8))
+            XCTFail("a client never sends what is not a JPEG or PNG")
+        } catch GatewayBookError.unreadable {}
     }
 }

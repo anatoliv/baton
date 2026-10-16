@@ -107,7 +107,8 @@ struct MusicAlbumDetail: View {
                     layout: $layout,
                     accessory: { EmptyView() },
                     leading: {
-                        MusicMiniTransport(onPlayWhenIdle: { model.music.play(songs, source: albumSource) }, pageSource: albumSource)
+                        MusicMiniTransport(onPlayWhenIdle: { model.music.play(songs, source: albumSource) }, pageSource: albumSource,
+                                           onShuffleWhenIdle: { model.music.playShuffled(songs, source: albumSource) })
                         // Bare icons, matching the transport + the track-row hover strip.
                         MusicRowActions(actions: [
                             MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(songs) },
@@ -480,7 +481,8 @@ struct MusicArtistDetail: View {
                         layout: $layout,
                         accessory: { EmptyView() },
                         leading: {
-                            MusicMiniTransport(onPlayWhenIdle: { playArtist() }, pageSource: source)
+                            MusicMiniTransport(onPlayWhenIdle: { playArtist() }, pageSource: source,
+                                               onShuffleWhenIdle: { model.music.playShuffled(visibleSongs, source: source) })
                             // Bare icons, matching the transport + the track-row hover strip.
                             // Follow folds in as a heart (filled + accent-tinted when following).
                             MusicRowActions(actions: artistActions)
@@ -793,7 +795,8 @@ struct MusicPlaylistDetail: View {
                     layout: $layout,
                     accessory: { EmptyView() },
                     leading: {
-                        MusicMiniTransport(onPlayWhenIdle: { model.music.play(songs, source: playlistSource) }, pageSource: playlistSource)
+                        MusicMiniTransport(onPlayWhenIdle: { model.music.play(songs, source: playlistSource) }, pageSource: playlistSource,
+                                           onShuffleWhenIdle: { model.music.playShuffled(songs, source: playlistSource) })
                         MusicRowActions(actions: [
                             MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(songs) },
                             MusicRowAction(title: "Download", systemImage: "arrow.down.circle") { Task { await MusicDownloadStore.shared.download(songs) } },

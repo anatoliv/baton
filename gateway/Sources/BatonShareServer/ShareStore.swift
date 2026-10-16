@@ -22,6 +22,8 @@ public struct ShareRecord: Equatable, Sendable {
     public var storedBytes: Int64
     public var stats: ShareStats
     public var reviewPreservationConsent: String? = nil
+    public var isMixtape: Bool = false
+    public var accessGeneration: Int64 = 1
 
     /// Whether the play cap has been reached: the audio answers 410 from here on.
     public var isCapped: Bool { stats.fetches >= playCap }
@@ -33,7 +35,7 @@ public struct ShareRecord: Equatable, Sendable {
 /// lock around every call, so the store can assume one thread at a time and say so plainly
 /// rather than half-defending against concurrency it never sees.
 public final class ShareStore {
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     let database: SQLiteDatabase
     public let root: URL
@@ -60,6 +62,7 @@ public final class ShareStore {
         try manager.createDirectory(at: root.appendingPathComponent("blobs"), withIntermediateDirectories: true)
         try migrate()
         try migrateEnforcement()
+        try migrateMixtapes()
         try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
         try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blobsDirectory.path)
     }
@@ -174,7 +177,7 @@ public final class ShareStore {
     }
 
     public func shares(byDigest digest: String, limit: Int = 200) throws -> [ShareRecord] {
-        try database.query("SELECT * FROM shares WHERE sharer_digest = ? ORDER BY created_at DESC, id LIMIT ?",
+        try database.query("SELECT * FROM shares WHERE sharer_digest = ? AND is_mixtape=0 ORDER BY created_at DESC, id LIMIT ?",
                            [.text(digest), .int(Int64(limit))]).map(Self.record)
     }
 
@@ -224,8 +227,21 @@ public final class ShareStore {
         try database.scalar("SELECT COALESCE(SUM(stored_bytes), 0) FROM shares WHERE status IN ('pending','ready') OR id IN (SELECT share_id FROM enforcement_cleanup)")
     }
 
+    /// Durable quota promises include bytes not yet uploaded. Physical-byte reporting stays separate.
+    public func quotaBytes() throws -> Int64 {
+        try database.scalar("""
+        SELECT COALESCE(SUM(stored_bytes + CASE
+          WHEN is_mixtape=1 THEN COALESCE((SELECT SUM(audio_bytes) FROM mixtape_tracks t WHERE t.share_id=shares.id AND stored=0),0)
+          WHEN audio_stored=0 THEN audio_bytes ELSE 0 END),0)
+        FROM shares WHERE status IN ('pending','ready') OR id IN (SELECT share_id FROM enforcement_cleanup)
+        """)
+    }
+
     /// Ends a share: blobs deleted, content fields nulled, reactions dropped, counters kept.
     public func tombstone(id: String, as status: ShareStatus, now: Int64) throws {
+        if try share(id: id)?.isMixtape == true {
+            try endMixtape(id: id, status: status, now: now); return
+        }
         if try revokeEnforced(id: id, status: status, now: now) { return }
         try database.transaction {
             try database.run("""
@@ -239,7 +255,10 @@ public final class ShareStore {
     }
 
     /// Deletes a share outright: for a pending share that never finished uploading.
-    public func delete(id: String) throws {
+    public func delete(id: String, now: Int64? = nil) throws {
+        if try share(id: id)?.isMixtape == true {
+            try endMixtape(id: id, status: .expired, now: now ?? Int64(Date().timeIntervalSince1970)); return
+        }
         try database.run("DELETE FROM shares WHERE id = ?", [.text(id)])
         removeBlobs(id: id)
     }
@@ -312,6 +331,7 @@ public final class ShareStore {
     public func sweep(now: Int64, limits: ShareLimits) throws -> SweepResult {
         var result = SweepResult()
         try sweepEnforcement(now: now)
+        try database.run("DELETE FROM mixtape_sessions WHERE deadline<=?", [.int(now)])
         for row in try database.query("SELECT id, sharer_id FROM shares WHERE status = 'ready' AND expires_at <= ? AND id NOT IN (SELECT share_id FROM share_enforcement WHERE disabled=1)",
                                       [.int(now)]) {
             guard let id = row["id"]?.text else { continue }
@@ -323,7 +343,7 @@ public final class ShareStore {
         for row in try database.query("SELECT id FROM shares WHERE status = 'pending' AND (created_at <= ? OR expires_at <= ?) AND id NOT IN (SELECT share_id FROM share_enforcement WHERE disabled=1)",
                                       [.int(abandonedBefore), .int(now)]) {
             guard let id = row["id"]?.text else { continue }
-            try delete(id: id)
+            try delete(id: id, now: now)
             result.abandoned += 1
         }
         let retainAfter = now - Int64(limits.retentionDays) * 86400
@@ -377,7 +397,8 @@ public final class ShareStore {
             artType: row["art_type"]?.text,
             cardType: row["card_type"]?.text,
             storedBytes: row["stored_bytes"]?.int ?? 0,
-            stats: stats, reviewPreservationConsent: row["review_consent"]?.text)
+            stats: stats, reviewPreservationConsent: row["review_consent"]?.text,
+            isMixtape: row["is_mixtape"]?.int == 1, accessGeneration: row["access_generation"]?.int ?? 1)
     }
 
     static func json<T: Encodable>(_ value: T) -> String {

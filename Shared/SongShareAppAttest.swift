@@ -37,7 +37,7 @@ final class SongShareAppAttest {
         self.configuration = configuration
     }
 
-    func proof(client: ShareClient, policy: ShareAttestationPolicy, body: Data, requestID: String) async throws -> ShareAttestationProof? {
+    func proof(client: ShareClient, policy: ShareAttestationPolicy, body: Data, requestID: String, path: String = "/v1/share/shares") async throws -> ShareAttestationProof? {
         // Unsupported platforms remain explicitly unverified under the approved
         // Mac-compatible contract. An API/verification error never silently falls back.
         guard policy.audience == ShareAttestationPolicy.origin(client.base) else { throw URLError(.badServerResponse) }
@@ -80,7 +80,7 @@ final class SongShareAppAttest {
                 try save(state, at: stateURL)
             }
             let challenge: ShareAttestationChallenge = try await send(client, "challenge", ShareAttestationChallengeRequest(purpose: "create", keyID: keyID))
-            let envelope = ShareAttestationEnvelope.data(challenge: challenge, policy: policy, secret: client.secret, requestID: requestID, body: body)
+            let envelope = ShareAttestationEnvelope.data(challenge: challenge, policy: policy, secret: client.secret, requestID: requestID, body: body, path: path)
             let assertion = try await service.generateAssertion(keyID, clientDataHash: Data(SHA256.hash(data: envelope)))
             return .init(keyID: keyID, challengeID: challenge.id, requestID: requestID, assertion: assertion.base64EncodedString())
         } catch let error as DCError {

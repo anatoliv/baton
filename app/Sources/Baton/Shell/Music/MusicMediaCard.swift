@@ -11,12 +11,32 @@ enum MusicBrowseLayout: String { case grid, list }
 /// queued (e.g. Liked "play all"); without it, play is disabled on an empty queue.
 struct MusicMiniTransport: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var onPlayWhenIdle: (() -> Void)?
-    /// The collection this page represents (e.g. an artist's tracks). When set and the
-    /// player is *paused* on some other queue, the play button starts THIS page's list
-    /// from the top (via `onPlayWhenIdle`) instead of resuming the unrelated queue —
-    /// so pressing play on an artist page plays that artist, not whatever was last cued.
+    /// The collection this page represents (e.g. an artist's tracks). When set, the play
+    /// button belongs to the page: Pause while this collection plays, Resume
+    /// while it is paused, and otherwise Play, which starts THIS page's list from the top
+    /// (via `onPlayWhenIdle`) rather than pausing or resuming some other queue. Whether the
+    /// player holds this collection is `CollectionPlayState`, the rule the iPhone shares.
     var pageSource: StreamingPlaybackController.QueueSource?
+    /// Starts this page's collection shuffled. With `pageSource`, the shuffle button belongs to
+    /// the page as the play button does: lit while this collection shuffles,
+    /// pressing it then stops shuffling in place; otherwise it starts this collection shuffled.
+    /// Without it the button toggles the player's shuffle mode, whatever is playing.
+    var onShuffleWhenIdle: (() -> Void)?
+
+    private var pageShuffle: StreamingPlaybackController.QueueSource? {
+        onShuffleWhenIdle == nil ? nil : pageSource
+    }
+
+    /// What the play button shows and does. A page-bound transport follows its collection;
+    /// one without a page (the Books and browse headers) follows the player as a whole.
+    private var playState: CollectionPlayState {
+        let player = model.music
+        if let pageSource, onPlayWhenIdle != nil { return player.collectionState(pageSource) }
+        if player.isPlaying { return .playing }
+        return player.nowPlaying == nil ? .idle : .paused
+    }
 
     /// Hidden when there's nothing to control and no play-all hook — so browse pages
     /// (which pass no `onPlayWhenIdle`) don't show a dead, fully-disabled transport
@@ -30,30 +50,35 @@ struct MusicMiniTransport: View {
     private var transport: some View {
         let player = model.music
         return HStack(spacing: 14) {
-            Button { player.toggleShuffle() } label: {
-                Image(systemName: "shuffle").foregroundStyle(player.isShuffled ? Color.accentColor : .secondary)
+            let shuffleLit = pageShuffle.map { player.isShuffling($0) } ?? player.isShuffled
+            Button {
+                if pageShuffle == nil || shuffleLit { player.toggleShuffle() } else { onShuffleWhenIdle?() }
+            } label: {
+                Image(systemName: "shuffle").foregroundStyle(shuffleLit ? Color.accentColor : .secondary)
             }
-            .disabled(player.queue.isEmpty)
+            .disabled(player.queue.isEmpty && pageShuffle == nil)
             .help("Shuffle")
             .accessibilityLabel("Shuffle")
-            .accessibilityValue(player.isShuffled ? "On" : "Off")
+            .accessibilityValue(shuffleLit ? "On" : "Off")
             Button { player.previous() } label: { Image(systemName: "backward.fill").foregroundStyle(.secondary) }
                 .disabled(player.queue.isEmpty)
                 .help("Previous")
                 .accessibilityLabel("Previous track")
+            let state = playState
             Button {
-                if player.isPlaying { player.pause() }
-                else if player.nowPlaying == nil { onPlayWhenIdle?() }
-                else if let onPlayWhenIdle, let pageSource, player.queueSource != pageSource {
-                    // Paused on a different (or unrelated) queue → start this page's list.
-                    onPlayWhenIdle()
-                } else { player.resume() }
+                switch state {
+                case .playing: player.pause()
+                case .paused: player.resume()
+                case .idle: onPlayWhenIdle?()
+                }
             } label: {
-                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill").font(.title3)
+                Image(systemName: state == .playing ? "pause.circle.fill" : "play.circle.fill").font(.title3)
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
             }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: state)
             .disabled(player.queue.isEmpty && onPlayWhenIdle == nil)
-            .help(player.isPlaying ? "Pause" : "Play")
-            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+            .help(state.title)
+            .accessibilityLabel(state.title)
             Button { player.next() } label: { Image(systemName: "forward.fill").foregroundStyle(.secondary) }
                 .disabled(player.queue.isEmpty)
                 .help("Next")
@@ -494,7 +519,8 @@ struct MusicMediaCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Plays this item")
+        .accessibilityHint(hoverState == .playing ? "Pauses this item"
+                           : hoverState == .paused ? "Resumes this item" : "Plays this item")
     }
 
     /// The spoken label: title, then subtitle when present.
@@ -637,6 +663,12 @@ struct MusicMediaCard: View {
     /// of one disappearing and another appearing; at this size a hard cut reads as a flicker
     /// and makes the button feel like a re-render rather than a state change. Skipped under
     /// Reduce Motion, where an instant swap is the correct behaviour.
+    /// What the hover control does: `isPlaying` pauses, `isSelected` (this card's item is the
+    /// one loaded, but paused) resumes in place, anything else starts it. Callers
+    /// derive both flags from `CollectionPlayState`, so a paused album's card says Resume
+    /// and carries on where it stopped instead of starting over.
+    private var hoverState: CollectionPlayState { isPlaying ? .playing : (isSelected ? .paused : .idle) }
+
     @ViewBuilder private var hoverPlay: some View {
         if isHovering {
             // Centered over a dark scrim — kept away from every edge so a neighboring grid
@@ -644,16 +676,20 @@ struct MusicMediaCard: View {
             ZStack {
                 Color.black.opacity(0.3)
                 Button {
-                    // `isPlaying` already means *this* card's item is the one playing, so
-                    // pausing the shared transport is unambiguous.
-                    if isPlaying { model?.music.pause() } else { onPlay() }
+                    // `isPlaying`/`isSelected` already mean *this* card's item is the one in
+                    // the player, so pausing or resuming the shared transport is unambiguous.
+                    switch hoverState {
+                    case .playing: model?.music.pause()
+                    case .paused: model?.music.resume()
+                    case .idle: onPlay()
+                    }
                 } label: {
                     ZStack {
                         Circle().fill(.white).frame(width: 46, height: 46).shadow(radius: 8, y: 3)
                         if isWorking {
                             ProgressView().controlSize(.small)
                         } else {
-                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            Image(systemName: hoverState.symbol)
                                 .font(.title3)
                                 .foregroundStyle(.black)
                                 .contentTransition(
@@ -664,7 +700,8 @@ struct MusicMediaCard: View {
                 }
                 .buttonStyle(.plain)
                 .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: isPlaying)
-                .help(isPlaying ? "Pause" : "Play")
+                .help(hoverState.title)
+                .accessibilityLabel(hoverState.title)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .transition(.opacity)

@@ -79,12 +79,12 @@ final class BackgroundShareUploadEngine: NSObject {
     /// Every launch reuses the session identifier and enumerates its tasks once.
     func restore() async {
         if hasRestored {
-            for job in Array(jobs.values) where activeTasks[job.id] == nil && (job.finalized != nil || job.failure != nil) { commit(job) }
-            for job in Array(jobs.values) where activeTasks[job.id] == nil && job.created != nil {
-                if job.finalized != nil || job.failure != nil { commit(job) }
+            for job in Array(jobs.values) where activeTasks[job.id] == nil && (job.hasFinalized || job.failure != nil) { commit(job) }
+            for job in Array(jobs.values) where activeTasks[job.id] == nil && job.hasCreated {
+                if job.hasFinalized || job.failure != nil { commit(job) }
                 else { await reconcile(job.id, retryExhausted: true) }
             }
-            for job in Array(jobs.values) where job.created == nil && job.failure == nil && job.createProof != nil {
+            for job in Array(jobs.values) where !job.hasCreated && job.failure == nil && (job.createProof != nil || job.isMixtape) {
                 await recoverCreate(job.id)
             }
             return
@@ -106,7 +106,7 @@ final class BackgroundShareUploadEngine: NSObject {
         let tasks = await session.allTasks
         for task in tasks {
             guard let ticket = Self.ticket(task), let job = jobs[ticket.id],
-                  job.created != nil, job.finalized == nil, job.failure == nil,
+                  job.hasCreated, !job.hasFinalized, job.failure == nil,
                   job.nextKind == ticket.kind, activeTasks[ticket.id] == nil else {
                 task.cancel()
                 continue
@@ -122,10 +122,10 @@ final class BackgroundShareUploadEngine: NSObject {
         restoreWaiters.removeAll()
         pendingChanged()
         for job in Array(jobs.values) where activeTasks[job.id] == nil {
-            if job.finalized != nil || job.failure != nil {
+            if job.hasFinalized || job.failure != nil {
                 commit(job)
-            } else if job.created == nil {
-                if job.createProof != nil { await recoverCreate(job.id); continue }
+            } else if !job.hasCreated {
+                if job.createProof != nil || job.isMixtape { await recoverCreate(job.id); continue }
                 // A create whose response was lost is ambiguous. Never POST another
                 // create automatically; the service sweeps the orphan pending share.
                 fail(job.id, reason: "network")
@@ -193,6 +193,62 @@ final class BackgroundShareUploadEngine: NSObject {
         }
     }
 
+    func enqueue(_ prepared: PreparedMixtape, client: ShareClient, songIDs: [String],
+                 attestationPolicy: ShareAttestationPolicy? = nil,
+                 onHandOff: (@MainActor () -> Void)? = nil,
+                 onStaged: (@MainActor (UUID) -> Void)? = nil) async throws -> ShareLedger.Record {
+        await restore(); await acquireCreate()
+        var job: Job
+        do { job = try store.stage(prepared, base: client.base, songIDs: songIDs) }
+        catch { releaseCreate(); throw error }
+        jobs[job.id] = job; pendingChanged(); onStaged?(job.id)
+        let interval = UIApplication.shared.beginBackgroundTask(withName: "Create mixtape share", expirationHandler: nil)
+
+        do {
+            let body = job.createBody!
+            if let policy = attestationPolicy {
+                job.createProof = try await appAttest.proof(client: client, policy: policy, body: body,
+                    requestID: job.id.uuidString, path: "/v1/share/mixtapes")
+                try store.save(job); jobs[job.id] = job
+            }
+            try store.attach(try await client.createMixtape(body: body, proof: job.createProof), to: &job)
+            jobs[job.id] = job; onCreated?()
+        } catch {
+            if interval != .invalid { UIApplication.shared.endBackgroundTask(interval) }; releaseCreate()
+            throw Failure.upload
+        } // Stable body and key survive an uncertain create.
+        if interval != .invalid { UIApplication.shared.endBackgroundTask(interval) }; releaseCreate()
+        return try await withCheckedThrowingContinuation { continuation in
+            waiters[job.id] = continuation; schedule(job.id)
+            if activeTasks[job.id] != nil { onHandOff?() }
+        }
+    }
+
+    func resumeMixtape(_ id: UUID, onHandOff: (@MainActor () -> Void)? = nil) async throws -> ShareLedger.Record {
+        let retained: Job?
+        if let job = jobs[id] { retained = job }
+        else { retained = try store.load().jobs.first(where: { $0.id == id }) }
+        await restore()
+        if jobs[id] == nil, let retained, retained.isMixtape,
+           BackgroundShareUploadStore.receipts(at: store.ledgerURL).contains(id.uuidString),
+           let record = ShareLedger.load(from: store.ledgerURL).records.first(where: {
+               $0.containerKind == .mixtape && $0.id == retained.record.id && $0.link == retained.record.link
+           }) {
+            return record
+        }
+        guard let job = jobs[id], job.isMixtape else { throw Failure.upload }
+        if !job.hasCreated { await recoverCreate(id) }
+        return try await withCheckedThrowingContinuation { continuation in
+            waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload)
+            waiters[id] = continuation
+            Task { @MainActor in
+                await self.reconcile(id, retryExhausted: true)
+                if self.activeTasks[id] != nil { onHandOff?() }
+                else { self.waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+            }
+        }
+    }
+
     private func acquireCreate() async {
         if creating { await withCheckedContinuation { createWaiters.append($0) } }
         else { creating = true }
@@ -204,7 +260,18 @@ final class BackgroundShareUploadEngine: NSObject {
     private func recoverCreate(_ id: UUID) async {
         await acquireCreate()
         defer { releaseCreate() }
-        guard var job = jobs[id], job.created == nil, let body = job.createBody, let proof = job.createProof,
+        if var job = jobs[id], job.isMixtape, !job.hasCreated, let body = job.createBody,
+           let secret = secretProvider(), !secret.isEmpty {
+            let foreground = URLSession(configuration: sessionConfiguration ?? .ephemeral)
+            defer { foreground.finishTasksAndInvalidate() }
+            do {
+                let client = ShareClient(base: job.base, secret: secret, session: foreground)
+                try store.attach(try await client.createMixtape(body: body, proof: job.createProof), to: &job)
+                jobs[id] = job; onCreated?(); schedule(id)
+            } catch { /* Preserve stable container identity/body/key for a later foreground retry. */ }
+            return
+        }
+        guard var job = jobs[id], !job.hasCreated, let body = job.createBody, let proof = job.createProof,
               let secret = secretProvider(), !secret.isEmpty else { return }
         var request = URLRequest(url: job.base.appendingPathComponent("v1/share/shares"))
         request.httpMethod = "POST"
@@ -228,11 +295,11 @@ final class BackgroundShareUploadEngine: NSObject {
     }
 
     private func schedule(_ id: UUID) {
-        guard activeTasks[id] == nil, var job = jobs[id], let created = job.created,
+        guard activeTasks[id] == nil, var job = jobs[id], job.hasCreated,
               let kind = job.nextKind else { return }
         guard job.record.expiresAt > Date() else { fail(id, reason: "network"); return }
         guard (job.attempts[kind] ?? 0) < 3 else {
-            if kind == "finalize" {
+            if kind == "finalize" || job.isMixtape {
                 // Its response may have been lost after acceptance. Keep the key
                 // and ticket until a foreground ownership read resolves it.
                 waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload)
@@ -245,12 +312,18 @@ final class BackgroundShareUploadEngine: NSObject {
             return
         }
         let path: String
-        switch kind {
-        case "audio": path = created.uploads.audio
-        case "art": path = created.uploads.art
-        case "card": path = created.uploads.card
-        default: path = "/v1/share/shares/\(created.id)/finalize"
-        }
+        if let created = job.mixtapeCreated {
+            if kind == "finalize" { path = "/v1/share/mixtapes/\(created.id)/finalize" }
+            else if let track = BackgroundShareUploadStore.trackID(kind), let route = created.uploads[track] { path = route }
+            else { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload); return }
+        } else if let created = job.created {
+            switch kind {
+            case "audio": path = created.uploads.audio
+            case "art": path = created.uploads.art
+            case "card": path = created.uploads.card
+            default: path = "/v1/share/shares/\(created.id)/finalize"
+            }
+        } else { return }
         guard let url = URL(string: path, relativeTo: job.base)?.absoluteURL,
               BackgroundShareUploadStore.sameOrigin(url, job.base) else {
             fail(id, reason: "other")
@@ -280,8 +353,32 @@ final class BackgroundShareUploadEngine: NSObject {
     /// Lost PUT/finalize responses are reconciled against ownership. Retrying the
     /// same job never creates a second share or increments finalization twice.
     private func reconcile(_ id: UUID, retryExhausted: Bool = false) async {
-        guard let job = jobs[id], let created = job.created else { return }
+        guard let job = jobs[id], job.hasCreated else { return }
         guard let secret = secretProvider(), !secret.isEmpty else { return }
+        if let created = job.mixtapeCreated {
+            let foreground = URLSession(configuration: sessionConfiguration ?? .ephemeral)
+            defer { foreground.finishTasksAndInvalidate() }
+            do {
+                let summary = try await ShareClient(base: job.base, secret: secret, session: foreground).mixtape(created.id)
+                guard summary.share.id == created.id, summary.share.id == job.record.id,
+                      let songIDs = job.record.songIDs, summary.trackCount == songIDs.count,
+                      summary.share.actionRequired == nil else {
+                    waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload)
+                    return
+                }
+                if summary.share.status == .ready { finalizeMixtape(id, summary: summary) }
+                else if summary.share.status == .pending {
+                    if var current = jobs[id] {
+                        current.record.expiresAt = ShareDate.date(summary.share.expiresAt) ?? current.record.expiresAt
+                        if retryExhausted, let kind = current.nextKind { current.attempts[kind] = 0 }
+                        try store.save(current); jobs[id] = current
+                    }
+                    schedule(id)
+                } else { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+            } catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+            return
+        }
+        guard let created = job.created else { return }
         do {
             let reconciliationSession = URLSession(configuration: sessionConfiguration ?? .ephemeral, delegate: BackgroundShareNoRedirectDelegate(), delegateQueue: nil)
             defer { reconciliationSession.finishTasksAndInvalidate() }
@@ -330,8 +427,16 @@ final class BackgroundShareUploadEngine: NSObject {
             } else { await reconcile(id) }
             return
         }
-        guard (200..<300).contains(status) else { fail(id, reason: "other"); return }
-        if kind == "finalize" {
+        guard (200..<300).contains(status) else {
+            if job.isMixtape { await reconcile(id); waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+            else { fail(id, reason: "other") }
+            return
+        }
+        if kind == "finalize", job.isMixtape {
+            guard let summary = try? JSONDecoder().decode(MixtapeSummary.self, from: data),
+                  summary.share.id == job.mixtapeCreated?.id, summary.share.status == .ready else { await reconcile(id); return }
+            finalizeMixtape(id, summary: summary)
+        } else if kind == "finalize" {
             guard let summary = try? JSONDecoder().decode(ShareSummary.self, from: data),
                   summary.id == job.created?.id, summary.status == .ready else {
                 await reconcile(id)
@@ -352,8 +457,22 @@ final class BackgroundShareUploadEngine: NSObject {
         catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
     }
 
+    private func finalizeMixtape(_ id: UUID, summary: MixtapeSummary) {
+        guard var job = jobs[id], let created = job.mixtapeCreated,
+              summary.share.id == created.id, summary.share.id == job.record.id,
+              summary.share.status == .ready, summary.share.actionRequired == nil,
+              let songIDs = job.record.songIDs, summary.trackCount == songIDs.count else {
+            waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload)
+            return
+        }
+        job.mixtapeFinalized = summary
+        do { try store.save(job); jobs[id] = job; commit(job) }
+        catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+    }
+
     private func fail(_ id: UUID, reason: String) {
         guard var job = jobs[id] else { return }
+        if job.isMixtape { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload); return }
         job.failure = reason
         do { try store.save(job); jobs[id] = job; commit(job) }
         catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
@@ -366,7 +485,7 @@ final class BackgroundShareUploadEngine: NSObject {
             jobs[job.id] = nil
             try? store.remove(job.id)
             pendingChanged()
-            if let record = ledger.records.first(where: { $0.id == job.record.id }), job.finalized != nil {
+            if let record = ledger.records.first(where: { $0.id == job.record.id }), job.hasFinalized {
                 waiters.removeValue(forKey: job.id)?.resume(returning: record)
             } else { waiters.removeValue(forKey: job.id)?.resume(throwing: Failure.upload) }
         } catch { waiters.removeValue(forKey: job.id)?.resume(throwing: Failure.upload) }
@@ -385,14 +504,29 @@ final class BackgroundShareUploadEngine: NSObject {
         guard let description = task.taskDescription else { return nil }
         let parts = description.split(separator: ":")
         guard parts.count == 2, let id = UUID(uuidString: String(parts[0])),
-              ["audio", "art", "card", "finalize"].contains(String(parts[1])) else { return nil }
+              (["audio", "art", "card", "finalize"].contains(String(parts[1])) || BackgroundShareUploadStore.trackID(String(parts[1])) != nil) else { return nil }
         return (id, String(parts[1]))
     }
 }
 
 extension BackgroundShareUploadEngine: URLSessionDataDelegate {
+    nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                               completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+        let mixtape = dataTask.originalRequest?.url?.path.hasPrefix("/v1/share/mixtapes/") == true
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let ceiling = mixtape && !(200..<300).contains(status) ? 4096 : 256 * 1024
+        delegateState.limit(dataTask.taskIdentifier, bytes: ceiling)
+        completionHandler(response.expectedContentLength > Int64(ceiling) ? .cancel : .allow)
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                               completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust { completionHandler(.performDefaultHandling, nil) }
+        else { completionHandler(.cancelAuthenticationChallenge, nil) }
+    }
+
     nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        delegateState.append(data, task: dataTask.taskIdentifier)
+        if !delegateState.append(data, task: dataTask.taskIdentifier) { dataTask.cancel() }
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -447,18 +581,20 @@ private final class BackgroundShareUploadDelegateState: @unchecked Sendable {
     private var responses: [Int: Data] = [:]
     private var progress: [Int: Double] = [:]
     private var callbacks = 0
+    private var limits: [Int: Int] = [:]
     var pending: Int { lock.lock(); defer { lock.unlock() }; return callbacks }
     func beginCallback() { lock.lock(); callbacks += 1; lock.unlock() }
     func endCallback() { lock.lock(); callbacks -= 1; lock.unlock() }
-    func append(_ data: Data, task: Int) {
+    func limit(_ task: Int, bytes: Int) { lock.lock(); limits[task] = bytes; lock.unlock() }
+    func append(_ data: Data, task: Int) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        if (responses[task]?.count ?? 0) + data.count <= 256 * 1024 {
-            responses[task, default: Data()].append(data)
-        }
+        guard data.count <= (limits[task] ?? 256 * 1024) - (responses[task]?.count ?? 0) else { return false }
+        responses[task, default: Data()].append(data); return true
     }
     func take(_ task: Int) -> Data {
         lock.lock(); defer { lock.unlock() }
         progress[task] = nil
+        limits[task] = nil
         return responses.removeValue(forKey: task) ?? Data()
     }
     func shouldForward(_ task: Int, fraction: Double) -> Bool {

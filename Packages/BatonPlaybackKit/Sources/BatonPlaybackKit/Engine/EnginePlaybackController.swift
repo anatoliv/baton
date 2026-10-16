@@ -193,6 +193,7 @@ public final class EnginePlaybackController {
     static let maxEpisodeRetries = 6
 
     #if DEBUG
+    var loadPauseIntentForTesting: LoadPauseIntent { loadPauseIntent }
     var sameTrackRetriesForTesting: Int { sameTrackRetries }
     var episodeRetriesForTesting: Int { episodeRetries }
     /// Test instrumentation, mirroring the old engine's boundary counters.
@@ -266,7 +267,7 @@ public final class EnginePlaybackController {
         //
         // Latch it instead. The load honours it the moment it would otherwise start.
         if state == .loading {
-            pauseRequestedDuringLoad = true
+            loadPauseIntent = .faded
             return
         }
         guard state == .playing else { return }
@@ -287,11 +288,24 @@ public final class EnginePlaybackController {
                           })
     }
 
+    public func pauseImmediately() {
+        if state == .loading { loadPauseIntent = .immediate }
+        if state == .playing || state == .loading { state = .paused }
+        pipeline.pause(activeDeck)
+        deckIsSilenced = true
+        // Silence precedes restoring the envelope; a deferred stop must not rewind later.
+        transportFade.supersede(apply: { [weak self] in self?.applyVolume() })
+        pipeline.suspendIO()
+        stopClock()
+    }
+
     public func resume() {
         guard nowPlaying != nil else { return }
-        if state == .loading {
-            // Resuming during a load withdraws a pause asked for during the same load.
-            pauseRequestedDuringLoad = false
+        if state == .loading || !loadPauseIntent.allowsRendering {
+            // An immediate handoff sets .paused while loading. Resume withdraws its
+            // render fence, but the loader still owns connection/start ordering.
+            loadPauseIntent = .none
+            state = .loading
             return
         }
         if state == .paused {
@@ -356,7 +370,7 @@ public final class EnginePlaybackController {
                                                               trackDuration: track.duration)
                 guard generation == loadGeneration else { return }
                 load(track: track, startingAt: offset,
-                     autoplay: state == .playing || state == .loading, resumeByte: resumeByte)
+                     autoplay: wantsRendering, resumeByte: resumeByte)
             }
         }
     }
@@ -379,11 +393,10 @@ public final class EnginePlaybackController {
     /// when the spool genuinely cannot reach the position.
     func reanchorAfterGraphRestart() {
         guard let track = nowPlaying else { return }
-        let wasPlaying = state == .playing || state == .loading
         guard let source = sources[activeDeck] else {
             // No live source (nothing loaded yet, or a previous failure tore it down) —
             // the old behaviour is the only option left.
-            load(track: track, startingAt: currentTime, autoplay: wasPlaying)
+            load(track: track, startingAt: currentTime, autoplay: wantsRendering)
             return
         }
         let target = currentTime
@@ -398,7 +411,7 @@ public final class EnginePlaybackController {
             case .direct:
                 await refeedFromSpool(to: target, source: source, generation: generation)
             case .reload(let offset):
-                load(track: track, startingAt: offset, autoplay: wasPlaying)
+                load(track: track, startingAt: offset, autoplay: wantsRendering)
             }
         }
     }
@@ -415,7 +428,7 @@ public final class EnginePlaybackController {
         guard generation == loadGeneration else { return }
         guard outcome == .repositioned, let track = nowPlaying else {
             if let track = nowPlaying {
-                load(track: track, startingAt: target, autoplay: state == .playing || state == .loading)
+                load(track: track, startingAt: target, autoplay: wantsRendering)
             }
             return
         }
@@ -456,7 +469,7 @@ public final class EnginePlaybackController {
         currentTime = target
         finishedScheduling = false
         startFeeder(on: activeDeck, source: source, track: track, resuming: true, generation: generation)
-        if state == .playing || state == .loading {
+        if wantsRendering {
             pipeline.play(activeDeck)
         }
     }
@@ -487,7 +500,10 @@ public final class EnginePlaybackController {
     /// right, and this does not fight it: the envelope is still restored. This just
     /// declines to *hear* it until there is something to play.
     /// A pause asked for while a track was still loading, honoured when the load lands.
-    private var pauseRequestedDuringLoad = false
+    private var loadPauseIntent = LoadPauseIntent.none
+    private var wantsRendering: Bool {
+        state == .playing || (state == .loading && loadPauseIntent.allowsRendering)
+    }
 
     /// Re-requests spent recovering from a stream that ended before the track did.
     ///
@@ -553,7 +569,7 @@ public final class EnginePlaybackController {
         transportFade.supersede(apply: { [weak self] in self?.applyVolume() })
         // A new load is a fresh intent; a pause asked for during the *previous* load is
         // not owed to this one.
-        pauseRequestedDuringLoad = false
+        loadPauseIntent = .none
         deckIsSilenced = false
         // Clearing the flag is not enough on its own: the graph is still carrying the zero
         // that was applied when it was silenced, and nothing else recomputes it until the
@@ -616,13 +632,11 @@ public final class EnginePlaybackController {
                 // raises an ObjC exception that, thrown through Swift-concurrency
                 // frames, corrupts the task allocator and aborts far away ("freed
                 // pointer was not the last allocation"; found by bisection).
-                if pauseRequestedDuringLoad {
-                    // Asked for while this was loading. Honour it now rather than starting
-                    // audio the user has already said they do not want.
-                    pauseRequestedDuringLoad = false
-                    state = .playing      // so pause() has something to act on
-                    applyDeckGain()
-                    pause()
+                if let immediate = loadPauseIntent.immediatePause {
+                    // The feeder has never started this deck while paused loading.
+                    loadPauseIntent = .none
+                    state = .playing // admit only the chosen pause policy, never node.play()
+                    if immediate { pauseImmediately() } else { pause() }
                     return
                 }
                 // Reaching `.playing` is *not* success, and clearing the retry ladder here
@@ -744,7 +758,7 @@ public final class EnginePlaybackController {
                 context.skipFrames = Int64(context.skipSeconds * format.sampleRate)
                 context.expectFormatChunk = false
                 // prepareDeck stops the node; restore intent-to-play.
-                if state == .playing || state == .loading {
+                if wantsRendering {
                     pipeline.play(context.deck)
                 }
             case .pcm(let buffer):
@@ -976,6 +990,13 @@ public final class EnginePlaybackController {
         guard generation == loadGeneration else { return }
         isBuffering = false
         cancelStallWatchdog()
+        if state == .paused || !loadPauseIntent.allowsRendering {
+            // Never turn a paused load/feed failure into an autoplay retry. Retain the
+            // track so a later explicit resume can reconnect it through load().
+            loadPauseIntent = .none
+            state = .idle
+            return
+        }
         if sameTrackRetries < StreamingPlaybackController.maxSameTrackRetries,
            episodeRetries < Self.maxEpisodeRetries,
            let track = nowPlaying {

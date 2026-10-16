@@ -6,8 +6,15 @@ import SwiftUI
 /// immediately; collection kinds (album / playlist / artist / podcast) load their tracks first.
 @MainActor
 enum PinPlayback {
+    /// What the pin's play control shows (the shared rule, `CollectionPlayState.of(pin:)`).
+    static func state(_ pin: PinnedItem, _ model: MusicModel) -> CollectionPlayState {
+        .of(pin: pin, player: model.music, radio: model.internetRadio)
+    }
+
     static func play(_ pin: PinnedItem, _ model: MusicModel) {
-        let source = StreamingPlaybackController.QueueSource(label: pin.title, kind: .playlist, id: pin.refID)
+        // Already the one in the player: the control pauses or resumes it.
+        if CollectionPlayState.toggleIfLoaded(pin: pin, player: model.music, radio: model.internetRadio) { return }
+        let source = pin.queueSource
         switch pin.kind {
         case .song, .podcastEpisode:
             model.music.play([pin.asSong], source: source)

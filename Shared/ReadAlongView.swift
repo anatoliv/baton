@@ -46,6 +46,12 @@ struct ReadAlongPanel: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ReadAlong")
+        #if DEBUG
+        // DEBUG only: the playhead this panel was given, so a UI test reads it and the lit
+        // sentence in one query and can tell the panel's lag from its own slow sampling
+        //. Not for VoiceOver: a release build says nothing extra.
+        .accessibilityValue(currentTime.map { String(format: "playhead %.2f", $0) } ?? "")
+        #endif
         .task(id: item.id) {
             readAlong = nil
             isFollowing = true

@@ -23,6 +23,7 @@ import UniformTypeIdentifiers
 struct MusicBooksView: View {
     @Environment(MusicModel.self) private var model
     @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var filterText = ""
     @FocusState private var filterFocused: Bool
@@ -58,6 +59,9 @@ struct MusicBooksView: View {
     private var documentsOn: Bool { model.documentsSwitch.isOn }
 
     private var search: ClippingSearch { model.clippingSearch }
+
+    /// Book covers, while Documents is on.
+    private var covers: BookCovers? { documentsOn ? model.documents.covers : nil }
 
     /// Render jobs, so a book shows from the moment it is submitted, while Documents is on.
     private var jobs: [DocumentLibrary.Job] { documentsOn ? model.documents.jobs : [] }
@@ -125,6 +129,7 @@ struct MusicBooksView: View {
             }
         }
         .task { store.loadIfNeeded() }
+        .bookCoverFinder(covers)
         #if DEBUG
         // DEBUG only: `scripts/probe-pronunciations-home-server.sh` opens Pronunciations… for the
         // first book made on the home server once every chapter is here, rather than driving a
@@ -298,7 +303,7 @@ struct MusicBooksView: View {
             .accessibilityHint("Opens the book")
             .contextMenu {
                 Button("Open") { openBookID = book.documentID }
-                Button(playTitle(book)) { play(book) }.disabled(!canPlay(book))
+                Button(mainAction(book).title) { performMain(book) }.disabled(!canPlay(book))
                 Button("Read Along") { readingAlong = book }.disabled(!canPlay(book))
                 bookMenu(book)
             }
@@ -306,10 +311,7 @@ struct MusicBooksView: View {
 
     private func bookRowLabel(_ book: BookShelf.Book) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "book.closed")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .frame(width: 28)
+            BookCoverArt(covers: covers, documentID: book.documentID, side: 40, cornerRadius: 4)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title).lineLimit(1)
@@ -318,15 +320,13 @@ struct MusicBooksView: View {
                     Text(book.summaryText)
                     Text(book.storedText)
                     if let origin = book.originText { Text(origin) }
-                    progressWords(book)
+                    BookHeard(book: book, part: .words)
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 statusLines(book)
-                if book.listenedFraction > 0 && !book.finished {
-                    ProgressView(value: book.listenedFraction).controlSize(.mini).frame(maxWidth: 240)
-                }
+                BookHeard(book: book, part: .bar(maxWidth: 240, mini: true))
             }
             Spacer()
             // The bars alone, so the list still says one of this book's chapters is playing;
@@ -339,16 +339,6 @@ struct MusicBooksView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private func progressWords(_ book: BookShelf.Book) -> some View {
-        if book.finished {
-            Text("Finished")
-            if let kept = book.keptUntilText { Text(kept) }
-        } else if book.listenedFraction > 0 {
-            Text("\(Int((book.listenedFraction * 100).rounded()))% heard")
-        }
     }
 
     @ViewBuilder
@@ -384,6 +374,10 @@ struct MusicBooksView: View {
             Button("Stop Making Again") { stopRemaking(book) }
         }
         storageMenu(book)
+        if let covers {
+            Divider()
+            BookCoverMenu(covers: covers, book: book)
+        }
         Divider()
         Button("Delete Book…", role: .destructive) { pendingBookDelete = book }
     }
@@ -431,11 +425,7 @@ struct MusicBooksView: View {
 
     private func detailHeader(_ book: BookShelf.Book) -> some View {
         HStack(alignment: .top, spacing: 18) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(.quaternary)
-                Image(systemName: "book.closed").font(.system(size: 40)).foregroundStyle(.secondary)
-            }
-            .frame(width: 104, height: 104)
+            BookCoverArt(covers: covers, documentID: book.documentID, side: 104, cornerRadius: 10, glyphSize: 40)
             .overlay(alignment: .bottomTrailing) {
                 if isCurrent(book) && model.music.isPlaying {
                     NowPlayingBars(isPlaying: true).padding(8)
@@ -450,19 +440,26 @@ struct MusicBooksView: View {
                 HStack(spacing: 6) {
                     Text(book.summaryText)
                     if let origin = book.originText { Text(origin) }
-                    progressWords(book)
+                    BookHeard(book: book, part: .words)
                 }
                 .font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                if book.listenedFraction > 0 && !book.finished {
-                    ProgressView(value: book.listenedFraction).frame(maxWidth: 280)
-                }
+                BookHeard(book: book, part: .bar(maxWidth: 280, mini: false))
                 statusLines(book)
 
                 HStack(spacing: 8) {
-                    Button { play(book) } label: {
-                        Label(playTitle(book), systemImage: "play.fill")
+                    // Pause or Resume while this book is in the player, else Play or Resume from
+                    // its place, with the transports' play/pause morph.
+                    let action = mainAction(book)
+                    Button { performMain(book) } label: {
+                        Label {
+                            Text(action.title)
+                        } icon: {
+                            Image(systemName: action.symbol)
+                                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                        }
                     }
                     .buttonStyle(.borderedProminent)
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: action)
                     .disabled(!canPlay(book))
                     .accessibilityIdentifier("book-play")
                     Button { readingAlong = book } label: {
@@ -517,6 +514,9 @@ struct MusicBooksView: View {
     private func chapterRow(_ book: BookShelf.Book, _ chapter: BookShelf.Chapter) -> some View {
         let isCurrent = isCurrent(chapter.item)
         let isPlaying = isCurrent && model.music.isPlaying
+        // Toggled only while the book is the collection in the player (the shared rule); run
+        // to its end, it plays again.
+        let toggles = isCurrent && model.music.collectionState(Self.source(book)).isLoaded
         return HStack(spacing: 8) {
             // The bars take the chapter number's place while it plays, as in the queue.
             Group {
@@ -538,9 +538,12 @@ struct MusicBooksView: View {
         .background(isCurrent ? Color.nowPlayingRowTint() : .clear)
         .contentShape(Rectangle())
         .opacity(chapter.item?.isPresent == true ? 1 : 0.6)
-        .onTapGesture(count: 2) { play(book, fromChapter: chapter.index) }
+        .onTapGesture(count: 2) { tapChapter(book, chapter, isCurrent: toggles) }
         .contextMenu {
-            Button("Play") { play(book, fromChapter: chapter.index) }.disabled(chapter.item?.isPresent != true)
+            Button(BookTransport.chapterTap(isCurrentChapter: toggles, isPlaying: model.music.isPlaying)?.title ?? "Play") {
+                tapChapter(book, chapter, isCurrent: toggles)
+            }
+            .disabled(chapter.item?.isPresent != true)
             if documentsOn {
                 let library = model.documents
                 if chapter.state == .removed, let title = library.getBackTitle(book) {
@@ -569,9 +572,34 @@ struct MusicBooksView: View {
         book.chapters.contains { $0.item?.isPresent == true }
     }
 
-    /// "Resume" when there is a place to go back to, "Play" otherwise.
-    private func playTitle(_ book: BookShelf.Book) -> String {
-        !book.finished && book.position != nil ? "Resume" : "Play"
+    /// The source this book plays under, so the shared collection rule knows it.
+    static func source(_ book: BookShelf.Book) -> StreamingPlaybackController.QueueSource {
+        BookTransport.source(documentID: book.documentID, title: book.title)
+    }
+
+    /// The main button, from the shared collection rule: the player's
+    /// Pause or Resume while this book is the collection in it, else Resume from the book's
+    /// place, or Play.
+    private func mainAction(_ book: BookShelf.Book) -> BookTransport.Action {
+        BookTransport.action(model.music.collectionState(Self.source(book)),
+                             finished: book.finished, hasPosition: book.position != nil)
+    }
+
+    /// Toggle the player for the book in it; queue any other book from its place. A book in the
+    /// player is never queued again: its saved place trails the playhead by up to five seconds,
+    /// so that jumped it back, and it offered "Previously…" in the middle of listening.
+    private func performMain(_ book: BookShelf.Book) {
+        if !model.music.toggleIfLoaded(Self.source(book)) { play(book) }
+    }
+
+    /// A double-click (or the menu's first item) on a chapter row: the chapter in the player
+    /// pauses or carries on; any other plays the book from there.
+    private func tapChapter(_ book: BookShelf.Book, _ chapter: BookShelf.Chapter, isCurrent: Bool) {
+        switch BookTransport.chapterTap(isCurrentChapter: isCurrent, isPlaying: model.music.isPlaying) {
+        case .pause?: model.music.pause()
+        case .resumePlayer?: model.music.resume()
+        default: play(book, fromChapter: chapter.index)
+        }
     }
 
     /// Play from the synced position, or from a chosen chapter. Picking a book up after a
@@ -614,7 +642,7 @@ struct MusicBooksView: View {
     private func startPlaying(_ book: BookShelf.Book, fromChapter index: Int? = nil) {
         let (songs, start) = BookPlayback.queue(for: book, fromChapter: index)
         guard !songs.isEmpty else { return }
-        model.music.play(songs, startAt: start, source: .init(label: book.title, kind: .liked, id: nil))
+        model.music.play(songs, startAt: start, source: Self.source(book))
     }
 
     // MARK: - Imports
@@ -930,6 +958,48 @@ struct MusicBooksView: View {
                 .frame(maxWidth: 420)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// How far through a book the listener is: "12% heard" or "Finished", and the bar.
+///
+/// From the live playhead while one of the book's chapters is in the player, else from the
+/// saved place. The saved place lives in the shared ledger, which `ClippingStore` keeps in
+/// UserDefaults behind a computed property that observation does not see, so a view reading it
+/// alone never redrew while the book played: the owner saw "0% heard" ten minutes in. A view of
+/// its own, so only this redraws with the playhead, four times a second, and only for the book
+/// in the player.
+private struct BookHeard: View {
+    enum Part { case words, bar(maxWidth: CGFloat, mini: Bool) }
+
+    @Environment(MusicModel.self) private var model
+    let book: BookShelf.Book
+    let part: Part
+
+    var body: some View {
+        let loaded = model.music.collectionState(MusicBooksView.source(book)).isLoaded
+            ? book.loadedChapter(nowPlayingID: model.music.nowPlaying?.id) : nil
+        let place = BookTransport.place(loadedChapter: loaded, playhead: loaded == nil ? 0 : model.music.currentTime,
+                                        saved: book.position)
+        let fraction = book.listenedFraction(at: place, live: loaded != nil)
+        let finished = book.finished && loaded == nil
+        switch part {
+        case .words:
+            if finished {
+                Text("Finished")
+                if let kept = book.keptUntilText { Text(kept) }
+            } else if fraction > 0 {
+                Text(BookTransport.heardText(fraction))
+            }
+        case let .bar(maxWidth, mini):
+            if fraction > 0 && !finished {
+                ProgressView(value: fraction)
+                    .controlSize(mini ? .mini : .regular)
+                    .frame(maxWidth: maxWidth)
+                    .accessibilityLabel("Heard")
+                    .accessibilityIdentifier("book-heard-bar")
+            }
+        }
     }
 }
 

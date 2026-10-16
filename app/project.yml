@@ -79,8 +79,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.20.2"
-    CURRENT_PROJECT_VERSION: "119"
+    MARKETING_VERSION: "0.20.3"
+    CURRENT_PROJECT_VERSION: "120"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -204,14 +204,22 @@ targets:
       - path: ../Shared/Color+Baton.swift
       - path: ../Shared/ArtworkPalette.swift
       # Sharing a song with someone outside the LAN, one flow for both apps.
+      - path: ../Shared/IncomingShareAudioSession.swift
+      - path: ../Shared/SharedWithYouModel.swift
+      - path: ../Shared/SharedWithYouView.swift
+      - path: ../Shared/SharedMixtapeModel.swift
+      - path: ../Shared/SharedMixtapeView.swift
       - path: ../Shared/SongSharing.swift
+      - path: ../Shared/ShareMixtapeViews.swift
       - path: ../Shared/ShareSongViews.swift
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
+      - path: ../Shared/BookCovers.swift
       # Read-along for a playing book, one view for both apps (TBX-10960).
       - path: ../Shared/ReadAlongView.swift
       # The voice picker, one for both apps: suggested voices, then every voice (TBX-11028).
       - path: ../Shared/VoicePicker.swift
+      - path: ../Shared/ReactionPushNotifications.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton

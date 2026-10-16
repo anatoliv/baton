@@ -63,6 +63,10 @@ let package = Package(
             resources: [.copy("Web"), .copy("AttestationRoots")]
         ),
         .executableTarget(name: "baton-share", dependencies: ["BatonShareServer"]),
+        // Explicit local-only fixture; production product and default flags remain unchanged.
+        .executableTarget(name: "baton-share-fixture", dependencies: ["BatonShareServer", "BatonGatewayCore"]),
+        // Synthetic local UI review controls; never a production/default product.
+        .executableTarget(name: "baton-mixtape-ui-fixture", dependencies: ["BatonShareServer", "BatonGatewayCore"]),
         .testTarget(name: "BatonShareServerTests",
                     dependencies: ["BatonShareServer", "BatonShareKit", "BatonGatewayCore",
                                    .product(name: "Crypto", package: "swift-crypto"),

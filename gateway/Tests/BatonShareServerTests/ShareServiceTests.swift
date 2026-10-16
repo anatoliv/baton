@@ -167,6 +167,22 @@ final class ShareServiceTests: XCTestCase {
         return type.map { t in rows.filter { $0["type"]?.text == t } } ?? rows
     }
 
+    func testPendingAudioReservationsSurviveRestartAndPreventOverAdmission() throws {
+        let sealed = try ShareCrypto.seal(Data(repeating: 3, count: 1000), key: Data(repeating: 4, count: 16), purpose: .audio)
+        var limits = ShareLimits.standard
+        limits.quotaBytes = Int64(sealed.count * 2 - 1)
+        service = try makeService(limits: limits)
+        let first = request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret)
+        XCTAssertEqual(first.status, 201)
+        let id = try decode(CreateShareResponse.self, first).id
+        service = try makeService(limits: limits)
+        XCTAssertEqual(request("POST", "/v1/share/shares", json: createBody(sealed), secret: otherSecret).status, 503)
+        XCTAssertEqual(try upload(id, "audio", sealed).status, 200, "Uploading reserved audio must not charge it twice")
+        XCTAssertEqual(request("POST", "/v1/share/shares/\(id)/finalize", secret: secret).status, 200)
+        let owned = try decode(ShareList.self, request("GET", "/v1/share/shares", secret: secret))
+        XCTAssertEqual(owned.shares.map(\.status), [.ready])
+    }
+
     // MARK: - The whole flow
 
     func testAShareGoesFromCreateToAFriendPlayingIt() throws {

@@ -94,6 +94,7 @@ struct MusicCollectionView: View {
     @State private var sel = MusicMultiSelect()
     /// Keyboard-navigation focus row in the songs list (↑/↓ move, Return plays, ⌘Return plays next).
     @State private var kbIndex: Int?
+    @State private var mixtapeDraft: MixtapeSelectionDraft?
     @State private var showSaveDialog = false
     @State private var saveName = ""
     @State private var showBatchRemoveConfirm = false
@@ -233,8 +234,10 @@ struct MusicCollectionView: View {
         }
     }
 
+    /// A search's results are named by the query they answer, so the header's Pause / Resume
+    /// belongs to that search and a new query reads Play again.
     private var source: StreamingPlaybackController.QueueSource {
-        .init(label: sourceLabel, kind: sourceKind, id: nil)
+        .init(label: sourceLabel, kind: sourceKind, id: searchMode && !submittedQuery.isEmpty ? submittedQuery : nil)
     }
 
     /// Local-filter query (Liked). In search mode filtering is server-side, so it's
@@ -444,7 +447,11 @@ struct MusicCollectionView: View {
                     if !showsChrome {
                         EmptyView()
                     } else if sel.isEmpty {
-                        MusicMiniTransport(onPlayWhenIdle: { play(shuffle: false) })
+                        // Page-bound: Pause / Resume while these songs are the
+                        // ones in the player, Play otherwise, which starts this list rather
+                        // than resuming whatever was paused last.
+                        MusicMiniTransport(onPlayWhenIdle: { play(shuffle: false) }, pageSource: source,
+                                           onShuffleWhenIdle: { play(shuffle: true) })
                         if !segmentIsEmpty { collectionMenu }
                         if !segmentIsEmpty {
                             Button(action: selectAllDisplayed) {
@@ -481,6 +488,7 @@ struct MusicCollectionView: View {
                 }
             }
         }
+        .sheet(item: $mixtapeDraft) { draft in ShareMixtapeSheet(songs: draft.songs) }
         .task { await onAppear() }
         // Find (⌘F) focuses the Search field. Handle both cases: the token bumped while this view
         // is already showing (onChange), and a ⌘F that also switched to Search from another tab —
@@ -618,7 +626,11 @@ struct MusicCollectionView: View {
             Menu {
                 switch segment {
                 case .songs:
-                    Button("Play All", systemImage: "play.fill") { play(shuffle: false) }
+                    // Pause / Resume while these songs are what plays.
+                    let allState = model.music.collectionState(source)
+                    Button(allState == .idle ? "Play All" : allState.title, systemImage: allState.symbol) {
+                        if !model.music.toggleIfLoaded(source) { play(shuffle: false) }
+                    }
                     Button("Shuffle All", systemImage: "shuffle") { play(shuffle: true) }
                     Button("Add All to Queue", systemImage: "text.append") { queueAll() }
                     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") { radioFromAll() }
@@ -700,6 +712,8 @@ struct MusicCollectionView: View {
             onToggleSelectAll: toggleSelectAll,
             onClear: clearSelection
         ) {
+            MusicBatchButton(system: "square.and.arrow.up", help: "Share selected as a mixtape", action: { mixtapeDraft = MixtapeSelectionDraft(songs: selectedSongs) })
+                .disabled(!(2...12).contains(selectedSongs.count))
             MusicBatchButton(system: "play.fill", help: "Play selected", action: batchPlay)
             MusicBatchButton(system: "text.line.first.and.arrowtriangle.forward", help: "Play next", action: batchPlayNext)
             MusicBatchButton(system: "text.append", help: "Add to queue", action: batchQueue)
@@ -966,10 +980,9 @@ struct MusicCollectionView: View {
     // MARK: - Actions
 
     private func play(shuffle: Bool) {
-        var list = songs
+        let list = songs
         guard !list.isEmpty else { return }
-        if shuffle { list.shuffle() }
-        model.music.play(list, source: source)
+        if shuffle { model.music.playShuffled(list, source: source) } else { model.music.play(list, source: source) }
     }
 
     // MARK: - Selection + Save

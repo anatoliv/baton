@@ -51,11 +51,17 @@ enum ArtistHeuristics {
 /// duplicate the logic. Each caller wraps these in its own `working` flag.
 @MainActor
 enum ArtistActions {
+    static func source(_ artist: NavidromeArtist) -> StreamingPlaybackController.QueueSource {
+        .init(label: artist.name, kind: .artist, id: artist.id)
+    }
+
+    /// Play starts the artist, or pauses / resumes it in place when it is already the one in
+    /// the player. Shuffle always starts it shuffled.
     static func play(_ artist: NavidromeArtist, _ model: MusicModel, shuffle: Bool) async {
-        var songs = await model.musicLibrary.artistSongs(id: artist.id)
+        if !shuffle, model.music.toggleIfLoaded(source(artist)) { return }
+        let songs = await model.musicLibrary.artistSongs(id: artist.id)
         guard !songs.isEmpty else { return }
-        if shuffle { songs.shuffle() }
-        model.music.play(songs, source: .init(label: artist.name, kind: .artist, id: artist.id))
+        if shuffle { model.music.playShuffled(songs, source: source(artist)) } else { model.music.play(songs, source: source(artist)) }
     }
 
     static func queue(_ artist: NavidromeArtist, _ model: MusicModel) async {
@@ -105,7 +111,7 @@ func artistActionMenuItems(
     run: @escaping (@escaping () async -> Void) -> Void,
     onRemove: @escaping () -> Void
 ) -> some View {
-    Button("Play", systemImage: "play.fill") { run { await ArtistActions.play(artist, model, shuffle: false) } }
+    collectionPlayMenuItem(ArtistActions.source(artist), model) { run { await ArtistActions.play(artist, model, shuffle: false) } }
     Button("Shuffle", systemImage: "shuffle") { run { await ArtistActions.play(artist, model, shuffle: true) } }
     Button("Add to Queue", systemImage: "text.append") { run { await ArtistActions.queue(artist, model) } }
     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") {
@@ -372,12 +378,10 @@ struct MusicArtistListRow: View {
     private var tracksText: String { stats.map { "\($0.tracks)" } ?? "—" }
     private var timeText: String { stats.map { ArtistHeuristics.formatDuration($0.seconds) } ?? "—" }
 
-    /// This artist is the source of the current queue (matches the grid card's cue).
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .artist && source?.id == artist.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    /// This artist is the one in the player (matches the grid card's cue), by the shared rule.
+    private var playState: CollectionPlayState { model.music.collectionState(ArtistActions.source(artist)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     /// Artwork for the avatar. Prefer the artist's real album cover (loaded with the
     /// stats) since the server's artist-level portrait is often a generic placeholder;
@@ -398,12 +402,11 @@ struct MusicArtistListRow: View {
             // Avatar doubles as the Play button: hovering reveals a play overlay right
             // at the start of the row.
             Button {
-                if isPlayingNow { model.music.pause() }
-                else { Task { working = true; await ArtistActions.play(artist, model, shuffle: false); working = false } }
+                Task { working = true; await ArtistActions.play(artist, model, shuffle: false); working = false }
             } label: { avatar }
                 .buttonStyle(.plain)
-                .help("Play \(artist.name)")
-                .accessibilityLabel("Play \(artist.name)")
+                .help("\(playState.title) \(artist.name)")
+                .accessibilityLabel("\(playState.title) \(artist.name)")
 
             NavigationLink(value: artist) {
                 HStack(spacing: 8) {
@@ -599,11 +602,9 @@ struct MusicArtistGridCard: View {
         return nil
     }
 
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .artist && source?.id == artist.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    private var playState: CollectionPlayState { model.music.collectionState(ArtistActions.source(artist)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     var body: some View {
         MusicMediaCard(

@@ -86,6 +86,23 @@ struct NowPlayingSourceGlyph: View {
     }
 }
 
+/// The Play item of a collection's context menu: Play, or Pause / Resume while the
+/// collection is the one in the player (TBX-11066, the rule is `CollectionPlayState`).
+/// `start` runs only when it is not; it is usually the collection's `*Actions.play`, which
+/// toggles a loaded collection itself, so a menu read a moment before playback changed
+/// still does the right thing.
+@MainActor @ViewBuilder
+func collectionPlayMenuItem(
+    _ source: StreamingPlaybackController.QueueSource,
+    _ model: MusicModel,
+    start: @escaping () -> Void
+) -> some View {
+    let state = model.music.collectionState(source)
+    Button(state.title, systemImage: state.symbol) {
+        if !model.music.toggleIfLoaded(source) { start() }
+    }
+}
+
 /// One inline row action — an icon button revealed on row hover.
 struct MusicRowAction {
     let title: String
@@ -362,11 +379,19 @@ extension View {
 /// implementation. Each caller wraps these in its own `working` flag.
 @MainActor
 enum AlbumActions {
+    /// The album as a queue source: what its Play starts and what `CollectionPlayState`
+    /// matches it by.
+    static func source(_ album: NavidromeAlbum) -> StreamingPlaybackController.QueueSource {
+        .init(label: album.name, kind: .album, id: album.id)
+    }
+
+    /// Play starts the album, or pauses / resumes it in place when it is already the one in
+    /// the player. Shuffle always starts it shuffled.
     static func play(_ album: NavidromeAlbum, _ model: MusicModel, shuffle: Bool) async {
-        var songs = await model.musicLibrary.albumSongs(id: album.id)
+        if !shuffle, model.music.toggleIfLoaded(source(album)) { return }
+        let songs = await model.musicLibrary.albumSongs(id: album.id)
         guard !songs.isEmpty else { return }
-        if shuffle { songs.shuffle() }
-        model.music.play(songs, source: .init(label: album.name, kind: .album, id: album.id))
+        if shuffle { model.music.playShuffled(songs, source: source(album)) } else { model.music.play(songs, source: source(album)) }
     }
 
     static func queue(_ album: NavidromeAlbum, _ model: MusicModel) async {
@@ -412,7 +437,7 @@ func albumActionMenuItems(
     run: @escaping (@escaping () async -> Void) -> Void,
     onRemove: @escaping () -> Void
 ) -> some View {
-    Button("Play", systemImage: "play.fill") { run { await AlbumActions.play(album, model, shuffle: false) } }
+    collectionPlayMenuItem(AlbumActions.source(album), model) { run { await AlbumActions.play(album, model, shuffle: false) } }
     Button("Shuffle", systemImage: "shuffle") { run { await AlbumActions.play(album, model, shuffle: true) } }
     Button("Add to Queue", systemImage: "text.append") { run { await AlbumActions.queue(album, model) } }
     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") {
@@ -475,12 +500,10 @@ struct MusicAlbumRow: View {
     private var genreText: String { album.genres.first ?? album.genre ?? "" }
     private var yearText: String { album.year.map(String.init) ?? "" }
 
-    /// This album is the source of the current queue (matches the grid card's cue).
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .album && source?.id == album.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    /// This album is the one in the player (matches the grid card's cue), by the shared rule.
+    private var playState: CollectionPlayState { model.music.collectionState(AlbumActions.source(album)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
@@ -488,11 +511,13 @@ struct MusicAlbumRow: View {
         HStack(spacing: 12) {
             MusicSelectCheckbox(isSelected: isSelected, visible: hovering, onToggle: onToggleSelect)
 
+            // The glyph said Pause while the album played, yet pressing it started the album
+            // over. `AlbumActions.play` now pauses or resumes a loaded album.
             Button { run { await play() } } label: {
                 MusicRowThumb(url: coverURL, isHovering: hovering, isWorking: working, isPlaying: isPlayingNow)
             }
-            .buttonStyle(.plain).help("Play \(title)")
-            .accessibilityLabel("Play \(title)")
+            .buttonStyle(.plain).help("\(playState.title) \(title)")
+            .accessibilityLabel("\(playState.title) \(title)")
 
             NavigationLink(value: album) {
                 HStack(spacing: 6) {
@@ -590,10 +615,16 @@ struct MusicAlbumRow: View {
 /// grid cell don't duplicate them.
 @MainActor
 enum PlaylistActions {
+    static func source(_ playlist: NavidromePlaylist) -> StreamingPlaybackController.QueueSource {
+        .init(label: playlist.name, kind: .playlist, id: playlist.id)
+    }
+
+    /// Play starts the playlist, or pauses / resumes it in place when it is already the one
+    /// in the player. Shuffle always starts it shuffled.
     static func play(_ playlist: NavidromePlaylist, _ model: MusicModel, shuffle: Bool = false) async {
-        guard var songs = await model.musicLibrary.playlist(id: playlist.id)?.songs, !songs.isEmpty else { return }
-        if shuffle { songs.shuffle() }
-        model.music.play(songs, source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
+        if !shuffle, model.music.toggleIfLoaded(source(playlist)) { return }
+        guard let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs, !songs.isEmpty else { return }
+        if shuffle { model.music.playShuffled(songs, source: source(playlist)) } else { model.music.play(songs, source: source(playlist)) }
     }
 
     static func queue(_ playlist: NavidromePlaylist, _ model: MusicModel) async {
@@ -631,11 +662,9 @@ struct PlaylistGridCell: View {
 
     private var coverURL: URL? { playlist.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 400) } }
 
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .playlist && source?.id == playlist.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    private var playState: CollectionPlayState { model.music.collectionState(PlaylistActions.source(playlist)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
@@ -685,7 +714,7 @@ func playlistActionMenuItems(
     run: @escaping (@escaping () async -> Void) -> Void,
     onDelete: @escaping () -> Void
 ) -> some View {
-    Button("Play", systemImage: "play.fill") { run { await PlaylistActions.play(playlist, model) } }
+    collectionPlayMenuItem(PlaylistActions.source(playlist), model) { run { await PlaylistActions.play(playlist, model) } }
     Button("Shuffle", systemImage: "shuffle") { run { await PlaylistActions.play(playlist, model, shuffle: true) } }
     Button("Add to Queue", systemImage: "text.append") { run { await PlaylistActions.queue(playlist, model) } }
     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") { run { await PlaylistActions.radio(playlist, model) } }
@@ -731,12 +760,10 @@ struct MusicPlaylistRow: View {
 
     private var coverURL: URL? { playlist.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 80) } }
 
-    /// This playlist is the source of the current queue (matches the grid cell's cue).
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .playlist && source?.id == playlist.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    /// This playlist is the one in the player (matches the grid cell's cue), by the shared rule.
+    private var playState: CollectionPlayState { model.music.collectionState(PlaylistActions.source(playlist)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
@@ -747,8 +774,8 @@ struct MusicPlaylistRow: View {
             Button { run { await PlaylistActions.play(playlist, model) } } label: {
                 MusicRowThumb(url: coverURL, placeholder: "music.note.list", isHovering: hovering, isWorking: working, isPlaying: isPlayingNow)
             }
-            .buttonStyle(.plain).help("Play \(playlist.name)")
-            .accessibilityLabel("Play \(playlist.name)")
+            .buttonStyle(.plain).help("\(playState.title) \(playlist.name)")
+            .accessibilityLabel("\(playState.title) \(playlist.name)")
 
             NavigationLink(value: playlist) {
                 HStack(spacing: 6) {

@@ -32,14 +32,20 @@ enum FolderActions {
         return result.songs
     }
 
+    static func source(_ folder: NavidromeFolder) -> StreamingPlaybackController.QueueSource {
+        .init(label: folder.name, kind: .folder, id: folder.id)
+    }
+
+    /// Play starts the folder, or pauses / resumes it in place when it is already the one in
+    /// the player. Shuffle always starts it shuffled.
     static func play(_ folder: NavidromeFolder, _ model: MusicModel, shuffle: Bool) async {
-        var songs = await songs(folder, model)
+        if !shuffle, model.music.toggleIfLoaded(source(folder)) { return }
+        let songs = await songs(folder, model)
         guard !songs.isEmpty else {
             model.music.postToast("“\(folder.name)” has no songs", symbol: "folder")
             return
         }
-        if shuffle { songs.shuffle() }
-        model.music.play(songs, source: .init(label: folder.name, kind: .folder, id: folder.id))
+        if shuffle { model.music.playShuffled(songs, source: source(folder)) } else { model.music.play(songs, source: source(folder)) }
     }
 
     static func queue(_ folder: NavidromeFolder, _ model: MusicModel) async {
@@ -73,7 +79,7 @@ func folderActionMenuItems(
     _ model: MusicModel,
     run: @escaping (@escaping () async -> Void) -> Void
 ) -> some View {
-    Button("Play", systemImage: "play.fill") { run { await FolderActions.play(folder, model, shuffle: false) } }
+    collectionPlayMenuItem(FolderActions.source(folder), model) { run { await FolderActions.play(folder, model, shuffle: false) } }
     Button("Shuffle", systemImage: "shuffle") { run { await FolderActions.play(folder, model, shuffle: true) } }
     Button("Add to Queue", systemImage: "text.append") { run { await FolderActions.queue(folder, model) } }
     Divider()
@@ -313,11 +319,9 @@ struct MusicFolderListRow: View {
     @State private var working = false
     @State private var stats: FolderStats?
 
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .folder && source?.id == folder.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    private var playState: CollectionPlayState { model.music.collectionState(FolderActions.source(folder)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
@@ -326,11 +330,11 @@ struct MusicFolderListRow: View {
             MusicSelectCheckbox(isSelected: isSelected, visible: hovering, onToggle: onToggleSelect)
 
             Button {
-                if isPlayingNow { model.music.pause() } else { run { await FolderActions.play(folder, model, shuffle: false) } }
+                run { await FolderActions.play(folder, model, shuffle: false) }
             } label: { tile }
                 .buttonStyle(.plain)
-                .help("Play “\(folder.name)” (including subfolders)")
-                .accessibilityLabel("Play \(folder.name)")
+                .help(playState == .idle ? "Play “\(folder.name)” (including subfolders)" : "\(playState.title) “\(folder.name)”")
+                .accessibilityLabel("\(playState.title) \(folder.name)")
 
             NavigationLink(value: folder) {
                 HStack(spacing: 8) {
@@ -428,11 +432,9 @@ struct FolderGridCell: View {
     @State private var working = false
     @State private var stats: FolderStats?
 
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .folder && source?.id == folder.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    private var playState: CollectionPlayState { model.music.collectionState(FolderActions.source(folder)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     private func run(_ body: @escaping () async -> Void) { Task { working = true; await body(); working = false } }
 
@@ -545,7 +547,8 @@ struct MusicFolderDetailView: View {
                         leading: {
                             MusicMiniTransport(
                                 onPlayWhenIdle: { Task { await FolderActions.play(folder, model, shuffle: false) } },
-                                pageSource: folderSource
+                                pageSource: folderSource,
+                                onShuffleWhenIdle: { Task { await FolderActions.play(folder, model, shuffle: true) } }
                             )
                             MusicRowActions(actions: [
                                 MusicRowAction(title: "Shuffle All", systemImage: "shuffle") {

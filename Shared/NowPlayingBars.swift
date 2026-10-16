@@ -64,8 +64,10 @@ struct NowPlayingBars: View {
     private var animating: Bool { isPlaying && !reduceMotion }
 
     /// Real levels are used only while actually playing and with motion allowed — Reduce
-    /// Motion must stop the bars whether the movement is canned or genuine.
-    private var reactive: Bool { animating && monitor.isLive }
+    /// Motion must stop the bars whether the movement is canned or genuine — and only while
+    /// something is audible: in the pauses of a narrated book the levels fall to nothing, and
+    /// following them drew four still dots on a chapter that was playing.
+    private var reactive: Bool { animating && monitor.isAudible }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: Self.spacing) {

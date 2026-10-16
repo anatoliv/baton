@@ -110,6 +110,14 @@ public struct BookJob: Codable, Sendable, Equatable {
         /// ledger key a book by, so a device that did not send the book can adopt it and share
         /// its place and "finished" with the device that did. Nil from a gateway older than it.
         public var documentID: String? = nil
+        /// The book's cover on the home server, or its removal, so another device
+        /// knows to fetch or drop its copy. Nil when no cover was ever set there, and from a
+        /// gateway older than covers.
+        public var cover: Cover? = nil
+        /// Made on a Mac and sent here whole, so another device can say where the
+        /// book was really made. Nil for a book the home server made, and from a gateway older
+        /// than it.
+        public var uploaded: Bool? = nil
     }
 
     public struct ChapterSummary: Codable, Sendable, Equatable {
@@ -146,7 +154,8 @@ public struct BookJob: Codable, Sendable, Equatable {
                                               progress: 0, reason: reason)
                     }
                 },
-                bytes: bytesOnDisk, createdAt: createdAt, finishedAt: finishedAt, documentID: book.documentID)
+                bytes: bytesOnDisk, createdAt: createdAt, finishedAt: finishedAt, documentID: book.documentID,
+                uploaded: uploaded == true ? true : nil)
     }
 }
 
@@ -208,7 +217,53 @@ public struct BookStore: Sendable {
     public func summary(of job: BookJob) -> BookJob.Summary {
         var summary = job.summary
         summary.removesAt = job.finishedAt.map { $0.addingTimeInterval(keepFinished) }
+        summary.cover = cover(of: job.id)
         return summary
+    }
+
+    // MARK: - Covers
+
+    /// What the home server keeps about a book's cover, from `cover.json` beside the job.
+    public func cover(of id: String) -> BookJob.Cover? {
+        guard let dir = jobDirectory(id), let data = try? Data(contentsOf: dir.appendingPathComponent("cover.json")) else {
+            return nil
+        }
+        return try? BookJSON.decoder.decode(BookJob.Cover.self, from: data)
+    }
+
+    /// The cover's bytes, read back only when they still match the digest recorded for them.
+    public func coverImage(of id: String) -> (data: Data, kind: BookCoverImage.Kind)? {
+        guard let cover = cover(of: id), let sha = cover.sha256, let kind = cover.kind, let dir = jobDirectory(id),
+              let data = try? Data(contentsOf: dir.appendingPathComponent("cover.\(kind.fileExtension)")),
+              SHA256Digest.hex(of: data) == sha else { return nil }
+        return (data, kind)
+    }
+
+    /// Keep `data` as the book's cover. The caller has checked what it is.
+    @discardableResult
+    public func setCover(_ data: Data, kind: BookCoverImage.Kind, of id: String, now: Date = Date()) throws -> BookJob.Cover {
+        guard let dir = jobDirectory(id), load(id) != nil else { throw BookStoreError.badID }
+        for other in [BookCoverImage.Kind.jpeg, .png] where other != kind {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("cover.\(other.fileExtension)"))
+        }
+        try data.write(to: dir.appendingPathComponent("cover.\(kind.fileExtension)"), options: .atomic)
+        let cover = BookJob.Cover(sha256: SHA256Digest.hex(of: data), kind: kind, bytes: data.count, changedAt: now,
+                                  revision: (self.cover(of: id)?.revision ?? 0) + 1)
+        try BookJSON.encoder.encode(cover).write(to: dir.appendingPathComponent("cover.json"), options: .atomic)
+        return cover
+    }
+
+    /// Remove the book's cover, remembering that it was removed so the other devices drop theirs.
+    @discardableResult
+    public func removeCover(of id: String, now: Date = Date()) throws -> BookJob.Cover {
+        guard let dir = jobDirectory(id), load(id) != nil else { throw BookStoreError.badID }
+        for kind in [BookCoverImage.Kind.jpeg, .png] {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("cover.\(kind.fileExtension)"))
+        }
+        let cover = BookJob.Cover(sha256: nil, kind: nil, bytes: nil, changedAt: now,
+                                  revision: (self.cover(of: id)?.revision ?? 0) + 1)
+        try BookJSON.encoder.encode(cover).write(to: dir.appendingPathComponent("cover.json"), options: .atomic)
+        return cover
     }
 
     public func chapterURL(_ id: String, file: String) -> URL? {

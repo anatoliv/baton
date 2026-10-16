@@ -203,6 +203,7 @@ struct LikedView: View {
     @State private var isSelecting = false
     @State private var selection: Set<String> = []
     @State private var showsBatchPlaylist = false
+    @State private var mixtapeDraft: MixtapeSelectionDraft?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -262,6 +263,7 @@ struct LikedView: View {
                 }
             }
         }
+        .sheet(item: $mixtapeDraft) { draft in ShareMixtapeSheet(songs: draft.songs) }
         .sheet(isPresented: $showsBatchPlaylist) {
             PlaylistPickerSheet(songIDs: Array(selection), model: model)
         }
@@ -309,6 +311,8 @@ struct LikedView: View {
     /// The batch bar — only the actions that make sense on a multi-selection.
     private var selectionBar: some View {
         HStack(spacing: 18) {
+            Button { mixtapeDraft = MixtapeSelectionDraft(songs: sorted(filtered(model.musicLibrary.starred.songs)).filter { selection.contains($0.id) }) } label: { Label("Share Mixtape", systemImage: "square.and.arrow.up") }
+                .disabled(!(2...12).contains(selection.count))
             Button {
                 let songs = selectedSongs
                 model.music.enqueue(songs)
@@ -693,16 +697,17 @@ struct PlaylistsView: View {
                 }
             }
             .contextMenu {
-                Button {
+                CollectionPlayMenuItem(model: model, source: .init(label: playlist.name, kind: .playlist, id: playlist.id)) {
                     Task {
                         let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
                         model.music.play(songs, source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
                     }
-                } label: { Label("Play", systemImage: "play.fill") }
+                }
                 Button {
                     Task {
                         let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
-                        model.music.play(songs.shuffled(), source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
+                        // Shuffle starts shuffled, with shuffle mode on, as every other menu's does.
+                        model.music.playShuffled(songs, source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
                     }
                 } label: { Label("Shuffle", systemImage: "shuffle") }
                 Button {
@@ -757,16 +762,10 @@ struct PlaylistDetailView: View {
         List {
             Section {
                 HStack(spacing: 10) {
-                    Button {
+                    CollectionPlayButton(model: model, source: source, disabled: songs.isEmpty) {
                         model.music.play(songs, source: source)
-                    } label: { Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(songs.isEmpty)
-                    Button {
-                        model.music.play(songs.shuffled(), source: source)
-                    } label: { Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity) }
-                    .buttonStyle(.bordered)
-                    .disabled(songs.isEmpty)
+                    }
+                    CollectionShuffleButton(model: model, source: source, disabled: songs.isEmpty) { songs }
                 }
                 .listRowSeparator(.hidden)
             }

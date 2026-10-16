@@ -8,12 +8,16 @@ import Foundation
 ///     PUT    /v1/books/{id}                    submit a PreparedBook (streamed, like a file upload)
 ///     PUT    /v1/books/{id}/upload             a book made on another device: its
 ///                                              PreparedBook, kept as a job nothing here renders
+///     PUT    /v1/books/{id}/cover              the book's cover, a JPEG or PNG a device re-encoded
+///, checked against its X-Baton-SHA256
 ///     PUT    /v1/books/{id}/chapters/{n}/timing  that book's chapter n read-along timing
 ///     PUT    /v1/books/{id}/chapters/{n}       that book's chapter n M4A, checked against its
 ///                                              X-Baton-SHA256 before it is kept
 ///     GET    /v1/books                         list, newest first, without the text
 ///     GET    /v1/books/{id}                    one job's status, per chapter
 ///     GET    /v1/books/{id}/book               the shaped book it was made from, for another device
+///     GET    /v1/books/{id}/cover              the book's cover, with its digest (404: none)
+///     DELETE /v1/books/{id}/cover              remove it, for every device
 ///     GET    /v1/books/{id}/chapters/{n}       chapter n's M4A (1-based), with its digest
 ///     GET    /v1/books/{id}/chapters/{n}/timing  where each chunk sits in it, for read-along (404: none kept)
 ///     GET    /v1/books/{id}/export.m4b         the whole book as one audiobook with chapter marks
@@ -118,6 +122,10 @@ public struct BookRoutes: Sendable {
             return httpResponse(status: "200 OK", contentType: "application/json", payload: data)
         case ("GET", 2) where parts[1] == "export.m4b":
             return await export(id)
+        case ("GET", 2) where parts[1] == "cover":
+            return cover(id)
+        case ("DELETE", 2) where parts[1] == "cover":
+            return removeCover(id)
         case ("GET", 3) where parts[1] == "chapters":
             return chapter(id, parts[2])
         case ("GET", 4) where parts[1] == "chapters" && parts[3] == "timing":
@@ -214,6 +222,8 @@ public struct BookRoutes: Sendable {
         case 1: break
         case 2 where parts[1] == "upload":
             return receiveBook(staged, id: clean)
+        case 2 where parts[1] == "cover":
+            return receiveCover(request, staged, id: clean)
         case 3 where parts[1] == "chapters":
             return receiveChapter(request, staged, id: clean, number: parts[2])
         case 4 where parts[1] == "chapters" && parts[3] == "timing":
@@ -360,6 +370,57 @@ public struct BookRoutes: Sendable {
             return httpErrorResponse(status: "500 Internal Server Error", message: "could not keep the timing")
         }
         return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
+    }
+
+    // MARK: - Covers
+
+    /// `PUT /v1/books/{id}/cover`: the book's cover, for any book this home server keeps, made
+    /// here or uploaded. The device re-encoded it (`BookCoverImaging.sanitize`); here it is only
+    /// checked: no larger than a cover, a JPEG or PNG by its own signature, and exactly the bytes
+    /// `X-Baton-SHA256` names. It is never decoded on the gateway.
+    func receiveCover(_ request: StreamingUpload.Request, _ staged: URL, id: String) -> Data {
+        guard request.contentLength <= BookCoverImage.maximumBytes,
+              let data = try? Data(contentsOf: staged), !data.isEmpty, data.count <= BookCoverImage.maximumBytes else {
+            return httpErrorResponse(status: "413 Payload Too Large", message: "that is too large to be a cover")
+        }
+        guard let kind = BookCoverImage.kind(of: data) else {
+            return httpErrorResponse(status: "415 Unsupported Media Type", message: "a cover is a JPEG or a PNG")
+        }
+        guard let expected = request.header("X-Baton-SHA256")?.lowercased(), expected == SHA256Digest.hex(of: data) else {
+            return httpErrorResponse(status: "422 Unprocessable Entity", message: "the cover arrived damaged; send it again")
+        }
+        Self.uploadLock.lock()
+        defer { Self.uploadLock.unlock() }
+        guard store.load(id) != nil else { return notFound() }
+        if let current = store.cover(of: id), current.sha256 == expected { return json(current) }
+        do {
+            return json(try store.setCover(data, kind: kind, of: id), status: "201 Created")
+        } catch {
+            return httpErrorResponse(status: "500 Internal Server Error", message: "could not keep the cover")
+        }
+    }
+
+    /// `GET /v1/books/{id}/cover`: the cover's bytes with their digest, for a device to check.
+    func cover(_ id: String) -> Data {
+        guard let image = store.coverImage(of: id) else {
+            return httpErrorResponse(status: "404 Not Found", message: "this book has no cover")
+        }
+        return httpResponse(status: "200 OK", contentType: image.kind.mimeType, payload: image.data,
+                            extraHeaders: ["X-Baton-SHA256": SHA256Digest.hex(of: image.data)])
+    }
+
+    /// `DELETE /v1/books/{id}/cover`: the cover goes, and the record that it went stays, so the
+    /// other devices remove theirs on their next look.
+    func removeCover(_ id: String) -> Data {
+        Self.uploadLock.lock()
+        defer { Self.uploadLock.unlock() }
+        guard store.load(id) != nil else { return notFound() }
+        if let current = store.cover(of: id), current.isRemoved { return json(current) }
+        do {
+            return json(try store.removeCover(of: id))
+        } catch {
+            return httpErrorResponse(status: "500 Internal Server Error", message: "could not remove the cover")
+        }
     }
 
     private enum UploadTarget {

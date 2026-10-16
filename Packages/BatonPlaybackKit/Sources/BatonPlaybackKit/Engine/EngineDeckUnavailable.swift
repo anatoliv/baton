@@ -39,6 +39,7 @@ public final class EngineDeckBridge: PlaybackDeck {
     public func load(song: NavidromeSong, url: URL, startingAt offset: TimeInterval,
                      autoplay: Bool, headers: [String: String], supportsTimeOffset: Bool) {}
     public func pause() {}
+    public func pauseImmediately() {}
     public func resume() {}
     public func seek(to seconds: TimeInterval) {}
     public func stop() {}

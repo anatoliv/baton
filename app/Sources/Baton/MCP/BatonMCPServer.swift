@@ -246,13 +246,22 @@ final class BatonMCPServer {
             // `nonisolated(unsafe)` rather than a lock. Guards against resuming the continuation
             // more than once (ready→failed, or a late .cancelled).
             nonisolated(unsafe) var resumed = false
+            nonisolated(unsafe) var wasReady = false
             listener.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
+                    wasReady = true
                     if !resumed { resumed = true; continuation.resume(returning: true) }
                 case let .failed(err):
+                    // A port that is taken during the scan is part of the scan, not the server's
+                    // error: the scan moves on and reports "No free port" only if none is. It used
+                    // to publish "Listener failed: Address already in use" here while the next
+                    // port was still being tried, and anything waiting on `lastError` (Settings,
+                    // MCPPortSurfacingTests) took that as the outcome. A listener that
+                    // fails after it was ready is the server's error and is still published.
+                    let afterReady = wasReady
                     Task { @MainActor in
-                        self?.lastError = "Listener failed: \(err.localizedDescription)"
+                        if afterReady { self?.lastError = "Listener failed: \(err.localizedDescription)" }
                         batonServerLog.error("MCP listener failed on port \(port): \(err.localizedDescription)")
                     }
                     if !resumed { resumed = true; continuation.resume(returning: false) }

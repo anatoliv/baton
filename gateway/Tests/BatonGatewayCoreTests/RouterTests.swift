@@ -176,7 +176,7 @@ final class RouterTests: XCTestCase {
 
     // MARK: - resolve, directly
 
-    func testResolveIsPureAndReportsWhatItDecided() {
+    func testResolveIsPureAndReportsWhatItDecided() async {
         let router = recordingRouter(Recorder())
         XCTAssertEqual(router.resolve(method: "GET", path: "/v1/files/id-9", isAuthenticated: true),
                        .route(index: 4, parameter: "id-9"))
@@ -188,7 +188,7 @@ final class RouterTests: XCTestCase {
 
     /// HTTP methods are case-sensitive on the wire and the parser already uppercases them,
     /// but the table must not depend on that having happened.
-    func testMethodMatchingIsCaseInsensitive() {
+    func testMethodMatchingIsCaseInsensitive() async {
         let router = recordingRouter(Recorder())
         XCTAssertEqual(router.resolve(method: "get", path: "/v1/state", isAuthenticated: true),
                        .route(index: 1, parameter: ""))
@@ -197,7 +197,7 @@ final class RouterTests: XCTestCase {
     /// The prefix route hands over everything after the prefix, untouched. Whether an id is
     /// legal is `FileStore`'s question, and it answers it with a 400; a router that silently
     /// trimmed or rejected here would move that decision somewhere nothing tests.
-    func testPrefixRouteHandsTheWholeRemainderToTheHandler() {
+    func testPrefixRouteHandsTheWholeRemainderToTheHandler() async {
         let router = recordingRouter(Recorder())
         XCTAssertEqual(router.resolve(method: "GET", path: "/v1/files/../etc/passwd", isAuthenticated: true),
                        .route(index: 4, parameter: "../etc/passwd"))
@@ -209,7 +209,7 @@ final class RouterTests: XCTestCase {
 
     /// The router compares with `BatonMCPAuth.constantTimeEquals`, so a token that is a
     /// prefix of the real one, or differs only in case, is refused.
-    func testAuthenticationRejectsNearMisses() {
+    func testAuthenticationRejectsNearMisses() async {
         let router = recordingRouter(Recorder())
         XCTAssertTrue(router.isAuthenticated(request("GET", "/v1/state", token: token)))
         XCTAssertFalse(router.isAuthenticated(request("GET", "/v1/state", token: "correct-hors")))
@@ -219,7 +219,7 @@ final class RouterTests: XCTestCase {
 
     /// `Authorization: bearer <token>` is spec-legal and must work: one auth check written
     /// twice is one that will disagree with itself (TBX-5308, S-F26).
-    func testAuthenticationAcceptsALowercaseBearerScheme() {
+    func testAuthenticationAcceptsALowercaseBearerScheme() async {
         let router = recordingRouter(Recorder())
         let message = HTTPRequestMessage(method: "GET", path: "/v1/state", query: [:],
                                          headers: ["authorization": "bearer \(token)"], body: Data())

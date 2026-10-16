@@ -88,17 +88,21 @@ final class ShuffleStateTests: XCTestCase {
                        "and must not throw you back to the top of the album")
     }
 
-    /// A *different* collection has nothing in place to preserve, so it starts, in order.
-    func testPressingOnAnotherCollectionStartsItInOrder() {
+    /// Shuffle starts shuffled. Shuffle mode being on for *another* collection
+    /// does not light this collection's button, so pressing it starts this one shuffled; it
+    /// used to start it in order, the one press of Shuffle that played nothing shuffled.
+    func testPressingOnAnotherCollectionStartsItShuffled() {
         let player = controller()
         player.playShuffleToggling(songs(5), source: source("a"))
         XCTAssertTrue(player.isShuffled)
+        XCTAssertFalse(player.isShuffling(source("b")), "b's Shuffle is not lit by a's shuffle")
 
-        let other = songs(4)
+        let other = (0 ..< 12).map { NavidromeSong(id: "o\($0)", title: "Other \($0)") }
         player.playShuffleToggling(other, source: source("b"))
 
-        XCTAssertFalse(player.isShuffled)
-        XCTAssertEqual(player.queue.map(\.id), other.map(\.id))
+        XCTAssertTrue(player.isShuffled)
+        XCTAssertTrue(player.isShuffling(source("b")))
+        XCTAssertEqual(Set(player.queue.map(\.id)), Set(other.map(\.id)))
     }
 
     /// The context-menu "Shuffle" is deliberately not a toggle — it shows no state, so

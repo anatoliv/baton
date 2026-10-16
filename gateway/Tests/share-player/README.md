@@ -170,6 +170,38 @@ browser:
 node --test gateway/Tests/share-player/startup-registry.test.mjs
 ```
 
+For the Chromium concurrent-renderer investigation, `--profile load`
+runs the full local walk followed by 50 isolated listeners using cached full
+Chromium. The same 180-second outer deadline reserves 20 seconds for cleanup.
+It records actual runtime/version and owned executable hashes, per-listener media
+states/events, renderer error messages, all 50 outcomes, and owner API counters
+before assertions. It never changes currentTime or infers physical audibility.
+Use a new evidence directory and obtain the coordinated local audio window:
+
+```sh
+python3 gateway/Tests/share-player/startup-run.py --binary /absolute/path/to/qualified/baton-share --evidence /tmp/share-load/new-chromium --profile load --playwright /absolute/path/to/playwright --browsers /absolute/path/to/cached-browsers --prepare
+# After admission and coordination, replace --prepare with --run-authorized.
+```
+
+This creates six disposable synthetic shares, about 5.76MB encrypted uploads and
+48MB for the concurrent audio downloads. Public/external service options are not
+accepted; inherited service credentials are discarded. Keep a failed result and
+its exact cleanup uncertainty. A later successful runtime check does not replace
+the original renderer failure or certify production capacity.
+
+The October 4 TBX-8912 investigation found the preserved stalled listener's CDP
+`PipelineStatus::AUDIO_RENDERER_ERROR` (code 19), alongside media error 3 and a
+moving page timer. That identifies the audio renderer/output failure layer; its
+underlying system trigger and original browser version were not recorded. The
+existing player error/retry handling addresses the formerly misleading playing UI.
+The changed full-Chromium 151.0.7922.34 run passed all 50 actual clocks beyond
+30 seconds, exact owner counters and zero renderer/application errors. A first
+attempt failed before playback on a valid unrelated macOS UID -2 metadata row;
+the public registrar regression fails before the signed-UID intake correction and
+all nine registry checks pass after. Original failures and bounded cleanup recovery
+remain preserved in `evidence/8912/diagnosis.json`; the successful attempt took
+122.138 seconds with verified exact cleanup. This is one local synthetic run.
+
 The supervisor also removes and independently inspects the exact UUID network
 created by the fixture. Container, network and registered process groups must all
 be absent before the namespace is removed and cleanup is called verified. It never

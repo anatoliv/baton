@@ -3,7 +3,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {once} from "node:events";
-import {mkdtempSync,readFileSync,realpathSync,rmSync,symlinkSync,existsSync,writeFileSync} from "node:fs";
+import {mkdtempSync,mkdirSync,readFileSync,realpathSync,rmSync,symlinkSync,existsSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {registerOwnedBrowser,registerOwnedBrowserServer} from "./startup.mjs";
@@ -62,6 +62,33 @@ test("launchServer registry pins the public child and selected native executable
 test("launchServer public spawnfile mismatch refuses browser identity",async()=>fixture(async({evidence,child})=>{
   assert.throws(()=>registerOwnedBrowserServer({process:()=>child},evidence,nonce,{launcher:"/bin/echo"}),/selected cached launcher/);
   assert.equal(existsSync(join(evidence,"startup-process-registry.json")),false);
+}));
+
+test("launchServer registry ignores an unrelated valid negative UID row",async()=>fixture(async({evidence,child})=>{
+  const bin=join(evidence,"bin");mkdirSync(bin);
+  // Keep actual owned-process metadata. Replace unrelated negative-UID rows
+  // with one independent macOS nobody example, regardless of host daemons.
+  writeFileSync(join(bin,"ps"),`#!/usr/bin/env python3
+import subprocess,sys
+r=subprocess.run(['/bin/ps',*sys.argv[1:]],capture_output=True,text=True)
+for line in r.stdout.splitlines():
+    fields=line.split()
+    if len(fields)>3 and fields[3].lstrip('-').isdigit() and int(fields[3])<0: continue
+    print(line)
+print('2147483000 1 2147483000 -2 Sun Oct 4 12:00:00 2026 /unrelated/nobody-process')
+sys.exit(r.returncode)
+`,{mode:0o700});
+  const priorPath=process.env.PATH;
+  try {
+    process.env.PATH=bin+":"+priorPath;
+    registerOwnedBrowserServer({process:()=>child},evidence,nonce,{launcher:process.execPath});
+    const registry=JSON.parse(readFileSync(join(evidence,"startup-process-registry.json"),"utf8"));
+    assert.equal(registry.browserGroup,child.pid);
+    assert.equal(registry.uid,process.getuid());
+    assert.ok(registry.entries.some(entry=>entry.pid===child.pid));
+    assert.ok(registry.entries.every(entry=>entry.group===child.pid && entry.uid===process.getuid()));
+    assert.equal(registry.entries.some(entry=>entry.pid===2147483000),false);
+  } finally {process.env.PATH=priorPath;}
 }));
 
 

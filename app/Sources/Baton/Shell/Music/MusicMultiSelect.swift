@@ -116,10 +116,11 @@ enum MusicBatchActions {
         gather: @escaping () async -> [NavidromeSong]
     ) {
         Task {
-            var songs = await gather()
+            let songs = await gather()
             guard !songs.isEmpty else { return }
-            if shuffle { songs.shuffle() }
-            model.music.play(songs, source: .init(label: label, kind: kind, id: nil))
+            // Shuffle starts shuffled, with shuffle mode on.
+            let source = StreamingPlaybackController.QueueSource(label: label, kind: kind, id: nil)
+            if shuffle { model.music.playShuffled(songs, source: source) } else { model.music.play(songs, source: source) }
         }
     }
 

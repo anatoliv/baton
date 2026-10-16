@@ -987,18 +987,19 @@ else
   bad "wiring: publish.sh does not release its locks from its shared exit cleanup"
 fi
 
-if grep -q 'cmp -s "$NATIVE_LOCK_CANONICAL" scripts/native-lock.sh' scripts/test.sh; then
-  ok "wiring: the gate checks the vendored native-lock.sh against the shared copy"
+if grep -q 'cmp -s "$NATIVE_LOCK_CANONICAL" scripts/release-kit/lib/native-lock.sh' scripts/test.sh; then
+  ok "wiring: the gate compares the kit's native-lock module with the shared _method copy"
 else
-  bad "wiring: nothing keeps the vendored native-lock.sh equal to the shared copy"
+  bad "wiring: nothing compares the kit's native-lock module with the shared _method copy"
 fi
 
-tool_patch="docs/proposals/native-lock-tool-tbx-11003.patch"
-if [ ! -f "$tool_patch" ] || awk 'seen && /^\+/ { print substr($0, 2) } /^@@/ { seen = 1 }' "$tool_patch" \
-     | cmp -s - scripts/native-lock.sh; then
-  ok "the proposed _method tools/native-lock.sh patch carries exactly this native-lock.sh"
+# TBX-11024: the protocol lives in the release kit, pinned by its manifest. Baton's file only
+# configures it; a lock function defined here again would fork the protocol.
+if grep -q '^\. "$(cd "$(dirname "${BASH_SOURCE\[0\]}")" && pwd)/release-kit/lib/native-lock.sh"$' scripts/native-lock.sh \
+   && ! grep -qE '^(native_lock_acquire|native_lock_release|_nl_serve|_nl_attempt)\(\)' scripts/native-lock.sh; then
+  ok "scripts/native-lock.sh configures the release kit's module and keeps no lock code of its own"
 else
-  bad "docs/proposals/native-lock-tool-tbx-11003.patch is stale; regenerate it from scripts/native-lock.sh"
+  bad "scripts/native-lock.sh no longer just configures scripts/release-kit/lib/native-lock.sh"
 fi
 
 if grep -A4 '^mac_step_unlock()' scripts/test.sh | grep -q 'reap_own_test_hosts'; then
@@ -1011,6 +1012,40 @@ if grep -q 'BATON_GATE_LOCK_PRIORITY=release ./scripts/test.sh' "$TESTFLIGHT"; t
   ok "wiring: TestFlight's gate runs with release priority"
 else
   bad "wiring: TestFlight's gate does not ask for release priority"
+fi
+
+# --- 28. Baton's defaults are Tonebox's interface (review K3, TBX-11024) -------------------
+#
+# Every case above moves the locks to temporary paths. This one only RESOLVES the defaults, in
+# a clean environment, without taking, reading or signalling any lock: Tonebox's controller
+# reads /tmp/baton-gate.lock and its custody matches /tmp/native-locks, and callers set
+# BATON_GATE_LOCK_*.
+defaults="$(env -u BATON_GATE_LOCK -u NATIVE_LOCK_DIR -u NATIVE_LOCK_HOST_FILE -u BATON_GATE_LOCK_WAIT \
+  /bin/bash -c '. "$1/scripts/gate-lock.sh"
+  printf "%s\n" "$GATE_LOCK" "$(native_lock_path mac-app-host)" "$NATIVE_LOCK_DIR" \
+    "$(native_lock_intent_path mac-app-host)" "$(native_lock_path sim-X)" "$(_nl_knob WAIT)" \
+    "$(BATON_GATE_LOCK_WAIT=7 _nl_env WAIT)" "$(BATON_GATE_LOCK_PRIORITY=release _nl_env PRIORITY)" \
+    "$(BATON_GATE_LOCK_ACTIVE_OWNER_PID=42 _nl_env ACTIVE_OWNER_PID)"' _ "$ROOT" 2>&1)"
+expected="/tmp/baton-gate.lock
+/tmp/baton-gate.lock
+/tmp/native-locks
+/tmp/native-locks/mac-app-host.release-intent
+/tmp/native-locks/sim-X.lock
+BATON_GATE_LOCK_WAIT
+7
+release
+42"
+if [ "$defaults" = "$expected" ]; then
+  ok "Baton's defaults: mac-app-host is /tmp/baton-gate.lock, others and the intent under /tmp/native-locks, knobs named BATON_GATE_LOCK_*"
+else
+  bad "Baton's default lock paths or knob names changed. Got: $defaults"
+fi
+moved="$(env -u NATIVE_LOCK_DIR BATON_GATE_LOCK="$WORK/moved/gate.lock" /bin/bash -c '. "$1/scripts/native-lock.sh"
+  printf "%s %s\n" "$(native_lock_path mac-app-host)" "$(native_lock_intent_path mac-app-host)"' _ "$ROOT" 2>&1)"
+if [ "$moved" = "$WORK/moved/gate.lock $WORK/moved/native-locks/mac-app-host.release-intent" ]; then
+  ok "BATON_GATE_LOCK still moves the lock, and the other locks and the intent move beside it"
+else
+  bad "BATON_GATE_LOCK no longer moves the locks together. Got: $moved"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

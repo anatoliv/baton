@@ -93,6 +93,9 @@ enum BatonMCPResources {
             "volume_percent": player.volumePercent,
         ]
         if let song = player.nowPlaying { out["now_playing"] = BatonMCPToolCatalog.songJSON(song) }
+        #if DEBUG
+        out["system_now_playing"] = BatonMCPNowPlayingDebug.systemNowPlaying()
+        #endif
         return BatonMCPToolCatalog.jsonText(out)
     }
 

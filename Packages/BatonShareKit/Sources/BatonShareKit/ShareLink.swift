@@ -8,7 +8,7 @@ import Foundation
 public struct ShareLink: Equatable, Sendable {
     public static let defaultBase = URL(string: "https://batonmusic.app")!
     /// Hosts whose `/s/` links are shares. The universal-link route checks against this.
-    public static let hosts: Set<String> = ["batonmusic.app", "www.batonmusic.app"]
+    public static let hosts: Set<String> = ["batonmusic.app", "www.batonmusic.app", "baton.tonebox.io"]
 
     public let id: String
     public let key: Data
@@ -31,15 +31,19 @@ public struct ShareLink: Equatable, Sendable {
     /// - Parameter allowedHosts: pass `nil` to accept any host (a local test server).
     public init?(url: URL, allowedHosts: Set<String>? = ShareLink.hosts) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let host = components.host?.lowercased()
+              let host = components.host?.lowercased(), components.user == nil,
+              components.password == nil, components.query == nil,
+              components.percentEncodedPath.hasPrefix("/s/")
         else { return nil }
-        if let allowedHosts, !allowedHosts.contains(host) { return nil }
-        let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
-        guard parts.count == 2, parts[0] == "s", ShareLink.isValidID(String(parts[1])),
-              let fragment = components.fragment,
-              let key = Base64URL.decode(fragment), key.count == ShareCrypto.keyLength
-        else { return nil }
-        self.init(id: String(parts[1]), key: key)
+        if let allowedHosts {
+            guard allowedHosts.contains(host), components.scheme?.lowercased() == "https",
+                  components.port == nil || components.port == 443 else { return nil }
+        }
+        let id = String(components.percentEncodedPath.dropFirst(3))
+        guard Self.isValidID(id), let fragment = components.percentEncodedFragment,
+              let key = Base64URL.decode(fragment), key.count == ShareCrypto.keyLength,
+              Base64URL.encode(key) == fragment else { return nil }
+        self.init(id: id, key: key)
     }
 
     /// A share id is 16 bytes of base64url: exactly 22 characters from that alphabet, in the

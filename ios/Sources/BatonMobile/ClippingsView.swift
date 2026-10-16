@@ -108,10 +108,14 @@ struct ClippingsView: View {
             }
             if !playable.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Pause / Resume while the clippings are what plays.
+                    let state = model.music.collectionState(source)
                     Button {
-                        model.music.play(playable, source: source)
-                    } label: { Image(systemName: "play.fill") }
-                        .accessibilityLabel("Play all clippings")
+                        if !model.music.toggleIfLoaded(source) { model.music.play(playable, source: source) }
+                    } label: {
+                        Image(systemName: state.symbol).contentTransition(.symbolEffect(.replace.downUp))
+                    }
+                        .accessibilityLabel(state == .idle ? "Play all clippings" : "\(state.title) clippings")
                 }
             }
         }

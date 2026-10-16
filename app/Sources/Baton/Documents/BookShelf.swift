@@ -106,12 +106,20 @@ enum BookShelf {
         }
 
         /// How far through the book the listener is, 0...1, from the synced position.
-        var listenedFraction: Double {
-            if finished { return 1 }
-            guard let position, readySeconds > 0 else { return 0 }
-            let before = chapters.filter { $0.index < position.chapterIndex }
-                .compactMap { $0.item?.clipping.durationSeconds }.reduce(0, +)
-            return min(1, (before + position.seconds) / readySeconds)
+        var listenedFraction: Double { listenedFraction(at: position, live: false) }
+
+        /// How far through the book `place` is. `live`: the place is the playhead of
+        /// one of its chapters, so a finished book being heard again shows where it is.
+        func listenedFraction(at place: (chapterIndex: Int, seconds: Double)?, live: Bool) -> Double {
+            BookTransport.fraction(chapters: chapters.compactMap { chapter in
+                chapter.item?.clipping.durationSeconds.map { (chapter.index, $0) }
+            }, place: place, finished: finished, live: live)
+        }
+
+        /// The chapter of this book in the player, playing or paused, if one is.
+        func loadedChapter(nowPlayingID: String?) -> Int? {
+            guard let nowPlayingID else { return nil }
+            return chapters.first { $0.item?.isLoaded(nowPlayingID: nowPlayingID) == true }?.index
         }
     }
 

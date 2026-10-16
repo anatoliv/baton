@@ -90,6 +90,8 @@ final class DocumentLibrary {
     let cleanup: BookCleanup
     /// Books made here, sent to the Baton server for the iPhone as they are made.
     let uploads: MacBookUploads
+    /// Each book's cover, kept here and settled with the Baton server.
+    let covers: BookCovers
     /// The latest summary of each book on the home server, by job id.
     var remoteSummaries: [String: BookJob.Summary] { homeServer.summaries }
     /// Why the last attempt to reach the home server failed, in a listener's words.
@@ -116,6 +118,7 @@ final class DocumentLibrary {
                                      synthesizer: synthesizer, muxer: muxer, concurrency: concurrency,
                                      retry: retry, log: { documentsLog.notice("\($0, privacy: .public)") })
         self.refreshInterval = refreshInterval
+        self.covers = BookCovers(directory: directory.appendingPathComponent("covers", isDirectory: true), gateway: gateway)
         self.uploads = MacBookUploads(directory: directory, books: store, clippings: clippings, homeServer: homeServer,
                                       gateway: gateway, log: documentsLog, retry: uploadRetry)
         // A book this Mac makes itself is not adopted again from the home server in a second
@@ -123,6 +126,10 @@ final class DocumentLibrary {
         homeServer.isMadeHere = { [weak self] documentID in
             self?.jobs.contains { $0.documentID == documentID && $0.renderer == .thisMac } ?? false
         }
+        covers.attach(to: homeServer, clippings: clippings, cleanup: cleanup)
+        // A book made here reaches the Baton server: its cover goes too, without waiting for
+        // the next time Baton comes to the front.
+        uploads.onAccepted = { [weak covers] _ in covers?.syncSoon() }
     }
 
     // MARK: - Lifecycle

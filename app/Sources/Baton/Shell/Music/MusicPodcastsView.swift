@@ -310,6 +310,20 @@ private struct PodcastChannelCell: View {
         channel.episodes.first.map(\.title)
     }
 
+    /// The show as its page plays it, so the card's hover control is a real Play / Pause /
+    /// Resume for the show. It drew a play button that only opened the show.
+    private var showSource: StreamingPlaybackController.QueueSource {
+        .init(label: channel.title, kind: .playlist, id: channel.id)
+    }
+    private var playState: CollectionPlayState { model.music.collectionState(showSource) }
+
+    private func playShow() {
+        let songs = channel.episodes.filter(\.isPlayable)
+            .map { $0.asSong(channelTitle: channel.title, fallbackCoverID: channel.coverArtID) }
+        guard !songs.isEmpty else { return onOpen() }   // not listed yet: the page loads them
+        model.music.play(songs, source: showSource)
+    }
+
     var body: some View {
         MusicMediaCard(
             coverURL: channel.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 400) },
@@ -318,7 +332,9 @@ private struct PodcastChannelCell: View {
             title: channel.title,
             subtitle: newestEpisode ?? "",
             isHovering: hover,
-            onPlay: onOpen
+            isSelected: playState.isLoaded,
+            isPlaying: playState == .playing,
+            onPlay: playShow
         )
         // Matches every other card grid in the window (see MusicBrowseRows).
         .hoverLift(hover)

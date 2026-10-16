@@ -1,4 +1,5 @@
 import Foundation
+import BatonShareKit
 
 /// What a `baton://` URL asks for, decided before anything is done about it.
 ///
@@ -14,9 +15,11 @@ import Foundation
 /// Shared, because the Mac now claims `baton://` too. One vocabulary or two: a link that
 /// opens the player on a phone and does something else on a desktop is worse than a link
 /// that only works in one place, because you cannot tell which you have.
-public enum BatonDeepLink: Equatable {
+public enum BatonDeepLink: Equatable, CustomStringConvertible, CustomDebugStringConvertible {
     /// Show the full player. Deliberately carries no id and starts nothing: the caller is
     /// looking at what is playing and wants a closer look at it.
+    case share(id: String, key: Data?)
+    case mixtape(id: String, key: Data?)
     case presentPlayer
     case playSong(id: String)
     case playAlbum(id: String)
@@ -24,6 +27,10 @@ public enum BatonDeepLink: Equatable {
     /// Returns nil for anything this app does not claim — a foreign scheme, a host with no
     /// meaning here, or an action whose id is missing.
     public init?(url: URL) {
+        if let invitation = ShareInvitation(url: url) {
+            self = invitation.kind == .mixtape ? .mixtape(id: invitation.id, key: invitation.key) : .share(id: invitation.id, key: invitation.key)
+            return
+        }
         guard url.scheme == "baton" else { return nil }
         let id = url.lastPathComponent
         switch url.host() {
@@ -38,6 +45,17 @@ public enum BatonDeepLink: Equatable {
         }
     }
 
+    public var description: String {
+        switch self {
+        case let .share(id, _): "BatonDeepLink.share(\(id), key withheld)"
+        case let .mixtape(id, _): "BatonDeepLink.mixtape(\(id), key withheld)"
+        case .presentPlayer: "BatonDeepLink.presentPlayer"
+        case let .playSong(id): "BatonDeepLink.playSong(\(id))"
+        case let .playAlbum(id): "BatonDeepLink.playAlbum(\(id))"
+        }
+    }
+    public var debugDescription: String { description }
+
     /// Whether acting on this link changes what is playing.
     ///
     /// The widget must only ever fire a link for which this is false. Stated as a property
@@ -45,7 +63,7 @@ public enum BatonDeepLink: Equatable {
     /// and so a future link has to answer the question.
     public var disturbsPlayback: Bool {
         switch self {
-        case .presentPlayer: false
+        case .presentPlayer, .share, .mixtape: false
         case .playSong, .playAlbum: true
         }
     }

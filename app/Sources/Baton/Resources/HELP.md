@@ -1000,7 +1000,9 @@ the next time Baton opens. Nothing already narrated is made again.
 Books** on the iPhone, next to Clippings. Each book is one row, with its author, its length, how
 much of it you have heard and where it was made. Click or tap the row to open the book: its
 chapters, **Play** (or **Resume**, once you have a place in it), **Read Along**, **Change Voice…**
-and its storage. On the Mac, **More** holds the rest of the book's menu, the same menu you get by
+and its storage. While one of the book's chapters is playing, the main button says **Pause**, and
+the chapter that's playing pauses and resumes with a tap or a double-click. How much you have heard
+moves as you listen. On the Mac, **More** holds the rest of the book's menu, the same menu you get by
 Control-clicking its row, and **Books** at the top goes back to the list (Command-[).
 
 **Listening.** **Play** starts where you left off, and the chapters play in order like the
@@ -1041,6 +1043,21 @@ one M4B file that Apple Books and other audiobook players open, with a chapter m
 chapter starts. The book has to be finished being made first. For a book made on this Mac, the
 marks need ffmpeg (`brew install ffmpeg`); without it you get one file with no marks, and Baton
 says so.
+
+**Covers.** A book shows its cover on its row, at the top of the open book and in Now Playing,
+including the lock screen and Control Center. An EPUB keeps its own cover when you import it. For
+any other book, open its menu (Control-click it on the Mac and choose from the cover items, or
+open it and choose **More**; on the iPhone, tap the cover or touch and hold the book's row):
+
+- **Find Cover…** looks the book up on Open Library and shows the covers it has. Pick one and
+  choose **Use Cover**. Only the title and author are sent, and only when you ask.
+- **Make a Cover** draws a simple cover from the title and author, on your device. It needs both,
+  so it is greyed out for a book with no author. The same book always gets the same cover.
+- **Choose Image…** uses a picture you pick. Choosing an EPUB uses that book's own cover.
+- **Remove Cover** goes back to the plain book mark.
+
+The cover travels with the book through your Baton server, so a cover chosen on the Mac shows on
+the iPhone, and the other way round.
 
 **Names the narrator gets wrong.** With a Kokoro narrator, the Mac's import sheet lists names it
 might stumble on, each with a pronunciation a model proposed, and you can correct any of them or
@@ -1341,8 +1358,15 @@ cosmetic; nothing about your library or your playback changes.
 between launches (the tracks, your position, and where the queue came from) and restores it
 paused the next time you open the app.
 
+**Play, Pause and Resume.** The Play button on an album, playlist, artist, mix, folder or
+podcast plays it in order. While that collection is playing the button says **Pause**, and while
+it is paused it says **Resume**, so the one button stops and starts it. Rows, cards and their
+menus follow the same rule, on the Mac and the iPhone.
+
 **Shuffle** reshuffles the queue while keeping the current track playing. Turn it off and the
-original order comes back.
+original order comes back, including songs you added or chose to play next while shuffling. The
+Shuffle button beside a collection's Play starts that collection shuffled, and it lights up only
+while that collection is the one shuffling.
 
 **Repeat** cycles through three modes: **Off**, **All** (loop the whole queue), and **One**
 (loop the current track).
@@ -1576,6 +1600,22 @@ press **Create Link**. Baton gets the song from your server, encrypts it and upl
 waveform in the colour of the cover. After half a minute they can send a reaction back: an
 emoji, plus a name and a reply if they want to. **Get Baton** at the bottom takes them to the
 App Store or the Mac download.
+
+**When a friend sends you a song** and Baton is on your iPhone, the link opens in Baton
+instead of the browser. You see the song and your friend's note, with **Play** to listen right
+there and **Find in my library** to play your own copy if you have it. After half a minute you
+can send a reaction back. **Open in browser** shows the web page instead. On the Mac, song links
+still open in the browser.
+
+**Sharing a mixtape.** To send a few songs as one link, select 2 to 12 of your liked songs and
+click the share button in the selection bar on the Mac (**Share selected as a mixtape**), or open **Liked** in Library on the iPhone, tap
+**Select**, pick them and tap **Share Mixtape**. Put the tracks in order, give the mixtape a title,
+add a note if you like and pick how long the link lasts, then press **Create Link**. The whole
+mixtape can be up to 20 minutes and 25 MiB. Your friend's link plays the tracks in order, in a
+browser or in Baton on their iPhone, and it works like a shared song in every other way: the
+tracks are encrypted on your device, the key is in the link, and it is listed in **Shared Links**.
+If the share service doesn't offer mixtapes yet, the mixtape sheet says so and **Create Link**
+stays off.
 
 **To see who listened**, open **Shared Links**: in Settings on the iPhone, and in Settings,
 About on the Mac. It lists every link this device has sent, when each one ends, how often it was

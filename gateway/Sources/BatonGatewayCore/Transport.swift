@@ -86,11 +86,11 @@ public func jsonObject(_ object: [String: Any]) -> String {
 /// rather than `Data`, on both transports, and that is worth doing separately rather than
 /// bundling it in here.
 public func httpResponse(status: String, contentType: String, payload: Data,
-                         extraHeaders: [String: String] = [:]) -> Data {
+                         extraHeaders: [String: String] = [:], representedLength: Int? = nil) -> Data {
     var head = "HTTP/1.1 \(status)\r\n"
     head += "Content-Type: \(contentType)\r\n"
-    head += "Content-Length: \(payload.count)\r\n"
-    for (name, value) in extraHeaders.sorted(by: { $0.key < $1.key }) {
+    head += "Content-Length: \(representedLength.flatMap { $0 >= 0 ? $0 : nil } ?? payload.count)\r\n"
+    for (name, value) in extraHeaders.sorted(by: { $0.key < $1.key }) where name.lowercased() != "content-length" {
         head += "\(safeHeaderValue(name)): \(safeHeaderValue(value))\r\n"
     }
     head += "Connection: close\r\n\r\n"

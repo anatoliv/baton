@@ -138,11 +138,18 @@ extension ShareStore {
     func enforcementFingerprint(id: String) throws -> String {
         guard let row = try database.query("SELECT * FROM shares WHERE id = ?", [.text(id)]).first
         else { throw EnforcementFailure.notFound }
-        let object: [String: Any] = row.mapValues { value in
+        var object: [String: Any] = row.mapValues { value in
             switch value {
             case .null: return NSNull()
             case let .int(number): return number
             case let .text(text): return text
+            }
+        }
+        if row["is_mixtape"]?.int == 1 {
+            object["mixtapeTracks"] = try database.query("SELECT * FROM mixtape_tracks WHERE share_id=? ORDER BY track_id", [.text(id)]).map { row in
+                row.mapValues { value -> Any in
+                    switch value { case .null: return NSNull(); case let .int(number): return number; case let .text(text): return text }
+                }
             }
         }
         return ShareHash.sha256Hex(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
@@ -226,6 +233,8 @@ extension ShareStore {
                     art_type=NULL,card_type=NULL,audio_stored=0,stored_bytes=0 WHERE id=?
                     """, [.text(status), .int(now), .text(id)])
                     try database.run("DELETE FROM reactions WHERE share_id=?", [.text(id)])
+                    try database.run("DELETE FROM mixtape_tracks WHERE share_id=?", [.text(id)])
+                    try database.run("DELETE FROM mixtape_sessions WHERE share_id=?", [.text(id)])
                     try database.run("DELETE FROM enforcement_cleanup WHERE share_id=?", [.text(id)])
                 }
                 completed += 1

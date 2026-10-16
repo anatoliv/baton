@@ -305,6 +305,23 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.2",
+            date: "October 2026",
+            highlight: "Send a mixtape, songs your friends send now open in Baton, and Play turns into Pause while a collection is playing.",
+            changes: [
+                .init(.added, "Share a mixtape. In Library, open Liked, tap Select, pick 2 to 12 songs and tap Share Mixtape. Put them in order, add a note and pick how long the link lasts. Your friend gets one link that plays them in order, in a browser or in Baton, and a mixtape someone sends you opens in Baton too."),
+                .init(.added, "When a friend sends you a Baton song link, it opens in Baton. Play it right there, tap Find in my library to play your own copy, and after half a minute send a reaction back."),
+                .init(.improved, "The Play button on an album, artist, genre, mix, playlist or folder now says Pause while that collection is playing and Resume while it is paused, so one button stops and starts it. Their menus, Clippings and Later work the same way."),
+                .init(.fixed, "Play starts a collection in order and Shuffle starts it shuffled, on every screen. The Shuffle button beside Play lights up only while that collection is shuffling, and turning shuffle off goes back to the collection's own order."),
+                .init(.fixed, "Songs you add to the queue or play next while shuffling are still there when you turn shuffle off."),
+                .init(.added, "Books have covers. An EPUB keeps its own, and for any other book you can find one on Open Library, make one from the title and author, or choose a picture. The cover shows on the Lock Screen and in Control Center too, and follows the book to your Mac."),
+                .init(.improved, "On a book's screen, the main button and the chapter that's playing say Pause or Resume and control the player directly, and how much you've heard moves as you listen."),
+                .init(.fixed, "Read Along keeps up with a chapter Baton picked up where you left off, and a sentence you tap lights up straight away."),
+                .init(.improved, "A book your Mac made and sent to your Baton server now says Made on your Mac."),
+                .init(.fixed, "The radio's on-air banner shows its Pause and Stop buttons in full again."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.1",
             date: "October 2026",
             highlight: "Clearer names for your two servers, everywhere.",

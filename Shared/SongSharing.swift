@@ -66,6 +66,12 @@ final class SongSharing {
     }
     #endif
 
+    @ObservationIgnored private lazy var mixtapeStore = ShareUploadStore(
+        directory: ledgerURL.deletingLastPathComponent().appendingPathComponent("PendingSongShares"), ledgerURL: ledgerURL)
+    #if os(macOS)
+    @ObservationIgnored private lazy var mixtapeUploader = MixtapeUploadCoordinator(store: mixtapeStore, onLedgerChanged: { [weak self] ledger in self?.ledger = ledger })
+    #endif
+
     private let ledgerURL: URL
     private let base: URL
 
@@ -205,7 +211,8 @@ final class SongSharing {
         let from = options.from.trimmingCharacters(in: .whitespacesAndNewlines)
         let metadata = ShareMetadata(
             title: song.title, artist: song.displayArtistName ?? "", album: song.album ?? "",
-            durationSeconds: duration, from: from, note: options.note, accent: accent, peaks: peaks)
+            durationSeconds: duration, from: from, note: options.note, accent: accent, peaks: peaks,
+            recordingID: song.musicBrainzID.flatMap { UUID(uuidString: $0)?.uuidString.lowercased() })
         let card = options.showsDetails
             ? Self.renderCard(title: song.title, artist: metadata.artist, from: from, artwork: image,
                               accent: accent.flatMap(Self.color) ?? .batonOrange)
@@ -245,6 +252,96 @@ final class SongSharing {
         ledger.add(record)
         save()
         return record
+        #endif
+    }
+
+    func shareMixtape(_ songs: [NavidromeSong], title: String, options: Options,
+                      onBackgroundUploadHandOff: (@MainActor () -> Void)? = nil,
+                      onStaged: (@MainActor (UUID) -> Void)? = nil) async throws -> ShareLedger.Record {
+        defer { stage = nil }
+        guard (2...12).contains(songs.count), Set(songs.map(\.id)).count == songs.count,
+              songs.allSatisfy({ !$0.isLocalOnly && ($0.duration ?? 0) > 0 }) else {
+            throw SongShareError.other("Choose 2 to 12 server tracks, up to 20 minutes in total.")
+        }
+        var remainingSeconds = ShareLimits.standard.maxDurationSeconds
+        for song in songs {
+            guard let seconds = song.duration, seconds <= remainingSeconds else {
+                throw SongShareError.other("Choose 2 to 12 server tracks, up to 20 minutes in total.")
+            }
+            remainingSeconds -= seconds
+        }
+        let client = try client(), config = try await client.mixtapeConfiguration()
+        guard config.enabled, config.mixtapes == 1 else { throw SongShareError.other("Mixtape sharing is not available on this service.") }
+        var inputs = [PreparedMixtape.Input](), bytes = 0
+        for song in songs {
+            stage = .fetching
+            let file = try await fetchAudio(song)
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let data = try Data(contentsOf: file)
+            let sealedBytes = ShareCrypto.sealedLength(plaintextLength: data.count)
+            guard sealedBytes <= config.maxAudioBytes - bytes else { throw SongShareError.tooLarge }
+            bytes += sealedBytes
+            let peaks = await WaveformExtractor.bars(forSongID: "share-mixtape-\(song.id)", url: file, count: 200)
+                .map { SharePresentation.peaks($0, count: 200) } ?? []
+            inputs.append(.init(audio: data, metadata: .init(title: song.title, artist: song.displayArtistName ?? "",
+                album: song.album ?? "", durationSeconds: song.duration!, from: options.from, note: options.note, peaks: peaks,
+                recordingID: song.musicBrainzID.flatMap { UUID(uuidString: $0)?.uuidString.lowercased() })))
+        }
+        stage = .preparing
+        let preview: MixtapePreview? = options.showsDetails ? .init(title: title, from: options.from, note: options.note) : nil
+        let consent = options.reviewPreservation ? CreateShareRequest.reviewConsentVersion : nil
+        let frozenInputs = inputs
+        let clientInfo = ShareClientInfo(platform: Self.platform, appVersion: Self.appVersion)
+        let prepared = try await Task.detached(priority: .userInitiated) {
+            try PreparedMixtape.make(tracks: frozenInputs, title: title, preview: preview, expiresInSeconds: options.expiresInSeconds,
+                playCap: config.defaultPlayCap, client: clientInfo, reviewPreservationConsent: consent)
+        }.value
+        inputs.removeAll() // Only ciphertext remains in the durable upload ticket.
+        stage = .uploading(0)
+        let record: ShareLedger.Record
+        #if os(iOS)
+        record = try await backgroundUploader.enqueue(prepared, client: client, songIDs: songs.map(\.id),
+            attestationPolicy: config.appAttest, onHandOff: onBackgroundUploadHandOff, onStaged: onStaged)
+        #else
+        let job = try mixtapeStore.stage(prepared, base: base, songIDs: songs.map(\.id))
+        onStaged?(job.id)
+        record = try await mixtapeUploader.resume(job.id, client: client) { fraction in
+            Task { @MainActor in self.stage = .uploading(fraction) }
+        }
+        ledger = ShareLedger.load(from: ledgerURL)
+        #endif
+        BatonStorage.defaults.set(true, forKey: Self.disclosureKey)
+        return record
+    }
+
+    func resumeMixtapeUpload(_ id: UUID, onBackgroundUploadHandOff: (@MainActor () -> Void)? = nil) async throws -> ShareLedger.Record {
+        defer { stage = nil }
+        stage = .uploading(0)
+        #if os(iOS)
+        let record = try await backgroundUploader.resumeMixtape(id, onHandOff: onBackgroundUploadHandOff)
+        #else
+        let record = try await mixtapeUploader.resume(id, client: client())
+        ledger = ShareLedger.load(from: ledgerURL)
+        #endif
+        BatonStorage.defaults.set(true, forKey: Self.disclosureKey)
+        return record
+    }
+
+    /// Explicit foreground retry on Mac; iPhone delegates the same protected tickets
+    /// to its stable background session at launch/foreground.
+    func resumeMixtapeUploads() async throws {
+        #if os(iOS)
+        _ = try mixtapeStore.load() // Preserve and report unreadable/invalid protected tickets.
+        await backgroundUploader.restore()
+        #else
+        let client = try client(), loaded = try mixtapeStore.load()
+        var interrupted = false
+        for job in loaded.jobs where job.isMixtape {
+            do { _ = try await mixtapeUploader.resume(job.id, client: client) }
+            catch { interrupted = true }
+        }
+        ledger = ShareLedger.load(from: ledgerURL)
+        if interrupted { throw SongShareError.other("Some protected mixtape uploads could not resume. Their drafts are kept; try again when sharing is available.") }
         #endif
     }
 
@@ -301,6 +398,7 @@ final class SongSharing {
         defer { isRefreshing = false }
         do {
             ledger.merge(try await client().list())
+            if ledger.records.contains(where: { $0.containerKind == .mixtape }) { ledger.mergeMixtapes(try await client().listMixtapes()) }
             refreshError = nil
             save()
         } catch {
@@ -308,18 +406,20 @@ final class SongSharing {
         }
     }
 
-    func revoke(_ id: String) async throws {
+    func revoke(_ id: String, kind: ShareInvitation.Kind = .song) async throws {
         do {
-            try await client().revoke(id)
+            if kind == .mixtape { try await client().revokeMixtape(id) }
+            else { try await client().revoke(id) }
         } catch {
             throw SongShareError(error)
         }
         await refresh()
     }
 
-    func extend(_ id: String, bySeconds seconds: Int = 604_800) async throws {
+    func extend(_ id: String, bySeconds seconds: Int = 604_800, kind: ShareInvitation.Kind = .song) async throws {
         do {
-            ledger.update(try await client().extend(id, bySeconds: seconds))
+            if kind == .mixtape { ledger.updateMixtape(try await client().extendMixtape(id, bySeconds: seconds)) }
+            else { ledger.update(try await client().extend(id, bySeconds: seconds)) }
             save()
         } catch {
             throw SongShareError(error)
@@ -327,12 +427,18 @@ final class SongSharing {
     }
 
     /// Removes an ended share from this device's list. The server keeps only counters by then.
-    func forget(_ id: String) {
-        ledger.remove(id: id)
+    func forget(_ id: String, kind: ShareInvitation.Kind = .song) {
+        ledger.remove(id: id, kind: kind)
         save()
     }
 
     // MARK: - Pieces
+
+    /// Registration never creates an installation secret as a side effect.
+    func existingClientForReactionPush() -> ShareClient? {
+        guard let secret = NavidromeKeychain.secret(account: Self.secretAccount), !secret.isEmpty else { return nil }
+        return ShareClient(base: base, secret: secret)
+    }
 
     /// The client, creating this install's secret on first use.
     func client() throws -> ShareClient {
@@ -352,11 +458,7 @@ final class SongSharing {
     }
 
     private func save() {
-        #if os(iOS)
-        try? BackgroundShareUploadStore.saveLedger(ledger, to: ledgerURL)
-        #else
-        try? ledger.save(to: ledgerURL)
-        #endif
+        try? ShareUploadStore.saveLedger(ledger, to: ledgerURL)
     }
 
     static var platform: String {

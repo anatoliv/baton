@@ -51,6 +51,9 @@ enum MobileBookShelf {
         var finished: Bool
         /// Sent to the home server by another device and adopted from its listing.
         var adopted = false
+        /// Of an adopted book: a Mac made it and uploaded it whole, rather than the
+        /// home server rendering it.
+        var madeOnMac = false
         /// Being made again in another voice: the row's line while it is.
         var remaking: String?
         /// The voice change can be stopped from here (it was started on this phone).
@@ -58,15 +61,20 @@ enum MobileBookShelf {
 
         var id: String { documentID }
 
-        /// "Made on the home server" for a book another device sent there, so a row
-        /// nobody made from this phone says where it came from.
-        var originText: String? { adopted ? "Made on the Baton server" : nil }
+        /// Where a book another device sent was really made (TBX-10985, TBX-11092): "Made on your
+        /// Mac" for one the Mac made and uploaded, "Made on the Baton server" for one the home
+        /// server rendered, so a row nobody made from this phone says where it came from.
+        var originText: String? {
+            guard adopted else { return nil }
+            return madeOnMac ? "Made on your Mac" : "Made on the Baton server"
+        }
 
         static func == (lhs: Book, rhs: Book) -> Bool {
             lhs.documentID == rhs.documentID && lhs.jobID == rhs.jobID && lhs.title == rhs.title && lhs.author == rhs.author
                 && lhs.chapters == rhs.chapters && lhs.createdAt == rhs.createdAt
                 && lhs.pauseReason == rhs.pauseReason && lhs.failure == rhs.failure
                 && lhs.isRendering == rhs.isRendering && lhs.finished == rhs.finished && lhs.adopted == rhs.adopted
+                && lhs.madeOnMac == rhs.madeOnMac
                 && lhs.remaking == rhs.remaking && lhs.canStopRemaking == rhs.canStopRemaking
                 && lhs.position?.chapterIndex == rhs.position?.chapterIndex
                 && lhs.position?.seconds == rhs.position?.seconds
@@ -114,12 +122,20 @@ enum MobileBookShelf {
         }
 
         /// How far through the book the listener is, 0...1, from the synced position.
-        var listenedFraction: Double {
-            if finished { return 1 }
-            guard let position, readySeconds > 0 else { return 0 }
-            let before = chapters.filter { $0.index < position.chapterIndex }
-                .compactMap { $0.item?.clipping.durationSeconds }.reduce(0, +)
-            return min(1, (before + position.seconds) / readySeconds)
+        var listenedFraction: Double { listenedFraction(at: position, live: false) }
+
+        /// How far through the book `place` is. `live`: the place is the playhead of
+        /// one of its chapters, so a finished book being heard again shows where it is.
+        func listenedFraction(at place: (chapterIndex: Int, seconds: Double)?, live: Bool) -> Double {
+            BookTransport.fraction(chapters: readyChapters.compactMap { chapter in
+                chapter.item?.clipping.durationSeconds.map { (chapter.index, $0) }
+            }, place: place, finished: finished, live: live)
+        }
+
+        /// The chapter of this book in the player, playing or paused, if one is.
+        func loadedChapter(nowPlayingID: String?) -> Int? {
+            guard let nowPlayingID else { return nil }
+            return chapters.first { $0.item?.isLoaded(nowPlayingID: nowPlayingID) == true }?.index
         }
     }
 
@@ -182,6 +198,7 @@ enum MobileBookShelf {
                 position: position.flatMap { r in r.chapterIndex.map { ($0, r.seconds ?? 0) } },
                 finished: position?.finished ?? false,
                 adopted: record?.adopted == true,
+                madeOnMac: record?.madeOnMac == true || summary?.uploaded == true,
                 remaking: change.map { BookVoiceChanges.statusLine($0, chapters: summary?.chapters, total: chapters.count) },
                 canStopRemaking: change?.startedHere == true))
         }

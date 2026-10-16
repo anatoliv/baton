@@ -56,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.5.1"
+    MARKETING_VERSION: "1.5.2"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -86,6 +86,7 @@ targets:
       path: BatonMobile.entitlements
       properties:
         com.apple.security.application-groups: [group.io.tonebox.baton]
+        com.apple.developer.associated-domains: [applinks:batonmusic.app, applinks:baton.tonebox.io]
     dependencies:
       - target: BatonWidgets
       - target: BatonShare
@@ -136,16 +137,24 @@ targets:
       - path: ../Shared/BackgroundShareUploadStore.swift
       - path: ../Shared/SongShareAppAttest.swift
       - path: ../Shared/BackgroundShareUploadEngine.swift
+      - path: ../Shared/IncomingShareAudioSession.swift
+      - path: ../Shared/SharedWithYouModel.swift
+      - path: ../Shared/SharedWithYouView.swift
+      - path: ../Shared/SharedMixtapeModel.swift
+      - path: ../Shared/SharedMixtapeView.swift
       - path: ../Shared/SongSharing.swift
+      - path: ../Shared/ShareMixtapeViews.swift
       - path: ../Shared/ShareSongViews.swift
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
+      - path: ../Shared/BookCovers.swift
       # Read-along for a playing book, one view for both apps (TBX-10960).
       - path: ../Shared/ReadAlongView.swift
       # The voice picker, one for both apps: suggested voices, then every voice (TBX-11028).
       - path: ../Shared/VoicePicker.swift
       # The share extension's inbox, read here when the app becomes active (TBX-10846).
       - path: Sources/BatonShare/PendingShareInbox.swift
+      - path: ../Shared/ReactionPushNotifications.swift
       - path: Sources/Shared
       - path: Resources
     # Keep the app-bundled copies of the user guides in step with the canonical
@@ -179,6 +188,11 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+      configs:
+        Debug:
+          # Development-only physical App Attest acceptance (TBX-8711).
+          # Release keeps the ordinary entitlement file and production policy remains off.
+          "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": BatonMobile.Debug.entitlements
     info:
       path: Info.plist
       properties:
@@ -282,6 +296,7 @@ targets:
       - package: BatonSubsonicKit
       # FakeHomeServer speaks the gateway's book routes with the real types (M5.3).
       - package: BatonDocuments
+      - package: BatonShareKit
 
   BatonWidgets:
     type: app-extension

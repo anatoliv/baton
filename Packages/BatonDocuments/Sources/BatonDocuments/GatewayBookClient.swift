@@ -147,6 +147,43 @@ public struct GatewayBookClient: Sendable {
         return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
     }
 
+    // MARK: - Covers
+
+    /// `PUT /v1/books/{id}/cover`: the book's cover, a JPEG or PNG this device re-encoded, with
+    /// the digest of exactly the bytes sent. Returns what the home server now keeps. A gateway
+    /// older than covers answers 404.
+    public func uploadCover(_ id: String, image: Data) async throws -> BookJob.Cover {
+        guard let kind = BookCoverImage.kind(of: image) else { throw GatewayBookError.unreadable }
+        let (data, _) = try await send("PUT", "v1/books/\(id)/cover", body: image, contentType: kind.mimeType,
+                                       headers: ["X-Baton-SHA256": SHA256Digest.hex(of: image)])
+        return try BookJSON.decoder.decode(BookJob.Cover.self, from: data)
+    }
+
+    /// `GET /v1/books/{id}/cover`: the cover's bytes, only when they match the home server's
+    /// digest and are a JPEG or PNG. Nil when the book has no cover there.
+    public func cover(_ id: String) async throws -> Data? {
+        do {
+            let (data, response) = try await send("GET", "v1/books/\(id)/cover")
+            let digest = SHA256Digest.hex(of: data)
+            guard let expected = response.value(forHTTPHeaderField: "X-Baton-SHA256"), expected.lowercased() == digest else {
+                throw GatewayBookError.digestMismatch(expected: response.value(forHTTPHeaderField: "X-Baton-SHA256"), actual: digest)
+            }
+            guard data.count <= BookCoverImage.maximumBytes, BookCoverImage.kind(of: data) != nil else {
+                throw GatewayBookError.unreadable
+            }
+            return data
+        } catch GatewayBookError.http(404, _) {
+            return nil
+        }
+    }
+
+    /// `DELETE /v1/books/{id}/cover`: remove it there, for every device.
+    @discardableResult
+    public func removeCover(_ id: String) async throws -> BookJob.Cover {
+        let (data, _) = try await send("DELETE", "v1/books/\(id)/cover")
+        return try BookJSON.decoder.decode(BookJob.Cover.self, from: data)
+    }
+
     /// `POST /v1/books/{id}/finished`: the listener reached the end; retention starts.
     public func markFinished(_ id: String) async throws {
         _ = try await send("POST", "v1/books/\(id)/finished")

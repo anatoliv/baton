@@ -121,6 +121,50 @@ final class EngineTransportIntentTests: XCTestCase {
         )
     }
 
+    func testImmediateHandoffDuringLoadNeverStartsPreparedNode() async throws {
+        let (engine, pipeline, server) = try makeEngine()
+        defer { pipeline.shutdown(); server.stop() }
+        engine.play(track("handoff", server))
+        XCTAssertEqual(engine.state, .loading)
+        engine.pauseImmediately()
+        XCTAssertEqual(engine.state, .paused)
+        XCTAssertEqual(engine.loadPauseIntentForTesting, .immediate)
+        XCTAssertFalse(pipeline.nodeForTesting(engine.activeDeckForTesting).isPlaying)
+        let deadline = Date().addingTimeInterval(60)
+        while engine.loadPauseIntentForTesting != .none ||
+                pipeline.scheduledSeconds(on: engine.activeDeckForTesting) == 0 {
+            XCTAssertFalse(pipeline.nodeForTesting(engine.activeDeckForTesting).isPlaying,
+                           "late preparation must not render under the received owner")
+            guard Date() < deadline else { return XCTFail("paused synthetic load never prepared") }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(engine.state, .paused)
+        XCTAssertFalse(pipeline.nodeForTesting(engine.activeDeckForTesting).isPlaying)
+        XCTAssertEqual(engine.loadCountForTesting, 1)
+        engine.resume()
+        XCTAssertEqual(engine.state, .playing, "only explicit resume may restart this node")
+        engine.pauseImmediately()
+    }
+
+    func testFailedLoadingHandoffDoesNotScheduleAutoplayRetry() async throws {
+        let (engine, pipeline, server) = try makeEngine()
+        defer { pipeline.shutdown(); server.stop() }
+        let input = track("failed-handoff", server)
+        server.stop() // owned loopback endpoint refuses the pending request
+        engine.play(input)
+        engine.pauseImmediately()
+        let deadline = Date().addingTimeInterval(10)
+        while engine.state != .idle {
+            XCTAssertFalse(pipeline.nodeForTesting(engine.activeDeckForTesting).isPlaying)
+            guard Date() < deadline else { return XCTFail("failed paused load never settled") }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(engine.loadCountForTesting, 1)
+        XCTAssertEqual(engine.sameTrackRetriesForTesting, 0)
+        XCTAssertEqual(engine.nowPlaying?.id, input.id)
+        XCTAssertFalse(pipeline.nodeForTesting(engine.activeDeckForTesting).isPlaying)
+    }
+
     /// …and asking to resume during the same load withdraws it, or the latch would pause
     /// a track the user has since asked for.
     func testResumingDuringLoadingWithdrawsTheLatchedPause() async throws {

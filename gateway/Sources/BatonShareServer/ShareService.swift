@@ -15,7 +15,14 @@ public final class ShareService: @unchecked Sendable {
     let salt: DailySalt
     let limiter = RateLimiter()
     let page: SharePage
+    let mixtapePage: MixtapePage
     var attestationVerifier: AppAttestVerifier?
+    // Only the internal, explicitly injected prototype initializer enables this bridge.
+    // Ordinary configuration creates no fresh push tables, collects no tokens and sends
+    // nothing. Existing protected tables attach with key-free/default-off cleanup only.
+    var reactionPushStore: ReactionPushStore?
+    var reactionPushAdmission: (any ReactionPushRegistrationAdmission)?
+    private(set) var reactionPushEnqueueFailed = false
     private let lock = NSLock()
     private let clock: @Sendable () -> Date
 
@@ -28,6 +35,25 @@ public final class ShareService: @unchecked Sendable {
         try store.database.execute(Self.attestationSchema)
         attestationVerifier = try config.appAttest.map(AppAttestVerifier.init(config:))
         page = try SharePage(config: config)
+        mixtapePage = try MixtapePage(config: config)
+        if try ReactionPushStore.hasExistingStorage(in: store.database) {
+            reactionPushStore = try ReactionPushStore(database: store.database)
+            try attachReactionPushLifecycle()
+        }
+    }
+
+    convenience init(config: ShareConfiguration, reactionPushPolicy: ReactionPushPolicy,
+                     registrationAdmission: (any ReactionPushRegistrationAdmission)? = nil,
+                     clock: @escaping @Sendable () -> Date = { Date() }) throws {
+        try self.init(config: config, clock: clock)
+        reactionPushAdmission = registrationAdmission
+        reactionPushStore = try ReactionPushStore(database: store.database, policy: reactionPushPolicy)
+        try attachReactionPushLifecycle()
+    }
+
+    private func attachReactionPushLifecycle() throws {
+        try reactionPushStore?.installShareLifecycleHooks()
+        try reactionPushStore?.sweepShareLifecycle(nowMilliseconds: pushMilliseconds(now))
     }
 
     public var stagingDirectory: URL { store.stagingDirectory }
@@ -36,7 +62,11 @@ public final class ShareService: @unchecked Sendable {
 
     /// Which requests the transport streams to disk: an upload of a share's audio, art or card.
     public static func streamsBody(_ head: StreamingUpload.Request) -> Bool {
-        head.method == "PUT" && head.path.hasPrefix("/v1/share/shares/")
+        guard head.method == "PUT" else { return false }
+        if head.path.hasPrefix("/v1/share/shares/") { return true }
+        let parts = head.path.split(separator: "/").map(String.init)
+        return parts.count == 6 && Array(parts.prefix(3)) == ["v1", "share", "mixtapes"]
+            && parts[4] == "tracks" && ShareLink.isValidID(parts[3]) && ShareMixtapeCrypto.isCanonicalTrackID(parts[5])
     }
 
     // MARK: - Entry points
@@ -85,6 +115,7 @@ public final class ShareService: @unchecked Sendable {
         defer { lock.unlock() }
         let now = self.now
         try sweepAttestation(now: now)
+        try reactionPushStore?.sweepShareLifecycle(nowMilliseconds: pushMilliseconds(now))
         return try store.sweep(now: now, limits: config.limits)
     }
 
@@ -94,6 +125,7 @@ public final class ShareService: @unchecked Sendable {
         let parts = request.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         let method = request.method.uppercased()
         let who = ShareRequester(headers: request.headers)
+        if let response = try mixtapeRoute(request, parts: parts, who: who) { return response }
 
         func only(_ allowed: [String], _ body: () throws -> ShareResponse) rethrows -> ShareResponse {
             guard allowed.contains(method) else {
@@ -105,6 +137,10 @@ public final class ShareService: @unchecked Sendable {
         switch parts.count {
         case 1 where parts[0] == "health":
             return only(["GET"]) { .json(["ok": true]) }
+        case 2 where parts[0] == "m" && request.path == "/m/" + parts[1]:
+            return try only(["GET"]) { try mixtapePlayerPage(id: parts[1], who: who) }
+        case 3 where parts[0] == "m" && parts[1] == "_" && request.path == "/m/_/" + parts[2]:
+            return only(["GET"]) { mixtapePage.asset(parts[2]) }
         case 2 where parts[0] == "s":
             return try only(["GET"]) { try playerPage(id: parts[1], who: who) }
         case 3 where parts[0] == "s" && parts[1] == "_":
@@ -122,10 +158,18 @@ public final class ShareService: @unchecked Sendable {
             return only(["GET"]) {
                 var result = ShareConfig(enabled: config.enabled, limits: config.limits)
                 result.appAttest = config.appAttest?.policy
+                if config.enabled && config.mixtapesEnabled { result.mixtapes = 1 }
+                if config.enabled, let push = reactionPushStore, push.policy.enabled,
+                   reactionPushAdmission != nil {
+                    result.reactionPush = ReactionPushAdvertisement(version: 1,
+                        topics: push.policy.topics.mapValues(\.rawValue))
+                }
                 return .json(result)
             }
         case ("attestation", 2):
             return try attestationRoute(request, action: rest[1], who: who)
+        case ("owner", 3) where rest[1] == "push-devices":
+            return try only(["PUT", "DELETE"]) { try reactionPushRegistration(request, deviceID: rest[2]) }
         case ("shares", 1):
             return try only(["GET", "POST"]) {
                 method == "POST" ? try create(request, who: who) : try list(request)
@@ -178,7 +222,7 @@ public final class ShareService: @unchecked Sendable {
     /// answers 404 exactly like an id that never existed.
     func owned(_ id: String, by sharer: Sharer) throws -> ShareRecord? {
         guard ShareLink.isValidID(id), let record = try store.share(id: id),
-              record.sharerDigest == sharer.digest
+              record.sharerDigest == sharer.digest, !record.isMixtape
         else { return nil }
         return record
     }
@@ -225,7 +269,7 @@ public final class ShareService: @unchecked Sendable {
         else { return rateLimited("sharer_live", now: now) }
         guard limiter.allow("create:\(network)", limit: config.limits.createsPerNetworkPerDay, per: 86400, now: now)
         else { return rateLimited("network_daily", now: now) }
-        guard try store.storedBytes() + Int64(valid.audioBytes) <= config.limits.quotaBytes else {
+        guard try store.quotaBytes() + Int64(valid.audioBytes) <= config.limits.quotaBytes else {
             return .error(503, "busy", "Sharing is busy right now. Try again later.")
         }
 
@@ -275,6 +319,7 @@ public final class ShareService: @unchecked Sendable {
     // MARK: - Uploads (§4.1)
 
     func upload(_ request: StreamingUpload.Request, file: URL) throws -> ShareResponse {
+        if request.path.hasPrefix("/v1/share/mixtapes/") { return try uploadMixtape(request, file: file) }
         let parts = request.path.split(separator: "/").map(String.init)
         guard parts.count == 5, let kind = ShareStore.BlobKind(rawValue: parts[4]) else {
             return .error(404, "not_found", "No such route.")
@@ -332,7 +377,7 @@ public final class ShareService: @unchecked Sendable {
             contentType = type
         }
 
-        guard try store.storedBytes() + Int64(size) <= config.limits.quotaBytes else {
+        guard try store.quotaBytes() + Int64(kind == .audio ? 0 : size) <= config.limits.quotaBytes else {
             return .error(503, "busy", "Sharing is busy right now. Try again later.")
         }
         try store.adopt(staged: file, id: record.id, kind: kind)
@@ -346,13 +391,13 @@ public final class ShareService: @unchecked Sendable {
         return nil
     }
 
-    private func readHead(_ file: URL) throws -> [UInt8] {
+    func readHead(_ file: URL) throws -> [UInt8] {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         return [UInt8](try handle.read(upToCount: ShareCrypto.headerLength) ?? Data())
     }
 
-    private func sha256(_ file: URL) throws -> String {
+    func sha256(_ file: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         var hasher = ShareHash.Running()
@@ -455,7 +500,7 @@ public final class ShareService: @unchecked Sendable {
     /// Looks a share up for a public route, expiring it on the spot if the sweeper has not got
     /// there yet: a link must stop working at its stated time, not up to ten minutes later.
     func publicState(_ id: String) throws -> PublicState {
-        guard ShareLink.isValidID(id), let record = try store.share(id: id) else { return .unknown }
+        guard ShareLink.isValidID(id), let record = try store.share(id: id), !record.isMixtape else { return .unknown }
         if try store.isEnforced(record) { return .ended(endedEnforcementRecord(record), code: "expired") }
         let now = self.now
         switch record.status {
@@ -636,11 +681,65 @@ public final class ShareService: @unchecked Sendable {
         guard try store.reactionCount(shareID: id, visitor: visitor, since: now - now % 86400)
             < config.limits.reactionsPerVisitorPerDay
         else { return rateLimited("reactions_daily", now: now) }
-        try store.addReaction(shareID: id, reaction, visitor: visitor, at: now)
-        try store.record(event: "reaction_sent", at: now, shareID: id, sharerID: record.sharerID, visitor: visitor,
-                         props: ["emoji": .string(reaction.emoji), "hasName": .bool(!(reaction.name ?? "").isEmpty),
-                                 "hasReply": .bool(!(reaction.reply ?? "").isEmpty)])
+        var notificationFailed = false
+        try store.database.transaction {
+            try store.addReaction(shareID: id, reaction, visitor: visitor, at: now)
+            try store.record(event: "reaction_sent", at: now, shareID: id, sharerID: record.sharerID, visitor: visitor,
+                             props: ["emoji": .string(reaction.emoji), "hasName": .bool(!(reaction.name ?? "").isEmpty),
+                                     "hasReply": .bool(!(reaction.reply ?? "").isEmpty)])
+            // Queue saturation/disabled collection simply adds no notification. An optional
+            // queue error rolls back its own writes without losing an otherwise valid reaction.
+            // Failure to roll back/release or commit still fails the database transaction.
+            if let push = reactionPushStore {
+                try store.database.execute("SAVEPOINT reaction_notification")
+                do {
+                    _ = try push.enqueueWithinReactionTransaction(owner: record.sharerDigest, shareID: id,
+                        shareExpiresAt: try pushMilliseconds(record.expiresAt), now: try pushMilliseconds(now))
+                    try store.database.execute("RELEASE reaction_notification")
+                } catch {
+                    try store.database.execute("ROLLBACK TO reaction_notification")
+                    try store.database.execute("RELEASE reaction_notification")
+                    notificationFailed = true
+                }
+            }
+        }
+        reactionPushEnqueueFailed = notificationFailed
         return .noContent
+    }
+
+    private func pushMilliseconds(_ seconds: Int64) throws -> Int64 {
+        guard seconds >= 0, seconds <= Int64.max / 1000 else { throw ReactionPushFailure.invalid }
+        return seconds * 1000
+    }
+
+    /// Fresh admission under the same service lock; provider I/O happens after this returns.
+    /// Production still needs protected registration admission, provider and activation wiring.
+    func makeReactionPushDispatcher(provider: any ReactionPushProvider) -> ReactionPushDispatcher {
+        ReactionPushDispatcher(provider: provider,
+            prepare: { [weak self] in try self?.prepareReactionPush() },
+            admit: { [weak self] lease in try self?.admitReactionPush(lease) ?? false },
+            finish: { [weak self] lease, result in try self?.finishReactionPush(lease, result: result) })
+    }
+
+    private func prepareReactionPush() throws -> ReactionPushLease? {
+        lock.lock(); defer { lock.unlock() }
+        guard config.enabled, let push = reactionPushStore else { return nil }
+        return try push.lease(now: pushMilliseconds(now))
+    }
+
+    func admitReactionPush(_ lease: ReactionPushLease) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard config.enabled, let push = reactionPushStore,
+              try push.isCurrentLease(lease, now: pushMilliseconds(now)),
+              let record = try store.share(id: lease.shareID), record.sharerDigest == lease.owner,
+              record.status == .ready, record.expiresAt > now, try !store.isEnforced(record)
+        else { return false }
+        return true
+    }
+
+    private func finishReactionPush(_ lease: ReactionPushLease, result: ReactionPushResult) throws {
+        lock.lock(); defer { lock.unlock() }
+        try reactionPushStore?.complete(lease, result: result, now: pushMilliseconds(now))
     }
 
     // MARK: - Admin (§4.3)
@@ -658,5 +757,27 @@ public final class ShareService: @unchecked Sendable {
         let report = try ShareReport.build(store: store, since: until - Int64(days) * 86400, until: until,
                                            quotaBytes: config.limits.quotaBytes)
         return .json(report)
+    }
+}
+
+
+extension ShareService {
+    func mixtapePlayerPage(id: String, who: ShareRequester) throws -> ShareResponse {
+        guard config.mixtapesEnabled else { return mixtapePage.render(id: nil, state: "unsupported") }
+        guard ShareLink.isValidID(id), let record = try store.share(id: id), record.isMixtape else {
+            return mixtapePage.render(id: nil, state: "unknown")
+        }
+        guard config.enabled, try !store.isEnforced(record), record.expiresAt > now,
+              record.status == .ready || record.status == .pending else { return mixtapePage.render(id: id, state: "expired") }
+        let state = record.status == .pending ? "pending" : "ready"
+        if let app = ClientClass.crawler(userAgent: who.userAgent) {
+            try store.record(event: "link_unfurled", at: now, shareID: id, sharerID: record.sharerID, props: ["app": .string(app)])
+        } else {
+            if record.status == .ready { try store.increment(id: id, .opens) }
+            try store.record(event: "page_opened", at: now, shareID: id, sharerID: record.sharerID, visitor: visitor(who, shareID: id),
+                             props: ["device": .string(ClientClass.device(userAgent: who.userAgent)), "state": .string(state)])
+        }
+        let preview = record.preview.map { MixtapePreview(title: $0.title, from: $0.from, note: $0.note) }
+        return mixtapePage.render(id: id, state: state, preview: preview)
     }
 }

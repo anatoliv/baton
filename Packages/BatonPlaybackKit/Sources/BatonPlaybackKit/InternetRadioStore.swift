@@ -124,6 +124,7 @@ public final class InternetRadioStore {
     /// happily play a station and a track at the same time.
     public func bind(to controller: StreamingPlaybackController) {
         duckController = controller
+        engine.onPlaybackStarting = { [weak controller] in controller?.admitPlayback() }
         controller.radioIsOnAir = { [weak self] in self?.onAirStation != nil }
         controller.radioRemote = .init(
             play: { [weak self] in
@@ -146,9 +147,14 @@ public final class InternetRadioStore {
     public func isOnAir(_ station: NavidromeRadioStation) -> Bool { engine.currentStation?.id == station.id }
     public func isPlaying(_ station: NavidromeRadioStation) -> Bool { isOnAir(station) && engine.isPlaying }
 
-    /// Play a station, or stop it if it's already the on-air one.
+    /// Stop a station that is playing; otherwise play it.
+    ///
+    /// It stopped any on-air station, paused or not, so a paused station's tile showed Play
+    /// and pressing it took the station off the air instead of bringing it back.
+    /// A live stream has no place to resume from, so bringing it back is tuning in again,
+    /// the same as the transport's own play does (`radioRemote.play`).
     public func toggle(_ station: NavidromeRadioStation) {
-        if isOnAir(station) { engine.stop(); return }
+        if isPlaying(station) { engine.stop(); return }
         play(station)
     }
 
@@ -334,8 +340,15 @@ public final class RadioPlaybackEngine {
     /// Called (on the main actor) when a station's stream fails to play — so the store can toast
     /// the user and the UI stops showing a dead station as "on air".
     @ObservationIgnored public var onError: (@MainActor (String) -> Void)?
+    @ObservationIgnored public var onPlaybackStarting: (@MainActor () -> Void)?
 
-    public init() {
+    @ObservationIgnored private let startRendering: @MainActor (AVPlayer) -> Void
+    @ObservationIgnored private let pauseRendering: @MainActor (AVPlayer) -> Void
+    /// Rendering is injectable so admission ordering can be verified without making sound.
+    public init(startRendering: @escaping @MainActor (AVPlayer) -> Void = { $0.play() },
+                pauseRendering: @escaping @MainActor (AVPlayer) -> Void = { $0.pause() }) {
+        self.startRendering = startRendering
+        self.pauseRendering = pauseRendering
         rateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             // KVO can fire off-main; read the Sendable value, then hop to the main actor.
             let playing = player.timeControlStatus == .playing
@@ -378,7 +391,8 @@ public final class RadioPlaybackEngine {
         }
 
         player.replaceCurrentItem(with: item)
-        player.play()
+        onPlaybackStarting?()
+        startRendering(player)
         radioStoreLog.info("radio playing station \(station.id, privacy: .public)")
     }
 
@@ -388,12 +402,25 @@ public final class RadioPlaybackEngine {
     /// a file does, and the remote/CarPlay pause button lands here whenever radio is on air.
     public func pause() {
         transportFade.out(apply: { [weak self] in self?.applyVolume() },
-                          then: { [weak self] in self?.player.pause() })
+                          then: { [weak self] in
+                              guard let self else { return }
+                              pauseRendering(player)
+                          })
     }
+
+    /// Silence the stream before another playback owner starts, keeping its station/item.
+    public func pauseForPlaybackHandoff() {
+        pauseRendering(player)
+        transportFade.supersede(apply: { [weak self] in self?.applyVolume() })
+        isPlaying = false
+    }
+
+    var isTransportFadingForTesting: Bool { transportFade.isFading }
 
     /// Resume after a pause — reconnects to the live edge.
     public func resume() {
-        player.play()
+        onPlaybackStarting?()
+        startRendering(player)
         transportFade.in(apply: { [weak self] in self?.applyVolume() })
     }
 

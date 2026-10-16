@@ -93,6 +93,41 @@ final class ShareLedgerTests: XCTestCase {
         XCTAssertEqual(ShareLedger.load(from: url), ShareLedger())
     }
 
+    func testTypedNamespacesPreserveSameIDKeysAndHeldMixtapeOnReopen() throws {
+        var ledger = ShareLedger()
+        let single = record("same")
+        var multi = record("same", expires: -10)
+        multi.kind = .mixtape; multi.songIDs = ["second", "first"]
+        multi.link = "https://batonmusic.app/m/same#different-key"
+        ledger.add(single); ledger.add(multi)
+        XCTAssertEqual(ledger.records.count, 2)
+        var held = summary("same", status: .ready, plays: 9)
+        held.expiresAt = ShareDate.string(Date(timeIntervalSince1970: 100))
+        held.actionRequired = "Preserved for review"
+        let typed = MixtapeSummary(share: held, trackCount: 2,
+            reviewDeadline: "2030-01-01T00:00:00Z", pausedLifetimeSeconds: 3600)
+        ledger.merge([summary("same", status: .ready, plays: 3)])
+        ledger.mergeMixtapes([typed])
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ledger-kinds-" + UUID().uuidString).appendingPathComponent("ledger.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try ledger.save(to: url)
+        var reopened = ShareLedger.load(from: url)
+        let song = try XCTUnwrap(reopened.records.first { $0.containerKind == .song })
+        let mixtape = try XCTUnwrap(reopened.records.first { $0.containerKind == .mixtape })
+        XCTAssertEqual(song.link, single.link); XCTAssertEqual(song.summary?.stats.plays, 3)
+        XCTAssertEqual(mixtape.link, multi.link); XCTAssertEqual(mixtape.summary?.stats.plays, 9)
+        XCTAssertEqual(mixtape.songIDs, ["second", "first"])
+        XCTAssertTrue(mixtape.isHeldForReview); XCTAssertFalse(mixtape.isLive())
+        XCTAssertEqual(mixtape.mixtapeSummary?.reviewDeadline, typed.reviewDeadline)
+        XCTAssertEqual(mixtape.mixtapeSummary?.pausedLifetimeSeconds, 3600)
+        reopened.mergeMixtapes([])
+        XCTAssertEqual(reopened.records.count, 2, "a temporarily missing held owner row retains its local key")
+        reopened.remove(id: "same")
+        XCTAssertEqual(reopened.records.map(\.containerKind), [.mixtape])
+        reopened.remove(id: "same", kind: .mixtape)
+        XCTAssertTrue(reopened.records.isEmpty)
+    }
+
     func testPresentation() {
         let link = URL(string: "https://batonmusic.app/s/x#k")!
         XCTAssertEqual(SharePresentation.message(title: "Song", artist: "Band", note: " Listen ", link: link),

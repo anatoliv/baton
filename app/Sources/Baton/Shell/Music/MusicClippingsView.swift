@@ -93,7 +93,8 @@ struct MusicClippingsView: View {
                         leading: {
                             MusicMiniTransport(
                                 onPlayWhenIdle: { model.music.play(playable, source: clippingsSource) },
-                                pageSource: clippingsSource
+                                pageSource: clippingsSource,
+                                onShuffleWhenIdle: { model.music.playShuffled(playable, source: clippingsSource) }
                             )
                         },
                         sortMenu: { EmptyView() }

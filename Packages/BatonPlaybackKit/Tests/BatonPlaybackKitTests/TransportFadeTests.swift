@@ -18,6 +18,23 @@ final class TransportFadeTests: XCTestCase {
     /// Long enough for any ramp here to finish.
     private func settle() async { try? await Task.sleep(for: .milliseconds(600)) }
 
+    func testImmediateHandoffDropsOwedStopWithoutRewindingOrPausingLaterResume() async {
+        let fade = TransportFade()
+        var position = 17
+        var playing = true
+        fade.out(apply: {}, then: { playing = false; position = 0 })
+        playing = false // actual renderer is silenced before gain restoration
+        fade.supersede(apply: { XCTAssertFalse(playing) })
+        XCTAssertFalse(fade.isFading)
+        XCTAssertEqual(position, 17)
+        playing = true // explicit resume, with the old stop obligation cancelled
+        for _ in 0..<20 { await Task.yield() }
+        // cancel() would synchronously run any surviving owed callback.
+        fade.cancel(apply: {})
+        XCTAssertTrue(playing)
+        XCTAssertEqual(position, 17)
+    }
+
     // MARK: - The action always happens
 
     /// Whatever the ramp does, the pause must land. Someone pressed pause.

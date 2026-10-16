@@ -21,9 +21,14 @@ public struct ShareLedger: Codable, Equatable, Sendable {
         /// The server's last word on this share, from `GET /v1/share/shares`. `nil` until the
         /// list is first refreshed after sending.
         public var summary: ShareSummary?
+        public var kind: ShareInvitation.Kind?
+        public var songIDs: [String]?
+        public var mixtapeSummary: MixtapeSummary?
+        public var containerKind: ShareInvitation.Kind { kind ?? .song }
+        public var identity: String { "\(containerKind.rawValue):\(id)" }
 
         public init(id: String, link: String, songID: String, title: String, artist: String,
-                    isPrivate: Bool, createdAt: Date, expiresAt: Date, summary: ShareSummary? = nil) {
+                    isPrivate: Bool, createdAt: Date, expiresAt: Date, summary: ShareSummary? = nil, kind: ShareInvitation.Kind? = nil, songIDs: [String]? = nil, mixtapeSummary: MixtapeSummary? = nil) {
             self.id = id
             self.link = link
             self.songID = songID
@@ -33,6 +38,9 @@ public struct ShareLedger: Codable, Equatable, Sendable {
             self.createdAt = createdAt
             self.expiresAt = expiresAt
             self.summary = summary
+            self.kind = kind
+            self.songIDs = songIDs
+            self.mixtapeSummary = mixtapeSummary
         }
 
         public var status: ShareStatus { summary?.status ?? (expiresAt <= Date() ? .expired : .ready) }
@@ -56,12 +64,12 @@ public struct ShareLedger: Codable, Equatable, Sendable {
 
     /// Newest first.
     public mutating func add(_ record: Record) {
-        records.removeAll { $0.id == record.id }
+        records.removeAll { $0.identity == record.identity }
         records.insert(record, at: 0)
     }
 
-    public mutating func remove(id: String) {
-        records.removeAll { $0.id == id }
+    public mutating func remove(id: String, kind: ShareInvitation.Kind = .song) {
+        records.removeAll { $0.id == id && $0.containerKind == kind }
     }
 
     /// Folds the server's list into the ledger. Stats, status, expiry and reactions come from
@@ -72,6 +80,7 @@ public struct ShareLedger: Codable, Equatable, Sendable {
         let byID = Dictionary(summaries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         records = records.compactMap { record in
             var record = record
+            guard record.containerKind == .song else { return record }
             if let summary = byID[record.id] {
                 record.summary = summary
                 if let expiry = ShareDate.date(summary.expiresAt) { record.expiresAt = expiry }
@@ -83,9 +92,28 @@ public struct ShareLedger: Codable, Equatable, Sendable {
 
     /// Updates one record from a single summary (after extend or a play-cap change).
     public mutating func update(_ summary: ShareSummary) {
-        guard let index = records.firstIndex(where: { $0.id == summary.id }) else { return }
+        guard let index = records.firstIndex(where: { $0.id == summary.id && $0.containerKind == .song }) else { return }
         records[index].summary = summary
         if let expiry = ShareDate.date(summary.expiresAt) { records[index].expiresAt = expiry }
+    }
+
+    public mutating func mergeMixtapes(_ summaries: [MixtapeSummary], now: Date = Date()) {
+        let byID = Dictionary(summaries.map { ($0.share.id, $0) }, uniquingKeysWith: { first, _ in first })
+        records = records.compactMap { original in
+            guard original.containerKind == .mixtape else { return original }
+            var record = original
+            if let value = byID[record.id] {
+                record.summary = value.share; record.mixtapeSummary = value
+                record.expiresAt = ShareDate.date(value.share.expiresAt) ?? record.expiresAt
+                return record
+            }
+            return record.isLive(now: now) || record.isHeldForReview ? record : nil
+        }
+    }
+    public mutating func updateMixtape(_ summary: MixtapeSummary) {
+        guard let index = records.firstIndex(where: { $0.id == summary.share.id && $0.containerKind == .mixtape }) else { return }
+        records[index].summary = summary.share; records[index].mixtapeSummary = summary
+        records[index].expiresAt = ShareDate.date(summary.share.expiresAt) ?? records[index].expiresAt
     }
 
     // MARK: - Failures waiting to be reported

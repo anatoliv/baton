@@ -79,6 +79,8 @@ final class MusicModel {
         // A chapter whose audio leaves (Remove Download, a storage rule, Delete Book) leaves
         // the queue too, rather than playing on into a file that is gone.
         library.cleanup.dropFromQueue = { [music] ids in music.dropFromQueue(ids: Set(ids)) }
+        // A book's cover changed: what is queued from it shows the new one.
+        library.covers.playerArtwork = { [music] url, ids in music.setArtwork(url, forSongIDs: ids) }
         return library
     }()
     /// One-off spoken task summaries (the `speak_summary` MCP tool) + in-app banner state.

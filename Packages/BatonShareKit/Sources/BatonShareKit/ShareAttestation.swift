@@ -63,8 +63,8 @@ public struct ShareAttestationProof: Codable, Equatable, Sendable {
 public enum ShareAttestationEnvelope {
     /// Length-prefixed UTF-8 components avoid JSON canonicalization and delimiter ambiguity.
     public static func data(challenge: ShareAttestationChallenge, policy: ShareAttestationPolicy,
-                            secret: String, requestID: String, body: Data) -> Data {
-        let parts = ["baton-share-app-attest-v1", "POST", "/v1/share/shares", policy.appID,
+                            secret: String, requestID: String, body: Data, path: String = "/v1/share/shares") -> Data {
+        let parts = ["baton-share-app-attest-v1", "POST", path, policy.appID,
                      policy.environment, policy.audience, challenge.id, challenge.nonce, ShareHash.secretDigest(secret),
                      requestID, ShareHash.sha256Hex(body)]
         var result = Data()

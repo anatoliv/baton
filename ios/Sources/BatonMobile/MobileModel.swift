@@ -1,4 +1,5 @@
 import BatonSubsonicKit
+import BatonShareKit
 import Foundation
 import Observation
 import OSLog
@@ -84,7 +85,16 @@ final class MobileModel {
         let books = HomeServerBooks(directory: BatonStorage.supportSubdirectory("Books"), clippings: clippings,
                                     gateway: { [weak self] in self?.gatewayBookClient() }, log: documentsLog)
         books.firstChapterArrived = MobileDocuments.chapterReadyAnnouncer()
+        covers.attach(to: books, clippings: clippings)
         return books
+    }()
+    /// Each book's cover, kept here and settled with the Baton server, the same code
+    /// as the Mac's (`Shared/BookCovers.swift`).
+    @ObservationIgnored private(set) lazy var covers: BookCovers = {
+        let covers = BookCovers(directory: BatonStorage.supportSubdirectory("Books").appendingPathComponent("covers", isDirectory: true),
+                                gateway: { [weak self] in self?.gatewayBookClient() })
+        covers.playerArtwork = { [weak self] url, ids in self?.music.setArtwork(url, forSongIDs: ids) }
+        return covers
     }()
     /// `baton.documents.enabled`, read live: Clippings shows or hides books and the
     /// import menu the moment the Settings switch moves, with no relaunch.
@@ -107,6 +117,8 @@ final class MobileModel {
         let cleanup = BookCleanup(directory: BatonStorage.supportSubdirectory("Books"), clippings: clippings,
                                   homeServer: books, log: documentsLog)
         cleanup.dropFromQueue = { [weak self] ids in self?.music.dropFromQueue(ids: Set(ids)) }
+        // A deleted book gone for good takes its cover with it.
+        cleanup.purged = { [weak self] documentID in self?.covers.forgetIfGone(documentID: documentID) }
         return cleanup
     }()
     @ObservationIgnored private(set) lazy var agent: AgentClient = {
@@ -204,6 +216,20 @@ final class MobileModel {
 
     /// Why the last `baton://` link could not be carried out, or nil. `RootTabView` shows it
     /// and clears it. See `DeepLinkOutcome`.
+    var incomingShareAudioSession: IncomingShareAudioSession {
+        IncomingShareAudioSession { [weak self] callback in
+            guard let self else { throw ShareReceiverClient.Failure.unavailable }
+            return try self.audioSession.activateForReceivedPlayback(callback)
+        }
+    }
+    var incomingShareSceneID: UUID?
+    private(set) var incomingShareGeneration = UUID()
+    var incomingShare: ShareInvitation? {
+        didSet {
+            incomingShareGeneration = UUID()
+            if incomingShare == nil { incomingShareSceneID = nil }
+        }
+    }
     var linkFailure: String?
 
     /// A song's album, built from what the song already carries. `albumID` is on every
@@ -409,7 +435,7 @@ final class MobileModel {
             if self?.isDemoMode != true { self?.scrobbles.nowPlaying(song) }
             WidgetBridge.publish(
                 song: song, isPlaying: true,
-                artworkURL: library.coverArtURL(id: song.coverArtID ?? song.id, size: 300),
+                artworkURL: song.artworkURL ?? library.coverArtURL(id: song.coverArtID ?? song.id, size: 300),
                 elapsed: 0, duration: Double(song.duration ?? 0)
             )
         }

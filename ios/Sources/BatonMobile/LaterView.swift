@@ -82,12 +82,21 @@ struct LaterView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            // The row is the pin's play control, so it says what a tap will do: bars while
+            // it plays, a pause mark while it is the one paused.
+            let state = MobilePinPlayback.state(pin, model)
+            if state == .playing {
+                NowPlayingBars(isPlaying: true)
+            } else if state == .paused {
+                Image(systemName: "pause.fill").font(.caption).foregroundStyle(.tint)
+            }
             Image(systemName: pin.kind.icon)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .accessibilityHint(MobilePinPlayback.state(pin, model).title)
     }
 
     private func artURL(_ pin: PinnedItem) -> URL? {
@@ -102,8 +111,15 @@ struct LaterView: View {
 /// playable kinds start now; collection kinds load their tracks first.
 @MainActor
 enum MobilePinPlayback {
+    static func state(_ pin: PinnedItem, _ model: MobileModel) -> CollectionPlayState {
+        .of(pin: pin, player: model.music, radio: model.radio)
+    }
+
     static func play(_ pin: PinnedItem, _ model: MobileModel) {
-        let source = QueueSource(label: pin.title, kind: .playlist, id: pin.refID)
+        // Already the one in the player: tapping pauses or resumes it rather than starting
+        // it over. The source is the pin's own kind, shared with the Mac.
+        if CollectionPlayState.toggleIfLoaded(pin: pin, player: model.music, radio: model.radio) { return }
+        let source = pin.queueSource
         switch pin.kind {
         case .song, .podcastEpisode:
             model.music.play([pin.asSong], source: source)

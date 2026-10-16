@@ -5,10 +5,10 @@ import BatonSubsonicKit
 
 /// TBX-7306: the server binds the first free port from the user's preferred one, writes the
 /// port it landed on back into the setting, keeps a notice for Settings and posts a user
-/// notification through the injected poster. Everything here runs on EPHEMERAL ports taken
-/// from the OS, never 8765 / 8784 / 8787 / 8789: Tonebox, Threadstow, Baton and Seedbed are
-/// live on the machine that runs this suite, and a test that touched their ports would either
-/// fail on them or, worse, move them.
+/// notification through the injected poster. Everything here runs on ports in 30000...40000,
+/// below the OS's ephemeral range (`testPorts`), never 8765 / 8784 / 8787 / 8789: Tonebox,
+/// Threadstow, Baton and Seedbed are live on the machine that runs this suite, and a test that
+/// touched their ports would either fail on them or, worse, move them.
 @MainActor
 final class MCPPortSurfacingTests: XCTestCase {
     private var model: MusicModel!
@@ -45,34 +45,60 @@ final class MCPPortSurfacingTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Bind a loopback listener on a port the OS picks, and keep it so the port stays taken.
-    private func occupyEphemeralPort() async throws -> UInt16 {
+    /// Where these tests take ports: explicit ports below the OS's ephemeral range
+    /// (`net.inet.ip.portrange.first`, 49152), which nothing is handed automatically. The tests
+    /// used to take an OS-assigned ephemeral port and expect the ones just above it to be free,
+    /// but macOS hands ephemeral ports out in sequence: under a loaded full suite every outgoing
+    /// socket on the machine takes the next one, so the ports above were in use, or the counter
+    /// sat near 65535 with no room above. Far from the siblings' 87xx defaults.
+    private static let testPorts: ClosedRange<UInt16> = 30_000...40_000
+
+    /// Bind a loopback listener on `port`, the way the server binds (no address reuse). Nil when
+    /// the port is taken.
+    private func bindBlocker(_ port: UInt16) async -> NWListener? {
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback
-        let listener = try NWListener(using: params, on: .any)
+        params.allowLocalEndpointReuse = false
+        guard let nwPort = NWEndpoint.Port(rawValue: port),
+              let listener = try? NWListener(using: params, on: nwPort) else { return nil }
         listener.newConnectionHandler = { $0.cancel() }
-        let port: UInt16? = await withCheckedContinuation { continuation in
+        let ready: Bool = await withCheckedContinuation { continuation in
             nonisolated(unsafe) var resumed = false
             listener.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    if !resumed { resumed = true; continuation.resume(returning: listener.port?.rawValue) }
+                    if !resumed { resumed = true; continuation.resume(returning: true) }
                 case .failed, .cancelled:
-                    if !resumed { resumed = true; continuation.resume(returning: nil) }
+                    if !resumed { resumed = true; continuation.resume(returning: false) }
                 default: break
                 }
             }
             listener.start(queue: .main)
         }
-        let bound = try XCTUnwrap(port, "could not take an ephemeral port")
-        blockers.append(listener)
-        return bound
+        if ready { return listener }
+        listener.cancel()
+        return nil
     }
 
-    /// A port the OS just handed out and we released again: free a moment ago, and far above
-    /// every sibling default.
-    private func freeEphemeralPort() async throws -> UInt16 {
-        let port = try await occupyEphemeralPort()
+    /// Take a port in `testPorts` and keep it for the whole test, so the port stays taken. A
+    /// random start, so parallel runs and repeated iterations do not meet; a taken one is
+    /// simply passed over.
+    private func occupyPort() async throws -> UInt16 {
+        for _ in 0..<64 {
+            let port = UInt16.random(in: Self.testPorts.lowerBound...(Self.testPorts.upperBound - 64))
+            if let listener = await bindBlocker(port) {
+                blockers.append(listener)
+                return port
+            }
+        }
+        XCTFail("no free port in \(Self.testPorts)")
+        throw CancellationError()
+    }
+
+    /// A port that was free a moment ago: taken in `testPorts` and released again. Nothing
+    /// hands it to another socket meanwhile, as the OS would an ephemeral one.
+    private func freePort() async throws -> UInt16 {
+        let port = try await occupyPort()
         blockers.removeLast().cancel()
         try await Task.sleep(for: .milliseconds(50))
         return port
@@ -109,7 +135,7 @@ final class MCPPortSurfacingTests: XCTestCase {
     // MARK: - Tests
 
     func testBindsThePreferredPortWhenItIsFreeAndKeepsQuiet() async throws {
-        let port = try await freeEphemeralPort()
+        let port = try await freePort()
         defaults.set(Int(port), forKey: BatonMCPConstants.preferredPortDefaultsKey)
         let s = makeServer()
         s.start()
@@ -123,7 +149,7 @@ final class MCPPortSurfacingTests: XCTestCase {
     }
 
     func testMovesToTheNextFreePortPersistsItAndNotifies() async throws {
-        let taken = try await occupyEphemeralPort()
+        let taken = try await occupyPort()
         defaults.set(Int(taken), forKey: BatonMCPConstants.preferredPortDefaultsKey)
         let s = makeServer()
         s.start()
@@ -147,8 +173,45 @@ final class MCPPortSurfacingTests: XCTestCase {
         XCTAssertEqual(notices, [BatonMCPPortNotice(preferred: taken, bound: bound)])
     }
 
+    /// Every value `lastError` takes, as it changes (Observation), so a transient error is seen
+    /// however briefly it was set.
+    @MainActor private final class ErrorRecorder {
+        private(set) var seen: [String] = []
+        private let server: BatonMCPServer
+        init(_ server: BatonMCPServer) { self.server = server; track() }
+        private func track() {
+            withObservationTracking { _ = server.lastError } onChange: { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let error = self.server.lastError { self.seen.append(error) }
+                    self.track()
+                }
+            }
+        }
+    }
+
+    /// TBX-11105: a taken port on the way up is part of the scan, not an error. The server used
+    /// to publish "Listener failed: Address already in use" for it while still trying the next
+    /// port, and `waitForBind` (like Settings) took that as the outcome: under a loaded full
+    /// suite the next port was not ready within the poll, and the move test failed at 0.3 s
+    /// with the taken port's EADDRINUSE. Watching every change, not polling, so it does not
+    /// depend on timing.
+    func testATakenPortDuringTheScanIsNotReportedAsAnError() async throws {
+        let taken = try await occupyPort()
+        defaults.set(Int(taken), forKey: BatonMCPConstants.preferredPortDefaultsKey)
+        let s = makeServer()
+        let recorder = ErrorRecorder(s)
+        s.start()
+        let deadline = Date().addingTimeInterval(5)
+        while s.boundPort == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertNotNil(s.boundPort, "the scan moved past the taken port")
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(recorder.seen, [], "no error was published while the scan moved past \(taken)")
+        XCTAssertNil(s.lastError)
+    }
+
     func testReapplyingTheBoundPortDoesNotRestartTheServer() async throws {
-        let taken = try await occupyEphemeralPort()
+        let taken = try await occupyPort()
         defaults.set(Int(taken), forKey: BatonMCPConstants.preferredPortDefaultsKey)
         let s = makeServer()
         s.start()
@@ -167,14 +230,14 @@ final class MCPPortSurfacingTests: XCTestCase {
     }
 
     func testChangingThePortRestartsOnTheNewOneAndRewritesDiscovery() async throws {
-        let first = try await freeEphemeralPort()
+        let first = try await freePort()
         defaults.set(Int(first), forKey: BatonMCPConstants.preferredPortDefaultsKey)
         let s = makeServer()
         s.start()
         try await waitForBind(s)
         XCTAssertEqual(s.boundPort, first)
 
-        let second = try await freeEphemeralPort()
+        let second = try await freePort()
         await s.apply(preferredPort: second)
         XCTAssertEqual(s.boundPort, second)
         XCTAssertEqual(s.bindCount, 2)
@@ -219,7 +282,7 @@ final class MCPPortSurfacingTests: XCTestCase {
     }
 
     func testAnOutOfRangePortIsIgnored() async throws {
-        let port = try await freeEphemeralPort()
+        let port = try await freePort()
         defaults.set(Int(port), forKey: BatonMCPConstants.preferredPortDefaultsKey)
         let s = makeServer()
         s.start()
@@ -231,7 +294,7 @@ final class MCPPortSurfacingTests: XCTestCase {
     }
 
     func testThePersistedPortIsHonouredOnTheNextStart() async throws {
-        let taken = try await occupyEphemeralPort()
+        let taken = try await occupyPort()
         defaults.set(Int(taken), forKey: BatonMCPConstants.preferredPortDefaultsKey)
         let s = makeServer()
         s.start()

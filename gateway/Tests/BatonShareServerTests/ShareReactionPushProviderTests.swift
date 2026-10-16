@@ -45,6 +45,7 @@ final class ShareReactionPushProviderTests: XCTestCase {
     }
     func testRealES256JWTAndBoundedAPNsRequestUseNoShareMetadata() async throws {
         let key = P256.Signing.PrivateKey(); let transport = CapturingAPNsTransport()
+        let publicKeyBytes = key.publicKey.rawRepresentation
         let timestamp = self.timestamp
         // The provider gets its own copy: Swift Crypto's key is not Sendable on Linux, and this
         // test keeps `key` to verify the signature after the provider actor has used it.
@@ -66,7 +67,8 @@ final class ShareReactionPushProviderTests: XCTestCase {
         XCTAssertEqual(claims["iss"] as? String, "TESTTEAM12")
         XCTAssertEqual(claims["iat"] as? Int64, timestamp / 1000)
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: Base64URL.decode(parts[2])!)
-        XCTAssertTrue(key.publicKey.isValidSignature(signature, for: Data((parts[0] + "." + parts[1]).utf8)))
+        XCTAssertTrue(try P256.Signing.PublicKey(rawRepresentation: publicKeyBytes)
+            .isValidSignature(signature, for: Data((parts[0] + "." + parts[1]).utf8)))
         let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
         XCTAssertEqual(Set(payload.keys), ["aps", "baton"])
         let aps = try XCTUnwrap(payload["aps"] as? [String: String]); XCTAssertEqual(Set(aps.keys), ["alert"])
@@ -135,4 +137,81 @@ private actor SchedulerStartSignal {
 
 private struct CapturingPushProviderForScheduler: ReactionPushProvider {
     func send(_ lease: ReactionPushLease) async throws -> ReactionPushResult { .accepted }
+}
+
+private struct SyntheticRegistrationAdmission: ReactionPushRegistrationAdmission {
+    let accept: Bool
+    func admits(ownerDigest: String, deviceID: String, token: Data, topic: String,
+                environment: PushEnvironment, proof: Data, now: Int64) -> Bool {
+        accept && proof == Data("synthetic-proof".utf8)
+    }
+}
+
+extension ShareServiceTests {
+    private var pushDevice: String { "11111111-1111-1111-1111-111111111111" }
+    private var pushPath: String { "/v1/share/owner/push-devices/" + pushDevice }
+    private var pushBody: [String: String] {
+        ["token": Data("synthetic-token".utf8).base64EncodedString(), "topic": "io.tonebox.baton.tests",
+         "environment": "sandbox", "proof": Data("synthetic-proof".utf8).base64EncodedString()]
+    }
+    private func registrationService(admission: (any ReactionPushRegistrationAdmission)? = SyntheticRegistrationAdmission(accept: true)) throws {
+        let clock = self.clock!
+        service = try ShareService(config: service.config,
+            reactionPushPolicy: ReactionPushPolicy(enabled: true, key: Data(repeating: 42, count: 32),
+                                                  topics: ["io.tonebox.baton.tests": .sandbox]),
+            registrationAdmission: admission, clock: { clock.now })
+    }
+    func testPushRegistrationDefaultUnavailableAndInstallBearerAloneInsufficient() throws {
+        XCTAssertEqual(request("PUT", pushPath, json: pushBody, secret: secret).status, 404)
+        try registrationService(admission: nil); _ = try makeReadyShare()
+        XCTAssertEqual(request("PUT", pushPath, json: pushBody, secret: secret).status, 503)
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM reaction_push_devices"), 0)
+    }
+    func testPushConfigurationAdvertisesOnlyExplicitlyProtectedRegistration() throws {
+        func config() throws -> ShareConfig {
+            try JSONDecoder().decode(ShareConfig.self, from: request("GET", "/v1/share/config").body)
+        }
+        XCTAssertNil(try config().reactionPush)
+        try registrationService(admission: nil); XCTAssertNil(try config().reactionPush)
+        try registrationService()
+        let advertisement = try XCTUnwrap(try config().reactionPush)
+        XCTAssertTrue(advertisement.permits(topic: "io.tonebox.baton.tests", environment: "sandbox"))
+        XCTAssertFalse(advertisement.permits(topic: "io.tonebox.baton.tests", environment: "production"))
+        service.reactionPushStore?.policy = try ReactionPushPolicy()
+        XCTAssertNil(try config().reactionPush)
+    }
+    func testPushRegistrationRequiresExistingAuthenticatedOwnerAndDeviceIntegrity() throws {
+        try registrationService(admission: SyntheticRegistrationAdmission(accept: false))
+        XCTAssertEqual(request("PUT", pushPath, json: pushBody, secret: otherSecret).status, 401)
+        _ = try makeReadyShare()
+        XCTAssertEqual(request("PUT", pushPath, json: pushBody).status, 401)
+        XCTAssertEqual(request("PUT", pushPath, json: pushBody, secret: secret).status, 401)
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM reaction_push_devices"), 0)
+    }
+    func testPushRegistrationBoundsAndAllowlistRejectBeforeStorage() throws {
+        try registrationService(); _ = try makeReadyShare()
+        var bad = pushBody; bad["topic"] = "attacker.topic"
+        XCTAssertEqual(request("PUT", pushPath, json: bad, secret: secret).status, 400)
+        bad = pushBody; bad["environment"] = "production"
+        XCTAssertEqual(request("PUT", pushPath, json: bad, secret: secret).status, 400)
+        bad = pushBody; bad["token"] = Data(repeating: 1, count: 1025).base64EncodedString()
+        XCTAssertEqual(request("PUT", pushPath, json: bad, secret: secret).status, 400)
+        bad = pushBody; bad["unexpected"] = "ignored?"
+        XCTAssertEqual(request("PUT", pushPath, json: bad, secret: secret).status, 400)
+        XCTAssertEqual(request("PUT", pushPath, body: Data(repeating: 1, count: 8193), secret: secret).status, 400)
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM reaction_push_devices"), 0)
+    }
+    func testPushRegistrationOptOutIsOwnerBoundAndWorksWithoutKeyWhilePaused() throws {
+        try registrationService(); let made = try makeReadyShare()
+        _ = try makeReadyShare(secret: otherSecret)
+        XCTAssertEqual(request("PUT", pushPath, json: pushBody, secret: secret).status, 200)
+        XCTAssertEqual(request("POST", "/v1/share/p/\(made.id)/reactions", json: ["emoji": "❤️"]).status, 204)
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM reaction_push_jobs"), 1)
+        XCTAssertEqual(request("DELETE", pushPath, secret: otherSecret).status, 204)
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM reaction_push_devices"), 1)
+        service.reactionPushStore?.policy = try ReactionPushPolicy()
+        XCTAssertEqual(request("DELETE", pushPath, secret: secret).status, 204)
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM reaction_push_devices"), 0)
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM reaction_push_jobs"), 0)
+    }
 }

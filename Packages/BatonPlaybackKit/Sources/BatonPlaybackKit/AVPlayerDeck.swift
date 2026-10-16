@@ -285,6 +285,14 @@ public final class AVPlayerDeck: PlaybackDeck {
         cancelStallWatchdog()
     }
 
+    public func pauseImmediately() {
+        cancelCrossfade()
+        player.pause()
+        // The player is already silent. Discard a pending stop/rewind before restoring gain.
+        transportFade.supersede(apply: { [weak self] in self?.applyVolume() })
+        cancelStallWatchdog()
+    }
+
     public func resume() {
         player.play()
         // Ramped up rather than switched on: resuming mid-waveform is the same

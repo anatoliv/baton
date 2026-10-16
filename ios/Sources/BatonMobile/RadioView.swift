@@ -89,10 +89,11 @@ struct RadioView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let station = model.radio.onAirStation {
-                    List { onAir(station) }
-                        .listStyle(.plain)
-                        .frame(height: 86)
-                        .scrollDisabled(true)
+                    // Drawn directly, not inside a fixed-height List: the 86 pt list cut the
+                    // banner's Pause and Stop buttons in half (seen in the TBX-11066 walk).
+                    onAirContent(station)
+                        .padding(.horizontal)
+                        .padding(.bottom, 12)
                 }
                 LazyVGrid(columns: BrowseGrid.columns, spacing: BrowseGrid.spacing) {
                     ForEach(filtered) { station in
@@ -181,7 +182,10 @@ struct RadioView: View {
     /// broadcast their current track over ICY, which is the only "now playing" a raw
     /// stream has.
     private func onAir(_ station: NavidromeRadioStation) -> some View {
-        Section {
+        Section { onAirContent(station) }
+    }
+
+    private func onAirContent(_ station: NavidromeRadioStation) -> some View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("On air", systemImage: "dot.radiowaves.left.and.right")
                     .font(.caption.weight(.semibold))
@@ -206,7 +210,6 @@ struct RadioView: View {
                 }
             }
             .padding(.vertical, 4)
-        }
     }
 
     @ViewBuilder

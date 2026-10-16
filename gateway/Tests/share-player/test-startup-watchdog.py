@@ -199,5 +199,28 @@ open(os.environ['TEST_REGISTRY'],'w').write(json.dumps({'runID':os.environ['TEST
             else: os.environ['SHARE_E2E_SERVICE']=prior
 
 
+class PreparationTests(unittest.TestCase):
+    def test_load_plan_is_local_fifty_listeners_with_cleanup_inside_deadline(self):
+        # Exercise the public CLI without launching a service, browser or Docker.
+        with tempfile.TemporaryDirectory(prefix='share-load-plan-test-') as root:
+            evidence = Path(root)/'evidence'
+            result = subprocess.run([sys.executable, str(HERE/'startup-run.py'),
+                '--binary', '/synthetic/baton-share', '--evidence', str(evidence),
+                '--profile', 'load', '--playwright', '/synthetic/playwright',
+                '--browsers', '/synthetic/browsers', '--prepare'],
+                capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = json.loads(result.stdout)
+            self.assertEqual(plan['listeners'], 50)
+            self.assertEqual(plan['outerDeadlineSeconds'], 180)
+            self.assertEqual(plan['runBudgetSeconds'], 160)
+            self.assertEqual(plan['cleanupReserveSeconds'], 20)
+            self.assertIn('--listeners=50', plan['command'])
+            self.assertIn('--chromium-channel=chromium', plan['command'])
+            self.assertFalse(plan['browserLaunched'])
+            self.assertFalse(plan['productionTraffic'])
+            self.assertFalse(evidence.exists())
+
+
 if __name__=='__main__':
     unittest.main()

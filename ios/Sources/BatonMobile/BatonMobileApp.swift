@@ -1,11 +1,24 @@
 import BatonSubsonicKit
 import SwiftUI
 import UIKit
+import UserNotifications
 
-/// Exists for exactly one callback: iOS relaunching us to deliver background
-/// download events. The stored handler is called by the engine once the session's
-/// queued delegate events have replayed.
+/// Receives background transfer completion and APNs registration callbacks.
+/// Transfer handlers run once their session's queued delegate events have replayed;
+/// notification callbacks forward to the explicitly configured opt-in coordinator.
 final class BatonAppDelegate: NSObject, UIApplicationDelegate {
+    private let reactionNotificationDelegate = ReactionPushNotificationDelegate()
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = reactionNotificationDelegate
+        return true
+    }
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        ReactionPushNotifications.shared.didRegister(token: token)
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        ReactionPushNotifications.shared.registrationFailed()
+    }
+
     func application(
         _ application: UIApplication,
         handleEventsForBackgroundURLSession identifier: String,
@@ -99,7 +112,10 @@ struct BatonMobileApp: App {
                 }
                 .task { await model.restoreSession() }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                    Task { await SongSharing.shared.restoreBackgroundUploads() }
+                    Task {
+                        await SongSharing.shared.restoreBackgroundUploads()
+                        await ReactionPushNotifications.shared.foreground()
+                    }
                 }
                 // The keep-awake preference only means anything if it survives a relaunch
                 // — a toggle that resets whenever the app restarts is a suggestion.
@@ -107,9 +123,9 @@ struct BatonMobileApp: App {
                     UIApplication.shared.isIdleTimerDisabled =
                         BatonStorage.defaults.bool(forKey: "baton.display.keepAwake")
                 }
-                .onOpenURL { url in
-                    Task { await route(url) }
-                }
+                // Links and files handed to the app are routed by `RootTabView`, which knows its
+                // scene, so a received song is presented in the window it was opened in.
+                //
                 // A book that arrived while the phone was away comes down the next time it is
                 // looked at, not on a timer; the background refresh covers the pocket.
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
@@ -135,26 +151,6 @@ struct BatonMobileApp: App {
         }
     }
 
-    /// Acts on a `baton://` link. What the link *means* is decided by `BatonDeepLink`,
-    /// which is a pure function and tested as one; `MobileModel.open` carries it out and
-    /// reports what happened, so a link that cannot be honoured says so instead of leaving
-    /// the app sitting there looking as though nothing was tapped.
-    @MainActor
-    private func route(_ url: URL) async {
-        // A document from Files, Mail or the share sheet ("Open in Baton"): the import screen,
-        // when the feature is on. Copied first, because the handed-over file is ours to read
-        // only for a moment (M5.2).
-        if url.isFileURL, MobileDocuments.isEnabled(), MobileDocuments.canImport(url) {
-            do { model.offerImport(try MobileDocuments.stage(url)) } catch {
-                model.linkFailure = "The file could not be opened: \(error.localizedDescription)"
-            }
-            return
-        }
-        // A link this app does not claim is not a failure worth a message: it was never
-        // ours, and something else on the phone may still handle it.
-        guard let link = BatonDeepLink(url: url) else { return }
-        model.linkFailure = await model.open(link).message
-    }
 }
 
 

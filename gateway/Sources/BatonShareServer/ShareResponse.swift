@@ -20,7 +20,7 @@ public struct ShareResponse: Sendable {
 
     public var data: Data {
         httpResponse(status: "\(status) \(Self.reason(status))", contentType: contentType, payload: body,
-                     extraHeaders: headers)
+                     extraHeaders: headers, representedLength: headers["Content-Length"].flatMap(Int.init))
     }
 
     /// JSON, never cached: every JSON answer here describes state that changes.
@@ -45,6 +45,8 @@ public struct ShareResponse: Sendable {
         case 200: "OK"
         case 201: "Created"
         case 204: "No Content"
+        case 206: "Partial Content"
+        case 416: "Range Not Satisfiable"
         case 400: "Bad Request"
         case 401: "Unauthorized"
         case 403: "Forbidden"

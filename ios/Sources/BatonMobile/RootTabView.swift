@@ -1,4 +1,5 @@
 import StoreKit
+import BatonShareKit
 import SwiftUI
 import UIKit
 
@@ -12,6 +13,7 @@ struct RootTabView: View {
     /// it has (TBX-10889, `ImportPresentation`).
     @State private var importPresentation = ImportPresentation()
     @State private var importWatch: Task<Void, Never>?
+    @State private var incomingShareSceneID = UUID()
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.requestReview) private var requestReview
     #if DEBUG
@@ -42,6 +44,10 @@ struct RootTabView: View {
 
     var body: some View {
         tabs
+            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                if let url = activity.webpageURL { Task { await route(url) } }
+            }
+            .onOpenURL { url in Task { await route(url) } }
             #if DEBUG
             // Which deck is actually rendering, readable from a UI test.
             //
@@ -104,6 +110,15 @@ struct RootTabView: View {
                     .foregroundStyle(.clear)
                     .accessibilityIdentifier("debug.launchEnvironmentProbe")
                     .allowsHitTesting(false)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // An actual PID observation for isolated UI callers, never a
+                // model hook or persistent state and absent from release builds.
+                if BatonStorage.isProbe, ProcessInfo.processInfo.environment["baton.launchProbe"] != nil {
+                    Text(String(ProcessInfo.processInfo.processIdentifier))
+                        .font(.system(size: 1)).foregroundStyle(.clear)
+                        .accessibilityIdentifier("debug.launchProcessID").allowsHitTesting(false)
+                }
             }
             #endif
             .environment(\.nowPlayingPalette, paletteLoader.palette)
@@ -230,6 +245,27 @@ struct RootTabView: View {
         return (windows.first(where: \.isKeyWindow) ?? windows.first)?.rootViewController
     }
 
+    /// Acts on a link or a file handed to the app. What a `baton://` link *means* is decided by
+    /// `BatonDeepLink`, a pure function tested as one; `MobileModel.open` carries it out and
+    /// reports what happened, so a link that cannot be honoured says so instead of leaving the app
+    /// sitting there looking as though nothing was tapped. SwiftUI delivers the link to this
+    /// scene; its identity travels with a received song so it is presented here.
+    @MainActor private func route(_ url: URL) async {
+        // A document from Files, Mail or the share sheet ("Open in Baton"): the import screen,
+        // when the feature is on. Copied first, because the handed-over file is ours to read
+        // only for a moment (M5.2).
+        if url.isFileURL, MobileDocuments.isEnabled(), MobileDocuments.canImport(url) {
+            do { model.offerImport(try MobileDocuments.stage(url)) } catch {
+                model.linkFailure = "The file could not be opened: \(error.localizedDescription)"
+            }
+            return
+        }
+        // A link this app does not claim is not a failure worth a message: it was never
+        // ours, and something else on the phone may still handle it.
+        guard let link = BatonDeepLink(url: url) else { return }
+        model.linkFailure = await model.open(link, incomingShareSceneID: incomingShareSceneID).message
+    }
+
     private var tabs: some View {
         TabView {
             // Only once a connection test has passed. A Friend tab that opens on
@@ -279,7 +315,12 @@ struct RootTabView: View {
         // tab labels behind the bar (visible in any screenshot with a track
         // loaded). The inset stays as the fallback on iOS 18-25.
         .modifier(NowPlayingAccessory(model: model) { showsFullPlayer = true })
-        .sheet(isPresented: $showsFullPlayer) {
+        .incomingSharePresenter(model: model, sceneID: incomingShareSceneID,
+            pauseLibrary: { model.radio.engine.pauseForPlaybackHandoff(); model.music.pauseForPlaybackHandoff() },
+            playLibrary: { song in
+                model.music.play([song], source: .init(label: song.title, kind: .song, id: song.id))
+            })
+        .sheet(isPresented: Binding(get: { showsFullPlayer }, set: { showsFullPlayer = $0 })) {
             FullPlayerView(model: model)
         }
         // "Go to Album" / "Go to Artist", from anywhere. The asker may be inside the
@@ -391,8 +432,10 @@ struct RootTabView: View {
             if !was, is_ { askForAReviewIfEarned() }
             WidgetBridge.publish(
                 song: model.music.nowPlaying, isPlaying: is_,
+                // The track's own picture first (a book's cover, an episode's art), as the
+                // other publish of this card does through `nowPlayingCoverURL`.
                 artworkURL: model.music.nowPlaying.flatMap {
-                    model.musicLibrary.coverArtURL(id: $0.coverArtID ?? $0.id, size: 300)
+                    $0.artworkURL ?? model.musicLibrary.coverArtURL(id: $0.coverArtID ?? $0.id, size: 300)
                 },
                 elapsed: model.music.currentTime,
                 duration: model.music.duration

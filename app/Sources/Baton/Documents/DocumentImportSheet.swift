@@ -32,6 +32,8 @@ struct DocumentImportSheet: View {
 
     @State private var phase = Phase.reading
     @State private var submitting = false
+    /// The book's own cover (an EPUB's), read with the file and kept once the book is made.
+    @State private var bookCover: Data?
     @State private var suggestion: VoiceSuggestion?
     @State private var chosen: String?
     /// The person picked a voice on this sheet, so a remembered one no longer takes its place.
@@ -392,6 +394,10 @@ struct DocumentImportSheet: View {
             let document = DocumentLibrary.isWebLink(url)
                 ? try await DocumentLibrary.importDocument(fromWeb: url)
                 : try await DocumentLibrary.importDocument(at: url)
+            if !DocumentLibrary.isWebLink(url) {
+                let file = url
+                bookCover = await Task.detached(priority: .utility) { BookCovers.bookCover(ofFileAt: file) }.value
+            }
             phase = .ready(document, voice: DocumentLibrary.languageDefaultVoice(for: document))
         } catch let failure as DocumentImporter.Failure {
             phase = .failed(failure.description)
@@ -421,6 +427,7 @@ struct DocumentImportSheet: View {
             book.lexicon = lexicon
             do {
                 try await library.submit(book, on: renderer)
+                library.covers.adoptBookCover(bookCover, documentID: book.documentID)
                 onImported()
                 onDone()
             } catch {

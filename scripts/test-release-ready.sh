@@ -42,7 +42,7 @@ printf '%s\n%s\n%s\n%s\n%s\n' "$STANDIN" \
   "/tmp/another-checkout" "/tmp/baton-dd" gate >"$LOCK"
 lock_before="$(cksum <"$LOCK")"
 
-cp "$ROOT/scripts/native-lock.sh" "$WORK/canonical-native-lock.sh"
+cp "$ROOT/scripts/release-kit/lib/native-lock.sh" "$WORK/canonical-native-lock.sh"
 run() {
   BATON_NATIVE_LOCK_CANONICAL="$WORK/canonical-native-lock.sh" \
   PATH="$BIN:$PATH" BATON_GATE_LOCK="$LOCK" NATIVE_LOCK_DIR="$WORK/native-locks" \
@@ -105,17 +105,22 @@ else
   bad "a source or tool line is missing. Got: $out"
 fi
 
-if printf '%s' "$out" | grep -q "ok    native-lock.sh: byte-identical to the shared copy"; then
-  ok "the vendored native-lock.sh is checked against the shared copy by digest"
+if printf '%s' "$out" | grep -q "ok    native-lock: the kit module is byte-identical to the shared copy"; then
+  ok "the kit's native-lock module is compared with the shared _method copy by digest"
 else
-  bad "the vendored helper was not compared with the shared copy. Got: $out"
+  bad "the kit's native-lock module was not compared with the shared copy. Got: $out"
+fi
+if printf '%s' "$out" | grep -q "ok    release kit: .* matches its pin"; then
+  ok "the vendored release kit is checked against its pin"
+else
+  bad "the vendored release kit's pin was not checked. Got: $out"
 fi
 printf '# drift\n' >>"$WORK/canonical-native-lock.sh"
 out="$(run)"
-if printf '%s' "$out" | grep -q "FAIL  native-lock.sh: differs from the shared copy"; then
-  ok "a vendored helper that drifted from the shared copy is a FAIL"
+if printf '%s' "$out" | grep -q "WARN  native-lock: the kit module differs from the shared copy"; then
+  ok "a shared copy on another kit version is named as a WARN (the kit pin is the hard check)"
 else
-  bad "helper drift was not reported. Got: $out"
+  bad "a differing shared copy was not reported. Got: $out"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

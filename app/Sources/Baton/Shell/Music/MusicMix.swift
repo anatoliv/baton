@@ -21,6 +21,11 @@ struct MusicMix: Identifiable, Hashable {
     // Identity is the stable `id` (the `songs` closure isn't Hashable) — enough for a
     // NavigationLink to open the mix's detail page.
     static func == (lhs: MusicMix, rhs: MusicMix) -> Bool { lhs.id == rhs.id }
+
+    /// The mix as a queue source. The card and the mix page both play under it, so each can
+    /// tell the mix is the one in the player. It carried no id, which made every
+    /// mix and radio an anonymous `.radio` told apart only by its title.
+    var source: StreamingPlaybackController.QueueSource { .init(label: title, kind: .radio, id: id) }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     /// Build from the shared card, so the copy the user reads has one home.
@@ -213,9 +218,7 @@ struct MusicMixDetail: View {
         }
     }
 
-    private var source: StreamingPlaybackController.QueueSource {
-        .init(label: mix.title, kind: .radio, id: nil)
-    }
+    private var source: StreamingPlaybackController.QueueSource { mix.source }
 
     private var totalSeconds: Int { songs.reduce(0) { $0 + ($1.duration ?? 0) } }
 
@@ -265,7 +268,8 @@ struct MusicMixDetail: View {
                     layout: $layout,
                     accessory: { EmptyView() },
                     leading: {
-                        MusicMiniTransport(onPlayWhenIdle: { model.music.play(songs, source: source) }, pageSource: source)
+                        MusicMiniTransport(onPlayWhenIdle: { model.music.play(songs, source: source) }, pageSource: source,
+                                           onShuffleWhenIdle: { model.music.playShuffled(songs, source: source) })
                         MusicRowActions(actions: [
                             MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(songs) },
                             MusicRowAction(title: "Download", systemImage: "arrow.down.circle") { Task { await MusicDownloadStore.shared.download(songs) } },
@@ -274,8 +278,8 @@ struct MusicMixDetail: View {
                             // as it did is indistinguishable from one that did nothing.
                             MusicRowAction(
                                 title: "Shuffle",
-                                systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle",
-                                tint: model.music.isShuffled ? .accentColor : .secondary
+                                systemImage: model.music.isShuffling(source) ? "shuffle.circle.fill" : "shuffle",
+                                tint: model.music.isShuffling(source) ? .accentColor : .secondary
                             ) {
                                 model.music.playShuffleToggling(songs, source: source)
                             },
@@ -331,6 +335,7 @@ struct MusicMixDetail: View {
 /// one card doesn't disable the others).
 struct MusicMixCard: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let mix: MusicMix
     @State private var loading = false
     @State private var hovering = false
@@ -356,18 +361,6 @@ struct MusicMixCard: View {
                         .font(.system(size: 34, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
                         .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
                         .padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    // The play button plays directly without opening the detail page.
-                    Button(action: play) {
-                        Image(systemName: "play.circle.fill")
-                            .font(.title).foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
-                            .padding(12)
-                    }
-                    .buttonStyle(.plain)
-                    .opacity(loading ? 0 : (hovering ? 1 : 0.85))
-                    .overlay { if loading { ProgressView().controlSize(.small).tint(.white).padding(12) } }
-                    .help("Play “\(mix.title)”")
-                    .accessibilityLabel("Play \(mix.title)")
                 }
                 .frame(height: 96)
                 VStack(alignment: .leading, spacing: 2) {
@@ -380,21 +373,50 @@ struct MusicMixCard: View {
             .adaptiveMaterial(Rectangle())
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)))
-            // The app's standard lift, not a bespoke one. This card carried scale 1.02
-            // over 0.14s where everything else uses 1.06 over 0.16s — close enough to look
-            // like a mistake rather than a choice, and it sat next to shelves using the
-            // standard. zIndex so a lifted card draws over its neighbours instead of being
-            // clipped by the next one.
-            .hoverLift(hovering)
-            .zIndex(hovering ? 1 : 0)
-            .animation(.easeOut(duration: 0.16), value: hovering)
         }
         .buttonStyle(.plain)
+        // The play button sits *over* the link, not inside its label: inside, a click on it
+        // opened the mix instead of playing it, because the NavigationLink took the click
+        // (found by the TBX-11066 pointer walk). Over it, the button gets its own clicks and
+        // the rest of the card still opens the mix.
+        .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .bottomTrailing) {
+                Color.clear
+                // The play button plays directly without opening the detail page, and
+                // pauses or resumes the mix when it is the one in the player.
+                Button(action: play) {
+                    Image(systemName: playState == .playing ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.title).foregroundStyle(.white)
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                        .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
+                        .padding(12)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: playState)
+                .opacity(loading ? 0 : (hovering || playState.isLoaded ? 1 : 0.85))
+                .overlay { if loading { ProgressView().controlSize(.small).tint(.white).padding(12) } }
+                .help("\(playState.title) “\(mix.title)”")
+                .accessibilityLabel("\(playState.title) \(mix.title)")
+            }
+            .frame(height: 96)
+        }
+        // The app's standard lift, not a bespoke one. This card carried scale 1.02
+        // over 0.14s where everything else uses 1.06 over 0.16s — close enough to look
+        // like a mistake rather than a choice, and it sat next to shelves using the
+        // standard. zIndex so a lifted card draws over its neighbours instead of being
+        // clipped by the next one. Applied after the overlay so the button lifts with it.
+        .hoverLift(hovering)
+        .zIndex(hovering ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: hovering)
         .onHover { hovering = $0 }
     }
 
+    private var playState: CollectionPlayState { model.music.collectionState(mix.source) }
+
     private func play() {
         guard !loading else { return }
+        if model.music.toggleIfLoaded(mix.source) { return }
         loading = true
         Task {
             let songs = await mix.songs()
@@ -403,7 +425,7 @@ struct MusicMixCard: View {
                 model.music.postToast("No tracks for “\(mix.title)”", symbol: "exclamationmark.triangle")
                 return
             }
-            model.music.play(songs, source: .init(label: mix.title, kind: .radio, id: nil))
+            model.music.play(songs, source: mix.source)
         }
     }
 }

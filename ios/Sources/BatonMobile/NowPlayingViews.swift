@@ -144,7 +144,8 @@ struct NowPlayingBar: View {
     }
 
     private func artworkURL(for song: NavidromeSong) -> URL? {
-        model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 120)
+        // A direct picture first: a book chapter's cover, as the lock screen reads it.
+        song.artworkURL ?? model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 120)
     }
 }
 
@@ -402,6 +403,7 @@ struct FullPlayerView: View {
 
     private var coverURL: URL? {
         guard let song = model.music.nowPlaying else { return nil }
+        if let direct = song.artworkURL { return direct }
         return model.musicLibrary.coverArtURL(
             id: song.coverArtID ?? song.id,
             size: ArtworkColorExtractor.coverSize
@@ -422,7 +424,8 @@ struct FullPlayerView: View {
     private func artworkBody(for song: NavidromeSong, side: CGFloat) -> some View {
         // Fixed size, not maxWidth/maxHeight: the queue List below is greedy, and a
         // flexible frame lets it squeeze the artwork into a clipped sliver.
-        ArtworkView(url: model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 800), wholeCover: true)
+        ArtworkView(url: song.artworkURL ?? model.musicLibrary.coverArtURL(id: song.coverArtID ?? song.id, size: 800),
+                    wholeCover: true)
             // Shrinks as text grows. At the largest accessibility sizes a fixed 272pt
             // cover plus grown labels and two rows of controls simply does not fit a
             // phone, and what fell off the bottom was the transport.
@@ -939,6 +942,11 @@ struct RelatedSheet: View {
     @State private var related: [NavidromeSong] = []
     @State private var loading = true
 
+    /// Named by its seed, so Play All can tell this list is the one in the player.
+    private var relatedSource: StreamingPlaybackController.QueueSource {
+        .init(label: "Related to \(song.title)", kind: .radio, id: "related-\(song.id)")
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -956,7 +964,7 @@ struct RelatedSheet: View {
                             Button {
                                 model.music.play(related,
                                                  startAt: related.firstIndex(of: track) ?? 0,
-                                                 source: .init(label: "Related to \(song.title)", kind: .radio))
+                                                 source: relatedSource)
                                 dismiss()
                             } label: {
                                 SongRow(song: track, model: model)
@@ -973,10 +981,13 @@ struct RelatedSheet: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
                 if !related.isEmpty {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("Play All") {
-                            model.music.play(related,
-                                             source: .init(label: "Related to \(song.title)", kind: .radio))
-                            dismiss()
+                        // Pause / Resume while this related list is what plays.
+                        let state = model.music.collectionState(relatedSource)
+                        Button(state == .idle ? "Play All" : state.title) {
+                            if !model.music.toggleIfLoaded(relatedSource) {
+                                model.music.play(related, source: relatedSource)
+                                dismiss()
+                            }
                         }
                     }
                 }

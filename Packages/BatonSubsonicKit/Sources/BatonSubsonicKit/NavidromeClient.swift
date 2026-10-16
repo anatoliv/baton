@@ -247,11 +247,13 @@ public struct NavidromeClient: Sendable {
         query: String,
         songCount: Int = 20,
         albumCount: Int = 10,
-        artistCount: Int = 10
+        artistCount: Int = 10,
+        songOffset: Int = 0
     ) async throws -> NavidromeSearchResults {
         let response = try await performJSON("search3.view", retry: true, query: [
             URLQueryItem(name: "query", value: Self.foldedForSearch(query)),
             URLQueryItem(name: "songCount", value: String(songCount)),
+            URLQueryItem(name: "songOffset", value: String(max(0, songOffset))),
             URLQueryItem(name: "albumCount", value: String(albumCount)),
             URLQueryItem(name: "artistCount", value: String(artistCount)),
         ])

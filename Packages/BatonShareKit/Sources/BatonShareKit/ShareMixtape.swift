@@ -5,7 +5,7 @@ import Crypto
 #endif
 import Foundation
 
-/// Default-off protocol primitives; no service or native composer uses these yet.
+/// Protocol primitives for the default-off mixtape capability.
 /// Contract: specs/song-sharing-mixtapes.md. Existing BSH1 records are unchanged.
 public enum ShareMixtapeCrypto {
     public static func manifestKey(rootKey: Data) throws -> Data {
@@ -18,6 +18,8 @@ public enum ShareMixtapeCrypto {
         }
         return try derive(rootKey, info: Data("baton-share mixtape v1 track\0".utf8) + id)
     }
+
+    public static func isCanonicalTrackID(_ text: String) -> Bool { canonicalID(text) != nil }
 
     static func canonicalID(_ text: String) -> Data? {
         guard text.utf8.count == 22, let data = Base64URL.decode(text),

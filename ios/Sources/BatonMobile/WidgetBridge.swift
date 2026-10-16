@@ -1,5 +1,6 @@
 import ActivityKit
 import Foundation
+import ImageIO
 import WidgetKit
 
 /// The app→widget bridge: a tiny now-playing snapshot in the App Group defaults,
@@ -50,11 +51,27 @@ enum WidgetBridge {
             // small, so this is a guard against a pathological one rather than a resize.
             guard data.count < 2_000_000 else { return nil }
             let destination = container.appendingPathComponent(artworkFilename)
-            try data.write(to: destination, options: .atomic)
+            // Drawn at most a few dozen points wide on the Lock Screen; a full-size book cover
+            // is scaled down here, once, rather than decoded whole in the widget.
+            try (thumbnail(data, maxPixels: 300) ?? data).write(to: destination, options: .atomic)
             return artworkFilename
         } catch {
             return nil
         }
+    }
+
+    /// A JPEG of at most `maxPixels` on its longer side, or nil when the bytes are not a picture.
+    private static func thumbnail(_ data: Data, maxPixels: Int) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+              ] as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? out as Data : nil
     }
 
     @MainActor

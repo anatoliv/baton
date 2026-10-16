@@ -95,11 +95,17 @@ extension ShareService {
         guard let verifier = attestationVerifier, header.count <= 16384,
               let bytes = Data(base64Encoded: header), let proof = try? JSONDecoder().decode(ShareAttestationProof.self, from: bytes),
               UUID(uuidString: proof.requestID) != nil, let assertion = Data(base64Encoded: proof.assertion) else { throw AppAttestError.invalid }
-        let bodyHash = ShareHash.sha256Hex(request.body), proofHash = ShareHash.sha256Hex(bytes)
+        let bodyHash = request.path == "/v1/share/shares" ? ShareHash.sha256Hex(request.body) : ShareHash.sha256Hex(Data(request.path.utf8) + Data([0]) + request.body)
+        let proofHash = ShareHash.sha256Hex(bytes)
         if let row = try store.database.query("SELECT * FROM app_attest_creates WHERE request_id = ?", [.text(proof.requestID)]).first {
             guard row["digest"]?.text == sharer.digest, row["body_hash"]?.text == bodyHash, row["proof_hash"]?.text == proofHash,
                   row["expires_at"]?.int ?? 0 > now, let json = row["response"]?.text,
-                  let response = try? JSONDecoder().decode(CreateShareResponse.self, from: Data(json.utf8)) else { throw AppAttestError.invalid }
+                  let data = json.data(using: .utf8) else { throw AppAttestError.invalid }
+            if request.path == "/v1/share/mixtapes" {
+                guard let response = try? JSONDecoder().decode(CreateMixtapeResponse.self, from: data) else { throw AppAttestError.invalid }
+                return (nil, .json(response, status: 201))
+            }
+            guard let response = try? JSONDecoder().decode(CreateShareResponse.self, from: data) else { throw AppAttestError.invalid }
             return (nil, .json(response, status: 201))
         }
         let challenge = try attestChallenge(proof.challengeID, key: proof.keyID, digest: sharer.digest, purpose: "create")
@@ -108,7 +114,7 @@ extension ShareService {
               let encoded = key["public_key"]?.text, let publicKey = Data(base64Encoded: encoded), let previous = key["counter"]?.int,
               let secret = request.bearerToken else { throw AppAttestError.invalid }
         let envelope = ShareAttestationEnvelope.data(challenge: challenge, policy: verifier.config.policy, secret: secret,
-                                                     requestID: proof.requestID, body: request.body)
+                                                     requestID: proof.requestID, body: request.body, path: request.path)
         let counter = try verifier.assertion(object: assertion, publicKey: publicKey, envelope: envelope, previousCounter: previous)
         return (.init(proof: proof, counter: counter, bodyHash: bodyHash, proofHash: proofHash), nil)
     }

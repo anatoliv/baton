@@ -145,6 +145,20 @@ final class BookStoreTests: XCTestCase {
         XCTAssertNotEqual(BookJob.id(for: sampleBook()), BookJob.id(for: sampleBook(narrator: "kokoro:bm_george")))
         XCTAssertEqual(BookJob.id(for: sampleBook()).count, 64)
     }
+
+    /// The listing says which books a Mac made and uploaded, so the iPhone can say
+    /// "Made on your Mac" rather than "Made on the Baton server"; a book made here says nothing.
+    func testTheSummaryTellsAnUploadedBookFromOneMadeHere() throws {
+        var uploaded = BookJob(id: BookJob.id(for: sampleBook()), book: sampleBook())
+        uploaded.uploaded = true
+        let made = BookJob(id: BookJob.id(for: sampleBook()), book: sampleBook())
+        XCTAssertEqual(uploaded.summary.uploaded, true)
+        XCTAssertNil(made.summary.uploaded)
+        let decoded = try BookJSON.decoder.decode(BookJob.Summary.self, from: BookJSON.encoder.encode(uploaded.summary))
+        XCTAssertEqual(decoded.uploaded, true, "it reaches the other device")
+        XCTAssertFalse(String(decoding: try BookJSON.encoder.encode(made.summary), as: UTF8.self).contains("uploaded"),
+                       "nothing extra for a book the home server made")
+    }
 }
 
 // MARK: - Renderer

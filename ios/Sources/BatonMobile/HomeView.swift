@@ -318,32 +318,13 @@ struct MixDetailView: View {
                     Text(mix.subtitle).font(.subheadline).foregroundStyle(.secondary)
 
                     HStack(spacing: 10) {
-                        Button {
+                        CollectionPlayButton(model: model, source: .init(label: mix.title, kind: .radio, id: mix.id),
+                                             disabled: songs.isEmpty) {
                             model.music.play(songs, source: .init(label: mix.title, kind: .radio, id: mix.id))
-                        } label: {
-                            Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(songs.isEmpty)
 
-                        Button {
-                            model.music.playShuffleToggling(songs, source: .init(label: mix.title, kind: .radio, id: mix.id))
-                        } label: {
-                            Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        // Shuffle is a *mode*, and this button now sets it — so it has to
-                        // say whether it's on. Without this the only feedback for pressing
-                        // it lives in the transport, which is exactly the complaint: "no
-                        // indication if it is selected or not".
-                        //
-                        // A tint rather than `.borderedProminent`: that's Play's weight,
-                        // and two prominent buttons side by side stop meaning "the primary
-                        // action is Play".
-                        .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
-                        .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
-                        .disabled(songs.isEmpty)
+                        CollectionShuffleButton(model: model, source: .init(label: mix.title, kind: .radio, id: mix.id),
+                                                disabled: songs.isEmpty) { songs }
                     }
                 }
                 .frame(maxWidth: .infinity)

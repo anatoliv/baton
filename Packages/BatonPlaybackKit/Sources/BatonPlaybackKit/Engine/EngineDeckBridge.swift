@@ -97,6 +97,11 @@ public final class EngineDeckBridge: PlaybackDeck {
         }
     }
 
+    public func pauseImmediately() {
+        engine.pauseImmediately()
+        stopClock()
+    }
+
     public func resume() {
         clockRetirement?.cancel()
         clockRetirement = nil

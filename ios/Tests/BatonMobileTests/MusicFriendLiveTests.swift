@@ -104,6 +104,25 @@ final class MusicFriendLiveTests: XCTestCase {
                       + "skipping rather than reddening the gate")
     }
 
+    /// The same rule as `skipUnlessServing`, for the request itself. The probe can pass and
+    /// the provider still answer the real request with a 5xx a moment later: on 2026-10-16
+    /// the model host lost a GPU, the chat engine was restarting, and `testAskingForMusicReachesTheTools`
+    /// got LiteLLM's 500 seconds after the probe said "serving". A server error
+    /// is the provider's downtime, not the friend's behaviour, so it skips; anything else,
+    /// including a reply that calls no tool, still fails.
+    private func sendOrSkip<Reply>(_ send: () async throws -> Reply) async throws -> Reply {
+        do {
+            return try await send()
+        } catch {
+            let described = String(describing: error)
+            if described.contains("http(status: 5") {
+                throw XCTSkip("live provider failed mid-request (\(described.prefix(80))) — "
+                              + "skipping rather than reddening the gate")
+            }
+            throw error
+        }
+    }
+
     private func configured(_ live: Live) -> MobileModel {
         let model = MobileModel()
         model.agentConfig.route = .direct
@@ -120,7 +139,7 @@ final class MusicFriendLiveTests: XCTestCase {
         let live = try live()
         let model = configured(live)
 
-        let reply = try await model.agent.send("hello, who are you?")
+        let reply = try await sendOrSkip { try await model.agent.send("hello, who are you?") }
 
         XCTAssertFalse(reply.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                        "an empty reply is indistinguishable from a broken feature")
@@ -133,7 +152,7 @@ final class MusicFriendLiveTests: XCTestCase {
         let model = configured(live)
         model.startDemo()
 
-        let reply = try await model.agent.send("play something")
+        let reply = try await sendOrSkip { try await model.agent.send("play something") }
 
         XCTAssertGreaterThan(reply.toolCallsMade, 0,
                              "asking for music must call a tool, not just talk about it — got: \(reply.text)")

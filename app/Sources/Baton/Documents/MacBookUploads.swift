@@ -58,6 +58,10 @@ final class MacBookUploads {
     private let log: Logger
     private let retry: Retry
 
+    /// Told a book's job id once the Baton server has taken its shaped book, so whatever else
+    /// belongs to the book (its cover, TBX-11064) can follow it there at once.
+    var onAccepted: ((String) -> Void)?
+
     private var running = false
     private var again = false
     private var notBefore: Date?
@@ -218,6 +222,28 @@ final class MacBookUploads {
             }
         }
         if !new.isEmpty { log.notice("\(new.count) books made on this Mac to send to the Baton server") }
+        reopenFinishedTooEarly()
+    }
+
+    /// A book a build before TBX-11088 marked done with chapters still to send (the round ran
+    /// before its chapters reached Clippings) goes up again: the Baton server kept it with those
+    /// chapters queued and the iPhone waited for them for ever. Only a book finished
+    /// without a reason, still made here, and with a chapter on this Mac that never went up; a
+    /// chapter removed from this Mac on purpose does not count. The next round asks the Baton
+    /// server what it has and sends only the rest.
+    private func reopenFinishedTooEarly() {
+        let reopen = entries.filter { entry in
+            guard entry.done, entry.stopped == nil, entry.accepted, let job = books.load(entry.jobID) else { return false }
+            return !isAllSent(job, sent: entry.sent)
+        }.map(\.jobID)
+        guard !reopen.isEmpty else { return }
+        change { all in
+            for i in all.indices where reopen.contains(all[i].jobID) { all[i].done = false }
+        }
+        for jobID in reopen {
+            checked.remove(jobID)
+            log.notice("book \(jobID.prefix(12), privacy: .public): marked sent with chapters missing on the Baton server; sending them")
+        }
     }
 
     static let madeAgain = "made again as"
@@ -243,6 +269,22 @@ final class MacBookUploads {
         }
     }
 
+    /// Whether nothing of `job` is left to send: it is made, and every chapter it made is either
+    /// on this Mac and sent, or was removed from this Mac on purpose (Remove Download). A chapter
+    /// made but not yet moved into Clippings still has its audio in the job's folder, which
+    /// adoption empties; it is still to send, not removed (TBX-11088: a round between the job
+    /// becoming ready and `DocumentLibrary.refresh` adopting its chapters saw none of them
+    /// present, and finished the book with no chapter sent).
+    private func isAllSent(_ job: BookJob, sent: [Int]) -> Bool {
+        guard job.status == .ready else { return false }
+        let here = Set(present(job).map(\.index))
+        return job.chapters.enumerated().allSatisfy { index, state in
+            if here.contains(index) { return sent.contains(index) }
+            guard case let .ready(file, _, _, _) = state else { return false }
+            return books.chapterURL(job.id, file: file) == nil
+        }
+    }
+
     private func send(_ jobID: String, _ client: GatewayBookClient) async -> Step {
         guard let entry = entry(forJob: jobID) else { return .carryOn }
         guard let job = books.load(jobID) else {
@@ -258,7 +300,7 @@ final class MacBookUploads {
         var waiting = present(job).filter { !entry.sent.contains($0.index) }
         // Nothing new since the last round: no need to ask the Baton server anything.
         if entry.accepted, checked.contains(jobID), waiting.isEmpty {
-            if job.status == .ready { finish(jobID) }
+            if isAllSent(job, sent: entry.sent) { finish(jobID) }
             return .carryOn
         }
         // The shaped book first, or, after a restart, what the Baton server already has.
@@ -269,6 +311,7 @@ final class MacBookUploads {
             } else {
                 summary = try await client.upload(job.book)
                 log.notice("book \(jobID.prefix(12), privacy: .public): sent \"\(job.book.title, privacy: .public)\" to the Baton server")
+                onAccepted?(jobID)
             }
             checked.insert(jobID)
             let there = summary.chapters.filter { $0.state == "ready" }.map(\.index)
@@ -309,9 +352,7 @@ final class MacBookUploads {
             }
             log.notice("book \(jobID.prefix(12), privacy: .public): chapter \(chapter.index + 1) sent to the Baton server")
         }
-        if job.status == .ready, present(job).allSatisfy({ (self.entry(forJob: jobID)?.sent ?? []).contains($0.index) }) {
-            finish(jobID)
-        }
+        if isAllSent(job, sent: self.entry(forJob: jobID)?.sent ?? []) { finish(jobID) }
         return .carryOn
     }
 

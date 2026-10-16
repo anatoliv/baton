@@ -379,6 +379,7 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         XCTAssertEqual(shelf[0].title, "The Storm")
         XCTAssertEqual(shelf[0].jobID, id)
         XCTAssertEqual(shelf[0].originText, "Made on the Baton server")
+        XCTAssertEqual(library.records.first?.madeOnMac, nil, "the home server rendered it")
         XCTAssertEqual(shelf[0].summaryText, "1 of 2 chapters ready · 1 m")
 
         // Collected on demand like the phone's own, the shaped book fetched once.
@@ -391,6 +392,46 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         shelf = MobileBookShelf.books(items: store.items, records: library.records, summaries: library.summaries, ledger: store.ledger)
         XCTAssertEqual(shelf[0].storedText, "On this phone")
         XCTAssertFalse(fake.seen.contains { $0.hasPrefix("PUT") })
+    }
+
+    /// TBX-11063: Read Along asks the home server for a chapter's timing when none was kept with
+    /// it, and keeps what it gets under the chapter's audio for good. It must be the timing of
+    /// *that* audio. Right after launch no summary has been read yet, and an unknown summary used
+    /// to count as a match, so a chapter whose audio on the server had since changed (made again
+    /// in another voice, or again after a removed download) got the new audio's times: the
+    /// highlight ran ahead of or behind what was heard, for ever. Now the job's status is asked.
+    func testReadAlongTimingFetchedAfterLaunchMustBelongToTheAudioHere() async throws {
+        let fake = FakeGateway()
+        let store = clippings()
+        let mac = try macBook()
+        let id = fake.upload(mac)
+        func timing(_ scale: Double) -> ReadAlongTiming {
+            ReadAlongTiming(segments: mac.chapters[0].segments.enumerated().map { i, segment in
+                .init(text: segment.text, paragraph: segment.paragraph, start: Double(i) * scale, end: Double(i) * scale + 1)
+            })
+        }
+        let here = Data(String(repeating: "the harbour ", count: 200).utf8)
+        fake.uploadChapter(id, index: 0, audio: here, timing: timing(2))
+        let first = books(fake, clippings: store)
+        await first.collect()
+        let item = try XCTUnwrap(store.chapters(ofDocument: mac.documentID).first)
+        XCTAssertEqual(item.clipping.sha256, SHA256Digest.hex(of: here))
+        // Its timing did not stay with it (an older build, a failed request at the time).
+        first.readAlong.remove(forAudio: SHA256Digest.hex(of: here))
+
+        // The same audio on the server: a fresh launch fetches the timing and keeps it.
+        let relaunched = books(fake, clippings: store)
+        XCTAssertTrue(relaunched.summaries.isEmpty, "nothing read from the home server yet")
+        let same = await relaunched.readAlongTiming(for: item)
+        XCTAssertEqual(same, timing(2), "the chapter's own timing")
+        relaunched.readAlong.remove(forAudio: SHA256Digest.hex(of: here))
+
+        // The server's chapter is other audio now, with other times: they are not this chapter's.
+        fake.uploadChapter(id, index: 0, audio: Data(String(repeating: "the squall ", count: 300).utf8), timing: timing(3.5))
+        let again = books(fake, clippings: store)
+        let other = await again.readAlongTiming(for: item)
+        XCTAssertNil(other, "another audio's timing is not shown against this one")
+        XCTAssertNil(again.readAlong.load(forAudio: SHA256Digest.hex(of: here)), "nor kept under this audio")
     }
 
     /// TBX-11017: a book the Mac made with its own voices and uploaded is adopted like one made
@@ -416,6 +457,14 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         XCTAssertEqual(library.records.map(\.jobID), [id])
         XCTAssertEqual(library.records.first?.adopted, true)
         XCTAssertEqual(arrived, [])
+
+        // Said to be made where it was: on the Mac, not on the home server, from the
+        // listing and from the record alone, as when the phone opens with the server out of reach.
+        XCTAssertEqual(library.records.first?.madeOnMac, true)
+        XCTAssertEqual(MobileBookShelf.books(items: store.items, records: library.records, summaries: library.summaries,
+                                             ledger: store.ledger).first?.originText, "Made on your Mac")
+        XCTAssertEqual(MobileBookShelf.books(items: store.items, records: library.records, summaries: [:],
+                                             ledger: store.ledger).first?.originText, "Made on your Mac")
 
         fake.uploadChapter(id, index: 0, audio: first, timing: timing(0))
         arrived = await library.collect()

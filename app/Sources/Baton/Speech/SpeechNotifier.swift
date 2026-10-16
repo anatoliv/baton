@@ -82,13 +82,21 @@ final class SpeechNotificationDelegate: NSObject, UNUserNotificationCenterDelega
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner]
+        if ReactionPushNotifications.routeData(notification.request.content.userInfo) != nil {
+            return await ReactionPushNotifications.shared.optedIn ? [.banner] : []
+        }
+        return [.banner]
     }
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+           let route = ReactionPushNotifications.routeData(response.notification.request.content.userInfo) {
+            await ReactionPushNotifications.shared.handleOwnerRoute(route)
+            return
+        }
         let info = response.notification.request.content.userInfo
         let action = response.actionIdentifier
         guard action == SpeechNotifier.playActionID || action == UNNotificationDefaultActionIdentifier else { return }

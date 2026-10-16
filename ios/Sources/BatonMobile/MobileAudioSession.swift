@@ -1,4 +1,6 @@
 import AVFoundation
+import BatonShareKit
+import BatonPlaybackKit
 import Foundation
 import OSLog
 
@@ -35,6 +37,9 @@ final class MobileAudioSession {
 
     private let controller: StreamingPlaybackController
     private var observers: [NSObjectProtocol] = []
+    private var receivedOwnership = ReceivedAudioOwnership()
+    private var admissionObserver: UUID?
+    private var receivedCallback: (@MainActor (ReceivedAudioEvent) -> Void)?
 
     /// The audio server died and took every audio object with it. Anything the app built
     /// on top of CoreAudio — an `AVAudioEngine` above all — is now a dead handle that
@@ -47,6 +52,14 @@ final class MobileAudioSession {
 
     init(controller: StreamingPlaybackController) {
         self.controller = controller
+        admissionObserver = controller.observePlaybackAdmission { [weak self] in self?.libraryWillStart() }
+    }
+
+    deinit {
+        let token = admissionObserver
+        Task { @MainActor [weak controller] in
+            if let token { controller?.releasePlaybackAdmission(token) }
+        }
     }
 
     /// Configures the category once. Deliberately does NOT activate the session at
@@ -68,11 +81,33 @@ final class MobileAudioSession {
 
     /// Activates the session right before playback starts. Safe to call repeatedly.
     func activateForPlayback() {
+        libraryWillStart()
         do {
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             sessionLog.error("setActive failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Uses the configured long-form session; failure is returned to the receiving UI.
+    /// No strong owner/receiver cycle: callers provide weak callbacks and release on stop.
+    func activateForReceivedPlayback(_ callback: @escaping @MainActor (ReceivedAudioEvent) -> Void) throws -> (@MainActor () -> Void) {
+        receivedCallback?(.libraryStarting)
+        try AVAudioSession.sharedInstance().setActive(true)
+        let token = receivedOwnership.begin()
+        receivedCallback = callback
+        wasPlayingBeforeInterruption = false
+        return { [weak self] in
+            guard let self, self.receivedOwnership.release(token) else { return }
+            self.receivedCallback = nil
+        }
+    }
+
+    private func libraryWillStart() {
+        let callback = receivedCallback
+        receivedCallback = nil
+        receivedOwnership.libraryWillStart()
+        callback?(.libraryStarting)
     }
 
     private func installObservers() {
@@ -113,6 +148,8 @@ final class MobileAudioSession {
         } catch {
             sessionLog.error("setCategory after reset failed: \(error.localizedDescription, privacy: .public)")
         }
+        receivedCallback?(.mediaServicesReset)
+        wasPlayingBeforeInterruption = false
         onMediaServicesReset?()
     }
 
@@ -121,9 +158,14 @@ final class MobileAudioSession {
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
         switch type {
         case .began:
+            receivedCallback?(.interrupted)
             wasPlayingBeforeInterruption = controller.isPlaying
             if controller.isPlaying { controller.pause() }
         case .ended:
+            guard receivedOwnership.allowsLibraryResume else {
+                wasPlayingBeforeInterruption = false
+                return
+            }
             let options = optionsRaw.map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
             // Siri/Messages announcements over CarPlay often end an interruption
             // WITHOUT the .shouldResume flag even though resuming is exactly what the
@@ -151,7 +193,10 @@ final class MobileAudioSession {
             // spurious stops (another of Vibrdrome's field fixes).
             let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
             let genuinelyGone = outputs.isEmpty || outputs.allSatisfy { $0.portType == .builtInSpeaker }
-            if genuinelyGone, controller.isPlaying { controller.pause() }
+            if genuinelyGone {
+                receivedCallback?(.routeRemoved)
+                if controller.isPlaying { controller.pause() }
+            }
         default:
             break
         }

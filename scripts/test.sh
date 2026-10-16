@@ -1009,15 +1009,15 @@ elif PUBLIC_SAFE_BASE="$(git merge-base HEAD origin/main 2>/dev/null)"; then
 else
   yellow "  public mirror guard skipped: no origin/main to compare this branch with"
 fi
-# scripts/native-lock.sh is a vendored copy of the shared helper whose canonical home is
-# _method/tools/native-lock.sh (TBX-11003). Once that exists, the two must be byte-identical,
-# so every project on this Mac speaks the same lock protocol.
+# The lock protocol is the release kit's lib/native-lock.sh (TBX-11024): its pin, checked by
+# release-kit/check below, refuses any local edit, and scripts/native-lock.sh only configures
+# it. _method/tools/native-lock.sh is a byte copy of the same module for projects without the
+# kit; a difference means one side is on another kit version, so it is named, not fatal (a
+# primary _method checkout on an older branch must not stop every gate).
 NATIVE_LOCK_CANONICAL="${BATON_NATIVE_LOCK_CANONICAL:-$HOME/Projects/_method/tools/native-lock.sh}"
-if [ -f "$NATIVE_LOCK_CANONICAL" ] && ! cmp -s "$NATIVE_LOCK_CANONICAL" scripts/native-lock.sh; then
-  red "  lint: scripts/native-lock.sh differs from the shared copy at $NATIVE_LOCK_CANONICAL"
-  red "  (sha256 $(shasum -a 256 scripts/native-lock.sh | cut -c1-12) here, $(shasum -a 256 "$NATIVE_LOCK_CANONICAL" | cut -c1-12) there)."
-  red "  Change the shared copy through _method and vendor it here byte for byte."
-  lint_fail=1
+if [ -f "$NATIVE_LOCK_CANONICAL" ] && ! cmp -s "$NATIVE_LOCK_CANONICAL" scripts/release-kit/lib/native-lock.sh; then
+  yellow "  note: scripts/release-kit/lib/native-lock.sh differs from the shared copy at $NATIVE_LOCK_CANONICAL"
+  yellow "  (sha256 $(shasum -a 256 scripts/release-kit/lib/native-lock.sh | cut -c1-12) here, $(shasum -a 256 "$NATIVE_LOCK_CANONICAL" | cut -c1-12) there); the kit is canonical."
 fi
 # The release design's browser page is generated from its Markdown; keep them in step.
 if [ -f docs/release-design.md ] && ! python3 scripts/render-release-design.py --check >&2; then
@@ -1132,7 +1132,7 @@ if ! scripts/check-untracked-credentials.sh "$PWD"; then
   red "✗ credential-looking file in the working tree (see above)"
   exit 1
 fi
-for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo test-offsite-backup test-backup-mac-native test-gate-receipt test-lint-public-safe test-release-ready; do
+for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-mac-association-signing test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo test-offsite-backup test-backup-mac-native test-gate-receipt test-lint-public-safe test-release-ready; do
   # A guard named by path (release-kit/check) must not put its slash into the log name:
   # mktemp -t then targets a subdirectory of $TMPDIR that does not exist, and the gate died
   # here on every run from the release kit's adoption until 0.19.12 (TBX-8023).

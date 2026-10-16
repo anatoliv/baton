@@ -1,4 +1,5 @@
 import BatonSubsonicKit
+import BatonShareKit
 import OSLog
 import SwiftUI
 import UserNotifications
@@ -69,6 +70,7 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
     /// starts (the MCP server, the control socket, the chat bridges, Shortcuts) acts on it, so
     /// a second model means an agent's "pause" or "what's playing" reaches a player nobody is
     /// listening to. See `BatonApp.init()` and TBX-7371.
+    var incomingShareWindow: IncomingShareWindowController?
     var music: MusicModel!
 
     /// Set by `BatonApp.init()` to the scene's router, for the same reason as `music`.
@@ -123,6 +125,17 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
                   let notice = DocumentLibrary.othersNotice(opened: url, others: others) {
             music.music.postToast(notice, symbol: "doc.on.doc", seconds: 6)
         }
+    }
+
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        ReactionPushNotifications.shared.didRegister(token: token)
+    }
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        ReactionPushNotifications.shared.registrationFailed()
+    }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !BatonEnvironment.current.isTesting else { return }
+        Task { await ReactionPushNotifications.shared.foreground() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -344,6 +357,11 @@ struct BatonApp: App {
         return trimmed.isEmpty ? what : "\(what): \(trimmed)"
     }
 
+    #if DEBUG
+    /// Set once the probe's launch link has been handed over, so a second scene does not repeat it.
+    @MainActor private static var probeLinkOpened = false
+    #endif
+
     /// Acts on a `baton://` link. Deliberately small, and deliberately reusing what is
     /// already wired: `pendingSourceNavigation` is how the full-screen player's "Playing
     /// from" link already navigates, and `music.music.play` is the same call every row in
@@ -354,6 +372,10 @@ struct BatonApp: App {
         // user was actually looking at is its own version of nothing happening.
         NSApp.activate(ignoringOtherApps: true)
         switch link {
+        case let .share(id, key):
+            appDelegate.presentIncomingShare(ShareInvitation(id: id, key: key))
+        case let .mixtape(id, key):
+            appDelegate.presentIncomingShare(ShareInvitation(id: id, key: key, kind: .mixtape))
         case .presentPlayer:
             commandRouter.showNowPlayingToken += 1
         case let .playSong(id):
@@ -425,6 +447,10 @@ struct BatonApp: App {
                 // scheme and this handler were missing, so a link that worked on the phone
                 // silently did nothing on the desktop. Same `BatonDeepLink` vocabulary as
                 // the phone, in Shared/, so the two cannot mean different things by it.
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    guard let url = activity.webpageURL, let link = BatonDeepLink(url: url) else { return }
+                    Task { await handle(link) }
+                }
                 .onOpenURL { url in
                     // A document from Finder's Open With. The delegate gathers the
                     // files of one hand-over, then sends them to the import sheet.
@@ -432,6 +458,18 @@ struct BatonApp: App {
                     guard let link = BatonDeepLink(url: url) else { return }
                     Task { await handle(link) }
                 }
+                #if DEBUG
+                // DEBUG probes only: a link the probe acts on once at launch. `open baton://…`
+                // would reach the owner's app, which shares this bundle id, so a probe walk of a
+                // received song or mixtape hands the link over this way.
+                .task {
+                    guard BatonStorage.isProbe, !Self.probeLinkOpened,
+                          let raw = ProcessInfo.processInfo.environment["BATON_DEBUG_OPEN_LINK"],
+                          let url = URL(string: raw), let link = BatonDeepLink(url: url) else { return }
+                    Self.probeLinkOpened = true
+                    await handle(link)
+                }
+                #endif
                 // The Mac end of queue handoff: ask the server once whether the phone left
                 // a queue, and offer it. Saving has always happened; asking never did.
                 .macQueueHandoffOffer(model: music)

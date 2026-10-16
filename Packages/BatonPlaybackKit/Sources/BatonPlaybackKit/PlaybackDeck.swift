@@ -49,6 +49,9 @@ public protocol PlaybackDeck: AnyObject {
     func load(song: NavidromeSong, url: URL, startingAt offset: TimeInterval,
               autoplay: Bool, headers: [String: String], supportsTimeOffset: Bool)
     func pause()
+    /// Synchronously silence output for another playback owner, keeping item and position.
+    /// This must cancel deferred fades and cannot fall back to the ordinary faded pause.
+    func pauseImmediately()
     func resume()
     func seek(to seconds: TimeInterval)
     func stop()

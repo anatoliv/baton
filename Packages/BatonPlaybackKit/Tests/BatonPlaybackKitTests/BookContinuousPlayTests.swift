@@ -178,6 +178,26 @@ final class BookContinuousPlayTests: XCTestCase {
         XCTAssertNil(c.continuationNote, "the note goes once the chapter plays")
     }
 
+    /// A chapter that joins while the book plays is still the book: the shared
+    /// collection rule keeps the book's button at Pause and Resume in it, rather than
+    /// Play, which queued the book again from its saved place.
+    func testAChapterThatJoinsLaterIsStillTheBookInThePlayer() async throws {
+        try land(0)
+        let c = makeController()
+        let source = BookTransport.source(documentID: "doc-three-rooms", title: "Three Rooms")
+        let (songs, start) = BookPlayback.queue(chapters: clippings.chapters(ofDocument: "doc-three-rooms"),
+                                                position: nil, finished: false)
+        c.play(songs, startAt: start, source: source)
+        XCTAssertEqual(c.collectionState(source), .playing)
+        endCurrent(c)
+        try land(1)
+        let played = try await waitUntil { c.nowPlaying?.title == "Chapter 2" && c.state == .playing }
+        XCTAssertTrue(played, "chapter 2 never played after landing")
+        XCTAssertEqual(c.collectionState(source), .playing, "chapter 2 joined later, and it is still the book")
+        c.pause()
+        XCTAssertEqual(c.collectionState(source), .paused)
+    }
+
     /// A chapter that cannot be made stops the book at that point with the reason: no skipping
     /// past it to a later chapter, no replay of the one before.
     func testAChapterThatCannotComeStopsTheBookThereWithTheReason() async throws {

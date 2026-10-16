@@ -136,13 +136,21 @@ public final class ClippingStore {
             )
             if let index = clipping.chapterIndex, clipping.isBookChapter {
                 song.track = index + 1
-                song.genre = "Audiobook"
+                song.genre = ClippingStore.bookChapterGenre
+            }
+            // The book's cover, which every Now Playing surface reads first.
+            if let documentID = clipping.documentID {
+                song.artworkURL = BookCoverStore.artworkURL(documentID: documentID)
             }
             return song
         }
     }
 
     public private(set) var items: [Item] = []
+
+    /// The genre a book chapter plays under (`Item.asSong`), which also tells the player a song
+    /// is a chapter on this device (`NavidromeSong.isBookChapterFile`).
+    public nonisolated static let bookChapterGenre = "Audiobook"
 
     private let directory: URL
     private let defaults: UserDefaults
@@ -673,4 +681,13 @@ public final class ClippingStore {
     }
 
     private static func defaultDirectory() -> URL { BatonStorage.supportSubdirectory("Clippings") }
+}
+
+extension NavidromeSong {
+    /// A chapter of a narrated book, played from its file on this device (`ClippingStore.Item.asSong`).
+    /// The player treats only these as files to seek in itself; any other file URL
+    /// keeps the stream path, where a saved place is asked of the server as `timeOffset`.
+    public var isBookChapterFile: Bool {
+        genre == ClippingStore.bookChapterGenre && URL(string: id)?.isFileURL == true
+    }
 }

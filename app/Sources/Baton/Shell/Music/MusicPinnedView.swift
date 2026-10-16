@@ -184,8 +184,9 @@ private struct PinnedRow: View {
     let onUnpin: () -> Void
     @State private var hovering = false
 
-    private var isCurrent: Bool { model.music.nowPlaying?.id == pin.refID }
-    private var isPlaying: Bool { isCurrent && model.music.isPlaying }
+    private var playState: CollectionPlayState { PinPlayback.state(pin, model) }
+    private var isCurrent: Bool { playState.isLoaded }
+    private var isPlaying: Bool { playState == .playing }
     private var artURL: URL? {
         if let direct = pin.artworkURL { return direct }
         return pin.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 88) }
@@ -216,8 +217,8 @@ private struct PinnedRow: View {
                     }
             }
             .buttonStyle(.plain)
-            .help("Play")
-            .accessibilityLabel(isPlaying ? "Pause \(pin.title)" : "Play \(pin.title)")
+            .help(playState.title)
+            .accessibilityLabel("\(playState.title) \(pin.title)")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(pin.title)
@@ -235,7 +236,7 @@ private struct PinnedRow: View {
                 .frame(width: 120, alignment: .leading)
 
             Menu {
-                Button("Play", action: onPlay)
+                Button(PinPlayback.state(pin, model).title, action: onPlay)
                 Button("Remove from Later", systemImage: "bookmark.slash", role: .destructive, action: onUnpin)
             } label: {
                 Image(systemName: "ellipsis").font(.body.weight(.semibold))
@@ -257,7 +258,7 @@ private struct PinnedRow: View {
         .animation(.easeInOut(duration: 0.18), value: isCurrent)
         .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
-            Button("Play", action: onPlay)
+            Button(PinPlayback.state(pin, model).title, action: onPlay)
             Button("Remove from Later", systemImage: "bookmark.slash", role: .destructive, action: onUnpin)
         }
     }
@@ -286,7 +287,7 @@ private struct PinnedCard: View {
     let onUnpin: () -> Void
     @State private var hover = false
 
-    private var isCurrent: Bool { model.music.nowPlaying?.id == pin.refID }
+    private var playState: CollectionPlayState { PinPlayback.state(pin, model) }
     private var artURL: URL? {
         if let direct = pin.artworkURL { return direct }
         return pin.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 400) }
@@ -300,8 +301,8 @@ private struct PinnedCard: View {
             title: pin.title,
             subtitle: pin.subtitle.map { "\(pin.kind.label) · \($0)" } ?? pin.kind.label,
             isHovering: hover,
-            isSelected: isCurrent,
-            isPlaying: isCurrent && model.music.isPlaying,
+            isSelected: playState.isLoaded,
+            isPlaying: playState == .playing,
             onPlay: onPlay
         )
         .hoverLift(hover)
@@ -310,7 +311,7 @@ private struct PinnedCard: View {
         .onHover { hover = $0 }
         .onTapGesture(perform: onPlay)
         .contextMenu {
-            Button("Play", action: onPlay)
+            Button(PinPlayback.state(pin, model).title, action: onPlay)
             Button("Remove from Later", systemImage: "bookmark.slash", role: .destructive, action: onUnpin)
         }
     }

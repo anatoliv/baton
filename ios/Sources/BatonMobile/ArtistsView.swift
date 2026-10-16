@@ -192,20 +192,11 @@ struct ArtistDetailView: View {
 
     private var actions: some View {
         HStack(spacing: 10) {
-            Button {
+            CollectionPlayButton(model: model, source: source) {
                 Task { model.music.play(await songs(), source: source) }
-            } label: { Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity) }
-            .buttonStyle(.borderedProminent)
-
-            Button {
-                Task { model.music.playShuffleToggling(await songs(), source: source) }
-            } label: {
-                Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
-            .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
+
+            CollectionShuffleButton(model: model, source: source) { await songs() }
 
             // Follow is a local marker (the Mac's too) — it doesn't exist server-side.
             Button {
@@ -375,21 +366,10 @@ struct GenreSongsView: View {
         List {
             Section {
                 HStack(spacing: 10) {
-                    Button {
+                    CollectionPlayButton(model: model, source: source, disabled: songs.isEmpty) {
                         model.music.play(songs, source: source)
-                    } label: { Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(songs.isEmpty)
-                    Button {
-                        model.music.playShuffleToggling(songs, source: source)
-                    } label: {
-                        Label("Shuffle", systemImage: model.music.isShuffled ? "shuffle.circle.fill" : "shuffle")
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(model.music.isShuffled ? Color.accentColor : Color.secondary)
-                    .accessibilityLabel(model.music.isShuffled ? "Shuffle on" : "Shuffle")
-                    .disabled(songs.isEmpty)
+                    CollectionShuffleButton(model: model, source: source, disabled: songs.isEmpty) { songs }
                 }
                 .listRowSeparator(.hidden)
             }

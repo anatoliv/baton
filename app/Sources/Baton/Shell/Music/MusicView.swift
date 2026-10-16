@@ -1241,11 +1241,9 @@ struct MusicAlbumCard: View {
         return Self.albumDuration(duration)
     }
 
-    private var isPlayingSource: Bool {
-        let source = model.music.queueSource
-        return source?.kind == .album && source?.id == album.id
-    }
-    private var isPlayingNow: Bool { isPlayingSource && model.music.isPlaying }
+    private var playState: CollectionPlayState { model.music.collectionState(AlbumActions.source(album)) }
+    private var isPlayingSource: Bool { playState.isLoaded }
+    private var isPlayingNow: Bool { playState == .playing }
 
     var body: some View {
         MusicMediaCard(
@@ -1278,12 +1276,7 @@ struct MusicAlbumCard: View {
     }
 
     private func playAlbum() {
-        Task {
-            let songs = await model.musicLibrary.albumSongs(id: album.id)
-            if !songs.isEmpty {
-                model.music.play(songs, source: .init(label: album.name, kind: .album, id: album.id))
-            }
-        }
+        Task { await AlbumActions.play(album, model, shuffle: false) }
     }
 }
 

@@ -116,7 +116,8 @@ final class AgentTools: RemoteToolSurface {
 
     /// The model's last search — `music_play_results` plays from here, so the model
     /// never needs (or sees) raw ids it could fabricate.
-    private var lastResults: [NavidromeSong] = []
+    /// The last search's songs. Internal (not private) so tests can stand in for a search.
+    var lastResults: [NavidromeSong] = []
     private var lastQuery = ""
 
     func dispatch(name: String, input: [String: Any]) async -> String {
@@ -155,9 +156,9 @@ final class AgentTools: RemoteToolSurface {
 
         case "music_queue_add":
             guard !lastResults.isEmpty else { return "Nothing searched yet." }
-            let current = model.music.queue
-            model.music.play(current + lastResults, startAt: model.music.currentIndex,
-                             source: model.music.queueSource)
+            // Appended, as the Mac's `music_queue_add` does: re-playing the whole queue reset
+            // shuffle and counted the search results as part of the playing collection.
+            model.music.enqueue(lastResults)
             return "Added \(lastResults.count) songs to the queue."
 
         case "music_start_radio":

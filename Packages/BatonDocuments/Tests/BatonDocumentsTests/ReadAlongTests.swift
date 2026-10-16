@@ -79,6 +79,16 @@ final class ReadAlongTests: XCTestCase {
         }
     }
 
+    /// A tap seeks to a sentence's start, and the player keeps time in 1/600 s: 1.7425833 s
+    /// (a real chapter's second sentence) became 1.7416667 s, and the sentence before stayed lit
+    /// until the audio started again. Within 5 ms, the sentence is the one heard.
+    func testASeekRoundedToThePlayersClockLightsTheTappedSentence() {
+        let along = ReadAlong(timing: timing([(0.2, 1.4), (1.7425833333, 7.0), (7.4316667, 13.0)]))
+        let rounded = (1.7425833333 * 600).rounded(.down) / 600
+        XCTAssertEqual(along.sentenceIndex(at: rounded), 1, "the tapped sentence, not the one before")
+        XCTAssertEqual(along.sentenceIndex(at: 1.73), 0, "a hundredth of a second before, still the one before")
+    }
+
     func testManySentencesAreFoundByTheSearch() {
         let spans = (0..<500).map { (Double($0) * 2, Double($0) * 2 + 1.5) }
         let along = ReadAlong(timing: timing(spans))

@@ -323,6 +323,44 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.3",
+            date: "October 2026",
+            highlight: "Share a mixtape, Play turns into Pause while a collection is playing, and books have covers.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Share a mixtape. In Liked, select 2 to 12 songs and click the share button in the bar above "
+                    + "them (Share selected as a mixtape), put them in order, add a note and pick how long the link lasts. Your friend gets one "
+                    + "link that plays them in order, in a browser or in Baton on their iPhone. Like a single "
+                    + "song, the tracks are encrypted on your Mac and the key is in the link."),
+                HelpWhatsNewChange(.improved,
+                    "The Play button on an album, playlist, artist, mix, folder or podcast now says Pause "
+                    + "while that collection is playing and Resume while it is paused, so one button stops "
+                    + "and starts it. Row pictures, cards and their menus work the same way."),
+                HelpWhatsNewChange(.fixed,
+                    "Play starts a collection in order and Shuffle starts it shuffled, on every screen. "
+                    + "The Shuffle button beside Play lights up only while that collection is shuffling, "
+                    + "and turning shuffle off goes back to the collection's own order."),
+                HelpWhatsNewChange(.fixed,
+                    "Songs you add to the queue or play next while shuffling are still there when you "
+                    + "turn shuffle off."),
+                HelpWhatsNewChange(.fixed,
+                    "The play button on a mix card plays the mix instead of opening it."),
+                HelpWhatsNewChange(.added,
+                    "Books have covers. An EPUB keeps its own, and for any other book you can find one "
+                    + "on Open Library, make one from the title and author, or choose a picture. The "
+                    + "cover shows in Books, in Now Playing and on your iPhone too."),
+                HelpWhatsNewChange(.improved,
+                    "In an open book, the main button and the chapter that's playing say Pause or Resume "
+                    + "and control the player directly, and how much you've heard moves as you listen."),
+                HelpWhatsNewChange(.fixed,
+                    "Read Along keeps up with a chapter Baton picked up where you left off at launch, "
+                    + "and a sentence you click lights up straight away."),
+                HelpWhatsNewChange(.fixed,
+                    "A book made on this Mac counts as done on your Baton server only once all its "
+                    + "chapters are there, and a book that got stuck partway is sent again."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.2",
             date: "October 2026",
             highlight: "Clearer names for your two servers, everywhere.",

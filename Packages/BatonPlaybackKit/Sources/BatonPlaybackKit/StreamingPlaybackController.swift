@@ -36,6 +36,26 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         case error(String)
     }
 
+    /// Optional host admission hook, before a deck starts or resumes. Used by the phone's
+    /// session owner to stop a received song before library playback takes over.
+    @ObservationIgnored public var onPlaybackStarting: (@MainActor () -> Void)?
+    // Late deck callbacks/backoffs must not reclaim output after a receiver handoff.
+    @ObservationIgnored private var outputRelinquished = false
+    @ObservationIgnored private var playbackAdmissionObservers: [UUID: @MainActor () -> Void] = [:]
+    /// Scoped observers coexist with the host hook and can release only their own token.
+    public func observePlaybackAdmission(_ callback: @escaping @MainActor () -> Void) -> UUID {
+        let token = UUID()
+        playbackAdmissionObservers[token] = callback
+        return token
+    }
+    public func releasePlaybackAdmission(_ token: UUID) { playbackAdmissionObservers.removeValue(forKey: token) }
+    /// Shared by library decks and the bound raw-radio engine before rendering starts.
+    public func admitPlayback() {
+        outputRelinquished = false
+        onPlaybackStarting?()
+        let callbacks = Array(playbackAdmissionObservers.values)
+        for callback in callbacks { callback() }
+    }
     public private(set) var state: State = .idle
 
     /// A brief, user-facing confirmation for a music action (Add to Queue, Play Next,
@@ -141,7 +161,26 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     public private(set) var repeatMode: RepeatMode = .off
     /// Whether shuffle is on. Toggling saves/restores the pre-shuffle order.
     public private(set) var isShuffled = false
-    private var orderBeforeShuffle: [NavidromeSong]?
+    private var orderBeforeShuffle: [NavidromeSong]? {
+        didSet { if orderBeforeShuffle == nil { shuffleOrigin = nil } }
+    }
+    /// While shuffled, each queue slot's position in `orderBeforeShuffle`. Edits made while
+    /// shuffled (Play Next, removal, reordering) are applied to the order shuffle returns to
+    /// by position, not by looking the song up, because the same song can be queued twice
+    ///. Nil, or a count that no longer matches the queue, falls back to ids.
+    private var shuffleOrigin: [Int]?
+    private var shuffleOriginIsValid: Bool { orderBeforeShuffle != nil && shuffleOrigin?.count == queue.count }
+
+    /// Songs appended to the end of the queue also join the end of the order shuffle returns
+    /// to, or turning shuffle off would drop them. Call after appending them to `queue`.
+    private func noteAppendedWhileShuffled(_ songs: [NavidromeSong]) {
+        guard var original = orderBeforeShuffle else { return }
+        let base = original.count
+        original.append(contentsOf: songs)
+        let origin = shuffleOrigin
+        orderBeforeShuffle = original
+        shuffleOrigin = origin.map { $0 + Array(base ..< base + songs.count) }
+    }
 
     /// Continuous radio: when the queue is about to run dry, auto-append tracks similar to
     /// the current one so playback keeps going instead of stopping. Persisted. Has no
@@ -389,6 +428,12 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// The current queue's origin, if known. Set by `play(_:source:)`.
     public private(set) var queueSource: QueueSource?
 
+    /// The ids `queueSource` itself put in the queue, so a collection's Play button can tell
+    /// "this album is playing" from "the queue has run on past this album" (continuation,
+    /// Play Next, Add to Queue keep the source but are not the album). Nil when unknown: a
+    /// queue restored from a build that did not record it. See `CollectionPlayState`.
+    public private(set) var queueSourceSongIDs: Set<String>?
+
     // Queue-advance decision logic (the pure `Advance` enum + `onTrackEnd`/`onManualNext`) lives
     // in StreamingPlaybackController+Advance.swift — first extraction of the  decomposition.
 
@@ -613,7 +658,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             handleClock(time: time, duration: deckDuration, buffering: buffering)
         }
         deck.onEnded = { [weak self] in
-            guard let self, engineOwnsPlayback == isEngine else { return }
+            guard let self, !outputRelinquished, engineOwnsPlayback == isEngine else { return }
             // The engine already refused any spurious early EOF itself (its own bounded
             // re-request ladder), so an end reported from there is genuine by construction —
             // hence the playhead is moved to the end before `handleEnded`'s own spurious-end
@@ -622,7 +667,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             handleEnded()
         }
         deck.onFailure = { [weak self] message in
-            guard let self, engineOwnsPlayback == isEngine else { return }
+            guard let self, !outputRelinquished, engineOwnsPlayback == isEngine else { return }
             // `afterEngineLadder`, because the engine only ever reports `.error` once it has
             // already retried this track at the playhead three times with backoff. Running
             // the host's identical ladder on top of that multiplied them: one dead track
@@ -1258,25 +1303,42 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     ///
     /// It lives here rather than as two lines at each call site because there were nine of
     /// them across the two apps, and the tenth would have been written the old way.
+    ///
+    /// The collection's own order is kept as the order to return to, so turning shuffle off
+    /// later puts the album back in album order around the current track. It used to keep the
+    /// shuffled list there (shuffle was switched on *after* the shuffled queue loaded), so
+    /// "un-shuffling" left the music in a random order.
     public func playShuffled(_ songs: [NavidromeSong], source: QueueSource? = nil) {
-        play(songs.shuffled(), source: source)
-        // Never a bare toggle: for someone who already had shuffle on, pressing Shuffle
-        // would turn it off.
-        if !isShuffled { toggleShuffle() }
+        guard !songs.isEmpty else { return }
+        let order = Array(songs.indices).shuffled()
+        play(order.map { songs[$0] }, source: source)   // a new queue: shuffle mode starts off
+        orderBeforeShuffle = songs
+        shuffleOrigin = order
+        isShuffled = true
+        defaults.set(true, forKey: Self.shuffleKey)
+        persistQueue()
+    }
+
+    /// Whether this collection is the one in the player *and* it is shuffling: what a Shuffle
+    /// button beside a collection's Play lights up for. Lighting it for shuffle
+    /// mode alone lit every collection's Shuffle while something else shuffled.
+    public func isShuffling(_ source: QueueSource) -> Bool {
+        isShuffled && collectionState(source).isLoaded
     }
 
     /// What the **Shuffle button next to Play** does: press to shuffle, press again to
-    /// stop shuffling.
+    /// stop shuffling. The button is lit by `isShuffling(source)`.
     ///
     /// Distinct from `playShuffled`, which only ever turns shuffle on and is right for a
     /// context-menu "Shuffle" — a menu item that silently un-shuffles would be a surprise.
     /// This one is for a button that *shows* whether shuffle is on: once it lights up, the
     /// only thing pressing it can reasonably mean is "stop".
-    /// - off → on: shuffle mode on, and this collection starts shuffled.
-    /// - on, and *this* collection is what's playing: shuffle off **in place**. The queue
-    ///   un-shuffles around the current track and the music keeps going.
-    /// - on, but something else is playing: shuffle off, and this collection starts in
-    ///   order — there is nothing in place to preserve.
+    /// - this collection is shuffling (the button is lit): shuffle off **in place**. The
+    ///   queue un-shuffles around the current track and the music keeps going.
+    /// - anything else (not lit): this collection starts shuffled, shuffle mode on. That
+    ///   includes shuffle mode being on for some other queue: Shuffle starts shuffled, it
+    ///   never starts a collection in order (TBX-11066 made the rule one rule: Play starts
+    ///   in order, Shuffle starts shuffled).
     ///
     /// The middle case is the whole point of the asymmetry. Restarting on the way *off*
     /// means that three tracks into a shuffled album, pressing Shuffle to stop shuffling
@@ -1285,21 +1347,37 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// track, so un-shuffling in place is behaviour that exists and is tested; this only
     /// has to decline to restart.
     public func playShuffleToggling(_ songs: [NavidromeSong], source: QueueSource? = nil) {
-        guard isShuffled else { return playShuffled(songs, source: source) }
-        let alreadyPlayingThis = nowPlaying != nil && source != nil && queueSource == source
-        toggleShuffle()                                  // off, restoring the prior order
-        guard !alreadyPlayingThis else { return }        // ...and don't disturb the music
-        play(songs, source: source)
+        if let source, isShuffling(source) {
+            toggleShuffle()                              // off in place; the music keeps going
+            return
+        }
+        playShuffled(songs, source: source)
     }
 
-    public func play(_ songs: [NavidromeSong], startAt index: Int = 0, source: QueueSource? = nil) {
+    /// Play starts in order. A new queue arrives in the order it was given, so
+    /// shuffle mode goes off with it: it used to stay on, and the transport read "Shuffle on"
+    /// over an album playing track by track, then "un-shuffled" it into whatever older
+    /// queue `orderBeforeShuffle` still held. `playShuffled` is the way to start shuffled.
+    ///
+    /// `keepingShuffleMode` is for a queue that is not a fresh start: a queue handed off from
+    /// another device arrives in the order that device was playing, and the listener's shuffle
+    /// setting is left as it was (the Subsonic play queue carries no shuffle state to adopt).
+    /// With it the order is taken as given, and there is no earlier order to restore.
+    public func play(_ songs: [NavidromeSong], startAt index: Int = 0, source: QueueSource? = nil,
+                     keepingShuffleMode: Bool = false) {
         cancelCrossfade()
         guard !songs.isEmpty else { return }
         bumpStateGeneration()
         cancelContinuation()
+        orderBeforeShuffle = nil
+        if isShuffled, !keepingShuffleMode {
+            isShuffled = false
+            defaults.set(false, forKey: Self.shuffleKey)
+        }
         queue = songs
         currentIndex = max(0, min(index, songs.count - 1))
         queueSource = source
+        queueSourceSongIDs = source == nil ? nil : Set(songs.map(\.id))
         loadCurrent(autoplay: true)
         persistQueue()
     }
@@ -1311,6 +1389,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         let wasEmpty = queue.isEmpty
         let firstNew = queue.count
         queue.append(contentsOf: songs)
+        // Shuffle stays as it was; the added songs also join the order shuffle returns to,
+        // or turning shuffle off would drop them.
+        noteAppendedWhileShuffled(songs)
         if wasEmpty {
             currentIndex = firstNew
             loadCurrent(autoplay: true)
@@ -1327,7 +1408,23 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     public func playNext(_ songs: [NavidromeSong]) {
         guard !songs.isEmpty else { return }
         guard !queue.isEmpty else { enqueue(songs); return }
-        queue.insert(contentsOf: songs, at: min(currentIndex + 1, queue.count))
+        let slot = min(currentIndex + 1, queue.count)
+        // In the order shuffle returns to, after the copy of the current track that is
+        // playing, found by position: by id it was the first copy.
+        let anchor = shuffleOriginIsValid ? shuffleOrigin?[currentIndex] : nil
+        queue.insert(contentsOf: songs, at: slot)
+        if var original = orderBeforeShuffle {
+            if let anchor, var origin = shuffleOrigin {
+                original.insert(contentsOf: songs, at: anchor + 1)
+                origin = origin.map { $0 > anchor ? $0 + songs.count : $0 }
+                origin.insert(contentsOf: Array(anchor + 1 ... anchor + songs.count), at: slot)
+                orderBeforeShuffle = original
+                shuffleOrigin = origin
+            } else if let current = nowPlaying, let at = original.firstIndex(where: { $0.id == current.id }) {
+                original.insert(contentsOf: songs, at: at + 1)
+                orderBeforeShuffle = original
+            }
+        }
         preloadGaplessNextIfNeeded() // these become the immediate gapless "next"
         persistQueue()
         postToast("\(songs.count) playing next", symbol: "text.line.first.and.arrowtriangle.forward")
@@ -1354,6 +1451,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             loadCurrent(autoplay: true)
             return
         }
+        admitPlayback()
         activeDeck.resume()
         state = .playing
         // First play of a restored (loaded-paused) item: fire the track-start side effects
@@ -1391,6 +1489,18 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         persistQueue() // capture the playhead where the user paused
     }
 
+    /// Relinquish output before a received song starts. Ordinary Pause retains its fade.
+    public func pauseForPlaybackHandoff() {
+        outputRelinquished = true
+        bumpStateGeneration()
+        cancelCrossfade()
+        activeDeck.pauseImmediately()
+        if state == .playing || state == .loading { state = .paused }
+        pushNowPlaying()
+        persistQueue()
+        onPause?()
+    }
+
     /// Persist the queue + playhead immediately (called on app termination).
     public func persistNow() { persistQueue() }
 
@@ -1420,6 +1530,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         currentIndex = 0
         orderBeforeShuffle = nil
         queueSource = nil
+        queueSourceSongIDs = nil
         if engineOwnsPlayback {
             engineDeck?.stop()
             engineOwnsPlayback = false
@@ -1525,6 +1636,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         pushNowPlaying()
         persistQueue()
 
+        admitPlayback()
         avDeck.beginCrossfade(
             into: queue[index], url: url, targetIn: targetIn,
             duration: Crossfade.manualSkipSeconds, steps: 12, rate: effectiveRate(for: queue[index])
@@ -1550,18 +1662,30 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     public func toggleShuffle() {
         let current = nowPlaying
         if isShuffled {
+            // Land on the same copy of the current track by position when it is known.
+            let landing = shuffleOriginIsValid && queue.indices.contains(currentIndex)
+                ? shuffleOrigin?[currentIndex] : nil
             if let original = orderBeforeShuffle { queue = original }
             orderBeforeShuffle = nil
             isShuffled = false
+            if let landing, queue.indices.contains(landing) {
+                currentIndex = landing
+            } else if let current, let idx = queue.firstIndex(where: { $0.id == current.id }) {
+                currentIndex = idx
+            }
         } else {
-            orderBeforeShuffle = queue
-            var rest = queue
-            if let current, let idx = rest.firstIndex(where: { $0.id == current.id }) { rest.remove(at: idx) }
+            let original = queue
+            var rest = Array(original.indices)
+            let playing = current == nil ? nil : rest.firstIndex(of: currentIndex)
+            if let playing { rest.remove(at: playing) }
             rest.shuffle()
-            queue = (current.map { [$0] } ?? []) + rest
+            let order = (playing == nil ? [] : [currentIndex]) + rest
+            queue = order.map { original[$0] }
+            orderBeforeShuffle = original
+            shuffleOrigin = order
             isShuffled = true
+            if current != nil { currentIndex = 0 }
         }
-        if let current, let idx = queue.firstIndex(where: { $0.id == current.id }) { currentIndex = idx }
         defaults.set(isShuffled, forKey: Self.shuffleKey)
         preloadGaplessNextIfNeeded() // (un)shuffle changed the track order
         persistQueue()
@@ -1590,6 +1714,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         let before = queue.indices.prefix(destination).filter { !source.contains($0) }
         let after = queue.indices.dropFirst(destination).filter { !source.contains($0) }
         let order = Array(before) + moving + Array(after)
+        if shuffleOriginIsValid, let origin = shuffleOrigin { shuffleOrigin = order.map { origin[$0] } }
         queue = order.map { queue[$0] }
         if let landed = order.firstIndex(of: currentIndex) {
             currentIndex = landed
@@ -1604,6 +1729,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         cancelCrossfade()
         let current = nowPlaying
         let removingCurrent = offsets.contains(currentIndex)
+        forgetRemovedWhileShuffled(offsets)
         // Foundation-only removal (SwiftUI's remove(atOffsets:) linked by accident
         // through the app targets; this package must stand without UI frameworks).
         for index in offsets.sorted(by: >) where queue.indices.contains(index) {
@@ -1628,6 +1754,48 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             if queue.isEmpty { stop() } else { loadCurrent(autoplay: state == .playing) }
         }
         persistQueue()
+    }
+
+    /// A track removed while shuffled leaves the order shuffle returns to as well; it came
+    /// back when shuffle was turned off. Call before removing from `queue`.
+    private func forgetRemovedWhileShuffled(_ offsets: IndexSet) {
+        guard var original = orderBeforeShuffle else { return }
+        let removed = offsets.filter { queue.indices.contains($0) }
+        if shuffleOriginIsValid, let origin = shuffleOrigin {
+            let gone = Set(removed.map { origin[$0] })
+            let kept = queue.indices.filter { !offsets.contains($0) }.map { origin[$0] }
+            orderBeforeShuffle = original.indices.filter { !gone.contains($0) }.map { original[$0] }
+            shuffleOrigin = kept.map { index in index - gone.filter { $0 < index }.count }
+        } else {
+            for song in removed.map({ queue[$0] }) {
+                if let at = original.firstIndex(where: { $0.id == song.id }) { original.remove(at: at) }
+            }
+            orderBeforeShuffle = original
+        }
+    }
+
+    /// Give the queued tracks with these ids another picture (a book's cover changed, TBX-11064),
+    /// and show it on Now Playing at once when one of them is playing. The order shuffle returns
+    /// to gets it too: its songs are copies, and the old picture's file is gone by now.
+    public func setArtwork(_ url: URL?, forSongIDs ids: Set<String>) {
+        func repainted(_ songs: [NavidromeSong]) -> [NavidromeSong] {
+            songs.map { song in
+                guard ids.contains(song.id), song.artworkURL != url else { return song }
+                var changed = song
+                changed.artworkURL = url
+                return changed
+            }
+        }
+        guard !ids.isEmpty else { return }
+        let stale = queue.contains { ids.contains($0.id) && $0.artworkURL != url }
+            || (orderBeforeShuffle?.contains { ids.contains($0.id) && $0.artworkURL != url } ?? false)
+        guard stale else { return }
+        // The restore order first: setting `queue` keeps `orderBeforeShuffle` and its per-slot
+        // origin as they are, so neither can be thrown away by the change.
+        if let original = orderBeforeShuffle { orderBeforeShuffle = repainted(original) }
+        queue = repainted(queue)
+        persistQueue()
+        pushNowPlaying()
     }
 
     /// Takes songs out of the queue by id, wherever they sit — including the one playing.
@@ -1864,6 +2032,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
         streamingLog.info("streaming song id \(song.id, privacy: .public)")
 
+        if autoplay { admitPlayback() }
+
         // EXPERIMENT (feat/audio-engine): route library stream tracks to the engine deck.
         // Routability is decided BEFORE the deck is resolved, so a host using a lazy
         // provider never builds an audio engine (or, on the phone, activates the audio
@@ -1899,9 +2069,21 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             pendingSeek = nil
             startAt = max(offset, pending)
         }
+        // A book chapter is a file on this device, with no server to honour `timeOffset`: the
+        // AVPlayer deck would play it from its start while counting the playhead from `startAt`.
+        // A chapter restored at launch, or reloaded after a stall, then played from 0:00 with the
+        // scrubber and Read Along that many seconds ahead of the voice, and ran on past the
+        // chapter's end without moving to the next. It opens at its start and seeks
+        // to the place once ready, the way a retried track does. Only a book chapter: other file
+        // URLs, the stream stand-ins of StreamSeekControllerTests among them, keep the stream path.
+        var deckStart = startAt
+        if !engineOwnsPlayback, url.isFileURL, song.isBookChapterFile, startAt > 0 {
+            pendingSeek = startAt
+            deckStart = 0
+        }
 
         deck.load(
-            song: song, url: url, startingAt: startAt, autoplay: autoplay,
+            song: song, url: url, startingAt: deckStart, autoplay: autoplay,
             headers: NavidromeConfig.customHeaders(),
             supportsTimeOffset: StreamSeek.needsTranscode(suffix: song.suffix)
         )
@@ -1958,6 +2140,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// cannot: the skip. (§2.6; the AVPlayer path below is untouched, since nothing has
     /// retried for it.)
     private func handleLoadFailure(_ message: String, afterEngineLadder: Bool = false) {
+        guard !outputRelinquished else { return }
+        let generation = stateGeneration
         isBuffering = false
         // The deck's own stall watchdog is disarmed by this too: it re-checks the host's
         // intent before firing, and every branch below leaves `state` off `.playing`.
@@ -1971,7 +2155,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             state = .loading
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(Double(attempt) * 1.0)) // 1s, 2s, 3s
-                guard let self, case .loading = self.state else { return }
+                guard let self, !outputRelinquished, generation == stateGeneration, case .loading = self.state else { return }
                 if resumeAt > 1 { self.pendingSeek = resumeAt }
                 self.loadCurrent(autoplay: true, isRetry: true)
             }
@@ -1985,7 +2169,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         guard queue.count > 1, consecutiveFailures < queue.count else { return }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(1.5))
-            guard let self, case .error = state else { return }
+            guard let self, !outputRelinquished, generation == stateGeneration, case .error = state else { return }
             switch Self.onManualNext(current: currentIndex, count: queue.count, repeatMode: repeatMode) {
             case let .play(idx):
                 currentIndex = idx
@@ -2261,6 +2445,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         let song = queue[index]
         // The deck adopts the item it is already playing: observers, offset and level. It
         // refuses if the preload has gone, and then there is nothing to reconcile onto.
+        if state == .playing { admitPlayback() }
         guard avDeck.adoptPreparedNext() else { return }
         #if DEBUG
         gaplessAdvanceCountForTesting += 1
@@ -2366,6 +2551,11 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             }
             let firstNew = queue.count
             queue.append(contentsOf: fresh)
+            // The book's own later chapters, arriving as they are made: still the
+            // book, so the book's Pause and Resume keep recognising it. Radio and
+            // autoplay top-ups go the other way and do not join.
+            queueSourceSongIDs?.formUnion(fresh.map(\.id))
+            noteAppendedWhileShuffled(fresh)
             persistQueue()
             streamingLog.notice("continuation: \(fresh.count, privacy: .public) joined the queue at index \(firstNew, privacy: .public)\(untouched ? ", playing now" : "", privacy: .public)")
             if untouched {
@@ -2450,6 +2640,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             }
             let firstNew = self.queue.count
             self.queue.append(contentsOf: fresh)
+            self.noteAppendedWhileShuffled(fresh)
             self.persistQueue()
             if playFirstNew {
                 self.currentIndex = firstNew
@@ -2508,6 +2699,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             * Self.normalizationGain(for: queue[nextIndex], mode: loudnessMode, preampDB: loudnessPreampDB)
         // The deck owns the second player and the ramp loop; we decide when to blend, which
         // track to blend into, and what happens to the queue when it lands.
+        admitPlayback()
         avDeck.beginCrossfade(into: queue[nextIndex], url: url, targetIn: targetIn,
                               duration: seconds, rate: effectiveRate(for: queue[nextIndex])) { [weak self] in
             self?.finishCrossfade(to: nextIndex)
@@ -2605,6 +2797,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         var index: Int
         var position: Double
         var source: QueueSource?
+        /// Added for TBX-11066; absent from older snapshots, which decode it as nil.
+        var sourceSongIDs: [String]?
     }
 
     /// The queue's storage, with the protections every other precious store has.
@@ -2626,7 +2820,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     }
 
     private func persistQueue() {
-        let snapshot = QueueSnapshot(songs: queue, index: currentIndex, position: currentTime, source: queueSource)
+        let snapshot = QueueSnapshot(songs: queue, index: currentIndex, position: currentTime, source: queueSource,
+                                     sourceSongIDs: queueSourceSongIDs.map { $0.sorted() })
         queueStore.save(snapshot)
     }
 
@@ -2637,6 +2832,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         queue = snapshot.songs
         currentIndex = max(0, min(snapshot.index, snapshot.songs.count - 1))
         queueSource = snapshot.source
+        queueSourceSongIDs = snapshot.sourceSongIDs.map(Set.init)
         // Ask the server for the stream *from* the saved position rather than loading at 0 and
         // seeking: a long set resumes instantly and correctly even on a cold transcode, which
         // can't be seeked at all (see `StreamSeek`).

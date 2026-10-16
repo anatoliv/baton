@@ -89,7 +89,9 @@ server address, or account, and no IP or identifiers. Turning it on means Baton 
 Yes. Choose **Share…** in a song's menu and Baton makes a link they can play in any browser,
 with no app and no account. The song is encrypted on your device and the key is in the link,
 so Baton's share service can't play it. Links expire after 1, 7 or 30 days, and you can see
-who listened, or revoke a link, in **Shared Links**. See
+who listened, or revoke a link, in **Shared Links**. If your friend has Baton on their iPhone,
+the link opens in Baton, where they can play it or find their own copy. To send several songs at
+once, share 2 to 12 liked songs as a mixtape, which plays them in order from one link. See
 [Sharing a song with a friend](HELP.md#sharing-a-song-with-a-friend).
 
 **Is the control server a security risk?**
@@ -550,6 +552,12 @@ set cleanup rules. Nothing is removed until you choose a rule. See
 **I deleted a book by mistake. Can I get it back?**
 For a week, yes. Open Storage in Settings and find the book under Recently Removed, then choose
 Restore.
+
+**Can a book have a cover?**
+Yes. An EPUB brings its own. For any other book, open its menu and choose **Find Cover…** to pick
+one from Open Library (only the title and author are sent), **Make a Cover** to have Baton draw
+one from the title and author, or **Choose Image…** to use a picture of your own. The cover
+reaches your other device through your Baton server.
 
 **Why does the book have the wrong title or chapters?**
 Baton takes the title and author from the first page and finds chapters from their headings.

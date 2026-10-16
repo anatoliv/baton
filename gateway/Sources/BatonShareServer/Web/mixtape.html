@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">
+<title>{{DOC_TITLE}}</title>{{OG_TAGS}}
+<link rel="icon" href="/m/_/icon.svg?v={{V}}"><link rel="stylesheet" href="/m/_/mixtape.css?v={{V}}">
+<script type="module" src="/m/_/mixtape.mjs?v={{V}}"></script></head>
+<body data-state="{{STATE}}"><script type="application/json" id="mixtape-data">{{DATA}}</script>
+<main><p class="kicker">Baton · Mixtape</p><h1 id="title">{{HEADLINE}}</h1><p id="byline">{{SUBLINE}}</p>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="player" hidden aria-label="Mixtape player">
+<ol id="tracks" aria-label="Track order"></ol>
+<p id="current" aria-live="polite"></p><audio id="audio" preload="none"></audio>
+<div class="controls"><button id="previous" type="button">Previous</button><button id="play" type="button">Play mixtape</button><button id="next" type="button">Next</button></div>
+<label for="seek">Seek in current track</label><input id="seek" type="range" min="0" max="1000" value="0" disabled><p id="clock">0:00 / 0:00</p>
+<p class="disclosure">Play starts one listening session, lasting up to 30 minutes or this link’s expiry. It includes one transfer of the mixtape. Pause and seek reuse the current track. Returning to a released track may need another session and play.</p>
+<div id="admission" hidden role="group" aria-label="Confirm another listening session"><p>Continue with a new listening session? This uses another play from the link’s allowance.</p><button id="confirm" type="button">Use another play</button><button id="cancel" type="button">Cancel</button></div>
+<fieldset id="reactions" disabled><legend>Send a reaction to the sender</legend></fieldset><p id="reaction-status" role="status"></p>
+</section><noscript>JavaScript is needed to unlock and listen to this mixtape.</noscript>
+<footer><a href="https://batonmusic.app">About Baton</a></footer></main></body></html>

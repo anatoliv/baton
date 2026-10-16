@@ -33,6 +33,18 @@ public final class AudioLevelMonitor {
     /// reactive bars and the canned ones without guessing from the values.
     public private(set) var isLive = false
 
+    /// Whether the bars should follow the levels rather than run their own animation: the meter
+    /// is live and something is audible. In a pause between sentences of a book the four levels
+    /// fall to nothing, and bars that follow them sit flat as four dots, which on the iPhone read
+    /// as a chapter that had stopped while it played. Music is rarely that quiet for
+    /// long; speech is, every few seconds. Below `audibleFloor` the bars keep their own motion.
+    public var isAudible: Bool { isLive && levels.peak >= Self.audibleFloor }
+
+    /// The loudest band's level below which the bars would read as dots. A bar's height is
+    /// 1 + 13.5 × level^1.35 points (`NowPlayingBars`), so 0.05 drew 1.2 pt and 0.2 drew 2.5 pt:
+    /// four dots, as the owner saw. From 0.3 the loudest bar is about 4 pt, a short bar.
+    public static let audibleFloor: Float = 0.3
+
     /// Where the audio tap publishes. Handed to `AudioEQProcessor`.
     public let snapshot = LevelSnapshot()
 

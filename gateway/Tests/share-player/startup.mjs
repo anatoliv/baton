@@ -48,7 +48,7 @@ export function registerOwnedBrowserServer(server,evidence,runID,{launcher,runti
   }
   const lines=execFileSync("ps",["-axo","pid=,ppid=,pgid=,uid=,lstart=,comm="],{encoding:"utf8",timeout:1000});
   const entries=lines.trim().split("\n").map(line=>{
-    const match=line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/);
+    const match=line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/);
     assert.ok(match,"process metadata readable");
     return {pid:Number(match[1]),parent:Number(match[2]),group:Number(match[3]),uid:Number(match[4]),started:match[5],executable:match[6]};
   }).filter(entry=>entry.group===child.pid && entry.uid===process.getuid());

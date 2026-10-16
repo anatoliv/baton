@@ -255,7 +255,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--evidence', required=True, type=Path)
-    parser.add_argument('--profile', choices=['local', 'shaped', 'flow'], required=True)
+    parser.add_argument('--profile', choices=['local', 'shaped', 'flow', 'load'], required=True)
     parser.add_argument('--browser', choices=['chromium','firefox','webkit'], default='chromium')
     parser.add_argument('--browser-executable', type=Path)
     parser.add_argument('--playwright', required=True, type=Path)
@@ -268,12 +268,16 @@ def main():
     node = shutil.which('node')
     if not node:
         raise SystemExit('Node runtime unavailable')
-    if args.profile != 'flow' and (args.browser != 'chromium' or args.browser_executable):
+    if args.profile not in ['flow', 'load'] and (args.browser != 'chromium' or args.browser_executable):
         raise SystemExit('Startup profiles use the reviewed full Chromium runtime only')
+    if args.profile == 'load' and args.browser != 'chromium':
+        raise SystemExit('The renderer diagnosis uses Chromium only')
     command = [node, str(here/'e2e.mjs'), '--nginx-docker', '--browser='+args.browser]
     if args.browser == 'chromium':
         command.append('--chromium-channel=chromium')
-    if args.profile != 'flow':
+    if args.profile == 'load':
+        command.append('--listeners=50')
+    elif args.profile != 'flow':
         command.extend(['--startup-only','--song-seconds=400'])
     if args.profile == 'shaped':
         command.extend(['--download-mbps=10', '--latency-ms=80'])
@@ -281,8 +285,9 @@ def main():
     if args.prepare:
         print(json.dumps({'command': command, 'outerDeadlineSeconds': 180,
             'runBudgetSeconds': 160, 'cleanupReserveSeconds': 20,
-            'fixtureCount': 5 if args.profile == 'flow' else 1,
-            'syntheticAudioApproxBytes': 4800000 if args.profile == 'flow' else 9600000,
+            'fixtureCount': 6 if args.profile == 'load' else 5 if args.profile == 'flow' else 1,
+            'listeners': 50 if args.profile == 'load' else 0,
+            'syntheticAudioApproxBytes': 5760000 if args.profile == 'load' else 4800000 if args.profile == 'flow' else 9600000,
             'browserLaunched': False, 'productionTraffic': False}, indent=2))
         return 0
     if not args.binary.is_file() or not os.access(args.binary, os.X_OK):

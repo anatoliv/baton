@@ -229,6 +229,26 @@ struct SharedLinksView: View {
 
     var body: some View {
         List {
+            Button("Retry interrupted mixtape uploads") {
+                Task {
+                    do { try await sharing.resumeMixtapeUploads(); actionError = nil; await sharing.refresh() }
+                    catch { actionError = "Protected upload recovery is unavailable. Your drafts are kept; try again later." }
+                }
+            }
+            if ReactionPushNotifications.shared.available || ReactionPushNotifications.shared.optedIn
+                || ReactionPushNotifications.shared.failure != nil {
+                Section {
+                    Toggle("Notify me about reactions", isOn: Binding(
+                        get: { ReactionPushNotifications.shared.optedIn },
+                        set: { value in Task { await ReactionPushNotifications.shared.setOptIn(value) } }))
+                        .disabled(!ReactionPushNotifications.shared.available && !ReactionPushNotifications.shared.optedIn)
+                    if let failure = ReactionPushNotifications.shared.failure {
+                        Text(failure).font(.caption).foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("Apple receives a device token and a generic reaction notification. Song titles, names, replies and decryption keys are excluded.")
+                }
+            }
             #if os(iOS)
             if !sharing.ledger.pendingFailures.isEmpty {
                 let count = sharing.ledger.pendingFailures.count
@@ -243,15 +263,15 @@ struct SharedLinksView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             #endif
+            if let error = sharing.refreshError ?? actionError {
+                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(Color.warningTint)
+            }
             if sharing.ledger.records.isEmpty {
                 ContentUnavailableView(
                     "No shared links yet", systemImage: "square.and.arrow.up",
                     description: Text("Share a song from its menu. The links you send appear here, with who listened."))
             } else {
-                if let error = sharing.refreshError ?? actionError {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(Color.warningTint)
-                }
-                ForEach(sharing.ledger.records) { record in
+                ForEach(sharing.ledger.records, id: \.identity) { record in
                     row(record)
                         .contextMenu { actions(record) }
                         #if os(iOS)
@@ -261,14 +281,14 @@ struct SharedLinksView: View {
             }
         }
         .navigationTitle("Shared Links")
-        .task { await sharing.refresh() }
+        .task { await ReactionPushNotifications.shared.refreshAvailability(); await sharing.refresh() }
         .refreshable { await sharing.refresh() }
         .confirmationDialog("Revoke this link?", isPresented: Binding(
             get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }), presenting: pendingRevoke
         ) { record in
             Button("Revoke", role: .destructive) {
                 Task {
-                    do { try await sharing.revoke(record.id) } catch {
+                    do { try await sharing.revoke(record.id, kind: record.containerKind) } catch {
                         actionError = SongShareError(error).errorDescription
                     }
                 }
@@ -295,7 +315,15 @@ struct SharedLinksView: View {
                 if let notice = summary.actionRequired {
                     Text(notice).font(.caption).foregroundStyle(.orange)
                 }
-                Text(SharePresentation.stats(summary.stats)).font(.caption)
+                if record.containerKind == .mixtape {
+                    Text("\(record.songIDs?.count ?? record.mixtapeSummary?.trackCount ?? 0) tracks · Sessions \(summary.stats.fetches) · Played \(summary.stats.plays)").font(.caption)
+                    if let deadline = record.mixtapeSummary?.reviewDeadline, let date = ShareDate.date(deadline) {
+                        Text("Review deadline: \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption)
+                    }
+                    if let remaining = record.mixtapeSummary?.pausedLifetimeSeconds {
+                        Text("Paused link lifetime: \(remaining / 3600) hours remaining").font(.caption)
+                    }
+                } else { Text(SharePresentation.stats(summary.stats)).font(.caption) }
                 ForEach(Array(summary.reactions.enumerated()), id: \.offset) { _, reaction in
                     Text(reactionLine(reaction)).font(.callout)
                 }
@@ -311,7 +339,7 @@ struct SharedLinksView: View {
             } label: { Label("Copy Link", systemImage: "doc.on.doc") }
             Button {
                 Task {
-                    do { try await sharing.extend(record.id) } catch {
+                    do { try await sharing.extend(record.id, kind: record.containerKind) } catch {
                         actionError = SongShareError(error).errorDescription
                     }
                 }
@@ -322,7 +350,7 @@ struct SharedLinksView: View {
             } label: { Label("Revoke", systemImage: "xmark.circle") }
         } else {
             Button(role: .destructive) {
-                sharing.forget(record.id)
+                sharing.forget(record.id, kind: record.containerKind)
             } label: { Label("Remove from List", systemImage: "trash") }
         }
     }

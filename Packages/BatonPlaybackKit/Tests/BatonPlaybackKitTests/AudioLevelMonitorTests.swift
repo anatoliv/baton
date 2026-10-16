@@ -26,6 +26,30 @@ final class AudioLevelMonitorTests: XCTestCase {
         XCTAssertFalse(AudioLevelMonitor(defaults: defaults).isEnabled)
     }
 
+    // MARK: - Audible
+
+    /// A pause between sentences of a book: the meter is live but every level is nearly zero.
+    /// The bars must not follow that down to four dots on a chapter that is playing.
+    func testAPauseInSpeechIsNotAudible() {
+        let monitor = makeMonitor()
+        monitor.retain()
+        defer { monitor.release() }
+        monitor.snapshot.store(.init(low: 0.01, lowMid: 0.02, highMid: 0.01, high: 0.0))
+        monitor.sampleNow()
+        XCTAssertTrue(monitor.isLive, "the tap is producing a signal")
+        XCTAssertFalse(monitor.isAudible, "but nothing a bar could show")
+        // Quiet: the loudest bar would be 2.5 pt of 15, four dots to the eye.
+        monitor.snapshot.store(.init(low: 0.05, lowMid: 0.2, highMid: 0.12, high: 0.02))
+        monitor.sampleNow()
+        XCTAssertFalse(monitor.isAudible, "a level that draws dots is not one to follow")
+        monitor.snapshot.store(.init(low: 0.1, lowMid: 0.7, highMid: 0.5, high: 0.2))
+        monitor.sampleNow()
+        XCTAssertTrue(monitor.isAudible, "speech again")
+        monitor.snapshot.clear()
+        monitor.sampleNow()
+        XCTAssertFalse(monitor.isAudible, "no signal at all")
+    }
+
     // MARK: - Idling
 
     func testNoSubscribersMeansNoTimer() {
