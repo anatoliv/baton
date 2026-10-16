@@ -83,7 +83,7 @@ final class SettingsReferenceTests: XCTestCase {
     func testThePhoneSettingsAreDescribedToo() throws {
         let reference = try settingsReference()
 
-        for section in ["Server", "Equalizer", "Advanced", "Sound", "Queue", "Diagnostics", "Display"] {
+        for section in ["Music server", "Equalizer", "Advanced", "Sound", "Queue", "Diagnostics", "Display"] {
             XCTAssertTrue(reference.contains("**\(section)**"),
                           "the iPhone's \(section) section is not in the Settings reference")
         }

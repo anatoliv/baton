@@ -348,7 +348,7 @@ struct GenresView: View {
         .contentState(
             useful.isEmpty ? .empty : .content,
             emptyTitle: "No genres",
-            emptyMessage: "Your server hasn't reported any genres worth browsing by.",
+            emptyMessage: "Your music server hasn't reported any genres worth browsing by.",
             emptySymbol: "guitars"
         )
         .task { await model.musicLibrary.loadGenres() }

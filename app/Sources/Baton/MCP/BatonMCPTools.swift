@@ -29,7 +29,7 @@ enum BatonMCPToolCatalog {
         annotate([
             tool(
                 "music_search",
-                "Search the connected Navidrome music library for songs, albums, and artists matching a query. Returns matching songs (with ids you can pass to music_play) plus album/artist matches.",
+                "Search the connected music server's library for songs, albums, and artists matching a query. Returns matching songs (with ids you can pass to music_play) plus album/artist matches.",
                 properties: [
                     "query": ["type": "string", "description": "What to search for: song title, artist, album, or keyword."],
                     "limit": ["type": "integer", "description": "Max songs to return (default 20, max 100)."],
@@ -93,7 +93,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_list_playlists",
-                "List the playlists on the connected Navidrome server.",
+                "List the playlists on the connected music server (Navidrome or another Subsonic server).",
                 properties: [:],
                 required: []
             ),
@@ -108,7 +108,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_play_playlist",
-                "Play a Navidrome playlist by name or id, replacing the current queue with the playlist's tracks.",
+                "Play a playlist from the music server by name or id, replacing the current queue with the playlist's tracks.",
                 properties: [
                     "name": ["type": "string", "description": "Playlist name (case-insensitive). Provide this or `playlist_id`."],
                     "playlist_id": ["type": "string", "description": "Exact playlist id. Provide this or `name`."],
@@ -117,7 +117,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_like",
-                "Like (favorite) or unlike a track on the music server. Likes are stored per-user on Navidrome. Without `query`, acts on the currently-playing track.",
+                "Like (favorite) or unlike a track on the music server. Likes are stored per-user on the music server. Without `query`, acts on the currently-playing track.",
                 properties: [
                     "query": ["type": "string", "description": "Song to like. Searches and uses the top match. Omit to like the current track."],
                     "unlike": ["type": "boolean", "description": "Set true to remove the like instead of adding it."],
@@ -138,7 +138,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_rate",
-                "Set a star rating from 1 to 5 on a track (0 clears it). Ratings are stored per-user on the server. Without `query`, rates the currently-playing track.",
+                "Set a star rating from 1 to 5 on a track (0 clears it). Ratings are stored per-user on the music server. Without `query`, rates the currently-playing track.",
                 properties: [
                     "rating": ["type": "integer", "description": "0 to 5. 0 clears the rating."],
                     "query": ["type": "string", "description": "Song to rate. Uses the top search match. Omit for the current track."],
@@ -233,7 +233,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_start_radio",
-                "Start an endless 'more like this' radio: seed from the current track (or from `query` if given), fetch similar songs from the server, and play them. Great for 'play something like this' / 'start a radio'.",
+                "Start an endless 'more like this' radio: seed from the current track (or from `query` if given), fetch similar songs from the music server, and play them. Great for 'play something like this' / 'start a radio'.",
                 properties: [
                     "query": ["type": "string", "description": "Seed the radio from this song (top search match). Omit to seed from what's currently playing."],
                 ],
@@ -294,7 +294,7 @@ enum BatonMCPToolCatalog {
             ),
             tool(
                 "music_similar_songs",
-                "Songs the server considers similar to a given song or artist: real neighbour data, not a keyword match. Give `song_id` or `query` (an artist or song name, whose top hit is used as the seed). This is what 'more like this' should use.",
+                "Songs the music server considers similar to a given song or artist: real neighbour data, not a keyword match. Give `song_id` or `query` (an artist or song name, whose top hit is used as the seed). This is what 'more like this' should use.",
                 properties: [
                     "song_id": ["type": "string", "description": "Seed song id. Provide this or `query`."],
                     "query": ["type": "string", "description": "Artist or song name to seed from; its top search hit is used."],
@@ -777,7 +777,7 @@ enum BatonMCPToolCatalog {
                 "seed_id": seedID,
                 "songs": songs.map(songJSON),
                 "note": songs.isEmpty
-                    ? "The server returned no similarity data (Navidrome needs a Last.fm agent for this). Try music_browse_albums or the artist's own tracks instead."
+                    ? "The music server returned no similarity data (Navidrome needs a Last.fm agent for this). Try music_browse_albums or the artist's own tracks instead."
                     : "",
             ])
         } catch let error as BatonMCPToolError {

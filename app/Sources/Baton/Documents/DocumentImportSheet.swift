@@ -149,7 +149,7 @@ struct DocumentImportSheet: View {
                 Text("Made on").foregroundStyle(.secondary)
                 if BookVoiceSettings.sheetAsks(makeBooksOn, homeServerAvailable: homeServerAvailable) {
                     Picker("Made on", selection: $renderer) {
-                        Text("Home server").tag(DocumentLibrary.Renderer.homeServer)
+                        Text("Baton server").tag(DocumentLibrary.Renderer.homeServer)
                         Text("This Mac").tag(DocumentLibrary.Renderer.thisMac)
                     }
                     .pickerStyle(.segmented)
@@ -157,7 +157,7 @@ struct DocumentImportSheet: View {
                     .fixedSize()
                 } else {
                     HStack(spacing: 6) {
-                        Text(renderer == .homeServer ? "Home server" : "This Mac")
+                        Text(renderer == .homeServer ? "Baton server" : "This Mac")
                         if let note = BookVoiceSettings.sheetNote(makeBooksOn, homeServerAvailable: homeServerAvailable) {
                             Text(note).foregroundStyle(.secondary)
                         }
@@ -171,7 +171,7 @@ struct DocumentImportSheet: View {
             Text(cast.holdsTheBook
                  ? "Check the cast before the book is made."
                  : renderer == .homeServer
-                 ? "Your home server makes it, so this Mac can sleep. Chapter 1 is ready in a minute or two."
+                 ? "Your Baton server makes it, so this Mac can sleep. Chapter 1 is ready in a minute or two."
                  : "Chapter 1 is ready in a minute or two, and the rest follows while you listen.")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
@@ -198,29 +198,9 @@ struct DocumentImportSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 ForEach([suggestion.primary] + suggestion.alternates, id: \.self) { voice in
-                    HStack(spacing: 8) {
-                        Button {
-                            chosen = voice
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: chosen == voice ? "largecircle.fill.circle" : "circle")
-                                Text(Self.voiceLabel(voice))
-                                if voice == suggestion.primary && !suggestion.isFallback {
-                                    Text("suggested").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        Spacer()
-                        Button {
-                            preview.toggle(voice, text: VoiceSuggestions.previewText(for: document))
-                        } label: {
-                            Image(systemName: preview.playing == voice ? "stop.circle" : "play.circle")
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(preview.playing == voice ? "Stop" : "Hear \(Self.voiceLabel(voice))")
-                    }
-                    .font(.callout)
+                    NarratorOptionRow(voice: voice, chosen: $chosen, preview: preview,
+                                      previewText: VoiceSuggestions.previewText(for: document),
+                                      tag: voice == suggestion.primary && !suggestion.isFallback ? "suggested" : nil)
                 }
                 if let failure = preview.failure {
                     Text(failure).font(.caption).foregroundStyle(.orange)
@@ -385,4 +365,49 @@ struct DocumentImportSheet: View {
     static func text(for warning: ImportWarning) -> String { warning.listenerText }
 
     static func pageList(_ pages: [Int]) -> String { ImportWarning.pageList(pages) }
+}
+
+/// One narrator to choose, with a button to hear it in the book's own words: the import sheet's
+/// row, and Change Voice's, so the two pick a voice the same way.
+struct NarratorOptionRow: View {
+    let voice: String
+    @Binding var chosen: String?
+    let preview: VoicePreviewPlayer
+    let previewText: String
+    /// "suggested", "now": a word after the name.
+    var tag: String? = nil
+    /// A line under the name, such as what the voice suits.
+    var detail: String? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                chosen = voice
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: chosen == voice ? "largecircle.fill.circle" : "circle")
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            Text(DocumentImportSheet.voiceLabel(voice))
+                            if let tag { Text(tag).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(DocumentImportSheet.voiceLabel(voice))
+            .accessibilityAddTraits(chosen == voice ? .isSelected : [])
+            Spacer()
+            Button {
+                preview.toggle(voice, text: previewText)
+            } label: {
+                Image(systemName: preview.playing == voice ? "stop.circle" : "play.circle")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(preview.playing == voice ? "Stop" : "Hear \(DocumentImportSheet.voiceLabel(voice))")
+        }
+        .font(.callout)
+    }
 }

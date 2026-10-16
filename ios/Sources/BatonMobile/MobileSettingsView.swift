@@ -1,3 +1,4 @@
+import BatonDocuments
 import BatonPlaybackKit
 import BatonSubsonicKit
 import SwiftUI
@@ -35,6 +36,8 @@ struct MobileSettingsView: View {
     /// Document clippings, on by default since TBX-10801. Read through `MobileDocuments` rather
     /// than `@AppStorage` so the switch and the feature agree on what an absent key means.
     @State private var documentsEnabled = MobileDocuments.isEnabled()
+    /// Bumped after a cloud consent switch changes, so the switches re-read the ledger.
+    @State private var consentRevision = 0
     @State private var showsWhatsNew = false
     /// A footer's "Learn more" opens Help at the topic it just requested.
     @State private var showsHelp = false
@@ -63,9 +66,9 @@ struct MobileSettingsView: View {
     }
 
     private var disconnectMessage: String {
-        var parts = ["Baton will forget this server and remove its data from this iPhone: listening history, playlisted downloads, radio bans, scrobble accounts, the music friend's key, and what the music friend remembers about you and has learned from your corrections. That also clears the friend's memory on your other devices the next time they sync."]
+        var parts = ["Baton will forget this music server and remove its data from this iPhone: listening history, playlisted downloads, radio bans, scrobble accounts, the music friend's key, and what the music friend remembers about you and has learned from your corrections. That also clears the friend's memory on your other devices the next time they sync."]
         if purgePreview.historyCount > 0 {
-            parts.append("\(purgePreview.historyCount) plays will be cleared from this device. Your server's own play counts are untouched.")
+            parts.append("\(purgePreview.historyCount) plays will be cleared from this device. Your music server's own play counts are untouched.")
         }
         if purgePreview.downloadSummary != nil {
             parts.append("Deleting downloads cannot be undone.")
@@ -209,7 +212,7 @@ struct MobileSettingsView: View {
                             Button("Show Server Details") {
                                 Task {
                                     credentialsUnlocked = await BiometricGate.authenticate(
-                                        reason: "Show your server address and username"
+                                        reason: "Show your music server address and username"
                                     )
                                 }
                             }
@@ -229,12 +232,19 @@ struct MobileSettingsView: View {
                         Label("Set up from a Mac…", systemImage: "laptopcomputer.and.iphone")
                     }
                 } header: {
-                    Text("Server")
+                    Text("Music server")
                 } footer: {
-                    if model.isDemoMode {
-                        Text("You're listening to the sample tracks built into Baton. "
-                             + "Connect your Navidrome server to play your own library.")
-                    }
+                    // TBX-10997: two servers, two names. This is the one that holds the library;
+                    // the Baton server (books, shared place and settings) is under Music Friend.
+                    SettingsFooter(
+                        text: (model.isDemoMode
+                               ? "You're listening to the sample tracks built into Baton. "
+                                 + "Connect your music server, such as Navidrome, to play your own library. "
+                               : "Your music server holds your library. ")
+                            + "Your Baton server, for books and keeping your devices in step, is set up under Music Friend. Both can be the same machine.",
+                        topic: SettingsHelpTopic.twoServers,
+                        onOpenHelp: { showsHelp = true }
+                    )
                 }
 
                 Section {
@@ -256,7 +266,7 @@ struct MobileSettingsView: View {
                 } footer: {
                     Text(model.agentConfig.isReady
                          ? "The Friend tab is available."
-                         : "Connect a model provider or your home server, then test it. The Friend tab appears once the test passes.")
+                         : "Connect a model provider or your Baton server, then test it. The Friend tab appears once the test passes.")
                 }
 
                 Section {
@@ -372,7 +382,7 @@ struct MobileSettingsView: View {
                     Text("Advanced")
                 } footer: {
                     Text("""
-                    Plays music streamed from your server through Baton's own audio \
+                    Plays music streamed from your music server through Baton's own audio \
                     pipeline instead of the system player. This is what makes the \
                     equalizer and the moving bars work on streamed music. On the \
                     standard player they only affect downloaded tracks. Podcasts, \
@@ -421,7 +431,7 @@ struct MobileSettingsView: View {
                             HelpGuide.requestTopic(SettingsHelpTopic.voices)
                             showsHelp = true
                         } label: {
-                            Label("Voices: on this Mac or on a server", systemImage: "questionmark.circle")
+                            Label("Voices: on this Mac or on your Baton server", systemImage: "questionmark.circle")
                         }
                         .accessibilityIdentifier("settings-documents-voices-help")
                         NavigationLink {
@@ -430,6 +440,19 @@ struct MobileSettingsView: View {
                             Label("Storage", systemImage: "internaldrive")
                         }
                         .accessibilityIdentifier("settings-storage")
+                        // What a cloud model may be sent for recaps (M4.6, TBX-10966): the
+                        // answer to the question Clippings asks, kept per provider.
+                        ForEach(MobileRecap.cloudSources(model.agentConfig), id: \.consentID) { source in
+                            Toggle(isOn: chapterConsent(source)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(ModelConsentWording.title(.chapter)) to \(ModelConsentWording.providerName(source))")
+                                    Text(ModelConsentWording.whatIsSent(.chapter, to: source))
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .accessibilityIdentifier("settings-cloud-chapters-\(source.provider.rawValue)")
+                        }
                     }
                 } header: {
                     Text("Documents")
@@ -552,7 +575,7 @@ struct MobileSettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("Send your plays to ListenBrainz and Last.fm. Your server's own play counts need no setup.")
+                    Text("Send your plays to ListenBrainz and Last.fm. Your music server's own play counts need no setup.")
                 }
 
                 // The songs this phone has shared, who listened, and revoke or extend
@@ -691,7 +714,7 @@ struct MobileSettingsView: View {
                 Text("Baton will close immediately. Reopen it afterward so the test report can finish sending to Crashbox.")
             }
             .confirmationDialog(
-                "Disconnect from this server?",
+                "Disconnect from this music server?",
                 isPresented: $showsDisconnectConfirm,
                 titleVisibility: .visible
             ) {
@@ -746,5 +769,16 @@ struct MobileSettingsView: View {
         guard !host.isEmpty else { return nil }
         let user = NavidromeConfig.username
         return user.isEmpty ? host : "\(user) · \(host)"
+    }
+
+    /// A switch over the ledger the recap reads: on is "Always", off is "Not now".
+    private func chapterConsent(_ source: ModelSource) -> Binding<Bool> {
+        let ledger = ModelConsentLedger(defaults: BatonStorage.defaults)
+        return Binding(
+            get: { _ = consentRevision; return ledger.allows(source, .chapter) },
+            set: { on in
+                if on { ledger.grant(source, .chapter) } else { ledger.revoke(source, .chapter) }
+                consentRevision += 1
+            })
     }
 }

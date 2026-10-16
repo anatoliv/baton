@@ -139,7 +139,7 @@ final class SongSharing {
 
         var label: String {
             switch self {
-            case .fetching: "Getting the song from your server…"
+            case .fetching: "Getting the song from your music server…"
             case .preparing: "Encrypting…"
             case .uploading: "Uploading…"
             }
@@ -504,12 +504,12 @@ enum SongShareError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .notConnected: "Connect to your music server first."
-        case .notOnServer: "Only songs on your server can be shared."
-        case .unknownLength: "Your server didn't say how long this song is, so it can't be shared."
+        case .notOnServer: "Only songs on your music server can be shared."
+        case .unknownLength: "Your music server didn't say how long this song is, so it can't be shared."
         case .tooLong: "Songs longer than 20 minutes can't be shared."
         case .tooLarge: "This song is too large to share."
-        case .fetchFailed: "Couldn't get the song from your server."
-        case .transcodeFailed: "Your server couldn't convert this song to MP3."
+        case .fetchFailed: "Couldn't get the song from your music server."
+        case .transcodeFailed: "Your music server couldn't convert this song to MP3."
         case .paused: "Sharing is paused for now. Try again later."
         case .busy: "Sharing is busy right now. Try again later."
         case .rateLimited: "That's a lot of sharing for one day. Try again tomorrow."

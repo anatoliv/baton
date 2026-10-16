@@ -140,7 +140,7 @@ final class DialogueCastSheetTests: XCTestCase {
         XCTAssertEqual(DialogueCastEditing.placedLine(DialogueCast.Fill(quotes: 10, placedByRules: 4)),
                        "No model answered for the lines without a speech tag, so the narrator reads those.")
         XCTAssertEqual(DialogueCastEditing.noFillLine(router: ModelRouter(sources: [])),
-                       "No model on this Mac or the home server can place the lines without a speech tag, so the narrator reads those.")
+                       "No model on this Mac or the Baton server can place the lines without a speech tag, so the narrator reads those.")
         let cloud = ModelSource(name: "Anthropic", provider: .anthropic, baseURL: "https://api.anthropic.com", model: "m", contextTokens: 200_000)
         var excerptsOnly = ModelConsent()
         excerptsOnly.grant(cloud, .excerpt)
@@ -158,7 +158,7 @@ final class DialogueCastSheetTests: XCTestCase {
         XCTAssertFalse(choice.holdsTheBook)
         XCTAssertNil(choice.castingToUse)
         XCTAssertEqual(DialogueCastEditing.noModelLine(router: ModelRouter(sources: [])),
-                       "No model on this Mac or the home server can write a cast list, so the narrator reads every line.")
+                       "No model on this Mac or the Baton server can write a cast list, so the narrator reads every line.")
         let cloud = ModelSource(name: "Anthropic", provider: .anthropic, baseURL: "https://api.anthropic.com", model: "m", contextTokens: 200_000)
         XCTAssertTrue(DialogueCastEditing.noModelLine(router: ModelRouter(sources: [cloud]))
             .contains("sending excerpts to Anthropic is not allowed"))

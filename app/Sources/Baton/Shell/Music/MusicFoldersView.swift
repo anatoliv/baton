@@ -156,7 +156,7 @@ struct MusicFoldersView: View {
             } else if roots.isEmpty {
                 emptyState(
                     icon: "folder", title: "No folders",
-                    detail: "The server didn't report a folder tree."
+                    detail: "The music server didn't report a folder tree."
                 )
             } else if shown.isEmpty {
                 emptyState(icon: "magnifyingglass", title: "No folders match", detail: nil)

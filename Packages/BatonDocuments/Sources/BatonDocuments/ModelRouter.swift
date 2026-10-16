@@ -22,6 +22,10 @@ public struct ModelSource: Codable, Sendable, Equatable, Hashable {
         /// Anything speaking `/chat/completions`: LiteLLM on the home server, LM Studio, OpenAI.
         case openAICompatible
         case anthropic
+        /// The person's home server, through its book route (`BookCompletion`, TBX-10966). It
+        /// answers from the gateway's own model only when that model is on the home network, so
+        /// it is local whatever address reaches the home server.
+        case homeServer
     }
 
     /// Stable identity, used for consent: `"ollama|http://127.0.0.1:11434|qwen3.5:4b"`.
@@ -53,7 +57,7 @@ public struct ModelSource: Codable, Sendable, Equatable, Hashable {
 
     /// Never leaves the person's machines: on-device, or a host on this Mac or the LAN.
     public var isLocal: Bool {
-        if provider == .appleOnDevice { return true }
+        if provider == .appleOnDevice || provider == .homeServer { return true }
         guard let base = baseURL, let host = URL(string: base)?.host else { return false }
         return Self.isPrivateHost(host)
     }
@@ -284,6 +288,8 @@ public enum HTTPModelClient {
                 break
             }
             path = "/v1/messages"
+        case .homeServer:
+            path = BookCompletion.path
         case .appleOnDevice:
             throw Failure.notHTTP
         }
@@ -314,6 +320,8 @@ public enum HTTPModelClient {
                     "messages": [["role": "user", "content": user]]]
             // No temperature: neither caller has ever sent Anthropic one, and adding it would
             // change answers that nothing here has measured.
+        case .homeServer:
+            body = ["system": system, "user": user, "max_tokens": maxTokens]
         case .appleOnDevice:
             throw Failure.notHTTP
         }
@@ -380,6 +388,8 @@ public enum HTTPModelClient {
                 let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()
                 if !text.isEmpty { return text }
             }
+        case .homeServer:
+            if let text = json["text"] as? String { return text }
         case .appleOnDevice:
             break
         }

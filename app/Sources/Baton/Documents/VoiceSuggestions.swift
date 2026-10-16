@@ -29,7 +29,7 @@ enum VoiceSuggestions {
         if agent.isEnabled, !base.isEmpty, !agent.model.isEmpty {
             var source = ModelSource(name: "", provider: agent.provider == .anthropic ? .anthropic : .openAICompatible,
                                      baseURL: base, model: agent.model, contextTokens: 8_192)
-            source.name = source.isLocal ? "the home server" : (agent.provider == .anthropic ? "Anthropic" : "\(URL(string: base)?.host ?? base)")
+            source.name = source.isLocal ? "the Baton server" : (agent.provider == .anthropic ? "Anthropic" : "\(URL(string: base)?.host ?? base)")
             sources.append(source)
         }
         return sources

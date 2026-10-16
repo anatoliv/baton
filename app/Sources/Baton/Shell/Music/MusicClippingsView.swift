@@ -33,8 +33,18 @@ struct MusicClippingsView: View {
     @State private var pendingBookDelete: BookShelf.Book?
     /// "Previously…" when a book is picked up after a break (M8.4).
     @State private var recap = BookRecapOffer()
+    /// The book whose Play is fetching the other device's place first, and the one
+    /// showing "Getting your place…" once that wait is long enough to notice.
+    @State private var pullingPlace: String?
+    @State private var gettingPlace: String?
     /// The book whose pronunciations are being corrected (M8.6).
     @State private var pronouncing: BookShelf.Book?
+    /// The book open in Read Along.
+    @State private var readingAlong: BookShelf.Book?
+    /// The book or kept reading whose voice is being changed.
+    @State private var changingBook: BookShelf.Book?
+    @State private var changingReading: ClippingStore.Item?
+    private var revoicer: ClippingRevoicer { ClippingRevoicer.shared }
     /// An export in progress, or why the last one failed (M8.8).
     @State private var exportLine: String?
     @State private var exportFailed = false
@@ -61,7 +71,9 @@ struct MusicClippingsView: View {
 
     /// Readings as rows, and each book as one row that opens into its chapters.
     private var entries: [BookShelf.Entry] {
-        BookShelf.entries(items: filtered, jobs: jobs, ledger: store.ledger)
+        // With the voice changes, so a book being made again says so.
+        BookShelf.entries(items: filtered, jobs: jobs, ledger: store.ledger,
+                          changes: documentsOn ? model.documents.voiceChanges.all : [])
     }
 
     /// Where the "play all clippings" transport queues from, named as the other views name
@@ -83,8 +95,9 @@ struct MusicClippingsView: View {
     private var search: ClippingSearch { model.clippingSearch }
 
     /// Only what can actually be played. A missing file in a queue is a track that stalls with no
-    /// explanation, which is worse than one that is visibly unavailable in the list.
-    private var playable: [NavidromeSong] { filtered.filter(\.isPresent).map(\.asSong) }
+    /// explanation, which is worse than one that is visibly unavailable in the list. Readings
+    /// only: a book plays as its own queue, from its row.
+    private var playable: [NavidromeSong] { ClippingQueue.readings(filtered) }
 
     private var totalSizeText: String {
         let bytes = store.totalBytes
@@ -139,6 +152,44 @@ struct MusicClippingsView: View {
             }
         }
         .task { store.loadIfNeeded() }
+        #if DEBUG
+        // DEBUG only: `scripts/probe-pronunciations-home-server.sh` opens Pronunciations… for the
+        // first book made on the home server once every chapter is here, rather than driving a
+        // row's context menu. An environment variable, never a launch argument.
+        .task {
+            guard ProcessInfo.processInfo.environment["BATON_DEBUG_OPEN_PRONUNCIATIONS"] == "1" else { return }
+            for _ in 0..<240 {
+                if documentsOn, let book = model.documents.shelf.first(where: { book in
+                    book.madeOn == .homeServer && book.chapters.allSatisfy { $0.item != nil }
+                        && model.documents.canEditPronunciations(book)
+                }) {
+                    pronouncing = book
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        // DEBUG only: `scripts/probe-change-voice.sh` opens Change Voice… for the
+        // first book whose chapters are all here (`book`) or the first kept reading with words
+        // (`reading`), in place of a row's context menu. By environment, never argv.
+        .task {
+            let which = ProcessInfo.processInfo.environment["BATON_DEBUG_OPEN_CHANGE_VOICE"]
+            guard which == "book" || which == "reading" else { return }
+            for _ in 0..<240 {
+                if which == "book", documentsOn, let book = model.documents.shelf.first(where: { book in
+                    !book.chapters.isEmpty && book.chapters.allSatisfy { $0.item != nil } && model.documents.canChangeVoice(book)
+                }) {
+                    changingBook = book
+                    return
+                }
+                if which == "reading", let item = store.items.first(where: { !$0.clipping.isBookChapter && $0.clipping.text?.isEmpty == false }) {
+                    changingReading = item
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        #endif
         .onChange(of: filterText, initial: true) { _, text in
             search.follow(store)
             search.setQuery(text)
@@ -150,6 +201,10 @@ struct MusicClippingsView: View {
                 // The person's storage rules, then at most one suggestion a week (M6.3, M6.5).
                 model.documents.applyStorageRules()
                 refreshSuggestion()
+                // A book made on the home server from another device appears here.
+                if model.documents.homeServer.isConfigured {
+                    Task { await model.documents.refreshHomeServer() }
+                }
             }
             takePendingImport()
             offerNextSent()
@@ -170,12 +225,31 @@ struct MusicClippingsView: View {
         .onChange(of: documentsOn) { _, on in
             if on { model.documents.refresh(); refreshSuggestion() } else { suggestion = nil }
         }
+        // A book made on the home server becomes removable when the home server first answers
+        // after launch, which can be after Clippings appeared. Asking again keeps the
+        // weekly limit: an open suggestion is returned as it is, and none is made within the week.
+        .onChange(of: documentsOn ? model.documents.removableBookIDs : []) { _, _ in
+            if documentsOn { refreshSuggestion() }
+        }
         .onChange(of: router?.pendingDocumentImport) { _, _ in takePendingImport() }
         .modifier(DocumentDropTarget(enabled: documentsOn, importing: $importing))
         .sheet(isPresented: .init(get: { importing != nil }, set: { if !$0 { importing = nil } })) {
             if let importing {
                 DocumentImportSheet(url: importing, library: model.documents) { self.importing = nil }
             }
+        }
+        .sheet(item: $readingAlong) { book in
+            ReadAlongSheet(book: book) { chapter in startPlaying(book, fromChapter: chapter) }
+        }
+        .sheet(item: $changingBook) { book in
+            if let target = ChangeVoiceSheet.Target.book(book, library: model.documents) {
+                ChangeVoiceSheet(target: target) { changingBook = nil }
+            }
+        }
+        .sheet(item: $changingReading) { item in
+            ChangeVoiceSheet(target: .reading(item, store: store, revoicer: revoicer) { error in
+                model.music.postToast("The reading keeps its voice: \(error)", symbol: "exclamationmark.triangle", seconds: 5)
+            }) { changingReading = nil }
         }
         .sheet(isPresented: .init(get: { pronouncing != nil }, set: { if !$0 { pronouncing = nil } })) {
             if let pronouncing {
@@ -196,9 +270,9 @@ struct MusicClippingsView: View {
             }
             Button("Cancel", role: .cancel) { pendingBookDelete = nil }
         } message: {
-            Text("This stops making the book and removes its chapters. Removing it here leaves "
-                 + "whatever is on your iPhone. Deleting everywhere also removes it from your "
-                 + "home gateway and from your other devices. For a week you can restore it from "
+            Text("This removes its chapters from this Mac, and a book being made here stops. Removing it "
+                 + "here leaves any copy on your Baton server and your iPhone. Deleting everywhere also "
+                 + "removes it from your Baton server and your other devices. For a week you can restore it from "
                  + "Recently removed in Settings, under Storage.")
         }
         .alert("Rename clipping", isPresented: .init(
@@ -246,7 +320,7 @@ struct MusicClippingsView: View {
         } message: {
             Text("Baton made this audio and there is no other copy of it. Removing it here leaves "
                  + "whatever is on your iPhone. Deleting everywhere also removes it from your "
-                 + "home gateway and from your other devices.")
+                 + "Baton server and from your other devices.")
         }
     }
 
@@ -266,13 +340,24 @@ struct MusicClippingsView: View {
     }
 
     private func row(_ item: ClippingStore.Item) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: item.isPresent ? "waveform" : "exclamationmark.triangle")
-                .foregroundStyle(item.isPresent ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-                .frame(width: 28)
+        let isCurrent = isCurrent(item)
+        let isPlaying = isCurrent && model.music.isPlaying
+        return HStack(spacing: 12) {
+            // Bars while it plays, as on a music row; the waveform is the clipping's resting
+            // icon, not a state.
+            Group {
+                if isPlaying {
+                    NowPlayingBars(isPlaying: true)
+                } else {
+                    Image(systemName: item.isPresent ? "waveform" : "exclamationmark.triangle")
+                        .foregroundStyle(item.isPresent ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                }
+            }
+            .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.clipping.title).lineLimit(1)
+                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
                 HStack(spacing: 6) {
                     if let source = item.clipping.source, !source.isEmpty {
                         Text(source)
@@ -289,11 +374,19 @@ struct MusicClippingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                if let progress = revoicer.running[item.id] {
+                    Text(Self.remakingLine(progress))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    ProgressView(value: progress.fraction).controlSize(.mini).frame(maxWidth: 240)
+                }
             }
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+        // The current clipping keeps its tint while paused; the bars and the accent title are
+        // the extra "playing now" cue and go when it pauses, the rule every music row keeps.
+        .background(isCurrent ? Color.nowPlayingRowTint() : .clear)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { play(item) }
         .opacity(item.isPresent ? 1 : 0.6)
@@ -310,6 +403,11 @@ struct MusicClippingsView: View {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([item.url])
             }.disabled(!item.isPresent)
+            if revoicer.running[item.id] != nil {
+                Button("Stop Making Again") { revoicer.cancel(item.id) }
+            } else if item.clipping.text?.isEmpty == false {
+                Button("Change Voice…") { changingReading = item }
+            }
             Divider()
             Button("Delete…", role: .destructive) { pendingDelete = item }
         }
@@ -345,18 +443,30 @@ struct MusicClippingsView: View {
                 // Named rather than swallowed: the clipping is gone from this Mac either way,
                 // and the tombstone still travels, so this is "the shared copy outlived the
                 // request" rather than a failed delete.
-                model.music.postToast("Deleted here; the shared copy is still on the gateway",
+                model.music.postToast("Deleted here; the shared copy is still on the Baton server",
                                       symbol: "exclamationmark.triangle", seconds: 4)
             }
         }
     }
 
+    /// Whether this clipping is the one loaded in the player, playing or paused.
+    private func isCurrent(_ item: ClippingStore.Item?) -> Bool {
+        item?.isLoaded(nowPlayingID: model.music.nowPlaying?.id) == true
+    }
+
+    /// Whether one of this book's chapters is the one loaded in the player.
+    private func isCurrent(_ book: BookShelf.Book) -> Bool {
+        guard let id = model.music.nowPlaying?.id else { return false }
+        return book.chapters.contains { $0.item?.isLoaded(nowPlayingID: id) == true }
+    }
+
     /// Play from this clipping onwards, so the list behaves like every other list here rather
     /// than playing one item and stopping.
+    /// The readings after it, never a book's chapters.
     private func play(_ item: ClippingStore.Item) {
-        let songs = playable
-        guard let index = songs.firstIndex(where: { $0.id == item.asSong.id }) else { return }
-        model.music.play(Array(songs[index...]), source: clippingsSource)
+        let songs = ClippingQueue.readings(from: item, in: filtered)
+        guard !songs.isEmpty else { return }
+        model.music.play(songs, source: clippingsSource)
     }
 
     private static func durationText(_ seconds: Double) -> String {
@@ -399,6 +509,7 @@ struct MusicClippingsView: View {
                         if let author = book.author, !author.isEmpty { Text(author) }
                         Text(book.summaryText)
                         Text(book.storedText)
+                        if let origin = book.originText { Text(origin) }
                         if book.finished {
                             Text("Finished")
                             if let kept = book.keptUntilText { Text(kept) }
@@ -409,6 +520,9 @@ struct MusicClippingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    if gettingPlace == book.documentID {
+                        Text("Getting your place…").font(.caption).foregroundStyle(.secondary)
+                    }
                     if let status = Self.statusLine(book) {
                         Text(status.text)
                             .font(.caption)
@@ -420,6 +534,11 @@ struct MusicClippingsView: View {
                     }
                 }
                 Spacer()
+                // Quieter than a chapter row: only the bars, so a collapsed book still says one
+                // of its chapters is playing, and the chapter row itself carries the tint.
+                if isCurrent(book) && model.music.isPlaying {
+                    NowPlayingBars(isPlaying: true)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
@@ -427,6 +546,8 @@ struct MusicClippingsView: View {
             .onTapGesture(count: 2) { play(book) }
             .contextMenu {
                 Button("Play") { play(book) }.disabled(book.chapters.allSatisfy { $0.item?.isPresent != true })
+                Button("Read Along") { readingAlong = book }
+                    .disabled(book.chapters.allSatisfy { $0.item?.isPresent != true })
                 Button(expanded ? "Hide Chapters" : "Show Chapters") {
                     if expanded { expandedBooks.remove(book.documentID) } else { expandedBooks.insert(book.documentID) }
                 }
@@ -436,8 +557,14 @@ struct MusicClippingsView: View {
                 Divider()
                 Button("Export Audiobook…") { exportAudiobook(book) }
                     .disabled(exportLine != nil && !exportFailed || !canExport(book))
-                if model.documents.job(forDocument: book.documentID)?.renderer == .thisMac {
+                if model.documents.canEditPronunciations(book) {
                     Button("Pronunciations…") { pronouncing = book }
+                }
+                if model.documents.canChangeVoice(book) {
+                    Button("Change Voice…") { changingBook = book }
+                }
+                if book.canStopRemaking {
+                    Button("Stop Making Again") { stopRemaking(book) }
                 }
                 storageMenu(book)
                 Divider()
@@ -453,15 +580,27 @@ struct MusicClippingsView: View {
     }
 
     private func chapterRow(_ book: BookShelf.Book, _ chapter: BookShelf.Chapter) -> some View {
-        HStack(spacing: 8) {
-            Text("\(chapter.index + 1)").monospacedDigit().foregroundStyle(.secondary).frame(width: 22, alignment: .trailing)
+        let isCurrent = isCurrent(chapter.item)
+        let isPlaying = isCurrent && model.music.isPlaying
+        return HStack(spacing: 8) {
+            // The bars take the chapter number's place while it plays, as in the queue.
+            Group {
+                if isPlaying {
+                    NowPlayingBars(isPlaying: true)
+                } else {
+                    Text("\(chapter.index + 1)").monospacedDigit().foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 22, alignment: .trailing)
             Text(chapter.title).lineLimit(1)
+                .foregroundStyle(isPlaying ? Color.accentColor : .primary)
             Spacer()
             Text(Self.chapterStateText(chapter)).font(.caption).foregroundStyle(.secondary)
         }
         .padding(.leading, 52)
         .padding(.trailing, 14)
         .padding(.vertical, 5)
+        .background(isCurrent ? Color.nowPlayingRowTint() : .clear)
         .contentShape(Rectangle())
         .opacity(chapter.item?.isPresent == true ? 1 : 0.6)
         .onTapGesture(count: 2) { play(book, fromChapter: chapter.index) }
@@ -602,6 +741,7 @@ struct MusicClippingsView: View {
             return ("Paused: \(reason). It carries on by itself when the voice server answers.", true)
         }
         if let failure = book.failure { return ("Stopped: \(failure)", true) }
+        if let remaking = book.remaking { return (remaking, false) }
         guard book.isRendering, let next = book.chapters.first(where: { $0.item == nil && $0.state != .removed }) else {
             return nil
         }
@@ -610,6 +750,20 @@ struct MusicClippingsView: View {
         case let .rendering(progress): return ("Making \(of), \(Int((progress * 100).rounded()))%", false)
         case .encoding: return ("Finishing \(of)", false)
         default: return ("Waiting to make \(of)", false)
+        }
+    }
+
+    /// "Making again in af_sky on Kokoro… 40%", for a kept reading read again.
+    static func remakingLine(_ progress: ClippingRevoicer.Progress) -> String {
+        "Making again in \(BookVoiceChanges.voiceLabel(progress.voice))… \(Int((progress.fraction * 100).rounded()))%"
+    }
+
+    private func stopRemaking(_ book: BookShelf.Book) {
+        let library = model.documents
+        Task {
+            do { try await library.cancelVoiceChange(book) } catch {
+                model.music.postToast("The book could not go back to its voice: \(error)", symbol: "exclamationmark.triangle", seconds: 4)
+            }
         }
     }
 
@@ -628,7 +782,34 @@ struct MusicClippingsView: View {
 
     /// Play from the synced position, or from a chosen chapter. Picking a book up after a
     /// break offers "Previously…" first (M8.4); the book plays once that is answered.
+    ///
+    /// A Play that resumes fetches the other device's place first, for up to about two seconds,
+    /// and starts from the merged ledger: a Mac that stayed in front never pulls on
+    /// its own, and played from its own older place. A slow or unreachable gateway starts the
+    /// book from the place here. A tap on another chapter starts that chapter at once.
     private func play(_ book: BookShelf.Book, fromChapter index: Int? = nil) {
+        guard BookPlacePull.resumes(fromChapter: index, placeChapter: book.position?.chapterIndex),
+              let pull = model.bookPlacePull else {
+            playFromPlace(book, fromChapter: index)
+            return
+        }
+        guard pullingPlace != book.documentID else { return }
+        pullingPlace = book.documentID
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            if pullingPlace == book.documentID { gettingPlace = book.documentID }
+        }
+        Task { @MainActor in
+            _ = await BookPlacePull.run(sync: pull)
+            pullingPlace = nil
+            gettingPlace = nil
+            var fresh = book
+            (fresh.position, fresh.finished) = BookPlacePull.place(of: book.documentID, in: store.ledger)
+            playFromPlace(fresh, fromChapter: index)
+        }
+    }
+
+    private func playFromPlace(_ book: BookShelf.Book, fromChapter index: Int? = nil) {
         if index == nil, documentsOn, !book.finished, book.position != nil {
             let prepared = BookText.preparedBook(for: book, library: model.documents)
             if recap.consider(book, prepared: prepared, lastPlayed: store.ledger.document(book.documentID)?.positionAt) { return }
@@ -637,11 +818,7 @@ struct MusicClippingsView: View {
     }
 
     private func startPlaying(_ book: BookShelf.Book, fromChapter index: Int? = nil) {
-        var (songs, start) = BookPlayback.queue(for: book)
-        if let index {
-            let present = book.chapters.compactMap(\.item).filter(\.isPresent)
-            if let i = present.firstIndex(where: { $0.clipping.chapterIndex == index }) { start = i }
-        }
+        let (songs, start) = BookPlayback.queue(for: book, fromChapter: index)
         guard !songs.isEmpty else { return }
         model.music.play(songs, startAt: start, source: .init(label: book.title, kind: .liked, id: nil))
     }

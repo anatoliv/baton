@@ -289,6 +289,19 @@ final class HelpGuideTests: XCTestCase {
         }
     }
 
+    /// Both apps' Settings link to the page that explains the music server and the Baton server
+    ///. A renamed heading would leave those links opening nothing, and it has to be
+    /// written for both apps, since each of them has both servers.
+    func testTheTwoServersTopicShipsForBothApps() throws {
+        let topic = try XCTUnwrap(shippedTopics().first { $0.slug == HelpGuide.twoServersTopic },
+                                  "HELP.md has no '\(HelpGuide.twoServersTopic)' heading")
+        XCTAssertEqual(topic.audience, .both)
+        for phrase in ["music server", "Baton server", "Settings → Music Servers",
+                       "Settings → Remote → Baton server", "Baton server token", "Answers come from"] {
+            XCTAssertTrue(topic.body.contains(phrase), "the two-servers topic no longer mentions '\(phrase)'")
+        }
+    }
+
     /// The Mac's contents used to open with eight "Baton on iPhone" topics, before it
     /// reached Albums or the equalizer, and the phone listed a table of Command-key
     /// shortcuts. This is over the guides the apps actually ship, so removing a marker

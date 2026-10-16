@@ -122,9 +122,9 @@ final class ResumeRecapTests: XCTestCase {
                                            consent: excerpts) { _, _, _ in "anything" }
         XCTAssertNil(none, "excerpts were allowed, chapters were not")
         XCTAssertEqual(ResumeRecap.noRecapLine(sources: [Self.cloud], consent: excerpts),
-                       "No model on this Mac or the home server wrote a recap, and sending chapters to Anthropic is not allowed, so the book plays as it is.")
+                       "No model on this Mac or the Baton server wrote a recap, and sending chapters to Anthropic is not allowed, so the book plays as it is.")
         XCTAssertEqual(ResumeRecap.noRecapLine(sources: [Self.local], consent: ModelConsent()),
-                       "No model on this Mac or the home server wrote a recap, so the book plays as it is.")
+                       "No model on this Mac or the Baton server wrote a recap, so the book plays as it is.")
     }
 
     func testHearingSpeaksThenPlaysAndASilentModelStillPlays() async throws {

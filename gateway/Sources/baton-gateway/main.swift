@@ -31,6 +31,8 @@ import Foundation
 //   BATON_LLM_BASE_URL    override endpoint (e.g. a LiteLLM or Ollama box on your LAN)
 //   BATON_LLM_MODEL       model id (default claude-haiku-4-5-20251001)
 //   BATON_LLM_API_KEY     key for the provider
+//   BATON_LLM_LOCAL       1 when that model is on your network under a name the address rule
+//                         cannot read (a Docker service, a bare host name); book tasks need it local
 //   BATON_TTS_KOKORO_URL  Kokoro for rendering books (default http://127.0.0.1:8880)
 //   BATON_TTS_CHATTERBOX_URL  Chatterbox, if a book's voices use it (optional)
 //   BATON_RENDER_CONCURRENCY  TTS requests in flight per book (default 2)
@@ -165,7 +167,13 @@ let bookRenderer: BookRenderer? = ffmpegPath.map { path in
 }
 let books = BookRoutes(renderer: bookRenderer, store: bookStore, synthesizer: synthesizer,
                        unavailableReason: ffmpegPath == nil ? "ffmpeg is not installed on the gateway" : nil,
-                       exporter: ffmpegPath.map { FFmpegMuxer(executable: $0) })
+                       exporter: ffmpegPath.map { FFmpegMuxer(executable: $0) },
+                       voices: VoiceListing(engines: ttsEngines),
+                       completion: BookCompletionRoute(
+                           source: BookCompletionRoute.source(provider: env["BATON_LLM_PROVIDER"], baseURL: llmConfig.baseURL,
+                                                              model: llmConfig.model),
+                           apiKey: llmConfig.apiKey.isEmpty ? nil : llmConfig.apiKey,
+                           declaredLocal: env["BATON_LLM_LOCAL"] == "1"))
 if let bookRenderer {
     Task { await bookRenderer.startIfNeeded() }   // resumes any book left unfinished
     FileHandle.standardOutput.write(Data("books: \(booksDirectory.path), TTS \(ttsEngines.mapValues(\.absoluteString))\n".utf8))

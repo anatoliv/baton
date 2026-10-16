@@ -31,7 +31,7 @@ final class AgentConfig {
 
         var label: String {
             switch self {
-            case .gateway: "Home server"
+            case .gateway: "Baton server"
             case .direct: "Model provider"
             }
         }

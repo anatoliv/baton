@@ -100,6 +100,41 @@ final class DialogueCastTests: XCTestCase {
                      "Elizabeth by turn-taking before the fix; Mrs. Bennet in the book")
     }
 
+    /// TBX-10956: the caption under Gutenberg's illustration in *Pride and Prejudice* chapter I,
+    /// in a Markdown copy of the book, is not a line of dialogue. The walk voiced it as Mrs.
+    /// Bennet's. Speech that ends inside its marks stays speech, and so does a speech carried
+    /// over from the paragraph before.
+    func testAPictureCaptionIsNotALine() throws {
+        let markdown = """
+            # Pride and Prejudice
+
+            \u{201C}You want to tell me, and I have no objection to hearing it.\u{201D}
+
+            \u{201C}He came down to see the place\u{201D}
+
+            [Copyright 1894 by George Allen.]
+
+            This was invitation enough.
+
+            \u{201C}Bingley.\u{201D}
+            """
+        let read = MarkdownImporter.read(markdown, fallbackTitle: "P").result
+        let book = ImportedDocument(sourceSHA256: "x", sourceKind: .markdown, title: "P", chapters: read.chapters)
+        let spans = DialogueCast.segment(book)
+        XCTAssertEqual(spans.filter { $0.kind == .quote }.map(\.text),
+                       ["You want to tell me, and I have no objection to hearing it.", "Bingley."])
+        XCTAssertTrue(spans.contains { $0.kind == .narration && $0.text.contains("He came down to see the place") })
+
+        let prepared = DocumentSpeech.prepare(book, voices: VoicePlan(narrator: "kokoro:bf_emma", characters: ["Mr. Bennet": "kokoro:bm_george"]),
+                                              attribution: { _, _ in "Mr. Bennet" })
+        let caption = try XCTUnwrap(prepared.chapters[0].segments.first { $0.text.contains("He came down to see the place") })
+        XCTAssertNil(caption.speaker, "the narrator reads the caption, never a character")
+
+        var open = true
+        let carried = DocumentSpeech.dialogueSpans("\u{201C}and so it ended\u{201D}", continuingQuote: &open)
+        XCTAssertEqual(carried.map(\.isQuote), [true], "a speech carried over from the paragraph before is still speech")
+    }
+
     func testNumberingMatchesDocumentSpeechSoTheCastLandsOnTheRightLines() {
         let d = doc(exchange)
         var spans = DialogueCast.segment(d)

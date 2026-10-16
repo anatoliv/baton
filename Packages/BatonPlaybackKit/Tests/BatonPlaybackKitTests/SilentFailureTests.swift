@@ -108,6 +108,21 @@ final class SilentFailureTests: XCTestCase {
         XCTAssertNotNil(store.lastError, "but the screen must be told why, not left saying the album is empty")
     }
 
+    /// A cancelled load is not a failure: the launch task that runs the first
+    /// library load can be torn down while the first screen settles, and the release UI run
+    /// caught Albums saying "Couldn't reach the music server: cancelled" with nothing to retry.
+    func testACancelledLoadIsNotReportedAsAFailure() async {
+        let store = storeThrowing(.transport("cancelled"))
+        let load = Task { await store.loadAlbums() }
+        load.cancel()
+        await load.value
+        XCTAssertNil(store.lastError, "a cancelled load must not put an error on the Albums screen")
+        XCTAssertFalse(store.isLoading)
+
+        await store.loadAlbums()
+        XCTAssertNotNil(store.lastError, "a real failure on a live task is still reported")
+    }
+
     func testALockedKeychainIsReportedOnTheLibraryPath() async {
         let store = storeThrowing(.credentialsUnreadable(status: -25308))
         _ = await store.artistAlbums(id: "ar1")

@@ -14,6 +14,8 @@
 //   probe-ax clear <pid>            Command-A then Delete, posted to <pid>
 //   probe-ax set <pid> <label> <text>  set the value of the first text field whose placeholder or label is <label>
 //   probe-ax value-of <pid> <label>    print that text field's value
+//   probe-ax menu <pid> <text> <item>  open the context menu of the element showing <text> and
+//                                      choose <item> from it (TBX-10960: a book row's Play, Read Along)
 //
 // AppleScript's `entire contents` of a Settings window holding a long grouped Form ran for
 // minutes and then timed out with nothing, while the same walk through AXUIElement takes well
@@ -239,6 +241,46 @@ case "window":
         print(id); exit(0)
     }
     print("not on screen: \(args[3])"); exit(1)
+case "menu":
+    // The element showing <text>, or the nearest ancestor that offers a context menu, opens it
+    // (AXShowMenu); the item is then pressed wherever the menu appeared.
+    guard args.count >= 5 else { exit(64) }
+    var target: AXUIElement?
+    for window in windows where target == nil {
+        _ = walk(window) { element in
+            guard string(element, kAXRoleAttribute) == kAXStaticTextRole, string(element, kAXValueAttribute) == args[3] else { return false }
+            target = element
+            return true
+        }
+    }
+    guard var element = target else { print("not found: \(args[3])"); exit(1) }
+    var opened = false
+    for _ in 0..<8 {
+        var names: CFArray?
+        if AXUIElementCopyActionNames(element, &names) == .success, let list = names as? [String], list.contains("AXShowMenu"),
+           AXUIElementPerformAction(element, "AXShowMenu" as CFString) == .success {
+            opened = true
+            break
+        }
+        guard let parent = attribute(element, kAXParentAttribute) else { break }
+        element = parent as! AXUIElement   // swiftlint:disable:this force_cast
+    }
+    guard opened else { print("no context menu for: \(args[3])"); exit(1) }
+    var pressed = false
+    for _ in 0..<20 where !pressed {
+        Thread.sleep(forTimeInterval: 0.1)
+        // Not the menu bar: "Play" is a menu bar command too, and that one is not the row's.
+        let roots = (attribute(app, kAXChildrenAttribute) as? [AXUIElement] ?? [])
+            .filter { string($0, kAXRoleAttribute) != kAXMenuBarRole }
+        for root in roots where !pressed {
+            pressed = walk(root) { candidate in
+                guard string(candidate, kAXRoleAttribute) == kAXMenuItemRole, string(candidate, kAXTitleAttribute) == args[4] else { return false }
+                return AXUIElementPerformAction(candidate, kAXPressAction as CFString) == .success
+            }
+        }
+    }
+    print(pressed ? "done" : "no menu item: \(args[4])")
+    exit(pressed ? 0 : 1)
 case "windows":
     // Window ids for `screencapture -l`, which captures that window alone: a screen region
     // also captures whatever else happens to be on top of it.

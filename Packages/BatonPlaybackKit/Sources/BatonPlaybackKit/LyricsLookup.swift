@@ -28,9 +28,9 @@ public enum LyricsFailure: Equatable, Sendable {
         switch self {
         case .refused:
             #if os(macOS)
-            return "Lyrics could not load. Check the server sign in in Settings, Servers."
+            return "Lyrics could not load. Check the music server sign in in Settings, Music Servers."
             #else
-            return "Lyrics could not load. Check the server sign in in Settings, Server."
+            return "Lyrics could not load. Check the music server sign in in Settings, Music server."
             #endif
         case .rateLimited:
             return "The lyrics service is rate limiting requests. Try again in a minute."

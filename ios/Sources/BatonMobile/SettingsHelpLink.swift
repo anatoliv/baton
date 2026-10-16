@@ -55,11 +55,12 @@ enum SettingsHelpTopic {
     static let gettingConnected = "getting-connected"
     static let transcription = "transcripts-and-summaries"
     static let documents = "listening-to-a-document"
-    static let voices = "listening-to-a-document-voices-on-this-mac-or-on-a-server"
+    static let voices = "listening-to-a-document-voices-on-this-mac-or-on-your-baton-server"
+    static let twoServers = HelpGuide.twoServersTopic
 
     static let all: [String] = [
         equalizer, soundQuality, queue, scrobbling,
         downloads, musicFriend, privacy, gettingConnected,
-        transcription, documents, voices,
+        transcription, documents, voices, twoServers,
     ]
 }

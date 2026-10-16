@@ -105,11 +105,11 @@ struct MobileStorageView: View {
     private var homeServerSection: some View {
         Section {
             if !model.books.isConfigured {
-                Text("No home server is set up. Books are made on your home server, so set one up in Settings first.")
+                Text("No Baton server is set up. Books are made on your Baton server, so set one up in Settings first.")
                     .foregroundStyle(.secondary)
             } else if let listing {
                 if listing.books.isEmpty {
-                    Text("The home server has no books.").foregroundStyle(.secondary)
+                    Text("The Baton server has no books.").foregroundStyle(.secondary)
                 }
                 ForEach(listing.books, id: \.id) { summary in
                     LabeledContent {
@@ -120,13 +120,13 @@ struct MobileStorageView: View {
                     }
                 }
             } else if askingServer {
-                HStack(spacing: 8) { ProgressView(); Text("Asking the home server…") }
+                HStack(spacing: 8) { ProgressView(); Text("Asking the Baton server…") }
             } else {
-                Text("The home server could not be asked: \(serverProblem ?? "it isn't answering").")
+                Text("The Baton server could not be asked: \(serverProblem ?? "it isn't answering").")
                     .foregroundStyle(.orange)
             }
         } header: {
-            Text("Home Server")
+            Text("Baton Server")
         } footer: {
             if let listing { Text(Self.serverFooter(listing)) }
         }

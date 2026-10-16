@@ -146,7 +146,7 @@ struct MusicHistoryView: View {
         .confirmationDialog("Clear play history?", isPresented: $showClearConfirm, titleVisibility: .visible) {
             Button("Clear History", role: .destructive) { history.clear() }
         } message: {
-            Text("Removes your local Recently Played list and stats. It doesn't affect your server's play counts.")
+            Text("Removes your local Recently Played list and stats. It doesn't affect your music server's play counts.")
         }
     }
 

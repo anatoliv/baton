@@ -27,9 +27,9 @@ enum DeepLinkOutcome: Equatable {
         case .notConnected:
             "Connect Baton to your music server first, then open the link again."
         case .songUnavailable:
-            "That track could not be loaded. It may have been removed, or your server may be unreachable."
+            "That track could not be loaded. It may have been removed, or your music server may be unreachable."
         case .albumUnavailable:
-            "That album could not be loaded. It may have been removed, or your server may be unreachable."
+            "That album could not be loaded. It may have been removed, or your music server may be unreachable."
         }
     }
 }

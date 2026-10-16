@@ -29,7 +29,7 @@ struct BookVoiceEngineSection: View {
     static let automaticNeeds = "Whenever the built-in voices are downloaded, uses them first for every voice they have (their 28 English voices), and the voice server for every other voice. The default."
     static let builtInNeeds = "Kokoro, run by Baton itself. English only, 28 voices. Needs the one-time \(BuiltInVoicesModel.sizeText) download and a Mac with Apple silicon. Works offline, and nothing leaves this Mac. Recommended on Apple silicon: in a side-by-side listening test they sounded the same as the server."
     static let serverNeeds = "A Kokoro or Chatterbox server at the addresses under Services above, for example on your home network. More languages, and Chatterbox's voices and voice cloning. Needs the address to answer, and the book's text is sent to it."
-    static let homeServerNote = "The home server makes books with its own voice server, the Kokoro and Chatterbox addresses set on the gateway (BATON_TTS_KOKORO_URL and BATON_TTS_CHATTERBOX_URL), not with the choice above."
+    static let homeServerNote = "The Baton server makes books with its own voice server, the Kokoro and Chatterbox addresses set in the Baton server's own setup (BATON_TTS_KOKORO_URL and BATON_TTS_CHATTERBOX_URL), not with the choice above."
 
     var body: some View {
         Section {

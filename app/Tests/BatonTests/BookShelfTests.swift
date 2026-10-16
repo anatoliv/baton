@@ -104,6 +104,39 @@ final class BookShelfTests: XCTestCase {
         XCTAssertEqual(book.chapters.map(\.state), [.removed])
     }
 
+    // MARK: - Continuous play
+
+    /// A book still being made on this Mac: chapter 1 here is the queue, the chapter being made
+    /// and the one waiting are coming, and a failed chapter is not, with its reason.
+    func testABookStillBeingMadeQueuesWhatIsHereAndSaysWhatIsComing() throws {
+        let one = try landChapter(0)
+        let job = try job(states: [.ready(file: "chapter-1.m4a", bytes: 1, seconds: 60, sha256: "x"),
+                                   .rendering(done: 1, of: 4), .queued], status: .rendering)
+        let book = try onlyBook(BookShelf.entries(items: clippings.items, jobs: [job], ledger: clippings.ledger))
+        let (songs, start) = BookPlayback.queue(for: book)
+        XCTAssertEqual(songs.map(\.id), [one.asSong.id])
+        XCTAssertEqual(start, 0)
+        XCTAssertEqual(BookPlayback.continuationChapters(of: book, hasJob: true, canGetBack: false, homeServerProblem: nil),
+                       [.here, .coming, .coming])
+        XCTAssertNil(BookPlayback.continuationChapters(of: book, hasJob: false, canGetBack: false, homeServerProblem: nil),
+                     "with no render job the chapters here are all there is")
+
+        let failed = try self.job(states: [.ready(file: "chapter-1.m4a", bytes: 1, seconds: 60, sha256: "x"),
+                                           .failed(reason: "the voice server failed"), .queued], status: .failed)
+        let stopped = try onlyBook(BookShelf.entries(items: clippings.items, jobs: [failed], ledger: clippings.ledger))
+        XCTAssertEqual(BookPlayback.continuationChapters(of: stopped, hasJob: true, canGetBack: false, homeServerProblem: nil)?[1],
+                       .unavailable("it could not be made (the voice server failed)"))
+    }
+
+    /// Play from a chapter with a gap after it queues up to the gap, never past it.
+    func testPlayNeverQueuesAChapterPastOneThatIsNotHere() throws {
+        let one = try landChapter(0)
+        try landChapter(2)
+        let book = try onlyBook(BookShelf.entries(items: clippings.items, jobs: [], ledger: clippings.ledger))
+        XCTAssertEqual(BookPlayback.queue(for: book).songs.map(\.id), [one.asSong.id])
+        XCTAssertEqual(BookPlayback.queue(for: book, fromChapter: 2).startIndex, 1, "a chosen chapter still plays")
+    }
+
     // MARK: - Resume
 
     func testPlayResumesAtTheSyncedChapterAndSecond() throws {
@@ -161,6 +194,22 @@ final class BookShelfTests: XCTestCase {
         let book = try onlyBook(BookShelf.entries(items: clippings.items, jobs: [], ledger: clippings.ledger))
         XCTAssertEqual(BookPlayback.queue(for: book).startIndex, 0)
         XCTAssertEqual(book.listenedFraction, 1)
+    }
+
+    /// A finished book played again past its first minute resumes there.
+    func testAReplayedBookResumesWhereTheReplayStopped() throws {
+        let first = try landChapter(0)
+        let second = try landChapter(1)
+        let third = try landChapter(2)
+        XCTAssertEqual(BookPlayback.record(third.asSong, time: 60, duration: 60, chapterCount: 3, clippings: clippings), "doc")
+        XCTAssertNil(BookPlayback.record(first.asSong, time: 55, duration: 60, chapterCount: 3, clippings: clippings))
+        XCTAssertEqual(clippings.ledger.document("doc")?.finished, true, "still within the first minute")
+        XCTAssertNil(BookPlayback.record(second.asSong, time: 20, duration: 60, chapterCount: 3, clippings: clippings))
+        XCTAssertEqual(clippings.ledger.document("doc")?.finished, false)
+
+        let book = try onlyBook(BookShelf.entries(items: clippings.items, jobs: [], ledger: clippings.ledger))
+        XCTAssertEqual(BookPlayback.queue(for: book).startIndex, 1)
+        XCTAssertEqual(BookPlayback.resumeOffset(for: second.asSong, clippings: clippings), 20)
     }
 
     func testAReadingIsNotABookToThePlayer() throws {

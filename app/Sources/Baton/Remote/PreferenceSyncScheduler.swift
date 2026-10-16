@@ -19,6 +19,14 @@ import BatonSubsonicKit
 ///   and expect to see what you just did on the phone;
 /// - **on a slow heartbeat**, for a window left open all day.
 ///
+/// And a push of the book ledger when listening halts here: on pause, on stop and on leaving
+/// the foreground, debounced (`BookLedgerPush`, TBX-10986). Without it a book stopped on the
+/// Mac reached the phone only at the next heartbeat, 8 to 10 minutes later in the TBX-10974 walk.
+///
+/// Play on a book also pulls first, bounded to about two seconds (`BookPlacePull`, TBX-10993):
+/// a Mac that simply stayed in front never becomes active again, so without it Play started
+/// from this Mac's own older place while the phone had moved on.
+///
 /// `syncIfDue` collapses these — the activation and heartbeat triggers overlap constantly,
 /// and without a floor, switching apps repeatedly would hammer the gateway.
 ///
@@ -40,8 +48,22 @@ final class PreferenceSyncScheduler {
     let sync = PreferenceSync(deviceName: Host.current().localizedName ?? "Mac")
     private var loop: Task<Void, Never>?
     private var activation: NSObjectProtocol?
+    private var resignation: NSObjectProtocol?
+    /// The debounced push on pause, stop and leaving the foreground. Nil until `start()`, and
+    /// for good on an instance whose sync is switched off.
+    private(set) var ledgerPush: BookLedgerPush?
+    private let pushDelay: Duration
+    /// What a push does: by default a sync with the configured gateway now, past the floor.
+    /// Replaceable so a test can count pushes without a gateway.
+    private let pushAction: (@MainActor () async -> Bool)?
+    private var transportHooksBefore: (pause: (@MainActor () -> Void)?, stop: (@MainActor () -> Void)?)?
 
-    init(model: MusicModel) { self.model = model }
+    init(model: MusicModel, pushDelay: Duration = BookLedgerPush.defaultDelay,
+         push: (@MainActor () async -> Bool)? = nil) {
+        self.model = model
+        self.pushDelay = pushDelay
+        self.pushAction = push
+    }
 
     /// A probe instance must not take part in the owner's shared settings: it would adopt the
     /// owner's gateway address over the harness's own (the home-server walk lost its loopback
@@ -56,9 +78,9 @@ final class PreferenceSyncScheduler {
         #endif
     }
 
-    func start() {
+    func start(environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard loop == nil else { return }
-        if Self.isSwitchedOff() {
+        if Self.isSwitchedOff(by: environment) {
             clippingSyncLog.notice("preference sync is off for this instance (BATON_DEBUG_PREFERENCE_SYNC)")
             return
         }
@@ -85,6 +107,38 @@ final class PreferenceSyncScheduler {
         ) { [weak self] _ in
             Task { @MainActor in await self?.runIfConfigured() }
         }
+        installPushTriggers()
+    }
+
+    /// Pause, stop and leaving the foreground each ask for a debounced push of the book ledger.
+    ///
+    /// The transport hooks are chained, not replaced: `MusicModel` already uses `onPause` to save
+    /// the queue for handoff.
+    func installPushTriggers() {
+        guard ledgerPush == nil else { return }
+        let clippings = model.clippings
+        let push = BookLedgerPush(delay: pushDelay, ledger: { clippings.ledger }) { [weak self, pushAction] in
+            if let pushAction { return await pushAction() }
+            return await self?.runIfConfigured(force: true) ?? false
+        }
+        ledgerPush = push
+        // Play on a book pulls first, so a Mac left in front starts from the phone's newer place
+        // rather than its own. The same forced sync as the push; it is a no-op with
+        // no gateway, and a switched-off instance never gets here.
+        model.bookPlacePull = { [weak self, pushAction] in
+            if let pushAction { return await pushAction() }
+            return await self?.runIfConfigured(force: true) ?? false
+        }
+        let music = model.music
+        let before = (pause: music.onPause, stop: music.onStop)
+        transportHooksBefore = before
+        music.onPause = { before.pause?(); push.schedule() }
+        music.onStop = { before.stop?(); push.schedule() }
+        resignation = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in push.schedule() }
+        }
     }
 
     func stop() {
@@ -93,6 +147,16 @@ final class PreferenceSyncScheduler {
         loop = nil
         if let activation { NotificationCenter.default.removeObserver(activation) }
         activation = nil
+        if let resignation { NotificationCenter.default.removeObserver(resignation) }
+        resignation = nil
+        ledgerPush?.cancel()
+        ledgerPush = nil
+        model.bookPlacePull = nil
+        if let before = transportHooksBefore {
+            model.music.onPause = before.pause
+            model.music.onStop = before.stop
+        }
+        transportHooksBefore = nil
     }
 
     /// The gateway to talk to, or `nil` when there isn't one configured.
@@ -109,14 +173,22 @@ final class PreferenceSyncScheduler {
         return (url, secret)
     }
 
-    private func runIfConfigured() async {
+    /// `force` skips the one-minute floor: a push on pause or stop is the one sync the listener
+    /// is waiting on. Returns whether the gateway was reached.
+    @discardableResult
+    private func runIfConfigured(force: Bool = false) async -> Bool {
         guard let gateway = Self.gateway(
             urlString: BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL"),
             token: NavidromeKeychain.secret(account: "baton.agent.gatewayToken")
-        ) else { return }
+        ) else { return false }
 
-        await sync.syncIfDue(gatewayURL: gateway.url, token: gateway.token,
-                             minimumInterval: Self.minimumInterval)
+        let reached: Bool
+        if force {
+            reached = await sync.sync(gatewayURL: gateway.url, token: gateway.token)
+        } else {
+            reached = await sync.syncIfDue(gatewayURL: gateway.url, token: gateway.token,
+                                           minimumInterval: Self.minimumInterval)
+        }
 
         // A sync merges into UserDefaults; anything already read into memory can't see it.
         // Podcasts adopt their synced feeds when that screen appears, so only this one
@@ -136,5 +208,6 @@ final class PreferenceSyncScheduler {
                 "clippings reconciled: \(changed.renamed, privacy: .public) renamed, \(changed.deleted.count, privacy: .public) deleted"
             )
         }
+        return reached
     }
 }

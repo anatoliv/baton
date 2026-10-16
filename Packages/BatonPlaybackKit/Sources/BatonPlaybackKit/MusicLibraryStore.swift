@@ -884,6 +884,13 @@ public final class MusicLibraryStore {
             try await body(client)
             lastError = nil
         } catch {
+            // A load whose task was cancelled (the launch task torn down while the first screen
+            // settles) did not fail: saying "Couldn't reach the music server: cancelled" over an
+            // empty Albums screen was a lie, and the next appearance loads again.
+            if Task.isCancelled || error is CancellationError {
+                musicStoreLog.notice("library load cancelled; not reported as a failure")
+                return
+            }
             reportFailure(error)
         }
     }

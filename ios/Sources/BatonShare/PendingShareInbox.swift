@@ -177,6 +177,29 @@ struct PendingShareInbox: Sendable {
 
     // MARK: - Rules both sides share
 
+    /// The extension's confirmation: a page by its title when the share carried one,
+    /// "Saved “The Yellow Wallpaper” for Baton", rather than by its site; otherwise the file's name,
+    /// or a link's host when nothing better came with it.
+    static func confirmation(for marker: Marker, pageTitle: String?) -> String {
+        if marker.kind == .link, let title = pageTitle { return "Saved “\(title)” for Baton" }
+        return "Saved \(marker.originalName) for Baton"
+    }
+
+    /// The page's title among what a share carried (the item's `attributedTitle`, its
+    /// `attributedContentText`, the provider's suggested name), first usable one first: one line,
+    /// not the address itself, at most 200 characters. Nil when none will do.
+    static func pageTitle(from candidates: [String?], link: String?) -> String? {
+        let address = link?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = link.flatMap { URL(string: $0)?.host }
+        for candidate in candidates {
+            guard let line = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty,
+                  !line.contains(where: \.isNewline), line.count <= 200,
+                  line != address, line != host, URL(string: line).map(isWebLink) != true else { continue }
+            return line
+        }
+        return nil
+    }
+
     static func isWebLink(_ url: URL) -> Bool {
         ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host != nil
     }

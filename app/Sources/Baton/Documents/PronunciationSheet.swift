@@ -28,13 +28,15 @@ enum PronunciationEditing {
     /// cloud source the person has not allowed excerpts.
     static func noModelLine(router: ModelRouter) -> String {
         guard let cloud = router.awaitingConsent(for: modelTask).first else {
-            return "No model on this Mac or the home server, so names are read as written. Add any below."
+            return "No model on this Mac or the Baton server, so names are read as written. Add any below."
         }
-        return "No model on this Mac or the home server, and \(CloudModelConsent.notAllowedClause(cloud, modelTask.content)), so names are read as written. Add any below."
+        return "No model on this Mac or the Baton server, and \(CloudModelConsent.notAllowedClause(cloud, modelTask.content)), so names are read as written. Add any below."
     }
 
+    /// The rows show what is sent (`PronunciationLexicon.validated`): a stored lexicon from
+    /// before TBX-10947 may hold two model words with one sound, which no renderer sends.
     static func rows(_ lexicon: PronunciationLexicon?) -> [Row] {
-        (lexicon?.entries ?? []).map { Row(word: $0.word, phonemes: $0.phonemes, source: $0.source) }
+        (lexicon?.validated().entries ?? []).map { Row(word: $0.word, phonemes: $0.phonemes, source: $0.source) }
     }
 
     /// The lexicon after editing: a changed field is the person's word, an emptied field drops
@@ -72,46 +74,105 @@ enum PronunciationEditing {
     }
 
     /// The spell checker as `PronunciationLexicon.candidates` wants it: a word it knows is not
-    /// a name to ask about. `NSSpellChecker` is main-actor, so it is reached by a hop.
+    /// a name to ask about. A lower-case word any installed dialect of the checker's language
+    /// knows counts: the default "en" dictionary does not know the British "neighbourhood",
+    /// which put it beside "Netherfield" in the TBX-10886 walk's proposal. Names
+    /// keep the default dictionary alone, since the other dialects know names a voice may still
+    /// get wrong ("Vashti" in en_GB, "Kuno" in en_JP). `NSSpellChecker` is main-actor, so it is
+    /// reached by a hop.
     nonisolated static func isWord(_ word: String) -> Bool? {
-        let check = { NSSpellChecker.shared.checkSpelling(of: word, startingAt: 0).location == NSNotFound }
+        let check = {
+            let checker = NSSpellChecker.shared
+            if checker.checkSpelling(of: word, startingAt: 0).location == NSNotFound { return true }
+            guard word.first?.isLowercase == true else { return false }
+            let base = checker.language().split(separator: "_").first.map(String.init) ?? checker.language()
+            return checker.availableLanguages.contains { language in
+                language.hasPrefix(base + "_") && checker.checkSpelling(
+                    of: word, startingAt: 0, language: language, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil
+                ).location == NSNotFound
+            }
+        }
         return Thread.isMainThread ? MainActor.assumeIsolated(check) : DispatchQueue.main.sync(execute: check)
     }
 }
 
 extension DocumentLibrary {
-    /// Give a book made on this Mac a corrected lexicon. The chapters whose text changes are
-    /// taken out of Clippings and the book is submitted again under its new id, so only those
-    /// chapters' chunks are synthesized (the rest come from the chunk cache) and only they land
-    /// again. When no chapter changes (a word the book never says, a proposal confirmed as it
-    /// was) the job is rewritten in place and nothing is re-made. Returns the chapters re-made.
+    /// The shaped book whose pronunciations can be corrected: the render job's for a book made
+    /// on this Mac, or the copy saved beside the record of a book made on the home server
+    /// (every submission since M6.3). Nil for a book with neither, which has no lexicon here.
+    func pronunciationSource(documentID: String) -> (book: PreparedBook, renderer: Renderer, jobID: String)? {
+        if let job = job(forDocument: documentID), job.renderer == .thisMac {
+            return store.load(job.id).map { ($0.book, .thisMac, job.id) }
+        }
+        guard let record = homeServer.record(forDocument: documentID),
+              let book = homeServer.preparedBook(forJob: record.jobID) else { return nil }
+        return (book, .homeServer, record.jobID)
+    }
+
+    /// Whether Pronunciations… is offered: a job made here, or a home-server book whose shaped
+    /// book was saved. Reads no book, since the menu is drawn with every row.
+    func canEditPronunciations(_ book: BookShelf.Book) -> Bool {
+        if let job = job(forDocument: book.documentID), job.renderer == .thisMac { return true }
+        return homeServer.record(forDocument: book.documentID).map { homeServer.hasPreparedBook(forJob: $0.jobID) } ?? false
+    }
+
+    /// Give a book a corrected lexicon, wherever it was made. What is kept is what renderers
+    /// send (`PronunciationLexicon.validated`), so the job id follows the lexicon actually used.
+    ///
+    /// The same lexicon is no change at all: nothing is written, the job keeps its id. When no
+    /// chapter's text changes (a word the book never says, a proposal confirmed as it was) the
+    /// book is rewritten in place and nothing is re-made. Otherwise the book is submitted under
+    /// its new id with everything else as it was (narrator, cast, settings) and the chapters
+    /// whose text changes leave Clippings, so only their chunks are synthesized (the rest come
+    /// from the chunk cache, here or on the home server) and only they land again, in their
+    /// places; the listening position is the book's, so it stays. Returns the chapters re-made.
     @discardableResult
     func applyLexicon(_ lexicon: PronunciationLexicon?, to book: BookShelf.Book, clippings: ClippingStore) async throws -> [Int] {
-        guard let job = job(forDocument: book.documentID), job.renderer == .thisMac,
-              var stored = store.load(job.id) else { throw PronunciationError.notOnThisMac }
-        var updated = stored.book
-        updated.lexicon = lexicon
-        let affected = PronunciationEditing.affectedChapters(from: stored.book, to: updated)
-        if affected.isEmpty {
+        guard let source = pronunciationSource(documentID: book.documentID) else { throw PronunciationError.noPreparedBook }
+        let validated = lexicon.map { $0.validated() }.flatMap { $0.isEmpty ? nil : $0 }
+        let before = source.book.lexicon.flatMap { $0.isEmpty ? nil : $0 }
+        guard validated != before else { return [] }
+        var updated = source.book
+        updated.lexicon = validated
+        let affected = PronunciationEditing.affectedChapters(from: source.book, to: updated)
+        switch (source.renderer, affected.isEmpty) {
+        case (.thisMac, true):
+            guard var stored = store.load(source.jobID) else { throw PronunciationError.noPreparedBook }
             stored.book = updated
             try store.save(stored)
-            refresh()
-            return []
-        }
-        for index in affected {
-            if let item = clippings.item(documentID: book.documentID, chapterIndex: index) {
-                clippings.remove(id: item.id, dismissing: false)
+        case (.homeServer, true):
+            homeServer.replacePreparedBook(updated, jobID: source.jobID)
+        case (.thisMac, false):
+            removeChapters(affected, of: book.documentID, clippings: clippings)
+            await cancel(source.jobID)
+            try await submit(updated)
+        case (.homeServer, false):
+            // Sent first: a home server that is away leaves the book as it was.
+            let newID = try await homeServer.resubmit(jobID: source.jobID, as: updated)
+            removeChapters(affected, of: book.documentID, clippings: clippings)
+            // A finished book stays finished on the home server too, so its keep date holds.
+            if clippings.ledger.document(book.documentID)?.finished == true {
+                await homeServer.markFinished(jobID: newID)
             }
         }
-        await cancel(job.id)
-        try await submit(updated)
-        documentsLog.notice("book \"\(updated.title, privacy: .public)\": lexicon changed, re-making \(affected.count) chapters")
+        refresh()
+        if !affected.isEmpty {
+            documentsLog.notice("book \"\(updated.title, privacy: .public)\": lexicon changed, re-making \(affected.count) chapters")
+        }
         return affected
     }
 
+    private func removeChapters(_ indexes: [Int], of documentID: String, clippings: ClippingStore) {
+        for index in indexes {
+            if let item = clippings.item(documentID: documentID, chapterIndex: index) {
+                clippings.remove(id: item.id, dismissing: false)
+            }
+        }
+    }
+
     enum PronunciationError: Error, CustomStringConvertible {
-        case notOnThisMac
-        var description: String { "Pronunciations can be corrected for books made on this Mac." }
+        case noPreparedBook
+        var description: String { "This Mac has no copy of the book's text to correct its pronunciations." }
     }
 }
 
@@ -194,11 +255,11 @@ struct PronunciationSheet: View {
         .padding(20)
         .frame(width: 520)
         .task {
-            if let job = library.job(forDocument: book.documentID), job.renderer == .thisMac {
-                original = library.store.load(job.id)?.book.lexicon
+            if let source = library.pronunciationSource(documentID: book.documentID) {
+                original = source.book.lexicon
                 rows = PronunciationEditing.rows(original)
             } else {
-                failure = DocumentLibrary.PronunciationError.notOnThisMac.description
+                failure = DocumentLibrary.PronunciationError.noPreparedBook.description
             }
             loaded = true
         }

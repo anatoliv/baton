@@ -123,7 +123,7 @@ struct MusicRadioView: View {
             }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
-            Text(pendingDelete.map { "“\($0.name)” will be removed from the server." } ?? "")
+            Text(pendingDelete.map { "“\($0.name)” will be removed from your music server." } ?? "")
         }
     }
 

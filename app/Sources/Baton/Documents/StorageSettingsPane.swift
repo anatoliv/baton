@@ -38,6 +38,14 @@ struct BatonStoragePane: View {
             library.cleanup.purge()
             await askServer()
         }
+        // The listing read when the pane opened goes stale when a book there changes: Render
+        // Again sends it to be made again, and it becomes ready later.
+        .onChange(of: homeServerStates) { _, _ in Task { await askServer() } }
+    }
+
+    /// Each book made on the home server and what it is doing there, as this Mac last heard.
+    private var homeServerStates: [String] {
+        library.jobs.filter { $0.renderer == .homeServer }.map { "\($0.id) \($0.summary.status.rawValue)" }
     }
 
     // MARK: - This Mac
@@ -79,7 +87,7 @@ struct BatonStoragePane: View {
         } else {
             parts.append("Not started")
         }
-        parts.append(madeHere ? "Made on this Mac" : "Made on the home server")
+        parts.append(madeHere ? "Made on this Mac" : "Made on the Baton server")
         if !book.canGetBack { parts.append("The only copy, so no rule removes it") }
         return parts.joined(separator: " · ")
     }
@@ -115,32 +123,32 @@ struct BatonStoragePane: View {
 
     private var homeServerSection: some View {
         Section {
-            if !library.homeServer.isConfigured {
-                Text("No home server is set up, so every book is made and kept on this Mac.")
-                    .foregroundStyle(.secondary)
-            } else if let listing {
-                if listing.books.isEmpty {
-                    Text("The home server has no books.").foregroundStyle(.secondary)
+            switch Self.homeServerContent(configured: library.homeServer.isConfigured, listing: listing,
+                                          asking: askingServer, problem: serverProblem) {
+            case .notConfigured:
+                Text(Self.notConfiguredText).foregroundStyle(.secondary)
+            case let .books(rows):
+                if rows.isEmpty {
+                    Text(Self.noServerBooksText).foregroundStyle(.secondary)
                 }
-                ForEach(listing.books, id: \.id) { summary in
+                ForEach(rows) { row in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(summary.title).lineLimit(1)
-                            Text(Self.serverStatusText(summary)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(row.title).lineLimit(1)
+                            Text(row.status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
-                        Text(BookStorage.sizeText(summary.bytes)).monospacedDigit().foregroundStyle(.secondary)
+                        Text(row.size).monospacedDigit().foregroundStyle(.secondary)
                     }
                 }
-            } else if askingServer {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Asking the home server…") }
-            } else {
-                Text("The home server could not be asked: \(serverProblem ?? "it isn't answering").")
-                    .foregroundStyle(.orange)
+            case .asking:
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Asking the Baton server…") }
+            case let .problem(text):
+                Text(text).foregroundStyle(.orange)
             }
         } header: {
             HStack {
-                Text("Home Server")
+                Text("Baton Server")
                 Spacer()
                 if library.homeServer.isConfigured {
                     Button("Refresh") { Task { await askServer() } }.disabled(askingServer)
@@ -149,6 +157,38 @@ struct BatonStoragePane: View {
         } footer: {
             if let listing { Text(Self.serverFooter(listing)) }
         }
+    }
+
+    /// What the Home Server section shows, decided here rather than in the view so it can be
+    /// tested. A listing already in hand stays on screen while Refresh asks again.
+    enum HomeServerContent: Equatable {
+        case notConfigured
+        case books([HomeServerRow])
+        case asking
+        case problem(String)
+    }
+
+    /// One book on the home server: its title, what is happening to it, and its size there.
+    struct HomeServerRow: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let status: String
+        let size: String
+    }
+
+    static let notConfiguredText = "No Baton server is set up, so every book is made and kept on this Mac."
+    static let noServerBooksText = "The Baton server has no books."
+
+    static func homeServerContent(configured: Bool, listing: GatewayBookClient.Listing?,
+                                  asking: Bool, problem: String?) -> HomeServerContent {
+        guard configured else { return .notConfigured }
+        if let listing {
+            return .books(listing.books.map {
+                HomeServerRow(id: $0.id, title: $0.title, status: serverStatusText($0), size: BookStorage.sizeText($0.bytes))
+            })
+        }
+        if asking { return .asking }
+        return .problem("The Baton server could not be asked: \(problem ?? "it isn't answering").")
     }
 
     /// "Using 300 MB of 4 GB. Finished books are kept there for 30 days, and a book you

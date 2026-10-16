@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import BatonPlaybackKit
 import BatonSubsonicKit
 
 /// Baton's unified Settings window. A chromeless sidebar + detail layout matching
@@ -104,7 +105,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
 
     var label: String {
         switch self {
-        case .servers: "Servers"
+        case .servers: "Music Servers"
         case .playback: "Playback"
         case .equalizer: "Equalizer"
         case .actions: "Actions"
@@ -177,24 +178,30 @@ private struct BatonServersPane: View {
                     KeychainLockedBanner(status: keychainFailure)
                 }
             }
-            Section("Servers") {
+            Section("Music servers") {
                 if servers.isEmpty {
-                    Text("No servers yet. Add one to start listening.")
+                    Text("No music servers yet. Add one to start listening.")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(servers) { server in
                         row(for: server)
                     }
                 }
-                Text("Baton streams from Navidrome or any Subsonic-compatible server. The active server (checkmark) is the one you're browsing and playing.")
-                    .font(.callout).foregroundStyle(.secondary)
+                // TBX-10997: two servers, two names, and a way to the page that explains both.
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Your music server holds your library: Navidrome or any Subsonic-compatible server. The active one (checkmark) is the one you're browsing and playing. Your Baton server, which makes books and keeps your devices in step, is set up under Remote.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    HelpTopicButton(topicSlug: HelpGuide.twoServersTopic, label: "About the two servers")
+                }
             }
 
             Section {
                 Button {
                     editing = .new
                 } label: {
-                    Label("Add Server…", systemImage: "plus")
+                    Label("Add Music Server…", systemImage: "plus")
                 }
             }
         }
@@ -215,7 +222,7 @@ private struct BatonServersPane: View {
             }
         }
         .confirmationDialog(
-            "Remove this server?",
+            "Remove this music server?",
             isPresented: Binding(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
@@ -585,7 +592,7 @@ private struct BatonAboutPane: View {
                 Toggle("Look up missing lyrics", isOn: $lrclibEnabled)
                 Text("Navidrome only serves lyrics that are embedded in your files, so for "
                      + "most libraries this panel is always empty. With this on, Baton asks "
-                     + "LRCLIB (a free, open lyrics database) for anything your server "
+                     + "LRCLIB (a free, open lyrics database) for anything your music server "
                      + "doesn't have. It sends the track title, artist and length, and "
                      + "nothing else. Lyrics in your own files always win.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -665,7 +672,7 @@ private struct BatonAboutPane: View {
                         }
                     }
                 }
-                Text("Exports Baton's own log entries from the last hour to a text file (with your server address, IPs, and paths redacted) for troubleshooting \"won't load\" / \"update failed\" reports.")
+                Text("Exports Baton's own log entries from the last hour to a text file (with your server addresses, IPs, and paths redacted) for troubleshooting \"won't load\" / \"update failed\" reports.")
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -708,7 +715,7 @@ private struct BatonSettingsBackupControls: View {
                     Button("Import…") { isImporting = true }
                 }
             }
-            Text("Move your Baton setup to another Mac. Preferences (playback, equalizer, layouts, spoken-summary voices, webhooks, and your server list) are always included. Server passwords and scrobbler logins are optional; including them encrypts the file with a passphrase you set.")
+            Text("Move your Baton setup to another Mac. Preferences (playback, equalizer, layouts, spoken-summary voices, webhooks, and your music server list) are always included. Server passwords and scrobbler logins are optional; including them encrypts the file with a passphrase you set.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         .sheet(isPresented: $showExportOptions) { exportOptionsSheet }
@@ -1065,7 +1072,7 @@ private struct BatonPlaybackPane: View {
                 ForEach(StreamingPlaybackController.LoudnessMode.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.menu)
-            Text("Evens out track-to-track volume using your server's ReplayGain or R128 data, without re-encoding and without delay. **Track** levels every song the same; **Album** keeps an album's own quiet-to-loud dynamics. Needs ReplayGain tags in your library; tracks without data play at normal volume.")
+            Text("Evens out track-to-track volume using your music server's ReplayGain or R128 data, without re-encoding and without delay. **Track** levels every song the same; **Album** keeps an album's own quiet-to-loud dynamics. Needs ReplayGain tags in your library; tracks without data play at normal volume.")
                 .font(.callout).foregroundStyle(.secondary)
             if player.loudnessMode != .off {
                 LabeledContent("Pre-amp") {
@@ -1424,10 +1431,10 @@ private struct BatonPlaybackPane: View {
             set: { model.scrobbler.externalSource = $0 }
         )) {
             Text("Sent by Baton").tag(ScrobbleService.ExternalSource.baton)
-            Text("Handled by my server").tag(ScrobbleService.ExternalSource.server)
+            Text("Handled by my music server").tag(ScrobbleService.ExternalSource.server)
         }
         .pickerStyle(.radioGroup)
-        Text("If your Navidrome/Subsonic server is **already** linked to Last.fm/ListenBrainz, choose **Handled by my server** so the same play isn't scrobbled twice. Baton still tracks play counts and \"now playing\". Otherwise leave it on **Sent by Baton**. Server play counts are always tracked regardless.")
+        Text("If your music server (Navidrome or another Subsonic server) is **already** linked to Last.fm/ListenBrainz, choose **Handled by my music server** so the same play isn't scrobbled twice. Baton still tracks play counts and \"now playing\". Otherwise leave it on **Sent by Baton**. Server play counts are always tracked regardless.")
             .font(.callout).foregroundStyle(.secondary)
     }
 

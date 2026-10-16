@@ -138,12 +138,15 @@ final class BookRetentionTests: XCTestCase {
         let relaunched = HomeServerBooks(directory: root, clippings: clippings, gateway: { client })
         XCTAssertTrue(relaunched.isCollected(try XCTUnwrap(relaunched.record(forJob: id))))
         XCTAssertNil(relaunched.summaries[id])
-        let before = gateway.calls.count
+        // Each round also lists the home server's books to adopt others'; only the
+        // calls about this book count here.
+        let bookCalls = { gateway.calls.filter { $0 != "GET /v1/books" }.count }
+        let before = bookCalls()
         await relaunched.collect()
         XCTAssertEqual(relaunched.summaries[id]?.removesAt, Self.november2)
-        XCTAssertEqual(gateway.calls.count, before + 1, "one status call, no chapter fetched")
+        XCTAssertEqual(bookCalls(), before + 1, "one status call, no chapter fetched")
         await relaunched.collect()
-        XCTAssertEqual(gateway.calls.count, before + 1, "and not asked again while the summary is known")
+        XCTAssertEqual(bookCalls(), before + 1, "and not asked again while the summary is known")
 
         gateway.gone = true
         let later = HomeServerBooks(directory: root, clippings: clippings, gateway: { client })

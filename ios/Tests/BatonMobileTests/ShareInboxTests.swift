@@ -145,4 +145,26 @@ final class ShareInboxTests: XCTestCase {
         XCTAssertNil(MobileDocuments.claimSharedImport(from: inbox))
         XCTAssertNil(MobileDocuments.claimSharedImport(from: nil), "no App Group, nothing to read")
     }
+
+    /// The extension's confirmation: a page shared from Safari is named by its title,
+    /// not by its site; a file keeps its name; a link with no usable title falls back to the host.
+    func testTheConfirmationNamesAPageByItsTitle() throws {
+        let page = URL(string: "https://www.gutenberg.org/cache/epub/1952/pg1952-images.html")!
+        let link = try inbox.writeLink(page)
+        XCTAssertEqual(link.originalName, "www.gutenberg.org")
+
+        let title = PendingShareInbox.pageTitle(from: [nil, "  The Yellow Wallpaper  "], link: link.link)
+        XCTAssertEqual(PendingShareInbox.confirmation(for: link, pageTitle: title), "Saved “The Yellow Wallpaper” for Baton")
+
+        // The address, the host, several lines of text or nothing at all are not a title.
+        XCTAssertNil(PendingShareInbox.pageTitle(from: [page.absoluteString, "www.gutenberg.org", "One\nTwo", "", nil],
+                                                 link: link.link))
+        XCTAssertNil(PendingShareInbox.pageTitle(from: [String(repeating: "a", count: 201)], link: link.link))
+        XCTAssertEqual(PendingShareInbox.pageTitle(from: ["https://example.com/other", "Real Title"], link: link.link),
+                       "Real Title", "the first usable one")
+        XCTAssertEqual(PendingShareInbox.confirmation(for: link, pageTitle: nil), "Saved www.gutenberg.org for Baton")
+
+        let file = try inbox.writeFile(copying: try source("Machine_stops.pdf", "%PDF"), originalName: "Machine_stops.pdf")
+        XCTAssertEqual(PendingShareInbox.confirmation(for: file, pageTitle: "Some Page"), "Saved Machine_stops.pdf for Baton")
+    }
 }

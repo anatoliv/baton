@@ -66,11 +66,23 @@ struct PlaybackMenuCommands: Commands {
 
             Divider()
 
+            // Speed applies to podcasts and books only; a song always plays at 1×.
+            Menu("Speed") {
+                ForEach(SpokenPlaybackOptions.rates, id: \.self) { rate in
+                    Toggle(SpokenPlaybackOptions.rateLabel(rate), isOn: Binding(
+                        get: { abs(player.spokenRate - rate) < 0.01 },
+                        set: { if $0 { player.spokenRate = rate } }
+                    ))
+                }
+            }
+            .disabled(!player.isSpokenNowPlaying)
+
             Menu("Sleep Timer") {
                 ForEach(SleepTimerOptions.minutes, id: \.self) { minutes in
                     Button(SleepTimerOptions.label(minutes)) { player.setSleepTimer(minutes: minutes) }
                 }
-                Button("End of Track") { player.sleepAtEndOfTrack() }
+                Button(SleepTimerOptions.endLabel(for: player.nowPlaying, isSpoken: player.isSpokenNowPlaying,
+                                                  titleCase: true)) { player.sleepAtEndOfTrack() }
                 if player.sleepTimerArmed {
                     Divider()
                     Button("Turn Off Sleep Timer") { player.cancelSleepTimer() }

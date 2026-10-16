@@ -33,7 +33,7 @@ struct MusicRelatedView: View {
                         isEmpty: shown.isEmpty && model.musicLibrary.lastError == nil
                     ),
                     emptyTitle: "No related tracks",
-                    emptyMessage: "Your server had no similar songs for this track.",
+                    emptyMessage: "Your music server had no similar songs for this track.",
                     emptySymbol: "sparkles"
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

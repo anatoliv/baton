@@ -21,7 +21,7 @@ final class ScannerReachabilityTests: XCTestCase {
         let gear = app.buttons["Settings"]
         XCTAssertTrue(gear.waitForExistence(timeout: 20))
         gear.tap()
-        XCTAssertTrue(app.staticTexts["Server"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Music server"].waitForExistence(timeout: 20))
 
         let row = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Set up from a Mac"))

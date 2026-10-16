@@ -323,34 +323,8 @@ public enum DialogueCast {
         propagate()
 
         // Rule 3: turn-taking.
-        enum UnitKind { case turn, reported, beat, breakRun }
         for chapter in Set(spans.map(\.chapter)).sorted() {
-            var units: [(UnitKind, [Int])] = []
-            for key in paragraphKeys where key.0 == chapter {
-                let group = spans.indices.filter { spans[$0].chapter == key.0 && spans[$0].paragraph == key.1 }
-                guard let lead = group.first else { continue }
-                let quotes = group.filter { spans[$0].kind == .quote }
-                let leadText = spans[lead].text
-                let leadLength = spans[lead].kind == .narration ? leadText.count : 0
-                let leadTrimmed = leadText.trimmingCharacters(in: .whitespaces)
-                if let first = quotes.first, spans[first].continues, let last = units.last, last.0 == .turn {
-                    units[units.count - 1].1.append(contentsOf: quotes)
-                } else if !quotes.isEmpty && (spans[lead].kind == .quote
-                            || (leadLength <= 80 && (leadTrimmed.hasSuffix(",") || leadTrimmed.hasSuffix(":")))) {
-                    let speech = quotes.reduce(0) { $0 + spans[$1].text.count }
-                    if let prior = units.last(where: { $0.0 != .beat }), prior.0 == .turn, speech > monologue,
-                       prior.1.reduce(0, { $0 + spans[$1].text.count }) > monologue {
-                        units.append((.breakRun, []))
-                    }
-                    units.append((.turn, quotes))
-                } else if quotes.isEmpty, groups(reported, leadText, anchored: true) != nil {
-                    units.append((.reported, group))
-                } else if quotes.isEmpty, leadText.count <= 200, group.count == 1 {
-                    units.append((.beat, group))
-                } else {
-                    units.append((.breakRun, group))
-                }
-            }
+            let units = turnUnits(spans, chapter: chapter, paragraphKeys: paragraphKeys)
 
             func known(_ u: Int) -> String? {
                 let (kind, members) = units[u]
@@ -435,6 +409,41 @@ public enum DialogueCast {
             }
         }
         propagate()
+    }
+
+    enum UnitKind { case turn, reported, beat, breakRun }
+
+    /// A chapter's paragraphs as turn-taking sees them: a turn (a paragraph of speech, or one led
+    /// by a short tag), a reported reply ("She replied that..."), a beat (a short paragraph of
+    /// narration) or a break (anything else, or the second of two long speeches in a row).
+    static func turnUnits(_ spans: [Span], chapter: Int, paragraphKeys: [(Int, Int)]) -> [(UnitKind, [Int])] {
+        var units: [(UnitKind, [Int])] = []
+        for key in paragraphKeys where key.0 == chapter {
+            let group = spans.indices.filter { spans[$0].chapter == key.0 && spans[$0].paragraph == key.1 }
+            guard let lead = group.first else { continue }
+            let quotes = group.filter { spans[$0].kind == .quote }
+            let leadText = spans[lead].text
+            let leadLength = spans[lead].kind == .narration ? leadText.count : 0
+            let leadTrimmed = leadText.trimmingCharacters(in: .whitespaces)
+            if let first = quotes.first, spans[first].continues, let last = units.last, last.0 == .turn {
+                units[units.count - 1].1.append(contentsOf: quotes)
+            } else if !quotes.isEmpty && (spans[lead].kind == .quote
+                        || (leadLength <= 80 && (leadTrimmed.hasSuffix(",") || leadTrimmed.hasSuffix(":")))) {
+                let speech = quotes.reduce(0) { $0 + spans[$1].text.count }
+                if let prior = units.last(where: { $0.0 != .beat }), prior.0 == .turn, speech > monologue,
+                   prior.1.reduce(0, { $0 + spans[$1].text.count }) > monologue {
+                    units.append((.breakRun, []))
+                }
+                units.append((.turn, quotes))
+            } else if quotes.isEmpty, groups(reported, leadText, anchored: true) != nil {
+                units.append((.reported, group))
+            } else if quotes.isEmpty, leadText.count <= 200, group.count == 1 {
+                units.append((.beat, group))
+            } else {
+                units.append((.breakRun, group))
+            }
+        }
+        return units
     }
 
     static func orderedParagraphKeys(_ spans: [Span]) -> [(Int, Int)] {

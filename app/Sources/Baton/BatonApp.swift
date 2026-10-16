@@ -1,4 +1,5 @@
 import BatonSubsonicKit
+import OSLog
 import SwiftUI
 import UserNotifications
 
@@ -70,6 +71,60 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
     /// listening to. See `BatonApp.init()` and TBX-7371.
     var music: MusicModel!
 
+    /// Set by `BatonApp.init()` to the scene's router, for the same reason as `music`.
+    var commandRouter: BatonCommandRouter!
+
+    /// Files from one Finder hand-over, gathered until the main actor's next turn.
+    private var openedFiles: [URL] = []
+
+    /// `onOpenURL` passes on only the first file of a Finder hand-over of several (seen on the
+    /// probe: two files, one call). The open-documents Apple event it is answering still lists
+    /// them all, so they are read from there, then gathered until the next turn: the import sheet
+    /// takes the first readable one and the rest are counted.
+    func receiveOpenedFile(_ url: URL) {
+        let listed = Self.fileURLs(inOpenEvent: NSAppleEventManager.shared().currentAppleEvent)
+        let files = listed.contains { $0.standardizedFileURL == url.standardizedFileURL } ? listed : [url]
+        let first = openedFiles.isEmpty
+        for file in files where !openedFiles.contains(where: { $0.standardizedFileURL == file.standardizedFileURL }) {
+            openedFiles.append(file)
+        }
+        guard first else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let urls = openedFiles
+            openedFiles = []
+            openDocuments(urls)
+        }
+    }
+
+    /// The file URLs an open-documents (`odoc`) Apple event carries, in order; none for any
+    /// other event.
+    nonisolated static func fileURLs(inOpenEvent event: NSAppleEventDescriptor?) -> [URL] {
+        guard let event, event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEOpenDocuments),
+              let list = event.paramDescriptor(forKeyword: keyDirectObject) else { return [] }
+        guard list.numberOfItems > 0 else { return list.fileURLValue.map { [$0] } ?? [] }
+        return (1...list.numberOfItems).compactMap { list.atIndex($0)?.fileURLValue }
+    }
+
+    /// Finder's Open With and the "Make an Audiobook with Baton" service end here:
+    /// the import sheet over Clippings, the path File > Import Document… takes. With Documents
+    /// off, or nothing Baton reads, an alert says why and nothing is imported.
+    func openDocuments(_ urls: [URL]) {
+        let route = commandRouter.openDocuments(urls)
+        documentsLog.info("handed \(urls.count, privacy: .public) file(s) from outside: \(String(describing: route), privacy: .private)")
+        guard route != .none else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        if let text = DocumentLibrary.openAlert(for: route) {
+            let alert = NSAlert()
+            alert.messageText = text.title
+            alert.informativeText = text.message
+            alert.runModal()
+        } else if case let .importSheet(url, others) = route,
+                  let notice = DocumentLibrary.othersNotice(opened: url, others: others) {
+            music.music.postToast(notice, symbol: "doc.on.doc", seconds: 6)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Never under XCTest, same guard as `SparkleUpdater` elsewhere in this file: the unit
         // tests are app-hosted, so this fires inside the test host too, and a live MCP
@@ -103,6 +158,9 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         ScreenTextReader.shared.onCapture = { [coordinator] capture in
             coordinator.read(capture)
         }
+        // The file service, "Make an Audiobook with Baton", shares the provider (AppKit takes
+        // one) and goes where Finder's Open With goes.
+        ScreenTextReader.shared.onDocumentFiles = { [weak self] urls in self?.openDocuments(urls) }
         NSApp.servicesProvider = ScreenTextReader.shared
         // The hotkey routes through the same capture path as the Services
         // entry, so both get identical source classification and cleaning.
@@ -215,7 +273,9 @@ struct BatonApp: App {
     @NSApplicationDelegateAdaptor(BatonAppDelegate.self) private var appDelegate
 
     /// Bridges menu-bar commands (Go / Find / Now Playing) into the main window's state.
-    @State private var commandRouter = BatonCommandRouter()
+    /// Assigned in `init()`, like `music`, because the delegate needs the same instance: the
+    /// "Make an Audiobook with Baton" service arrives there, not in a view.
+    @State private var commandRouter: BatonCommandRouter
 
     /// Window id for the custom About panel (opened from the app menu).
     static let aboutWindowID = "baton-about"
@@ -261,7 +321,10 @@ struct BatonApp: App {
         //. The iPhone's `BatonMobileApp` has always done it this way.
         let music = MusicModel()
         _music = State(initialValue: music)
+        let router = BatonCommandRouter()
+        _commandRouter = State(initialValue: router)
         appDelegate.music = music
+        appDelegate.commandRouter = router
     }
 
     /// A failed link says so, in the same place a failed drag already does.
@@ -363,6 +426,9 @@ struct BatonApp: App {
                 // silently did nothing on the desktop. Same `BatonDeepLink` vocabulary as
                 // the phone, in Shared/, so the two cannot mean different things by it.
                 .onOpenURL { url in
+                    // A document from Finder's Open With. The delegate gathers the
+                    // files of one hand-over, then sends them to the import sheet.
+                    if url.isFileURL { appDelegate.receiveOpenedFile(url); return }
                     guard let link = BatonDeepLink(url: url) else { return }
                     Task { await handle(link) }
                 }

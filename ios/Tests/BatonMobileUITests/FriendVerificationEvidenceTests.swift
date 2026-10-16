@@ -185,7 +185,7 @@ final class FriendVerificationEvidenceTests: XCTestCase {
         let gear = app.buttons["Settings"]
         XCTAssertTrue(gear.waitForExistence(timeout: 20), "Home's header must offer Settings")
         gear.tap()
-        XCTAssertTrue(app.staticTexts["Server"].waitForExistence(timeout: 20), "Settings must open")
+        XCTAssertTrue(app.staticTexts["Music server"].waitForExistence(timeout: 20), "Settings must open")
         let row = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH %@", "Music Friend"))
             .allElementsBoundByIndex

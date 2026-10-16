@@ -100,9 +100,9 @@ final class ModelConsentLedgerTests: XCTestCase {
 
     func testTheProposalSaysWhichCloudSourceWasNotAllowed() {
         XCTAssertEqual(PronunciationEditing.noModelLine(router: ModelRouter(sources: [anthropic])),
-                       "No model on this Mac or the home server, and sending excerpts to Anthropic is not allowed, so names are read as written. Add any below.")
+                       "No model on this Mac or the Baton server, and sending excerpts to Anthropic is not allowed, so names are read as written. Add any below.")
         XCTAssertEqual(PronunciationEditing.noModelLine(router: ModelRouter(sources: [])),
-                       "No model on this Mac or the home server, so names are read as written. Add any below.")
+                       "No model on this Mac or the Baton server, so names are read as written. Add any below.")
     }
 
     func testTheWordsNameTheProviderAndWhatIsSent() {

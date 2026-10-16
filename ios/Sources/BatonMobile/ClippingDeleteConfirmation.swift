@@ -51,13 +51,13 @@ struct ClippingDeleteConfirmation: ViewModifier {
                     // Said plainly: without this it looks like a clean delete and then
                     // reappears on another device, which is the confusing outcome this whole
                     // dialog exists to avoid.
-                    onStatus("Removed here, but \(Counted.phrase(failed, "clipping")) stayed on the gateway")
+                    onStatus("Removed here, but \(Counted.phrase(failed, "clipping")) stayed on the Baton server")
                 }
             }
             Button("Cancel", role: .cancel) { pending = [] }
         } message: {
             Text("Removing it here leaves the copy on your Mac. Deleting everywhere also removes "
-                 + "it from your home gateway, so no device collects it again.")
+                 + "it from your Baton server, so no device collects it again.")
         }
     }
 }

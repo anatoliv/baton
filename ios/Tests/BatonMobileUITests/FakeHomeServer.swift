@@ -5,7 +5,8 @@ import Network
 
 /// A home server for phone UI tests, in the test runner, on 127.0.0.1 (M5.3). It speaks the
 /// gateway's book routes over a real socket, as `HomeServerBooksPhoneTests.FakeGateway` does in
-/// process: list, submit, status, chapter download (with `X-Baton-SHA256`), finished, delete. The
+/// process: list, submit, status, chapter download (with `X-Baton-SHA256`), chapter timing,
+/// finished, delete, and the voice list (`/v1/voices`, TBX-10962, 404 until `setVoices`). The
 /// app reaches it through `uitestGatewayURL` (DEBUG only), so a test can say when a chapter is
 /// ready and count what the app asked for, and when.
 ///
@@ -28,15 +29,32 @@ final class FakeHomeServer: @unchecked Sendable {
     private var readyCount: [String: Int] = [:]
     private var readyOnSubmit = 0
     private var log: [Request] = []
-    private let audio: Data
+    /// One tone per chapter, so no two chapters share a digest: the shared ledger names audio
+    /// by digest, and one file for every chapter gave chapter 2 chapter 1's title.
+    private let chapterAudio: [Data]
+    private func audio(chapter n: Int) -> Data { chapterAudio[(n - 1) % chapterAudio.count] }
     /// Whether `GET /v1/books` answers that books are on, and why not when they are off.
     private var booksOn = true
     private var booksOffReason = "no voice server is set up"
+    /// What `GET /v1/voices` lists, as specs; nil answers 404, as a gateway from
+    /// before the route does, which is the default so other tests see today's import screen.
+    private var voices: [String]?
     /// The gateway's file store (`/v1/files`), for "Send to my Mac".
     private var files: [String: (contentType: String, body: Data)] = [:]
+    /// "Previously…": what was asked of the model and of the voice, and what they
+    /// answer. The model is an OpenAI-shaped `/v1/chat/completions` on loopback, which the phone
+    /// treats as a model on the person's network; the voice is the gateway's speech preview.
+    private var bodies: [String: [Data]] = [:]
+    private var modelReply = "Previously, Ada wound the great clock all winter, and a letter came that was not from Tobias."
+    private let speech: Data
+    /// `POST /v1/books/complete`: 404, like a gateway from before the route, until a
+    /// test turns it on; then the home server's model answers with `homeReply`.
+    private var answersBookTasks = false
+    private let homeReply = "Previously, Ada wound the great clock in the hall all winter, and a letter came that was not from Tobias."
 
     init() throws {
-        audio = try Self.makeAudio(seconds: 30)
+        chapterAudio = try (0..<4).map { try Self.makeAudio(seconds: 30, frequency: 440 + 110 * Double($0)) }
+        speech = try Self.makeWAV(seconds: 4)
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -62,9 +80,18 @@ final class FakeHomeServer: @unchecked Sendable {
     func setReady(_ count: Int) { lock.withLock { for id in jobs.keys { readyCount[id] = count } } }
     /// Answer that books are off, as a home server with no voice server does.
     func setBooksOff(reason: String) { lock.withLock { booksOn = false; booksOffReason = reason } }
+    /// List these voices on `GET /v1/voices`, or answer 404 with nil.
+    func setVoices(_ specs: [String]?) { lock.withLock { voices = specs } }
+    /// The narrator of a submitted book, as its voice plan names it.
+    func narrator(ofBook id: String) -> String? { lock.withLock { jobs[id]?.book.voices.narrator } }
     /// A file the app put in the file store, with its content type.
     func storedFile(_ id: String) -> (contentType: String, body: Data)? { lock.withLock { files[id] } }
     var requests: [Request] { lock.withLock { log } }
+    func setAnswersBookTasks(_ on: Bool) { lock.withLock { answersBookTasks = on } }
+    /// Every body sent to `path`, oldest first.
+    func bodies(_ path: String) -> [Data] { lock.withLock { bodies[path] ?? [] } }
+    /// The narrator of every submitted book.
+    var narrators: [String] { lock.withLock { jobs.values.map(\.book.voices.narrator) } }
     var bookIDs: [String] { lock.withLock { Array(jobs.keys) } }
     /// Status reads of one book: what the five-second watch and every collection ask.
     func statusReads(since: Date = .distantPast) -> [Request] {
@@ -125,8 +152,30 @@ final class FakeHomeServer: @unchecked Sendable {
     private func answer(method: String, path: String, body: Data, contentType: String) -> (Int, [String: String], Data) {
         lock.withLock {
             log.append(Request(method: method, path: path, at: Date()))
+            if method == "POST" { bodies[path, default: []].append(body) }
             let parts = path.split(separator: "/").map(String.init)
+            if method == "POST", path == "/v1/chat/completions" {
+                let reply: [String: Any] = ["choices": [["message": ["role": "assistant", "content": modelReply],
+                                                         "finish_reason": "stop"]]]
+                return (200, ["Content-Type": "application/json"], (try? JSONSerialization.data(withJSONObject: reply)) ?? Data())
+            }
+            if method == "POST", path == "/v1/books/complete" {
+                guard answersBookTasks else {
+                    return (404, ["Content-Type": "application/json"], Data(#"{"error":"no such book"}"#.utf8))
+                }
+                let reply: [String: Any] = ["text": homeReply, "model": "fake-home-model"]
+                return (200, ["Content-Type": "application/json"], (try? JSONSerialization.data(withJSONObject: reply)) ?? Data())
+            }
+            if method == "POST", path == "/v1/speech/preview" { return (200, ["Content-Type": "audio/wav"], speech) }
             if parts.count >= 2, parts[0] == "v1", parts[1] == "files" { return answerFile(method, parts, body, contentType) }
+            if method == "GET", parts == ["v1", "voices"] {
+                guard let voices else { return (404, ["Content-Type": "application/json"], Data(#"{"error":"not found"}"#.utf8)) }
+                let list = GatewayVoiceList(voices: voices.map { spec in
+                    let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+                    return GatewayVoiceList.Voice(engine: parts[0], id: parts[1], language: VoiceCatalogue.declaredLanguage(spec))
+                }, sources: ["kokoro": "server"])
+                return (200, ["Content-Type": "application/json"], (try? JSONEncoder().encode(list)) ?? Data())
+            }
             if method == "GET", parts == ["v1", "books"], !booksOn {
                 let listing: [String: Any] = ["available": false, "unavailable_reason": booksOffReason, "books": []]
                 return (200, ["Content-Type": "application/json"], (try? JSONSerialization.data(withJSONObject: listing)) ?? Data())
@@ -148,10 +197,23 @@ final class FakeHomeServer: @unchecked Sendable {
             guard let job = jobs[id] else { return (404, [:], Data()) }
             if method == "DELETE" { jobs[id] = nil; return (204, [:], Data()) }
             if method == "POST" { return (204, [:], Data()) }
+            // Read-along timing for chapter 1, its chunks spread over its 30 seconds.
+            // Every other chapter answers 404, as one made before timing was kept does.
+            if parts.count == 6, parts[3] == "chapters", parts[5] == "timing", let n = Int(parts[4]) {
+                guard n == 1, n <= (readyCount[id] ?? 0), let segments = job.book.chapters.first?.segments,
+                      !segments.isEmpty else { return (404, [:], Data()) }
+                let span = 30.0 / Double(segments.count)
+                let timing = ReadAlongTiming(segments: segments.enumerated().map { i, segment in
+                    .init(text: segment.text, paragraph: segment.paragraph,
+                          start: Double(i) * span, end: Double(i + 1) * span - 0.2)
+                })
+                return (200, ["Content-Type": "application/json"], (try? timing.encoded()) ?? Data())
+            }
             if parts.count == 5, parts[3] == "chapters", let n = Int(parts[4]) {
                 guard n >= 1, n <= (readyCount[id] ?? 0) else { return (404, [:], Data()) }
-                return (200, ["Content-Type": "audio/mp4", "X-Baton-SHA256": SHA256Digest.hex(of: audio),
-                              "X-Baton-Duration": "30.0", "X-Baton-Name": "chapter-\(n).m4a"], audio)
+                let chapter = audio(chapter: n)
+                return (200, ["Content-Type": "audio/mp4", "X-Baton-SHA256": SHA256Digest.hex(of: chapter),
+                              "X-Baton-Duration": "30.0", "X-Baton-Name": "chapter-\(n).m4a"], chapter)
             }
             return (200, ["Content-Type": "application/json"], (try? BookJSON.encoder.encode(summary(job))) ?? Data())
         }
@@ -188,15 +250,32 @@ final class FakeHomeServer: @unchecked Sendable {
         let ready = readyCount[job.id] ?? 0
         for i in job.chapters.indices {
             job.chapters[i] = i < ready
-                ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio.count, seconds: 30, sha256: SHA256Digest.hex(of: audio))
+                ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio(chapter: i + 1).count, seconds: 30,
+                         sha256: SHA256Digest.hex(of: audio(chapter: i + 1)))
                 : (i == ready ? .rendering(done: 1, of: 4) : .queued)
         }
         job.status = ready >= job.chapters.count ? .ready : .rendering
         return job.summary
     }
 
+    /// A quiet tone as WAV, which is what the speech preview answers.
+    private static func makeWAV(seconds: Double) throws -> Data {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake-speech-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = AVAudioFormat(standardFormatWithSampleRate: 24_000, channels: 1)!
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(24_000 * seconds))!
+            buffer.frameLength = buffer.frameCapacity
+            let samples = buffer.floatChannelData![0]
+            for i in 0..<Int(buffer.frameLength) { samples[i] = Float(0.05 * sin(2 * Double.pi * 330 * Double(i) / 24_000)) }
+            try file.write(from: buffer)
+        }
+        return try Data(contentsOf: url)
+    }
+
     /// A few seconds of a quiet tone as AAC in MPEG-4, which is what a chapter is.
-    private static func makeAudio(seconds: Double) throws -> Data {
+    private static func makeAudio(seconds: Double, frequency: Double) throws -> Data {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake-chapter-\(UUID().uuidString).m4a")
         defer { try? FileManager.default.removeItem(at: url) }
         let rate = 24_000.0
@@ -208,7 +287,7 @@ final class FakeHomeServer: @unchecked Sendable {
             let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
             buffer.frameLength = frames
             let samples = buffer.floatChannelData![0]
-            for i in 0..<Int(frames) { samples[i] = Float(0.1 * sin(2 * Double.pi * 440 * Double(i) / rate)) }
+            for i in 0..<Int(frames) { samples[i] = Float(0.1 * sin(2 * Double.pi * frequency * Double(i) / rate)) }
             try file.write(from: buffer)
         }
         return try Data(contentsOf: url)

@@ -179,6 +179,9 @@ struct FullScreenNowPlaying: View {
                 AirPlayRoutePicker(tint: .white)
                     .frame(width: 22, height: 22)
                     .help("AirPlay / output device")
+                if player.isSpokenNowPlaying {
+                    SpokenRateMenu(font: .title3, tint: .secondary)
+                }
                 sleepTimerMenu
                 Button { showRemovalConfirm = true } label: {
                     Image(systemName: "xmark.bin").font(.title3)
@@ -371,13 +374,19 @@ struct FullScreenNowPlaying: View {
     /// Custom segmented control for the side panel — a clear pill selector so all
     /// three tabs stay legible on the dark panel (the stock `.segmented` Picker
     /// renders the unselected tabs almost invisibly here).
+    /// A book chapter's Transcript tab reads along, so it is named for that.
+    private var playingBookChapter: Bool {
+        guard let song = player.nowPlaying else { return false }
+        return model.clippings.item(forSongID: song.id)?.clipping.isBookChapter ?? false
+    }
+
     private var panelTabs: some View {
         HStack(spacing: 4) {
             ForEach(SidePanel.allCases, id: \.self) { panel in
                 Button {
                     withAnimation(.easeOut(duration: 0.15)) { sidePanel = panel }
                 } label: {
-                    Text(panel.rawValue)
+                    Text(panel == .transcript && playingBookChapter ? "Read Along" : panel.rawValue)
                         .font(.callout.weight(.medium))
                         .foregroundStyle(sidePanel == panel ? Color.white : Color.white.opacity(0.65))
                         .frame(maxWidth: .infinity)
@@ -434,7 +443,13 @@ struct FullScreenNowPlaying: View {
                         nothingPlaying
                     }
                 case .transcript:
-                    if let song = player.nowPlaying {
+                    // A book chapter's words are known, so it reads along instead.
+                    if let song = player.nowPlaying, let chapter = model.clippings.item(forSongID: song.id),
+                       chapter.clipping.isBookChapter {
+                        ReadAlongPanel(item: chapter, currentTime: player.currentTime,
+                                       loadTiming: { await model.documents.readAlongTiming(for: $0) },
+                                       onSeek: { player.seek(to: $0) })
+                    } else if let song = player.nowPlaying {
                         MusicTranscriptView(song: song)
                     } else {
                         nothingPlaying

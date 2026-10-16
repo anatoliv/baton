@@ -35,6 +35,8 @@ def prepare(template, destination, suite):
         raise ValueError("Probe host, target or scheme already exists")
     # Same approved App ID/profile, but no normal app source/model/package/framework
     # initialization. Keep the existing widget extension embedded without changing it.
+    # BatonShare (io.tonebox.baton.share) is embedded by BatonMobile only; the probe host
+    # does not embed it, so it needs no Debug profile here (TBX-10944).
     debug = copy.deepcopy(targets["BatonMobile"]["settings"]["configs"]["Debug"])
     targets[host] = {
         "type": "application", "platform": "iOS",
@@ -71,6 +73,17 @@ def prepare(template, destination, suite):
             "BATON_APP_ATTEST_PHYSICAL_ACCEPTANCE": "1", "baton.defaultsSuite": suite,
         }},
     }
+    # Every signed product the probe scheme builds must be one checked above. Refuse a
+    # spec whose build reaches another target, such as BatonShare without a profile.
+    closure, pending = set(), [host, name]
+    while pending:
+        current = pending.pop()
+        if current not in closure:
+            closure.add(current)
+            pending += [item["target"] for item in targets[current].get("dependencies", [])
+                        if "target" in item]
+    if closure != {host, name, "BatonWidgets"}:
+        raise ValueError("Probe build must embed only the qualified widget extension")
     destination.mkdir(mode=0o700)  # Refuse reuse rather than overwrite another run.
     result = destination / "physical-probe-spec.json"
     data = json.dumps(spec, sort_keys=True, indent=2).encode()

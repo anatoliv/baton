@@ -37,7 +37,7 @@ struct BatonConnectSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Connect your music").font(.title3.bold())
-                Text("Baton plays your own library from any Navidrome or Subsonic-compatible server.")
+                Text("Baton plays your own library from your music server: Navidrome or any Subsonic-compatible server.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 // First-run help for the not-yet-self-hosting downloader.
                 HStack(spacing: 12) {

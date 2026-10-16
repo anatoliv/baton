@@ -101,6 +101,10 @@ public struct BookJob: Codable, Sendable, Equatable {
         /// "kept until 2 November" instead of a rule the listener has to work out. Set by
         /// `BookStore.summary(of:)`, which knows the retention; nil until the book is finished.
         public var removesAt: Date? = nil
+        /// The document the book was made from: what Clippings and the shared
+        /// ledger key a book by, so a device that did not send the book can adopt it and share
+        /// its place and "finished" with the device that did. Nil from a gateway older than it.
+        public var documentID: String? = nil
     }
 
     public struct ChapterSummary: Codable, Sendable, Equatable {
@@ -137,7 +141,7 @@ public struct BookJob: Codable, Sendable, Equatable {
                                               progress: 0, reason: reason)
                     }
                 },
-                bytes: bytesOnDisk, createdAt: createdAt, finishedAt: finishedAt)
+                bytes: bytesOnDisk, createdAt: createdAt, finishedAt: finishedAt, documentID: book.documentID)
     }
 }
 
@@ -207,6 +211,14 @@ public struct BookStore: Sendable {
         else { return nil }
         let url = dir.appendingPathComponent(file)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// The read-along timing written beside a chapter, when the renderer that made
+    /// it kept one. Nil for a chapter made before timing was kept.
+    public func chapterTiming(_ id: String, file: String) -> ReadAlongTiming? {
+        guard let dir = jobDirectory(id), let name = ReadAlongTiming.fileName(forChapterFile: file),
+              let data = try? Data(contentsOf: dir.appendingPathComponent(name)) else { return nil }
+        return ReadAlongTiming.decode(data)
     }
 
     public func remove(_ id: String) {

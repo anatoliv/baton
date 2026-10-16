@@ -44,7 +44,7 @@ final class VoiceSuggestionsTests: XCTestCase {
     func testSourcesAreThisMacsOllamaThenTheMusicFriendsModel() {
         let sources = VoiceSuggestions.sources(agent: agent(base: "http://10.0.0.8:8000/v1", provider: .openAICompatible),
                                                ollamaModel: "qwen3:8b")
-        XCTAssertEqual(sources.map(\.name), ["qwen3:8b on this Mac", "the home server"])
+        XCTAssertEqual(sources.map(\.name), ["qwen3:8b on this Mac", "the Baton server"])
         XCTAssertEqual(sources.map(\.provider), [.ollama, .openAICompatible])
         XCTAssertTrue(sources.allSatisfy(\.isLocal))
 
@@ -148,7 +148,7 @@ final class VoiceSuggestionsTests: XCTestCase {
                                  model: "local-model", contextTokens: 4_096)]
         let sources = VoiceSuggestions.sources(agent: agent(base: "http://10.0.0.8:8000/v1", provider: .openAICompatible),
                                                ollamaModel: "qwen3:8b", saved: saved)
-        XCTAssertEqual(sources.map(\.name), ["qwen3:8b on this Mac", "LM Studio", "the home server"])
+        XCTAssertEqual(sources.map(\.name), ["qwen3:8b on this Mac", "LM Studio", "the Baton server"])
     }
 }
 

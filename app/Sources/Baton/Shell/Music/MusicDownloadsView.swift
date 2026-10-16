@@ -101,7 +101,7 @@ struct MusicDownloadsView: View {
                                 )
                                 Toggle(isOn: $offlineMode) { Text("Offline mode") }
                                     .toggleStyle(.switch).controlSize(.small)
-                                    .help("Prefer downloaded files over streaming from the server.")
+                                    .help("Prefer downloaded files over streaming from the music server.")
                                 if !filteredItems.isEmpty {
                                     Button { sel.selectAll(orderedIDs) } label: {
                                         Label("Select", systemImage: "checklist").font(.caption).labelStyle(.titleAndIcon)

@@ -203,6 +203,13 @@ enum SessionPurge {
         model.friendMemory.forgetEverything()
         model.friendLearning.forgetAll()
 
+        // A document shared just before signing out, still waiting for its import screen
+        //. It is kept on disk to survive a relaunch, so without this it came back
+        // after the sign-out. Unlike clippings it is not the user's recording but
+        // an import that never happened, so it goes whether or not downloads are kept.
+        model.pendingDocumentImport = nil
+        PendingImportStore.shared.clear()
+
         // Clippings are audio the user recorded themselves, so they go with the downloads
         // rather than with the account: "switch servers" and "erase my recordings" are
         // different intentions, and only one of them is irreversible.

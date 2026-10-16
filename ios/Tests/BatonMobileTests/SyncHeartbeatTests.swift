@@ -49,4 +49,57 @@ final class SyncHeartbeatTests: XCTestCase {
     func testTheIntervalMatchesTheMacs() {
         XCTAssertEqual(MobileModel.syncHeartbeat, 600)
     }
+
+    // MARK: - The book ledger push
+
+    private func settle() async throws { try await Task.sleep(for: .milliseconds(300)) }
+
+    /// Pause and Stop each push the book ledger after the debounce, and a burst is one push.
+    /// Before this a book stopped on the phone reached the Mac at its next heartbeat.
+    func testPauseAndStopPushTheBookLedgerDebounced() async throws {
+        var pushes = 0
+        let paused = MobileModel()
+        paused.installBookLedgerPush(delay: .milliseconds(50)) { pushes += 1; return true }
+        paused.music.pause()
+        XCTAssertEqual(pushes, 0, "debounced, not at once")
+        try await settle()
+        XCTAssertEqual(pushes, 1, "pause")
+
+        let stopped = MobileModel()
+        stopped.installBookLedgerPush(delay: .milliseconds(50)) { pushes += 1; return true }
+        stopped.music.pause()
+        stopped.music.stop()
+        try await settle()
+        XCTAssertEqual(pushes, 2, "pause then stop: one push")
+    }
+
+    /// Leaving the foreground pushes at once, under a background task, in place of a pause push
+    /// still waiting out its delay.
+    func testLeavingTheForegroundPushesAtOnce() async throws {
+        var pushes = 0
+        let model = MobileModel()
+        model.installBookLedgerPush(delay: .seconds(30)) { pushes += 1; return true }
+        model.music.pause()
+        model.pushBookLedgerLeavingForeground()
+        try await settle()
+        XCTAssertEqual(pushes, 1)
+        XCTAssertEqual(model.bookLedgerPush?.isPending, false)
+    }
+
+    /// The real push is the forced sync, which sends nothing from a phone switched off with
+    /// `BATON_DEBUG_PREFERENCE_SYNC=off` (as these tests run) or with no gateway set up.
+    func testTheRealPushIsTheSyncAndHonoursTheSwitch() async {
+        let model = MobileModel()
+        XCTAssertNotNil(model.bookLedgerPush, "installed at launch")
+        let reached = await model.syncPreferences(force: true)
+        XCTAssertFalse(reached)
+    }
+
+    /// Play on a book pulls the Mac's place first, through the same forced sync; a
+    /// phone switched off with `BATON_DEBUG_PREFERENCE_SYNC=off` has nothing to pull with, so
+    /// Play starts at once.
+    func testASwitchedOffPhonePullsNothingBeforePlay() {
+        let model = MobileModel()
+        XCTAssertNil(model.bookPlacePull(environment: ["BATON_DEBUG_PREFERENCE_SYNC": "off"]))
+    }
 }

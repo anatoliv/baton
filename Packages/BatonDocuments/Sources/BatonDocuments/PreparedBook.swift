@@ -34,6 +34,19 @@ public struct PreparedBook: Codable, Sendable, Equatable {
         self.chapters = chapters
     }
 
+    /// The same book read by another narrator (Change Voice, TBX-10989): the words, the cast,
+    /// the pronunciations and the audio settings are kept, and the job id follows the new voice.
+    public func inVoice(_ narrator: String) -> PreparedBook {
+        var book = self
+        book.voices = voices.withNarrator(narrator)
+        return book
+    }
+
+    /// The dialogue is voiced by a cast (G4): some line has a speaker with a voice of its own.
+    public var hasCast: Bool {
+        !voices.characters.isEmpty && chapters.contains { $0.segments.contains { $0.speaker != nil } }
+    }
+
     public var segmentCount: Int { chapters.reduce(0) { $0 + $1.segments.count } }
     public var characterCount: Int { chapters.reduce(0) { $0 + $1.segments.reduce(0) { $0 + $1.text.count } } }
 
@@ -107,6 +120,16 @@ public struct VoicePlan: Codable, Sendable, Equatable {
         let engine = HTTPSpeechSynthesizer.split(narrator).engine
         let style = engine == "chatterbox" ? SpeechStyle.forTone(suggestion?.tone ?? tone) : nil
         return VoicePlan(narrator: narrator, speed: suggested ? suggestion?.speed : nil, style: style)
+    }
+
+    /// The plan with another narrator (Change Voice, TBX-10989). The cast is the book's and is
+    /// kept: each character keeps the voice it has, and only the narrator changes. The speed
+    /// belongs to the voice it was suggested for, so another narrator reads at its own pace; the
+    /// style is the book's tone and stays for a Chatterbox narrator, and a Kokoro one takes none.
+    public func withNarrator(_ narrator: String) -> VoicePlan {
+        guard narrator != self.narrator else { return self }
+        let chatterbox = HTTPSpeechSynthesizer.split(narrator).engine == "chatterbox"
+        return VoicePlan(narrator: narrator, characters: characters, speed: nil, style: chatterbox ? style : nil)
     }
 
     /// The voice for a segment: its speaker's, or the narrator's when it has none or the

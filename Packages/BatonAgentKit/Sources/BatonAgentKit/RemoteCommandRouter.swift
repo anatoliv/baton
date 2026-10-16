@@ -673,7 +673,7 @@ public enum RemoteResultFormatter {
 
         case "music_list_playlists":
             let playlists = json["playlists"] as? [[String: Any]] ?? []
-            guard !playlists.isEmpty else { return "No playlists on the server." }
+            guard !playlists.isEmpty else { return "No playlists on the music server." }
             func line(_ item: [String: Any]) -> String {
                 let name = item["name"] as? String ?? "—"
                 let count = item["song_count"] as? Int

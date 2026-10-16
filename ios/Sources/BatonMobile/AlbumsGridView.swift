@@ -96,6 +96,15 @@ struct AlbumsGridView: View {
                 AlbumDetailView(album: album, model: model)
             }
             .refreshable { await model.musicLibrary.loadAlbums() }
+            // The first load runs from the launch task, which can be cancelled while the first
+            // screen settles; the shelf then opened empty with nothing to bring it back. Load
+            // here when nothing is on the shelf, loading, or failed.
+            .task {
+                let library = model.musicLibrary
+                if library.albums.isEmpty, !library.isLoading, library.lastError == nil {
+                    await library.loadAlbums()
+                }
+            }
             // Was a spinner and nothing else: a server returning 500 left an empty grid
             // that read as "you have no music".
             .contentState(

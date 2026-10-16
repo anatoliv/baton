@@ -44,7 +44,8 @@ enum BatonMCPBookTools {
 
     static func run(_ args: [String: Any], library: DocumentLibrary?, clippings: ClippingStore,
                     playing: Playing?) throws -> String {
-        let books = BookShelf.entries(items: clippings.items, jobs: library?.jobs ?? [], ledger: clippings.ledger)
+        let books = BookShelf.entries(items: clippings.items, jobs: library?.jobs ?? [], ledger: clippings.ledger,
+                                      changes: library?.voiceChanges.all ?? [])
             .compactMap { if case let .book(book) = $0 { book } else { nil } }
         guard !books.isEmpty else {
             throw BatonMCPToolError(message: "There are no books in Clippings.")

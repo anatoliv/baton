@@ -80,7 +80,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>The camera reads the pairing code your Mac shows, so your iPhone can be set up without typing a server address and password. Nothing is recorded.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Baton connects to your Navidrome server and self-hosted text-to-speech services on your local network.</string>
+	<string>Baton connects to your music server, your Baton server and self-hosted text-to-speech services on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The microphone lets you talk to your music friend — push to talk, ask for music.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

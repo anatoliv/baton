@@ -166,7 +166,7 @@ final class AgentTools: RemoteToolSurface {
             // music friend for a radio is not a reason to hear tracks you have told Baton
             // to keep out of one.
             let similar = model.radioBans.filtered(await model.musicLibrary.similarSongs(seedID: seed.id))
-            guard !similar.isEmpty else { return "The server has no similarity data for this track." }
+            guard !similar.isEmpty else { return "The music server has no similarity data for this track." }
             model.music.play([seed] + similar, source: .init(label: "\(seed.title) Radio", kind: .radio))
             return "Radio started from \(seed.title) with \(similar.count) similar songs."
 

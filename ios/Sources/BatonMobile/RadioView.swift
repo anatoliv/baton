@@ -49,7 +49,7 @@ struct RadioView: View {
                                         isEmpty: model.radio.stations.isEmpty),
             emptyTitle: "No stations",
             emptyMessage: model.radio.loadError
-                ?? "Add a stream URL here, or save stations on your server.",
+                ?? "Add a stream URL here, or save stations on your music server.",
             emptySymbol: "dot.radiowaves.left.and.right"
         )
         .task { await model.radio.loadIfNeeded() }

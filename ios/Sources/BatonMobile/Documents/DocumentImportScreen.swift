@@ -26,7 +26,18 @@ struct DocumentImportScreen: View {
     /// What the home server said, for what to offer instead when it cannot make the book.
     @State private var availability: HomeServerBooks.Availability?
     @State private var preview: AVAudioPlayer?
-    @State private var previewing = false
+    /// The voice whose preview is playing.
+    @State private var previewing: String?
+    /// The narrators to choose from, when the home server lists its voices; nil
+    /// shows the configured default alone, as before.
+    @State private var narrators: VoiceSuggestion?
+    @State private var chosen: String?
+
+    /// Asks for the narrator choice once the book is read and the home server makes books.
+    private var narratorKey: String? {
+        guard homeServer == true, case let .ready(document, _) = phase else { return nil }
+        return document.sourceSHA256
+    }
 
     var body: some View {
         NavigationStack {
@@ -56,6 +67,12 @@ struct DocumentImportScreen: View {
             let answer = await model.books.availability()
             availability = answer
             homeServer = answer == .available
+        }
+        .task(id: narratorKey) {
+            guard narratorKey != nil, case let .ready(document, _) = phase else { return }
+            let found = await MobileDocuments.narratorChoice(for: document, client: model.gatewayBookClient())
+            narrators = found
+            chosen = found?.primary
         }
         .onDisappear { preview?.stop() }
         .interactiveDismissDisabled(submitting)
@@ -100,33 +117,45 @@ struct DocumentImportScreen: View {
                 }
             }
 
-            Section("Narrator") {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(Self.voiceLabel(voice))
-                        Text("The default voice for the book's language.").font(.caption).foregroundStyle(.secondary)
+            Section {
+                if let narrators, homeServer == true {
+                    ForEach([narrators.primary] + narrators.alternates, id: \.self) { option in
+                        narratorRow(document, option, isDefault: option == narrators.primary)
                     }
-                    Spacer()
-                    if homeServer == true {
-                        Button {
-                            Task { await playPreview(document, voice: voice) }
-                        } label: {
-                            Image(systemName: previewing ? "stop.circle" : "play.circle").font(.title2)
+                } else {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(Self.voiceLabel(voice))
+                            Text("The default voice for the book's language.").font(.caption).foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(previewing ? "Stop the preview" : "Hear this voice")
+                        Spacer()
+                        if homeServer == true {
+                            Button {
+                                Task { await playPreview(document, voice: voice) }
+                            } label: {
+                                Image(systemName: previewing == voice ? "stop.circle" : "play.circle").font(.title2)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(previewing == voice ? "Stop the preview" : "Hear this voice")
+                        }
                     }
+                }
+            } header: {
+                Text("Narrator")
+            } footer: {
+                if narrators != nil, homeServer == true {
+                    Text("Voices your Baton server offers. Tap one to choose it.")
                 }
             }
 
             Section {
                 switch homeServer {
                 case nil:
-                    HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Asking your home server…") }
+                    HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Asking your Baton server…") }
                         .foregroundStyle(.secondary)
                 case .some(true):
                     Button {
-                        submit(document, voice: voice)
+                        submit(document, voice: narrators == nil ? voice : (chosen ?? voice))
                     } label: {
                         HStack {
                             Spacer()
@@ -144,7 +173,7 @@ struct DocumentImportScreen: View {
                 }
             } footer: {
                 if homeServer == true {
-                    Text("Your home server makes it, so this phone can be put away. Chapter 1 is ready in a minute or two, and arrives in Clippings.")
+                    Text("Your Baton server makes it, so this phone can be put away. Chapter 1 is ready in a minute or two, and arrives in Clippings.")
                 }
             }
         }
@@ -167,9 +196,10 @@ struct DocumentImportScreen: View {
     private func submit(_ document: ImportedDocument, voice: String) {
         submitting = true
         preview?.stop()
-        // The phone has no voice suggestion yet, so no tone to style a Chatterbox narrator with;
-        // the shared plan carries one the day it does (M8.7).
-        let book = DocumentSpeech.prepare(document, voices: .forBook(narrator: voice))
+        // The chosen narrator goes in the book's voice plan, as the Mac's home-server submission
+        // carries its narrator. The phone has no model suggestion yet, so no tone to
+        // style a Chatterbox narrator with; the shared plan carries one the day it does (M8.7).
+        let book = DocumentSpeech.prepare(document, voices: .forBook(narrator: voice, suggestion: narrators))
         Task {
             do {
                 try await model.books.submit(book)
@@ -188,21 +218,33 @@ struct DocumentImportScreen: View {
         }
     }
 
-    /// A few seconds of the book's own opening in this voice, made by the home server.
+    /// One narrator to choose (a tap anywhere on its name) and hear (its play button).
+    private func narratorRow(_ document: ImportedDocument, _ option: String, isDefault: Bool) -> some View {
+        NarratorOptionRow(voice: option, chosen: $chosen, playing: previewing == option,
+                          detail: isDefault ? "The default voice for the book's language." : nil) {
+            Task { await playPreview(document, voice: option) }
+        }
+    }
+
+    /// A few seconds of the book's own opening in this voice, made by the home server. Pressing
+    /// the playing voice again stops it; pressing another switches to it.
     private func playPreview(_ document: ImportedDocument, voice: String) async {
-        if previewing { preview?.stop(); previewing = false; return }
+        let wasPlaying = previewing
+        preview?.stop()
+        previewing = nil
+        if wasPlaying == voice { return }
         guard let client = model.gatewayBookClient() else { return }
         let opening = document.chapters.first?.paragraphs.first.map { String($0.prefix(160)) } ?? document.title
         do {
             let wav = try await client.preview(text: opening, voice: voice)
             let player = try AVAudioPlayer(data: wav)
             preview = player
-            previewing = true
+            previewing = voice
             player.play()
             try? await Task.sleep(for: .seconds(player.duration))
-            previewing = false
+            if previewing == voice, preview === player { previewing = nil }
         } catch {
-            previewing = false
+            if previewing == voice { previewing = nil }
         }
     }
 
@@ -223,4 +265,51 @@ struct DocumentImportScreen: View {
     }
 
     static func text(for warning: ImportWarning) -> String { warning.listenerText }
+}
+
+/// One narrator to choose (a tap anywhere on its name) and hear (its play button): the import
+/// screen's row, and Change Voice's, so the two pick a voice the same way.
+struct NarratorOptionRow: View {
+    let voice: String
+    @Binding var chosen: String?
+    /// Its preview is playing.
+    var playing: Bool
+    /// A line under the name.
+    var detail: String? = nil
+    /// "now", after the name of the voice a book has.
+    var tag: String? = nil
+    let onPreview: () -> Void
+
+    var body: some View {
+        let selected = chosen == voice
+        HStack {
+            Button {
+                chosen = voice
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selected ? Color.accentColor : .secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(DocumentImportScreen.voiceLabel(voice))
+                            if let tag { Text(tag).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        if let detail {
+                            Text(detail).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("narrator-\(voice)")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            Button(action: onPreview) {
+                Image(systemName: playing ? "stop.circle" : "play.circle").font(.title2)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(playing ? "Stop the preview" : "Hear \(DocumentImportScreen.voiceLabel(voice))")
+        }
+    }
 }

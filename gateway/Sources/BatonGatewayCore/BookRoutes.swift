@@ -8,11 +8,16 @@ import Foundation
 ///     PUT    /v1/books/{id}                    submit a PreparedBook (streamed, like a file upload)
 ///     GET    /v1/books                         list, newest first, without the text
 ///     GET    /v1/books/{id}                    one job's status, per chapter
+///     GET    /v1/books/{id}/book               the shaped book it was made from, for another device
 ///     GET    /v1/books/{id}/chapters/{n}       chapter n's M4A (1-based), with its digest
+///     GET    /v1/books/{id}/chapters/{n}/timing  where each chunk sits in it, for read-along (404: none kept)
 ///     GET    /v1/books/{id}/export.m4b         the whole book as one audiobook with chapter marks
 ///     POST   /v1/books/{id}/finished           the listener reached the end: retention starts
+///     POST   /v1/books/complete                one book task (a recap) by the gateway's model, only
+///                                              when it is on the home network (`BookCompletionRoute`)
 ///     DELETE /v1/books/{id}                    cancel and remove
 ///     POST   /v1/speech/preview                a few seconds of a voice, for the import sheet
+///     GET    /v1/voices                        the voices the voice server offers (`VoiceListing`)
 ///
 /// Submission is a `PUT` that streams to disk because a prepared novel is larger than the 1 MB
 /// the ordinary request path accepts; the same streaming path files already use takes it.
@@ -24,6 +29,10 @@ public struct BookRoutes: Sendable {
     public let unavailableReason: String?
     /// Joins chapters into an `.m4b` (`FFmpegMuxer.exportM4B`); nil turns the export off.
     public let exporter: FFmpegMuxer?
+    /// What `GET /v1/voices` answers with; nil answers 503.
+    public let voices: VoiceListing?
+    /// `POST /v1/books/complete`; nil answers 503.
+    public let completion: BookCompletionRoute?
 
     public static let maximumPreviewCharacters = 600
     /// The export is answered from memory like every response here (`httpResponse`'s known
@@ -31,8 +40,11 @@ public struct BookRoutes: Sendable {
     public static let maximumExportBytes = 1_500_000_000
 
     public init(renderer: BookRenderer?, store: BookStore, synthesizer: (any SpeechSynthesizing)?,
-                unavailableReason: String?, exporter: FFmpegMuxer? = nil) {
+                unavailableReason: String?, exporter: FFmpegMuxer? = nil, voices: VoiceListing? = nil,
+                completion: BookCompletionRoute? = nil) {
         self.renderer = renderer
+        self.completion = completion
+        self.voices = voices
         self.store = store
         self.synthesizer = synthesizer
         self.unavailableReason = unavailableReason
@@ -46,10 +58,18 @@ public struct BookRoutes: Sendable {
     public func routes() -> [Router.Route] {
         [
             Router.Route(methods: ["GET"], pattern: .exact("/v1/books"), handler: { _, _ in self.list() }),
+            // Before the `/v1/books/` prefix, which would take "complete" for a book id.
+            Router.Route(methods: ["POST"], pattern: .exact(BookCompletion.path), handler: { request, _ in
+                guard let completion = self.completion else {
+                    return httpErrorResponse(status: "503 Service Unavailable", message: "no model is set up on the home server")
+                }
+                return await completion.handle(request)
+            }),
             Router.Route(methods: ["GET", "POST", "DELETE"], pattern: .prefix("/v1/books/"),
                          handler: { request, rest in await self.book(request, rest) }),
             Router.Route(methods: ["POST"], pattern: .exact("/v1/speech/preview"),
                          handler: { request, _ in await self.preview(request) }),
+            Router.Route(methods: ["GET"], pattern: .exact("/v1/voices"), handler: { _, _ in await self.voiceList() }),
         ]
     }
 
@@ -77,10 +97,17 @@ public struct BookRoutes: Sendable {
         case ("GET", 1):
             guard let job = store.load(id) else { return notFound() }
             return json(store.summary(of: job))
+        case ("GET", 2) where parts[1] == "book":
+            // A device that did not send the book adopts it from this: the chapter
+            // words for read-along, and the shaped book Render Again starts from.
+            guard let job = store.load(id), let data = try? job.book.encoded() else { return notFound() }
+            return httpResponse(status: "200 OK", contentType: "application/json", payload: data)
         case ("GET", 2) where parts[1] == "export.m4b":
             return await export(id)
         case ("GET", 3) where parts[1] == "chapters":
             return chapter(id, parts[2])
+        case ("GET", 4) where parts[1] == "chapters" && parts[3] == "timing":
+            return timing(id, parts[2])
         case ("POST", 2) where parts[1] == "finished":
             guard let renderer, await renderer.markFinished(id) else { return notFound() }
             return httpResponse(status: "200 OK", body: #"{"ok":true}"#)
@@ -104,6 +131,20 @@ public struct BookRoutes: Sendable {
             "X-Baton-Duration": String(format: "%.3f", seconds),
             "X-Baton-Name": "\(job.book.title) - \(n). \(title)",
         ])
+    }
+
+    /// A ready chapter's read-along timing. 404 for a chapter made before this
+    /// gateway kept timing, which a client reads as "show the text without a highlight", the
+    /// same answer an older gateway gives for the whole route.
+    func timing(_ id: String, _ number: String) -> Data {
+        guard let job = store.load(id), let n = Int(number), n >= 1, n <= job.chapters.count else { return notFound() }
+        guard case let .ready(file, _, _, _) = job.chapters[n - 1] else {
+            return httpErrorResponse(status: "409 Conflict", message: "chapter \(n) is not ready")
+        }
+        guard let timing = store.chapterTiming(id, file: file), let data = try? timing.encoded() else {
+            return httpErrorResponse(status: "404 Not Found", message: "no timing for chapter \(n)")
+        }
+        return httpResponse(status: "200 OK", contentType: "application/json", payload: data)
     }
 
     /// The whole book as one `.m4b`, made on request into a temporary file and removed once
@@ -211,6 +252,19 @@ public struct BookRoutes: Sendable {
         } catch {
             return httpErrorResponse(status: "502 Bad Gateway", message: String(describing: error))
         }
+    }
+
+    /// `GET /v1/voices`: `GatewayVoiceList`, so the phone can offer the Mac's narrators. Not tied
+    /// to book rendering being on: a gateway without ffmpeg still knows its voice server.
+    func voiceList() async -> Data {
+        guard let voices else {
+            return httpErrorResponse(status: "503 Service Unavailable", message: "no voice server is configured")
+        }
+        let list = await voices.list()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return httpResponse(status: "200 OK", contentType: "application/json",
+                            payload: (try? encoder.encode(list)) ?? Data("{}".utf8))
     }
 
     // MARK: - Helpers

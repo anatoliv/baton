@@ -25,8 +25,8 @@ enum BatonMCPDocumentTools {
             heads, joins words broken across lines, and leaves out anything shaped like a \
             credential. It then narrates the book chapter by chapter in the background, chapter 1 \
             first (usually ready in a minute or two). It is made where Settings, Speech, Make \
-            books on says: on this Mac, or on the home server, which carries on while the Mac \
-            sleeps; when that is Ask each time, on this Mac unless you pass `where`. If the home \
+            books on says: on this Mac, or on the Baton server, which carries on while the Mac \
+            sleeps; when that is Ask each time, on this Mac unless you pass `where`. If the Baton \
             server does not answer, this Mac makes it. Nothing is played now: the book appears \
             in Clippings, where it plays like an album. Returns a job id, where the book is being \
             made (`made_on`), what was found (title, author, chapters, warnings) and the \
@@ -42,7 +42,7 @@ enum BatonMCPDocumentTools {
                     "where": [
                         "type": "string",
                         "enum": [Place.thisMac.rawValue, Place.homeServer.rawValue],
-                        "description": "Optional: where to make the book, 'this_mac' or 'home_server'. Used only when Make books on in Baton's Speech settings is Ask each time; otherwise that setting decides. Without it, Ask each time makes the book on this Mac.",
+                        "description": "Optional: where to make the book, 'this_mac' or 'home_server' (the person's Baton server, the Baton program they run at home). Used only when Make books on in Baton's Speech settings is Ask each time; otherwise that setting decides. Without it, Ask each time makes the book on this Mac.",
                     ],
                 ],
                 "required": [],
@@ -136,7 +136,7 @@ enum BatonMCPDocumentTools {
             "estimated_length": estimate.durationText,
             "estimated_size": estimate.sizeText,
             "voice": voice,
-            "made_on": renderer == .homeServer ? "the home server" : "this Mac",
+            "made_on": renderer == .homeServer ? "the Baton server" : "this Mac",
             "warnings": document.warnings.map(DocumentImportSheet.text(for:)),
         ]
         if let note { reply["note"] = note }

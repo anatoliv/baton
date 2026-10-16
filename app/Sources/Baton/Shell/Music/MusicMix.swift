@@ -99,7 +99,7 @@ enum MusicMixCatalog {
                 MusicMix(
                     id: "server-\(playlist.id)",
                     title: playlist.name,
-                    subtitle: "Generated on your server",
+                    subtitle: "Generated on your music server",
                     icon: "sparkles.rectangle.stack",
                     color: palette[index % palette.count],
                     artwork: serverArtwork[playlist.name]

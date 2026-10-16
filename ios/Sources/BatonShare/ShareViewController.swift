@@ -1,3 +1,4 @@
+import OSLog
 import UIKit
 import UniformTypeIdentifiers
 
@@ -39,18 +40,24 @@ final class ShareViewController: UIViewController {
             stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
         ])
-        let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
-        Task { await save(providers) }
+        let items = extensionContext?.inputItems as? [NSExtensionItem] ?? []
+        // A shared page can carry its title beside its address.
+        let titles = items.flatMap { [$0.attributedTitle?.string, $0.attributedContentText?.string] }
+        Task { await save(items.flatMap { $0.attachments ?? [] }, titles: titles) }
     }
 
     private var failed = false
 
-    private func save(_ providers: [NSItemProvider]) async {
+    private func save(_ providers: [NSItemProvider], titles: [String?]) async {
         do {
             guard let inbox = PendingShareInbox.shared else { throw ShareError.noInbox }
             guard let pick = Self.pick(providers) else { throw ShareError.nothingToImport }
             let marker = try await Self.save(pick, in: inbox)
-            message.text = "Saved \(marker.originalName) for Baton"
+            var candidates = titles
+            if case let .link(provider) = pick { candidates.append(provider.suggestedName) }
+            Self.logTitles(candidates)
+            message.text = PendingShareInbox.confirmation(
+                for: marker, pageTitle: PendingShareInbox.pageTitle(from: candidates, link: marker.link))
             detail.text = "Open Baton to make the audiobook."
         } catch {
             failed = true
@@ -58,6 +65,19 @@ final class ShareViewController: UIViewController {
             detail.text = (error as? ShareError)?.message ?? error.localizedDescription
         }
         done.isHidden = false
+    }
+
+    private static let log = Logger(subsystem: "io.tonebox.baton", category: "share")
+
+    /// Which of the title fields the share carried (attributedTitle, attributedContentText, the
+    /// provider's suggested name), so a host app that names its page another way can be found
+    ///. The words themselves only in a debug build.
+    private static func logTitles(_ candidates: [String?]) {
+        let present = candidates.map { ($0?.isEmpty == false) ? "yes" : "no" }.joined(separator: ",")
+        log.info("share title fields present: \(present, privacy: .public)")
+        #if DEBUG
+        log.debug("share title fields: \(candidates.map { $0 ?? "nil" }.joined(separator: " | "), privacy: .public)")
+        #endif
     }
 
     private func finish() {

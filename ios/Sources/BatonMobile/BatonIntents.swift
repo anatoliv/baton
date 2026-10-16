@@ -18,7 +18,7 @@ import Foundation
 
 struct PlaySearchIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play songs matching"
-    static let description = IntentDescription("Search your Navidrome library and play the results.")
+    static let description = IntentDescription("Search the library on your music server and play the results.")
 
     @Parameter(title: "What to play")
     var query: String

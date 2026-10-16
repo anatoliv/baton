@@ -38,13 +38,31 @@ public struct PronunciationLexicon: Codable, Sendable, Equatable {
         entries.sort { $0.word < $1.word }
     }
 
-    /// The text with every whole-word occurrence of an entry marked for Kokoro. Longer words
-    /// first, so "Vashti" is not marked inside a "Vashtiland" entry's text. Text that already
-    /// holds markup is left alone.
+    /// The entries a renderer may send, the same on this Mac and on the home server since both
+    /// mark text through `apply(to:)`. Dropped: phonemes Kokoro cannot read; with `asked`, a word
+    /// the model was not asked about; and a model's entry whose phonemes are identical to another
+    /// entry's for a different word. On the TBX-10886 walk Apple's on-device model, asked about
+    /// "Netherfield" and "neighbourhood" together, gave both `ˈnɛθəˌfiːld`, and the chapter said
+    /// "Netherfield" for "neighbourhood". Which of two such proposals is the copy
+    /// cannot be told, so every model entry sharing the sound goes, and the words are read as
+    /// written. A person's entry is never dropped for that: it is what they meant, and a model's
+    /// entry repeating it goes.
+    public func validated(asked: Set<String>? = nil) -> PronunciationLexicon {
+        let readable = entries.filter { Self.isValid($0.phonemes) && (asked?.contains($0.word) ?? true) }
+        var wordsBySound: [String: Set<String>] = [:]
+        for entry in readable { wordsBySound[entry.phonemes, default: []].insert(entry.word) }
+        return PronunciationLexicon(entries: readable.filter { entry in
+            entry.source != "model" || (wordsBySound[entry.phonemes]?.count ?? 0) <= 1
+        })
+    }
+
+    /// The text with every whole-word occurrence of a validated entry marked for Kokoro.
+    /// Longer words first, so "Vashti" is not marked inside a "Vashtiland" entry's text. Text
+    /// that already holds markup is left alone.
     public func apply(to text: String) -> String {
         guard !entries.isEmpty, !text.contains("](/") else { return text }
         var out = text
-        for entry in entries.sorted(by: { $0.word.count > $1.word.count }) {
+        for entry in validated().entries.sorted(by: { $0.word.count > $1.word.count }) {
             let pattern = #"(?<![\p{L}\[])"# + NSRegularExpression.escapedPattern(for: entry.word) + #"(?![\p{L}\]])"#
             guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
             let template = NSRegularExpression.escapedTemplate(for: "[\(entry.word)](/\(entry.phonemes)/)")
@@ -152,8 +170,9 @@ public struct PronunciationLexicon: Codable, Sendable, Equatable {
         return out
     }
 
-    /// The model's proposals, kept only for words that were asked about and phonemes Kokoro
-    /// can read. Marked "model" until a person looks.
+    /// The model's proposals, kept only for words that were asked about, phonemes Kokoro can
+    /// read, and a sound no other proposed word was given (`validated(asked:)`). Marked "model"
+    /// until a person looks.
     public static func parse(_ reply: String, candidates: [Candidate]) -> PronunciationLexicon {
         var lexicon = PronunciationLexicon()
         let asked = Set(candidates.map(\.word))
@@ -165,7 +184,7 @@ public struct PronunciationLexicon: Codable, Sendable, Equatable {
             guard let word = item["word"] as? String, asked.contains(word), let ipa = item["ipa"] as? String else { continue }
             lexicon.set(word, ipa: ipa, source: "model")
         }
-        return lexicon
+        return lexicon.validated(asked: asked)
     }
 
     /// Candidates → one model call → proposals. Empty when no model answered: a book reads

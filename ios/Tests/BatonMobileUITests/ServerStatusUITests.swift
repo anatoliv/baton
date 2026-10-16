@@ -54,11 +54,11 @@ final class ServerStatusUITests: XCTestCase {
         let gear = app.buttons["Settings"]
         XCTAssertTrue(gear.waitForExistence(timeout: 15), "Home's header must offer Settings")
         gear.tap()
-        // "Server" rather than "Settings": the gear's accessibility label is also
+        // "Music server" rather than "Settings": the gear's accessibility label is also
         // "Settings", so waiting on that text can match the button that was just tapped
-        // instead of the screen it opened. The Server section only exists once Settings
+        // instead of the screen it opened. The Music server section only exists once Settings
         // is actually on screen.
-        XCTAssertTrue(app.staticTexts["Server"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.staticTexts["Music server"].waitForExistence(timeout: 20),
                       "Settings must open")
     }
 

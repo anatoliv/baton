@@ -331,6 +331,18 @@ final class BookRoutesTests: XCTestCase {
         let summary = try BookJSON.decoder.decode(BookJob.Summary.self, from: body(detail))
         XCTAssertEqual(summary.status, .ready)
         XCTAssertEqual(summary.chapters.map(\.state), ["ready", "ready"])
+        // A device that did not send the book adopts it: the summary names its
+        // document, and the shaped book comes back as it was submitted, behind the token.
+        XCTAssertEqual(summary.documentID, book.documentID)
+        let listed = try XCTUnwrap((listing["books"] as? [[String: Any]])?.first)
+        XCTAssertEqual(listed["documentID"] as? String, book.documentID)
+        let shaped = await router.dispatch(request("GET", "/v1/books/\(id)/book"))
+        XCTAssertEqual(status(shaped), "200 OK")
+        XCTAssertEqual(try PreparedBook.decode(body(shaped)), book)
+        let refused = await router.dispatch(request("GET", "/v1/books/\(id)/book", token: "wrong"))
+        XCTAssertEqual(status(refused), "401 Unauthorized")
+        let unknown = await router.dispatch(request("GET", "/v1/books/\(String(repeating: "e", count: 64))/book"))
+        XCTAssertEqual(status(unknown), "404 Not Found")
 
         let chapter = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/1"))
         XCTAssertEqual(status(chapter), "200 OK")
@@ -494,6 +506,40 @@ final class BookRoutesTests: XCTestCase {
         XCTAssertEqual(store.load(filledID)?.status, .ready)
         XCTAssertTrue(synth.calls.contains { $0.text == "Only me." && $0.voice == "kokoro:bm_george" })
         XCTAssertTrue(synth.calls.contains { $0.text == "Only me." && $0.voice == "kokoro:bf_isabella" })
+    }
+
+    /// TBX-10960: a chapter's read-along timing through the route, and a 404, the same answer an
+    /// older gateway gives, for a chapter made before timing was kept.
+    @MainActor
+    func testAReadyChapterServesItsReadAlongTiming() async throws {
+        let dir = tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BookStore(directory: dir.appendingPathComponent("books"))
+        let synth = FakeSynthesizer()
+        let renderer = BookRenderer(store: store, cacheDirectory: dir.appendingPathComponent("cache"),
+                                    synthesizer: synth, muxer: CopyMuxer(), retry: .init(initialDelay: 0.01, maximumDelay: 0.02))
+        let routes = BookRoutes(renderer: renderer, store: store, synthesizer: synth, unavailableReason: nil)
+        let router = Router(token: token, routes: routes.routes())
+        let book = sampleBook()
+        let id = BookJob.id(for: book)
+        _ = try await renderer.submit(book, id: id)
+        await renderer.waitUntilIdle()
+
+        let response = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/1/timing"))
+        XCTAssertEqual(status(response), "200 OK")
+        XCTAssertEqual(header("Content-Type", response), "application/json")
+        let timing = try XCTUnwrap(ReadAlongTiming.decode(body(response)))
+        XCTAssertEqual(timing.segments.map(\.text), book.chapters[0].segments.map(\.text))
+        XCTAssertGreaterThan(try XCTUnwrap(timing.segments.last).end, 0)
+
+        // A chapter made before timing was kept: its file is there, its timing is not.
+        try FileManager.default.removeItem(at: dir.appendingPathComponent("books/\(id)/chapter-2.timing.json"))
+        let old = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/2/timing"))
+        XCTAssertEqual(status(old), "404 Not Found")
+        let missing = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/3/timing"))
+        XCTAssertEqual(status(missing), "404 Not Found")
+        let unauthorized = await router.dispatch(request("GET", "/v1/books/\(id)/chapters/1/timing", token: nil))
+        XCTAssertEqual(status(unauthorized), "401 Unauthorized")
     }
 
     @MainActor

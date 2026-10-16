@@ -44,8 +44,14 @@ enum BookShelf {
         var position: (chapterIndex: Int, seconds: Double)?
         var finished: Bool
         var madeOn: DocumentLibrary.Renderer = .thisMac
+        /// Sent to the home server by another device and adopted from its listing.
+        var adopted = false
         /// When the home server removes this finished book (M6.6), from its summary's `removesAt`.
         var removesAt: Date?
+        /// Being made again in another voice: the row's line while it is.
+        var remaking: String?
+        /// The voice change can be stopped from here (it was started on this Mac).
+        var canStopRemaking = false
 
         var id: String { documentID }
 
@@ -60,16 +66,21 @@ enum BookShelf {
         /// while it is still being made or collected there.
         var storedText: String {
             if isOffloaded { return "Download removed" }
-            if madeOn == .homeServer && !chapters.allSatisfy({ $0.item != nil }) { return "On the home server" }
+            if madeOn == .homeServer && !chapters.allSatisfy({ $0.item != nil }) { return "On the Baton server" }
             return "On this Mac"
         }
+
+        /// "Made on the home server" for a book another device sent there, so a row
+        /// nobody made from this Mac says where it came from.
+        var originText: String? { adopted ? "Made on the Baton server" : nil }
 
         static func == (lhs: Book, rhs: Book) -> Bool {
             lhs.documentID == rhs.documentID && lhs.title == rhs.title && lhs.author == rhs.author
                 && lhs.chapters == rhs.chapters && lhs.createdAt == rhs.createdAt
                 && lhs.pauseReason == rhs.pauseReason && lhs.failure == rhs.failure
                 && lhs.isRendering == rhs.isRendering && lhs.finished == rhs.finished && lhs.madeOn == rhs.madeOn
-                && lhs.removesAt == rhs.removesAt
+                && lhs.adopted == rhs.adopted && lhs.removesAt == rhs.removesAt
+                && lhs.remaking == rhs.remaking && lhs.canStopRemaking == rhs.canStopRemaking
                 && lhs.position?.chapterIndex == rhs.position?.chapterIndex
                 && lhs.position?.seconds == rhs.position?.seconds
         }
@@ -124,7 +135,7 @@ enum BookShelf {
     }
 
     static func entries(items: [ClippingStore.Item], jobs: [DocumentLibrary.Job],
-                        ledger: ClippingLedger) -> [Entry] {
+                        ledger: ClippingLedger, changes: [BookVoiceChanges.Change] = []) -> [Entry] {
         var entries: [Entry] = items.filter { !$0.clipping.isBookChapter }.map(Entry.reading)
 
         let chaptersByBook = Dictionary(grouping: items.filter(\.clipping.isBookChapter)) { $0.clipping.documentID ?? "" }
@@ -162,6 +173,7 @@ enum BookShelf {
             let record = ledger.document(documentID)
             let position = record.flatMap { r in r.chapterIndex.map { ($0, r.seconds ?? 0) } }
             let status = job?.summary.status
+            let change = changes.first { $0.documentID == documentID && $0.jobID == job?.id }
             entries.append(.book(Book(
                 documentID: documentID,
                 title: job?.summary.title ?? first?.documentTitle ?? first?.title ?? "Untitled",
@@ -174,7 +186,10 @@ enum BookShelf {
                 position: position,
                 finished: record?.finished ?? false,
                 madeOn: job?.renderer ?? .thisMac,
-                removesAt: job?.summary.removesAt
+                adopted: job?.adopted ?? false,
+                removesAt: job?.summary.removesAt,
+                remaking: change.map { BookVoiceChanges.statusLine($0, chapters: job?.summary.chapters, total: chapters.count) },
+                canStopRemaking: change?.startedHere == true
             )))
         }
         return entries.sorted { $0.sortDate > $1.sortDate }
@@ -203,56 +218,35 @@ enum BookShelf {
     }
 }
 
-/// What the player does with a book chapter: resume where the listener was, remember where they
-/// are, and notice the end of the book. The same hooks podcasts use, so there is no second
-/// resume mechanism.
-@MainActor
-enum BookPlayback {
-    /// The offset to start a chapter at, when the synced position is inside it. A position in the
-    /// last few seconds counts as the end, so the chapter starts over rather than ending at once.
-    static func resumeOffset(for song: NavidromeSong, clippings: ClippingStore) -> TimeInterval? {
-        guard let item = clippings.item(forSongID: song.id), let documentID = item.clipping.documentID,
-              let record = clippings.ledger.document(documentID), !record.finished,
-              record.chapterIndex == item.clipping.chapterIndex,
-              let seconds = record.seconds, seconds > 1 else { return nil }
-        if let duration = item.clipping.durationSeconds, seconds > duration - 5 { return nil }
-        return seconds
+/// The Mac's half of `BookPlayback` (BatonPlaybackKit): resume and the position writes are
+/// shared with the iPhone; the queue is built from this app's shelf.
+extension BookPlayback {
+    /// The book's chapters here as a queue, starting at the chosen chapter, or the synced one
+    /// (from the start once it is finished). After the start, chapters still being made are not
+    /// skipped: the queue stops short of the first, and `continuation` adds it and the rest in
+    /// order as they land while the book plays.
+    static func queue(for book: BookShelf.Book, fromChapter index: Int? = nil) -> (songs: [NavidromeSong], startIndex: Int) {
+        queue(chapters: book.chapters.compactMap(\.item), position: book.position,
+              finished: book.finished, fromChapter: index)
     }
 
-    /// Note the position, and at the end of the last chapter that the book is finished. Returns
-    /// the finished book's document id, so the caller can tell the renderer too.
-    ///
-    /// `chapterCount` is the book's, from its render job: the last chapter to have *landed* is
-    /// not the last chapter while the rest still renders. Without a job, the landed ones are all
-    /// there is.
-    @discardableResult
-    static func record(_ song: NavidromeSong, time: TimeInterval, duration: TimeInterval,
-                       chapterCount: Int?, clippings: ClippingStore, now: Date = Date()) -> String? {
-        guard let item = clippings.item(forSongID: song.id), let documentID = item.clipping.documentID,
-              let index = item.clipping.chapterIndex else { return nil }
-        var ledger = clippings.ledger
-        ledger.setPosition(documentID: documentID, chapterIndex: index, seconds: time, at: now)
-        let atEnd = duration > 1 && time >= duration - 1
-        let lastIndex = chapterCount.map { $0 - 1 }
-            ?? clippings.chapters(ofDocument: documentID).compactMap(\.clipping.chapterIndex).max() ?? index
-        let isLast = index == lastIndex
-        var finishedNow = false
-        if atEnd, isLast, ledger.document(documentID)?.finished != true {
-            ledger.setFinished(true, documentID: documentID, at: now)
-            finishedNow = true
+    /// Where each chapter of a book stands on this Mac, for `BookContinuation`: here, coming
+    /// (being made, here or on the home server, made there and not yet down, or removed here and
+    /// able to come back; a paused book carries on by itself), or not coming, with why. Nil for a
+    /// book with no render job.
+    static func continuationChapters(of book: BookShelf.Book, hasJob: Bool, canGetBack: Bool,
+                                     homeServerProblem: String?) -> [BookContinuation.Chapter]? {
+        guard hasJob else { return nil }
+        return book.chapters.map { chapter in
+            if chapter.item?.isPresent == true { return .here }
+            if chapter.item != nil { return .unavailable("its audio file has gone") }
+            switch chapter.state {
+            case let .failed(why): return .unavailable("it could not be made (\(why))")
+            case .removed where !canGetBack: return .unavailable("its audio was removed from this Mac")
+            default:
+                if book.madeOn == .homeServer, let homeServerProblem { return .unavailable(homeServerProblem) }
+                return .coming
+            }
         }
-        clippings.ledger = ledger
-        return finishedNow ? documentID : nil
-    }
-
-    /// The book's chapters as a queue, starting at the synced chapter; from the start once it is
-    /// finished. Chapters whose audio is not here are left out rather than stalling the queue.
-    static func queue(for book: BookShelf.Book) -> (songs: [NavidromeSong], startIndex: Int) {
-        let playable = book.chapters.compactMap(\.item).filter(\.isPresent)
-        let songs = playable.map(\.asSong)
-        guard !book.finished, let position = book.position,
-              let start = playable.firstIndex(where: { $0.clipping.chapterIndex == position.chapterIndex })
-        else { return (songs, 0) }
-        return (songs, start)
     }
 }

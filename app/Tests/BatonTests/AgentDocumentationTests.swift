@@ -106,7 +106,8 @@ final class AgentDocumentationTests: XCTestCase {
     /// Several map to one: the page is a summary, not a mirror.
     private static let coveredOnThePublicPage: [String: String] = [
         "Getting connected": "getting-connected",
-        "Using more than one server": "getting-connected",
+        "The two servers Baton uses": "two-servers",
+        "Using more than one music server": "getting-connected",
         "Baton on iPhone": "iphone",
         "Shared settings between your devices": "iphone",
         "Finding your way around": "browsing",

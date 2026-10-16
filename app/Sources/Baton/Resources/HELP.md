@@ -1,8 +1,8 @@
 # Baton Help
 
 **Conduct your music.** Baton is a free macOS player for the music you already own. It
-streams from your self-hosted [Navidrome](https://www.navidrome.org/) server, or any
-Subsonic-compatible server, and it plays that library with real care: true gapless
+streams from your music server, a self-hosted [Navidrome](https://www.navidrome.org/) server
+or any Subsonic-compatible one, and it plays that library with real care: true gapless
 playback, crossfade, ReplayGain loudness matching, and a 10-band parametric equalizer. It
 also runs a small control server on your Mac so an AI agent, like Claude or
 [Tonebox](https://tonebox.io), can search, queue, and steer your music by voice or on your
@@ -17,10 +17,11 @@ answer, the [FAQ](FAQ.md) is shorter. For the deeper design and architecture, se
 ## Contents
 
 - [What Baton is, and what it isn't](#what-baton-is-and-what-it-isnt)
+- [The two servers Baton uses](#the-two-servers-baton-uses)
 - [Getting connected](#getting-connected)
 - [Baton on iPhone](#baton-on-iphone)
 - [Shared settings between your devices](#shared-settings-between-your-devices)
-- [Using more than one server](#using-more-than-one-server)
+- [Using more than one music server](#using-more-than-one-music-server)
 - [Finding your way around](#finding-your-way-around)
 - [Browsing by folder](#browsing-by-folder)
 - [Home (For You)](#home-for-you)
@@ -86,6 +87,91 @@ A few things worth knowing up front:
   by ear. See [Speaking summaries aloud](#speaking-summaries-aloud).
 
 Baton runs on macOS 15 or later.
+
+---
+
+## The two servers Baton uses
+
+Baton can talk to two servers of your own. They do different jobs, so the apps give them
+different names: your **music server** and your **Baton server**.
+
+**Your music server** is where your library lives. It is Navidrome, or another server that
+speaks the Subsonic language, and it is the one you sign in to with a username and password
+or an API key. It keeps your songs and albums, your playlists, what you have liked and rated,
+your play counts, and the internet radio stations you save there. Every other Subsonic app
+you use sees the same things, because they live on the server rather than in Baton.
+
+**Your Baton server** is a small Baton program that you run yourself, on a machine that stays
+on. It does the work a phone or a sleeping Mac cannot do, and it keeps a few things your
+devices share:
+
+- It makes audiobooks from documents you import, and offers the voices they can be read in.
+- It keeps your place in a book, so you can stop on one device and carry on from the other.
+- It keeps the settings your devices share, such as the equalizer, crossfade and podcast
+  subscriptions.
+- It holds files for your other device for a while: a document your iPhone sent to the Mac,
+  or a clipping you kept on the Mac for the phone to collect.
+- It reads the short "Previously" recap of a book aloud on the iPhone, and it can answer the
+  music friend.
+
+The Baton server is optional. Without it, Baton is a complete music player.
+
+**They can be one machine or two.** In a typical home setup both run on the same computer,
+the one that is always on in a cupboard or under a desk, and that is perfectly fine. They can
+just as well be two different machines. Baton only needs to know the address of each.
+
+**What needs which.**
+
+| You want to | Music server | Baton server |
+|---|---|---|
+| Play, search and download your music | Needed | Not needed |
+| Like, rate and build playlists | Needed | Not needed |
+| Make a book from a document on the iPhone | Not needed | Needed |
+| Make a book on the Baton server from the Mac | Not needed | Needed |
+| Make a book on the Mac itself | Not needed | Not needed |
+| Pick up a book where you stopped on your other device | Not needed | Needed |
+| Keep shared settings in step between devices | Not needed | Needed |
+| Send a document from the iPhone to the Mac, or a clipping from the Mac to the iPhone | Not needed | Needed |
+| Hear a "Previously" recap on the iPhone | Not needed | Needed |
+
+**When one of them does not answer.** If your music server is off or out of reach, Baton
+cannot play from your library, though anything you downloaded still plays. Settings can check
+whether it answers. If your Baton server is off or out of reach, music carries on as
+normal. Books it already made and you downloaded still play. New books cannot be made there:
+on the Mac, a book meant for the Baton server is made on the Mac instead, and the iPhone
+says so and suggests AirDropping the document to your Mac, which can make the book itself.
+Your shared settings and your place in a book wait, and catch up the next time the server
+answers. Nothing is lost while it is away.
+
+**Where to set them up.**
+
+On the Mac:
+
+- **Music server:** **Settings → Music Servers**. Click **Add Music Server…**, choose how to
+  sign in, and enter the **Server URL** and your sign-in. The first time you open Baton, the
+  connect window asks for the same things.
+- **Baton server:** **Settings → Remote → Baton server**. Enter the **Baton server address**
+  and the **Baton server token**, click **Save token**, then **Test**.
+- Where books are made is under **Settings → Speech → Make books on**: **This Mac**,
+  **Baton server** or **Ask each time**. **Settings → Storage** lists the books kept on this
+  Mac and those on the **Baton Server**.
+
+On the iPhone:
+
+- **Music server:** the **Music server** section at the top of **Settings**. It shows the
+  address and user you are signed in with, and whether the server answers. **Set up from a
+  Mac…** brings your Mac's connection across. While you are trying the demo library,
+  **Connect to Navidrome…** lets you type your own server in.
+- **Baton server:** **Settings → Music Friend**. Set **Answers come from** to **Baton
+  server**, and the **Baton server** section appears with the address and the **Baton server
+  token**. Books, your place and the files for your Mac all use these two fields.
+
+**The Baton server's address and token.** The address is just the machine's name or IP
+address and the port, such as `http://192.0.2.10:8788`. The Baton server listens on port 8788
+unless you changed it, and Baton drops a `/v1` from the end if you paste one. The token is a
+long password you make up when you set the server up; both devices give it, so the server
+knows the request is yours. Setting up the server itself is described in [Running your Baton
+server](#running-your-baton-server).
 
 ---
 
@@ -219,7 +305,7 @@ quality it arrived.
 <!-- baton:audience iphone -->
 
 The music friend's API key is money, and a phone in someone else's hand is already unlocked.
-So on **Settings → Music Friend** the key and the gateway token stay masked until Face ID or
+So on **Settings → Music Friend** the key and the Baton server token stay masked until Face ID or
 Touch ID passes.
 
 Two things about it are deliberate. It falls back to your passcode, so a wet thumb or a mask
@@ -279,8 +365,9 @@ alone and both apps work exactly as they always have.
 Your likes, ratings, playlists and play counts were never the problem: they live on your
 Navidrome server, keyed to your user, and both apps read and write them as you. The problem
 is everything Navidrome has nowhere to put, because there is no client-preference API and
-there never will be. Those settings go through a small service you run yourself, called the
-**gateway**, which is the one place both devices already sign in to.
+there never will be. Those settings go through your **Baton server**, a small Baton program
+you run yourself, which is the one place both devices already sign in to. If the two servers
+are new to you, [The two servers Baton uses](#the-two-servers-baton-uses) explains them.
 
 ### What travels, and what stays put
 
@@ -313,7 +400,7 @@ consent, and a phone should not inherit a decision the Mac made to start talking
 ### Picking up where the other device left off
 
 The queue is the one thing in that table with a route of its own. It doesn't travel through
-shared settings and it doesn't need the gateway: it uses the **play-queue slot your Subsonic
+shared settings and it doesn't need the Baton server: it uses the **play-queue slot your Subsonic
 server already has**, so it works with nothing running but Navidrome.
 
 Baton saves the queue there when playback **pauses**, and the phone saves it again when you
@@ -332,10 +419,11 @@ read the slot back, so continuity ran phone to Mac only.
 rather than to a person, and `demo.navidrome.org` shares one account with the whole internet.
 Baton neither saves to nor reads from that slot there, so nobody is offered a stranger's queue.
 
-### Running a gateway
+### Running your Baton server
 
-The gateway is a small Swift service in this repository, under `gateway/`. It runs on macOS
-and on Linux, and it wants to live somewhere always on: the same box as Navidrome is the
+The Baton server is a small Swift program in this repository, under `gateway/`, where it goes
+by its technical name, the Baton gateway (`baton-gateway`). It runs on macOS and on Linux,
+and it wants to live somewhere always on: the same machine as your music server is the
 obvious home. It needs a token you invent (both devices present it) and your Navidrome
 sign-in, and it refuses to start without them:
 
@@ -355,15 +443,16 @@ them.
 
 ### Turning it on
 
-**On the Mac**, open **Settings → Remote → Shared settings**. Paste the gateway's address
-and token, click **Save token**, then **Test**. A pass tells you how many settings are
+**On the Mac**, open **Settings → Remote → Baton server**. Paste the address into **Baton
+server address** and the token into **Baton server token**, click **Save token**, then
+**Test**. A pass tells you how many settings are
 already shared, or that nothing is there yet and this would be the first device. After that
 the Mac syncs on its own: at launch, whenever you switch back to the app, and on a slow
 heartbeat while a window is left open. **Sync now** is there for when you don't want to wait.
 
-**On the iPhone**, open **Settings → Music Friend** and set **Answers come from** to **Home
-server**. The **Home server** section appears with the same two fields: the address and the
-token from your gateway's configuration.
+**On the iPhone**, open **Settings → Music Friend** and set **Answers come from** to **Baton
+server**. The **Baton server** section appears with the same two fields: the address and the
+**Baton server token** you chose when you set the server up.
 
 The green light on both means a request that just happened, not that the fields are filled
 in, and editing either field clears it, because the old answer belonged to a different
@@ -384,13 +473,15 @@ resubscribing later survives the tombstone.
 
 ---
 
-## Using more than one server
+## Using more than one music server
 
-If you run more than one server, or want to keep a home server and a friend's server side by
-side, Baton can hold several connections and switch between them.
+If you run more than one music server, or want to keep your own and a friend's side by side,
+Baton can hold several connections and switch between them. This is about music servers only;
+you have one Baton server at most, set up as described in [The two servers Baton
+uses](#the-two-servers-baton-uses).
 
-Open **Settings** (press Command and comma), choose the **Servers** pane, and click **Add
-Server**. Give the server a name if you like, pick a sign-in method, and enter its address
+Open **Settings** (press Command and comma), choose the **Music Servers** pane, and click
+**Add Music Server…**. Give the server a name if you like, pick a sign-in method, and enter its address
 and credentials. Baton verifies the new connection before saving it, then makes it the
 active one and reloads your library.
 
@@ -403,7 +494,7 @@ active one and reloads your library.
   forget it and its saved password.
 
 The single connection you set up on first launch is carried into this list automatically the
-first time you open the Servers pane, so you don't lose it.
+first time you open the Music Servers pane, so you don't lose it.
 
 ---
 
@@ -696,7 +787,7 @@ How it works:
 - **Your shows follow you.** Subscribe on the Mac and the show appears on your iPhone, and
   the other way round. Unsubscribing travels too: drop a show on one device and it goes on
   the other, rather than being handed back the next time they talk. This rides the same
-  device sync as your other settings, so it needs a gateway set up: see
+  device sync as your other settings, so it needs your Baton server set up: see
   [Shared settings between your devices](#shared-settings-between-your-devices).
   Where you are in an episode is still per-device.
 - **Downloading.** For shows you follow by RSS, episodes play right away with no download
@@ -795,13 +886,21 @@ instead, which stores it, lists it, and plays it.
 A clipping is a real file on your Mac, so it needs no server and no network. It plays through
 the ordinary player, with the same transport, now-playing bar, queue, and scrubber as anything
 else. Double-click a row to play from there onwards. With nothing playing, the play button in
-the header starts the whole list.
+the header starts the whole list. The clipping or chapter you are listening to shows the moving
+bars and stays highlighted, the way a song does in a list, and a book shows the bars while one of
+its chapters plays.
 
 **You can search a clipping by what is said in it.** A saved reading keeps its words, so
 typing a phrase from the middle of an article finds it, both in the Clippings filter and in
 the main Search screen alongside your library results. The Clippings filter ignores case and
 accents, so "cafe" finds "Café", and it stays quick with long books in the list. Nothing else in
 Baton can be found this way: your server only ever knows a track's title.
+
+**Another voice.** On the Mac, **Change Voice…** in a reading's right-click menu reads its words
+again in a voice you choose from your voice server. The row shows how far it has got, and the
+reading keeps its old voice until the new audio is ready, then keeps its name and its place in
+the list. **Stop Making Again** leaves it as it was. If you run your Baton server, the reading in
+its new voice replaces the old one on your iPhone too.
 
 **Renaming and deleting.** Right-click a row to rename it, reveal the file in the Finder, or
 delete it. Deleting asks first, and says plainly that Baton made this audio and there is no
@@ -818,7 +917,7 @@ answer are hidden on its rows: no rating, no like, no download, no radio. It is 
 of [scrobbling](#scrobbling), since a reading saved from a web page isn't something your
 listening history should carry.
 
-**On your iPhone.** If you run the home gateway, clippings you keep on the Mac travel to the
+**On your iPhone.** If you run your Baton server, clippings you keep on the Mac travel to the
 phone, where they appear under Library → Clippings and play the same way. The phone collects
 them when you open that screen, and when you pull down to refresh. There is no background
 polling: it fetches when you look, which is both the moment you care about and a moment you
@@ -827,15 +926,16 @@ chose.
 **Deleting a clipping on the phone asks which you mean.** Every device keeps its own copy of the
 file, so the two answers do different things. **Remove from this iPhone** deletes the phone's
 copy and remembers not to fetch it again; your Mac keeps its own. **Delete everywhere** also
-removes the shared copy from the gateway, so no device collects it again. The Mac asks the same
+removes the shared copy from your Baton server, so no device collects it again. The Mac asks the same
 question, with **Remove from This Mac** and **Delete Everywhere**.
 
 ## Listening to a document
 
 Baton can turn a document into a narrated book in Clippings: a PDF, an EPUB, a web page (saved
 as HTML, or just its link), a Markdown file or plain text. On the Mac, choose **File → Import
-Document** (Shift-Command-O) or **File → Import Link**, or drag the file onto **Clippings**. On
-the iPhone, share the file or the web page to Baton from another app's share sheet (Safari
+Document** (Shift-Command-O) or **File → Import Link**, or drag the file onto **Clippings**. In
+Finder, Control-click the file and choose **Open With → Baton** or **Services → Make an Audiobook
+with Baton**; Baton never becomes the default app for these files. On the iPhone, share the file or the web page to Baton from another app's share sheet (Safari
 works too), open it in Baton from Files, or use the **+** menu on the Clippings screen to import
 a file or a link.
 
@@ -848,28 +948,30 @@ that way, because recognition can misread a word. Choose **Make Audiobook** to s
 **The narrator.** On the Mac, a language model suggests three voices for the book, with its
 reason, and you can hear each in the book's own words before you choose. Baton asks a model on
 your own machines: Apple Intelligence on this Mac, a model you run with Ollama or LM Studio (set
-up under **Settings → Speech → Models on this Mac**), or the one your home server uses. A cloud
+up under **Settings → Speech → Models on this Mac**), or the one your Baton server uses. A cloud
 model is asked only if you allow it (see [Book text and cloud
 models](#book-text-and-cloud-models)). With no model answering, Baton uses the default voice for
-the book's language, which is also what the phone uses.
+the book's language. On the iPhone, the import screen lists the same three voices the Mac
+offers without a model, from those your Baton server has (Heart first, or Emma for a book in
+British English), and you tap one to choose it and its play button to hear it.
 
-**Where it is made.** The import sheet asks **Made on: Home server** or **This Mac**, unless
-**Make books on** in **Settings → Speech** already says which. Your home server makes the book
+**Where it is made.** The import sheet asks **Made on: Baton server** or **This Mac**, unless
+**Make books on** in **Settings → Speech** already says which. Your Baton server makes the book
 while the Mac sleeps, with its own voice server. This Mac narrates it with the engine chosen
 under **Voice engine for books**: its built-in voices, a voice server, or Automatic, which uses
 the built-in voices when they are downloaded and have the book's voice (see [Voices: on this Mac
-or on a server](#voices-on-this-mac-or-on-a-server)). Either way it is made one chapter at a time,
+or on your Baton server](#voices-on-this-mac-or-on-your-baton-server)). Either way it is made one chapter at a time,
 starting with chapter 1, which is usually ready in a minute or two while the rest follows as you
-listen. The phone has no voice host of its own, so it always asks your home server, and says so
+listen. The phone has no voice host of its own, so it always asks your Baton server, and says so
 when none is set up. Page numbers, running heads and words broken across lines are tidied up
 first, and anything that looks like a password or key is left out.
 
-**When your home server cannot make books,** the iPhone offers **Send to my Mac** in place of
-Make Audiobook. Your home server holds the document until your Mac collects it, which Baton on
+**When your Baton server cannot make books,** the iPhone offers **Send to my Mac** in place of
+Make Audiobook. Your Baton server holds the document until your Mac collects it, which Baton on
 the Mac does while it is open with Documents on. There the document opens in the import sheet,
 marked with the device that sent it. **Not Now** keeps it waiting in a list at the top of
-Clippings; **Make Audiobook** or **Discard** takes it off the home server. With no home server
-at all, the phone suggests AirDropping the file or link to your Mac instead.
+Clippings; **Make Audiobook** or **Discard** takes it off the Baton server. With no Baton
+server at all, the phone suggests AirDropping the file or link to your Mac instead.
 
 **If the voice host stops answering,** the book pauses and its row says why. It carries on by
 itself when the host is back. It never finishes in a different voice.
@@ -879,15 +981,33 @@ the next time Baton opens. Nothing already narrated is made again.
 
 **Listening.** A book is one row in Clippings, with its author, its length and how much of it you
 have heard. Open the row to see its chapters. **Play** starts where you left off, and the
-chapters play in order like the tracks of an album. A book made on the home server arrives on
-every device that collects clippings, chapter by chapter. Once you finish it, its row on the Mac
-says how long the home server keeps it ("Kept until 2 November").
+chapters play in order like the tracks of an album. That holds on the iPhone too: Play picks up
+at the chapter and the moment you last heard on either device, and finishing a book on the iPhone
+marks it finished on your other devices as well. A book made on the Baton server from one
+device appears in Clippings on your others too, marked **Made on the Baton server**, without
+importing the file again, and its chapters come down as they are ready. Once you finish it, its
+row on the Mac says how long the Baton server keeps it ("Kept until 2 November").
+
+**Speed and sleep.** While a book or a podcast plays, the speed button beside the moon icon
+plays it anywhere from 0.75× to 2× without changing the voice's pitch. Books and podcasts share
+one speed, Baton remembers it and your other devices pick it up, and music always plays at
+normal speed. The [sleep timer](#sleep-timer) works for books too: its **End of chapter** choice
+stops between chapters, so Play carries on with the next one.
+
+**Reading along.** While a book plays, its text can be on screen with the sentence you are
+hearing highlighted: on the Mac, Control-click the book and choose **Read Along**, or open the
+player's **Transcript** panel; on the iPhone, tap the book icon in the full player. Tap a sentence
+to listen from there. Books made before this feature show their text without the highlight.
 
 **Coming back after a break.** On the Mac, press Play on a book you last heard more than a day
 ago, once you have heard a fair part of it, and Baton offers **Hear Recap**: a short spoken
 summary of what you have heard so far, never anything past where you are, and then the book
 carries on. **Just Play** skips it. The recap is written by a model, like the narrator
-suggestion.
+suggestion. The iPhone offers the same recap, written by the music friend's model when it is on
+your network or by Apple Intelligence on the iPhone, and read by your Baton server in a voice
+other than the narrator's. A phone that reaches a model only through your Baton server gets its
+recap from the Baton server's model when that model is on your network, and before chapters
+would go to a cloud model the iPhone asks, then keeps your answer in **Settings → Documents**.
 
 **Exporting.** On the Mac, Control-click a book and choose **Export Audiobook…** to save it as
 one M4B file that Apple Books and other audiobook players open, with a chapter mark where each
@@ -897,8 +1017,19 @@ says so.
 
 **Names the narrator gets wrong.** With a Kokoro narrator, the Mac's import sheet lists names it
 might stumble on, each with a pronunciation a model proposed, and you can correct any of them or
-add your own. For a book made on this Mac, **Pronunciations…** in the book's menu opens the same
-list later. Saving makes again only the chapters that say a word you changed.
+add your own. **Pronunciations…** in the book's menu opens the same list later. Saving makes again
+only the chapters that say a word you changed. For a book made on the Baton server, those chapters
+are made again there and replace the old ones as they arrive, and you keep your place in the book.
+
+**Changing the voice.** To hear a book in another narrator's voice, Control-click it on the Mac,
+or touch and hold it on the iPhone, and choose **Change Voice…**. The voices are listed as they
+are when you import, each with a button to hear it in the book's own words. The whole book is
+made again where it was made before: on your Baton server, or on the Mac. Its row says "Making
+again in" the new voice, with how far it has got, and each chapter keeps playing in its old
+voice until its new one arrives and takes its place, so there is no gap and you keep your place
+in the book. Your pronunciations carry over. A book whose dialogue is voiced keeps its cast, and
+only the narrator changes. **Stop Making Again** in the same menu puts back the old voice. Your
+other devices pick up the new chapters as they arrive.
 
 **Turning it off.** Documents are on for everyone. The **Documents** switch under **Settings →
 Speech** on the Mac, or **Settings → Documents** on the iPhone, takes the import items, the drop
@@ -907,12 +1038,12 @@ other device keeps its own setting.
 
 **For agents.** The `import_document` tool takes the path of a file on this Mac, or a link to
 one, and makes the book the same way, where **Make books on** says. With **Ask each time** it
-makes the book on this Mac unless the agent asks for the home server, and if the home server
+makes the book on this Mac unless the agent asks for the Baton server, and if the Baton server
 does not answer, this Mac makes it. Its reply says where the book is being made. `document_context` lets an agent read the passages of a
 book you have already heard, never anything past where you are, so it can answer a question
 like "who is Kuno again?" without spoiling the rest. Both are listed only while Documents is on.
 
-### Voices: on this Mac or on a server
+### Voices: on this Mac or on your Baton server
 
 A book is read aloud by a voice engine. Baton can use one of two, and on the Mac you choose
 which under **Settings → Speech → Voice engine for books**:
@@ -961,15 +1092,15 @@ Spoken summaries and Read aloud are not affected; they use the servers under **S
 
 **Where a book is made.** Under the same heading, **Make books on** decides where the Mac
 makes a new book: **Ask each time** (the default) shows the choice in the import sheet,
-starting on the home server when it answers; **This Mac** or **Home server** makes it there
-without asking. If the home server is chosen and not answering, the sheet says so and the book
-is made on this Mac. The home server reads books with its own voice server, the one set on the
-gateway, not with this Mac's Voice engine for books.
+starting on the Baton server when it answers; **This Mac** or **Baton server** makes it there
+without asking. If the Baton server is chosen and not answering, the sheet says so and the book
+is made on this Mac. The Baton server reads books with its own voice server, the one named in
+the Baton server's own setup, not with this Mac's Voice engine for books.
 
 **On the iPhone** there is no choice to make. The phone has no voices of its own, so every book
-is made on your home server with the gateway's voice server. **Settings → Documents** says so.
-It needs the home server's address and token under **Settings → Music Friend**, and the
-gateway's voice server answering. When the home server cannot make a book, **Send to my Mac**
+is made on your Baton server with its voice server. **Settings → Documents** says so.
+It needs the Baton server's address and token under **Settings → Music Friend**, and the
+Baton server's voice server answering. When the Baton server cannot make a book, **Send to my Mac**
 hands it to Baton on your Mac instead.
 
 #### Setting up the built-in voices
@@ -993,19 +1124,19 @@ hands it to Baton on your Mac instead.
 3. Under **Voice engine for books**, the **Voice server** line shows each address and whether
    it answers. Choose **Voice server**, or leave **Automatic**.
 
-#### Setting up the home server's voice server
+#### Setting up the Baton server's voice server
 
-The home server makes books with the voice server named in the gateway's own configuration,
-whichever device sent the book.
+The Baton server makes books with the voice server named in its own setup, whichever device
+sent the book.
 
-1. Run Kokoro (and Chatterbox if you want its voices) where the gateway can reach it. It can
-   be the same machine or another one on your network.
-2. In the gateway's environment, set `BATON_TTS_KOKORO_URL` to Kokoro's address, for example
+1. Run Kokoro (and Chatterbox if you want its voices) where the Baton server can reach it. It
+   can be the same machine or another one on your network.
+2. In the Baton server's environment, set `BATON_TTS_KOKORO_URL` to Kokoro's address, for example
    `http://YOUR-TTS-HOST:8880`, and `BATON_TTS_CHATTERBOX_URL` to Chatterbox's if you use it.
-   Without `BATON_TTS_KOKORO_URL` the gateway looks for Kokoro on its own machine at
+   Without `BATON_TTS_KOKORO_URL` the Baton server looks for Kokoro on its own machine at
    `http://127.0.0.1:8880`.
-3. Restart the gateway. Its log names the voice servers it uses (`books: …, TTS …`). The
-   gateway also needs ffmpeg to make books. See [`gateway/README.md`](gateway/README.md).
+3. Restart the Baton server. Its log names the voice servers it uses (`books: …, TTS …`). The
+   Baton server also needs ffmpeg to make books. See [`gateway/README.md`](gateway/README.md).
 
 ### Voice the dialogue
 <!-- baton:audience mac -->
@@ -1032,19 +1163,20 @@ A book takes about a third of a megabyte for each minute of listening: a 25 page
 
 - **Remove Download** frees the space and keeps the book's row, its words, its voice and your
   place. A single chapter can go the same way. It is only offered when the audio can come back.
-- **Download Again** brings the chapters back from your home server. **Render Again** makes them
-  again: on this Mac for a book made here, or on the home server once it has removed its copy.
+- **Download Again** brings the chapters back from your Baton server. **Render Again** makes them
+  again: on this Mac for a book made here, or on the Baton server once it has removed its copy.
 - **Keep on This Mac** (or **Keep on This iPhone**) means no rule or suggestion ever removes it.
 - **Delete Book…** asks which you mean. **Remove from This Mac** (or **Remove from this iPhone**)
-  removes it from this device; **Delete Everywhere** also removes it from your home server and
-  your other devices. On the iPhone, both answers also delete the home server's copy.
+  removes it from this device; **Delete Everywhere** also removes it from your Baton server and
+  your other devices. A book made on the Baton server and removed from one device stays there for
+  your other devices, and the device you removed it from does not pick it up again.
 
 A deleted book and a removed download stay in **Recently Removed** for a week. A deleted book's
 audio is kept until then, so **Restore** brings it back as it was, and **Delete Now** frees the
 space sooner.
 
 **Storage** is under **Settings → Storage** on the Mac and **Settings → Documents → Storage** on
-the iPhone. It lists this device's books with their sizes, the home server's books with how long
+the iPhone. It lists this device's books with their sizes, the Baton server's books with how long
 it keeps finished ones, and three cleanup rules: **After I finish a book**, **Books I haven't
 played** and **Space for books**. Nothing is removed until you choose a rule. A rule removes a
 download, never the book, and never the book you are listening to or one marked Keep. Each device
@@ -1058,7 +1190,7 @@ week after you finish it.
 ### Book text and cloud models
 <!-- baton:audience mac -->
 
-Models on this Mac, on your home server and Apple Intelligence keep a book on your own machines,
+Models on this Mac, on your Baton server and Apple Intelligence keep a book on your own machines,
 so Baton uses them without asking. A cloud model, such as the one your music friend may run on,
 gets a book's text only with your permission.
 
@@ -1196,9 +1328,12 @@ start an explicit **Start radio** from a track's menu for an endless "more like 
 
 Set a sleep timer from the Playback menu or the moon icon in the now-playing bar. Pick a
 fixed length (15, 30, 45, 60 minutes, or 2 or 3 hours), or choose **End of track** to stop
-when the current song finishes. When a fixed timer is up, Baton **fades out gently** over
+when the current song finishes. For a book it says **End of chapter**, and for a podcast
+**End of episode**. When a fixed timer is up, Baton **fades out gently** over
 about five seconds rather than cutting off mid-note. There's a **Turn off sleep timer** item
-once one is armed, and an agent can arm or cancel the timer too.
+once one is armed, and an agent can arm or cancel the timer too. The iPhone's player has the
+same choices under its moon icon, and so does the moon at the top of **Clippings** on the iPhone
+while something plays. Once a timer is set, that one shows the time left or **End of chapter**.
 
 ---
 
@@ -2022,7 +2157,7 @@ not. The refresh button next to the field asks again. Editing the address clears
 because it belonged to the address that was checked rather than to the field.
 
 Every service you can configure works this way now, on both apps: the music server, both
-speech hosts, the recognizer, ListenBrainz, Last.fm, the shared-settings gateway and each
+speech hosts, the recognizer, ListenBrainz, Last.fm, the Baton server and each
 discovery source. A green light always means a request that just happened, never that a key
 is filled in.
 
@@ -2387,27 +2522,27 @@ key, name the model, and press **Test connection**. The test asks the model to r
 request and checks it picked the matching tool, so a pass means the next thing you say will
 work rather than merely that something answered. When it passes, the Friend tab appears.
 
-**Home server** sends the question to a **Baton gateway** running on a machine at home, so
-your key stays there instead of on your phone. This is the one people get wrong, so it is
-worth being blunt: a gateway is `baton-gateway`, the small service described under
-[Shared settings](#shared-settings-between-your-devices). **It is not a model endpoint.**
-Pointing Home server at Ollama, vLLM, LiteLLM or anything else that speaks an LLM API will
+**Baton server** sends the question to your **Baton server** running on a machine at home,
+so your key stays there instead of on your phone. This is the one people get wrong, so it is
+worth being blunt: a Baton server is `baton-gateway`, the small program described under
+[Running your Baton server](#running-your-baton-server). **It is not a model endpoint.**
+Pointing Baton server at Ollama, vLLM, LiteLLM or anything else that speaks an LLM API will
 not work, however well that thing runs, because Baton asks it for `/v1/agent` and only the
-gateway answers there. If you want to use a model on your own machine, that is Model
-provider, or `BATON_LLM_BASE_URL` on the gateway itself.
+Baton server answers there. If you want to use a model on your own machine, that is Model
+provider, or `BATON_LLM_BASE_URL` on the Baton server itself.
 
 The two addresses on this screen also want opposite shapes, which is easy to miss because
 they sit one above the other:
 
 | Field | Address |
 |---|---|
-| **Home server** | The bare host and port, `http://192.0.2.10:8788`. The gateway listens on **8788** by default. A trailing `/v1` is dropped if you paste one. |
+| **Baton server** | The bare host and port, `http://192.0.2.10:8788`. The Baton server listens on **8788** by default. A trailing `/v1` is dropped if you paste one. |
 | **Model provider** | The API root **including** `/v1`, because that is where `/chat/completions` hangs off. |
 
-**About the fallback.** The panel says Baton falls back to the model provider if the home
-server cannot be reached, and it does: a home server that is asleep or has moved will not
+**About the fallback.** The panel says Baton falls back to the model provider if your Baton
+server cannot be reached, and it does: a Baton server that is asleep or has moved will not
 take the friend down with it. What the fallback does *not* do is make the Friend tab appear:
-that gate tests the route you actually chose. If you picked Home server and have no gateway,
+that gate tests the route you actually chose. If you picked Baton server and have none running,
 test as **Model provider** instead.
 
 **Talk to it if you'd rather.** The composer has a microphone: click it and speak, click it
@@ -2704,11 +2839,13 @@ On the Mac, open Settings by pressing Command and comma. It has ten panes, and e
 described below. The iPhone has no panes at all: Settings is the last tab, and it is a single
 scrolling list, so it has its own section at the end of this reference.
 
-### Servers
+### Music Servers
 <!-- baton:audience mac -->
 
-Add, edit, remove, and switch between music servers. Each server keeps its own credentials in
-the Keychain. See [Using more than one server](#using-more-than-one-server).
+**Music servers**: add, edit, remove, and switch between the music servers that hold your
+library. Each one keeps its own credentials in the Keychain. See [Using more than one music
+server](#using-more-than-one-music-server). Your Baton server is not here; it is under
+**Remote**. See [The two servers Baton uses](#the-two-servers-baton-uses).
 
 ### Playback
 <!-- baton:audience mac -->
@@ -2760,13 +2897,13 @@ The text-to-speech servers and the category-to-voice map for spoken summaries. S
 [document clippings](#listening-to-a-document) off on this Mac. Under it, **Voice engine for
 books** chooses what reads a book made on this Mac (Automatic, the built-in voices, or a voice
 server), holds the built-in voices' download and sets **Make books on**; see [Voices: on this
-Mac or on a server](#voices-on-this-mac-or-on-a-server). Below that is **Models on this Mac**:
+Mac or on your Baton server](#voices-on-this-mac-or-on-your-baton-server). Below that is **Models on this Mac**:
 Apple Intelligence, Ollama and LM Studio, the models this Mac can run itself.
 
 ### Storage
 <!-- baton:audience mac -->
 
-The books on this Mac with their sizes, the home server's books, the cleanup rules and
+The books on this Mac with their sizes, the Baton server's books, the cleanup rules and
 **Recently Removed**. See [Book storage](#book-storage).
 
 ### Agents
@@ -2793,12 +2930,14 @@ See [Letting an agent control your music](#letting-an-agent-control-your-music).
 
 Telegram and Discord bot tokens, the link code and the list of chats you've authorized (each
 revocable), an optional restriction to particular Discord channels, and the model provider
-and natural-language settings the music friend runs on, plus **Shared settings**: the
-gateway that keeps your preferences in step with your iPhone. Setting the friend's model
+and natural-language settings the music friend runs on, plus **Baton server**: the address
+and token of your Baton server, which makes books and keeps your preferences in step with your
+iPhone. Setting the friend's model
 provider up is step-by-step in [Turning it on, on the Mac](#turning-it-on-on-the-mac); the
 chat bridges are in [Controlling Baton from Telegram or
-Discord](#controlling-baton-from-telegram-or-discord); the gateway is in [Shared settings
-between your devices](#shared-settings-between-your-devices).
+Discord](#controlling-baton-from-telegram-or-discord); the Baton server is in [The two
+servers Baton uses](#the-two-servers-baton-uses) and [Shared settings between your
+devices](#shared-settings-between-your-devices).
 
 ### Friend Log
 <!-- baton:audience mac -->
@@ -2841,11 +2980,12 @@ and each is careful to keep your credentials and servers when it resets.
 The phone has no panes. Settings is the last tab, and everything is one scrolling list, in
 this order:
 
-- **Server**: which server you're on, its sign-in, and **Set up from a Mac…**, which is the
+- **Music server**: which music server you're on, its sign-in, and **Set up from a Mac…**, which is the
   three ways to bring a Mac's setup across. See
   [Getting your Mac's setup onto your phone](#getting-your-macs-setup-onto-your-phone).
-- **Music Friend**: the model provider or home server the friend runs on, and its test
-  button. The Friend tab appears once that test passes. See
+- **Music Friend**: the model provider or Baton server the friend runs on, and its test
+  button. The Friend tab appears once that test passes. Your Baton server's address and
+  **Baton server token** are set here too, and books use them. See
   [Turning it on, on the iPhone](#turning-it-on-on-the-iphone).
 - **Equalizer**: the master switch, the presets, the ten bands, and a line saying where the
   curve applies right now, which depends on the next section. See
@@ -2857,19 +2997,19 @@ this order:
   [Transcripts and summaries](#transcripts-and-summaries).
 - **Sound**: gapless playback, crossfade (hidden while gapless is on, since the two want
   opposite things), loudness normalization, and the two lookups that talk to a service other
-  than your own server. See
+  than your own music server. See
   [Sound quality](#sound-quality-gapless-crossfade-loudness).
 - **Queue**: whether Baton keeps playing with similar songs when the queue runs out. See
   [The queue, shuffle, repeat, and autoplay](#the-queue-shuffle-repeat-and-autoplay).
-- **Scrobbling**: ListenBrainz and Last.fm. Your server's own play counts need no setup. See
+- **Scrobbling**: ListenBrainz and Last.fm. Your music server's own play counts need no setup. See
   [Scrobbling](#scrobbling).
 - **Shared Links**: the links this phone has sent, who listened, and copy, extend or revoke.
   See [Sharing a song with a friend](#sharing-a-song-with-a-friend).
 - **Documents**: whether a file from Files, the share sheet or the Clippings **+** menu can be
-  made into a book on your home server, on by default; **Where books are made**, which says the
-  home server's voice server reads them and what that needs; and **Storage**, for the books on
+  made into a book on your Baton server, on by default; **Where books are made**, which says the
+  Baton server's voice server reads them and what that needs; and **Storage**, for the books on
   this phone and the cleanup rules. See [Listening to a document](#listening-to-a-document),
-  [Voices: on this Mac or on a server](#voices-on-this-mac-or-on-a-server) and
+  [Voices: on this Mac or on your Baton server](#voices-on-this-mac-or-on-your-baton-server) and
   [Book storage](#book-storage).
 - **Help & FAQ** and **What's New**: this guide, and the notes for each release.
 - **Diagnostics**: the opt-in **Send crash reports** toggle, off by default.
@@ -2919,12 +3059,15 @@ on GitHub.
 - **Your credentials live in the macOS Keychain**, never in a plain text file.
 - **Baton doesn't phone home by default.** It talks only to the music server you point it at,
   plus the scrobbling services and its own update feed if you turn those on, any
-  text-to-speech server you set up, and (if you connect a chat bot) Telegram or Discord. It has no catalog server of its own to call. There are
+  text-to-speech server you set up, your Baton server if you run one, and (if you connect a chat bot) Telegram or Discord. It has no catalog server of its own to call. There are
   two exceptions, and both are yours to choose. When you share a song, it is encrypted on your
   device and uploaded to Baton's share service, which counts what happens to that link; see
   [Sharing a song with a friend](#sharing-a-song-with-a-friend). And crash reporting (Settings,
   About, Diagnostics, off by default): when you turn it on, Baton sends crash and error data to its developer through Crashbox to help fix bugs,
   never your music, library, server address, or account, and no IP or identifiers. Turning it on means Baton will try to send a report after a crash, but it does not confirm that the report arrived.
+- **Your Baton server is your own machine.** When you turn a document into a book, it keeps the
+  document's text and the book's audio there until you remove them, and none of it reaches
+  Baton's developer.
 - **The control server is loopback-only and token-protected.** It can't be reached from your
   network, and nothing on your Mac can drive it without the secret token. See
   [how it's secured](#letting-an-agent-control-your-music).

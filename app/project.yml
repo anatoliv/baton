@@ -79,8 +79,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.20.0"
-    CURRENT_PROJECT_VERSION: "117"
+    MARKETING_VERSION: "0.20.1"
+    CURRENT_PROJECT_VERSION: "118"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -208,6 +208,8 @@ targets:
       - path: ../Shared/ShareSongViews.swift
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
+      # Read-along for a playing book, one view for both apps (TBX-10960).
+      - path: ../Shared/ReadAlongView.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton
@@ -279,7 +281,49 @@ targets:
             NSPortName: Baton
             NSSendTypes: [NSStringPboardType]
             NSRequiredContext: {}
+          # Document clippings from a file in Finder (spec §9, TBX-10950): the same import sheet
+          # File > Import Document… opens. NSSendFileTypes makes it a file service, so Finder
+          # lists it for a selected PDF, EPUB, web page, text or Markdown file and for nothing else.
+          - NSMenuItem:
+              default: Make an Audiobook with Baton
+            NSMessage: makeAudiobook
+            NSPortName: Baton
+            NSSendFileTypes: [com.adobe.pdf, org.idpf.epub-container, public.html, public.plain-text, net.daringfireball.markdown]
+            NSRequiredContext: {}
         NSHighResolutionCapable: true
+        # Finder's Open With > Baton for the documents Clippings imports (spec §9, TBX-10950).
+        # Viewer and Alternate on every one: Baton is offered in Open With and never becomes the
+        # default app for a PDF, a web page or a text file. Opening one goes to the import sheet.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.adobe.pdf]
+          - CFBundleTypeName: EPUB Book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [org.idpf.epub-container]
+          - CFBundleTypeName: Web Page
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.html]
+          - CFBundleTypeName: Plain Text
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.plain-text]
+          - CFBundleTypeName: Markdown
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [net.daringfireball.markdown]
+        # Imported, not exported: recent macOS declares Markdown itself, and a system or owning
+        # app's declaration wins over this one. It is here so .md and .markdown resolve on a Mac
+        # where nothing else declares them.
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: net.daringfireball.markdown
+            UTTypeDescription: Markdown
+            UTTypeConformsTo: [public.plain-text]
+            UTTypeTagSpecification:
+              public.filename-extension: [md, markdown]
         # The `baton://` scheme. The phone has claimed it since its widgets shipped and the
         # Mac never did — so a link that opened the player on an iPhone did nothing at all
         # on the desktop, and every execution path behind it already existed. The doors

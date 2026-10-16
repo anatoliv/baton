@@ -42,6 +42,19 @@ final class DocumentInboxTests: XCTestCase {
         return try await relay().send(file: file, title: title, contentType: "text/markdown", fromDevice: "Anatoli’s iPhone")
     }
 
+    /// The probe's relay override (DEBUG only) is ignored unless both variables are set, and never
+    /// reaches past this Mac: a missing one leaves the configured gateway in charge.
+    func testTheDebugRelayOverrideIsIgnoredWhenAbsent() {
+        XCTAssertNil(DocumentInbox.debugRelay(environment: [:]))
+        XCTAssertNil(DocumentInbox.debugRelay(environment: ["BATON_DEBUG_INBOX_GATEWAY_URL": "http://127.0.0.1:18790"]))
+        XCTAssertNil(DocumentInbox.debugRelay(environment: ["BATON_DEBUG_INBOX_GATEWAY_TOKEN": "throwaway"]))
+        XCTAssertNil(DocumentInbox.debugRelay(environment: ["BATON_DEBUG_INBOX_GATEWAY_URL": "http://192.168.1.20:8788",
+                                                            "BATON_DEBUG_INBOX_GATEWAY_TOKEN": "throwaway"]),
+                     "a probe is never pointed at a gateway off this Mac")
+        XCTAssertNotNil(DocumentInbox.debugRelay(environment: ["BATON_DEBUG_INBOX_GATEWAY_URL": "http://127.0.0.1:18790",
+                                                               "BATON_DEBUG_INBOX_GATEWAY_TOKEN": "throwaway"]))
+    }
+
     func testASentDocumentIsPickedUpOnceAndOffered() async throws {
         let sent = try await phoneSends()
         let mac = inbox()

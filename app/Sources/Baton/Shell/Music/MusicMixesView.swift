@@ -31,7 +31,7 @@ struct MusicMixesView: View {
                 // signals this app can't see, and they change on their own schedule.
                 if !serverMixes.isEmpty {
                     HStack {
-                        Text("From Your Server").font(.headline)
+                        Text("From Your Music Server").font(.headline)
                         Spacer()
                     }
                     .padding(.horizontal, 16)

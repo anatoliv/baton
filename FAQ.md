@@ -31,24 +31,32 @@ are not planned.
 
 ## Servers and your library
 
-**What servers work with Baton?**
+**What are the music server and the Baton server?**
+Two servers of your own, with different jobs. Your **music server** holds your library: it is
+Navidrome or another Subsonic server, and you sign in to it. Your **Baton server** is an
+optional small Baton program you run at home; it makes books from documents, keeps your place
+and your shared settings in step between devices, and holds files for your other device. Both
+can run on the same machine. Music needs only the music server. See [The two servers Baton
+uses](HELP.md#the-two-servers-baton-uses).
+
+**What music servers work with Baton?**
 [Navidrome](https://www.navidrome.org/) and any Subsonic-compatible server. Baton speaks the
 Subsonic API, so most self-hosted music servers in that family work.
 
 **Does Baton have its own music catalog?**
-No. Baton plays *your* library from *your* server. It is deliberately not a streaming catalog
-like Spotify or Tidal, so there's nothing to browse until you connect a server.
+No. Baton plays *your* library from *your* music server. It is deliberately not a streaming
+catalog like Spotify or Tidal, so there's nothing to browse until you connect a music server.
 
 **How do I connect?**
-On first launch, enter your server's URL and either a username and password or an API key.
+On first launch, enter your music server's URL and either a username and password or an API key.
 Baton verifies the connection before it saves anything. See
 [Getting connected](HELP.md#getting-connected).
 
-**Can I connect more than one server?**
-Yes. Open Settings (press Command and comma), choose the Servers pane, and add servers there.
+**Can I connect more than one music server?**
+Yes. Open Settings (press Command and comma), choose the Music Servers pane, and add them there.
 Baton keeps each server's credentials separately in the Keychain, and you switch the active
 one with a click. Your first single connection is carried into the list automatically. See
-[Using more than one server](HELP.md#using-more-than-one-server).
+[Using more than one music server](HELP.md#using-more-than-one-music-server).
 
 **Does Baton do podcasts and internet radio?**
 Yes. The Podcasts tab plays shows your server hosts, and it can also follow any podcast by its
@@ -66,9 +74,11 @@ your password isn't sent in the clear on each request.
 **Does Baton phone home?**
 Not by default. Baton talks only to the music server you point it at, plus the scrobbling
 services (ListenBrainz and Last.fm) if you turn them on, its own update feed for checking for
-new versions, and any speech servers you set up yourself: text-to-speech for spoken summaries,
-and transcription for reading a podcast episode. Those are machines you run and point Baton at. It has no catalog
-server of its own to call. There are two exceptions, and both are yours to choose. When you
+new versions, and any speech servers you set up yourself: text-to-speech for spoken summaries
+and transcription for reading a podcast episode, and your Baton server if you run one. Those are
+machines you run and point Baton at. Your Baton server keeps the text of documents you turn into
+books, and the books' audio, on that machine until you remove them, and none of it reaches Baton's
+developer. Baton has no catalog server of its own to call. There are two exceptions, and both are yours to choose. When you
 share a song, it is encrypted on your device and uploaded to Baton's share service, which
 counts what happens to that link (opens and plays, never who). And if you turn on **Send
 crash & error reports** (Settings, About, Diagnostics, off by default), Baton sends crash and
@@ -257,25 +267,25 @@ answer, and press **Test connection**. A pass makes the tab appear. Baton waits 
 request to succeed because a key with a typo in it is still a key, and a tab that opens on
 "configure me first" is a promise it cannot keep.
 
-**Can Home server point at my own LLM?**
-No, and this is the most common way to get stuck. **Home server** means a **Baton gateway**
-(the small `baton-gateway` service you run at home), and Baton asks it for `/v1/agent`, which
-only the gateway answers. Ollama, vLLM, LiteLLM and the rest speak a model API, not that one,
+**Can Baton server point at my own LLM?**
+No, and this is the most common way to get stuck. **Baton server** means your own Baton
+server (the small `baton-gateway` program you run at home), and Baton asks it for `/v1/agent`,
+which only a Baton server answers. Ollama, vLLM, LiteLLM and the rest speak a model API, not that one,
 so they will always fail this test however well they are running. To use a model on your own
-machine, choose **Model provider** and point its base URL there, or run the gateway and give
-it `BATON_LLM_BASE_URL`.
+machine, choose **Model provider** and point its base URL there, or run your Baton server and
+give it `BATON_LLM_BASE_URL`.
 
 **Which address needs a /v1 on the end?**
-The **model provider** does, because `/chat/completions` hangs off it. The **home server**
+The **model provider** does, because `/chat/completions` hangs off it. The **Baton server**
 does not: give it the bare host and port, such as `http://192.0.2.10:8788`. They sit next to
 each other and want opposite shapes, which is easy to miss, so Baton drops a trailing `/v1`
-from the home server address if you paste one.
+from the Baton server address if you paste one.
 
 **What does the fallback actually do?**
-If your home server cannot be reached, or turns out not to be a gateway, the friend quietly
+If your Baton server cannot be reached, or turns out not to be a Baton server at all, the friend quietly
 uses the model provider below instead, so a machine that is asleep does not take it down. It
 does **not** make the Friend tab appear: that gate tests the route you chose. If you have no
-gateway, test as **Model provider**.
+Baton server, test as **Model provider**.
 
 **I set a key and it still says it can't answer.**
 The **Understand plain English** toggle is almost certainly still off. A key with the toggle
@@ -372,7 +382,7 @@ Yes, and separately from Wi-Fi. **Settings → Sound** on iPhone has **Wi-Fi Qua
 sorts itself out. Downloads ignore both: they're already on the phone.
 
 **Why does my iPhone ask for Face ID in Settings?**
-Only in front of the music friend's API key and gateway token, because a key against a paid
+Only in front of the music friend's API key and Baton server token, because a key against a paid
 provider is money and an unlocked phone in someone else's hand is already past the front door.
 It falls back to your passcode, and a phone with nothing enrolled is let straight through. It
 is not an app-wide lock: you'll never be asked just to skip a track.
@@ -472,24 +482,28 @@ plain text files. A scanned PDF, made of pictures of pages, is read with text re
 can misread a word, so Baton names those pages before you start, and any page it could not read
 at all. See [Listening to a document](HELP.md#listening-to-a-document).
 
+**Can I start from a file in Finder?**
+Yes. Control-click it and choose Open With → Baton, or Services → Make an Audiobook with Baton,
+and it opens in the Mac's import sheet. Baton never becomes the default app for these files.
+
 **How do I get a document onto my iPhone?**
 Share it to Baton from another app's share sheet (a web page in Safari works too), open it in
-Baton from Files, or use the + menu on the Clippings screen to import a file or a link. The phone makes the book on your home server, so set that up first under
-Settings, Music Friend, Home server. If the home server cannot make books, the import screen
-offers Send to my Mac, and Baton on the Mac opens the document to import; without a home server it
+Baton from Files, or use the + menu on the Clippings screen to import a file or a link. The phone makes the book on your Baton server, so set that up first under
+Settings, Music Friend, Baton server. If the Baton server cannot make books, the import screen
+offers Send to my Mac, and Baton on the Mac opens the document to import; without a Baton server it
 suggests AirDropping the file to your Mac. A book made on the Mac arrives on the phone too when it
-was made on the home server.
+was made on the Baton server.
 
 **Why did my book stop part way?**
 The voice host stopped answering. The book's row in Clippings says so, and the book carries on
 by itself when the host is reachable again. Check that the host is running and that its address
-in Settings → Speech on the Mac, or the home server under Settings on the phone, is right.
+in Settings → Speech on the Mac, or the Baton server under Settings on the phone, is right.
 
 **Does my document leave my device?**
 Only to your own machines, unless you say otherwise. The text goes, a sentence or two at a time,
-to the voice host you set in Settings → Speech, or to your home server when the book is made
+to the voice host you set in Settings → Speech, or to your Baton server when the book is made
 there; with the built-in voices on a Mac it never leaves the Mac. Send to my Mac leaves the file
-on your home server only until your Mac imports or discards it. The Mac's narrator suggestion,
+on your Baton server only until your Mac imports or discards it. The Mac's narrator suggestion,
 recap and cast list use Apple Intelligence or a model you run yourself first. A cloud model gets
 book text only if you allow it, and you can change that in Settings → Agents under Book text and
 cloud models. Anything that looks like a password or key is removed before any text is spoken or
@@ -497,15 +511,15 @@ sent. See [Book text and cloud models](HELP.md#book-text-and-cloud-models).
 
 **Can I choose the narrator?**
 On the Mac, yes. When a model answers (Apple Intelligence, Ollama or LM Studio on this Mac, or
-your home server's), the import sheet suggests three voices and lets you hear each in the book's
+your Baton server's), the import sheet suggests three voices and lets you hear each in the book's
 own words. Without one, and on the phone, Baton uses the default voice for the book's language,
 the one set in Settings → Speech.
 
 **Can I make books on my Mac without a voice server?**
 Yes, on a Mac with Apple silicon. Download the built-in voices once under Settings → Speech →
 Voice engine for books (342 MB). They are Kokoro's 28 English voices, run by Baton itself, and
-nothing leaves the Mac. See [Voices: on this Mac or on a
-server](HELP.md#voices-on-this-mac-or-on-a-server).
+nothing leaves the Mac. See [Voices: on this Mac or on your Baton
+server](HELP.md#voices-on-this-mac-or-on-your-baton-server).
 
 **Should I use the built-in voices or a voice server?**
 On the Mac, Settings → Speech → Voice engine for books chooses. Automatic, the default, uses the
@@ -515,9 +529,9 @@ side-by-side listening test they sounded the same as the server, they work offli
 book's text stays on the Mac. They speak English only. Voice server reaches every voice your
 Kokoro or Chatterbox server has, including other languages and Chatterbox's, and needs its
 address to answer. The iPhone has no choice to make: its
-books are made on your home server with the voice server set on the gateway
-(`BATON_TTS_KOKORO_URL`). See [Voices: on this Mac or on a
-server](HELP.md#voices-on-this-mac-or-on-a-server).
+books are made on your Baton server with the voice server set in its own setup
+(`BATON_TTS_KOKORO_URL`). See [Voices: on this Mac or on your Baton
+server](HELP.md#voices-on-this-mac-or-on-your-baton-server).
 
 **Can the characters have their own voices?**
 On the Mac, yes. Turn on Voice the dialogue in the import sheet. A model proposes a cast, you
@@ -594,26 +608,26 @@ the vision, architecture, and integration details.
 
 Yes. Choose **Try the demo** on the first-run screen and Baton opens a small library built
 into the app: real tracks, played through the real engine, with nothing going over the
-network. Connect your own Navidrome server whenever you like; on iPhone that's **Settings →
-Connect to Navidrome**, on the Mac it's **Settings → Servers**.
+network. Connect your own music server, such as Navidrome, whenever you like; on iPhone that's
+**Settings → Connect to Navidrome**, on the Mac it's **Settings → Music Servers**.
 
 ## How do I get my Mac's settings onto my iPhone?
 
 **Settings → Set up from a Mac** on the phone. Scanning the code your Mac shows is the
 quickest (nothing to type, not even a passphrase), but it needs both devices on the same
 network. If they aren't, export a settings file from the Mac and import it on the phone
-instead. Either way your server address, sign-in, equalizer and the rest come across.
+instead. Either way your music server's address, sign-in, equalizer and the rest come across.
 
 Your likes, ratings, playlists and play counts never needed this: they live on your
-Navidrome server and both apps read and write them as the same user, so they are already
+music server and both apps read and write them as the same user, so they are already
 the same everywhere.
 
 **Do my podcasts and radio stations follow me between devices?**
-Yes, by two different routes. **Radio stations** live on your server alongside your music, so
+Yes, by two different routes. **Radio stations** live on your music server alongside your music, so
 they're simply the same on every device with nothing to set up. **Podcast subscriptions**
 can't work that way (Navidrome has no podcast API, so Baton follows RSS feeds itself), and
-they travel with your other settings through a gateway instead (see
-[shared settings](#what-are-shared-settings-and-do-i-need-a-gateway) below).
+they travel with your other settings through your Baton server instead (see
+[shared settings](#what-are-shared-settings-and-do-i-need-a-baton-server) below).
 
 Both directions work, including removals: unsubscribe from a show on the Mac and it goes on
 the phone too, rather than reappearing next time the two talk. Baton records *when* you
@@ -622,19 +636,19 @@ can't undo something you deleted yesterday.
 
 How far you are into an episode is still per-device.
 
-## What are shared settings, and do I need a gateway?
+## What are shared settings, and do I need a Baton server?
 
 You don't need one. Baton works exactly as it always has without it, on both devices. Shared
 settings is the optional upgrade that keeps your preferences in step *after* the one-time
 transfer above, so changing the equalizer on the Mac changes it on the phone too.
 
-It needs a **gateway**: a small service you run yourself, included in this repository under
-`gateway/`. It runs on macOS and Linux, and the natural place for it is whatever box already
-runs Navidrome. Point both devices at its address with a token you invent, and they keep each
+It needs a **Baton server**: a small Baton program you run yourself, included in this
+repository under `gateway/`, where it is called the Baton gateway. It runs on macOS and Linux,
+and the natural place for it is whatever machine already runs your music server. Point both devices at its address with a token you invent, and they keep each
 other current. The Mac does it at launch, when you switch back to it, and on a slow
 heartbeat; the phone does the same. Setup is in
 [Shared settings between your devices](HELP.md#shared-settings-between-your-devices), and the
-gateway's own options are in [`gateway/README.md`](gateway/README.md).
+Baton server's own options are in [`gateway/README.md`](gateway/README.md).
 
 **What actually travels?**
 The equalizer, crossfade, gapless, autoplay, repeat, loudness, radio bans, podcast
@@ -645,7 +659,7 @@ folder, offline mode, demo mode, and how far into an episode you are.
 **Does my API key travel?**
 Not through shared settings: keys live in the Keychain and never enter the shared file. The
 *pairing code* is what moves secrets, and it moves all of them: your server passwords, your
-ListenBrainz and Last.fm tokens, your discovery keys, the gateway token and the music friend's
+ListenBrainz and Last.fm tokens, your discovery keys, the Baton server token and the music friend's
 API key, every one of them encrypted. Pair a phone and you should not have to paste anything.
 The switch that lets Baton look outside your library stays per-device though: that one is
 consent, and a phone shouldn't inherit it.
@@ -657,5 +671,6 @@ and podcast subscriptions are merged rather than replaced, so nothing disappears
 other device synced more recently.
 
 **Where are my settings actually stored?**
-In a plain JSON file on the machine running the gateway, which you can open and read. It's
-written to disk rather than held in memory, so restarting the gateway doesn't lose anything.
+In a plain JSON file on the machine running your Baton server, which you can open and read.
+It's written to disk rather than held in memory, so restarting the Baton server doesn't lose
+anything.

@@ -633,7 +633,7 @@ struct PlaylistsView: View {
                 }
             }
         } message: {
-            Text("This removes the playlist from your server. The songs stay in your library.")
+            Text("This removes the playlist from your music server. The songs stay in your library.")
         }
     }
 
@@ -900,7 +900,7 @@ struct DownloadsView: View {
                 } header: {
                     Label("\(Counted.phrase(failed.count, "download")) failed", systemImage: "exclamationmark.triangle")
                 } footer: {
-                    Text("These didn't finish. Usually the server went away mid-transfer. Retrying picks up where it stopped.")
+                    Text("These didn't finish. Usually the music server went away mid-transfer. Retrying picks up where it stopped.")
                 }
             }
 

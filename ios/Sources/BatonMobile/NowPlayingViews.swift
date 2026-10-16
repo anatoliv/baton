@@ -198,6 +198,8 @@ struct FullPlayerView: View {
     @State private var scrubTime: TimeInterval?
     @State private var showsLyrics = false
     @State private var showsTranscript = false
+    /// Read Along, for a book chapter.
+    @State private var showsReadAlong = false
     @State private var showsRelated = false
     @State private var showsQueue = false
     @AppStorage("baton.player.showsRemaining") private var showsRemainingTime = false
@@ -258,6 +260,15 @@ struct FullPlayerView: View {
                                 Text(artist)
                                     .font(.subheadline)
                                     .foregroundStyle(.white.opacity(0.65))
+                            }
+                            // "Waiting for chapter 3" while a book's next chapter is still on
+                            // its way, or why the book stopped there.
+                            if let note = model.music.continuationNote {
+                                Text(note)
+                                    .font(.footnote)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(.white.opacity(0.8))
+                                    .accessibilityIdentifier("player-continuation-note")
                             }
                         }
                         .padding(.horizontal)
@@ -342,6 +353,9 @@ struct FullPlayerView: View {
                 if let song = model.music.nowPlaying {
                     TranscriptSheet(song: song, model: model)
                 }
+            }
+            .sheet(isPresented: $showsReadAlong) {
+                MobileReadAlongSheet(model: model)
             }
         }
         // The player is a deliberately immersive dark surface (design doc): its
@@ -471,6 +485,7 @@ struct FullPlayerView: View {
             }
             HStack {
                 Text(timeString(scrubTime ?? model.music.currentTime))
+                    .accessibilityIdentifier("player-elapsed")
                 Spacer()
                 // What the stream actually is — "FLAC · 1017 kbps". The Mac has carried
                 // this in its Track Inspector all along; on the phone the person on good
@@ -588,33 +603,29 @@ struct FullPlayerView: View {
     }
 
     /// Like, lyrics, AirPlay, sleep — the row under the transport. On the Mac these
-    /// Playback speed. The same 0.5–2× the engine clamps to, so the menu cannot offer a
-    /// rate that would be silently corrected.
+    /// Playback speed for spoken items: podcasts and book chapters share one speed, 0.75×–2×,
+    /// pitch kept, the same choices as the Mac's player. It sets `spokenRate`;
+    /// music always plays at 1×.
     private var rateMenu: some View {
         Menu {
-            ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
+            ForEach(SpokenPlaybackOptions.rates, id: \.self) { rate in
                 Button {
-                    model.music.playbackRate = Float(rate)
+                    model.music.spokenRate = rate
                 } label: {
-                    if abs(Double(model.music.playbackRate) - rate) < 0.01 {
-                        Label(Self.rateLabel(rate), systemImage: "checkmark")
+                    if abs(model.music.spokenRate - rate) < 0.01 {
+                        Label(SpokenPlaybackOptions.rateLabel(rate), systemImage: "checkmark")
                     } else {
-                        Text(Self.rateLabel(rate))
+                        Text(SpokenPlaybackOptions.rateLabel(rate))
                     }
                 }
             }
         } label: {
-            Text(Self.rateLabel(Double(model.music.playbackRate)))
-                .foregroundStyle(.white.opacity(0.6))
+            Text(SpokenPlaybackOptions.rateLabel(model.music.spokenRate))
+                .foregroundStyle(model.music.spokenRate == 1 ? .white.opacity(0.6) : accent)
                 .monospacedDigit()
         }
         .accessibilityLabel("Playback speed")
-    }
-
-    /// "1×", "1.5×" — no trailing zero on a whole number, which is how every podcast app
-    /// writes it and how people say it.
-    private static func rateLabel(_ rate: Double) -> String {
-        rate == rate.rounded() ? "\(Int(rate))×" : String(format: "%.2g×", rate)
+        .accessibilityValue(SpokenPlaybackOptions.rateLabel(model.music.spokenRate))
     }
 
     /// live across the expanded bar; the phone gathers them where the thumb is.
@@ -647,11 +658,21 @@ struct FullPlayerView: View {
             // actually did was make the feature unreachable on the phone for every song in
             // the library, with no way to find out it existed. The sheet still says plainly
             // that this isn't spoken-word audio before offering to do it anyway.
-            Button { showsTranscript = true } label: {
-                Image(systemName: "text.viewfinder").foregroundStyle(.white.opacity(0.6))
+            // A book chapter's words are known, so the same place offers Read Along instead
+            // of transcribing them.
+            if model.isPlayingBookChapter {
+                Button { showsReadAlong = true } label: {
+                    Image(systemName: "text.book.closed").foregroundStyle(.white.opacity(0.6))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Read Along")
+            } else {
+                Button { showsTranscript = true } label: {
+                    Image(systemName: "text.viewfinder").foregroundStyle(.white.opacity(0.6))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Transcript")
             }
-            .frame(maxWidth: .infinity)
-            .accessibilityLabel("Transcript")
 
             // The Mac's player has three panels — Up Next, Lyrics, Related. The phone had
             // the first two. The similarity data was already being fetched here, but only
@@ -663,10 +684,11 @@ struct FullPlayerView: View {
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Related")
 
-            // Speed, on the player, for podcasts only. It was settable from the show list
-            // and nowhere else — so changing it meant leaving the thing you were listening
-            // to, which is the one moment you know you want it faster.
-            if song.isPodcastEpisode {
+            // Speed, on the player, for spoken items: podcasts and book chapters.
+            // It was settable from the show list and nowhere else — so changing it meant
+            // leaving the thing you were listening to, which is the one moment you know you
+            // want it faster.
+            if model.music.isSpokenNowPlaying {
                 rateMenu
                     .frame(maxWidth: .infinity)
             }
@@ -683,19 +705,10 @@ struct FullPlayerView: View {
     }
 
     private var sleepMenu: some View {
-        Menu {
-            if model.music.sleepTimerArmed {
-                Button("Cancel sleep timer", role: .destructive) { model.music.cancelSleepTimer() }
-            }
-            Button("In 15 minutes") { model.music.setSleepTimer(minutes: 15) }
-            Button("In 30 minutes") { model.music.setSleepTimer(minutes: 30) }
-            Button("In 1 hour") { model.music.setSleepTimer(minutes: 60) }
-            Button("After this track") { model.music.sleepAtEndOfTrack() }
-        } label: {
+        SleepTimerMenu(model: model) {
             Image(systemName: model.music.sleepTimerArmed ? "moon.zzz.fill" : "moon.zzz")
                 .foregroundStyle(model.music.sleepTimerArmed ? accent : .white.opacity(0.6))
         }
-        .accessibilityLabel("Sleep timer")
     }
 
 
@@ -703,6 +716,34 @@ struct FullPlayerView: View {
     // player is the one place the number has to be right.
     private func timeString(_ t: TimeInterval) -> String {
         PlayTime.track(seconds: t) ?? "0:00"
+    }
+}
+
+/// The sleep timer's choices, one menu for every place on the phone that offers it. It lived
+/// inside the full player alone, so someone listening to a run of clippings from the Clippings
+/// screen had no way to find it. Each place draws its own label; the choices are
+/// these, and they are the Mac's.
+struct SleepTimerMenu<Label: View>: View {
+    let model: MobileModel
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        Menu {
+            if model.music.sleepTimerArmed {
+                Button("Cancel sleep timer", role: .destructive) { model.music.cancelSleepTimer() }
+            }
+            // The Mac's choices, from the same list; a timed stop fades out first.
+            ForEach(SleepTimerOptions.minutes, id: \.self) { minutes in
+                Button(SleepTimerOptions.label(minutes)) { model.music.setSleepTimer(minutes: minutes) }
+            }
+            Button(SleepTimerOptions.endLabel(for: model.music.nowPlaying,
+                                              isSpoken: model.music.isSpokenNowPlaying)) {
+                model.music.sleepAtEndOfTrack()
+            }
+        } label: {
+            label()
+        }
+        .accessibilityLabel("Sleep timer")
     }
 }
 
@@ -907,7 +948,7 @@ struct RelatedSheet: View {
                     ContentUnavailableView(
                         "No related tracks",
                         systemImage: "sparkles",
-                        description: Text("Your server had no similar songs for this one.")
+                        description: Text("Your music server had no similar songs for this one.")
                     )
                 } else {
                     List {

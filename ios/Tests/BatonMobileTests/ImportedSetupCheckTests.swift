@@ -57,13 +57,13 @@ final class ImportedSetupCheckTests: XCTestCase {
     /// asks the same question.
     func testAnUnreachableHostIsNotReportedAsARefusedCredential() {
         XCTAssertFalse(AgentClient.looksLikeACredentialProblem(
-            "Couldn't reach the gateway at that address. The gateway listens on 8788 by default."))
+            "Couldn't reach your Baton server at that address. The Baton server listens on 8788 by default."))
         XCTAssertFalse(AgentClient.looksLikeACredentialProblem("The request timed out."))
         XCTAssertFalse(AgentClient.looksLikeACredentialProblem("Could not connect to the server."))
     }
 
     func testARefusedCredentialIsRecognised() {
-        XCTAssertTrue(AgentClient.looksLikeACredentialProblem("The gateway rejected the token. Check Gateway token."))
+        XCTAssertTrue(AgentClient.looksLikeACredentialProblem("Your Baton server rejected the token. Check Baton server token."))
         XCTAssertTrue(AgentClient.looksLikeACredentialProblem("HTTP 401 Unauthorized"))
         XCTAssertTrue(AgentClient.looksLikeACredentialProblem("Your API key was not accepted."))
     }

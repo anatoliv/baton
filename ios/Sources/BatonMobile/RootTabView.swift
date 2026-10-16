@@ -378,6 +378,8 @@ struct RootTabView: View {
             case .background:
                 reconcileImport()
                 model.handoff.saveNow()
+                // A book's place, so the other device's Play lands here.
+                model.pushBookLedgerLeavingForeground()
                 model.deviceLink.stop()
                 model.stopSyncHeartbeat()
             default:

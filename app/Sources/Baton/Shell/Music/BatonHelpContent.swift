@@ -89,8 +89,8 @@ extension HelpTour {
                     symbol: "hand.wave",
                     title: "What you'll do",
                     body: """
-                    Baton plays music from a server you run, so the first \
-                    step is pointing it at that server. This short tour goes \
+                    Baton plays music from a music server you run, such as \
+                    Navidrome, so the first step is pointing it at that server. This short tour goes \
                     from an empty window to your library playing.
 
                     Leave any time by picking another topic in the sidebar.
@@ -98,7 +98,7 @@ extension HelpTour {
                 ),
                 HelpTourStep(
                     symbol: "server.rack",
-                    title: "Add your server",
+                    title: "Add your music server",
                     body: """
                     Enter your **server URL** (for example \
                     `https://music.example.com`) and sign in with either a \
@@ -106,8 +106,8 @@ extension HelpTour {
                     the connection before it saves anything, and stores your \
                     credentials in the macOS Keychain.
 
-                    Already connected? Add or switch servers any time in \
-                    Settings, under Servers.
+                    Already connected? Add or switch music servers any time \
+                    in Settings, under Music Servers.
                     """,
                     settings: .servers
                 ),
@@ -127,7 +127,7 @@ extension HelpTour {
                     body: """
                     Click anything to play it. Tap the **heart** to like a \
                     track or set a **star rating**, both stored on your \
-                    server so they follow you to any Subsonic client. The bar \
+                    music server so they follow you to any Subsonic client. The bar \
                     at the bottom is your transport, queue, and sleep timer.
                     """
                 ),
@@ -322,6 +322,85 @@ extension HelpWhatsNewRelease {
     /// enforced it. `WhatsNewFreshnessTests` now fails when the newest entry falls behind
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
+        HelpWhatsNewRelease(
+            version: "0.20.1",
+            date: "October 2026",
+            highlight: "Read along with a book, set its speed, and make one straight from Finder.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Baton now names its two servers plainly: your music server, where your library "
+                    + "lives, and your Baton server, which makes books and keeps your place and "
+                    + "settings in step between devices. The two servers Baton uses, in Help, explains both."),
+                HelpWhatsNewChange(.added,
+                    "Read along: while a book plays, open Read Along from its menu in Clippings, "
+                    + "or the player's Read Along panel, to see the sentence you are hearing "
+                    + "highlighted, and click any sentence to listen from there."),
+                HelpWhatsNewChange(.added,
+                    "Books and podcasts now have a playback speed, from 0.75x to 2x with the "
+                    + "voice's pitch kept, and the sleep timer can stop at the end of a chapter."),
+                HelpWhatsNewChange(.improved,
+                    "In Clippings, the clipping or chapter you are listening to now shows the moving "
+                    + "bars and stays highlighted, just like a song in a list. A book shows the bars "
+                    + "while one of its chapters plays, even when its chapters are hidden."),
+                HelpWhatsNewChange(.fixed,
+                    "A sleep timer set for a number of minutes now stops playback even when the next "
+                    + "clipping or chapter begins while the sound is fading out."),
+                HelpWhatsNewChange(.added,
+                    "You can now correct pronunciations in books made on your Baton server. Only "
+                    + "the chapters that say the word are made again, and you keep your place."),
+                HelpWhatsNewChange(.added,
+                    "Change Voice in a book's menu makes the whole book again in another narrator's "
+                    + "voice, on your Baton server or on this Mac. Each chapter plays in its old voice "
+                    + "until the new one arrives, you keep your place, and a voiced cast stays as it is. "
+                    + "A kept reading can be read again in another voice the same way."),
+                HelpWhatsNewChange(.added,
+                    "In Finder, Control-click a PDF, an EPUB, a web page, or a text or Markdown "
+                    + "file and choose Open With, Baton, or Services, Make an Audiobook with Baton. "
+                    + "It opens in the import sheet. Baton never becomes the default app for "
+                    + "these files."),
+                HelpWhatsNewChange(.added,
+                    "A book made on your Baton server from your iPhone now shows up in Clippings "
+                    + "on your Mac, marked Made on the Baton server, and picks up where you left off."),
+                HelpWhatsNewChange(.improved,
+                    "Your place in a book now reaches your other devices within seconds of pausing "
+                    + "or stopping, and a finished book you start again picks up where you left off."),
+                HelpWhatsNewChange(.improved,
+                    "Play on a book now checks your other device's place first, even if Baton stayed open."),
+                HelpWhatsNewChange(.improved,
+                    "Remove from This Mac on a book made on your Baton server leaves it there for "
+                    + "your other devices. Delete Everywhere still deletes it there too."),
+                HelpWhatsNewChange(.fixed,
+                    "A book now plays all its chapters in order while the rest are still being "
+                    + "made. Each chapter joins as it is ready, Baton waits for one still being "
+                    + "made, and a chapter that cannot be made stops the book there and says why."),
+                HelpWhatsNewChange(.fixed,
+                    "Playing a clipping plays the clippings after it, without the chapters of "
+                    + "your books."),
+                HelpWhatsNewChange(.fixed,
+                    "A book or podcast set to a faster or slower speed keeps it after Next or a "
+                    + "crossfade, instead of going back to 1x for the following chapter."),
+                HelpWhatsNewChange(.fixed,
+                    "Pressing Next and then seeking or pausing straight away no longer leaves the "
+                    + "previous chapter playing under the new chapter's name."),
+                HelpWhatsNewChange(.fixed,
+                    "The model that suggests how names are said can no longer give two words "
+                    + "the same sound. One book read neighbourhood as Netherfield. Baton also "
+                    + "stops asking about British spellings."),
+                HelpWhatsNewChange(.fixed,
+                    "When Clippings is the first screen you open, the weekly suggestion about a "
+                    + "finished book still appears."),
+                HelpWhatsNewChange(.fixed,
+                    "The Home Server list in Settings, Storage now updates after Render Again or "
+                    + "Download Again."),
+                HelpWhatsNewChange(.fixed,
+                    "A cleanup rule such as After 7 days now reaches books made on your home "
+                    + "server as soon as Baton has heard from it, without opening Clippings first."),
+                HelpWhatsNewChange(.improved,
+                    "Voice the dialogue keeps two people taking turns in a conversation, so a "
+                    + "husband's replies no longer go to his wife, and a picture caption is no "
+                    + "longer read as a line of dialogue."),
+            ]
+        ),
         HelpWhatsNewRelease(
             version: "0.20.0",
             date: "October 2026",

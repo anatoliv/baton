@@ -783,6 +783,83 @@ else
   ok "TBX-5483 unconfigured releases preserve the explicit manual-upload flow"
 fi
 
+# --- TBX-10955: no app ships without MLX's shaders ---------------------------------------
+# Two layers refuse it (TBX-10926): the Release build's own "Bundle MLX shaders" step in
+# app/project.yml, and publish.sh reading the built app afterwards. Both run here, the real
+# text by anchor, against planted folders.
+
+MLX_REL="Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib"
+SHADERS_FN="$(awk '/^assert_mlx_shaders\(\) \{$/,/^\}$/' "$SUBJECT")"
+if [ -z "$SHADERS_FN" ]; then
+  bad "TBX-10955: assert_mlx_shaders() not found in publish.sh"
+else
+  mkdir -p "$WORK/shaders/Stripped.app/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources" \
+           "$WORK/shaders/Empty.app/$(dirname "$MLX_REL")" "$WORK/shaders/Whole.app/$(dirname "$MLX_REL")"
+  : >"$WORK/shaders/Empty.app/$MLX_REL"
+  printf 'metallib' >"$WORK/shaders/Whole.app/$MLX_REL"
+  { echo 'set -uo pipefail'; printf '%s\n' "$SHADERS_FN"
+    echo 'assert_mlx_shaders "$1" || exit 1'; echo 'echo SHADERS_PASSED'; } >"$WORK/t10955.sh"
+  for app in Stripped Empty; do
+    out="$(bash "$WORK/t10955.sh" "$WORK/shaders/$app.app" 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -qF SHADERS_PASSED; then
+      bad "TBX-10955: publish.sh admitted an app with no MLX shaders ($app)"
+    elif ! printf '%s' "$out" | grep -qF 'has no MLX shaders'; then
+      bad "TBX-10955: the $app refusal does not say what is missing. Got: $out"
+    else
+      ok "TBX-10955 publish.sh refuses a built app without MLX shaders ($app)"
+    fi
+  done
+  out="$(bash "$WORK/t10955.sh" "$WORK/shaders/Whole.app" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qF SHADERS_PASSED; then
+    bad "TBX-10955: publish.sh refused an app that has its MLX shaders. Got: $out"
+  else
+    ok "TBX-10955 publish.sh passes a built app with its MLX shaders"
+  fi
+fi
+
+# The build step: the YAML block scalar under "- name: Bundle MLX shaders", de-indented.
+# $PWD, not $ROOT: the dSYM cases above point ROOT at a planted release tree.
+BUNDLE_STEP="$(awk '
+  /^      - name: Bundle MLX shaders$/ { found = 1; next }
+  found && !inscript && /^        script: [|]$/ { inscript = 1; next }
+  inscript { if ($0 != "" && substr($0, 1, 10) != "          ") exit; print substr($0, 11) }
+' "$PWD/app/project.yml")"
+if ! printf '%s' "$BUNDLE_STEP" | grep -qF 'CONFIGURATION'; then
+  bad "TBX-10955: the Bundle MLX shaders step was not found in app/project.yml"
+else
+  printf '%s\n' "$BUNDLE_STEP" >"$WORK/bundle-step.sh"
+  run_bundle_step() { # configuration, built-products dir
+    env -i PATH="$PATH" CONFIGURATION="$1" TARGET_BUILD_DIR="$2" \
+      UNLOCALIZED_RESOURCES_FOLDER_PATH="Baton.app/Contents/Resources" \
+      SRCROOT="$WORK/shaders/no-src/app" MLX_METALLIB="$WORK/shaders/no-such.metallib" \
+      bash "$WORK/bundle-step.sh" 2>&1
+  }
+  mkdir -p "$WORK/shaders/built-release" "$WORK/shaders/built-debug"
+  out="$(run_bundle_step Release "$WORK/shaders/built-release")"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    bad "TBX-10955: a Release build with no MLX shaders was not refused"
+  elif ! printf '%s' "$out" | grep -qF 'error: no MLX shaders'; then
+    bad "TBX-10955: the Release refusal does not name the missing shaders. Got: $out"
+  else
+    ok "TBX-10955 a Release build with no MLX shaders fails its build step"
+  fi
+  out="$(run_bundle_step Debug "$WORK/shaders/built-debug")"; rc=$?
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qF 'warning: no MLX shaders'; then
+    bad "TBX-10955: a Debug build with no MLX shaders should warn and continue. rc=$rc: $out"
+  else
+    ok "TBX-10955 a Debug build with no MLX shaders warns and continues"
+  fi
+  # Xcode compiled them (Metal Toolchain): left as built, even in Release with no fallback.
+  mkdir -p "$WORK/shaders/built-release/Baton.app/$(dirname "$MLX_REL")"
+  printf 'metallib' >"$WORK/shaders/built-release/Baton.app/$MLX_REL"
+  out="$(run_bundle_step Release "$WORK/shaders/built-release")"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    bad "TBX-10955: a Release build with compiled MLX shaders was refused. Got: $out"
+  else
+    ok "TBX-10955 a Release build with compiled MLX shaders passes its build step"
+  fi
+fi
+
 # Report JSON optionals and direct NPM routing are part of publication acceptance.
 # Keep these offline regressions on the ordinary gate via this existing script.
 if python3 "$PWD/scripts/test-song-sharing-scripts.py"; then

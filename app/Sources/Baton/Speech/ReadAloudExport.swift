@@ -52,6 +52,13 @@ enum ReadAloudExport {
     ///
     /// `progress` is called on the main actor with 0…1 after each chunk, so a long article can
     /// show where it has got to. Cancelling the surrounding task removes the partial file.
+    ///
+    /// `fallback: false` is for a voice the person chose by name (Change Voice, TBX-10989): a
+    /// host that fails is an error, because a clipping that says it is in that voice while
+    /// partly read by the system voice would be a quiet lie.
+    ///
+    /// Returns whether every chunk is in `voice`: false when the built-in voice stood in.
+    @discardableResult
     static func write(
         chunks: [String],
         voice: SpeechConfig.Voice,
@@ -59,8 +66,9 @@ enum ReadAloudExport {
         synthesize: (String, SpeechConfig.Voice) async throws -> Data = { text, voice in
             try await SpeechService.synthesize(text: text, voice: voice)
         },
+        fallback: Bool = true,
         progress: (Double) -> Void = { _ in }
-    ) async throws {
+    ) async throws -> Bool {
         guard !chunks.isEmpty else { throw ExportError.nothingToExport }
 
         guard let canonical = AVAudioFormat(
@@ -87,8 +95,8 @@ enum ReadAloudExport {
         // Any failure past this point leaves a half-written file that would play as a truncated
         // reading — worse than no file, because it looks like it worked.
         var wroteAnything = false
+        var hostIsDown = false
         do {
-            var hostIsDown = false
             for (index, chunk) in chunks.enumerated() {
                 try Task.checkCancellation()
 
@@ -98,6 +106,8 @@ enum ReadAloudExport {
                         rendered = try decode(try await synthesize(chunk, voice), as: canonical)
                     } catch is CancellationError {
                         throw CancellationError()
+                    } catch where !fallback {
+                        throw error
                     } catch {
                         // Same rule as a reading: once the host has failed, stop asking it.
                         hostIsDown = true
@@ -130,6 +140,7 @@ enum ReadAloudExport {
             try? FileManager.default.removeItem(at: destination)
             throw ExportError.noAudio
         }
+        return !hostIsDown
     }
 
     /// The name to offer in the save panel. A reading has no title, so the two things actually

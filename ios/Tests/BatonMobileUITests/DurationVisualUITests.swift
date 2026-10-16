@@ -117,7 +117,7 @@ final class DurationVisualUITests: XCTestCase {
         let historyRow = app.buttons["History"]
         if historyRow.waitForExistence(timeout: 15) {
             historyRow.tap()
-            let header = app.staticTexts["Across every device, from your server"]
+            let header = app.staticTexts["Across every device, from your music server"]
             if !header.waitForExistence(timeout: 45) {
                 // Say what was actually on screen. Guessing at a failure twice is how an
                 // afternoon goes missing.

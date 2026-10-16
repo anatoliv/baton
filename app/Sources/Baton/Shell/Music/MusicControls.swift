@@ -202,17 +202,8 @@ struct MusicVolumeControl: View {
     }
 }
 
-/// Shared sleep-timer durations + labels, so the moon menu and the Playback menu
-/// offer the same choices.
-enum SleepTimerOptions {
-    static let minutes = [15, 30, 45, 60, 120, 180]
-
-    static func label(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes) minutes" }
-        let hours = minutes / 60
-        return "\(hours) hour\(hours == 1 ? "" : "s")"
-    }
-}
+// `SleepTimerOptions` (the shared durations and labels) lives in BatonPlaybackKit now, so the
+// phone's player offers the same choices.
 
 /// Sleep-timer menu (moon icon): fixed durations, "end of track", or off. The moon
 /// fills + tints accent when a timer is armed. Shared by the full-screen and bottom
@@ -229,7 +220,9 @@ struct SleepTimerMenu: View {
             ForEach(SleepTimerOptions.minutes, id: \.self) { minutes in
                 Button(SleepTimerOptions.label(minutes)) { player.setSleepTimer(minutes: minutes) }
             }
-            Button("End of track") { player.sleepAtEndOfTrack() }
+            Button(SleepTimerOptions.endLabel(for: player.nowPlaying, isSpoken: player.isSpokenNowPlaying)) {
+                player.sleepAtEndOfTrack()
+            }
             if player.sleepTimerArmed {
                 Divider()
                 Button("Turn off sleep timer", role: .destructive) { player.cancelSleepTimer() }
@@ -244,6 +237,43 @@ struct SleepTimerMenu: View {
         .fixedSize()
         .help("Sleep timer")
         .accessibilityLabel("Sleep timer")
+    }
+}
+
+/// Speed for spoken items: podcasts and book chapters share one speed, 0.75×–2×, pitch kept
+///. Shown only while something spoken plays — music is never sped up, so offering
+/// the control on a song would be a control that does nothing.
+struct SpokenRateMenu: View {
+    @Environment(MusicModel.self) private var model
+    var font: Font = .title3
+    var tint: Color = .secondary
+
+    private var player: StreamingPlaybackController { model.music }
+
+    var body: some View {
+        Menu {
+            ForEach(SpokenPlaybackOptions.rates, id: \.self) { rate in
+                Button {
+                    player.spokenRate = rate
+                } label: {
+                    if abs(player.spokenRate - rate) < 0.01 {
+                        Label(SpokenPlaybackOptions.rateLabel(rate), systemImage: "checkmark")
+                    } else {
+                        Text(SpokenPlaybackOptions.rateLabel(rate))
+                    }
+                }
+            }
+        } label: {
+            Text(SpokenPlaybackOptions.rateLabel(player.spokenRate))
+                .font(font.monospacedDigit())
+                .foregroundStyle(player.spokenRate == 1 ? tint : Color.accentColor)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Playback speed for podcasts and books")
+        .accessibilityLabel("Playback speed")
+        .accessibilityValue(SpokenPlaybackOptions.rateLabel(player.spokenRate))
     }
 }
 

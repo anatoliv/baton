@@ -5,8 +5,9 @@ import Foundation
 import Observation
 
 /// "Previously…" (M8.4): when a book is picked up again after a break, a short spoken recap of
-/// what has been heard, then the book carries on. The spoiler boundary, the prompt and the
-/// cleaning are `Recap` in BatonDocuments; this is the Mac's offer, model call and speaking.
+/// what has been heard, then the book carries on. The offer rule, the spoiler boundary, the
+/// prompt, the router call and the cleaning are `Recap` in BatonDocuments, shared with the
+/// iPhone; this is the Mac's sources, banner and speaking.
 ///
 /// The recap goes through `ModelRouter`, which decides: local sources always, and a cloud
 /// source only when the person allowed it chapters in Settings (M4.6, `ModelConsentLedger`).
@@ -15,9 +16,8 @@ enum ResumeRecap {
     /// Whether to offer one: an unfinished book with a position, last played long enough ago,
     /// with enough heard to recap (`Recap.shouldOffer`).
     static func shouldOffer(book: BookShelf.Book, prepared: PreparedBook, lastPlayed: Date?, now: Date = Date()) -> Bool {
-        guard !book.finished, book.position != nil else { return false }
-        let position = BookText.position(in: prepared, book: book)
-        return Recap.shouldOffer(lastPlayed: lastPlayed, now: now, heard: HeardText(prepared, upTo: position))
+        Recap.shouldOffer(book: prepared, synced: book.position, chapterDuration: BookText.chapterDuration(book),
+                          finished: book.finished, lastPlayed: lastPlayed, now: now)
     }
 
     /// The recap, written by the first source the router may use that answers, cleaned for
@@ -26,11 +26,7 @@ enum ResumeRecap {
     static func write(prepared: PreparedBook, position: BookPosition, sources: [ModelSource],
                       consent: ModelConsent = ModelConsent(),
                       executor: @escaping ModelRouter.Executor) async -> (text: String, source: String)? {
-        let router = ModelRouter(sources: sources, consent: consent)
-        guard !router.plan(for: .recap).usable.isEmpty else { return nil }
-        return await Recap.make(book: prepared, position: position, complete: { @Sendable system, user in
-            try await router.complete(.recap, system: system, user: user, executor: executor)
-        })
+        await Recap.write(book: prepared, position: position, sources: sources, consent: consent, executor: executor)
     }
 
     /// Why no recap was written, in one line: with a cloud source waiting for consent, the
@@ -38,15 +34,13 @@ enum ResumeRecap {
     static func noRecapLine(sources: [ModelSource], consent: ModelConsent) -> String {
         let waiting = ModelRouter(sources: sources, consent: consent).awaitingConsent(for: .recap)
         guard let cloud = waiting.first else {
-            return "No model on this Mac or the home server wrote a recap, so the book plays as it is."
+            return "No model on this Mac or the Baton server wrote a recap, so the book plays as it is."
         }
-        return "No model on this Mac or the home server wrote a recap, and \(CloudModelConsent.notAllowedClause(cloud, .chapter)), so the book plays as it is."
+        return "No model on this Mac or the Baton server wrote a recap, and \(CloudModelConsent.notAllowedClause(cloud, .chapter)), so the book plays as it is."
     }
 
     /// "It has been a while since you heard The Machine Stops."
-    static func offerText(for book: BookShelf.Book) -> String {
-        "It has been a while since you heard \(book.title). Hear a short recap of what you have heard, then carry on?"
-    }
+    static func offerText(for book: BookShelf.Book) -> String { Recap.offerText(title: book.title) }
 }
 
 /// The offer as the Clippings list shows it: made when Play is pressed on a book due a recap,

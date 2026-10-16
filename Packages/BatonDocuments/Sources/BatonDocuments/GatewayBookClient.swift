@@ -49,6 +49,14 @@ public struct GatewayBookClient: Sendable {
         return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
     }
 
+    /// `GET /v1/books/{id}/book`: the shaped book the job was made from, for a
+    /// device that did not send it: its chapter words for read-along, and what Render Again and
+    /// pronunciations start from. 404 from a gateway older than the route.
+    public func preparedBook(_ id: String) async throws -> PreparedBook {
+        let (data, _) = try await send("GET", "v1/books/\(id)/book")
+        return try PreparedBook.decode(data)
+    }
+
     /// `GET /v1/books/{id}/chapters/{n}` (1-based), written to `destination` only after its
     /// digest matches the gateway's header. A mismatch throws and leaves nothing behind.
     public func downloadChapter(_ id: String, number: Int, to destination: URL) async throws -> Chapter {
@@ -62,6 +70,18 @@ public struct GatewayBookClient: Sendable {
         return Chapter(url: destination, sha256: digest, bytes: data.count,
                        seconds: response.value(forHTTPHeaderField: "X-Baton-Duration").flatMap(Double.init),
                        name: response.value(forHTTPHeaderField: "X-Baton-Name"))
+    }
+
+    /// `GET /v1/books/{id}/chapters/{n}/timing` (1-based): where each chunk sits in the chapter,
+    /// for read-along. Nil when the home server has none: a chapter made before it
+    /// kept timing, or a gateway older than the route (both answer 404). Other failures throw.
+    public func chapterTiming(_ id: String, number: Int) async throws -> ReadAlongTiming? {
+        do {
+            let (data, _) = try await send("GET", "v1/books/\(id)/chapters/\(number)/timing")
+            return ReadAlongTiming.decode(data)
+        } catch GatewayBookError.http(404, _) {
+            return nil
+        }
     }
 
     /// `GET /v1/books/{id}/export.m4b`: the whole book as one audiobook with chapter marks,
@@ -116,6 +136,14 @@ public struct GatewayBookClient: Sendable {
                                        body: try JSONSerialization.data(withJSONObject: body),
                                        contentType: "application/json")
         return data
+    }
+
+    /// `GET /v1/voices`: the voices the home server's voice server offers, for the
+    /// phone's narrator choice. A gateway from before the route answers 404, which throws
+    /// `.http(404, …)` like any other refusal; the caller then keeps the configured default.
+    public func voices() async throws -> GatewayVoiceList {
+        let (data, _) = try await send("GET", "v1/voices")
+        do { return try JSONDecoder().decode(GatewayVoiceList.self, from: data) } catch { throw GatewayBookError.unreadable }
     }
 
     // MARK: - Types
@@ -176,6 +204,43 @@ public struct GatewayBookClient: Sendable {
     }
 }
 
+/// `GET /v1/voices`'s answer, one definition for the gateway that writes it and
+/// the client that reads it.
+///
+///     {"voices": [{"spec": "kokoro:af_heart", "engine": "kokoro", "id": "af_heart", "language": "en"}, …],
+///      "sources": {"kokoro": "server"}}
+///
+/// `spec` is what a `VoicePlan` names. `language` is there when the id says it (Kokoro's
+/// prefixes), absent otherwise (a Chatterbox reference file). `sources` says, per engine, where
+/// the list came from: "server" (the voice server's own `/v1/audio/voices`), "built-in" (it did
+/// not answer, so the Kokoro voices the gateway knows), or "unavailable" (no list at all).
+public struct GatewayVoiceList: Codable, Sendable, Equatable {
+    public struct Voice: Codable, Sendable, Equatable {
+        public var spec: String
+        public var engine: String
+        public var id: String
+        public var language: String?
+
+        public init(engine: String, id: String, language: String?) {
+            self.spec = "\(engine):\(id)"
+            self.engine = engine
+            self.id = id
+            self.language = language
+        }
+    }
+
+    public var voices: [Voice]
+    public var sources: [String: String]
+
+    public init(voices: [Voice], sources: [String: String]) {
+        self.voices = voices
+        self.sources = sources
+    }
+
+    /// The `"engine:voice"` specs, which is what `VoiceCatalogue` and `VoiceCaster` take.
+    public var specs: [String] { voices.map(\.spec) }
+}
+
 public enum GatewayBookError: Error, Equatable, CustomStringConvertible {
     case notHTTP
     case unreadable
@@ -184,9 +249,9 @@ public enum GatewayBookError: Error, Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .notHTTP: return "the home server's answer was not HTTP"
-        case .unreadable: return "the home server answered with something Baton can't read"
-        case let .http(status, message): return "the home server answered \(status): \(message)"
+        case .notHTTP: return "the Baton server's answer was not HTTP"
+        case .unreadable: return "the Baton server answered with something Baton can't read"
+        case let .http(status, message): return "the Baton server answered \(status): \(message)"
         case let .digestMismatch(expected, actual):
             return "a chapter arrived damaged (expected \(expected ?? "a digest"), got \(actual))"
         }
@@ -195,11 +260,11 @@ public enum GatewayBookError: Error, Equatable, CustomStringConvertible {
     /// The same, in a listener's words, for a status line.
     public var listenerReason: String {
         switch self {
-        case .http(401, _): return "the home server didn't accept Baton's token"
-        case .http(507, _): return "the home server is out of space for books"
-        case .http(503, _): return "books are off on the home server"
+        case .http(401, _): return "the Baton server didn't accept Baton's token"
+        case .http(507, _): return "the Baton server is out of space for books"
+        case .http(503, _): return "books are off on the Baton server"
         case .digestMismatch: return "a chapter arrived damaged and will be fetched again"
-        default: return "the home server isn't answering"
+        default: return "the Baton server isn't answering"
         }
     }
 }

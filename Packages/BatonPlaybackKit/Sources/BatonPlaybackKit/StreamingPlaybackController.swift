@@ -65,9 +65,13 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     }
 
     /// Ordered play queue. Persisted across launches.
-    public private(set) var queue: [NavidromeSong] = []
+    public private(set) var queue: [NavidromeSong] = [] {
+        didSet { nowPlayingMayHaveChanged() }
+    }
     /// Index of the current track within `queue` (valid only when non-empty).
-    public private(set) var currentIndex: Int = 0
+    public private(set) var currentIndex: Int = 0 {
+        didSet { nowPlayingMayHaveChanged() }
+    }
     public private(set) var currentTime: TimeInterval = 0
     public private(set) var duration: TimeInterval = 0
 
@@ -152,11 +156,29 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// Injected "more like this" fetcher, wired to the library by AppModel. Nil ⇒ autoplay
     /// can't extend (the toggle still persists, it just does nothing until wired).
     @ObservationIgnored public var relatedProvider: (@MainActor (NavidromeSong) async -> [NavidromeSong])?
+    /// What follows the end of the queue once it exists: the rest of a book whose
+    /// chapters are still being made or brought down. Not autoplay's "more like this" but more
+    /// of the same thing, so it applies whatever the autoplay switch says.
+    @ObservationIgnored public var continuationSource: (any QueueContinuationSource)?
+    /// The one request for what follows the last track, by that track's id.
+    @ObservationIgnored private var continuationFetch: (seedID: String, task: Task<Void, Never>)?
+    /// A continuation that already said nothing more comes, kept for the end of its track.
+    @ObservationIgnored private var continuationEnd: (seedID: String, reason: String?)?
+    /// The state generation when the end of the queue began waiting for its continuation.
+    @ObservationIgnored private var continuationWait: Int?
+    /// What the player says about the end of the queue for a player view to show under the
+    /// title: "Waiting for chapter 3" while it waits, or why it stopped there. Cleared when the
+    /// next track loads or another queue starts.
+    public private(set) var continuationNote: String?
     /// Called when a track actually starts playing — wired to the play-history log.
     @ObservationIgnored public var onTrackStarted: (@MainActor (NavidromeSong) -> Void)?
     /// Called after playback pauses (user, remote command, or interruption) — wired to
     /// the cross-device handoff saver so a paused queue is immediately continuable elsewhere.
     @ObservationIgnored public var onPause: (@MainActor () -> Void)?
+    /// Called after `stop()` and when the queue plays out, the transport's other ways of halting.
+    /// Wired to the shared-ledger push, so a book stopped here is where the other device's Play
+    /// lands, and a book played to its end arrives there finished.
+    @ObservationIgnored public var onStop: (@MainActor () -> Void)?
     /// Injected resume-offset lookup (podcasts). When it returns a value for the starting
     /// track, playback seeks there once the item is ready. Nil ⇒ always start at 0.
     @ObservationIgnored public var resumeOffsetProvider: (@MainActor (NavidromeSong) -> TimeInterval?)?
@@ -372,16 +394,44 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
     /// Player volume as a percentage 0–100. Mapped to `AVPlayer.volume` (0…1).
     /// Persisted; does NOT move the macOS system output volume.
-    /// Playback speed (0.5×–2×), primarily for podcasts. Applied through
-    /// `AVPlayer.defaultRate` so pause/resume and gapless item advances keep the
+    /// The speed the decks are playing at right now: `spokenRate` while a podcast episode or a
+    /// book chapter plays, 1× for everything else. Read-only: set `spokenRate`.
+    /// Applied through `AVPlayer.defaultRate` so pause/resume and gapless item advances keep the
     /// chosen speed instead of snapping back to 1×.
-    public var playbackRate: Float = 1.0 {
+    public internal(set) var playbackRate: Float = 1.0 {
         didSet {
             let clamped = min(2.0, max(0.5, playbackRate))
             if playbackRate != clamped { playbackRate = clamped; return }
             eachDeck { $0.setPlaybackRate(clamped) }
+            if oldValue != playbackRate { pushNowPlaying() }
         }
     }
+
+    /// The speed for spoken items: podcasts and books alike, 0.75×–2×, pitch preserved.
+    /// Remembered across launches and synced between devices (`spokenRateKey`). See
+    /// `StreamingPlaybackController+SpokenRate.swift`.
+    public var spokenRate: Float = 1.0 {
+        didSet {
+            let clamped = SpokenPlaybackOptions.clampRate(spokenRate)
+            if spokenRate != clamped { spokenRate = clamped; return }
+            // Only a real change is written: rewriting an adopted value would stamp it as a
+            // local edit for `PreferenceSync`, the TBX-10666 class of bug.
+            if !adoptingStoredSpokenRate,
+               (defaults.object(forKey: Self.spokenRateKey) as? Double).map(Float.init) != clamped {
+                defaults.set(Double(clamped), forKey: Self.spokenRateKey)
+            }
+            let target = effectiveRateForNowPlaying
+            if playbackRate != target { playbackRate = target }
+        }
+    }
+
+    /// Whether an item is speech and so plays at `spokenRate`. Podcast episodes by default; the
+    /// apps add book chapters and other clippings, which only they can recognise.
+    @ObservationIgnored public var isSpokenItem: @MainActor (NavidromeSong) -> Bool = { $0.isPodcastEpisode } {
+        didSet { rateResolvedForID = nil; nowPlayingMayHaveChanged() }
+    }
+    @ObservationIgnored var rateResolvedForID: String?
+    @ObservationIgnored var adoptingStoredSpokenRate = false
 
     public var volumePercent: Int = 70 {
         didSet {
@@ -615,6 +665,30 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         }
     }
 
+    /// Whether a clock tick should save listening progress: about every 5 s of the playhead,
+    /// and never once stopped. Stop rewinds the AVPlayer to 0:00 after its fade, and that
+    /// rewind's tick used to be saved as the listener's place, so stopping a book in chapter 2
+    /// at 0:30 left it at 0:00 of chapter 2 on both devices. A pause, or a seek
+    /// while paused, still saves.
+    nonisolated static func progressSaveDue(state: State, time: TimeInterval, lastSaved: TimeInterval,
+                                            duration: TimeInterval) -> Bool {
+        state != .idle && duration > 1 && abs(time - lastSaved) >= 5
+    }
+
+    /// Save the place where listening halts, at once, on Pause and on Stop (TBX-10974 re-walk).
+    ///
+    /// The clock saves only every 5 s of the playhead, and a paused or stopped clock never moves
+    /// again, so the place the book's ledger held, and that the TBX-10986 push sent to the other
+    /// device, was the last 5 s mark: up to 5 s short, and after a chapter had just ended into
+    /// the next one, the end of the chapter before, which the other device played again from
+    /// the top. Not while a resume offset is still to be applied (the playhead is not there
+    /// yet), not once stopped, and not mid-blend (the clock is the outgoing item's).
+    private func saveProgressWhereHalted() {
+        guard let song = nowPlaying, state != .idle, pendingResumeOffset == nil, duration > 1 else { return }
+        lastProgressSaveTime = currentTime
+        onProgressUpdate?(song, currentTime, duration)
+    }
+
     /// One clock body, for whichever deck is rendering.
     ///
     /// This was two: an `AVPlayer` periodic observer and the engine bridge's 4 Hz tick, each
@@ -655,8 +729,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
                 return
             }
         }
-        // Persist listening progress (podcasts) roughly every 5 s of playback.
-        if let song = nowPlaying, duration > 1, abs(currentTime - lastProgressSaveTime) >= 5 {
+        // Persist listening progress (podcasts, book chapters) roughly every 5 s of playback.
+        if let song = nowPlaying,
+           Self.progressSaveDue(state: state, time: currentTime, lastSaved: lastProgressSaveTime, duration: duration) {
             lastProgressSaveTime = currentTime
             onProgressUpdate?(song, currentTime, duration)
         }
@@ -682,6 +757,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// separate from `avDeck.isCrossfadeRampActive`, which is the truth: the two disagreeing
     /// is what once left a second player running that no transport action could stop.
     private var isCrossfading = false
+    /// The queue index a running skip blend has already made current, or nil when no skip blend
+    /// is running. `beginSkipBlend` moves the transport before the audio, so until promotion the
+    /// outgoing track is still sounding under the incoming track's name.
+    private var skipBlendTarget: Int?
 
     // Test seams for the crossfade leak. The bug lived precisely in these two disagreeing,
     // so a test has to be able to put them out of step deliberately — that state is
@@ -739,6 +818,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// counts — is our own bookkeeping, and the whole class of gapless bug is bookkeeping
     /// that disagrees with the audio. Only the item's own asset can settle it.
     public var currentItemURLForTesting: URL? { avDeck.currentItemURL }
+    public var currentItemTimePitchForTesting: AVAudioTimePitchAlgorithm? { avDeck.currentItemTimePitchAlgorithm }
     public private(set) var loadCurrentCountForTesting = 0
     /// Counts how many times the queued gapless-next stream item was swapped for a local
     /// prefetched file (the zero-gap-on-streams path).
@@ -747,6 +827,12 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// gapless ⊕ crossfade mutual-exclusivity invariant (F3 — the audiophile crown
     /// jewels must never silently regress).
     public var isGaplessModeForTesting: Bool { isGaplessMode }
+    /// `(rate, defaultRate)` of the player being heard.
+    var deckPlayerRatesForTesting: (rate: Float, defaultRate: Float) { avDeck.playerRatesForTesting }
+    /// Start the automatic crossfade into `index` now, without waiting for the window.
+    func startCrossfadeForTesting(to index: Int, seconds: Double = 0.3) { startCrossfade(to: index, duration: seconds) }
+    /// The queue index the deck's gapless look-ahead item stands for, or nil when none is queued.
+    public var gaplessPreloadIndexForTesting: Int? { avDeck.preload?.index }
     #endif
 
     /// Owns the gapless prefetch machinery (in-flight tasks + the ephemeral disk cache + the
@@ -1028,6 +1114,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // that the default is on: a fresh install gets gapless; someone who explicitly turned
         // it off keeps it off.
         gaplessEnabled = defaults.object(forKey: Self.gaplessKey) as? Bool ?? true
+        spokenRate = SpokenPlaybackOptions.clampRate(Float(defaults.object(forKey: Self.spokenRateKey) as? Double ?? 1))
         gaplessPrefetchWifiOnly = defaults.bool(forKey: Self.gaplessWifiOnlyKey)
         duckPercent = defaults.object(forKey: Self.duckKey) as? Int ?? 20
         stallTimeoutSeconds = defaults.object(forKey: Self.stallTimeoutKey) as? Double ?? Self.defaultStallTimeout
@@ -1209,6 +1296,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         cancelCrossfade()
         guard !songs.isEmpty else { return }
         bumpStateGeneration()
+        cancelContinuation()
         queue = songs
         currentIndex = max(0, min(index, songs.count - 1))
         queueSource = source
@@ -1282,8 +1370,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     }
 
     public func pause() {
+        let canSavePlace = !isCrossfading
         bumpStateGeneration()
         pauseInternal()
+        if canSavePlace { saveProgressWhereHalted() }
         onPause?()
     }
 
@@ -1306,22 +1396,26 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
     /// Stops playback cleanly (keeps the queue so it can be restarted / persisted).
     public func stop() {
+        if !isCrossfading { saveProgressWhereHalted() }
         bumpStateGeneration()
         cancelCrossfade()
         activeDeck.stop()
         engineOwnsPlayback = false // a later resume() re-routes via loadCurrent
         cancelGaplessPrefetch() // don't keep downloading a "next" track after Stop
+        cancelContinuation()
         state = .idle
         currentTime = 0
         isBuffering = false
         persistQueue()
         pushNowPlaying()
+        onStop?()
     }
 
     /// Empties the queue and stops. Clears the persisted queue and Now Playing.
     public func clearQueue() {
         cancelCrossfade()
         cancelGaplessPrefetch()
+        cancelContinuation()
         queue = []
         currentIndex = 0
         orderBeforeShuffle = nil
@@ -1408,6 +1502,13 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
         // The synchronous advance — before the ramp starts, so nothing can observe a stale index.
         currentIndex = index
+        skipBlendTarget = index
+        // The look-ahead queued behind the outgoing track named the old "next". Usually that is
+        // the very item this skip just made current: left queued, the outgoing track would roll
+        // into it at its own end and the item would play a second time, and a later end would
+        // reconcile onto it as if it were still next. Drop it now; `finishCrossfade`
+        // preloads the real next once the incoming player is the main one.
+        preloadGaplessNextIfNeeded()
         // The listening record closes with the logical advance, not with the audio ramp: this is
         // the moment the outgoing track was left. `finishCrossfade` also rotates, which is then a
         // no-op — the accumulator is already zero. A manual skip takes this path, so most track
@@ -1426,7 +1527,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
         avDeck.beginCrossfade(
             into: queue[index], url: url, targetIn: targetIn,
-            duration: Crossfade.manualSkipSeconds, steps: 12
+            duration: Crossfade.manualSkipSeconds, steps: 12, rate: effectiveRate(for: queue[index])
         ) { [weak self] in
             self?.finishCrossfade(to: index, alreadyAdvanced: true)
         }
@@ -1725,6 +1826,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         loadCurrentCountForTesting += 1
         #endif
         if !isRetry { sameTrackRetries = 0 } // a genuine (non-retry) load starts a fresh track
+        continuationNote = nil
+        // The last track of a book still being made: ask for what follows now, while it plays,
+        // on whichever deck it plays.
+        continueQueueIfNeeded()
         // A fresh item can end again — clear the end-handled guard.
         didHandleEnd = false
         if !isContinuation {
@@ -1905,6 +2010,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// `StreamSeek` rewrite — the only place the offset/transcode decisions become observable.
     public private(set) var lastStreamURLForTesting: URL?
     public var streamStartOffsetForTesting: TimeInterval { avDeck.streamStartOffset }
+    /// Test seam: put the playhead at the end of the item, so a simulated end counts as genuine
+    /// once the item's real length is known (`StreamSeek.isGenuineEnd`).
+    public func placePlayheadAtEndForTesting() { currentTime = duration }
     /// Test seam: stand in for "this stream was fetched with `timeOffset`", which a local file
     /// can't produce (it is fully seekable, so a seek never needs a re-request).
     public func setStreamStartOffsetForTesting(_ seconds: TimeInterval) {
@@ -1956,7 +2064,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // moved under it, the audio the OS is about to play is not the track we would name,
         // and reloading (a gap) is the honest outcome — a seamless boundary onto the wrong
         // song is worse than an audible one onto the right song.
-        if isGaplessMode, let preload = avDeck.preload,
+        // A preload is never the item already playing: an end that finds one for the current
+        // index is the end of a stale look-ahead, and advancing onto it replays the item.
+        if isGaplessMode, let preload = avDeck.preload, preload.index != currentIndex,
            queue.indices.contains(preload.index), queue[preload.index].id == preload.songID {
             gaplessAdvanced(to: preload.index)
             return
@@ -1975,6 +2085,15 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // Sleep timer armed to stop at the end of this track.
         if sleepAfterCurrentTrack {
             sleepAfterCurrentTrack = false
+            // Spoken items stop *between* chapters (or episodes): the next one is loaded,
+            // paused, so Play carries on with it rather than starting over the chapter that
+            // was just heard to the end. Music keeps its old behaviour.
+            if isSpokenNowPlaying, queue.indices.contains(currentIndex + 1) {
+                currentIndex += 1
+                loadCurrent(autoplay: false)
+                persistQueue()
+                return
+            }
             state = .paused
             activeDeck.pause()
             currentTime = 0
@@ -1990,6 +2109,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             loadCurrent(autoplay: true)
             persistQueue()
         case .stop:
+            // The rest of a book still on its way: wait for it rather than stop.
+            if waitForContinuation() { return }
             // Continuous radio: instead of stopping at the end, pull in similar tracks and
             // keep playing. Falls through to a real stop if autoplay is off or finds nothing.
             if autoplayEnabled, relatedProvider != nil, !queue.isEmpty {
@@ -2157,16 +2278,134 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         pushNowPlaying()
         persistQueue()
         extendQueueIfNeeded()
+        continueQueueIfNeeded()
         preloadGaplessNextIfNeeded()
     }
 
+    // MARK: - Continuing queue
+
+    /// Ask for what follows the last track while it plays, so it is here (downloaded, or made)
+    /// before the boundary rather than after it. Only when the current track is the last, the
+    /// queue is not repeating, and the source says more follows it.
+    private func continueQueueIfNeeded() {
+        guard let source = continuationSource, repeatMode == .off, let seed = nowPlaying,
+              currentIndex == queue.count - 1, continuationFetch?.seedID != seed.id,
+              continuationEnd?.seedID != seed.id, source.continues(after: seed) else { return }
+        startContinuation(after: seed, source: source)
+    }
+
+    private func startContinuation(after seed: NavidromeSong, source: any QueueContinuationSource) {
+        continuationFetch?.task.cancel()
+        let task = Task { [weak self] in
+            let result = await source.continuation(after: seed)
+            guard !Task.isCancelled else { return }
+            self?.finishContinuation(after: seed, result)
+        }
+        continuationFetch = (seed.id, task)
+    }
+
+    private func cancelContinuation() {
+        continuationFetch?.task.cancel()
+        continuationFetch = nil
+        continuationEnd = nil
+        continuationWait = nil
+        continuationNote = nil
+    }
+
+    /// The end of the queue with more of it on the way: wait for it, saying so, rather than
+    /// stop. Returns false when nothing follows, for the ordinary end. A continuation that has
+    /// already said nothing more comes stops here, with its reason.
+    private func waitForContinuation() -> Bool {
+        guard let source = continuationSource, repeatMode == .off, let seed = nowPlaying else { return false }
+        if let end = continuationEnd, end.seedID == seed.id {
+            continuationEnd = nil
+            if let reason = end.reason {
+                continuationNote = reason
+                postToast(reason, symbol: "exclamationmark.triangle", seconds: 6)
+            }
+            return false
+        }
+        guard continuationFetch?.seedID == seed.id || source.continues(after: seed) else { return false }
+        streamingLog.notice("end of queue at index \(self.currentIndex, privacy: .public): waiting for what follows")
+        continuationWait = stateGeneration
+        currentTime = duration
+        state = .loading
+        activeDeck.pause()
+        if let text = source.waitingText(after: seed) {
+            continuationNote = text
+            postToast(text, symbol: "hourglass", seconds: 4)
+        }
+        pushNowPlaying()
+        if continuationFetch?.seedID != seed.id { startContinuation(after: seed, source: source) }
+        return true
+    }
+
+    /// What follows has come, or will not. Appended only onto the queue it was asked for (its
+    /// track still the last), and played at once only when the end was waiting for it with no
+    /// transport action since.
+    private func finishContinuation(after seed: NavidromeSong, _ result: QueueContinuation) {
+        guard continuationFetch?.seedID == seed.id else { return }
+        continuationFetch = nil
+        let waitedFrom = continuationWait
+        continuationWait = nil
+        guard queue.last?.id == seed.id else { return }
+        // Still on the track it follows, at the end of it: waiting, or paused while waiting.
+        let onSeed = currentIndex == queue.count - 1
+        let stillWaiting = waitedFrom != nil && onSeed
+        let untouched = stillWaiting && waitedFrom == stateGeneration
+        switch result {
+        case let .more(songs):
+            let existing = Set(queue.map(\.id))
+            let fresh = songs.filter { !existing.contains($0.id) }
+            guard !fresh.isEmpty else {
+                if stillWaiting {
+                    continuationNote = nil
+                    endOfQueue()
+                }
+                return
+            }
+            let firstNew = queue.count
+            queue.append(contentsOf: fresh)
+            persistQueue()
+            streamingLog.notice("continuation: \(fresh.count, privacy: .public) joined the queue at index \(firstNew, privacy: .public)\(untouched ? ", playing now" : "", privacy: .public)")
+            if untouched {
+                currentIndex = firstNew
+                loadCurrent(autoplay: true)
+            } else if stillWaiting || (onSeed && state != .playing
+                                       && TrackBoundary.isAtEnd(currentTime: currentTime, duration: duration)) {
+                // Paused while waiting, or stopped at the end of the last track: the new chapter
+                // is ready for Play, which would otherwise start the one just heard over again.
+                currentIndex = firstNew
+                loadCurrent(autoplay: false)
+            } else {
+                preloadGaplessNextIfNeeded()
+            }
+        case let .ended(reason):
+            streamingLog.notice("continuation ended after index \(self.queue.count - 1, privacy: .public)\(reason == nil ? "" : " with a reason", privacy: .public)")
+            if stillWaiting {
+                continuationNote = reason
+                if let reason { postToast(reason, symbol: "exclamationmark.triangle", seconds: 6) }
+                endOfQueue()
+            } else {
+                continuationEnd = (seed.id, reason)
+            }
+        }
+    }
+
+    #if DEBUG
+    /// Test seam: whether a request for what follows the last track is in flight.
+    public var isContinuingForTesting: Bool { continuationFetch != nil }
+    #endif
+
     /// The genuine end-of-queue stop (autoplay off, or it had nothing more to add).
-    private func endOfQueue() {
+    /// Internal rather than private so a test can play the queue out without audio.
+    func endOfQueue() {
         currentTime = duration
         state = .idle
         activeDeck.pause()
         persistQueue()
         pushNowPlaying()
+        onStop?()
     }
 
     /// Prefetch: when the queue is nearly exhausted, append tracks similar to the current
@@ -2270,7 +2509,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // The deck owns the second player and the ramp loop; we decide when to blend, which
         // track to blend into, and what happens to the queue when it lands.
         avDeck.beginCrossfade(into: queue[nextIndex], url: url, targetIn: targetIn,
-                              duration: seconds) { [weak self] in
+                              duration: seconds, rate: effectiveRate(for: queue[nextIndex])) { [weak self] in
             self?.finishCrossfade(to: nextIndex)
         }
     }
@@ -2283,6 +2522,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     ///   for the length of the blend. In that case this only swaps the players; the queue
     ///   bookkeeping and `notifyTrackStarted` already happened and must not fire twice.
     private func finishCrossfade(to nextIndex: Int, alreadyAdvanced: Bool = false) {
+        skipBlendTarget = nil
         // Bailing out must not leave the incoming player running. This returns when the
         // queue changed under the fade (an index that no longer exists) or when a transport
         // action already cleared the flag — and in both cases the blended-in player is still
@@ -2323,6 +2563,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             persistQueue()
         }
         extendQueueIfNeeded()
+        continueQueueIfNeeded()
+        // The promoted player starts with nothing queued behind it; buffer the new next so the
+        // following boundary is gapless rather than a reload.
+        preloadGaplessNextIfNeeded()
     }
 
     /// Abort an in-flight crossfade (a transport action interrupted it): stop the second
@@ -2336,6 +2580,17 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// of killing the app. The flag is a belief; the ramp is the truth.
     public func cancelCrossfade() {
         guard isCrossfading || avDeck.isCrossfadeRampActive else { return }
+        // A skip blend has already moved the transport onto its target, so dropping the incoming
+        // player would leave the *previous* track sounding under the current one's name, and the
+        // action that interrupted the blend (a seek, a pause) would land on the wrong track. That
+        // is what a seek straight after Next did on the iPhone: chapter 2 played on, labelled
+        // chapter 3 with chapter 2's length. Complete the blend as a cut instead.
+        if let target = skipBlendTarget, target == currentIndex, isCrossfading,
+           avDeck.isCrossfadeRampActive, queue.indices.contains(target) {
+            finishCrossfade(to: target, alreadyAdvanced: true)
+            if !isCrossfading, !avDeck.isCrossfadeRampActive { return }
+        }
+        skipBlendTarget = nil
         isCrossfading = false
         avDeck.cancelCrossfade()
         didHandleEnd = false

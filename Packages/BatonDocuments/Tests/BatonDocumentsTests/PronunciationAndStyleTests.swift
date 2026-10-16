@@ -61,6 +61,72 @@ final class PronunciationLexiconTests: XCTestCase {
                        "a respelling and a word nobody asked about are dropped")
         XCTAssertTrue(PronunciationLexicon.parse("no JSON at all", candidates: candidates).isEmpty)
     }
+
+    /// TBX-10947: on the TBX-10886 walk (Pride and Prejudice, chapter 1) the US spell checker
+    /// did not know the British "neighbourhood", so it was asked about beside "Netherfield",
+    /// and Apple's on-device model gave both the same phonemes. The chapter then said
+    /// "Netherfield" for "neighbourhood". The reply is the typed reply's JSON as the job's
+    /// lexicon recorded it (`docs/evidence/tbx-10886/walk/job.json`).
+    private let walkReply = """
+        {"words": [{"word": "Netherfield", "ipa": "ˈnɛθəˌfiːld"}, {"word": "neighbourhood", "ipa": "ˈnɛθəˌfiːld"}]}
+        """
+
+    private var walkChapter: ImportedDocument {
+        ImportedDocument(sourceSHA256: "pp", sourceKind: .text, title: "Pride and Prejudice", chapters: [
+            DocumentChapter(index: 0, title: "Chapter 1", paragraphs: [
+                "However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed.",
+                "“My dear Mr. Bennet,” said his lady to him one day, “have you heard that Netherfield Park is let at last?”",
+                "“Why, my dear, you must know, Mrs. Long says that Netherfield is taken by a young man of large fortune.”",
+                "“But, my dear, you must indeed go and see Mr. Bingley when he comes into the neighbourhood.”",
+            ]),
+        ])
+    }
+
+    func testTwoProposedWordsWithOneSoundAreBothDropped() {
+        // What NSSpellChecker's default "en" dictionary answered for these on the walk's Mac.
+        let usDictionary: (String) -> Bool? = { !["neighbourhood", "Netherfield"].contains($0) }
+        let candidates = PronunciationLexicon.candidates(in: walkChapter, isWord: usDictionary)
+        XCTAssertTrue(Set(candidates.map(\.word)).isSuperset(of: ["Netherfield", "neighbourhood"]),
+                      "the walk's two words were both asked about: \(candidates.map(\.word))")
+
+        let lexicon = PronunciationLexicon.parse(walkReply, candidates: candidates)
+        XCTAssertFalse(lexicon.entries.contains { $0.word == "neighbourhood" }, "neighbourhood is not Netherfield")
+        XCTAssertTrue(lexicon.isEmpty, "which of the two is the copy cannot be told, so both are read as written")
+
+        let honest = PronunciationLexicon.parse("""
+            {"words": [{"word": "Netherfield", "ipa": "ˈnɛðəfiːld"}, {"word": "neighbourhood", "ipa": "ˈneɪbəhʊd"}]}
+            """, candidates: candidates)
+        XCTAssertEqual(honest.entries.map(\.word), ["Netherfield", "neighbourhood"], "different sounds are both kept")
+    }
+
+    func testAStoredLexiconWithOneSoundForTwoWordsIsNotSentOnEitherRenderer() {
+        // The walk's job carried the bad pair already; the Mac and the home server both mark
+        // text through `PreparedBook.request(for:)`, so neither may send it.
+        let stored = PronunciationLexicon(entries: [
+            .init(word: "Netherfield", phonemes: "ˈnɛθəˌfiːld", source: "model"),
+            .init(word: "neighbourhood", phonemes: "ˈnɛθəˌfiːld", source: "model"),
+        ])
+        var book = DocumentSpeech.prepare(walkChapter, voices: VoicePlan(narrator: "kokoro:bf_emma"))
+        book.lexicon = stored
+        let sent = book.chapters[0].segments.map { book.request(for: $0).text }.joined(separator: " ")
+        XCTAssertTrue(sent.contains("into the neighbourhood"), sent)
+        XCTAssertFalse(sent.contains("](/"), "no markup from the bad pair: \(sent)")
+
+        // A person's word stands; a model's entry that repeats its sound for another word goes.
+        var corrected = stored
+        corrected.entries[0].source = "person"
+        XCTAssertEqual(corrected.validated().entries.map(\.word), ["Netherfield"])
+        XCTAssertEqual(corrected.apply(to: "Netherfield and the neighbourhood"),
+                       "[Netherfield](/ˈnɛθəˌfiːld/) and the neighbourhood")
+
+        // A word the model was not asked about is refused, and so are phonemes Kokoro cannot read.
+        let asked = PronunciationLexicon(entries: [
+            .init(word: "Bingley", phonemes: "ˈbɪŋli", source: "model"),
+            .init(word: "Lizzy", phonemes: "LIZ-ee", source: "model"),
+        ])
+        XCTAssertEqual(asked.validated(asked: ["Netherfield"]).entries, [])
+        XCTAssertEqual(asked.validated().entries.map(\.word), ["Bingley"])
+    }
 }
 
 final class SpeechStyleTests: XCTestCase {

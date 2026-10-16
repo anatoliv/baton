@@ -40,7 +40,7 @@ enum BookVoiceSettings {
             switch self {
             case .ask: "Ask each time"
             case .thisMac: "This Mac"
-            case .homeServer: "Home server"
+            case .homeServer: "Baton server"
             }
         }
     }
@@ -160,7 +160,7 @@ enum BookVoiceSettings {
 
     /// Said when the home server was chosen and does not answer: the sheet's line, and the
     /// `import_document` tool's note.
-    static let homeServerFallbackNote = "The home server is not answering, so this Mac makes it."
+    static let homeServerFallbackNote = "The Baton server is not answering, so this Mac makes it."
 
     // MARK: - Status lines
 

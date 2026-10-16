@@ -54,7 +54,7 @@ enum SendToMac {
     /// A failed send, in the screen's words.
     static func failureText(_ error: Error) -> String {
         if case let .rejected(status, _)? = error as? GatewayFiles.TransferError, status == 413 {
-            return "The file is too big to send through your home server. AirDrop it to your Mac instead."
+            return "The file is too big to send through your Baton server. AirDrop it to your Mac instead."
         }
         return "It could not be sent: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
     }
@@ -86,7 +86,7 @@ struct SendToMacSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Making a book needs your home server", systemImage: "server.rack")
+            Label("Making a book needs your Baton server", systemImage: "server.rack")
             Text(explanation).font(.footnote).foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("needs-home-server")
@@ -137,7 +137,7 @@ struct SendToMacSection: View {
             let why = problem.map { "It cannot make books right now: \($0)." } ?? "It cannot make books right now."
             return "\(why) Send this to your Mac instead, and make the book there."
         case .airDrop:
-            return "No home server is set up (Settings, Music Friend, Home server). To make the book on your Mac, AirDrop this to it and open it in Baton."
+            return "No Baton server is set up (Settings, Music Friend, Baton server). To make the book on your Mac, AirDrop this to it and open it in Baton."
         case .unreachable:
             let why = problem.map { "It is not available: \($0)." } ?? "It is not available."
             return "\(why) You can AirDrop this to your Mac and make the book there."
@@ -148,7 +148,7 @@ struct SendToMacSection: View {
 
     private func send() {
         guard let relay = model.pendingImportRelay() else {
-            failure = "Set up your home server under Settings first."
+            failure = "Set up your Baton server under Settings first."
             return
         }
         sending = true

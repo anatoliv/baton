@@ -56,7 +56,7 @@ final class AgentClient {
 
         var errorDescription: String? {
             switch self {
-            case .notConfigured: "Add an API key (or gateway) in Settings first."
+            case .notConfigured: "Add an API key (or your Baton server) in Settings first."
             case .http(let code, let hint): "The model endpoint answered HTTP \(code). \(hint)"
             case .unreachable(let detail): "Couldn't reach it: \(detail)"
             case .config(let detail): detail
@@ -207,23 +207,23 @@ final class AgentClient {
         do {
             let reply = try await askGateway("What is playing right now?", profile: profile)
             let answer = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return .ok(answer.isEmpty ? "Your home server answered." : "Your home server answered: \(answer)")
+            return .ok(answer.isEmpty ? "Your Baton server answered." : "Your Baton server answered: \(answer)")
         } catch let error as AgentError {
             switch error {
             case .http(401, _), .http(403, _):
-                return .failed("The gateway rejected the token. Check Gateway token.")
+                return .failed("Your Baton server rejected the token. Check Baton server token.")
             case .unreachable(let detail):
-                return .failed("Couldn't reach the gateway at that address. \(detail) The gateway listens on 8788 by default.")
+                return .failed("Couldn't reach your Baton server at that address. \(detail) The Baton server listens on 8788 by default.")
             case .http(404, _):
-                return .failed("Something is running at that address, but it isn't a Baton gateway: "
-                               + "nothing answered at /v1/agent. Check the port. The gateway listens on 8788 by default.")
+                return .failed("Something is running at that address, but it isn't a Baton server: "
+                               + "nothing answered at /v1/agent. Check the port. The Baton server listens on 8788 by default.")
             case .http(let code, let hint) where code > 0:
-                return .failed("The gateway answered HTTP \(code). \(hint)")
+                return .failed("Your Baton server answered HTTP \(code). \(hint)")
             default:
                 return .failed(error.localizedDescription)
             }
         } catch let error as URLError {
-            return .failed("Couldn't reach the gateway: \(error.localizedDescription)")
+            return .failed("Couldn't reach your Baton server: \(error.localizedDescription)")
         } catch {
             return .failed(String(describing: error))
         }

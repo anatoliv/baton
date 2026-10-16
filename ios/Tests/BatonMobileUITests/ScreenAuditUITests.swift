@@ -59,11 +59,11 @@ final class ScreenAuditUITests: XCTestCase {
         let gear = app.buttons["Settings"]
         XCTAssertTrue(gear.waitForExistence(timeout: 15), "Home's header must offer Settings")
         gear.tap()
-        // "Server" rather than "Settings": the gear's accessibility label is also
+        // "Music server" rather than "Settings": the gear's accessibility label is also
         // "Settings", so waiting on that text can match the button that was just tapped
-        // instead of the screen it opened. The Server section only exists once Settings
+        // instead of the screen it opened. The Music server section only exists once Settings
         // is actually on screen.
-        XCTAssertTrue(app.staticTexts["Server"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.staticTexts["Music server"].waitForExistence(timeout: 20),
                       "Settings must open")
     }
 
@@ -334,8 +334,9 @@ final class ScreenAuditUITests: XCTestCase {
                       "Settings sections must explain themselves and link to the guide")
         learnMore.tap()
 
-        // The first "Learn more" belongs to the Equalizer section.
-        XCTAssertTrue(app.navigationBars["The equalizer"].waitForExistence(timeout: 10),
+        // The first "Learn more" belongs to the Music server section, and opens the page that
+        // explains the music server and the Baton server.
+        XCTAssertTrue(app.navigationBars["The two servers Baton uses"].waitForExistence(timeout: 10),
                       "a Learn more must deep-link to its own topic, not dump you at the contents")
         audit("help-deep-link")
     }

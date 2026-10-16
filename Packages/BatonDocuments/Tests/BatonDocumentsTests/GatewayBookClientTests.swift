@@ -52,6 +52,46 @@ final class GatewayBookClientTests: XCTestCase {
         XCTAssertEqual(try PreparedBook.decode(XCTUnwrap(r.httpBody)), b)
     }
 
+    /// TBX-10962: `GET /v1/voices` with the token, read into specs and languages; an older
+    /// gateway's 404 comes back as that 404, which the phone takes as "keep today's default".
+    func testVoicesAreReadAndAnOlderGatewaysNotFoundIsReported() async throws {
+        let recorder = Recorder()
+        let json = Data(#"{"voices":[{"spec":"kokoro:af_heart","engine":"kokoro","id":"af_heart","language":"en"},{"spec":"chatterbox:Emily.wav","engine":"chatterbox","id":"Emily.wav"}],"sources":{"kokoro":"server","chatterbox":"server"}}"#.utf8)
+        let list = try await client(recorder) { _ in (200, ["Content-Type": "application/json"], json) }.voices()
+        XCTAssertEqual(list.specs, ["kokoro:af_heart", "chatterbox:Emily.wav"])
+        XCTAssertEqual(list.voices.map(\.language), ["en", nil])
+        XCTAssertEqual(list.sources["kokoro"], "server")
+        let r = try XCTUnwrap(recorder.requests.first)
+        XCTAssertEqual(r.httpMethod, "GET")
+        XCTAssertEqual(r.url?.path, "/v1/voices")
+        XCTAssertEqual(r.value(forHTTPHeaderField: "Authorization"), "Bearer tok")
+
+        do {
+            _ = try await client(Recorder()) { _ in (404, [:], Data(#"{"error":"not found"}"#.utf8)) }.voices()
+            XCTFail("a 404 must throw")
+        } catch let error as GatewayBookError {
+            guard case .http(404, _) = error else { return XCTFail("\(error)") }
+        }
+        do {
+            _ = try await client(Recorder()) { _ in (200, [:], Data("<html>".utf8)) }.voices()
+            XCTFail("an unreadable answer must throw")
+        } catch let error as GatewayBookError {
+            XCTAssertEqual(error, .unreadable)
+        }
+    }
+
+    /// The list the gateway falls back to and the language it reads from an id.
+    func testKokorosEnglishVoicesAndDeclaredLanguages() {
+        let voices = VoiceCatalogue.kokoroEnglishVoices
+        XCTAssertEqual(voices.count, 28)
+        XCTAssertTrue(voices.contains("kokoro:af_heart") && voices.contains("kokoro:bf_emma"))
+        XCTAssertTrue(voices.contains("kokoro:af_aoede") && voices.contains("kokoro:bm_lewis"))
+        XCTAssertEqual(VoiceCatalogue.declaredLanguage("kokoro:bf_emma"), "en")
+        XCTAssertEqual(VoiceCatalogue.declaredLanguage("kokoro:zf_xiaobei"), "zh")
+        XCTAssertNil(VoiceCatalogue.declaredLanguage("chatterbox:Emily.wav"))
+        XCTAssertNil(VoiceCatalogue.declaredLanguage("kokoro:custom"))
+    }
+
     func testAChapterIsWrittenOnlyWhenItsDigestMatches() async throws {
         let audio = Data("pretend this is an m4a".utf8)
         let good = SHA256Digest.hex(of: audio)
@@ -86,7 +126,7 @@ final class GatewayBookClientTests: XCTestCase {
             XCTFail("expected 507")
         } catch let error as GatewayBookError {
             XCTAssertEqual(error, .http(status: 507, message: "the home server's space for books is full of unfinished books"))
-            XCTAssertEqual(error.listenerReason, "the home server is out of space for books")
+            XCTAssertEqual(error.listenerReason, "the Baton server is out of space for books")
         } catch {
             XCTFail("\(error)")
         }

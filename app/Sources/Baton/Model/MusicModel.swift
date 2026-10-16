@@ -35,6 +35,10 @@ final class MusicModel {
     let musicEqualizer: MusicEqualizer
     /// Internet-radio stations + raw-stream player + lazily-resolved logos/genre.
     let internetRadio = InternetRadioStore()
+    /// Fetches the other device's place before a book's Play: the preference sync
+    /// scheduler's forced sync, set while that scheduler runs. Nil when sync is switched off
+    /// (`BATON_DEBUG_PREFERENCE_SYNC=off`) or has not started, and then Play starts at once.
+    @ObservationIgnored var bookPlacePull: (@MainActor () async -> Bool)?
     /// Cross-device handoff saver — pushes the queue to the server's play-queue slot
     /// on pause so another Baton (the iPhone) can continue mid-track.
     let queueHandoff: QueueHandoff
@@ -359,6 +363,12 @@ final class MusicModel {
         // Podcast resume: when a podcast episode starts, hand the player its saved offset so it
         // picks up where you left off. Library tracks (non-URL ids) never resume.
         // A book chapter resumes at the synced position the same way (document clippings, M3.5).
+        // Speech plays at the spoken-items speed, music always at 1×: podcast
+        // episodes, server-side episodes, and the clippings Baton made (book chapters, readings).
+        music.isSpokenItem = { [podcastProgress, clippings] song in
+            Self.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id)
+                || clippings.item(forSongID: song.id) != nil
+        }
         music.resumeOffsetProvider = { [podcastProgress, clippings] song in
             if MediaKind(id: song.id) == .localFile {
                 return BookPlayback.resumeOffset(for: song, clippings: clippings)
@@ -366,6 +376,27 @@ final class MusicModel {
             guard Self.isPodcastEpisode(song) || podcastProgress.isServerEpisode(song.id) else { return nil }
             return podcastProgress.resumeOffset(id: song.id)
         }
+        // A book plays on into the chapters still being made, here or on the home server, in
+        // reading order, and stops with the reason at a chapter that cannot come.
+        music.continuationSource = BookContinuation(clippings: clippings, chapters: { [weak self] documentID in
+            guard let self, self.documentsSwitch.isOn else { return nil }
+            let library = self.documents
+            guard let book = library.shelf.first(where: { $0.documentID == documentID }) else { return nil }
+            return BookPlayback.continuationChapters(of: book, hasJob: library.job(forDocument: documentID) != nil,
+                                                     canGetBack: library.getBackTitle(book) != nil,
+                                                     homeServerProblem: library.homeServerProblem)
+        }, fetch: { [weak self] documentID, index in
+            guard let self else { return }
+            let library = self.documents
+            guard let book = library.shelf.first(where: { $0.documentID == documentID }) else { return }
+            if book.chapters.first(where: { $0.index == index })?.state == .removed {
+                try? await library.getBack(book, chapters: [index])
+            } else if book.madeOn == .homeServer {
+                await library.refreshHomeServer()
+            } else {
+                library.refresh()
+            }
+        })
         // Podcast progress: persist position periodically + at end. When an episode crosses
         // into "played", auto-remove its download (storage hygiene, opt-out via UserDefaults).
         music.onProgressUpdate = { [weak self, podcastProgress, clippings] song, time, duration in

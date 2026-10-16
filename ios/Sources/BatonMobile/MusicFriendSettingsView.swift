@@ -36,7 +36,7 @@ struct MusicFriendSettingsView: View {
                 }
             } footer: {
                 Text(config.route == .gateway
-                     ? "Your Baton gateway runs the conversation against your own library, so your key never leaves home. Baton falls back to the model provider below if the server can't be reached."
+                     ? "Your Baton server runs the conversation against your own library, so your key never leaves home. Baton falls back to the model provider below if your Baton server can't be reached."
                      : "This phone talks to the model provider directly and drives its own player.")
             }
 
@@ -59,16 +59,16 @@ struct MusicFriendSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             if secretsUnlocked {
-                SecureField("Gateway token", text: $config.gatewayToken)
+                SecureField("Baton server token", text: $config.gatewayToken)
             } else {
-                LockedSecretRow(label: "Gateway token", isSet: !config.gatewayToken.isEmpty) {
+                LockedSecretRow(label: "Baton server token", isSet: !config.gatewayToken.isEmpty) {
                     await unlockSecrets()
                 }
             }
         } header: {
-            Text("Home server")
+            Text("Baton server")
         } footer: {
-            Text("The address and token from your gateway's configuration: just the host and port, such as http://192.0.2.10:8788. Unlike the model provider below, this one does not want a /v1 on the end, and Baton will drop one if you paste it.")
+            Text("The address and token from your Baton server's setup. The same server also makes books and keeps your place and settings in step between devices. Give just the host and port, such as http://192.0.2.10:8788. Unlike the model provider below, this one does not want a /v1 on the end, and Baton will drop one if you paste it.")
         }
     }
 
@@ -161,7 +161,7 @@ struct MusicFriendSettingsView: View {
             if let testResult { resultRow(testResult) }
         } footer: {
             Text(config.route == .gateway
-                 ? "Asks your server what's playing: a read-only question that exercises the whole path. The Friend tab appears once it answers, and hides again if you change anything here."
+                 ? "Asks your Baton server what's playing: a read-only question that exercises the whole path. The Friend tab appears once it answers, and hides again if you change anything here."
                  : "Sends one short request (\u{201C}pause the music\u{201D}) the same way a message would, so a pass means the next message will work, not just that something answered. Nothing is played or paused. The Friend tab appears once it passes, and hides again if you change anything here.")
         }
     }
@@ -172,7 +172,7 @@ struct MusicFriendSettingsView: View {
             The music friend is the one part of Baton that talks to a model provider. \
             What it finds while looking around (song titles, artists, genres) goes to \
             whichever endpoint is set above, along with your message. Point the base URL \
-            at a model on your own machine, or use your home server, and that stops being \
+            at a model on your own machine, or use your Baton server, and that stops being \
             true. Keys are stored in the Keychain.
             """, systemImage: "hand.raised")
             .font(.footnote)

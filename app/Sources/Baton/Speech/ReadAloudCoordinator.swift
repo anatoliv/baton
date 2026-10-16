@@ -503,7 +503,7 @@ final class ReadAloudCoordinator {
                 .appendingPathComponent("baton-clip-\(UUID().uuidString).m4a")
             self.music.music.postToast("Keeping the reading…", symbol: "waveform", seconds: 4)
             do {
-                try await ReadAloudExport.write(
+                let inVoice = try await ReadAloudExport.write(
                     chunks: reading.chunks, voice: reading.voice, to: staged,
                     synthesize: self.synthesize
                 ) { fraction in
@@ -520,7 +520,11 @@ final class ReadAloudCoordinator {
                 let item = try self.music.clippings.adopt(
                     staged, title: title, sourceName: reading.sourceName,
                     durationSeconds: nil, text: reading.chunks.joined(separator: " "),
-                    sha256: nil, now: Date()
+                    sha256: nil,
+                    // Its voice, for Change Voice…; none when the built-in voice
+                    // stood in for part of it.
+                    voice: inVoice ? "\(reading.voice.engine.rawValue):\(reading.voice.voice)" : nil,
+                    now: Date()
                 )
                 self.music.music.postToast("Kept in Clippings", symbol: "waveform.circle", seconds: 3)
 

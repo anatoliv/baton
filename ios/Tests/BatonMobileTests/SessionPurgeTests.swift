@@ -191,6 +191,31 @@ final class SessionPurgeTests: XCTestCase {
         model.clippings.remove(id: clipping.id, dismissing: false, everywhere: false)
     }
 
+    /// TBX-10955: a document shared just before a sign-out waits on disk for its import screen
+    ///, and only the DEBUG reset cleared it, so the real sign-out left it to come back
+    /// on the next launch. Both purge choices drop it: it is an import that never happened, not
+    /// one of the user's recordings.
+    func testPurgeDropsADocumentWaitingForItsImportScreen() throws {
+        for keepDownloads in [false, true] {
+            PendingImportStore.shared.clear()
+            let staged = FileManager.default.temporaryDirectory
+                .appendingPathComponent("tbx-10955-\(UUID().uuidString).txt")
+            try "Shared just before signing out.".write(to: staged, atomically: true, encoding: .utf8)
+            let model = MobileModel()
+            model.offerImport(staged)
+            let kept = try XCTUnwrap(model.pendingDocumentImport)
+            XCTAssertNotNil(PendingImportStore(directory: PendingImportStore.shared.directory).restore(),
+                            "precondition: the import is kept on disk")
+
+            SessionPurge.purge(model, keepDownloads: keepDownloads)
+
+            XCTAssertNil(model.pendingDocumentImport, "keepDownloads: \(keepDownloads)")
+            XCTAssertNil(PendingImportStore(directory: PendingImportStore.shared.directory).restore(),
+                         "the pending import survived the purge (keepDownloads: \(keepDownloads))")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: kept.path))
+        }
+    }
+
     /// TBX-5230 (owner decision, 2026-09-09): the purge now takes the friend's memory and
     /// its learned corrections too, not just the exchange log. Both live in the shared
     /// `baton.friend.ledger`, so clearing them here must publish tombstones — not merely go

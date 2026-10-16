@@ -127,6 +127,9 @@ struct NowPlayingBar: View {
                     transport
                     volume
                     if !isRadio { queueButton }
+                    if player.isSpokenNowPlaying {
+                        SpokenRateMenu(font: .body, tint: .secondary)
+                    }
                     SleepTimerMenu(font: .body, tint: .secondary)
                         .help("Sleep timer")
                     // The system picker routes AVPlayer, which plays nothing while the

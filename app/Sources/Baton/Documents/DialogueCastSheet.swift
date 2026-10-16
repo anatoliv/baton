@@ -102,9 +102,9 @@ enum DialogueCastEditing {
     /// Why no model places the remaining lines when no source may.
     static func noFillLine(router: ModelRouter) -> String {
         guard let cloud = router.awaitingConsent(for: fillTask).first else {
-            return "No model on this Mac or the home server can place the lines without a speech tag, so the narrator reads those."
+            return "No model on this Mac or the Baton server can place the lines without a speech tag, so the narrator reads those."
         }
-        return "No model on this Mac or the home server can place the lines without a speech tag, and "
+        return "No model on this Mac or the Baton server can place the lines without a speech tag, and "
             + "\(CloudModelConsent.notAllowedClause(cloud, fillTask.content)), so the narrator reads those."
     }
 
@@ -144,9 +144,9 @@ enum DialogueCastEditing {
     /// Why there is no cast list when no source may write one.
     static func noModelLine(router: ModelRouter) -> String {
         guard let cloud = router.awaitingConsent(for: modelTask).first else {
-            return "No model on this Mac or the home server can write a cast list, so the narrator reads every line."
+            return "No model on this Mac or the Baton server can write a cast list, so the narrator reads every line."
         }
-        return "No model on this Mac or the home server can write a cast list, and "
+        return "No model on this Mac or the Baton server can write a cast list, and "
             + "\(CloudModelConsent.notAllowedClause(cloud, modelTask.content)), so the narrator reads every line."
     }
 

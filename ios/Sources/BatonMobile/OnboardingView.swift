@@ -62,9 +62,9 @@ struct OnboardingView: View {
                                 in: RoundedRectangle(cornerRadius: 22)
                             )
                             .shadow(color: Color.brandMuted, radius: 16, y: 6)
-                        Text("Your music, your server.")
+                        Text("Your music, your music server.")
                             .font(.headline)
-                        Text("Baton plays your Navidrome library: gapless, offline, and with a music friend to talk to.")
+                        Text("Baton plays the library on your own music server, such as Navidrome: gapless, offline, and with a music friend to talk to.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -93,7 +93,7 @@ struct OnboardingView: View {
                             Label("Set up from a Mac", systemImage: "laptopcomputer.and.iphone")
                         }
                     } footer: {
-                        Text("Scan the code your Mac shows, or import a settings file it exported. Either way your server address and sign-in come across for you.")
+                        Text("Scan the code your Mac shows, or import a settings file it exported. Either way your music server's address and sign-in come across for you.")
                     }
                 }
 
@@ -198,7 +198,7 @@ struct OnboardingView: View {
                 // wondering what happened to their library.
                 if AppServicesHolder.model?.credentialsRejected == true {
                     Section {
-                        Label("Your server didn't accept the saved sign-in. Your downloads and settings are still here. Just sign in again.",
+                        Label("Your music server didn't accept the saved sign-in. Your downloads and settings are still here. Just sign in again.",
                               systemImage: "exclamationmark.lock")
                             .font(.footnote)
                             .foregroundStyle(.secondary)

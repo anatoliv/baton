@@ -86,6 +86,18 @@ final class ClippingStoreTests: XCTestCase {
         XCTAssertEqual(store.item(id: item.id)?.id, item.id, "and the clipping id still works")
     }
 
+    /// The Clippings rows mark the one the player has loaded, and they ask with the
+    /// player's id. Asking with the clipping's own id would mark nothing, ever, and look fine.
+    func testTheLoadedClippingIsFoundByThePlayersIdOnly() throws {
+        let playing = try store.adopt(try staged(), title: "Playing", sourceName: "Ghostty")
+        let other = try store.adopt(try staged(), title: "Other", sourceName: "Ghostty")
+
+        XCTAssertTrue(playing.isLoaded(nowPlayingID: playing.asSong.id))
+        XCTAssertFalse(other.isLoaded(nowPlayingID: playing.asSong.id), "only the playing row is marked")
+        XCTAssertFalse(playing.isLoaded(nowPlayingID: playing.id), "the clipping id is not the player's id")
+        XCTAssertFalse(playing.isLoaded(nowPlayingID: nil), "nothing is marked when nothing is loaded")
+    }
+
     /// The other half of the same mistake, and the more expensive one: had the menu item been
     /// visible while passing the song's id, it would have deleted nothing and looked like it had.
     func testDeletingByThePlayersIdRemovesNothing() throws {
@@ -268,6 +280,49 @@ final class ClippingStoreTests: XCTestCase {
         reopened.loadIfNeeded()
         XCTAssertEqual(reopened.items.count, 1)
         XCTAssertEqual(reopened.items.first?.clipping.title, "Real")
+    }
+
+    // MARK: - Change Voice
+
+    /// New audio for a clipping keeps its row: the id, the title, the words, the chapter and the
+    /// URL the player holds. The old audio is set aside when asked, and its voice is recorded.
+    func testReplacingTheAudioKeepsTheRowAndSetsTheOldAudioAside() throws {
+        let kept = try store.adopt(try staged(2048), title: "The Cell", text: "A small room.", sha256: "aa",
+                                   chapter: .init(documentID: "doc", documentTitle: "Two Rooms", author: nil,
+                                                  chapterIndex: 0, chapterTitle: "The Cell"),
+                                   voice: "kokoro:af_heart")
+        XCTAssertEqual(kept.clipping.voice, "kokoro:af_heart")
+        let hold = dir.appendingPathComponent("hold")
+        let newAudio = try staged(4096)
+        let (item, previous) = try store.replaceAudio(id: kept.id, with: newAudio, durationSeconds: 12, sha256: "bb",
+                                                      voice: "kokoro:af_sky", holdingPreviousIn: hold)
+        XCTAssertEqual(store.items.count, 1, "one row, not a second beside it")
+        XCTAssertEqual(item.id, kept.id)
+        XCTAssertEqual(item.url, kept.url, "the queue's URL plays the new audio")
+        XCTAssertEqual(item.clipping.title, "The Cell")
+        XCTAssertEqual(item.clipping.text, "A small room.")
+        XCTAssertEqual(item.clipping.chapterIndex, 0)
+        XCTAssertEqual(item.clipping.sha256, "bb")
+        XCTAssertEqual(item.clipping.voice, "kokoro:af_sky")
+        XCTAssertEqual(try Data(contentsOf: item.url).count, 4096)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newAudio.path), "moved in, not copied")
+
+        let old = try XCTUnwrap(previous)
+        XCTAssertEqual(old.sha256, "aa")
+        XCTAssertEqual(old.voice, "kokoro:af_heart")
+        XCTAssertEqual(try Data(contentsOf: hold.appendingPathComponent(old.file)).count, 2048)
+
+        // Read back from disk: the voice is in the sidecar.
+        let reopened = ClippingStore(directory: dir)
+        reopened.loadIfNeeded()
+        XCTAssertEqual(reopened.item(id: kept.id)?.clipping.voice, "kokoro:af_sky")
+
+        // Put back, as Stop does: the old audio and voice return to the same row.
+        try store.replaceAudio(id: kept.id, with: hold.appendingPathComponent(old.file), durationSeconds: old.durationSeconds,
+                               sha256: old.sha256, voice: old.voice)
+        XCTAssertEqual(store.item(id: kept.id)?.clipping.voice, "kokoro:af_heart")
+        XCTAssertEqual(try Data(contentsOf: kept.url).count, 2048)
+        XCTAssertEqual(store.items.count, 1)
     }
 }
 
@@ -830,13 +885,13 @@ final class ClippingStoreBookTests: XCTestCase {
         XCTAssertEqual(ClippingStore(directory: dir).reloaded().item(id: item.id)?.clipping.lastPlayedAt, when)
     }
 
-    /// A sidecar written by this build is stamped v2, so a downgraded build reads it but refuses
-    /// to write over it: an old build's rename would otherwise drop the chapter fields it does not
-    /// know about.
-    func testSidecarsAreWrittenAtVersionTwoAndAVersionOneEnvelopeStillReads() throws {
+    /// A sidecar written by this build is stamped v3 (v2 added the chapter fields, v3 the voice,
+    /// TBX-10989), so a downgraded build reads it but refuses to write over it: an old build's
+    /// rename would otherwise drop the fields it does not know about.
+    func testSidecarsAreWrittenAtVersionThreeAndAVersionOneEnvelopeStillReads() throws {
         let item = try store.adopt(try tone(seconds: 1), title: "The Mending Apparatus", chapter: chapter)
         let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent("\(item.id).json"))) as? [String: Any]
-        XCTAssertEqual(raw?["version"] as? Int, 2)
+        XCTAssertEqual(raw?["version"] as? Int, 3)
 
         let created = Date(timeIntervalSince1970: 1_700_000_000)
         let v1 = #"{"version":1,"payload":{"id":"0c1d2e3f","title":"Old","createdAt":\#(created.timeIntervalSinceReferenceDate)}}"#

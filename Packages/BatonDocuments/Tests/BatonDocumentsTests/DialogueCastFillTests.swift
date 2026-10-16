@@ -163,9 +163,127 @@ final class DialogueCastFillTests: XCTestCase {
         XCTAssertEqual(partial.answered, 1)
     }
 
+    /// TBX-10956: the walk's exchange as qwen3:8b answered it, Mrs. Bennet for every line
+    /// after her husband's first. Her tags on both sides fall on alternate turns, so the
+    /// exchange is the two of them taking turns and the answers that break it are replaced.
+    func testAnExchangeBetweenTwoTakesTurnsWhereTheModelLostTheThread() async {
+        let bennets = [DialogueCast.Character(name: "Mr. Bennet", gender: "m", age: "adult"),
+                       DialogueCast.Character(name: "Mrs. Bennet", gender: "f", age: "adult", aliases: ["his wife"])]
+        func q(_ text: String) -> String { "\u{201C}\(text)\u{201D}" }
+        let exchange = doc([[
+            q("Do not you want to know who has taken it?") + " cried his wife, impatiently.",
+            q("You want to tell me, and I have no objection to hearing it."),
+            "This was invitation enough.",
+            q("Why, my dear, you must know, Mrs. Long says that Netherfield is taken by a young man of large fortune."),
+            q("What is his name?"),
+            q("Bingley."),
+            q("Is he married or single?"),
+            q("Oh, single, my dear, to be sure!"),
+            q("How so? how can it affect them?"),
+            q("My dear Mr. Bennet,") + " replied his wife, " + q("how can you be so tiresome?"),
+        ]])
+        let (mrs, mr) = ("Mrs. Bennet", "Mr. Bennet")
+        let lost = [mr, mrs, mrs, mrs, mrs, mrs, mrs]
+        var reply = ["c1q1": mrs, "c1q9": mrs, "c1q10": mrs]
+        for (n, who) in zip(2...8, lost) { reply["c1q\(n)"] = who }
+        let json = String(data: try! JSONSerialization.data(withJSONObject: reply), encoding: .utf8)!
+        let fill = await DialogueCast.fill(exchange, cast: DialogueCast.CastSheet(characters: bennets)) { _, _ in (json, "a test model") }
+        XCTAssertEqual((2...8).map { fill.speakers["c1q\($0)"] }, [mr, mrs, mr, mrs, mr, mrs, mr])
+
+        // Answers that already take turns are kept as given.
+        let right = [mr, mrs, mr, mrs, mr, mrs, mr]
+        var fine: [String: String] = [:]
+        for (n, who) in zip(2...8, right) { fine["c1q\(n)"] = who }
+        let fineJSON = String(data: try! JSONSerialization.data(withJSONObject: fine), encoding: .utf8)!
+        let kept = await DialogueCast.fill(exchange, cast: DialogueCast.CastSheet(characters: bennets)) { _, _ in (fineJSON, "a test model") }
+        XCTAssertEqual(kept.speakers, fine)
+    }
+
+    /// Where the anchors do not fall on alternate turns (she speaks twice running, a beat
+    /// between) or the model names a third person, the answers stand as given.
+    func testTurnsAreNotForcedWhereTheAnchorsOrTheAnswersSayOtherwise() {
+        let bennets = [DialogueCast.Character(name: "Mr. Bennet", gender: "m", age: "adult"),
+                       DialogueCast.Character(name: "Mrs. Bennet", gender: "f", age: "adult", aliases: ["his wife"]),
+                       DialogueCast.Character(name: "Lizzy", gender: "f", age: "young")]
+        func q(_ text: String) -> String { "\u{201C}\(text)\u{201D}" }
+        let twice = doc([[
+            q("But it is,") + " returned his wife.",
+            "Mr. Bennet made no answer.",
+            q("Do you not hear me?"),
+            q("Do not you want to know who has taken it?") + " cried his wife, impatiently.",
+        ]])
+        var spans = DialogueCast.segment(twice)
+        DialogueCast.attributeRules(&spans, cast: bennets)
+        var rules: [String: String] = [:]
+        for s in spans where s.kind == .quote { if let who = s.speaker { rules[s.id] = who } }
+        XCTAssertEqual(rules, ["c1q1": "Mrs. Bennet", "c1q3": "Mrs. Bennet"])
+        XCTAssertEqual(DialogueCast.keepingTurns(["c1q2": "Mrs. Bennet"], spans: spans, rules: rules, cast: bennets),
+                       ["c1q2": "Mrs. Bennet"], "two turns from her to her: not an alternation, so nothing to enforce")
+
+        let three = doc([[
+            q("Do not you want to know who has taken it?") + " cried his wife.",
+            q("What is his name?"),
+            q("Bingley."),
+            q("Is he married or single?"),
+            q("Oh, single!") + " cried his wife.",
+        ]])
+        var spans3 = DialogueCast.segment(three)
+        DialogueCast.attributeRules(&spans3, cast: bennets)
+        let rules3 = ["c1q1": "Mrs. Bennet", "c1q5": "Mrs. Bennet"]
+        let answers = ["c1q2": "Lizzy", "c1q3": "Mrs. Bennet", "c1q4": "Mr. Bennet"]
+        XCTAssertEqual(DialogueCast.keepingTurns(answers, spans: spans3, rules: rules3, cast: bennets), answers,
+                       "a third name: not a strict exchange between two")
+    }
+
     func testAFillSurvivesBeingSaved() throws {
         let fill = DialogueCast.Fill(speakers: ["c2q7": "Mary"], asked: 3, answered: 2, source: "chat on the home server")
         XCTAssertEqual(try JSONDecoder().decode(DialogueCast.Fill.self, from: JSONEncoder().encode(fill)), fill)
+    }
+
+    /// TBX-10956: the TBX-10886 walk's chapter (`docs/evidence/tbx-10886/walk/book-pride-and-prejudice-ch1.md`,
+    /// passed as `BATON_WALK_BOOK`) placed by a live model the way the app places it, with the
+    /// walk's ten-speaker cast, scored against the right speakers (the G5 pair's rules and the home-network model
+    /// `chat` answers, 32 of 32). The caption under the illustration is not a line: voiced, it
+    /// counts as one more wrong.
+    func testTheWalkChapterWithALiveModel() async throws {
+        guard let path = ProcessInfo.processInfo.environment["BATON_WALK_BOOK"] else {
+            throw XCTSkip("set BATON_WALK_BOOK and BATON_LIVE_OLLAMA_MODEL (or BATON_LIVE_AGENT_FILE) to place the walk's chapter")
+        }
+        guard let live = LiveModel.complete(.dialogueCast) else { throw XCTSkip("no live model") }
+        let book = try DocumentImporter.importFile(at: URL(fileURLWithPath: path))
+        func person(_ name: String, _ gender: String, _ aliases: [String] = []) -> DialogueCast.Character {
+            DialogueCast.Character(name: name, gender: gender, age: "adult", aliases: aliases)
+        }
+        // The walk's cast as qwen3:8b proposed it (walk/cast-editor.png): the Bennets with the
+        // aliases it gave, and eight people who never speak in the chapter.
+        let walkCast = [person("Mr. Bennet", "m"), person("Mrs. Bennet", "f", ["his wife", "his lady"]),
+                        person("Mrs. Long", "f"), person("Mr. Bingley", "m"), person("Lizzy", "f"), person("Jane", "f"),
+                        person("Lydia", "f"), person("Sir William", "m"), person("Lady Lucas", "f"), person("Mr. Morris", "m")]
+        let (mrs, mr) = ("Mrs. Bennet", "Mr. Bennet")
+        let right = [mrs, mrs, mrs, mrs, mrs, mr, mrs, mr, mrs, mr, mrs, mr, mrs, mrs, mr, mrs,
+                     mr, mrs, mr, mrs, mr, mrs, mr, mrs, mr, mr, mrs, mr, mrs, mr, mrs, mr]
+        let sheet = DialogueCast.CastSheet(characters: walkCast)
+        let started = Date()
+        let fill = await DialogueCast.fill(book, cast: sheet, complete: live.complete)
+        var spans = DialogueCast.segment(book)
+        DialogueCast.attributeRules(&spans, cast: walkCast)
+        let rules = spans.filter { $0.kind == .quote && $0.speaker != nil }.count
+        DialogueCast.applyFill(fill, to: &spans, cast: walkCast)
+        let quotes = spans.filter { $0.kind == .quote }
+        let caption = quotes.first { $0.text.hasPrefix("He came down to see the place") }
+        let lines = quotes.filter { $0 != caption }
+        XCTAssertEqual(lines.count, right.count)
+        var correct = 0
+        for (q, who) in zip(lines, right) {
+            if q.speaker == who { correct += 1 } else {
+                print("WALK wrong \(q.id) \(q.speaker ?? "narrator")≠\(who) (\(q.method ?? "-")) \(q.text.prefix(40))")
+            }
+        }
+        let voicedCaption = caption?.speaker != nil
+        print("WALK \(live.name): \(correct)/\(right.count) lines right, caption \(caption == nil ? "not a quote" : voicedCaption ? "voiced as \(caption!.speaker!)" : "a quote with the narrator"); "
+              + "rules \(rules), model kept \(fill.speakers.count), set aside \(fill.setAside), "
+              + "\(fill.answered)/\(fill.asked) prompts in \(Int(Date().timeIntervalSince(started))) s; "
+              + "right of everything voiced: \(correct)/\(right.count + (voicedCaption ? 1 : 0))")
     }
 }
 

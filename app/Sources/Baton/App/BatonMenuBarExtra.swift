@@ -160,7 +160,8 @@ struct BatonMenuBarContent: View {
                 ForEach(SleepTimerOptions.minutes, id: \.self) { minutes in
                     Button(SleepTimerOptions.label(minutes)) { player.setSleepTimer(minutes: minutes) }
                 }
-                Button("End of Track") { player.sleepAtEndOfTrack() }
+                Button(SleepTimerOptions.endLabel(for: player.nowPlaying, isSpoken: player.isSpokenNowPlaying,
+                                                  titleCase: true)) { player.sleepAtEndOfTrack() }
                 if player.sleepTimerArmed {
                     Divider()
                     Button("Turn Off Sleep Timer") { player.cancelSleepTimer() }

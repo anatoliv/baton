@@ -120,7 +120,7 @@ enum MobileMixCatalog {
             .enumerated()
             .map { index, playlist in
                 MobileMix(id: "server-\(playlist.id)", title: playlist.name,
-                          subtitle: "Generated on your server",
+                          subtitle: "Generated on your music server",
                           icon: "sparkles.rectangle.stack",
                           tint: palette[index % palette.count],
                           artwork: serverArtwork[playlist.name]) {

@@ -49,7 +49,7 @@ struct BatonServerEditSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(existing == nil ? "Add a server" : "Edit server").font(.title3.bold())
+            Text(existing == nil ? "Add a music server" : "Edit music server").font(.title3.bold())
 
             // Same one-click demo the first-run connect sheet offers. Without it the demo was
             // reachable only by users with NO server configured — so anyone already connected

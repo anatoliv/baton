@@ -59,6 +59,20 @@ final class PronunciationEditingTests: XCTestCase {
         XCTAssertNil(PronunciationEditing.lexicon(from: [], original: proposed), "nothing left: no lexicon")
     }
 
+    /// TBX-10947: the TBX-10886 walk asked the model about "neighbourhood", a British spelling the
+    /// default dictionary does not know, and the model gave it Netherfield's phonemes.
+    func testABritishSpellingIsAWordAndTheWalksBadPairIsNotShown() {
+        XCTAssertEqual(PronunciationEditing.isWord("neighbourhood"), true, "known to en_GB, so not asked about")
+        XCTAssertEqual(PronunciationEditing.isWord("xenomorph"), false)
+        XCTAssertEqual(PronunciationEditing.isWord("Netherfield"), false, "a name stays a candidate")
+
+        let stored = PronunciationLexicon(entries: [
+            .init(word: "Netherfield", phonemes: "ˈnɛθəˌfiːld", source: "model"),
+            .init(word: "neighbourhood", phonemes: "ˈnɛθəˌfiːld", source: "model"),
+        ])
+        XCTAssertEqual(PronunciationEditing.rows(stored), [], "the editor shows what is sent, and neither is")
+    }
+
     func testOnlyTheChaptersThatSayTheWordAreAffectedAndOnlyForKokoro() throws {
         let plain = try book()
         var kuno = plain

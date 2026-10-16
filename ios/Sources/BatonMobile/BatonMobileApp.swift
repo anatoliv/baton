@@ -55,7 +55,7 @@ struct BatonMobileApp: App {
         // The refresh iOS grants while the app is closed, so "Chapter 1 is ready" can arrive
         // with the phone in a pocket (M5.4). Registered before the app finishes launching, as
         // BGTaskScheduler requires.
-        MobileDocuments.registerRefresh(collect: { [weak model] in await model?.collectBooks(announcing: true) },
+        MobileDocuments.registerRefresh(collect: { [weak model] in await model?.collectBooks() },
                                         moreToCome: { [weak model] in model?.books.hasUncollected ?? false })
         // Expose the composition root to Siri/Shortcuts intents (in-process).
         AppServicesHolder.model = model
@@ -113,7 +113,7 @@ struct BatonMobileApp: App {
                 // A book that arrived while the phone was away comes down the next time it is
                 // looked at, not on a timer; the background refresh covers the pocket.
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                    Task { await model.collectBooks(announcing: false) }
+                    Task { await model.collectBooks() }
                 }
                 // Something shared to "Baton" from another app waits in the App Group inbox,
                 // since a share extension cannot open the app; the oldest opens here.
@@ -121,6 +121,11 @@ struct BatonMobileApp: App {
                     #if DEBUG
                     if phase == .background { UITestShareWhenAway.writeOnce() }
                     #endif
+                    // The import screen's watch runs whichever screen is up. Away from the
+                    // foreground it slows to once a minute: while music keeps Baton alive, chapter 1
+                    // still comes down promptly and is announced.
+                    if phase == .background { model.books.enterBackground() }
+                    if phase == .active { model.books.enterForeground() }
                     guard phase == .active, model.pendingDocumentImport == nil, MobileDocuments.isEnabled(),
                           let shared = MobileDocuments.claimSharedImport() else { return }
                     model.offerImport(shared)

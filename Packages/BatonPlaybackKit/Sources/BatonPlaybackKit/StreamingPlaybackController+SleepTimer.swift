@@ -25,21 +25,46 @@ extension StreamingPlaybackController {
             return
         }
         let minutes = min(requested, Self.maxSleepTimerMinutes)
-        sleepTimerEndsAt = Date().addingTimeInterval(TimeInterval(minutes) * 60)
+        armSleepTimer(seconds: TimeInterval(minutes) * 60)
+    }
+
+    /// The timed stop itself, in seconds so a test can arm one that fires in a moment
+    ///. The clock runs on its own, not per item: a queue of clippings or chapters
+    /// moving on to the next one leaves it alone, so it stops wherever the listener has got to.
+    ///
+    /// `sleepTimerEndsAt` stays set through the fade and is cleared by the stop, which is how
+    /// both paths below know whether this timer has stopped yet. The fade's own ending is not
+    /// enough on its own: a new item starting resets the fade and drops that ending, and with a
+    /// queue of short clippings the next one can easily start inside the five seconds. Before
+    /// this the timer then cleared itself and the queue played on at full volume.
+    func armSleepTimer(seconds: TimeInterval, fadeSeconds: Double = 5) {
+        let deadline = Date().addingTimeInterval(seconds)
+        sleepTimerEndsAt = deadline
         sleepTimerTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(minutes * 60))
+            try? await Task.sleep(for: .seconds(seconds))
             guard let self, !Task.isCancelled else { return }
             // Gentle fade-out over ~5s, then pause. resume()/next track resets the envelope.
-            self.fade(to: 0, duration: 5) { [weak self] in
-                self?.pause()
-                self?.fadeMultiplier = 1
-                self?.applyVolume()
-                // A sleep timer means "stop the music", and a station on the air is the
-                // music — the library pause can't reach its engine.
-                self?.stopOnAirStation()
+            self.fade(to: 0, duration: fadeSeconds) { [weak self] in
+                self?.finishSleepTimer(deadline)
             }
-            self.sleepTimerEndsAt = nil
+            // The fallback, for a fade that a new item cut short.
+            try? await Task.sleep(for: .seconds(fadeSeconds + 0.25))
+            guard !Task.isCancelled else { return }
+            self.finishSleepTimer(deadline)
         }
+    }
+
+    /// Stop for the timer that was due at `deadline`, once. A timer cancelled or replaced since
+    /// has a different (or no) deadline and stops nothing.
+    private func finishSleepTimer(_ deadline: Date) {
+        guard sleepTimerEndsAt == deadline else { return }
+        sleepTimerEndsAt = nil
+        pause()
+        fadeMultiplier = 1
+        applyVolume()
+        // A sleep timer means "stop the music", and a station on the air is the
+        // music — the library pause can't reach its engine.
+        stopOnAirStation()
     }
 
     /// Arms a sleep timer that pauses when the current track finishes.

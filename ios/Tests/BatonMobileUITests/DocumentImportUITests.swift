@@ -47,7 +47,7 @@ final class DocumentImportUITests: XCTestCase {
 
         // No gateway on a fresh install: the screen says what making a book needs.
         let needs = app.otherElements["needs-home-server"].firstMatch
-        let needsText = app.staticTexts["Making a book needs your home server"].firstMatch
+        let needsText = app.staticTexts["Making a book needs your Baton server"].firstMatch
         XCTAssertTrue(needs.waitForExistence(timeout: 15) || needsText.waitForExistence(timeout: 15),
                       "the screen should say the home server is needed")
         XCTAssertFalse(app.buttons["make-audiobook"].exists, "Make Audiobook must not be offered without a home server")

@@ -211,7 +211,7 @@ struct ServerPodcastsView: View {
         VStack(spacing: 8) {
             Image(systemName: "mic.slash").font(.system(size: 34)).foregroundStyle(.secondary)
             Text("No podcasts").font(.headline)
-            Text("Subscribe to podcasts on your server and they'll show up here.")
+            Text("Subscribe to podcasts on your music server and they'll show up here.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 40)
@@ -225,8 +225,8 @@ struct ServerPodcastsView: View {
         VStack(spacing: 8) {
             Image(systemName: "mic.slash").font(.system(size: 34)).foregroundStyle(.secondary)
             Text("Switching to Baton's podcast subscriptions").font(.headline)
-            Text("This server doesn't implement the Subsonic podcast API (Navidrome doesn't), so "
-                + "Baton uses its own RSS subscriptions instead. They work with any server. "
+            Text("This music server doesn't implement the Subsonic podcast API (Navidrome doesn't), so "
+                + "Baton uses its own RSS subscriptions instead. They work with any music server. "
                 + "One moment…")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
@@ -761,7 +761,7 @@ private struct PodcastEpisodeRow: View {
                 Label("Download", systemImage: "arrow.down.circle")
             }
             .buttonStyle(.borderless)
-            .help("Download this episode on the server so it can stream")
+            .help("Download this episode on the music server so it can stream")
         }
     }
 

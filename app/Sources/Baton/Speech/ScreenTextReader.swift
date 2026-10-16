@@ -71,6 +71,24 @@ final class ScreenTextReader: NSObject {
         capture(raw, from: NSWorkspace.shared.frontmostApplication, gist: true)
     }
 
+    /// Set by the app at launch: where the file service sends the documents it was handed.
+    var onDocumentFiles: (([URL]) -> Void)?
+
+    /// `NSMessage` for the "Make an Audiobook with Baton" file service. Not
+    /// read-aloud, but AppKit takes one services provider per app, so it lives beside the text
+    /// services. Finder offers it only for the types in `NSSendFileTypes`.
+    @objc func makeAudiobook(_ pasteboard: NSPasteboard,
+                             userData: String?,
+                             error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard !urls.isEmpty else {
+            error.pointee = "Select a document in Finder first, then choose Make an Audiobook with Baton." as NSString
+            return
+        }
+        onDocumentFiles?(urls)
+    }
+
     // MARK: - Capture
 
     /// Classify the source, record the capture, and hand it on. Shared by every tier, so the

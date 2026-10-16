@@ -25,7 +25,7 @@ enum MobileDocuments {
 
     /// Settings → Documents → Where books are made: read-only, because the phone
     /// has no voice engine to choose. The Mac's Voice engine for books setting is the Mac's.
-    static let whereBooksAreMade = "Your home server makes every book from this iPhone, with its own voice server: the Kokoro or Chatterbox address set on the gateway. The phone has no voices of its own. It needs the home server's address and token under Music Friend, and the gateway's voice server answering. When the home server cannot make a book, Send to my Mac lets Baton on your Mac make it instead."
+    static let whereBooksAreMade = "Your Baton server makes every book from this iPhone, with its own voice server: the Kokoro or Chatterbox address set in the Baton server's own setup. The phone has no voices of its own. It needs the Baton server's address and token under Music Friend, and the Baton server's voice server answering. When the Baton server cannot make a book, Send to my Mac lets Baton on your Mac make it instead."
     static func isEnabled(in defaults: UserDefaults = BatonStorage.defaults) -> Bool {
         // `bool(forKey:)` reads a missing key as false; only a stored `false` turns documents off.
         defaults.object(forKey: enabledKey) as? Bool ?? true
@@ -103,6 +103,24 @@ enum MobileDocuments {
         }.value
     }
 
+    /// The import screen's narrator choice: the voices the home server lists
+    /// (`GET /v1/voices`), ordered and defaulted as the Mac's import sheet does when no model
+    /// suggests one, by the same `VoiceCaster` and `VoiceCatalogue`: Heart for American or
+    /// unspecified English, Emma for a book declaring en-GB, narration voices next, never Aoede
+    /// or Lewis. Nil when the home server does not list its voices (a gateway from before the
+    /// route answers 404) or lists none: the screen then shows the configured default as before.
+    static func narratorChoice(for document: ImportedDocument, client: GatewayBookClient?) async -> VoiceSuggestion? {
+        guard let client, let list = try? await client.voices() else { return nil }
+        return await narratorChoice(for: document, available: list.specs)
+    }
+
+    static func narratorChoice(for document: ImportedDocument, available: [String]) async -> VoiceSuggestion? {
+        guard !available.isEmpty else { return nil }
+        return await VoiceCaster.suggest(for: document, available: available,
+                                         languageDefault: DocumentVoices.languageDefault(for: document, available: available),
+                                         complete: nil)
+    }
+
     nonisolated static func importDocument(fromWeb url: URL) async throws -> ImportedDocument {
         try await DocumentImporter.importURL(url) { try await URLSession.shared.data(for: $0) }
     }
@@ -140,6 +158,26 @@ enum MobileDocuments {
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .notDetermined else { return }
         _ = try? await center.requestAuthorization(options: [.alert, .sound])
+    }
+
+    /// What `HomeServerBooks.firstChapterArrived` does on the phone. The book's record
+    /// already remembers the announcement, so every path that collects (the import screen's and
+    /// Clippings' watch, an activation, the background refresh) says "Chapter 1 is ready" at most
+    /// once per book. Never with the app in front: the row in Clippings says it there, and the
+    /// book counts as told. Chapter 1 that came down while Baton stayed alive in the background,
+    /// playing music, used to arrive silently through the watch and was never announced.
+    static func chapterReadyAnnouncer(
+        isInForeground: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active },
+        post: @escaping @MainActor (HomeServerBooks.Record) -> Void = { notifyChapterReady($0, chapterIndex: 0) }
+    ) -> @MainActor (HomeServerBooks.Record) -> Void {
+        { record in
+            guard !isInForeground() else {
+                documentsLog.info("book \(record.jobID.prefix(12), privacy: .public): chapter 1 came down with Baton in front, no notification")
+                return
+            }
+            documentsLog.notice("book \(record.jobID.prefix(12), privacy: .public): chapter 1 is ready, announced")
+            post(record)
+        }
     }
 
     static func notifyChapterReady(_ record: HomeServerBooks.Record, chapterIndex: Int) {

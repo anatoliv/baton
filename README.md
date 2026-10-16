@@ -9,8 +9,8 @@ mix and start it playing. It is on the Mac, on the iPhone, and over Telegram and
 you want the stereo to answer your phone from the other end of a train line. No other
 Subsonic client has one.
 
-Underneath that it is a careful player for the music you already own. Point it at your own
-[Navidrome](https://www.navidrome.org/) server (or anything that speaks the Subsonic API),
+Underneath that it is a careful player for the music you already own. Point it at your music
+server, your own [Navidrome](https://www.navidrome.org/) (or anything that speaks the Subsonic API),
 and it streams your library with the kind of care most players skip: true gapless, crossfade,
 ReplayGain loudness matching, and a proper 10-band parametric EQ.
 
@@ -33,8 +33,9 @@ the scrubber and rating, and the Up Next queue](screenshots/baton-now-playing.pn
 
 ## What it is
 
-Baton is a player for *your* library, not a catalog you rent. You bring the music on a
-Navidrome or Subsonic server you run; Baton's job is to play it well and stay out of the way.
+Baton is a player for *your* library, not a catalog you rent. You bring the music on a music
+server you run, Navidrome or any Subsonic server; Baton's job is to play it well and stay out
+of the way.
 
 Playing it well means sweating the details. Gapless and crossfade so albums breathe the way
 they were sequenced. ReplayGain and R128 loudness so nothing jumps out at you between tracks.
@@ -95,12 +96,20 @@ xcodebuild build -scheme Baton -configuration Release -destination 'platform=mac
 
 ## Connect
 
-On first launch, enter your server URL and either a username and password or an API key. Baton
-checks the connection before it saves anything, then loads your library. There's more in
-[HELP.md](HELP.md#getting-connected).
+On first launch, enter your music server's URL and either a username and password or an API
+key. Baton checks the connection before it saves anything, then loads your library. There's
+more in [HELP.md](HELP.md#getting-connected).
 
-No server yet? Both the first-run screen and **Settings → Servers → Add Server** offer **Try
-the demo server**, which fills in the public Navidrome demo so you can look around before
+Baton talks to two servers, and both are yours. Your **music server** (Navidrome or another
+Subsonic server) holds your library, and it is all you need to play music. Your **Baton
+server** is an optional small Baton program you run at home, often on the same machine: it
+makes audiobooks from documents, keeps your place and your shared settings in step between
+the Mac and the iPhone, and holds files for your other device. It lives in
+[`gateway/`](gateway/README.md). [The two servers Baton uses](HELP.md#the-two-servers-baton-uses)
+explains which feature needs which.
+
+No music server yet? Both the first-run screen and **Settings → Music Servers → Add Music
+Server…** offer **Try the demo server**, which fills in the public Navidrome demo so you can look around before
 setting anything up.
 
 ![Baton's Albums grid: artwork tiles with track counts and durations, section counts in the

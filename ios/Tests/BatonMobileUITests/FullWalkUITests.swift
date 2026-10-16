@@ -77,11 +77,11 @@ final class FullWalkUITests: XCTestCase {
         let gear = app.buttons["Settings"]
         XCTAssertTrue(gear.waitForExistence(timeout: 15), "Home's header must offer Settings")
         gear.tap()
-        // "Server" rather than "Settings": the gear's accessibility label is also
+        // "Music server" rather than "Settings": the gear's accessibility label is also
         // "Settings", so waiting on that text can match the button that was just tapped
-        // instead of the screen it opened. The Server section only exists once Settings
+        // instead of the screen it opened. The Music server section only exists once Settings
         // is actually on screen.
-        XCTAssertTrue(app.staticTexts["Server"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.staticTexts["Music server"].waitForExistence(timeout: 20),
                       "Settings must open")
     }
 
@@ -113,7 +113,7 @@ final class FullWalkUITests: XCTestCase {
 
         // Only now is scrolling worth it. Back to the top, since the search below only
         // moves one way and an earlier check may have scrolled past the target.
-        for _ in 0 ..< 12 where !app.staticTexts["Server"].isHittable { app.swipeDown() }
+        for _ in 0 ..< 12 where !app.staticTexts["Music server"].isHittable { app.swipeDown() }
         for _ in 0 ..< swipes {
             if element.exists { return true }
             app.swipeUp()

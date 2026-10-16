@@ -28,7 +28,8 @@
 # CAST=1 turns on "Voice the dialogue" (G4), waits for a model to write the cast list (a model
 # must be set up: Ollama on this Mac will do), screenshots the sheet and the cast editor, presses
 # Use This Cast and waits for the lines without a tag to be placed (TBX-10894), and stops
-# without making the book.
+# without making the book. CAST_MAKE=1 with CAST=1 then presses Make Audiobook, waits for
+# chapter 1 in Clippings and writes the voices per speaker from the book's job (TBX-10886).
 #
 # The walk brings the probe to the front for each screenshot, so anything typed in another app at
 # that moment lands in the probe's window. Run it when nobody is typing.
@@ -374,7 +375,51 @@ if [ "${CAST:-0}" = 1 ]; then
   verdict "the lines without a tag were placed, or the sheet says why not" $?
   "$AX_BIN" texts "$PID" | grep -E "have a speaker|narrator reads those|speakers," | sed 's/^/   /'
   window_shots G-import-sheet-placed
-  [ "$fail" = 0 ] && echo "PASS (cast sheet)" || echo "FAIL"
+  if [ "${CAST_MAKE:-0}" != 1 ]; then
+    [ "$fail" = 0 ] && echo "PASS (cast sheet)" || echo "FAIL"
+    exit "$fail"
+  fi
+  # CAST_MAKE=1 (TBX-10886): go on and make the book on this Mac with the checked cast, wait for
+  # chapter 1 in Clippings, and read who read what from the book's own job record.
+  say "M. Make Audiobook with the checked cast"
+  "$AX_BIN" press "$PID" "Make Audiobook" >/dev/null; verdict "Make Audiobook pressed" $?
+  wait_for 30 '[ -n "$(job_json)" ]'; verdict "Make Audiobook submitted the book" $?
+  SUBMITTED=$(date +%s)
+  wait_for "${CAST_RENDER_WAIT:-900}" '[ "$(landed)" -ge 1 ]'; ok=$?
+  verdict "chapter 1 in Clippings after $(( $(date +%s) - SUBMITTED ))s" $ok
+  echo "   job: $(job_state)"
+  afinfo "$(ls "$ROOT"/Clippings/*.m4a | head -1)" 2>/dev/null | grep -E "estimated duration|bit rate" | sed 's/^/   /'
+  cp "$(job_json)" "$EVIDENCE/job.json" 2>/dev/null
+  # Voices per speaker as the renderer resolves them (VoicePlan.voice: the speaker's voice, or
+  # the narrator's), counted over the segments of the book.
+  /usr/bin/python3 - "$(job_json)" <<'PY2' | tee "$EVIDENCE/voices-per-speaker.txt" | sed 's/^/   /'
+import json, sys, collections
+b = json.load(open(sys.argv[1]))["book"]
+v = b["voices"]
+print("narrator:", v["narrator"])
+for name, voice in sorted(v["characters"].items()):
+    print("character:", name, "->", voice)
+per = collections.Counter()
+voices = collections.Counter()
+for c in b["chapters"]:
+    for s in c["segments"]:
+        sp = s.get("speaker")
+        voice = v["characters"].get(sp or "", v["narrator"])
+        per[(sp or "(narrator)", voice)] += 1
+        voices[voice] += 1
+print("segments by speaker:")
+for (sp, voice), n in sorted(per.items(), key=lambda x: -x[1]):
+    print(f"  {n:4d}  {sp}  [{voice}]")
+print("distinct voices in the rendered book:", len(voices), dict(voices))
+sys.exit(0 if len(voices) >= 2 else 1)
+PY2
+  verdict "the book is read in more than one voice" "${PIPESTATUS[0]}"
+  "$AX_BIN" press "$PID" "Show chapters" >/dev/null
+  sleep 1
+  window_shots M-book-in-clippings
+  app_log "$LOG_START" > "$EVIDENCE/documents.log"
+  grep -E "ready|submitted|Clippings|cast|voice" "$EVIDENCE/documents.log" | sed 's/^/   /' | head -40
+  [ "$fail" = 0 ] && echo "PASS (cast book made)" || echo "FAIL"
   exit "$fail"
 fi
 if [ "${SHEET_ONLY:-0}" = 1 ] || [ "${HEAR:-0}" = 1 ]; then

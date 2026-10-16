@@ -124,6 +124,233 @@ final class BookRowsUITests: XCTestCase {
         attach("book-stopped")
     }
 
+    // MARK: - Resuming where the other device left off
+
+    /// Play on a book with no chapter chosen resumes at the synced position (TBX-10946,
+    /// `specs/document-clippings.md`: chapter 2 at 10:00 on the Mac resumes there on the iPhone).
+    /// The position is put in the shared ledger at launch through `uitestBookPosition`, where a
+    /// `PreferenceSync` merge from the Mac would put it: chapter 2 (index 1), 15 seconds in.
+    func testPlayResumesAtTheSyncedChapterAndOffset() throws {
+        server.setReadyOnSubmit(2)
+        app.launch()
+        makeAudiobook()
+        openClippings()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
+            .waitForExistence(timeout: 30), "both chapters should come down")
+
+        // Relaunch with the synced position, keeping what this phone holds.
+        app.terminate()
+        app.launchEnvironment["baton.resetSession"] = nil
+        app.launchEnvironment["uitestImportText"] = nil
+        app.launchEnvironment["uitestBookPosition"] = "1:15"
+        app.launch()
+        openClippings()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS '% heard'")).firstMatch.exists,
+                      "the synced position should show as heard")
+        attach("book-with-synced-position")
+        row.tap()
+
+        let bar = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 15), "Play started nothing")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'The Surface'")).firstMatch
+            .waitForExistence(timeout: 10), "Play should start at the synced chapter 2, The Surface")
+        XCTAssertTrue(openFullPlayer(in: app))
+        let elapsed = app.staticTexts["player-elapsed"].firstMatch
+        XCTAssertTrue(elapsed.waitForExistence(timeout: 10), "no elapsed time in the full player")
+        // Resumed at 0:15 and playing; from the start it would read 0:00 to 0:05 here.
+        let resumed = waitFor(10) {
+            let parts = elapsed.label.split(separator: ":")
+            guard parts.count == 2, parts[0] == "0", let s = Int(parts[1]) else { return false }
+            return (14...24).contains(s)
+        }
+        report("elapsed after Play: \(elapsed.label)")
+        attach("playing-chapter-2-resumed")
+        XCTAssertTrue(resumed, "the player should be near 0:15 in chapter 2, not \(elapsed.label)")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'The Surface'")).firstMatch.exists)
+    }
+
+    // MARK: - Previously…
+
+    /// Play on a book last heard two days ago offers "Previously…"; Hear Recap asks the music
+    /// friend's model (here an OpenAI-shaped model on loopback, which counts as the person's
+    /// network) with only the heard text, has the home server say it in a voice other than the
+    /// narrator's, then plays the book from the synced chapter.
+    func testPlayAfterADayAwayOffersPreviouslyThenPlays() throws {
+        let one = (1...30).map { "Ada wound the great clock in the hall for the \($0) time that winter." }.joined(separator: " ")
+        let twoHeard = (1...10).map { "A letter came that was not from Tobias, number \($0)." }.joined(separator: " ")
+        let twoUnheard = (1...10).map { "Inside the case she found the little glass key, turn \($0)." }.joined(separator: " ")
+        app.launchEnvironment["uitestImportText"] = """
+        The Clock
+        by Nobody in Particular
+
+        Chapter 1 The House
+
+        \(one)
+
+        Chapter 2 The Letter
+
+        \(twoHeard)
+
+        \(twoUnheard)
+
+        Chapter 3 The Return
+
+        Tobias came home and would not say who sent the letter.
+        """
+        app.launchEnvironment["baton.agent.route"] = "direct"
+        app.launchEnvironment["baton.agent.provider"] = "openAICompatible"
+        app.launchEnvironment["baton.agent.baseURL"] = server.baseURL + "/v1"
+        app.launchEnvironment["baton.agent.model"] = "fake-recap"
+        app.launchEnvironment["uitestNoOnDeviceModel"] = "1"
+        server.setReadyOnSubmit(3)
+        app.launch()
+        makeAudiobook(title: "The Clock")
+        openClippings()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '3 chapters'")).firstMatch
+            .waitForExistence(timeout: 30), "all three chapters should come down")
+
+        // Relaunch with the synced position halfway into chapter 2, last heard 48 hours ago.
+        app.terminate()
+        app.launchEnvironment["baton.resetSession"] = nil
+        app.launchEnvironment["uitestImportText"] = nil
+        app.launchEnvironment["uitestBookPosition"] = "1:15:48"
+        app.launch()
+        openClippings()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
+        row.tap()
+
+        let hear = app.buttons["hear-recap"].firstMatch
+        XCTAssertTrue(hear.waitForExistence(timeout: 10), "Play after two days should offer Previously…\n\(app.debugDescription)")
+        XCTAssertTrue(app.staticTexts["Previously…"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'It has been a while since you heard The Clock'"))
+            .firstMatch.exists)
+        XCTAssertTrue(app.buttons["Just Play"].firstMatch.exists)
+        let bar = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
+        XCTAssertFalse(bar.exists, "nothing plays until the offer is answered")
+        attach("previously-offer")
+
+        let asked = Date()
+        hear.tap()
+        XCTAssertTrue(waitFor(20) { !self.server.requests("POST", since: asked).filter { $0.path == "/v1/chat/completions" }.isEmpty },
+                      "Hear Recap asked no model")
+        let prompt = try XCTUnwrap(server.bodies("/v1/chat/completions").last.flatMap { String(data: $0, encoding: .utf8) })
+        XCTAssertTrue(prompt.contains("Ada wound the great clock"), "the heard chapter 1 is in the prompt")
+        XCTAssertTrue(prompt.contains("number 10."), "the heard half of chapter 2 is in the prompt")
+        XCTAssertFalse(prompt.contains("glass key"), "the unheard half of chapter 2 reached the model")
+        XCTAssertFalse(prompt.contains("Tobias came home"), "chapter 3 reached the model")
+
+        XCTAssertTrue(waitFor(20) { !self.server.bodies("/v1/speech/preview").isEmpty }, "the recap was not spoken by the home server")
+        let speech = try XCTUnwrap(server.bodies("/v1/speech/preview").last
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        let voice = try XCTUnwrap(speech["voice"] as? String)
+        let narrator = try XCTUnwrap(server.narrators.first)
+        report("narrator \(narrator), recap voice \(voice), recap: \(speech["text"] as? String ?? "")")
+        XCTAssertNotEqual(voice, narrator, "the recap must not be in the narrator's voice")
+        XCTAssertTrue((speech["text"] as? String)?.hasPrefix("Previously, Ada wound the great clock") == true)
+
+        XCTAssertTrue(bar.waitForExistence(timeout: 20), "the book did not play after the recap")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'The Letter'")).firstMatch
+            .waitForExistence(timeout: 10), "the book should carry on at the synced chapter 2")
+        attach("previously-then-playing")
+    }
+
+    /// TBX-10966: a phone whose music friend is a cloud model reaches no model of its own. With a
+    /// home server from before the book route (404), Hear Recap asks the Mac's question before any
+    /// chapter goes to that provider, and Not Now plays the book with nothing sent. Once the home
+    /// server answers the route, the recap is written there, from the heard text only.
+    func testARecapThroughTheHomeServerAndTheCloudOnlyWhenAllowed() throws {
+        let one = (1...30).map { "Ada wound the great clock in the hall for the \($0) time that winter." }.joined(separator: " ")
+        let twoHeard = (1...10).map { "A letter came that was not from Tobias, number \($0)." }.joined(separator: " ")
+        let twoUnheard = (1...10).map { "Inside the case she found the little glass key, turn \($0)." }.joined(separator: " ")
+        app.launchEnvironment["uitestImportText"] = """
+        The Clock
+        by Nobody in Particular
+
+        Chapter 1 The House
+
+        \(one)
+
+        Chapter 2 The Letter
+
+        \(twoHeard)
+
+        \(twoUnheard)
+
+        Chapter 3 The Return
+
+        Tobias came home and would not say who sent the letter.
+        """
+        // A hosted model the phone may not send chapters to unasked. The address is never reached.
+        app.launchEnvironment["baton.agent.route"] = "direct"
+        app.launchEnvironment["baton.agent.provider"] = "anthropic"
+        app.launchEnvironment["baton.agent.baseURL"] = "https://api.anthropic.com"
+        app.launchEnvironment["baton.agent.model"] = "claude-haiku-4-5-20251001"
+        app.launchEnvironment["uitestAgentAPIKey"] = "uitest-not-a-real-key"
+        app.launchEnvironment["uitestNoOnDeviceModel"] = "1"
+        server.setReadyOnSubmit(3)
+        app.launch()
+        makeAudiobook(title: "The Clock")
+        openClippings()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '3 chapters'")).firstMatch
+            .waitForExistence(timeout: 30), "all three chapters should come down")
+
+        // An older home server: the route is not there.
+        let bar = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
+        relaunchTwoDaysLater()
+        let older = Date()
+        app.buttons["hear-recap"].firstMatch.tap()
+        let ask = app.descendants(matching: .any)["recap-consent-ask"].firstMatch
+        XCTAssertTrue(ask.waitForExistence(timeout: 20), "the cloud question should be asked\n\(app.debugDescription)")
+        XCTAssertEqual(ask.label, "Send the chapters you have heard to Anthropic to write a recap?")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Nothing on this iPhone, your network or the Baton server could write one.'"))
+            .firstMatch.exists)
+        XCTAssertFalse(server.requests("POST", since: older).filter { $0.path == "/v1/books/complete" }.isEmpty,
+                       "the home server was tried first")
+        XCTAssertFalse(bar.exists, "the book waits for the answer")
+        attach("recap-consent-question")
+        app.buttons["recap-consent-not-now"].firstMatch.tap()
+        XCTAssertTrue(bar.waitForExistence(timeout: 20), "Not Now plays the book as it is")
+
+        // The home server now answers the route.
+        server.setAnswersBookTasks(true)
+        relaunchTwoDaysLater()
+        let asked = Date()
+        app.buttons["hear-recap"].firstMatch.tap()
+        let writtenBy = app.staticTexts["recap-written-by"].firstMatch
+        XCTAssertTrue(writtenBy.waitForExistence(timeout: 20), "no recap was written\n\(app.debugDescription)")
+        XCTAssertEqual(writtenBy.label, "Written by your Baton server")
+        attach("recap-through-home-server")
+        XCTAssertFalse(app.descendants(matching: .any)["recap-consent-ask"].firstMatch.exists, "not asked: the home server wrote it")
+        let prompt = try XCTUnwrap(server.bodies("/v1/books/complete").last
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["user"] as? String)
+        XCTAssertTrue(prompt.contains("Ada wound the great clock"), "the heard chapter 1 is in the prompt")
+        XCTAssertTrue(prompt.contains("number 10."), "the heard half of chapter 2 is in the prompt")
+        XCTAssertFalse(prompt.contains("glass key"), "the unheard half of chapter 2 reached the home server")
+        XCTAssertFalse(prompt.contains("Tobias came home"), "chapter 3 reached the home server")
+        XCTAssertEqual(server.requests("POST", since: asked).filter { $0.path == "/v1/books/complete" }.count, 1)
+        XCTAssertTrue(waitFor(20) { !self.server.bodies("/v1/speech/preview").isEmpty }, "the recap was not spoken")
+        XCTAssertTrue(bar.waitForExistence(timeout: 20), "the book did not play after the recap")
+        report("route bodies \(server.bodies("/v1/books/complete").count), recap: \(server.bodies("/v1/speech/preview").last.flatMap { String(data: $0, encoding: .utf8) } ?? "")")
+    }
+
+    /// Relaunch with the synced position halfway into chapter 2, last heard 48 hours ago, and
+    /// press Play on the book, which offers Previously….
+    private func relaunchTwoDaysLater() {
+        app.terminate()
+        app.launchEnvironment["baton.resetSession"] = nil
+        app.launchEnvironment["uitestImportText"] = nil
+        app.launchEnvironment["uitestBookPosition"] = "1:15:48"
+        app.launch()
+        openClippings()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the book row did not appear")
+        row.tap()
+        XCTAssertTrue(app.buttons["hear-recap"].firstMatch.waitForExistence(timeout: 10), "Play after two days should offer Previously…")
+    }
+
     // MARK: - A finished book
 
     /// Delete Book… asks first, then Delete Everywhere has the home server stop keeping it.
@@ -176,8 +403,8 @@ final class BookRowsUITests: XCTestCase {
 
     // MARK: - Steps
 
-    private func makeAudiobook() {
-        XCTAssertTrue(app.staticTexts["Two Rooms"].firstMatch.waitForExistence(timeout: 30), "the import screen did not open")
+    private func makeAudiobook(title: String = "Two Rooms") {
+        XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 30), "the import screen did not open")
         let make = app.buttons["make-audiobook"].firstMatch
         var tries = 0
         while !make.exists && tries < 6 {

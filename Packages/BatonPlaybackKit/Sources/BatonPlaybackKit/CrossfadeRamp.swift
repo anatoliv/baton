@@ -35,12 +35,16 @@ public final class CrossfadeRamp {
         startOut: Float,
         duration seconds: Double,
         steps: Int = 24,
+        rate: Float = 1,
         readinessTimeout: Double = Crossfade.readinessTimeout,
         onComplete: @escaping @MainActor (AVQueuePlayer) -> Void
     ) {
         let next = AVQueuePlayer(playerItem: item)
         next.isMuted = isMuted
         next.volume = 0
+        // A fresh player starts at 1×. Without this a book at 1.5× blended into its next
+        // chapter at 1×, and the promoted player kept that speed from then on.
+        next.defaultRate = rate
         next.play()
         player = next
         task = Task { @MainActor [weak self] in

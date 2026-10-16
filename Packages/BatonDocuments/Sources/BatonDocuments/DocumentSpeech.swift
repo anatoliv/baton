@@ -110,6 +110,7 @@ public enum DocumentSpeech {
     static func dialogueSpans(_ paragraph: String, continuingQuote: inout Bool) -> [Span] {
         var spans: [Span] = []
         var current = ""
+        let carried = continuingQuote
         var inQuote = continuingQuote
         var chars = Substring(paragraph)
         if inQuote, chars.first == "\u{201C}" {   // the reopening mark of a continued speech
@@ -135,6 +136,21 @@ public enum DocumentSpeech {
         }
         flush()
         continuingQuote = inQuote
+        if !carried, spans.count == 1, spans[0].isQuote, !inQuote, isCaption(spans[0].text) { spans[0].isQuote = false }
         return spans
+    }
+
+    /// A paragraph that is one quotation with nothing to end it, such as a picture's caption
+    /// ("He came down to see the place", under an illustration in Gutenberg's *Pride and
+    /// Prejudice*), a title or a sign, is not anyone speaking. The HTML importer leaves captions
+    /// out by their markup; a Markdown or plain-text copy of the same book has lost that markup,
+    /// so the caption reached the cast as a line. Speech set as a paragraph of its
+    /// own ends in punctuation inside the closing mark ("Bingley.", "But it is,", "Oh!"); on the
+    /// held-out texts every such paragraph without it was a caption.
+    static func isCaption(_ quote: String) -> Bool {
+        guard quote.hasPrefix("\u{201C}"), quote.hasSuffix("\u{201D}") else { return false }
+        let inner = quote.dropFirst().dropLast().trimmingCharacters(in: CharacterSet(charactersIn: "\u{2019}\u{201D})] "))
+        guard let last = inner.last else { return false }
+        return !".,!?;:\u{2014}\u{2013}\u{2026}-".contains(last)
     }
 }

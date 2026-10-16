@@ -1285,9 +1285,9 @@ struct MusicNotConnectedView: View {
         VStack(spacing: 10) {
             Image(systemName: "music.note.house").font(.largeTitle).foregroundStyle(.secondary)
             Text("No music server connected").font(.headline)
-            Text("Connect a Navidrome or Subsonic server to browse and play your library.")
+            Text("Connect your music server, such as Navidrome or another Subsonic server, to browse and play your library.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("Connect a Server…") { showConnect = true }
+            Button("Connect a Music Server…") { showConnect = true }
                 .buttonStyle(.borderedProminent)
         }
         .padding(40)

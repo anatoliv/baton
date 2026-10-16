@@ -47,6 +47,8 @@ final class DocumentLibrary {
         let documentID: String
         let summary: BookJob.Summary
         var renderer: Renderer = .thisMac
+        /// Made on the home server from another device and adopted from its listing.
+        var adopted = false
         var id: String { summary.id }
 
         init(_ job: BookJob) {
@@ -54,10 +56,11 @@ final class DocumentLibrary {
             summary = job.summary
         }
 
-        init(documentID: String, summary: BookJob.Summary, renderer: Renderer) {
+        init(documentID: String, summary: BookJob.Summary, renderer: Renderer, adopted: Bool = false) {
             self.documentID = documentID
             self.summary = summary
             self.renderer = renderer
+            self.adopted = adopted
         }
     }
 
@@ -75,6 +78,10 @@ final class DocumentLibrary {
     @ObservationIgnored private let refreshInterval: Duration
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var rendererControl: Task<Void, Never>?
+    /// The books the storage rules last saw as able to come back.
+    @ObservationIgnored private var rulesSawGettable: Set<String>?
+    /// Asks the home server again whenever Baton comes to the front.
+    @ObservationIgnored private var activation: NSObjectProtocol?
     /// The home server's half (M5.6), shared with the phone: what was sent there, what is ready,
     /// and bringing each chapter down once.
     let homeServer: HomeServerBooks
@@ -106,6 +113,11 @@ final class DocumentLibrary {
                                      synthesizer: synthesizer, muxer: muxer, concurrency: concurrency,
                                      retry: retry, log: { documentsLog.notice("\($0, privacy: .public)") })
         self.refreshInterval = refreshInterval
+        // A book this Mac makes itself is not adopted again from the home server in a second
+        // copy when the iPhone sends the same document there.
+        homeServer.isMadeHere = { [weak self] documentID in
+            self?.jobs.contains { $0.documentID == documentID && $0.renderer == .thisMac } ?? false
+        }
     }
 
     // MARK: - Lifecycle
@@ -119,13 +131,23 @@ final class DocumentLibrary {
         controlRenderer { await $0.startIfNeeded() }
         refresh()
         // The storage rules the person chose run at launch (and when Clippings opens), never
-        // before they chose one.
+        // before they chose one; again once the home server answers about a book made there.
         applyStorageRules()
         // Books on the home server are asked about once at launch, so a finished one shows its
         // "kept until" date without a chapter still to collect (M6.6), and a book stopped while
         // the home server was away is deleted there now.
         if homeServer.isConfigured, !homeServer.records.isEmpty || !homeServer.pendingDeleteIDs.isEmpty {
             Task { await refreshHomeServer() }
+        }
+        // Each time Baton comes to the front, and when Clippings opens, the home server is asked
+        // again: a book another device sent there is adopted then.
+        activation = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isStarted, self.homeServer.isConfigured else { return }
+                Task { await self.refreshHomeServer() }
+            }
         }
     }
 
@@ -136,6 +158,8 @@ final class DocumentLibrary {
         isStarted = false
         watcher?.cancel()
         watcher = nil
+        if let activation { NotificationCenter.default.removeObserver(activation) }
+        activation = nil
         homeServer.stopWatching()
         controlRenderer { await $0.stop() }
         documentsLog.notice("documents turned off: rendering and home server polling stopped")
@@ -168,12 +192,20 @@ final class DocumentLibrary {
         var fresh = all.map(Job.init)
         for record in remoteBooks {
             if let summary = remoteSummaries[record.jobID] {
-                fresh.append(Job(documentID: record.documentID, summary: summary, renderer: .homeServer))
+                fresh.append(Job(documentID: record.documentID, summary: summary, renderer: .homeServer,
+                                 adopted: record.adopted == true))
             }
         }
-        fresh.sort { $0.summary.createdAt > $1.summary.createdAt }
+        // Newest first. A job kept only so a voice change can be stopped goes after
+        // the one making the new voice, also when the two were made within the same second
+        // (job dates are kept to the second).
+        let kept = Set(voiceChanges.all.compactMap(\.previousJobID))
+        fresh.sort { a, b in
+            if a.summary.createdAt != b.summary.createdAt { return a.summary.createdAt > b.summary.createdAt }
+            return kept.contains(b.id) && !kept.contains(a.id)
+        }
         if fresh != jobs { jobs = fresh }
-        homeServer.watchIfNeeded { [weak self] in self?.refresh() }
+        homeServer.watchIfNeeded { [weak self] in self?.refresh(); self?.applyStorageRulesToNewlyGettable() }
         let busy = all.contains { $0.status == .rendering || $0.status == .paused }
         if busy { watch() } else { watcher?.cancel(); watcher = nil }
     }
@@ -203,6 +235,50 @@ final class DocumentLibrary {
         if isWebLink(url) { return true }
         guard url.isFileURL, let kind = DocumentImporter.kind(for: url) else { return false }
         return [.pdf, .text, .markdown, .html, .epub].contains(kind)
+    }
+
+    /// Where files handed over from outside go: Finder's Open With and the "Make an Audiobook
+    /// with Baton" service (spec §9, TBX-10950). Pure, so every outcome is testable without a
+    /// window. Several files at once open the first one Baton can read; there is no queue of
+    /// imports to put the rest in, so the others are counted and the person is told.
+    enum OpenRoute: Equatable {
+        /// The import sheet opens for `url`; `others` is how many of the files handed over wait.
+        case importSheet(URL, others: Int)
+        /// Documents is turned off in Settings: nothing is imported.
+        case documentsOff
+        /// None of the files is one Baton reads.
+        case unsupported(URL)
+        /// Nothing that is a file (a `baton://` link takes its own path).
+        case none
+    }
+
+    static func route(opening urls: [URL], documentsEnabled: Bool) -> OpenRoute {
+        let files = urls.filter(\.isFileURL)
+        guard let firstFile = files.first else { return .none }
+        guard documentsEnabled else { return .documentsOff }
+        guard let readable = files.first(where: canImport) else { return .unsupported(firstFile) }
+        return .importSheet(readable, others: files.count - 1)
+    }
+
+    /// The alert for a route that does not end in the import sheet, or nil when it does.
+    static func openAlert(for route: OpenRoute) -> (title: String, message: String)? {
+        switch route {
+        case .documentsOff:
+            return ("Documents is turned off",
+                    "To make an audiobook from a document, turn on Documents in Settings, under Speech, then open the file again.")
+        case let .unsupported(url):
+            return ("Baton can't read \(url.lastPathComponent)",
+                    "Baton makes audiobooks from PDF, EPUB, web pages saved as HTML, plain text and Markdown files.")
+        case .importSheet, .none:
+            return nil
+        }
+    }
+
+    /// What a hand-over of several files says, once the first is in the import sheet.
+    static func othersNotice(opened url: URL, others: Int) -> String? {
+        guard others > 0 else { return nil }
+        let rest = others == 1 ? "the other file" : "the other \(others) files"
+        return "Opened \(url.lastPathComponent). Baton imports one document at a time, so open \(rest) after this one."
     }
 
     /// An address on the web, read as a page rather than downloaded as a file (M8.1b).
@@ -309,13 +385,14 @@ final class DocumentLibrary {
     func refreshHomeServer() async {
         await homeServer.collect()
         refresh()
+        applyStorageRulesToNewlyGettable()
     }
 
     // MARK: - Storage (M6.3 to M6.5)
 
     /// Every book on this Mac as Clippings shows it.
     var shelf: [BookShelf.Book] {
-        BookShelf.entries(items: clippings.items, jobs: jobs, ledger: clippings.ledger)
+        BookShelf.entries(items: clippings.items, jobs: jobs, ledger: clippings.ledger, changes: voiceChanges.all)
             .compactMap { if case let .book(book) = $0 { book } else { nil } }
     }
 
@@ -339,12 +416,31 @@ final class DocumentLibrary {
 
     var storedBooks: [StoredBook] { shelf.map(stored) }
 
+    /// The books whose download storage could remove: on this Mac and able to come back. A book
+    /// made on the home server joins only once the home server has answered about it after
+    /// launch, so Clippings asks for the weekly suggestion again when this changes, not only when
+    /// it appears.
+    var removableBookIDs: [String] {
+        storedBooks.filter { $0.canGetBack && !$0.present.isEmpty }.map(\.documentID)
+    }
+
     /// Run the person's storage rules now. Returns the books whose download went.
     @discardableResult
     func applyStorageRules(now: Date = Date()) -> [String] {
         let removed = cleanup.applyRules(storedBooks, now: now)
         if !removed.isEmpty { refresh() }
+        rulesSawGettable = Set(storedBooks.filter(\.canGetBack).map(\.documentID))
         return removed
+    }
+
+    /// Run the rules again when a book has become able to come back since they last ran. At
+    /// launch they run before the home server has answered, when a book made there has no job
+    /// and so cannot come back; its answer makes it one. Only a newly gettable book
+    /// counts, so Download Again bringing a book's chapters back does not remove them again.
+    private func applyStorageRulesToNewlyGettable() {
+        guard isStarted, let saw = rulesSawGettable,
+              storedBooks.contains(where: { $0.canGetBack && !saw.contains($0.documentID) }) else { return }
+        applyStorageRules()
     }
 
     /// What brings a book's removed audio back, in the menu's words: "Download Again" from the
@@ -380,15 +476,26 @@ final class DocumentLibrary {
         return bytes
     }
 
-    /// Delete a book, from this Mac or everywhere: it stops being made, leaves Clippings, and
-    /// waits in Recently removed for a week. A book made here keeps its render job there too,
-    /// so Restore brings back the book with its pronunciations and Render Again.
+    /// Delete a book, from this Mac or everywhere: it leaves Clippings and waits in Recently
+    /// removed for a week. A book made here stops being made, and keeps its render job in the
+    /// hold, so Restore brings back the book with its pronunciations and Render Again. A book
+    /// made on the home server is deleted there only by Delete Everywhere; removed from this
+    /// Mac, it stays there for the other devices and is not adopted here again.
     func deleteBook(_ book: BookShelf.Book, everywhere: Bool) async {
         let job = job(forDocument: book.documentID)
         let payload = job.flatMap { $0.renderer == .thisMac ? store.load($0.id) : nil }
             .flatMap { try? BookJSON.encoder.encode($0) }
         cleanup.delete(stored(book), everywhere: everywhere, payload: payload)
-        if let job { await cancel(job.id) }
+        // A book deleted while it was made again: the job kept for Stop goes with it.
+        if let previous = voiceChanges.change(forDocument: book.documentID)?.previousJobID {
+            await renderer.cancel(previous)
+        }
+        voiceChanges.drop(book.documentID)
+        if let job, everywhere || job.renderer == .thisMac {
+            await cancel(job.id)
+        } else if !everywhere {
+            homeServer.hide(documentID: book.documentID)
+        }
         refresh()
     }
 
@@ -400,15 +507,115 @@ final class DocumentLibrary {
         refresh()
     }
 
+    // MARK: - Change Voice
+
+    /// Books being made again in another voice, here or on the home server.
+    var voiceChanges: BookVoiceChanges { homeServer.voiceChanges }
+
+    func voiceChange(for book: BookShelf.Book) -> BookVoiceChanges.Change? {
+        voiceChanges.change(forDocument: book.documentID)
+    }
+
+    /// Whether Change Voice… is offered: the book's words are on this Mac (its render job, or the
+    /// shaped book saved beside a home-server record).
+    func canChangeVoice(_ book: BookShelf.Book) -> Bool { canEditPronunciations(book) }
+
+    /// The voices the book is read in now: its narrator, and its cast when the dialogue is voiced.
+    func voices(of book: BookShelf.Book) -> (plan: VoicePlan, hasCast: Bool, renderer: Renderer)? {
+        pronunciationSource(documentID: book.documentID).map { ($0.book.voices, $0.book.hasCast, $0.renderer) }
+    }
+
+    /// The first words of the book, to hear a voice in the picker.
+    func previewText(of book: BookShelf.Book, limit: Int = 220) -> String {
+        let words = pronunciationSource(documentID: book.documentID)?.book.chapters
+            .lazy.flatMap(\.segments).filter { $0.kind != .heading }.prefix(3).map(\.text).joined(separator: " ") ?? book.title
+        let redacted = SecretRedactor.redact(words)
+        guard redacted.count > limit else { return redacted }
+        let cut = redacted.prefix(limit)
+        if let end = cut.lastIndex(where: { ".!?".contains($0) }) { return String(cut[...end]) }
+        return String(cut) + "…"
+    }
+
+    /// Make the whole book again in another narrator's voice, wherever it was made: the home
+    /// server through `resubmit` (`HomeServerBooks.changeVoice`), or this Mac's renderer under a
+    /// new job. Either way the cast, the pronunciations and the place in the book are kept, and
+    /// each chapter here plays in the old voice until its new audio takes its place.
+    func changeVoice(_ book: BookShelf.Book, to narrator: String) async throws {
+        guard let source = pronunciationSource(documentID: book.documentID) else { throw PronunciationError.noPreparedBook }
+        switch source.renderer {
+        case .homeServer:
+            let newID = try await homeServer.changeVoice(jobID: source.jobID, to: narrator)
+            if newID != source.jobID, clippings.ledger.document(book.documentID)?.finished == true {
+                await homeServer.markFinished(jobID: newID)
+            }
+        case .thisMac:
+            guard let stored = store.load(source.jobID) else { throw PronunciationError.noPreparedBook }
+            let updated = stored.book.inVoice(narrator)
+            let newID = BookJob.id(for: updated)
+            guard newID != source.jobID else { return }
+            let present = book.chapters.filter { $0.item?.isPresent == true }.map(\.index)
+            let earlier = voiceChanges.change(forDocument: book.documentID)
+            // A finished job is kept until the change ends, so Stop goes back to it without making
+            // anything; one still being made stops here, so the two do not render side by side.
+            let keepPrevious = earlier == nil && stored.status == .ready && !present.isEmpty
+            if !present.isEmpty {
+                voiceChanges.begin(documentID: book.documentID, voice: narrator, previousVoices: stored.book.voices,
+                                   jobID: newID, previousJobID: keepPrevious ? source.jobID : nil,
+                                   pending: present, startedHere: true)
+            }
+            // The job in between, when the voice is changed again before the first change ended.
+            if !keepPrevious, source.jobID != earlier?.previousJobID {
+                await renderer.cancel(source.jobID)
+            }
+            do {
+                try await submit(updated)
+            } catch {
+                voiceChanges.abandon(book.documentID)
+                throw error
+            }
+            if let finishedAt = stored.finishedAt { _ = await renderer.markFinished(newID, at: finishedAt) }
+        }
+        refresh()
+        documentsLog.notice("book \"\(book.title, privacy: .public)\": making it again in \(narrator, privacy: .public)")
+    }
+
+    /// Stop making a book again: the chapters already replaced get their old audio back, and the
+    /// book is made in the voices it had (from the job kept for it, or the chunk cache).
+    func cancelVoiceChange(_ book: BookShelf.Book) async throws {
+        guard let change = voiceChange(for: book) else { return }
+        guard let job = job(forDocument: book.documentID) else { voiceChanges.abandon(book.documentID); return }
+        switch job.renderer {
+        case .homeServer:
+            try await homeServer.cancelVoiceChange(documentID: book.documentID)
+        case .thisMac:
+            let stored = store.load(job.id)
+            await renderer.cancel(job.id)
+            voiceChanges.abandon(book.documentID)
+            if let previous = change.previousJobID, store.load(previous) != nil {
+                // Every chapter of it is already here: nothing to make.
+            } else if var back = stored?.book {
+                back.voices = change.previousVoices
+                try await submit(back)
+            }
+        }
+        refresh()
+    }
+
     // MARK: - Chapters into Clippings
 
     private func adoptReadyChapters(_ all: [BookJob]) {
         for job in all {
             for (index, state) in job.chapters.enumerated() {
                 guard case let .ready(file, _, seconds, sha) = state,
-                      clippings.item(documentID: job.book.documentID, chapterIndex: index) == nil,
                       let url = store.chapterURL(job.id, file: file),
                       FileManager.default.fileExists(atPath: url.path) else { continue }
+                let existing = clippings.item(documentID: job.book.documentID, chapterIndex: index)
+                if existing != nil {
+                    // In the old voice while the book is made again: the new audio takes its place.
+                    guard voiceChanges.isPending(job.book.documentID, chapterIndex: index, jobID: job.id) else { continue }
+                    replaceChapter(job, index: index, url: url, file: file, seconds: seconds, sha: sha)
+                    continue
+                }
                 let chapter = job.book.chapters[index]
                 let text = chapter.segments.map(\.text).joined(separator: " ")
                 do {
@@ -416,12 +623,39 @@ final class DocumentLibrary {
                                         durationSeconds: seconds, text: text, sha256: sha,
                                         chapter: .init(documentID: job.book.documentID, documentTitle: job.book.title,
                                                        author: job.book.author, chapterIndex: index,
-                                                       chapterTitle: chapter.title))
+                                                       chapterTitle: chapter.title),
+                                        voice: job.book.voices.narrator)
+                    voiceChanges.settle(job.book.documentID, chapterIndex: index)
+                    // Its read-along timing goes with it, by the audio's digest.
+                    if let timing = store.chapterTiming(job.id, file: file) {
+                        try? homeServer.readAlong.save(timing, forAudio: sha)
+                    }
                     documentsLog.notice("book \(job.id.prefix(12), privacy: .public): chapter \(index + 1) is in Clippings")
                 } catch {
                     documentsLog.error("book \(job.id.prefix(12), privacy: .public): could not keep chapter \(index + 1): \(String(describing: error), privacy: .public)")
                 }
             }
+        }
+    }
+
+    /// A chapter made again in the new voice replaces the old one in its row. When it was the
+    /// last, the job kept for Stop has done its work and goes.
+    private func replaceChapter(_ job: BookJob, index: Int, url: URL, file: String, seconds: Double, sha: String) {
+        let documentID = job.book.documentID
+        let previousJobID = voiceChanges.change(forDocument: documentID)?.previousJobID
+        do {
+            try voiceChanges.replace(documentID: documentID, chapterIndex: index, with: url, seconds: seconds, sha256: sha)
+            if let timing = store.chapterTiming(job.id, file: file) {
+                try? homeServer.readAlong.save(timing, forAudio: sha)
+            }
+            documentsLog.notice("book \(job.id.prefix(12), privacy: .public): chapter \(index + 1) replaced in its new voice")
+        } catch {
+            documentsLog.error("book \(job.id.prefix(12), privacy: .public): could not replace chapter \(index + 1): \(String(describing: error), privacy: .public)")
+            return
+        }
+        if voiceChanges.change(forDocument: documentID) == nil, let previousJobID, previousJobID != job.id {
+            let renderer = self.renderer
+            Task { await renderer.cancel(previousJobID) }
         }
     }
 }

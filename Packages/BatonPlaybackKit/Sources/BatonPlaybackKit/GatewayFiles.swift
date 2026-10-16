@@ -42,10 +42,10 @@ public struct GatewayFiles: Sendable {
         public var errorDescription: String? {
             switch self {
             case .notConfigured:
-                return "No home gateway is set up. Add its address in Settings → Shared settings."
+                return "No Baton server is set up. Add its address in Settings → Remote → Baton server."
             case let .rejected(status, detail):
-                return detail.isEmpty ? "The gateway answered with HTTP \(status)."
-                                      : "The gateway refused it: \(detail)"
+                return detail.isEmpty ? "The Baton server answered with HTTP \(status)."
+                                      : "The Baton server refused it: \(detail)"
             case .corrupted:
                 // The digests are in the log, not the message: a user can act on "it arrived
                 // damaged, try again", and cannot act on two hex strings.

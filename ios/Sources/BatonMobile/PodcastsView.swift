@@ -157,12 +157,13 @@ struct PodcastChannelView: View {
     }
 
     private var speedPicker: some View {
+        // The spoken-items speed, shared with books.
         Picker("Playback speed", selection: Binding(
-            get: { model.music.playbackRate },
-            set: { model.music.playbackRate = $0 }
+            get: { model.music.spokenRate },
+            set: { model.music.spokenRate = $0 }
         )) {
-            ForEach([Float(0.75), 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
-                Text(rate == 1.0 ? "1×" : String(format: "%g×", rate)).tag(rate)
+            ForEach(SpokenPlaybackOptions.rates, id: \.self) { rate in
+                Text(SpokenPlaybackOptions.rateLabel(rate)).tag(rate)
             }
         }
         .pickerStyle(.segmented)

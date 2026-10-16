@@ -1,5 +1,10 @@
 # baton-gateway
 
+The Baton apps call this your **Baton server**, to tell it apart from your **music server**
+(Navidrome or another Subsonic server, which holds your library). Both can run on the same
+machine. [The two servers Baton uses](../HELP.md#the-two-servers-baton-uses) explains the
+difference in plain words; this page is the technical setup.
+
 A small service that does two jobs for Baton, and you can use either one without the other:
 
 - **Shared settings.** Keeps the preferences that belong to *you* rather than to a device —
@@ -65,6 +70,7 @@ Everything is an environment variable.
 | `BATON_LLM_MODEL` | `claude-haiku-4-5-20251001` | Model id. |
 | `BATON_LLM_BASE_URL` | the provider's own | Point this at a LiteLLM or Ollama box on your LAN. |
 | `BATON_LLM_API_KEY` | empty | Key for the provider. |
+| `BATON_LLM_LOCAL` | unset | `1` when that model is on your network under a name the address rule cannot read (a Docker service, a bare host name). Book tasks (`/v1/books/complete`) use the model only when it is local. |
 | `BATON_TTS_KOKORO_URL` | `http://127.0.0.1:8880` | Kokoro, for rendering books. Any host on your LAN. |
 | `BATON_TTS_CHATTERBOX_URL` | unset | Chatterbox, only if a book's voices use it. |
 | `BATON_RENDER_CONCURRENCY` | `2` | TTS requests in flight per book. |
@@ -72,8 +78,9 @@ Everything is an environment variable.
 | `BATON_BOOKS_KEEP_FINISHED_DAYS` | `30` | How long a finished book's audio stays. |
 | `BATON_FFMPEG` | `ffmpeg` on `PATH` | The encoder for chapters. Without it, books are off and say so. |
 
-The four `BATON_LLM_*` variables are only for the music friend. Leave them unset and the
-gateway still starts and still syncs settings; only `/v1/agent` will fail.
+The `BATON_LLM_*` variables are for the music friend, and for the phone's book recaps when
+the model is on your network. Leave them unset and the gateway still starts and still syncs
+settings; only `/v1/agent` and `/v1/books/complete` will fail.
 
 `BATON_STATE_FILE` defaults under the XDG data directory rather than the working directory
 on purpose. Run by hand from a checkout, the working directory is fine — but under systemd
@@ -134,12 +141,16 @@ devices.
 | `POST /v1/device/result` | token | A player reports back what happened. |
 | `PUT /v1/books/{id}` | token | Submit a prepared book to render. Streamed like a file upload. |
 | `GET /v1/books` | token | Every book, its chapters' state, and the space used and allowed. |
-| `GET /v1/books/{id}` | token | One book: per chapter `queued`, `rendering`, `encoding`, `ready` or `failed`. |
+| `GET /v1/books/{id}` | token | One book: per chapter `queued`, `rendering`, `encoding`, `ready` or `failed`. Each summary, here and in the listing, names its `documentID`, so a device that did not send the book can adopt it. |
+| `GET /v1/books/{id}/book` | token | The prepared book the job was made from (JSON), for a device that did not send it: the chapter words for read-along, and what Render Again starts from. |
 | `GET /v1/books/{id}/chapters/{n}` | token | Chapter *n*'s M4A, with `X-Baton-SHA256` and `X-Baton-Duration`. |
+| `GET /v1/books/{id}/chapters/{n}/timing` | token | Chapter *n*'s read-along timing: each chunk's text with its start and end in seconds (JSON). 404 for a chapter made before timing was kept, which a client reads as "no highlight", as it does from a gateway without this route. |
 | `GET /v1/books/{id}/export.m4b` | token | The whole book as one audiobook with chapter marks (ffmpeg stream copy, made on request and not kept); 409 until every chapter is ready. |
 | `POST /v1/books/{id}/finished` | token | The listener reached the end; retention starts counting, and the book's `removesAt` says when it goes. |
 | `DELETE /v1/books/{id}` | token | Stop rendering and remove it. |
+| `POST /v1/books/complete` | token | One book task, such as a recap, by the gateway's own model (`{"system","user","max_tokens"}` → `{"text","model"}`), for a phone that reaches a model only through here. Only when that model is on your network: loopback, `.local`, a private or Tailscale address, or `BATON_LLM_LOCAL=1`; a cloud model is refused with `403` and the reason. At most 32,000 characters in, 2,048 tokens out and 120 seconds. |
 | `POST /v1/speech/preview` | token | A few seconds of a voice (`{"text","voice","speed"}`), for choosing one. |
+| `GET /v1/voices` | token | The voices the voice server offers, for the phone's narrator choice: `{"voices":[{"spec":"kokoro:af_heart","engine":"kokoro","id":"af_heart","language":"en"}],"sources":{"kokoro":"server"}}`. From each engine's `/v1/audio/voices`, kept 60 s; Kokoro's English voices stand in (`"built-in"`) when Kokoro does not answer. |
 
 ### The shared settings document has a revision
 

@@ -25,6 +25,20 @@ final class BatonCommandRouter {
     /// A file **Import Document…** (⇧⌘O) chose. `MusicClippingsView` presents the import sheet
     /// for it and clears it (document clippings, M3.4).
     var pendingDocumentImport: URL?
+
+    /// Files handed over from outside, by Finder's Open With or the "Make an Audiobook with
+    /// Baton" service, take the same road as Import Document…: Clippings, then the
+    /// import sheet. Returns the route so the caller can say why nothing opened, if it did not.
+    @discardableResult
+    func openDocuments(_ urls: [URL],
+                       documentsEnabled: Bool = DocumentLibrary.isEnabled()) -> DocumentLibrary.OpenRoute {
+        let route = DocumentLibrary.route(opening: urls, documentsEnabled: documentsEnabled)
+        if case let .importSheet(url, _) = route {
+            pendingTab = .clippings
+            pendingDocumentImport = url
+        }
+        return route
+    }
 }
 
 /// The **Go** menu: jump to any left-rail section (⌘1…⌘8), Find (⌘F → Search + focus),

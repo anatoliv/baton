@@ -204,7 +204,7 @@ final class MCPDocumentToolTests: XCTestCase {
         let library = library(gateway: homeServer(fake))
         let reply = try await make(on: library, setting: .homeServer)
         let jobID = try XCTUnwrap(reply["job_id"] as? String)
-        XCTAssertEqual(reply["made_on"] as? String, "the home server")
+        XCTAssertEqual(reply["made_on"] as? String, "the Baton server")
         XCTAssertNil(reply["note"])
         XCTAssertTrue(fake.seen.contains("PUT /v1/books/\(jobID)"), "\(fake.seen)")
         XCTAssertEqual(library.jobs.first { $0.id == jobID }?.renderer, .homeServer)
@@ -218,7 +218,7 @@ final class MCPDocumentToolTests: XCTestCase {
             let reply = try await make(on: library, setting: .homeServer, file: "fallback-\(UUID().uuidString).md")
             let jobID = try XCTUnwrap(reply["job_id"] as? String)
             XCTAssertEqual(reply["made_on"] as? String, "this Mac")
-            XCTAssertEqual(reply["note"] as? String, "The home server is not answering, so this Mac makes it.")
+            XCTAssertEqual(reply["note"] as? String, "The Baton server is not answering, so this Mac makes it.")
             XCTAssertNotNil(library.store.load(jobID), "made here instead")
             library.stop()
         }
@@ -238,14 +238,14 @@ final class MCPDocumentToolTests: XCTestCase {
         XCTAssertNil(here["note"])
 
         let there = try await make(["where": "home_server"], on: library, setting: .ask, file: "there.md")
-        XCTAssertEqual(there["made_on"] as? String, "the home server")
+        XCTAssertEqual(there["made_on"] as? String, "the Baton server")
         let thereID = try XCTUnwrap(there["job_id"] as? String)
         XCTAssertTrue(fake.seen.contains("PUT /v1/books/\(thereID)"), "\(fake.seen)")
 
         let quiet = self.library(gateway: silent)
         let fellBack = try await make(["where": "home_server"], on: quiet, setting: .ask, file: "quiet.md")
         XCTAssertEqual(fellBack["made_on"] as? String, "this Mac")
-        XCTAssertEqual(fellBack["note"] as? String, "The home server is not answering, so this Mac makes it.")
+        XCTAssertEqual(fellBack["note"] as? String, "The Baton server is not answering, so this Mac makes it.")
     }
 
     func testAnUnknownPlaceIsRefusedBeforeAnythingIsMade() async throws {

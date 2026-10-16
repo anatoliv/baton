@@ -79,9 +79,13 @@ final class MobileModel {
     let agentConfig = AgentConfig()
     /// Books made on the home server, remembered and collected the same way as on the Mac
     /// (`Shared/HomeServerBooks.swift`, M5.3). Lazy: the gateway closure reads `agentConfig`.
-    @ObservationIgnored private(set) lazy var books: HomeServerBooks = HomeServerBooks(
-        directory: BatonStorage.supportSubdirectory("Books"), clippings: clippings,
-        gateway: { [weak self] in self?.gatewayBookClient() }, log: documentsLog)
+    /// "Chapter 1 is ready" is said from inside its collection, whichever path collects.
+    @ObservationIgnored private(set) lazy var books: HomeServerBooks = {
+        let books = HomeServerBooks(directory: BatonStorage.supportSubdirectory("Books"), clippings: clippings,
+                                    gateway: { [weak self] in self?.gatewayBookClient() }, log: documentsLog)
+        books.firstChapterArrived = MobileDocuments.chapterReadyAnnouncer()
+        return books
+    }()
     /// `baton.documents.enabled`, read live: Clippings shows or hides books and the
     /// import menu the moment the Settings switch moves, with no relaunch.
     let documentsSwitch = DefaultsSwitch(key: MobileDocuments.enabledKey, defaultValue: true)
@@ -314,17 +318,9 @@ final class MobileModel {
         audioSession.configure()
         installExperimentalEngineIfEnabled()
 
-        // Podcasts: resume where the episode left off, and record progress so the
-        // Mac (via future gateway sync) and this phone agree on played state.
-        let progress = podcastProgress
-        controller.resumeOffsetProvider = { song in
-            progress.resumeOffset(id: song.id)
-        }
-        controller.onProgressUpdate = { song, time, duration in
-            guard song.isPodcastEpisode || progress.isServerEpisode(song.id) else { return }
-            _ = progress.record(id: song.id, position: time, duration: duration > 0 ? duration : nil)
-        }
-        progress.loadIfNeeded()
+        // Podcasts resume where the episode left off and book chapters at the synced position;
+        // the hooks are installed below, once `self` is whole (`installPlaybackProgressHooks`).
+        podcastProgress.loadIfNeeded()
 
         // Downloads survive suspension: install the background engine and re-attach
         // to any tasks that outlived the last launch.
@@ -337,6 +333,10 @@ final class MobileModel {
         if !Self.isPreferenceSyncSwitchedOff() { preferenceSync.startObservingChanges() }
         // Before the first sync, so this device's existing clippings are in the first merge.
         clippings.seedLedgerIfNeeded()
+        // Podcast progress, and a book's position and finished mark in the shared ledger.
+        installPlaybackProgressHooks()
+        // And the push that carries them to the other device when listening halts.
+        installBookLedgerPush()
 
         // A document handed over before the app was quit is offered again. After the
         // DEBUG reset above, which forgets it, and before a UI test's own document below.
@@ -358,6 +358,9 @@ final class MobileModel {
             agentConfig.gatewayURL = url
             agentConfig.gatewayToken = token
         }
+        // A hosted music friend model with a key, for the recap's cloud consent question
+        //. The key is a stand-in: the test never lets the phone reach that host.
+        if let key = launch["uitestAgentAPIKey"], !key.isEmpty { agentConfig.apiKey = key }
         if let file = launch["uitestImportFile"], FileManager.default.fileExists(atPath: file) {
             pendingDocumentImport = URL(fileURLWithPath: file)
         }
@@ -370,6 +373,7 @@ final class MobileModel {
                 pendingDocumentImport = file
             }
         }
+        if let raw = launch[Self.bookPositionArgument] { seedBookPositionForUITests(raw) }
         #endif
 
         // Last.fm authorizes in a browser; the shared engine stays platform-neutral and
@@ -492,6 +496,22 @@ final class MobileModel {
     }
 
     #if DEBUG
+    /// "1:15" stands in for a position synced from the Mac: every book this phone
+    /// knows is put at chapter 2, 15 seconds, in the shared ledger, which is exactly where a
+    /// `PreferenceSync` merge puts it. Environment, never launch arguments. An optional
+    /// third field dates the position that many hours ago ("1:15:48"), for "Previously…".
+    static let bookPositionArgument = "uitestBookPosition"
+
+    private func seedBookPositionForUITests(_ raw: String) {
+        let parts = raw.split(separator: ":")
+        guard parts.count == 2 || parts.count == 3, let chapter = Int(parts[0]), let seconds = Double(parts[1]) else { return }
+        let at = Date(timeIntervalSinceNow: -3600 * (parts.count == 3 ? Double(parts[2]) ?? 0 : 0))
+        let documents = Set(books.records.map(\.documentID)).union(clippings.items.compactMap(\.clipping.documentID))
+        var ledger = clippings.ledger
+        for documentID in documents { ledger.setPosition(documentID: documentID, chapterIndex: chapter, seconds: seconds, at: at) }
+        clippings.ledger = ledger
+    }
+
     /// Copies a bundled demo track into the clipping store, so the app has a real clipping to
     /// long-press. Copied to a temporary file first because `adopt` moves what it is given, and
     /// moving a file out of the app bundle would break the demo library for the rest of the run.
@@ -546,6 +566,7 @@ final class MobileModel {
     static let syncHeartbeat: TimeInterval = 600
 
     @ObservationIgnored private var syncLoop: Task<Void, Never>?
+    @ObservationIgnored private(set) var bookLedgerPush: BookLedgerPush?
 
     /// Keep reconciling while the app is on screen, not only at the moment it arrives.
     ///
@@ -597,14 +618,17 @@ final class MobileModel {
         #endif
     }
 
-    func syncPreferences(force: Bool = false) async {
-        if Self.isPreferenceSyncSwitchedOff() { return }
+    /// Returns whether the gateway was reached, which `BookLedgerPush` uses to know a push landed.
+    @discardableResult
+    func syncPreferences(force: Bool = false) async -> Bool {
+        if Self.isPreferenceSyncSwitchedOff() { return false }
         let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, let url = URL(string: raw), !agentConfig.gatewayToken.isEmpty else { return }
+        guard !raw.isEmpty, let url = URL(string: raw), !agentConfig.gatewayToken.isEmpty else { return false }
+        let reached: Bool
         if force {
-            await preferenceSync.sync(gatewayURL: url, token: agentConfig.gatewayToken)
+            reached = await preferenceSync.sync(gatewayURL: url, token: agentConfig.gatewayToken)
         } else {
-            await preferenceSync.syncIfDue(gatewayURL: url, token: agentConfig.gatewayToken)
+            reached = await preferenceSync.syncIfDue(gatewayURL: url, token: agentConfig.gatewayToken)
         }
         // A sync merges the other device's search history straight into UserDefaults, which
         // the in-memory list can't see. Without this the Mac's searches only surface after
@@ -624,6 +648,53 @@ final class MobileModel {
         // is the same shape as the two above.
         friendMemory.adoptLedger()
         friendLearning.adoptLedger()
+        return reached
+    }
+
+    /// Fetches the other device's place before a book's Play: the forced sync, or nil
+    /// when sync is switched off or no gateway is set up, and then Play starts at once. A phone
+    /// kept on screen never comes to the front again, so without this Play started from the
+    /// phone's own older place while the Mac had moved on.
+    func bookPlacePull(environment: [String: String] = ProcessInfo.processInfo.environment) -> (@MainActor () async -> Bool)? {
+        if Self.isPreferenceSyncSwitchedOff(by: environment) { return nil }
+        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, URL(string: raw) != nil, !agentConfig.gatewayToken.isEmpty else { return nil }
+        return { [weak self] in await self?.syncPreferences(force: true) ?? false }
+    }
+
+    /// A book's place and finished mark go to the other device when listening halts here: on
+    /// pause and stop, debounced, and at once on leaving the foreground. Before this
+    /// they waited for the next foreground or the ten-minute heartbeat, which the TBX-10974 walk
+    /// measured at 8 to 10 minutes. The push is the ordinary forced sync, so
+    /// `BATON_DEBUG_PREFERENCE_SYNC=off` and an unconfigured gateway still make it a no-op.
+    func installBookLedgerPush(delay: Duration = BookLedgerPush.defaultDelay,
+                               push: (@MainActor () async -> Bool)? = nil) {
+        let ledger = clippings
+        let pusher = BookLedgerPush(delay: delay, ledger: { ledger.ledger }) { [weak self] in
+            if let push { return await push() }
+            return await self?.syncPreferences(force: true) ?? false
+        }
+        bookLedgerPush = pusher
+        music.onPause = { pusher.schedule() }
+        music.onStop = { pusher.schedule() }
+    }
+
+    /// Leaving the foreground: push now, under a background task so iOS lets the request finish
+    /// after the app has gone. The task ends when the push does, or when iOS says time is up.
+    func pushBookLedgerLeavingForeground() {
+        guard let pusher = bookLedgerPush else { return }
+        let app = UIApplication.shared
+        let assertion = BackgroundAssertion()
+        assertion.id = app.beginBackgroundTask(withName: "Baton book position") {
+            MainActor.assumeIsolated {
+                pusher.cancel()
+                assertion.end(app)
+            }
+        }
+        Task { @MainActor in
+            await pusher.flush()
+            assertion.end(app)
+        }
     }
 
     /// Point search history at the server now signed in. Entries hold Navidrome ids, so a
@@ -901,15 +972,24 @@ extension MobileModel {
         return GatewayBookClient(baseURL: url, token: token)
     }
 
-    /// Bring down every chapter the home server has finished, and say so when the app is not in
-    /// front: "Chapter 1 is ready" is how a book made while the phone was in a pocket announces
-    /// itself (M5.4). In the foreground the row in Clippings says it instead.
-    func collectBooks(announcing: Bool) async {
+    /// Bring down every chapter the home server has finished. "Chapter 1 is ready" is how a book
+    /// made while the phone was in a pocket announces itself (M5.4); it is said by `books` as the
+    /// chapter arrives, once per book and only with the app not in front, whichever path
+    /// collected it. In the foreground the row in Clippings says it instead.
+    func collectBooks() async {
         guard documentsSwitch.isOn else { return }
-        let arrived = await books.collect()
-        guard announcing else { return }
-        for arrival in arrived where arrival.chapterIndex == 0 {
-            MobileDocuments.notifyChapterReady(arrival.record, chapterIndex: arrival.chapterIndex)
-        }
+        await books.collect()
+    }
+}
+
+/// The identifier of one background task, ended exactly once.
+@MainActor
+private final class BackgroundAssertion {
+    var id: UIBackgroundTaskIdentifier = .invalid
+
+    func end(_ app: UIApplication) {
+        guard id != .invalid else { return }
+        app.endBackgroundTask(id)
+        id = .invalid
     }
 }

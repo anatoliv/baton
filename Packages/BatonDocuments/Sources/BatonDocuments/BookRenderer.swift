@@ -108,7 +108,7 @@ public struct HTTPSpeechSynthesizer: SpeechSynthesizing {
     public func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data {
         let (engine, name) = Self.split(voice)
         guard let base = engines[engine] else {
-            throw SynthesisError.permanent("no \(engine) host is configured on the gateway")
+            throw SynthesisError.permanent("no \(engine) host is configured on the Baton server")
         }
         let request = try Self.request(base: base, engine: engine, voice: name, text: text, speed: speed,
                                        style: style, timeout: timeout)
@@ -444,7 +444,7 @@ public actor BookRenderer {
         guard let dir = store.jobDirectory(job.id) else { throw BookStoreError.badID }
         let joined = dir.appendingPathComponent("chapter-\(index + 1).wav")
         let file = "chapter-\(index + 1).m4a"
-        let seconds = try joinWAV(segments: segments, book: job.book, to: joined)
+        let (seconds, timing) = try joinWAV(segments: segments, book: job.book, to: joined)
         let tags = ["title": chapter.title, "album": job.book.title, "artist": job.book.author ?? "",
                     "track": "\(index + 1)/\(job.book.chapters.count)", "genre": "Audiobook"]
         try await muxer.encode(wav: joined, to: dir.appendingPathComponent(file), bitrate: job.book.audio.bitrate,
@@ -453,6 +453,15 @@ public actor BookRenderer {
         let encoded = dir.appendingPathComponent(file)
         let bytes = ((try? FileManager.default.attributesOfItem(atPath: encoded.path))?[.size] as? Int) ?? 0
         let sha = try SHA256Digest.hex(ofFileAt: encoded)
+        // Read-along: where each chunk sits in the chapter, beside it. Written
+        // before the chapter is marked ready, so a ready chapter made by this build has it.
+        if let name = ReadAlongTiming.fileName(forChapterFile: file) {
+            do {
+                try timing.encoded().write(to: dir.appendingPathComponent(name), options: .atomic)
+            } catch {
+                log("book \(job.id.prefix(12)): chapter \(index + 1) timing not kept: \(error)")
+            }
+        }
 
         job = store.load(job.id) ?? job
         job.chapters[index] = .ready(file: file, bytes: bytes, seconds: seconds, sha256: sha)
@@ -504,9 +513,11 @@ public actor BookRenderer {
     }
 
     /// Concatenate the cached clips, with each segment's pause as silence, into one WAV.
-    /// Returns the duration in seconds. Every clip must share one format; Kokoro always answers
-    /// 24 kHz mono 16-bit, and a mixed cast across engines is refused here rather than garbled.
-    nonisolated func joinWAV(segments: [SpeechSegment], book: PreparedBook, to destination: URL) throws -> Double {
+    /// Returns the duration in seconds and where each segment's speech starts and ends in it,
+    /// for read-along. Every clip must share one format; Kokoro always answers 24 kHz mono
+    /// 16-bit, and a mixed cast across engines is refused here rather than garbled.
+    nonisolated func joinWAV(segments: [SpeechSegment], book: PreparedBook,
+                             to destination: URL) throws -> (seconds: Double, timing: ReadAlongTiming) {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
             throw SynthesisError.permanent("could not create \(destination.lastPathComponent)")
         }
@@ -514,6 +525,7 @@ public actor BookRenderer {
         defer { try? handle.close() }
         var format: WAV.Format?
         var total = 0
+        var timed: [ReadAlongTiming.Segment] = []
         try handle.write(contentsOf: Data(count: 44))   // header placeholder, rewritten below
         for segment in segments {
             let url = cacheDirectory.appendingPathComponent(book.request(for: segment).cacheKey + ".wav")
@@ -526,12 +538,16 @@ public actor BookRenderer {
             format = clip.format
             let silence = Int(Double(clip.format.sampleRate) * Double(segment.pauseBeforeMs) / 1000) * clip.format.blockAlign
             if silence > 0 { try handle.write(contentsOf: Data(count: silence)); total += silence }
+            let bytesPerSecond = Double(clip.format.blockAlign) * Double(clip.format.sampleRate)
+            let start = Double(total) / bytesPerSecond
             try handle.write(contentsOf: clip.pcm)
             total += clip.pcm.count
+            timed.append(ReadAlongTiming.Segment(text: segment.text, paragraph: segment.paragraph,
+                                                 start: start, end: Double(total) / bytesPerSecond))
         }
         guard let format else { throw SynthesisError.permanent("the chapter has no audio") }
         try handle.seek(toOffset: 0)
         try handle.write(contentsOf: WAV.header(format: format, dataBytes: total))
-        return Double(total) / Double(format.blockAlign) / Double(format.sampleRate)
+        return (Double(total) / Double(format.blockAlign) / Double(format.sampleRate), ReadAlongTiming(segments: timed))
     }
 }

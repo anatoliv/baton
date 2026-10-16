@@ -46,9 +46,9 @@ struct DeviceLinkPane: View {
 
             Section {
                 Label("""
-                Scanning transfers this Mac's server address, sign-in and scrobble accounts \
+                Scanning transfers this Mac's music server address, sign-in and scrobble accounts \
                 to the phone. Unlinking later removes the phone's copy. It does not change \
-                your Navidrome password, because Navidrome has no per-device credentials \
+                your music server password, because Navidrome has no per-device credentials \
                 to revoke. Both devices must be on the same network to pair; the phone works \
                 anywhere afterwards.
                 """, systemImage: "info.circle")
@@ -71,7 +71,7 @@ struct DeviceLinkPane: View {
             Button("Show pairing code") { start() }
                 .disabled(!NavidromeConfig.isConfigured)
             if !NavidromeConfig.isConfigured {
-                Label("Connect this Mac to a server first. There's nothing to hand over yet.",
+                Label("Connect this Mac to your music server first. There's nothing to hand over yet.",
                       systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -131,7 +131,7 @@ struct DeviceLinkPane: View {
             Forgetting a device only removes it from this list. It cannot take back \
             what that device already holds. Navidrome has no per-device sign-in to \
             revoke, so the only way to cut off a phone you no longer trust is to change \
-            your Navidrome password.
+            your music server password.
             """)
             .font(.callout)
             .foregroundStyle(.secondary)

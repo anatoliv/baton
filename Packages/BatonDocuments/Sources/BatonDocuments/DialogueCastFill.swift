@@ -206,7 +206,69 @@ extension DialogueCast {
             }
         }
         await progress?(prompts.count, prompts.count)
+        fill.speakers = keepingTurns(fill.speakers, spans: spans, rules: rules, cast: cast.characters)
         return fill
+    }
+
+    /// Turn-taking over the model's answers. Between two lines the rules placed in an
+    /// exchange of untagged lines, two people take turns when the anchors fall on the turns
+    /// that alternation predicts (Mrs. Bennet, then six lines, then Mrs. Bennet again; or Mrs.
+    /// Bennet, then ten lines, then Mr. Bennet). Where the model's answers there name only those
+    /// two but break the alternation, giving one of them two lines running, the alternation
+    /// from the anchors replaces them: qwen3:8b on this Mac gave Mr. Bennet's "What is his
+    /// name?" and "Is he married or single?" to his wife, where the home-network `chat` model took turns.
+    /// Anchors that do not fit alternation (someone speaks twice, or a beat between says so),
+    /// a third name, a group, or a stretch with an anchor on one side only leave the answers
+    /// as they are.
+    static func keepingTurns(_ answers: [String: String], spans: [Span], rules: [String: String],
+                             cast: [Character]) -> [String: String] {
+        let groups = Set(cast.filter(\.group).map(\.name))
+        let keys = orderedParagraphKeys(spans)
+        var out = answers
+        for chapter in Set(spans.map(\.chapter)).sorted() {
+            // A run of turns, each with its quote ids, the rules' speaker (an anchor) or the
+            // model's, and nil when a turn cannot take part (mixed speakers).
+            struct Turn { var ids: [String]; var anchor: String?; var answer: String?; var clear: Bool }
+            var runs: [[Turn]] = [[]]
+            for (kind, members) in turnUnits(spans, chapter: chapter, paragraphKeys: keys) {
+                switch kind {
+                case .beat: continue
+                case .reported, .breakRun: runs.append([])
+                case .turn:
+                    let ids = members.map { spans[$0].id }
+                    let ruled = Set(ids.compactMap { rules[$0] })
+                    let given = Set(ids.compactMap { rules[$0] == nil ? answers[$0] : nil })
+                    if ruled.count > 1 || ruled.contains(where: groups.contains) { runs.append([]); continue }
+                    runs[runs.count - 1].append(Turn(ids: ids, anchor: ruled.first, answer: given.count == 1 ? given.first : nil,
+                                                     clear: given.count <= 1 && !given.contains(where: groups.contains)))
+                }
+            }
+            for run in runs {
+                let anchors = run.indices.filter { run[$0].anchor != nil }
+                for (a, b) in zip(anchors, anchors.dropFirst()) where b - a >= 2 {
+                    let first = run[a].anchor!, last = run[b].anchor!
+                    let between = run[(a + 1)..<b]
+                    guard between.allSatisfy(\.clear) else { continue }
+                    let named = Set(between.compactMap(\.answer))
+                    let other: String
+                    if (b - a) % 2 == 1 {
+                        guard first != last else { continue }
+                        other = last
+                    } else {
+                        guard first == last, named.subtracting([first]).count == 1 else { continue }
+                        other = named.subtracting([first]).first!
+                    }
+                    guard named.isSubset(of: [first, other]) else { continue }
+                    let expected = { (i: Int) in (i - a) % 2 == 0 ? first : other }
+                    let broken = between.indices.contains { i in run[i].answer.map { $0 != expected(i) } ?? false }
+                    guard broken else { continue }
+                    for i in between.indices {
+                        for id in run[i].ids where rules[id] == nil { out[id] = expected(i) }
+                    }
+                }
+            }
+        }
+        return out
     }
 
     /// Give the quotes the rules left the model's speakers. A quote the rules placed keeps its

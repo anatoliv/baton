@@ -305,6 +305,35 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5",
+            date: "October 2026",
+            highlight: "Read along with a book, and pick it up where you left off on your phone or your Mac.",
+            changes: [
+                .init(.improved, "Baton now names its two servers plainly: your music server, where your library lives, and your Baton server, which makes books and keeps your place and settings in step between your devices. Settings links to a short explanation of both."),
+                .init(.added, "Read along: while a book plays, tap the book button in the player to follow the text with the sentence you are hearing highlighted, and tap any sentence to listen from there."),
+                .init(.added, "Books and podcasts share one speed, from 0.75x to 2x with the voice's pitch kept, and the sleep timer can stop at the end of a chapter so Play carries on with the next."),
+                .init(.added, "The sleep timer is now in Clippings too. While something plays, tap the moon at the top of the screen, and once it is set it shows the time left or End of chapter."),
+                .init(.improved, "In Clippings, the clipping or chapter you are listening to now shows the playing bars, just like a song in a list, and the bars hold still while it is paused. A book shows them while one of its chapters plays."),
+                .init(.fixed, "A sleep timer set for a number of minutes now stops playback even when the next clipping or chapter begins while the sound is fading out."),
+                .init(.added, "Pick a book up after a day away and Baton offers a short Previously recap of what you have heard, never past where you stopped, in a different voice before the book carries on. It also works when your phone reaches a model only through your Baton server, and Baton asks before sending chapters to a cloud model."),
+                .init(.added, "When you import a book, choose its narrator from the voices your Baton server offers: Heart, or Emma for British English, plus two more, each one you can hear first."),
+                .init(.added, "Change Voice in a book's menu has your Baton server make the whole book again in another narrator's voice. Each chapter plays in its old voice until the new one arrives, you keep your place, and a voiced cast stays as it is."),
+                .init(.improved, "Play on a book now picks up at the chapter and the moment you last heard, whether you were listening on your phone or your Mac. Tapping a chapter still starts that chapter."),
+                .init(.improved, "Finishing a book on your phone marks it finished everywhere."),
+                .init(.added, "A book made on your Baton server from your Mac now shows up in Clippings on your iPhone without importing it again, and Play picks up where you stopped on the Mac."),
+                .init(.improved, "Your place in a book now reaches your other devices within seconds of pausing or stopping, and a finished book you start again picks up where you left off."),
+                .init(.improved, "Play on a book now checks your other device's place first, even if Baton stayed open."),
+                .init(.improved, "Remove from this iPhone now leaves the book on your Baton server for your Mac. Delete Everywhere still deletes it there too."),
+                .init(.fixed, "A book now plays all its chapters in order, even when only the first was on your phone when you pressed Play. The next chapter comes down while the one before it plays, Baton waits for a chapter still being made, and a chapter that cannot come stops the book there and says why."),
+                .init(.fixed, "Tapping a clipping plays the clippings after it, without the chapters of your books."),
+                .init(.fixed, "A book or podcast set to a faster or slower speed keeps it after Next, instead of going back to 1x for the following chapter."),
+                .init(.fixed, "After pressing Next, a book's last chapter no longer plays a second time when it ends."),
+                .init(.fixed, "The Chapter 1 is ready notification now arrives exactly once, also while Baton is in the background."),
+                .init(.fixed, "Signing out now also clears a shared document that was still waiting for the import screen, so it no longer comes back afterwards."),
+                .init(.fixed, "Books made on your Baton server no longer give two words the same sound once the Baton server is updated. One book read neighbourhood as Netherfield."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.4",
             date: "October 2026",
             highlight: "Share a document to Baton from other apps, and manage the space your books take.",

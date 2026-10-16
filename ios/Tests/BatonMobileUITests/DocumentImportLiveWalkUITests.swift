@@ -95,7 +95,7 @@ final class DocumentImportLiveWalkUITests: XCTestCase {
         let ready = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '1 of 3 chapters ready' OR label BEGINSWITH '2 of 3 chapters ready' OR label BEGINSWITH '3 chapters'")).firstMatch
         XCTAssertTrue(ready.waitForExistence(timeout: 360), "chapter 1 did not arrive from the home server within six minutes")
         let seconds = Int(Date().timeIntervalSince(started))
-        XCTAssertTrue(app.staticTexts["On the home server"].firstMatch.exists || app.staticTexts["On this phone"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["On the Baton server"].firstMatch.exists || app.staticTexts["On this phone"].firstMatch.exists)
         attach("book-row-chapter-1-ready")
         let note = XCTAttachment(string: "chapter 1 ready \(seconds) s after launch")
         note.name = "timing"

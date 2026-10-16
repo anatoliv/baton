@@ -121,6 +121,30 @@ final class DocumentLibraryTests: XCTestCase {
         XCTAssertEqual(library.jobs.first?.summary.status, .ready)
     }
 
+    /// TBX-10960: a chapter made on this Mac goes into Clippings with its read-along timing, by
+    /// the audio's digest, and the timing fits the chapter's audio and words.
+    func testAChapterMadeHereKeepsItsReadAlongTiming() async throws {
+        let clippings = clippingStore()
+        let library = library(FakeKokoro(), clippings: clippings)
+        library.start(force: true)
+        let book = try book()
+        try await library.submit(book)
+        try await eventually(library) { clippings.chapters(ofDocument: book.documentID).count == book.chapters.count }
+
+        for item in clippings.chapters(ofDocument: book.documentID) {
+            let index = try XCTUnwrap(item.clipping.chapterIndex)
+            let timing = try XCTUnwrap(library.homeServer.readAlong.load(forAudio: item.clipping.sha256),
+                                       "chapter \(index + 1) has its timing")
+            XCTAssertEqual(timing.segments.map(\.text), book.chapters[index].segments.map(\.text))
+            XCTAssertEqual(try XCTUnwrap(timing.segments.last).end, try XCTUnwrap(item.clipping.durationSeconds), accuracy: 0.05)
+            let shown = await library.readAlongTiming(for: item)
+            XCTAssertEqual(shown, timing)
+            let along = ReadAlong(timing: shown, fallbackText: item.clipping.text)
+            XCTAssertTrue(along.isTimed)
+            XCTAssertEqual(along.sentenceIndex(at: along.seekTarget(for: along.sentences.count - 1)!), along.sentences.count - 1)
+        }
+    }
+
     /// The walk's "quit during chapter 2, relaunch": a second library over the same directory
     /// resumes and asks Kokoro for nothing it already has.
     func testARelaunchResumesWithoutSynthesizingAnythingTwice() async throws {
@@ -255,6 +279,12 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         private var readyCount: [String: Int] = [:]
         private(set) var requests: [String] = []
         let audio = Data(repeating: 0x41, count: 4_096)
+        /// Each job's chapters sound different, as a book in another voice does.
+        /// Off by default, so every other test sees the one audio it always did.
+        var audioByJob = false
+        func chapterAudio(for jobID: String) -> Data {
+            audioByJob ? Data(String(repeating: String(jobID.prefix(12)), count: 64).utf8) : audio
+        }
 
         /// The home server answers every DELETE with a 503, as when its disk is unavailable.
         private var _failDeletes = false
@@ -263,7 +293,46 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
             set { lock.withLock { _failDeletes = newValue } }
         }
 
+        /// The home server answers every PUT with a 503, as when it is away.
+        private var _failPuts = false
+        var failPuts: Bool {
+            get { lock.withLock { _failPuts } }
+            set { lock.withLock { _failPuts = newValue } }
+        }
+
+        /// The books submitted, by job id, as the home server received them.
+        func submitted(_ id: String) -> PreparedBook? { lock.withLock { jobs[id]?.book } }
+
         func setReady(_ id: String, _ count: Int) { lock.withLock { readyCount[id] = count } }
+
+        /// A book another device sent: on the home server, never submitted from here.
+        @discardableResult
+        func add(_ book: PreparedBook, ready: Int = 0) -> String {
+            let id = BookJob.id(for: book)
+            lock.withLock {
+                jobs[id] = BookJob(id: id, book: book)
+                readyCount[id] = ready
+            }
+            return id
+        }
+
+        /// Books that failed for good on the home server.
+        private var failed: Set<String> = []
+        func fail(_ id: String) { lock.withLock { _ = failed.insert(id) } }
+
+        /// The job as the home server reports it now: chapters ready up to `readyCount`.
+        private func current(_ job: BookJob) -> BookJob {
+            var job = job
+            let ready = readyCount[job.id] ?? 0
+            for i in job.chapters.indices {
+                let audio = chapterAudio(for: job.id)
+                job.chapters[i] = i < ready ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio.count, seconds: 60,
+                                                     sha256: SHA256Digest.hex(of: audio))
+                                            : (i == ready ? .rendering(done: 1, of: 4) : .queued)
+            }
+            job.status = failed.contains(job.id) ? .failed : (ready >= job.chapters.count ? .ready : .rendering)
+            return job
+        }
         var seen: [String] { lock.withLock { requests } }
 
         func answer(_ request: URLRequest) -> (Data, HTTPURLResponse) {
@@ -276,31 +345,46 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
                 }
                 let parts = path.split(separator: "/").map(String.init)   // v1 books {id} ...
                 if method == "GET", parts == ["v1", "books"] {
-                    return reply(200, Data(#"{"available":true,"books":[],"used_bytes":0,"maximum_bytes":4294967296,"keep_finished_days":30}"#.utf8))
+                    // As `BookRoutes.list`: every book's summary, newest first.
+                    let books = jobs.values.sorted { $0.createdAt > $1.createdAt }.map { job in
+                        try! JSONSerialization.jsonObject(with: BookJSON.encoder.encode(current(job).summary))
+                    }
+                    let body: [String: Any] = ["available": true, "books": books, "used_bytes": 0,
+                                               "maximum_bytes": 4_294_967_296, "keep_finished_days": 30]
+                    return reply(200, try! JSONSerialization.data(withJSONObject: body))
                 }
                 guard parts.count >= 3 else { return reply(404, Data()) }
                 let id = parts[2]
                 if method == "DELETE", _failDeletes { return reply(503, Data("unavailable".utf8)) }
                 if method == "PUT" {
+                    if _failPuts { return reply(503, Data("unavailable".utf8)) }
                     let book = try! PreparedBook.decode(request.httpBody ?? Data())
+                    // As `BookRoutes.handleUpload` does: the id is the book's content.
+                    guard BookJob.id(for: book) == id else { return reply(400, Data("book id does not match its content".utf8)) }
                     jobs[id] = BookJob(id: id, book: book)
                     return reply(201, try! BookJSON.encoder.encode(jobs[id]!.summary))
                 }
-                guard var job = jobs[id] else { return reply(404, Data()) }
+                guard let job = jobs[id] else { return reply(404, Data()) }
                 if method == "DELETE" { jobs[id] = nil; return reply(204, Data()) }
                 if method == "POST" { return reply(204, Data()) }
+                if parts.count == 4, parts[3] == "book" { return reply(200, try! job.book.encoded()) }
+                // Read-along timing for chapter 1 only: chapter 2 answers as a
+                // chapter made before timing was kept, or a gateway older than the route.
+                if parts.count == 6, parts[3] == "chapters", parts[5] == "timing", let n = Int(parts[4]) {
+                    guard n == 1, let segments = job.book.chapters.first?.segments else {
+                        return reply(404, Data(#"{"error":"no timing for this chapter"}"#.utf8))
+                    }
+                    let timing = ReadAlongTiming(segments: segments.enumerated().map { i, segment in
+                        .init(text: segment.text, paragraph: segment.paragraph, start: Double(i), end: Double(i) + 0.5)
+                    })
+                    return reply(200, try! timing.encoded())
+                }
                 if parts.count == 5, parts[3] == "chapters", let n = Int(parts[4]) {
+                    let audio = chapterAudio(for: id)
                     return reply(200, audio, ["X-Baton-SHA256": SHA256Digest.hex(of: audio), "X-Baton-Duration": "60.0",
                                               "X-Baton-Name": "chapter \(n)"])
                 }
-                let ready = readyCount[id] ?? 0
-                for i in job.chapters.indices {
-                    job.chapters[i] = i < ready ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio.count, seconds: 60,
-                                                         sha256: SHA256Digest.hex(of: audio))
-                                                : (i == ready ? .rendering(done: 1, of: 4) : .queued)
-                }
-                job.status = ready >= job.chapters.count ? .ready : .rendering
-                return reply(200, try! BookJSON.encoder.encode(job.summary))
+                return reply(200, try! BookJSON.encoder.encode(current(job).summary))
             }
         }
     }
@@ -312,10 +396,77 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         return DocumentSpeech.prepare(try DocumentImporter.importFile(at: url), voices: VoicePlan(narrator: "kokoro:bf_emma"))
     }
 
-    private func library(_ fake: FakeGateway, clippings: ClippingStore) -> DocumentLibrary {
+    private func library(_ fake: FakeGateway, clippings: ClippingStore,
+                         storageDefaults: UserDefaults = ThrowawayDefaults.make("home-storage")) -> DocumentLibrary {
         DocumentLibrary(clippings: clippings, directory: root.appendingPathComponent("Books"),
-                        synthesizer: DocumentLibraryTests.FakeKokoro(),
+                        synthesizer: DocumentLibraryTests.FakeKokoro(), storageDefaults: storageDefaults,
                         gateway: { GatewayBookClient(baseURL: URL(string: "http://gateway.test:8788")!, token: "t") { fake.answer($0) } })
+    }
+
+    /// TBX-10954: after a relaunch, a book made on the home server counts as removable only once
+    /// the home server has answered about it, which can be after Clippings first asks for the
+    /// weekly suggestion. Asking that early makes none and leaves the week unspent, and
+    /// `removableBookIDs`, which Clippings watches, changes when the answer lands, so asking
+    /// again then offers it.
+    func testAFinishedHomeServerBookIsSuggestedOnceTheHomeServerAnswersAfterARelaunch() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: ThrowawayDefaults.make("home"))
+        let book = try book()
+        let first = library(fake, clippings: clippings)
+        let id = try await first.submit(book, on: .homeServer)
+        fake.setReady(id, book.chapters.count)
+        await first.refreshHomeServer()
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).count, book.chapters.count)
+        var ledger = clippings.ledger
+        ledger.setFinished(true, documentID: book.documentID, at: Date().addingTimeInterval(-9 * StoragePolicy.day))
+        clippings.ledger = ledger
+
+        let storage = ThrowawayDefaults.make("home-storage-relaunch")
+        let relaunched = library(fake, clippings: clippings, storageDefaults: storage)
+        XCTAssertEqual(relaunched.removableBookIDs, [], "the home server has not answered since the relaunch")
+        XCTAssertNil(relaunched.cleanup.suggestion(for: relaunched.storedBooks, freeBytes: nil))
+        XCTAssertNil(relaunched.cleanup.settings.lastSuggestedAt, "asking too early does not spend the week")
+
+        await relaunched.refreshHomeServer()
+        XCTAssertEqual(relaunched.removableBookIDs, [book.documentID])
+        let offered = try XCTUnwrap(relaunched.cleanup.suggestion(for: relaunched.storedBooks, freeBytes: nil))
+        XCTAssertEqual(offered.kind, .finishedBook)
+        XCTAssertEqual(offered.ids, [book.documentID])
+        XCTAssertEqual(relaunched.cleanup.suggestion(for: relaunched.storedBooks, freeBytes: nil), offered,
+                       "asking again returns the same suggestion rather than a new one")
+    }
+
+    /// TBX-10959: the storage rules run in `start()`, before the home server has answered after a
+    /// relaunch, when a book made there has no job and so looks unable to come back. They run
+    /// again once the answer arrives, so a book finished 8 days ago under "After 7 days" loses its
+    /// download then rather than at the next time something applies the rules.
+    func testAStorageRuleRemovesAHomeServerBookOnceTheHomeServerAnswersAfterARelaunch() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: ThrowawayDefaults.make("home"))
+        let book = try book()
+        let first = library(fake, clippings: clippings)
+        let id = try await first.submit(book, on: .homeServer)
+        fake.setReady(id, book.chapters.count)
+        await first.refreshHomeServer()
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).count, book.chapters.count)
+        var ledger = clippings.ledger
+        ledger.setFinished(true, documentID: book.documentID, at: Date().addingTimeInterval(-8 * StoragePolicy.day))
+        clippings.ledger = ledger
+
+        let relaunched = library(fake, clippings: clippings, storageDefaults: ThrowawayDefaults.make("home-storage-rules"))
+        relaunched.cleanup.setRules(.init(afterFinished: 7 * StoragePolicy.day))
+        relaunched.start(force: true)
+        defer { relaunched.stop() }
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).count, book.chapters.count,
+                       "at start the home server has not answered, so the book cannot come back yet")
+
+        let deadline = Date().addingTimeInterval(20)
+        while !clippings.chapters(ofDocument: book.documentID).isEmpty, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID), [], "the rule ran once the home server answered")
+        XCTAssertEqual(relaunched.cleanup.removed.first?.automatic, true)
+        XCTAssertTrue(try XCTUnwrap(relaunched.shelf.first).isOffloaded)
     }
 
     func testABookMadeOnTheHomeServerIsCollectedChapterByChapterOnce() async throws {
@@ -343,13 +494,35 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         await library.refreshHomeServer()
         await library.refreshHomeServer()
         XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).count, book.chapters.count)
-        let downloads = fake.seen.filter { $0.contains("/chapters/") }
+        let downloads = fake.seen.filter { $0.contains("/chapters/") && !$0.hasSuffix("/timing") }
         XCTAssertEqual(downloads.count, book.chapters.count, "each chapter fetched exactly once: \(downloads)")
 
         let shelf = BookShelf.entries(items: clippings.items, jobs: library.jobs, ledger: clippings.ledger)
         guard case let .book(row)? = shelf.first else { return XCTFail("no book row") }
         XCTAssertEqual(row.madeOn, .homeServer)
         XCTAssertEqual(row.storedText, "On this Mac", "every chapter has come down")
+    }
+
+    /// TBX-10960: a chapter's read-along timing comes down with it when the home server kept
+    /// one, and a 404 (an older gateway, an older chapter) leaves the chapter collected without.
+    func testAHomeServerChapterBringsItsReadAlongTimingWhenThereIsOne() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: ThrowawayDefaults.make("home"))
+        let library = library(fake, clippings: clippings)
+        let book = try book()
+        let id = try await library.submit(book, on: .homeServer)
+        fake.setReady(id, book.chapters.count)
+        await library.refreshHomeServer()
+
+        let chapters = clippings.chapters(ofDocument: book.documentID)
+        XCTAssertEqual(chapters.count, book.chapters.count, "a missing timing never holds a chapter back")
+        XCTAssertTrue(fake.seen.contains("GET /v1/books/\(id)/chapters/1/timing"))
+        XCTAssertTrue(fake.seen.contains("GET /v1/books/\(id)/chapters/2/timing"))
+        let first = try XCTUnwrap(chapters.first)
+        let timing = try XCTUnwrap(library.homeServer.readAlong.load(forAudio: first.clipping.sha256))
+        XCTAssertEqual(timing.segments.map(\.text), book.chapters[0].segments.map(\.text))
+        let shown = await library.readAlongTiming(for: first)
+        XCTAssertEqual(shown, timing)
     }
 
     func testTheRecordSurvivesARelaunchAndCancellingDeletesItOnTheServer() async throws {
@@ -364,7 +537,7 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         XCTAssertEqual(relaunched.jobs.first?.id, id)
         let shelf = BookShelf.entries(items: clippings.items, jobs: relaunched.jobs, ledger: clippings.ledger)
         guard case let .book(row)? = shelf.first else { return XCTFail("no book row") }
-        XCTAssertEqual(row.storedText, "On the home server")
+        XCTAssertEqual(row.storedText, "On the Baton server")
 
         await relaunched.cancel(id)
         XCTAssertTrue(fake.seen.contains("DELETE /v1/books/\(id)"))
@@ -390,6 +563,106 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         XCTAssertEqual(relaunched.homeServer.pendingDeleteIDs, [])
         XCTAssertEqual(fake.seen.filter { $0 == "DELETE /v1/books/\(id)" }.count, 2)
         XCTAssertEqual(relaunched.remoteBooks, [])
+    }
+
+    // MARK: - A book the iPhone sent
+
+    private func phoneBook(narrator: String = "kokoro:af_heart") throws -> PreparedBook {
+        let url = root.appendingPathComponent("the-ferry.md")
+        try "# The Ferry\n\n## Morning\n\nThe ferry left at dawn.\n\n## Evening\n\nIt came back under the lamps."
+            .write(to: url, atomically: true, encoding: .utf8)
+        return DocumentSpeech.prepare(try DocumentImporter.importFile(at: url), voices: VoicePlan(narrator: narrator))
+    }
+
+    /// The reverse of TBX-10974's literal path: a book the iPhone sent to the home server is a
+    /// row in this Mac's Clippings, made on the home server, under the iPhone's job, its
+    /// chapters collected with their words and its place shared by document id.
+    func testABookTheIPhoneSentIsAdoptedAndCollectedWithoutResubmittingIt() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: ThrowawayDefaults.make("home"))
+        let library = library(fake, clippings: clippings)
+        let phone = try phoneBook()
+        let id = fake.add(phone, ready: 2)
+
+        await library.refreshHomeServer()
+        XCTAssertFalse(fake.seen.contains { $0.hasPrefix("PUT") }, "adopting must not send the book again: \(fake.seen)")
+        let job = try XCTUnwrap(library.jobs.first)
+        XCTAssertEqual(job.id, id, "the iPhone's job id, unchanged")
+        XCTAssertEqual(job.renderer, .homeServer)
+        XCTAssertTrue(job.adopted)
+        XCTAssertEqual(clippings.chapters(ofDocument: phone.documentID).count, 2)
+        XCTAssertTrue(clippings.chapters(ofDocument: phone.documentID).first?.clipping.text?.contains("The ferry left at dawn.") == true)
+
+        // The iPhone stopped in chapter 2 at 0:10; the shared ledger brings it.
+        var ledger = clippings.ledger
+        ledger.setPosition(documentID: phone.documentID, chapterIndex: 1, seconds: 10)
+        clippings.ledger = ledger
+        guard case let .book(row)? = BookShelf.entries(items: clippings.items, jobs: library.jobs, ledger: clippings.ledger).first
+        else { return XCTFail("no book row") }
+        XCTAssertEqual(row.title, "The Ferry")
+        XCTAssertEqual(row.originText, "Made on the Baton server")
+        XCTAssertEqual(row.storedText, "On this Mac")
+        XCTAssertEqual(row.position?.chapterIndex, 1)
+        XCTAssertEqual(row.position?.seconds, 10)
+
+        // Finished on this Mac: the home server hears it under the iPhone's job.
+        await library.markFinished(documentID: phone.documentID)
+        XCTAssertTrue(fake.seen.contains("POST /v1/books/\(id)/finished"), "\(fake.seen)")
+
+        await library.refreshHomeServer()
+        XCTAssertEqual(fake.seen.filter { $0 == "GET /v1/books/\(id)/book" }.count, 1, "the shaped book comes down once")
+        XCTAssertEqual(library.jobs.count, 1)
+    }
+
+    /// Remove from This Mac leaves the iPhone's book on the home server and keeps it hidden here;
+    /// Delete Everywhere deletes it there.
+    func testRemovingFromThisMacHidesItAndDeleteEverywhereDeletesItOnTheServer() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: ThrowawayDefaults.make("home"))
+        let library = library(fake, clippings: clippings)
+        let phone = try phoneBook()
+        let id = fake.add(phone, ready: 2)
+        await library.refreshHomeServer()
+        var book = try XCTUnwrap(library.shelf.first)
+
+        await library.deleteBook(book, everywhere: false)
+        XCTAssertFalse(fake.seen.contains("DELETE /v1/books/\(id)"), "the iPhone keeps it")
+        XCTAssertEqual(library.homeServer.hiddenDocumentIDs, [phone.documentID])
+        let relaunched = self.library(fake, clippings: clippings)
+        await relaunched.refreshHomeServer()
+        XCTAssertEqual(relaunched.remoteBooks, [], "not adopted again")
+        XCTAssertTrue(relaunched.shelf.isEmpty)
+
+        // Restored, it is this Mac's again, and Delete Everywhere then deletes it on the server.
+        try relaunched.restore(try XCTUnwrap(relaunched.cleanup.removed.first))
+        await relaunched.refreshHomeServer()
+        XCTAssertEqual(relaunched.remoteBooks.map(\.jobID), [id])
+        book = try XCTUnwrap(relaunched.shelf.first)
+        await relaunched.deleteBook(book, everywhere: true)
+        XCTAssertTrue(fake.seen.contains("DELETE /v1/books/\(id)"))
+        await relaunched.refreshHomeServer()
+        XCTAssertEqual(relaunched.remoteBooks, [])
+    }
+
+    /// A failed book is not adopted, nor a second copy of a book this Mac makes itself (the
+    /// iPhone sent the same document in another voice).
+    func testAFailedBookAndASecondCopyOfABookMadeHereAreNotAdopted() async throws {
+        let fake = FakeGateway()
+        let clippings = ClippingStore(directory: root.appendingPathComponent("Clippings"), defaults: ThrowawayDefaults.make("home"))
+        let library = library(fake, clippings: clippings)
+        let here = try book()
+        let hereID = try await library.submit(here, on: .thisMac)
+        var phoneCopy = here
+        phoneCopy.voices = VoicePlan(narrator: "kokoro:af_heart")
+        fake.add(phoneCopy, ready: 2)
+        let failed = fake.add(try phoneBook())
+        fake.fail(failed)
+
+        await library.refreshHomeServer()
+        XCTAssertEqual(library.remoteBooks, [])
+        XCTAssertEqual(library.jobs.map(\.id), [hereID])
+        XCTAssertFalse(fake.seen.contains { $0.hasSuffix("/book") }, "\(fake.seen)")
+        await library.cancel(hereID)
     }
 
     func testWithNoGatewayConfiguredTheHomeServerIsNotOffered() async {

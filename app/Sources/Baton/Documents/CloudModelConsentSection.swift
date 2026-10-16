@@ -82,7 +82,7 @@ enum CloudModelConsent {
     }
 
     static func narratorQuestionDetail(_ source: ModelSource) -> String {
-        "Nothing on this Mac or the home server could suggest one. \(providerName(source)) would get a short excerpt from the start of the book and the list of voices, with anything that looks like a password or key taken out first. Always also lets short excerpts go there to propose how names are said. You can change this any time in Settings, Agents."
+        "Nothing on this Mac or the Baton server could suggest one. \(providerName(source)) would get a short excerpt from the start of the book and the list of voices, with anything that looks like a password or key taken out first. Always also lets short excerpts go there to propose how names are said. You can change this any time in Settings, Agents."
     }
 }
 
@@ -108,7 +108,7 @@ struct CloudModelConsentSection: View {
             if documentsEnabled {
                 Section {
                     if sources.isEmpty {
-                        Text("No cloud model is set up, so book text stays on this Mac and the home server.")
+                        Text("No cloud model is set up, so book text stays on this Mac and the Baton server.")
                             .font(.callout).foregroundStyle(.secondary)
                     } else {
                         ForEach(sources, id: \.consentID) { source in
@@ -133,7 +133,7 @@ struct CloudModelConsentSection: View {
                 } header: {
                     Text("Book text and cloud models")
                 } footer: {
-                    Text("Models on this Mac, on your home server and Apple Intelligence never need asking, because the book stays on your own machines. A cloud model gets only what is switched on here, and only from this Mac.")
+                    Text("Models on this Mac, on your Baton server and Apple Intelligence never need asking, because the book stays on your own machines. A cloud model gets only what is switched on here, and only from this Mac.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }

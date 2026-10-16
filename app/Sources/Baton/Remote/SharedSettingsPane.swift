@@ -27,12 +27,12 @@ struct SharedSettingsPane: View {
     @State private var sync = PreferenceSync(deviceName: Host.current().localizedName ?? "Mac")
 
     var body: some View {
-        Section("Shared settings") {
-            TextField("Gateway URL", text: $gatewayURL, prompt: Text("https://baton.home.example"))
-            Text("Just the host and port. The gateway listens on 8788 by default. A trailing /v1 is dropped if you paste one.")
+        Section("Baton server") {
+            TextField("Baton server address", text: $gatewayURL, prompt: Text("https://baton.home.example"))
+            Text("Just the host and port. The Baton server listens on 8788 by default. A trailing /v1 is dropped if you paste one.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            SecureField("Gateway token", text: $token)
+            SecureField("Baton server token", text: $token)
             Button("Save token") {
                 NavidromeKeychain.setSecret(token, account: "baton.agent.gatewayToken")
                 status = "Saved."
@@ -63,10 +63,12 @@ struct SharedSettingsPane: View {
             }
 
             Text("""
-            Carries your equalizer, crossfade, loudness, radio bans, podcast \
+            Your Baton server is the small Baton program you run at home, often on the same \
+            machine as your music server. It makes books from documents, keeps your place \
+            in them, and carries your equalizer, crossfade, loudness, radio bans, podcast \
             subscriptions, search history and the music friend's provider and model \
             between this Mac and your iPhone. Your likes, ratings, playlists and \
-            play counts already sync, because those live on your Navidrome server. Downloads, \
+            play counts already sync, because those live on your music server. Downloads, \
             offline mode and this Mac's own paths stay where they are, because they \
             describe a device rather than you. API keys never travel through here; \
             pairing carries those, encrypted.
@@ -74,6 +76,10 @@ struct SharedSettingsPane: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                HelpTopicButton(topicSlug: HelpGuide.twoServersTopic, label: "About the two servers")
+            }
         }
         .onAppear { Task { await check() } }
         // A green light belongs to the address and token that were checked, not to the
@@ -85,7 +91,7 @@ struct SharedSettingsPane: View {
     private func check() async {
         let trimmed = gatewayURL.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, !token.isEmpty else {
-            gatewayStatus = .notConfigured("No gateway yet")
+            gatewayStatus = .notConfigured("No Baton server yet")
             return
         }
         guard let url = URL(string: trimmed), url.host != nil else {
@@ -99,7 +105,7 @@ struct SharedSettingsPane: View {
                 ? "Reachable. Nothing shared yet. This would be the first device."
                 : "Reachable. \(entries) settings shared.")
         case .rejected:
-            gatewayStatus = .refused("The gateway didn't accept this token.")
+            gatewayStatus = .refused("The Baton server didn't accept this token.")
         case let .failed(why):
             gatewayStatus = .unreachable(why)
         }
@@ -119,6 +125,6 @@ struct SharedSettingsPane: View {
         isSyncing = false
         // Reports what happened rather than a spinner that stops: a sync that silently
         // fails is indistinguishable from one that had nothing to do.
-        status = ok ? "Settings exchanged." : "Couldn't reach the gateway."
+        status = ok ? "Settings exchanged." : "Couldn't reach the Baton server."
     }
 }

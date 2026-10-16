@@ -107,6 +107,9 @@ public final class PreferenceSync {
         // in `mergedKeys` because a whole-blob last-write-wins would throw away whatever
         // the quieter device subscribed to.
         "tonebox.podcasts.feeds",
+        // The speed for spoken items, podcasts and books alike. Listening to speech
+        // at 1.5× is a habit of the listener, not of the device.
+        StreamingPlaybackController.spokenRateKey,
         // How long the filter-history lists are allowed to get. An ordinary scalar; the
         // lists themselves are in `mergedKeys` below because they need a different rule.
         FilterHistory.sizeKey,
@@ -717,14 +720,14 @@ public final class PreferenceSync {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 || status == 403 { return .rejected }
-            guard status == 200 else { return .failed("The gateway answered with HTTP \(status).") }
+            guard status == 200 else { return .failed("The Baton server answered with HTTP \(status).") }
             // `{}` is the correct answer from a gateway nobody has synced to yet. A document that
             // cannot be read is not that, and saying "Reachable, nothing shared yet" about one
             // would be the same mistake the sync itself used to make, told to the owner's face
             // (S-F1). Routed through `.failed` rather than a new case so nothing switching on this
             // enum has to change.
             guard let document = try? Self.decodeDocument(data) else {
-                return .failed("The gateway answered, but its shared settings could not be read. "
+                return .failed("The Baton server answered, but its shared settings could not be read. "
                                + "Nothing was changed.")
             }
             return .ok(entries: document.count)
@@ -760,15 +763,17 @@ extension PreferenceSync {
     /// Foreground is the natural moment to reconcile — it's when someone has just picked
     /// the device up and is about to notice a stale setting — but on iOS it also fires for
     /// a glance at Control Center, so the call needs a floor.
+    /// Returns whether a sync ran and reached the gateway; false when the floor skipped it.
+    @discardableResult
     public func syncIfDue(
         gatewayURL: URL,
         token: String,
         minimumInterval: TimeInterval = 60
-    ) async {
+    ) async -> Bool {
         let now = Date()
-        if let last = lastSyncAttempt, now.timeIntervalSince(last) < minimumInterval { return }
+        if let last = lastSyncAttempt, now.timeIntervalSince(last) < minimumInterval { return false }
         lastSyncAttempt = now
-        await sync(gatewayURL: gatewayURL, token: token)
+        return await sync(gatewayURL: gatewayURL, token: token)
     }
 
     private var lastSyncAttempt: Date? {

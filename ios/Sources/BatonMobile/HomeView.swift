@@ -40,7 +40,7 @@ struct HomeView: View {
 
                     let serverMixes = MobileMixCatalog.server(model)
                     if !serverMixes.isEmpty {
-                        MixShelf(title: "From Your Server", mixes: serverMixes, model: model)
+                        MixShelf(title: "From Your Music Server", mixes: serverMixes, model: model)
                     }
 
                     if !rediscover.isEmpty {
@@ -51,7 +51,7 @@ struct HomeView: View {
                         ContentUnavailableView(
                             "Nothing here yet",
                             systemImage: "music.note.house",
-                            description: Text("Once your server has music (and you've played some), this is where it turns up.")
+                            description: Text("Once your music server has music (and you've played some), this is where it turns up.")
                         )
                         .padding(.top, 40)
                     }

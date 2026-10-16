@@ -47,7 +47,7 @@ final class MacImportEvidenceTests: XCTestCase {
         let gear = app.buttons["Settings"]
         XCTAssertTrue(gear.waitForExistence(timeout: 20), "Home's header must offer Settings")
         gear.tap()
-        XCTAssertTrue(app.staticTexts["Server"].waitForExistence(timeout: 20), "Settings must open")
+        XCTAssertTrue(app.staticTexts["Music server"].waitForExistence(timeout: 20), "Settings must open")
 
         tapRow(startingWith: "Set up from a Mac", describedAs: "the Set Up from a Mac row")
         XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS 'Choose an exported file'"))

@@ -53,7 +53,7 @@ struct MusicDiscoveryView: View {
                 Text("Looking outside your library is off")
                     .font(.headline)
                 Text("This is the one lookup that talks to a service other than your own "
-                     + "server. Turn it on in Settings, Playback.")
+                     + "music server. Turn it on in Settings, Playback.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

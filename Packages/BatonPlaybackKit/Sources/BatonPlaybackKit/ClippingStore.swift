@@ -60,6 +60,10 @@ public final class ClippingStore {
         public var chapterIndex: Int?
         public var chapterTitle: String?
         public var lastPlayedAt: Date?
+        /// The voice it is read in, as an `"engine:voice"` spec (`kokoro:af_heart`), so Change
+        /// Voice can say which voice it has now. Sidecar v3; nil in a clipping kept
+        /// before it, whose voice nobody wrote down.
+        public var voice: String?
 
         public var isBookChapter: Bool { documentID != nil }
 
@@ -105,6 +109,17 @@ public final class ClippingStore {
         /// store whose entries can be false is worse than no store.
         public var isPresent: Bool { FileManager.default.fileExists(atPath: url.path) }
 
+        /// The id this clipping has in the player's queue: its file URL, which is `asSong.id`.
+        /// Not `id`, which is the clipping's own id; see `ClippingStore.item(forSongID:)`.
+        public var songID: String { url.absoluteString }
+
+        /// Whether this clipping is the one loaded in the player, given the player's
+        /// `nowPlaying?.id`. The Clippings rows mark it the way music rows mark
+        /// the current track, and this is the one comparison they all make.
+        public func isLoaded(nowPlayingID: String?) -> Bool {
+            nowPlayingID == songID
+        }
+
         /// What the player is handed. The id is the file URL, which is what makes this play
         /// through the ordinary path — see the type's note.
         ///
@@ -112,7 +127,7 @@ public final class ClippingStore {
         /// queue, the scrubber and now-playing show "The Machine Stops · 2" with no new UI.
         public var asSong: NavidromeSong {
             var song = NavidromeSong(
-                id: url.absoluteString,
+                id: songID,
                 title: clipping.title,
                 artist: clipping.isBookChapter ? (clipping.author ?? clipping.source) : clipping.source,
                 album: clipping.isBookChapter ? (clipping.documentTitle ?? "Clippings") : "Clippings",
@@ -222,7 +237,7 @@ public final class ClippingStore {
     public func adopt(_ source: URL, title: String, sourceName: String? = nil,
                       durationSeconds: Double? = nil, text: String? = nil,
                       sha256: String? = nil, chapter: BookChapter? = nil,
-                      now: Date = Date()) throws -> Item {
+                      voice: String? = nil, now: Date = Date()) throws -> Item {
         loadIfNeeded()
         // Readings never said how long they were, so the player and the list had nothing to
         // show. The file knows.
@@ -252,6 +267,7 @@ public final class ClippingStore {
         var clipping = Clipping(id: id, title: effectiveTitle, source: effectiveSource,
                                 durationSeconds: durationSeconds, createdAt: now,
                                 text: text, sha256: sha256)
+        clipping.voice = voice
         if let chapter {
             clipping.documentID = chapter.documentID
             clipping.documentTitle = chapter.documentTitle
@@ -285,6 +301,80 @@ public final class ClippingStore {
         reload()
         clippingLog.notice("kept a clipping (\(effectiveTitle, privacy: .public))")
         return Item(clipping: clipping, url: destination)
+    }
+
+    /// What `replaceAudio` set aside: the audio a clipping had before, to put back if the change
+    /// is abandoned.
+    public struct PreviousAudio: Codable, Equatable, Sendable {
+        /// The file name within the hold folder the caller gave.
+        public var file: String
+        public var durationSeconds: Double?
+        public var sha256: String?
+        public var voice: String?
+    }
+
+    /// Give a clipping other audio and keep everything else about it: its id, its title, its
+    /// words, its chapter and when it was last played (Change Voice, TBX-10989). One row before
+    /// and after, never a second one beside it.
+    ///
+    /// The new file takes the old one's place, **moved** in like `adopt`, under the same name
+    /// when the two are the same kind of file, so a queue that holds the clipping's URL plays the
+    /// new audio next time it reaches it. A player in the middle of the old file plays on to its
+    /// end, since an open file outlives its name. The old audio is moved to `hold` when one is
+    /// given, so the change can be undone, and removed otherwise.
+    ///
+    /// A new digest is stated in the shared ledger as `setSHA256` states one, under the title
+    /// the clipping has, so a device collecting it later reads the same name.
+    @discardableResult
+    public func replaceAudio(id: String, with source: URL, durationSeconds: Double? = nil, sha256: String?,
+                             voice: String?, holdingPreviousIn hold: URL? = nil,
+                             now: Date = Date()) throws -> (item: Item, previous: PreviousAudio?) {
+        loadIfNeeded()
+        guard var item = item(id: id) else { throw StoreError.couldNotStore("no clipping \(id) to give new audio") }
+        let durationSeconds = durationSeconds ?? Self.measuredDuration(of: source)
+        let ext = source.pathExtension.isEmpty ? "m4a" : source.pathExtension
+        let destination = audioURL(id, extension: ext)
+        let fm = FileManager.default
+        var previous: PreviousAudio?
+        if fm.fileExists(atPath: item.url.path) {
+            if let hold {
+                let file = "\(id)-\(UUID().uuidString.lowercased()).\(item.url.pathExtension.isEmpty ? "m4a" : item.url.pathExtension)"
+                do {
+                    try fm.createDirectory(at: hold, withIntermediateDirectories: true)
+                    try fm.moveItem(at: item.url, to: hold.appendingPathComponent(file))
+                } catch {
+                    throw StoreError.couldNotStore("could not set the old audio aside: \(error.localizedDescription)")
+                }
+                previous = PreviousAudio(file: file, durationSeconds: item.clipping.durationSeconds,
+                                         sha256: item.clipping.sha256, voice: item.clipping.voice)
+            } else {
+                try? fm.removeItem(at: item.url)
+            }
+        }
+        do {
+            try fm.moveItem(at: source, to: destination)
+        } catch {
+            // Put the old audio back rather than leave a row with no file.
+            if let previous, let hold { try? fm.moveItem(at: hold.appendingPathComponent(previous.file), to: item.url) }
+            throw StoreError.couldNotStore(error.localizedDescription)
+        }
+        if excludesAudioFromBackup { BackupExclusion.exclude(destination) }
+        item.clipping.durationSeconds = durationSeconds
+        item.clipping.sha256 = sha256
+        item.clipping.voice = voice
+        guard writeSidecar(item.clipping, id: id) else {
+            throw StoreError.couldNotStore("could not write the sidecar for \(id)")
+        }
+        if let digest = sha256, digest != previous?.sha256 {
+            var ledger = self.ledger
+            if ledger.record(for: digest)?.titleAt == nil { ledger.setTitle(item.clipping.title, for: digest, at: item.clipping.createdAt) }
+            if ledger.record(for: digest)?.sourceAt == nil { ledger.setSource(item.clipping.source, for: digest, at: item.clipping.createdAt) }
+            ledger.restore(digest, at: now)
+            self.ledger = ledger
+        }
+        reload()
+        clippingLog.notice("gave a clipping new audio (\(item.clipping.title, privacy: .public))")
+        return (Item(clipping: item.clipping, url: destination), previous)
     }
 
     /// The length of an audio file, or nil when it cannot be read as audio.
@@ -577,7 +667,8 @@ public final class ClippingStore {
         // v2 added the book-chapter fields. All optional, so v1 reads unchanged (identity
         // migration); the bump is so a downgraded build reads a v2 sidecar but refuses to write
         // it, rather than dropping fields it does not know about on its next rename.
-        VersionedStore<Clipping>(fileURL: sidecarURL(id), currentVersion: 2,
+        // v3 added `voice`, optional too.
+        VersionedStore<Clipping>(fileURL: sidecarURL(id), currentVersion: 3,
                                  keepBackup: false, log: clippingLog)
     }
 

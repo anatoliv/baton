@@ -135,7 +135,7 @@ struct HistoryView: View {
         .confirmationDialog("Clear listening history?", isPresented: $showsClearConfirm, titleVisibility: .visible) {
             Button("Clear", role: .destructive) { model.history.clear() }
         } message: {
-            Text("This only clears the log on this phone. Your server's play counts are untouched.")
+            Text("This only clears the log on this phone. Your music server's play counts are untouched.")
         }
         // Only when *both* records are empty. Judging by the local log alone told a
         // fresh phone that nothing had ever been played, while the server was sitting
@@ -177,7 +177,7 @@ struct HistoryView: View {
                 if loadingServerRecent {
                     ProgressView().frame(maxWidth: .infinity)
                 } else {
-                    Text("Your server hasn't recorded any plays yet.")
+                    Text("Your music server hasn't recorded any plays yet.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -195,7 +195,7 @@ struct HistoryView: View {
             // count different things, so an unlabelled list would invite the reader to
             // compare numbers that aren't comparable.
             Text(useServer
-                 ? "Across every device, from your server"
+                 ? "Across every device, from your music server"
                  : "\(model.history.lifetimeCount) plays on this iPhone")
                 .textCase(nil)
         }

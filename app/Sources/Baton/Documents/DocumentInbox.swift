@@ -74,11 +74,29 @@ final class DocumentInbox {
     /// pointed at the household gateway would otherwise claim a document the person sent to
     /// their own Mac, and hold it where nobody looks.
     static func configuredRelay() -> PendingImportRelay? {
+        if let relay = debugRelay() { return relay }
         guard !PreferenceSyncScheduler.isSwitchedOff() else { return nil }
         let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "").trimmingCharacters(in: .whitespaces)
         let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "").trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
         return PendingImportRelay(files: GatewayFiles(gatewayURL: url, token: token))
+    }
+
+    /// DEBUG only, and nil in a release build: a probe's own relay, so the "Sent from" sheet and
+    /// list can be walked on screen against a throwaway gateway on this Mac.
+    /// `BATON_DEBUG_INBOX_GATEWAY_URL` and `BATON_DEBUG_INBOX_GATEWAY_TOKEN`, environment variables
+    /// rather than launch arguments. Loopback addresses only, so a probe can never be
+    /// pointed at the household gateway this way.
+    static func debugRelay(environment: [String: String] = ProcessInfo.processInfo.environment) -> PendingImportRelay? {
+        #if DEBUG
+        let raw = (environment["BATON_DEBUG_INBOX_GATEWAY_URL"] ?? "").trimmingCharacters(in: .whitespaces)
+        let token = (environment["BATON_DEBUG_INBOX_GATEWAY_TOKEN"] ?? "").trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw),
+              let host = url.host, ["127.0.0.1", "localhost", "::1"].contains(host) else { return nil }
+        return PendingImportRelay(files: GatewayFiles(gatewayURL: url, token: token))
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - When to ask

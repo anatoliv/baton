@@ -1,3 +1,4 @@
+import BatonDocuments
 import BatonPlaybackKit
 import BatonSubsonicKit
 import BatonSubsonicModels
@@ -27,6 +28,10 @@ struct ClippingsView: View {
     @State private var status: String?
     @State private var filter = ""
     @State private var expandedBooks: Set<String> = []
+    /// The book whose Play is fetching the Mac's place first, and the one showing
+    /// "Getting your place…" once that wait is long enough to notice.
+    @State private var pullingPlace: String?
+    @State private var gettingPlace: String?
     @State private var choosingFile = false
     @State private var askingForLink = false
     @State private var linkText = ""
@@ -34,6 +39,11 @@ struct ClippingsView: View {
     @State private var suggestion: BookStorage.Suggestion?
     /// A book waiting for "Delete this book?" (M6.3: it goes to Recently removed for a week).
     @State private var pendingBookDelete: MobileBookShelf.Book?
+    /// The book whose voice is being changed.
+    @State private var changingVoice: MobileBookShelf.Book?
+    /// "Previously…": offered by Play on a book last heard more than a day ago.
+    @State private var recap = MobileRecapOffer()
+    @State private var recapSpeaker = MobileRecapSpeaker()
 
     private var store: ClippingStore { model.clippings }
     /// Read live through the model's switch, so turning Documents off in Settings hides the
@@ -52,12 +62,14 @@ struct ClippingsView: View {
         guard documentsOn else { return [] }
         let search = model.clippingSearch
         let records = search.isFiltering ? model.books.records.filter { search.matches(title: $0.title) } : model.books.records
-        return MobileBookShelf.books(items: items, records: records, summaries: model.books.summaries, ledger: store.ledger)
+        return MobileBookShelf.books(items: items, records: records, summaries: model.books.summaries, ledger: store.ledger,
+                                     changes: model.books.voiceChanges.all)
     }
 
     /// Only what can actually be played. A queue entry whose file has gone stalls with no
-    /// explanation, which is worse than a row that visibly says it is unavailable.
-    private var playable: [NavidromeSong] { items.filter(\.isPresent).map(\.asSong) }
+    /// explanation, which is worse than a row that visibly says it is unavailable. Readings
+    /// only: a book plays as its own queue, from its row.
+    private var playable: [NavidromeSong] { ClippingQueue.readings(items) }
 
     private var source: StreamingPlaybackController.QueueSource {
         .init(label: "Clippings", kind: .liked, id: nil)
@@ -71,13 +83,16 @@ struct ClippingsView: View {
                         "No clippings yet",
                         systemImage: "waveform.circle",
                         description: Text(documentsOn
-                            ? "Open a PDF, EPUB or text file in Baton from Files, or import a link, and your home server reads it to you here. On your Mac, a reading kept with File → Keep Reading in Clippings arrives here too."
+                            ? "Open a PDF, EPUB or text file in Baton from Files, or import a link, and your Baton server reads it to you here. On your Mac, a reading kept with File → Keep Reading in Clippings arrives here too."
                             : "On your Mac, read something aloud and choose "
                               + "File → Keep Reading in Clippings. It arrives here "
-                              + "through your home gateway.")
+                              + "through your Baton server.")
                     )
                 }
             } else {
+                if documentsOn, recap.offer != nil {
+                    Section { recapCard }
+                }
                 if documentsOn, let suggestion {
                     Section { suggestionCard(suggestion) }
                 }
@@ -117,7 +132,7 @@ struct ClippingsView: View {
         // indistinguishable from one that failed.
         .refreshable {
             await collect(announcing: true)
-            await model.collectBooks(announcing: false)
+            await model.collectBooks()
         }
         .task {
             store.loadIfNeeded()
@@ -127,7 +142,7 @@ struct ClippingsView: View {
             await collect()
             // A book still being made is the one exception: its row says what the home server
             // is doing, and that is worth asking every few seconds while this screen is open.
-            await model.collectBooks(announcing: false)
+            await model.collectBooks()
             model.books.watchIfNeeded { }
             // The storage rules this phone's owner chose, then at most one suggestion a week.
             if documentsOn {
@@ -146,9 +161,12 @@ struct ClippingsView: View {
             Button("Delete Everywhere", role: .destructive) { deleteBook(everywhere: true) }
             Button("Cancel", role: .cancel) { pendingBookDelete = nil }
         } message: {
-            Text("The home server stops keeping it and its chapters leave this iPhone. Deleting everywhere "
-                 + "also removes it from your other devices. For a week you can restore it from Recently "
+            Text("Its chapters leave this iPhone, and the Baton server keeps it for your other devices. "
+                 + "Deleting everywhere also removes it from the Baton server and your other devices. For a week you can restore it from Recently "
                  + "removed in Settings, under Storage.")
+        }
+        .sheet(item: $changingVoice) { book in
+            ChangeVoiceScreen(book: book, model: model) { changingVoice = nil }
         }
         .onDisappear { model.books.stopWatching() }
         .toolbar {
@@ -165,6 +183,15 @@ struct ClippingsView: View {
                     } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Import a document")
                         .accessibilityIdentifier("import-document")
+                }
+            }
+            // The sleep timer, here as well as in the full player, while something plays
+            //: a run of clippings is exactly what people fall asleep to.
+            if model.music.nowPlaying != nil || model.music.sleepTimerArmed {
+                ToolbarItem(placement: .topBarTrailing) {
+                    SleepTimerMenu(model: model) { sleepLabel }
+                        .accessibilityValue(sleepValue)
+                        .accessibilityIdentifier("clippings-sleep-timer")
                 }
             }
             if !playable.isEmpty {
@@ -198,7 +225,7 @@ struct ClippingsView: View {
                 }
             }
         } message: {
-            Text("The page is read as an article and made into a book on your home server.")
+            Text("The page is read as an article and made into a book on your Baton server.")
         }
         // The wording, and the choice it offers, now live in one modifier: the player's
         // long-press menu deletes a clipping too, and this dialog is the only thing telling
@@ -221,6 +248,56 @@ struct ClippingsView: View {
     }
 
     @State private var pendingDelete: [String] = []
+
+    // MARK: - Sleep timer
+
+    /// The moon, filled while a timer is set, with what is left beside it: the minutes counting
+    /// down, or "End of chapter". Counting down by itself, so nothing here runs a clock.
+    @ViewBuilder
+    private var sleepLabel: some View {
+        let music = model.music
+        HStack(spacing: 4) {
+            Image(systemName: music.sleepTimerArmed ? "moon.zzz.fill" : "moon.zzz")
+            if let endsAt = music.sleepTimerEndsAt {
+                let now = Date()
+                Text(timerInterval: now ... max(now, endsAt), countsDown: true)
+                    .monospacedDigit()
+                    .font(.footnote)
+            } else if music.sleepAfterCurrentTrack {
+                Text(SleepTimerOptions.endLabel(for: music.nowPlaying, isSpoken: music.isSpokenNowPlaying))
+                    .font(.footnote)
+            }
+        }
+        .foregroundStyle(music.sleepTimerArmed ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+    }
+
+    private var sleepValue: String {
+        let music = model.music
+        if let endsAt = music.sleepTimerEndsAt {
+            let minutes = max(1, Int((endsAt.timeIntervalSinceNow / 60).rounded(.up)))
+            return "Stops in \(Counted.phrase(minutes, "minute"))"
+        }
+        if music.sleepAfterCurrentTrack {
+            return SleepTimerOptions.endLabel(for: music.nowPlaying, isSpoken: music.isSpokenNowPlaying)
+        }
+        return "Off"
+    }
+
+    // MARK: - Now playing
+
+    /// Whether this clipping is the one loaded in the player, playing or paused.
+    private func isCurrent(_ item: ClippingStore.Item?) -> Bool {
+        item?.isLoaded(nowPlayingID: model.music.nowPlaying?.id) == true
+    }
+
+    /// Whether one of this book's chapters is the one loaded in the player.
+    private func isCurrent(_ book: MobileBookShelf.Book) -> Bool {
+        guard let id = model.music.nowPlaying?.id else { return false }
+        return book.chapters.contains { $0.item?.isLoaded(nowPlayingID: id) == true }
+    }
+
+    /// Animated while it plays and still while paused, the way a music row's bars are.
+    private var barsArePlaying: Bool { model.music.state == .playing }
 
     /// A file chosen with "Import a File…": the app's own copy goes to the import screen.
     private func importPicked(_ url: URL) {
@@ -247,13 +324,22 @@ struct ClippingsView: View {
             set: { open in if open { expandedBooks.insert(book.documentID) } else { expandedBooks.remove(book.documentID) } }
         )) {
             ForEach(book.chapters) { chapter in
+                let current = isCurrent(chapter.item)
                 Button {
                     play(book, fromChapter: chapter.index)
                 } label: {
                     HStack(spacing: 8) {
-                        Text("\(chapter.index + 1)").monospacedDigit().foregroundStyle(.secondary)
-                            .frame(width: 24, alignment: .trailing)
+                        // The bars take the chapter number's place, as in the queue.
+                        Group {
+                            if current {
+                                NowPlayingBars(isPlaying: barsArePlaying)
+                            } else {
+                                Text("\(chapter.index + 1)").monospacedDigit().foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(width: 24, alignment: .trailing)
                         Text(chapter.title).lineLimit(1)
+                            .foregroundStyle(current ? Color.accentColor : .primary)
                         Spacer()
                         Text(chapter.stateText).font(.caption).foregroundStyle(.secondary)
                     }
@@ -264,6 +350,7 @@ struct ClippingsView: View {
                 .buttonStyle(.plain)
                 .disabled(chapter.item?.isPresent != true)
                 .opacity(chapter.item?.isPresent == true ? 1 : 0.6)
+                .accessibilityValue(current ? (barsArePlaying ? "Now playing" : "Paused") : "")
             }
         } label: {
             Button {
@@ -284,11 +371,23 @@ struct ClippingsView: View {
                             }
                         }
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if let origin = book.originText {
+                            Text(origin).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        if gettingPlace == book.documentID {
+                            Text("Getting your place…").font(.caption).foregroundStyle(.secondary)
+                        }
                         if let line = book.statusLine {
                             Text(line.text).font(.caption)
                                 .foregroundStyle(line.isProblem ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                                 .lineLimit(2)
                         }
+                    }
+                    // Quieter than the chapter: the bars alone, so a closed book still says one
+                    // of its chapters is the one playing.
+                    if isCurrent(book) {
+                        Spacer(minLength: 6)
+                        NowPlayingBars(isPlaying: barsArePlaying)
                     }
                 }
             }
@@ -308,13 +407,20 @@ struct ClippingsView: View {
                 get: { model.bookCleanup.isKept(book.documentID) },
                 set: { model.bookCleanup.setKeep($0, documentID: book.documentID) }
             ))
-            if let jobID = book.jobID, book.isRendering {
+            // Made again in another voice by the home server, from the shaped book
+            // kept beside the record.
+            if let jobID = book.jobID, model.books.hasPreparedBook(forJob: jobID) {
+                Button("Change Voice…") { changingVoice = book }
+            }
+            if book.canStopRemaking {
+                Button("Stop Making Again") { stopRemaking(book) }
+            } else if let jobID = book.jobID, book.isRendering, book.remaking == nil {
                 Button("Stop Making This Book", role: .destructive) {
                     Task { await model.books.cancel(jobID: jobID) }
                 }
             } else if !book.readyChapters.isEmpty || !book.missing.isEmpty {
-                // The home server stops keeping it either way: a book sent from this phone is
-                // only ever collected by this phone, so its chapters there would be orphaned.
+                // Delete Everywhere deletes the home server's copy; removing it from this phone
+                // leaves it there for the other devices.
                 Button("Delete Book…", role: .destructive) { pendingBookDelete = book }
             }
         }
@@ -333,6 +439,16 @@ struct ClippingsView: View {
         Task {
             do { try await model.getBack(book) } catch {
                 status = "The book could not come back: \(error)"
+                await clearStatus()
+            }
+        }
+    }
+
+    /// Stop making a book again: the chapters already in the new voice go back to the old one.
+    private func stopRemaking(_ book: MobileBookShelf.Book) {
+        Task {
+            do { try await model.books.cancelVoiceChange(documentID: book.documentID) } catch {
+                status = "The book could not go back to its voice: \(error)"
                 await clearStatus()
             }
         }
@@ -391,26 +507,157 @@ struct ClippingsView: View {
         Task { await clearStatus() }
     }
 
-    /// Play a book from the chosen chapter, or from its first chapter here.
+    /// Play a book from the chosen chapter, or with none chosen from the synced position: the
+    /// synced chapter here, and the player resumes inside it. The whole book is the
+    /// queue, so Previous reaches the chapters before.
+    /// Picking a book up after a break offers "Previously…" first; the book plays once
+    /// that is answered. A chosen chapter plays at once.
+    ///
+    /// A Play that resumes fetches the Mac's place first, for up to about two seconds, and starts
+    /// from the merged ledger: a phone kept on screen never pulls on its own. A slow
+    /// or unreachable gateway starts the book from the place here; a tap on another chapter
+    /// starts that chapter at once.
     private func play(_ book: MobileBookShelf.Book, fromChapter index: Int? = nil) {
-        let songs = book.chapters.compactMap { $0.item }.filter(\.isPresent).map(\.asSong)
+        guard BookPlacePull.resumes(fromChapter: index, placeChapter: book.position?.chapterIndex),
+              let pull = model.bookPlacePull() else {
+            playFromPlace(book, fromChapter: index)
+            return
+        }
+        guard pullingPlace != book.documentID else { return }
+        pullingPlace = book.documentID
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            if pullingPlace == book.documentID { gettingPlace = book.documentID }
+        }
+        Task { @MainActor in
+            _ = await BookPlacePull.run(sync: pull)
+            pullingPlace = nil
+            gettingPlace = nil
+            var fresh = book
+            (fresh.position, fresh.finished) = BookPlacePull.place(of: book.documentID, in: store.ledger)
+            playFromPlace(fresh, fromChapter: index)
+        }
+    }
+
+    private func playFromPlace(_ book: MobileBookShelf.Book, fromChapter index: Int? = nil) {
+        if index == nil, documentsOn, !book.finished, book.position != nil {
+            let prepared = MobileRecap.preparedBook(for: book, homeServer: model.books)
+            if recap.consider(book, prepared: prepared, lastPlayed: store.ledger.document(book.documentID)?.positionAt) { return }
+        }
+        startPlaying(book, fromChapter: index)
+    }
+
+    private func startPlaying(_ book: MobileBookShelf.Book, fromChapter index: Int? = nil) {
+        let (songs, start) = MobileBookShelf.queue(for: book, fromChapter: index)
         guard !songs.isEmpty else { return }
-        let start = index.flatMap { wanted in songs.firstIndex { song in
-            model.clippings.item(forSongID: song.id)?.clipping.chapterIndex == wanted } } ?? 0
-        model.music.play(Array(songs[start...]), source: .init(label: book.title, kind: .song, id: book.documentID))
+        model.music.play(songs, startAt: start, source: .init(label: book.title, kind: .song, id: book.documentID))
+    }
+
+    // MARK: - Previously…
+
+    private var recapCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let offer = recap.offer {
+                Label("Previously…", systemImage: "text.book.closed").font(.headline)
+                switch recap.state {
+                case .offered:
+                    Text(Recap.offerText(title: offer.book.title)).font(.callout)
+                    HStack {
+                        Button("Just Play") { recap.dismiss(); startPlaying(offer.book) }
+                            .buttonStyle(.bordered)
+                        Spacer()
+                        Button("Hear Recap") { hearRecap(offer.book) }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("hear-recap")
+                    }
+                case .writing:
+                    HStack(spacing: 8) { ProgressView(); Text("Writing the recap…").font(.callout) }
+                case let .askingConsent(source):
+                    // The Mac's first-use question (M4.6), for chapters.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(ModelConsentWording.recapQuestion(source)).font(.callout.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("recap-consent-ask")
+                        Text(ModelConsentWording.recapQuestionDetail(source, device: "iPhone", settings: "Settings, Documents"))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Button("Not Now") { answerConsent(.notNow, offer.book) }
+                                .accessibilityIdentifier("recap-consent-not-now")
+                            Spacer()
+                            Button("Allow Once") { answerConsent(.once, offer.book) }
+                                .accessibilityIdentifier("recap-consent-once")
+                            Button("Always") { answerConsent(.always, offer.book) }
+                                .accessibilityIdentifier("recap-consent-always")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                case .speaking:
+                    Text(recap.text ?? "").font(.callout)
+                    if let writtenBy = recap.writtenBy {
+                        Text("Written by \(writtenBy)").font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("recap-written-by")
+                    }
+                case let .failed(why):
+                    Text(why).font(.callout).foregroundStyle(.orange)
+                    Button("Dismiss") { recap.dismiss() }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func hearRecap(_ book: MobileBookShelf.Book) {
+        if model.music.isPlaying { model.music.pause() }
+        let routing = MobileRecap.liveRouting(model.agentConfig)
+        let ledger = ModelConsentLedger(defaults: BatonStorage.defaults)
+        let speak = recapSpeech(for: book)
+        Task {
+            await recap.hear(sources: routing.sources, consent: routing.consent,
+                             isAnswered: { ledger.hasAnswered($0, ModelTask.recap.content) }, executor: routing.executor,
+                             speak: speak, thenPlay: { startPlaying(book) })
+        }
+    }
+
+    private func answerConsent(_ answer: MobileRecapOffer.ConsentAnswer, _ book: MobileBookShelf.Book) {
+        let routing = MobileRecap.liveRouting(model.agentConfig)
+        let speak = recapSpeech(for: book)
+        Task {
+            await recap.answerConsent(answer, ledger: ModelConsentLedger(defaults: BatonStorage.defaults),
+                                      executor: routing.executor, speak: speak, thenPlay: { startPlaying(book) })
+        }
+    }
+
+    /// Says a recap in a voice other than the book's narrator.
+    private func recapSpeech(for book: MobileBookShelf.Book) -> (String) async -> Bool {
+        let narrator = model.books.record(forDocument: book.documentID)
+            .flatMap { model.books.preparedBook(forJob: $0.jobID)?.voices.narrator } ?? ""
+        let client = model.gatewayBookClient()
+        let speaker = recapSpeaker
+        return { text in await speaker.speak(text, narrator: narrator, client: client) }
     }
 
     @ViewBuilder
     private func row(_ item: ClippingStore.Item) -> some View {
+        let current = isCurrent(item)
         Button {
             play(item)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: item.isPresent ? "waveform" : "exclamationmark.triangle")
-                    .foregroundStyle(item.isPresent ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-                    .frame(width: 22)
+                // Bars in place of the waveform while it is the one in the player, as a music
+                // row marks its track.
+                Group {
+                    if current {
+                        NowPlayingBars(isPlaying: barsArePlaying)
+                    } else {
+                        Image(systemName: item.isPresent ? "waveform" : "exclamationmark.triangle")
+                            .foregroundStyle(item.isPresent ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                    }
+                }
+                .frame(width: 22)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.clipping.title).lineLimit(1)
+                        .foregroundStyle(current ? Color.accentColor : .primary)
                     HStack(spacing: 6) {
                         if let origin = item.clipping.source, !origin.isEmpty { Text(origin) }
                         Text(item.clipping.createdAt, style: .date)
@@ -429,13 +676,15 @@ struct ClippingsView: View {
         }
         .buttonStyle(.plain)
         .disabled(!item.isPresent)
+        .accessibilityValue(current ? (barsArePlaying ? "Now playing" : "Paused") : "")
     }
 
-    /// Play from this clipping onwards, so the list behaves like every other list here.
+    /// Play from this clipping onwards, so the list behaves like every other list here. The
+    /// readings after it, never a book's chapters.
     private func play(_ item: ClippingStore.Item) {
-        let songs = playable
-        guard let index = songs.firstIndex(where: { $0.id == item.asSong.id }) else { return }
-        model.music.play(Array(songs[index...]), source: source)
+        let songs = ClippingQueue.readings(from: item, in: items)
+        guard !songs.isEmpty else { return }
+        model.music.play(songs, source: source)
     }
 
     /// Collect anything on the gateway this phone does not already have.
@@ -501,7 +750,7 @@ struct ClippingsView: View {
             }
         } catch {
             if announce {
-                status = (error as? LocalizedError)?.errorDescription ?? "Could not reach the gateway"
+                status = (error as? LocalizedError)?.errorDescription ?? "Could not reach the Baton server"
                 await clearStatus()
             }
             clippingsLog.error("clipping collection failed: \(error.localizedDescription, privacy: .public)")

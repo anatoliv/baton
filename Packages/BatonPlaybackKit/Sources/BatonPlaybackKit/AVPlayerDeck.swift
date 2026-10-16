@@ -195,6 +195,9 @@ public final class AVPlayerDeck: PlaybackDeck {
 
     /// The song a crossfade is blending *into*, adopted when its ramp is promoted.
     private var crossfadingInto: NavidromeSong?
+    /// The speed the incoming player of a blend runs at, which becomes the deck's speed when it
+    /// is promoted.
+    private var crossfadingRate: Float?
 
     public init() {
         attachPlayerObservers()
@@ -262,11 +265,12 @@ public final class AVPlayerDeck: PlaybackDeck {
         // than a branch that builds two URLs.
         let streamURL = StreamSeek.streamURL(url, offset: offset, transcode: supportsTimeOffset)
         lastLoadedURL = streamURL
-        let item = AVPlayerItem(asset: Self.streamAsset(streamURL, headers: headers))
+        let item = Self.makeItem(Self.streamAsset(streamURL, headers: headers))
         setCurrentItem(item)
         configureItem?(item)
         applyVolume()
         attachItemObservers(item)
+        player.defaultRate = playbackRate
         if autoplay {
             player.play()
         }
@@ -316,6 +320,7 @@ public final class AVPlayerDeck: PlaybackDeck {
         preload = nil
         loadedSong = nil
         crossfadingInto = nil
+        crossfadingRate = nil
         streamStartOffset = 0
         isSeeking = false
     }
@@ -390,13 +395,40 @@ public final class AVPlayerDeck: PlaybackDeck {
                                                  transport: transportFade.multiplier)
     }
 
+    /// Every item this deck plays. The time-pitch algorithm is set explicitly rather than left
+    /// to the platform default, which has differed between OS versions: `.timeDomain` keeps a
+    /// voice at its own pitch at 0.75×–2× and is the one Apple recommends for speech. Only
+    /// spoken items are ever played at a rate other than 1×, where it does nothing.
+    static func makeItem(_ asset: AVURLAsset) -> AVPlayerItem {
+        let item = AVPlayerItem(asset: asset)
+        item.audioTimePitchAlgorithm = .timeDomain
+        return item
+    }
+
+    /// The current item's time-pitch algorithm, for tests.
+    var currentItemTimePitchAlgorithm: AVAudioTimePitchAlgorithm? { player.currentItem?.audioTimePitchAlgorithm }
+
     public func setPlaybackRate(_ rate: Float) {
         playbackRate = rate
-        // Through `defaultRate` so pause/resume and gapless item advances keep the chosen
-        // speed instead of snapping back to 1×.
-        player.defaultRate = rate
-        if hostIntendsToPlay?() == true { player.rate = rate }
+        applyRate(to: player)
+        // The incoming player of a blend is the one that will carry on; give it the speed too.
+        if let incoming = crossfadeRamp.player { applyRate(to: incoming) }
     }
+
+    /// Put the current speed on `target`. Through `defaultRate`, so `play()`, pause/resume and
+    /// gapless item advances keep the chosen speed instead of snapping back to 1×; and onto
+    /// `rate` too when that player is already running. Every path that makes a player the
+    /// one being heard goes through here: a load (cut), a gapless advance, a promoted blend
+    /// (a Next or a crossfade). A player that skipped it played at 1×.
+    private func applyRate(to target: AVQueuePlayer) {
+        target.defaultRate = playbackRate
+        if target.rate != 0 || (target === player && hostIntendsToPlay?() == true) {
+            target.rate = playbackRate
+        }
+    }
+
+    /// The speed the player being heard is set to, for tests: `(rate, defaultRate)`.
+    var playerRatesForTesting: (rate: Float, defaultRate: Float) { (player.rate, player.defaultRate) }
 
     public func setStallTimeout(_ seconds: Double) { stallTimeoutSeconds = seconds }
 
@@ -632,7 +664,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     @discardableResult
     func prepareNext(song: NavidromeSong, at index: Int, url: URL) -> Bool {
         guard preload == nil, let current = loadedItem else { return false }
-        let item = AVPlayerItem(asset: Self.streamAsset(url, headers: streamHeaders))
+        let item = Self.makeItem(Self.streamAsset(url, headers: streamHeaders))
         configureItem?(item) // attach EQ at preload creation, before it plays
         guard player.canInsert(item, after: current) else { return false }
         player.insert(item, after: current)
@@ -655,7 +687,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     func swapPreparedNext(to localURL: URL, index: Int, songID: String) -> Bool {
         guard let slot = preload, slot.matches(index: index, songID: songID),
               player.currentItem !== slot.item, let current = loadedItem else { return false }
-        let item = AVPlayerItem(asset: Self.streamAsset(localURL, headers: streamHeaders))
+        let item = Self.makeItem(Self.streamAsset(localURL, headers: streamHeaders))
         configureItem?(item)
         guard player.canInsert(item, after: current) else { return false }
         player.remove(slot.item)
@@ -685,6 +717,7 @@ public final class AVPlayerDeck: PlaybackDeck {
         attachItemObservers(slot.item)
         configureItem?(slot.item)
         applyVolume()
+        applyRate(to: player)
         refineDuration(of: slot.item)
         return true
     }
@@ -697,16 +730,21 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// The item is built and configured here so the EQ tap is attached *before* it plays —
     /// without that the equalizer silently switched off at the first crossfade boundary and
     /// stayed off for every crossfaded track thereafter.
+    ///
+    /// `rate` is the incoming item's speed (a book chapter's spoken speed, 1× for a song); nil
+    /// keeps the deck's current one.
     func beginCrossfade(into song: NavidromeSong, url: URL, targetIn: Float,
-                        duration seconds: Double, steps: Int = 24,
+                        duration seconds: Double, steps: Int = 24, rate: Float? = nil,
                         onComplete: @escaping @MainActor () -> Void) {
-        let item = AVPlayerItem(asset: Self.streamAsset(url, headers: streamHeaders))
+        let item = Self.makeItem(Self.streamAsset(url, headers: streamHeaders))
         configureItem?(item)
         crossfadingInto = song
+        let incomingRate = rate ?? playbackRate
+        crossfadingRate = incomingRate
         crossfadeRamp.begin(
             item: item, targetIn: targetIn, isMuted: isMuted,
             outgoing: player, startOut: player.volume,
-            duration: seconds, steps: steps
+            duration: seconds, steps: steps, rate: incomingRate
         ) { _ in onComplete() }
     }
 
@@ -739,6 +777,8 @@ public final class AVPlayerDeck: PlaybackDeck {
             duration = metadataDuration
         }
         crossfadingInto = nil
+        if let rate = crossfadingRate { playbackRate = rate }
+        crossfadingRate = nil
 
         attachPlayerObservers()
         if let item = promoted.currentItem {
@@ -746,6 +786,7 @@ public final class AVPlayerDeck: PlaybackDeck {
             refineDuration(of: item)
         }
         applyVolume()
+        applyRate(to: player)
         return true
     }
 
@@ -754,6 +795,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     func cancelCrossfade() {
         crossfadeRamp.cancel()
         crossfadingInto = nil
+        crossfadingRate = nil
     }
 
     // MARK: - What the host can ask

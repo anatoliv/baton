@@ -100,6 +100,24 @@ public enum VoiceCatalogue {
     /// suggestion, though a person can still pick one by hand.
     static let avoided: Set<String> = ["kokoro:af_aoede", "kokoro:bm_lewis"]
 
+    /// Kokoro-82M v1.0's English voices, as specs: the graded ones and the two the listening
+    /// pass ruled out. What the gateway lists for Kokoro when its server does not answer
+    /// `/v1/audio/voices`, so a list is never invented beyond what Kokoro ships.
+    public static var kokoroEnglishVoices: [String] {
+        (Set(kokoroGrades.keys.map { "kokoro:\($0)" }).union(avoided)).sorted()
+    }
+
+    /// The language a voice's id declares, or nil when it does not say: Kokoro's first letter
+    /// ("a" and "b" English, "e" Spanish, …); anything else, a Chatterbox reference file
+    /// included, is unknown.
+    public static func declaredLanguage(_ spec: String) -> String? {
+        let described = describe(spec)
+        let id = described.spec.split(separator: ":", maxSplits: 1).last.map(String.init) ?? ""
+        guard described.spec.hasPrefix("kokoro:"), id.count > 3, id.dropFirst(2).first == "_",
+              let first = id.first, kokoroLanguages[first] != nil else { return nil }
+        return described.language
+    }
+
     /// Describe a voice from its spec. Kokoro voices always get language, accent and gender
     /// from the id; anything else (a Chatterbox reference file) gets only what is known.
     public static func describe(_ spec: String) -> VoiceDescriptor {

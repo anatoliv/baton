@@ -188,7 +188,7 @@ struct BookVoiceSettingsTests {
         #expect(!BookVoiceSettings.sheetAsks(.ask, homeServerAvailable: false))
         #expect(!BookVoiceSettings.sheetAsks(.thisMac, homeServerAvailable: true))
         #expect(!BookVoiceSettings.sheetAsks(.homeServer, homeServerAvailable: true))
-        #expect(BookVoiceSettings.sheetNote(.homeServer, homeServerAvailable: false) == "The home server is not answering, so this Mac makes it.")
+        #expect(BookVoiceSettings.sheetNote(.homeServer, homeServerAvailable: false) == "The Baton server is not answering, so this Mac makes it.")
         #expect(BookVoiceSettings.sheetNote(.ask, homeServerAvailable: true) == nil)
     }
 

@@ -99,4 +99,136 @@ final class PreferenceSyncSchedulerTests: XCTestCase {
         XCTAssertNil(PreferenceSyncScheduler.gateway(urlString: "not a url at all",
                                                      token: "s3cret"))
     }
+
+    // MARK: - The book ledger push
+
+    /// A scheduler whose push only counts, on a model of its own, so each trigger starts from a
+    /// ledger it has never sent.
+    private func countingScheduler(_ pushes: @escaping @MainActor () -> Void) -> (PreferenceSyncScheduler, MusicModel) {
+        let model = MusicModel()
+        let scheduler = PreferenceSyncScheduler(model: model, pushDelay: .milliseconds(50)) {
+            pushes()
+            return true
+        }
+        scheduler.installPushTriggers()
+        return (scheduler, model)
+    }
+
+    private func settle() async throws { try await Task.sleep(for: .milliseconds(300)) }
+
+    /// Pause, stop and leaving the foreground each push the book ledger, after the debounce and
+    /// not before. Before this a book stopped here reached the phone at the next heartbeat.
+    func testPauseStopAndLeavingTheFrontEachPushTheBookLedger() async throws {
+        var pushes = 0
+        let (paused, pausedModel) = countingScheduler { pushes += 1 }
+        defer { paused.stop() }
+        pausedModel.music.pause()
+        XCTAssertEqual(pushes, 0, "debounced, not at once")
+        try await settle()
+        XCTAssertEqual(pushes, 1, "pause")
+
+        let (stopped, stoppedModel) = countingScheduler { pushes += 1 }
+        defer { stopped.stop() }
+        stoppedModel.music.stop()
+        try await settle()
+        XCTAssertEqual(pushes, 2, "stop")
+
+        // Leaving the foreground is per app, so this one reaches both installed schedulers; each
+        // has already sent its ledger, which has not moved since.
+        let (away, _) = countingScheduler { pushes += 1 }
+        defer { away.stop() }
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+        try await settle()
+        XCTAssertEqual(pushes, 3, "leaving the foreground, once, from the scheduler with something to send")
+    }
+
+    /// Pause, then Stop, then switching away: one round trip.
+    func testABurstOfHaltsIsOnePush() async throws {
+        var pushes = 0
+        let (scheduler, model) = countingScheduler { pushes += 1 }
+        defer { scheduler.stop() }
+        model.music.pause()
+        model.music.stop()
+        scheduler.ledgerPush?.schedule()
+        try await settle()
+        XCTAssertEqual(pushes, 1)
+    }
+
+    /// `MusicModel` saves the queue for handoff on pause; the push must sit beside that, not
+    /// replace it, and `stop()` must hand the hooks back.
+    func testThePushIsChainedOntoTheExistingPauseHook() async throws {
+        let model = MusicModel()
+        var handoffSaves = 0
+        model.music.onPause = { handoffSaves += 1 }
+        var pushes = 0
+        let scheduler = PreferenceSyncScheduler(model: model, pushDelay: .milliseconds(50)) { pushes += 1; return true }
+        scheduler.installPushTriggers()
+        model.music.pause()
+        try await settle()
+        XCTAssertEqual(handoffSaves, 1)
+        XCTAssertEqual(pushes, 1)
+
+        scheduler.stop()
+        model.music.pause()
+        try await settle()
+        XCTAssertEqual(handoffSaves, 2)
+        XCTAssertEqual(pushes, 1, "a stopped scheduler pushes nothing")
+        XCTAssertNil(model.music.onStop)
+    }
+
+    /// A probe launched with `BATON_DEBUG_PREFERENCE_SYNC=off` gets no push at all.
+    func testASwitchedOffMacInstallsNoPush() {
+        let model = MusicModel()
+        let scheduler = PreferenceSyncScheduler(model: model)
+        scheduler.start(environment: ["BATON_DEBUG_PREFERENCE_SYNC": "off"])
+        defer { scheduler.stop() }
+        XCTAssertNil(scheduler.ledgerPush)
+        XCTAssertNil(model.music.onStop)
+    }
+
+    /// And an ordinary start installs it. Never suspends, so no request is made.
+    func testStartInstallsThePush() {
+        let model = MusicModel()
+        let scheduler = PreferenceSyncScheduler(model: model)
+        scheduler.start(environment: [:])
+        defer { scheduler.stop() }
+        XCTAssertNotNil(scheduler.ledgerPush)
+        XCTAssertNotNil(model.music.onStop)
+    }
+
+    // MARK: - Play pulls first
+
+    /// Play on a book fetches the phone's place through the same forced sync as the push, so a
+    /// Mac left in front starts where the phone stopped. Stopping the scheduler takes it away.
+    func testPlayOnABookPullsThroughTheForcedSync() async {
+        var syncs = 0
+        let (scheduler, model) = countingScheduler { syncs += 1 }
+        guard let pull = model.bookPlacePull else {
+            scheduler.stop()
+            return XCTFail("a running scheduler gives book Play nothing to pull with")
+        }
+        let outcome = await BookPlacePull.run(sync: pull)
+        XCTAssertEqual(outcome, .pulled)
+        XCTAssertEqual(syncs, 1, "Play did not sync before starting")
+        scheduler.stop()
+        XCTAssertNil(model.bookPlacePull, "a stopped scheduler still pulls")
+    }
+
+    /// A probe launched with `BATON_DEBUG_PREFERENCE_SYNC=off` pulls nothing before Play.
+    func testASwitchedOffMacPullsNothingBeforePlay() {
+        let model = MusicModel()
+        let scheduler = PreferenceSyncScheduler(model: model)
+        scheduler.start(environment: ["BATON_DEBUG_PREFERENCE_SYNC": "off"])
+        defer { scheduler.stop() }
+        XCTAssertNil(model.bookPlacePull)
+    }
+
+    /// An ordinary start offers the pull.
+    func testStartOffersThePullBeforePlay() {
+        let model = MusicModel()
+        let scheduler = PreferenceSyncScheduler(model: model)
+        scheduler.start(environment: [:])
+        defer { scheduler.stop() }
+        XCTAssertNotNil(model.bookPlacePull)
+    }
 }

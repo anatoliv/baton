@@ -56,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.4"
+    MARKETING_VERSION: "1.5"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -140,6 +140,8 @@ targets:
       - path: ../Shared/ShareSongViews.swift
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
+      # Read-along for a playing book, one view for both apps (TBX-10960).
+      - path: ../Shared/ReadAlongView.swift
       # The share extension's inbox, read here when the app becomes active (TBX-10846).
       - path: Sources/BatonShare/PendingShareInbox.swift
       - path: Sources/Shared
@@ -221,7 +223,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsForMedia: true
           NSAllowsLocalNetworking: true
-        NSLocalNetworkUsageDescription: "Baton connects to your Navidrome server and self-hosted text-to-speech services on your local network."
+        NSLocalNetworkUsageDescription: "Baton connects to your music server, your Baton server and self-hosted text-to-speech services on your local network."
         NSCameraUsageDescription: "The camera reads the pairing code your Mac shows, so your iPhone can be set up without typing a server address and password. Nothing is recorded."
         NSMicrophoneUsageDescription: "The microphone lets you talk to your music friend — push to talk, ask for music."
         NSSpeechRecognitionUsageDescription: "Speech recognition turns what you say into a request for your music friend. On-device where available."

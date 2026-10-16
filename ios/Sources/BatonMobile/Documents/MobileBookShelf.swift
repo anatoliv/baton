@@ -49,14 +49,25 @@ enum MobileBookShelf {
         var isRendering: Bool
         var position: (chapterIndex: Int, seconds: Double)?
         var finished: Bool
+        /// Sent to the home server by another device and adopted from its listing.
+        var adopted = false
+        /// Being made again in another voice: the row's line while it is.
+        var remaking: String?
+        /// The voice change can be stopped from here (it was started on this phone).
+        var canStopRemaking = false
 
         var id: String { documentID }
+
+        /// "Made on the home server" for a book another device sent there, so a row
+        /// nobody made from this phone says where it came from.
+        var originText: String? { adopted ? "Made on the Baton server" : nil }
 
         static func == (lhs: Book, rhs: Book) -> Bool {
             lhs.documentID == rhs.documentID && lhs.jobID == rhs.jobID && lhs.title == rhs.title && lhs.author == rhs.author
                 && lhs.chapters == rhs.chapters && lhs.createdAt == rhs.createdAt
                 && lhs.pauseReason == rhs.pauseReason && lhs.failure == rhs.failure
-                && lhs.isRendering == rhs.isRendering && lhs.finished == rhs.finished
+                && lhs.isRendering == rhs.isRendering && lhs.finished == rhs.finished && lhs.adopted == rhs.adopted
+                && lhs.remaking == rhs.remaking && lhs.canStopRemaking == rhs.canStopRemaking
                 && lhs.position?.chapterIndex == rhs.position?.chapterIndex
                 && lhs.position?.seconds == rhs.position?.seconds
         }
@@ -77,7 +88,7 @@ enum MobileBookShelf {
         /// while it is still being made or collected there.
         var storedText: String {
             if isOffloaded { return "Download removed" }
-            return isComplete ? "On this phone" : "On the home server"
+            return isComplete ? "On this phone" : "On the Baton server"
         }
 
         /// Every chapter was made, and none of their audio is on this phone now (M6.3).
@@ -92,6 +103,7 @@ enum MobileBookShelf {
                 return ("Paused: \(pauseReason). It carries on by itself when the voice server answers.", true)
             }
             if let failure { return ("Stopped: \(failure)", true) }
+            if let remaking { return (remaking, false) }
             guard isRendering, let next = chapters.first(where: { $0.item == nil && $0.state != .removed }) else { return nil }
             let of = "chapter \(next.index + 1) of \(chapters.count)"
             switch next.state {
@@ -114,7 +126,8 @@ enum MobileBookShelf {
     /// Every book this phone knows: remembered on the home server, or present as chapters in
     /// Clippings, newest first. Readings (clippings that are not chapters) are left to the list.
     static func books(items: [ClippingStore.Item], records: [HomeServerBooks.Record],
-                      summaries: [String: BookJob.Summary], ledger: ClippingLedger) -> [Book] {
+                      summaries: [String: BookJob.Summary], ledger: ClippingLedger,
+                      changes: [BookVoiceChanges.Change] = []) -> [Book] {
         let chaptersByBook = Dictionary(grouping: items.filter(\.clipping.isBookChapter)) { $0.clipping.documentID ?? "" }
         var documentIDs = Set(chaptersByBook.keys)
         documentIDs.formUnion(records.map(\.documentID))
@@ -155,6 +168,7 @@ enum MobileBookShelf {
             let first = landed.first?.clipping
             let position = ledger.document(documentID)
             let status = summary?.status
+            let change = changes.first { $0.documentID == documentID && $0.jobID == record?.jobID }
             books.append(Book(
                 documentID: documentID,
                 jobID: record?.jobID,
@@ -166,7 +180,10 @@ enum MobileBookShelf {
                 failure: status == .failed ? chapters.compactMap { if case let .failed(why) = $0.state { why } else { nil } }.first : nil,
                 isRendering: status == .rendering || status == .paused || (summary == nil && record != nil),
                 position: position.flatMap { r in r.chapterIndex.map { ($0, r.seconds ?? 0) } },
-                finished: position?.finished ?? false))
+                finished: position?.finished ?? false,
+                adopted: record?.adopted == true,
+                remaking: change.map { BookVoiceChanges.statusLine($0, chapters: summary?.chapters, total: chapters.count) },
+                canStopRemaking: change?.startedHere == true))
         }
         return books.sorted { $0.createdAt > $1.createdAt }
     }

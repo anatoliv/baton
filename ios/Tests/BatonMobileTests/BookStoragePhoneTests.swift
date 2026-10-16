@@ -61,7 +61,7 @@ final class BookStoragePhoneTests: XCTestCase {
 
     func testARemovedDownloadStaysRemovedUntilDownloadAgain() async throws {
         let (books, cleanup, clippings, fake, id, prepared) = try await collected()
-        let downloads = { fake.seen.filter { $0.contains("/chapters/") }.count }
+        let downloads = { fake.seen.filter { $0.contains("/chapters/") && !$0.hasSuffix("/timing") }.count }
         XCTAssertEqual(downloads(), 2)
 
         let freed = cleanup.offload(try stored(books, clippings))
@@ -118,17 +118,20 @@ final class BookStoragePhoneTests: XCTestCase {
         XCTAssertEqual(cleanup.removed, [])
     }
 
-    /// Delete Book… asks the home server to delete the book whichever answer is chosen, as its
-    /// question says, and Recently removed still restores it from the audio held here.
-    func testDeleteBookAsksTheHomeServerToDeleteItEitherWayAndRestoreStillWorks() async throws {
+    /// Delete Book…: Delete Everywhere asks the home server to delete the book;
+    /// Remove from this iPhone leaves the home server's copy for the other devices and hides
+    /// the book here so it is not adopted again. Either way Recently removed restores it from
+    /// the audio held here, and a restore unhides it.
+    func testDeleteBookDeletesOnTheHomeServerOnlyEverywhereAndRestoreStillWorks() async throws {
         for everywhere in [false, true] {
             if everywhere { try tearDownWithError(); try setUpWithError() }
             let (books, cleanup, clippings, fake, id, prepared) = try await collected()
             let row = try XCTUnwrap(shelf(books, clippings).first)
             await MobileBookShelf.delete(row, everywhere: everywhere, homeServer: books, cleanup: cleanup,
                                          ledger: clippings.ledger)
-            XCTAssertTrue(fake.seen.contains("DELETE /v1/books/\(id)"), "everywhere: \(everywhere)")
+            XCTAssertEqual(fake.seen.contains("DELETE /v1/books/\(id)"), everywhere, "everywhere: \(everywhere)")
             XCTAssertEqual(books.records, [], "everywhere: \(everywhere)")
+            XCTAssertEqual(books.hiddenDocumentIDs.contains(prepared.documentID), !everywhere, "everywhere: \(everywhere)")
             XCTAssertEqual(clippings.chapters(ofDocument: prepared.documentID), [])
 
             let entry = try XCTUnwrap(cleanup.removed.first)
@@ -137,6 +140,7 @@ final class BookStoragePhoneTests: XCTestCase {
             let back = clippings.chapters(ofDocument: prepared.documentID)
             XCTAssertEqual(back.map(\.clipping.chapterTitle), ["The Cell", "The Surface"], "everywhere: \(everywhere)")
             XCTAssertTrue(back.allSatisfy(\.isPresent))
+            XCTAssertFalse(books.hiddenDocumentIDs.contains(prepared.documentID), "restored: wanted here again")
         }
     }
 

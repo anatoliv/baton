@@ -70,8 +70,8 @@ final class ImportOverSheetUITests: XCTestCase {
         let gear = app.buttons["Settings"].firstMatch
         XCTAssertTrue(gear.waitForExistence(timeout: 30), "Home's Settings button")
         gear.tap()
-        // "Server", not "Settings": the gear's own label is "Settings" (see FullWalkUITests).
-        let settings = app.staticTexts["Server"].firstMatch
+        // "Music server", not "Settings": the gear's own label is "Settings" (see FullWalkUITests).
+        let settings = app.staticTexts["Music server"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "Settings did not open")
 
         awayAndBack()
@@ -86,6 +86,30 @@ final class ImportOverSheetUITests: XCTestCase {
         XCTAssertTrue(gear.waitForExistence(timeout: 10), "back on Home")
         gear.tap()
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "Settings should open again after the import")
+    }
+
+    /// Files "Open in Baton" while Settings is up: the document comes through
+    /// `onOpenURL` as a file URL rather than through the share inbox, and lands in the same
+    /// pending import, so Settings has to make way for it the same way.
+    func testADocumentOpenedFromFilesWhileSettingsIsOpenStillOpensTheImportScreen() throws {
+        app.launchEnvironment.removeValue(forKey: "uitestSharedTextWhenAway")
+        app.launch()
+        selectReleaseTab("Home", in: app, screenTitle: "Home")
+        let gear = app.buttons["Settings"].firstMatch
+        XCTAssertTrue(gear.waitForExistence(timeout: 30), "Home's Settings button")
+        gear.tap()
+        let settings = app.staticTexts["Music server"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 20), "Settings did not open")
+
+        let heading = try openFromFiles()
+        XCTAssertTrue(heading.waitForExistence(timeout: 20), "the opened document did not open the import screen over Settings")
+        XCTAssertTrue(app.staticTexts["The Shelf"].firstMatch.waitForExistence(timeout: 5), "chapter 1 is not listed")
+        attach("open-in-over-settings")
+        XCTAssertFalse(settings.exists, "Settings made way for the import")
+
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertFalse(heading.waitForExistence(timeout: 3), "Cancel should close the import screen")
+        XCTAssertTrue(gear.waitForExistence(timeout: 10), "back on Home")
     }
 
     // MARK: - Steps
@@ -120,6 +144,30 @@ final class ImportOverSheetUITests: XCTestCase {
             }
         }
         XCTAssertTrue(playing, "nothing in the bundled demo library started playing")
+    }
+
+    /// What Files does for "Open in Baton": the system hands the app a file URL, which arrives
+    /// through `onOpenURL`. Returns the import screen's heading for this document.
+    private func openFromFiles() throws -> XCUIElement {
+        let fileTitle = "Pages From Files"
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("Opened From Files.txt")
+        try """
+        \(fileTitle)
+        by Nobody in Particular
+
+        Chapter 1 The Shelf
+
+        Opened in Baton from Files while another screen was up.
+
+        Chapter 2 The Drawer
+
+        The second chapter is here so the import has more than one.
+        """.write(to: file, atomically: true, encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+        let heading = app.staticTexts[fileTitle].firstMatch
+        XCTAssertFalse(heading.exists, "nothing was opened yet")
+        app.open(file)
+        return heading
     }
 
     private func attach(_ name: String) {
