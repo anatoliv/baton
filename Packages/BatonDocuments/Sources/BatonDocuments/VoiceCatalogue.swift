@@ -125,6 +125,12 @@ public enum VoiceCatalogue {
         let engine = parts.count == 2 ? parts[0].lowercased() : "kokoro"
         let id = parts.count == 2 ? parts[1] : spec
         let full = "\(engine):\(id)"
+        // A Qwen3-TTS preset on an expressive server: its gender, native language
+        // and what it suits, so a cast can be given these voices too.
+        if let preset = SpeechEngines.qwen3Preset(full) {
+            return VoiceDescriptor(spec: full, language: preset.language, accent: nil,
+                                   gender: preset.gender, grade: nil, tags: preset.tags)
+        }
         guard engine == "kokoro", id.count > 3, id.dropFirst(2).first == "_",
               let first = id.first, let lang = kokoroLanguages[first] else {
             return VoiceDescriptor(spec: full, language: "en", accent: nil, gender: nil, grade: nil,

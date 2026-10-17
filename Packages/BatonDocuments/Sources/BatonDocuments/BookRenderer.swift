@@ -13,11 +13,21 @@ public protocol SpeechSynthesizing: Sendable {
     /// The same with an expressive style, for engines that take one (Chatterbox). The default
     /// ignores the style, so a synthesizer that has no use for it need not change.
     func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data
+    /// The same with a delivery instruction, for engines that take one (an OpenAI-compatible
+    /// server such as Qwen3-TTS, TBX-11142). The default drops the instruction, so a
+    /// synthesizer that has no use for it need not change; one that forwards to another must
+    /// implement this, or the instruction is lost on the way.
+    func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?, instruction: String?) async throws -> Data
 }
 
 extension SpeechSynthesizing {
     public func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data {
         try await synthesize(text: text, voice: voice, speed: speed)
+    }
+
+    public func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?,
+                           instruction: String?) async throws -> Data {
+        try await synthesize(text: text, voice: voice, speed: speed, style: style)
     }
 }
 
@@ -89,33 +99,56 @@ public enum SynthesisError: Error, Equatable, CustomStringConvertible {
 }
 
 /// The OpenAI-compatible speech endpoint, the same request `BatonSpeech.SpeechService` makes on
-/// the Mac: `{model, voice, input, response_format: "wav"}`. One base URL per engine.
+/// the Mac: `{model, voice, input, response_format: "wav"}`. One base URL per engine; an
+/// expressive server (`openai`, TBX-11142) also has its model, an optional key, and is sent
+/// each line's delivery instruction.
 public struct HTTPSpeechSynthesizer: SpeechSynthesizing {
     public let engines: [String: URL]
+    public let endpoints: [String: SpeechEngineEndpoint]
     public let timeout: TimeInterval
+    /// The most audio one answer may carry (`CappedDownload.speechLimit`); more is refused as it
+    /// streams, for every engine.
+    public let responseLimit: Int
 
     public init(engines: [String: URL], timeout: TimeInterval = 60) {
-        self.engines = engines
+        self.init(endpoints: engines.map { SpeechEngineEndpoint(engine: $0.key, baseURL: $0.value) }, timeout: timeout)
+    }
+
+    public init(endpoints: [SpeechEngineEndpoint], timeout: TimeInterval = 60,
+                responseLimit: Int = CappedDownload.speechLimit) {
+        let byEngine = Dictionary(endpoints.map { ($0.engine, $0) }, uniquingKeysWith: { first, _ in first })
+        self.endpoints = byEngine
+        self.engines = byEngine.mapValues(\.baseURL)
         self.timeout = timeout
+        self.responseLimit = responseLimit
     }
 
     public func synthesize(text: String, voice: String, speed: Double?) async throws -> Data {
-        try await synthesize(text: text, voice: voice, speed: speed, style: nil)
+        try await synthesize(text: text, voice: voice, speed: speed, style: nil, instruction: nil)
+    }
+
+    public func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data {
+        try await synthesize(text: text, voice: voice, speed: speed, style: style, instruction: nil)
     }
 
     /// With a style and a Chatterbox voice, the request goes to Chatterbox-TTS-Server's own
-    /// `/tts` route: its OpenAI-compatible route ignores `exaggeration` and `cfg_weight`.
-    public func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data {
+    /// `/tts` route: its OpenAI-compatible route ignores `exaggeration` and `cfg_weight`. The
+    /// instruction goes only to an expressive server.
+    public func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?,
+                           instruction: String?) async throws -> Data {
         let (engine, name) = Self.split(voice)
-        guard let base = engines[engine] else {
+        guard let endpoint = endpoints[engine] else {
             throw SynthesisError.permanent("no \(engine) host is configured on the Baton server")
         }
-        let request = try Self.request(base: base, engine: engine, voice: name, text: text, speed: speed,
-                                       style: style, timeout: timeout)
+        let request = try Self.request(base: endpoint.baseURL, engine: engine, voice: name, text: text, speed: speed,
+                                       style: style, timeout: timeout, model: endpoint.requestModel,
+                                       apiKey: endpoint.apiKey, instruction: instruction)
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await CappedDownload.data(for: request, limit: responseLimit)
+        } catch let tooLarge as CappedDownload.TooLarge {
+            throw SynthesisError.permanent("\(engine) sent too much audio for one request: \(tooLarge)")
         } catch {
             throw SynthesisError.transient("\(engine) did not answer: \(error.localizedDescription)")
         }
@@ -133,20 +166,25 @@ public struct HTTPSpeechSynthesizer: SpeechSynthesizing {
     }
 
     static func request(base: URL, engine: String, voice: String, text: String, speed: Double?,
-                        style: SpeechStyle?, timeout: TimeInterval) throws -> URLRequest {
+                        style: SpeechStyle?, timeout: TimeInterval, model: String? = nil, apiKey: String? = nil,
+                        instruction: String? = nil) throws -> URLRequest {
         let expressive = engine == "chatterbox" ? style : nil
         var request = URLRequest(url: base.appendingPathComponent(expressive == nil ? "v1/audio/speech" : "tts"))
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let apiKey, !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
         var body: [String: Any]
         if let expressive {
             body = ["text": text, "voice_mode": "predefined", "predefined_voice_id": voice, "output_format": "wav",
                     "split_text": false, "exaggeration": expressive.exaggeration, "cfg_weight": expressive.cfgWeight]
             if let speed { body["speed_factor"] = speed }
         } else {
-            body = ["model": engine, "voice": voice, "input": text, "response_format": "wav"]
+            body = ["model": model ?? engine, "voice": voice, "input": text, "response_format": "wav"]
             if let speed { body["speed"] = speed }
+            if SpeechEngines.takesInstructions(engine), let instruction, !instruction.isEmpty {
+                body["instructions"] = instruction
+            }
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
@@ -201,6 +239,46 @@ public enum WAV {
             offset = body + size + (size & 1)
         }
         return nil
+    }
+
+    /// The PCM without the silence a clip starts and ends with, keeping 30 ms either
+    /// side so no word is clipped: what is quieter than 45 dB below the clip's loudest 10 ms
+    /// counts as silence, the rule the TBX-11102 bake-off measured its pauses with. An expressive
+    /// engine pads each sentence differently, so without this the pause heard between sentences
+    /// would be the inserted 0.45 s plus whatever the engine added. PCM 16-bit and 32-bit float
+    /// only; any other format, or a clip with no sound, comes back as it was.
+    public static func trimmingSilence(_ pcm: Data, format: Format) -> Data {
+        let frameBytes = format.blockAlign
+        guard frameBytes > 0, pcm.count >= frameBytes,
+              (format.audioFormat == 1 && format.bitsPerSample == 16) || (format.audioFormat == 3 && format.bitsPerSample == 32)
+        else { return pcm }
+        let bytes = [UInt8](pcm)
+        let frames = bytes.count / frameBytes
+        let window = max(1, Int(format.sampleRate) / 100)
+        let windows = frames / window
+        guard windows > 0 else { return pcm }
+        func sample(_ frame: Int) -> Double {
+            let i = frame * frameBytes
+            if format.audioFormat == 1 {
+                return Double(Int16(bitPattern: UInt16(bytes[i]) | UInt16(bytes[i + 1]) << 8)) / 32768
+            }
+            let bits = UInt32(bytes[i]) | UInt32(bytes[i + 1]) << 8 | UInt32(bytes[i + 2]) << 16 | UInt32(bytes[i + 3]) << 24
+            return Double(Float(bitPattern: bits))
+        }
+        var energy = [Double](repeating: 0, count: windows)
+        for w in 0..<windows {
+            var sum = 0.0
+            for f in (w * window)..<((w + 1) * window) { let v = sample(f); sum += v * v }
+            energy[w] = (sum / Double(window)).squareRoot()
+        }
+        guard let peak = energy.max(), peak > 0 else { return pcm }
+        let threshold = peak * pow(10, -45.0 / 20)
+        guard let first = energy.firstIndex(where: { $0 > threshold }),
+              let last = energy.lastIndex(where: { $0 > threshold }) else { return pcm }
+        let pad = Int(format.sampleRate) * 3 / 100
+        let from = max(0, first * window - pad)
+        let to = min(frames, (last + 1) * window + pad)
+        return Data(bytes[(from * frameBytes)..<(to * frameBytes)])
     }
 
     public static func header(format: Format, dataBytes: Int) -> Data {
@@ -401,7 +479,9 @@ public actor BookRenderer {
         var job = initial
         let chapter = job.book.chapters[index]
         let segments = chapter.segments
-        job.chapters[index] = .rendering(done: 0, of: segments.count)
+        // A segment read by an expressive engine is a request per sentence.
+        let parts = job.book.parts(of: chapter).map(\.part)
+        job.chapters[index] = .rendering(done: 0, of: parts.count)
         try? store.save(job)
 
         // Synthesize into the content-addressed cache, a few at a time. What came from the cache
@@ -412,9 +492,8 @@ public actor BookRenderer {
         var next = 0
         let jobID = job.id
         try await withThrowingTaskGroup(of: Bool.self) { group in
-            let book = job.book
             func launch(_ i: Int) {
-                let request = book.request(for: segments[i])
+                let request = parts[i].request
                 let url = cacheDirectory.appendingPathComponent(request.cacheKey + ".wav")
                 let synthesizer = self.synthesizer
                 group.addTask {
@@ -424,15 +503,15 @@ public actor BookRenderer {
                     return true
                 }
             }
-            while next < min(concurrency, segments.count) { launch(next); next += 1 }
+            while next < min(concurrency, parts.count) { launch(next); next += 1 }
             while let wasSynthesized = try await group.next() {
                 done += 1
                 if wasSynthesized { synthesized += 1 }
-                if next < segments.count { launch(next); next += 1 }
+                if next < parts.count { launch(next); next += 1 }
                 if cancelled.contains(job.id) { group.cancelAll(); throw CancellationError() }
-                if Date().timeIntervalSince(lastSave) > 1 || done == segments.count {
+                if Date().timeIntervalSince(lastSave) > 1 || done == parts.count {
                     if var latest = store.load(job.id) {
-                        latest.chapters[index] = .rendering(done: done, of: segments.count)
+                        latest.chapters[index] = .rendering(done: done, of: parts.count)
                         try? store.save(latest)
                         job = latest
                     }
@@ -472,7 +551,7 @@ public actor BookRenderer {
         job.updatedAt = Date()
         try store.save(job)
         log("book \(job.id.prefix(12)): chapter \(index + 1)/\(job.book.chapters.count) ready, \(Int(seconds)) s "
-            + "(\(synthesized) synthesized, \(segments.count - synthesized) from cache)")
+            + "(\(synthesized) synthesized, \(parts.count - synthesized) from cache)")
         return job
     }
 
@@ -486,7 +565,8 @@ public actor BookRenderer {
             try Task.checkCancellation()
             do {
                 let data = try await synthesizer.synthesize(text: request.text, voice: request.voice,
-                                                            speed: request.speed, style: request.style)
+                                                            speed: request.speed, style: request.style,
+                                                            instruction: request.instruction)
                 if paused { setPaused(jobID, error: nil) }
                 return data
             } catch let error as SynthesisError {
@@ -513,10 +593,11 @@ public actor BookRenderer {
         log(error.map { "book \(id.prefix(12)): paused: \($0.description)" } ?? "book \(id.prefix(12)): resumed")
     }
 
-    /// Concatenate the cached clips, with each segment's pause as silence, into one WAV.
+    /// Concatenate the cached clips, with each part's pause as silence, into one WAV.
     /// Returns the duration in seconds and where each segment's speech starts and ends in it,
-    /// for read-along. Every clip must share one format; Kokoro always answers 24 kHz mono
-    /// 16-bit, and a mixed cast across engines is refused here rather than garbled.
+    /// for read-along: a segment read sentence by sentence spans all its sentences. Every clip
+    /// must share one format; Kokoro always answers 24 kHz mono 16-bit, and a mixed cast across
+    /// engines is refused here rather than garbled.
     nonisolated func joinWAV(segments: [SpeechSegment], book: PreparedBook,
                              to destination: URL) throws -> (seconds: Double, timing: ReadAlongTiming) {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
@@ -528,23 +609,29 @@ public actor BookRenderer {
         var total = 0
         var timed: [ReadAlongTiming.Segment] = []
         try handle.write(contentsOf: Data(count: 44))   // header placeholder, rewritten below
-        for segment in segments {
-            let url = cacheDirectory.appendingPathComponent(book.request(for: segment).cacheKey + ".wav")
-            guard let clip = WAV.parse(try Data(contentsOf: url)) else {
-                throw SynthesisError.permanent("a cached clip is not WAV: \(url.lastPathComponent)")
+        for (i, segment) in segments.enumerated() {
+            var start: Double?
+            for part in book.parts(for: segment, after: i > 0 ? segments[i - 1] : nil) {
+                let url = cacheDirectory.appendingPathComponent(part.request.cacheKey + ".wav")
+                guard let clip = WAV.parse(try Data(contentsOf: url)) else {
+                    throw SynthesisError.permanent("a cached clip is not WAV: \(url.lastPathComponent)")
+                }
+                if let format, format != clip.format {
+                    throw SynthesisError.permanent("voices in this book return different audio formats; render it with one engine")
+                }
+                format = clip.format
+                let pcm = part.trimsSilence ? WAV.trimmingSilence(clip.pcm, format: clip.format) : clip.pcm
+                let silence = Int(Double(clip.format.sampleRate) * Double(part.pauseBeforeMs) / 1000) * clip.format.blockAlign
+                if silence > 0 { try handle.write(contentsOf: Data(count: silence)); total += silence }
+                let bytesPerSecond = Double(clip.format.blockAlign) * Double(clip.format.sampleRate)
+                if start == nil { start = Double(total) / bytesPerSecond }
+                try handle.write(contentsOf: pcm)
+                total += pcm.count
             }
-            if let format, format != clip.format {
-                throw SynthesisError.permanent("voices in this book return different audio formats; render it with one engine")
-            }
-            format = clip.format
-            let silence = Int(Double(clip.format.sampleRate) * Double(segment.pauseBeforeMs) / 1000) * clip.format.blockAlign
-            if silence > 0 { try handle.write(contentsOf: Data(count: silence)); total += silence }
-            let bytesPerSecond = Double(clip.format.blockAlign) * Double(clip.format.sampleRate)
-            let start = Double(total) / bytesPerSecond
-            try handle.write(contentsOf: clip.pcm)
-            total += clip.pcm.count
+            let bytesPerSecond = format.map { Double($0.blockAlign) * Double($0.sampleRate) } ?? 1
             timed.append(ReadAlongTiming.Segment(text: segment.text, paragraph: segment.paragraph,
-                                                 start: start, end: Double(total) / bytesPerSecond))
+                                                 start: start ?? Double(total) / bytesPerSecond,
+                                                 end: Double(total) / bytesPerSecond))
         }
         guard let format else { throw SynthesisError.permanent("the chapter has no audio") }
         try handle.seek(toOffset: 0)

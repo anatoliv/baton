@@ -567,6 +567,7 @@ public enum DialogueCast {
         var lines: [String: Int] = [:]
         for s in spans where s.kind == .quote { if let who = s.speaker { lines[who, default: 0] += 1 } }
         let narratorAccent = VoiceCatalogue.describe(narrator).accent
+        let narratorLanguage = VoiceCatalogue.describe(narrator).language
         let pool = available.map(VoiceCatalogue.describe)
             .filter { ($0.grade != nil || !$0.tags.isEmpty) && !VoiceCatalogue.avoided.contains($0.spec) }
         var used: Set<String> = [VoiceCatalogue.describe(narrator).spec]
@@ -575,6 +576,11 @@ public enum DialogueCast {
             let wanted = c.gender == "f" ? "female" : (c.gender == "m" ? "male" : nil)
             let ranked = pool.filter { !used.contains($0.spec) && (wanted == nil || $0.gender == wanted) }
                 .sorted { a, b in
+                    // A voice native in the narrator's language first: an expressive server's
+                    // presets include Chinese, Japanese and Korean speakers. Every
+                    // voice Kokoro's pool keeps is English, so its order is unchanged.
+                    let la = a.language == narratorLanguage ? 0 : 1, lb = b.language == narratorLanguage ? 0 : 1
+                    if la != lb { return la < lb }
                     let ra = VoiceCatalogue.dialogueRank(a), rb = VoiceCatalogue.dialogueRank(b)
                     if ra != rb { return ra < rb }
                     let aa = a.accent == narratorAccent ? 1 : 0, ba = b.accent == narratorAccent ? 1 : 0

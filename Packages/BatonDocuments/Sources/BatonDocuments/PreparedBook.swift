@@ -66,23 +66,69 @@ public struct PreparedBook: Codable, Sendable, Equatable {
 }
 
 /// One chunk as it goes to the engine: the voice, the text with the book's pronunciations
-/// for a Kokoro voice, the style for a Chatterbox one, and the cache key of exactly that.
+/// for a Kokoro voice, the style for a Chatterbox one, the delivery instruction for an
+/// expressive one, and the cache key of exactly that.
 public struct SegmentRequest: Sendable, Equatable {
     public var text: String
     public var voice: String
     public var speed: Double?
     public var style: SpeechStyle?
+    public var instruction: String? = nil
     public var cacheKey: String
+}
+
+/// One request of a segment and the silence before it. A Kokoro or Chatterbox
+/// segment is one part with the segment's own pause. A segment read by an expressive engine is
+/// one part per sentence: the first with the reader's pause before the segment
+/// (`SpeechPacing.pauseBefore`), the rest 0.45 s apart, each clip's own leading and trailing
+/// silence trimmed so the pause is the one heard.
+public struct SegmentPart: Sendable, Equatable {
+    public var request: SegmentRequest
+    public var pauseBeforeMs: Int
+    public var trimsSilence: Bool
 }
 
 extension PreparedBook {
     public func request(for segment: SpeechSegment) -> SegmentRequest {
+        request(for: segment, text: segment.text)
+    }
+
+    func request(for segment: SpeechSegment, text original: String) -> SegmentRequest {
         let voice = voices.voice(for: segment)
         let engine = HTTPSpeechSynthesizer.split(voice).engine
-        let text = engine == "kokoro" ? (lexicon?.apply(to: segment.text) ?? segment.text) : segment.text
+        let text = engine == "kokoro" ? (lexicon?.apply(to: original) ?? original) : original
         let style = engine == "chatterbox" ? voices.style : nil
-        return SegmentRequest(text: text, voice: voice, speed: voices.speed, style: style,
-                              cacheKey: SpeechSegment.cacheKey(voice: voice, speed: voices.speed, sent: text, style: style))
+        let instruction = SpeechEngines.takesInstructions(engine)
+            ? DeliveryHints.instruction(speaker: voices.characters[segment.speaker ?? ""] == nil ? nil : segment.speaker,
+                                        direction: voices.direction, voice: voice, bookLanguage: language)
+            : nil
+        return SegmentRequest(text: text, voice: voice, speed: voices.speed, style: style, instruction: instruction,
+                              cacheKey: SpeechSegment.cacheKey(voice: voice, speed: voices.speed, sent: text, style: style,
+                                                               instruction: instruction))
+    }
+
+    /// The requests a segment is made of, and the silence before each (`SegmentPart`).
+    /// `previous` is the segment before it in the chapter, nil for the first.
+    public func parts(for segment: SpeechSegment, after previous: SpeechSegment?) -> [SegmentPart] {
+        let engine = HTTPSpeechSynthesizer.split(voices.voice(for: segment)).engine
+        guard SpeechEngines.readsBySentence(engine) else {
+            return [SegmentPart(request: request(for: segment), pauseBeforeMs: segment.pauseBeforeMs, trimsSilence: false)]
+        }
+        let sentences = SentenceSplitter.sentences(segment.text)
+        return (sentences.isEmpty ? [segment.text] : sentences).enumerated().map { i, sentence in
+            SegmentPart(request: request(for: segment, text: sentence),
+                        pauseBeforeMs: i == 0 ? SpeechPacing.pauseBefore(segment, after: previous) : SpeechPacing.betweenSentencesMs,
+                        trimsSilence: true)
+        }
+    }
+
+    /// Every part of a chapter, in order, with the segment each belongs to.
+    public func parts(of chapter: PreparedChapter) -> [(segment: Int, part: SegmentPart)] {
+        var out: [(segment: Int, part: SegmentPart)] = []
+        for (i, segment) in chapter.segments.enumerated() {
+            for part in parts(for: segment, after: i > 0 ? chapter.segments[i - 1] : nil) { out.append((i, part)) }
+        }
+        return out
     }
 }
 
@@ -102,12 +148,36 @@ public struct VoicePlan: Codable, Sendable, Equatable {
     public var speed: Double?
     /// How expressively Chatterbox voices read (M8.7); Kokoro ignores it. Nil: the engine's own.
     public var style: SpeechStyle?
+    /// The book's tone and the cast's gender and age, for voices that take a delivery
+    /// instruction. Nil unless one does, so other books' plans are unchanged.
+    public var direction: VoiceDirection?
 
-    public init(narrator: String, characters: [String: String] = [:], speed: Double? = nil, style: SpeechStyle? = nil) {
+    public init(narrator: String, characters: [String: String] = [:], speed: Double? = nil, style: SpeechStyle? = nil,
+                direction: VoiceDirection? = nil) {
         self.narrator = narrator
         self.characters = characters
         self.speed = speed
         self.style = style
+        self.direction = direction
+    }
+
+    /// Whether any voice in the plan takes a delivery instruction.
+    public var takesInstructions: Bool {
+        ([narrator] + characters.values).contains { SpeechEngines.takesInstructions(HTTPSpeechSynthesizer.split($0).engine) }
+    }
+
+    /// The direction kept to what the plan's voices use: the traits of characters read by an
+    /// instruction-taking voice, and the tone, while any voice takes an instruction; nil when
+    /// none does, so the plan encodes as it did before directions existed.
+    public func keepingDirection(_ direction: VoiceDirection?) -> VoicePlan {
+        var plan = self
+        guard takesInstructions else { plan.direction = nil; return plan }
+        var kept = direction ?? VoiceDirection()
+        kept.characters = kept.characters.filter { name, _ in
+            characters[name].map { SpeechEngines.takesInstructions(HTTPSpeechSynthesizer.split($0).engine) } ?? false
+        }
+        plan.direction = kept
+        return plan
     }
 
     /// The plan for a book read by `narrator` (M8.7). The suggested speed belongs to the suggested
@@ -119,7 +189,9 @@ public struct VoicePlan: Codable, Sendable, Equatable {
         let suggested = suggestion.map { $0.primary == narrator && !$0.isFallback } ?? false
         let engine = HTTPSpeechSynthesizer.split(narrator).engine
         let style = engine == "chatterbox" ? SpeechStyle.forTone(suggestion?.tone ?? tone) : nil
-        return VoicePlan(narrator: narrator, speed: suggested ? suggestion?.speed : nil, style: style)
+        let direction = SpeechEngines.takesInstructions(engine)
+            ? VoiceDirection(tone: DeliveryHints.cleanTone(suggestion?.tone ?? tone)) : nil
+        return VoicePlan(narrator: narrator, speed: suggested ? suggestion?.speed : nil, style: style, direction: direction)
     }
 
     /// The plan with another narrator (Change Voice, TBX-10989). The cast is the book's and is
@@ -130,6 +202,7 @@ public struct VoicePlan: Codable, Sendable, Equatable {
         guard narrator != self.narrator else { return self }
         let chatterbox = HTTPSpeechSynthesizer.split(narrator).engine == "chatterbox"
         return VoicePlan(narrator: narrator, characters: characters, speed: nil, style: chatterbox ? style : nil)
+            .keepingDirection(direction ?? VoiceDirection())
     }
 
     /// The voice for a segment: its speaker's, or the narrator's when it has none or the
@@ -196,8 +269,12 @@ public struct SpeechSegment: Codable, Sendable, Equatable {
 
     /// With what is actually sent: the text after the lexicon, and the style. A chunk with
     /// neither keeps the key it always had, so books rendered before them stay cached.
-    static func cacheKey(voice: String, speed: Double?, sent: String, style: SpeechStyle?) -> String {
+    /// A delivery instruction is part of what is sent, so it is part of the key.
+    static func cacheKey(voice: String, speed: Double?, sent: String, style: SpeechStyle?, instruction: String? = nil) -> String {
         let speedPart = speed.map { String(format: "%.2f", $0) } ?? "-"
+        if let instruction {
+            return SHA256Digest.hex(of: Data("v3|\(voice)|\(speedPart)|\(style?.key ?? "-")|\(instruction)|\(sent)".utf8))
+        }
         guard let style else { return SHA256Digest.hex(of: Data("v1|\(voice)|\(speedPart)|\(sent)".utf8)) }
         return SHA256Digest.hex(of: Data("v2|\(voice)|\(speedPart)|\(style.key)|\(sent)".utf8))
     }

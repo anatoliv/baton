@@ -39,9 +39,23 @@ public struct GatewayBookClient: Sendable {
     /// or a second device importing the same file in the same voice).
     public func submit(_ book: PreparedBook) async throws -> BookJob.Summary {
         let id = BookJob.id(for: book)
-        let (data, _) = try await send("PUT", "v1/books/\(id)", body: try book.encoded(),
-                                       contentType: "application/json")
+        let (data, _) = try await Self.explainingOutdatedServer(book) {
+            try await send("PUT", "v1/books/\(id)", body: try book.encoded(), contentType: "application/json")
+        }
         return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
+    }
+
+    /// A Baton server from before expressive voices does not know a plan's
+    /// `direction`, so it computes another id for the book and answers 400 "book id does not
+    /// match its content". For a book with an expressive voice that is the server's age, not
+    /// the book's fault, and the person is told to update the server.
+    static func explainingOutdatedServer<T>(_ book: PreparedBook, _ body: () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch let GatewayBookError.http(400, message) where message.contains("does not match its content")
+            && book.voices.takesInstructions {
+            throw GatewayBookError.outdatedServer
+        }
     }
 
     public func status(_ id: String) async throws -> BookJob.Summary {
@@ -125,8 +139,9 @@ public struct GatewayBookClient: Sendable {
     /// with the chapters it already has. A gateway older than the route answers 400 or 404.
     public func upload(_ book: PreparedBook) async throws -> BookJob.Summary {
         let id = BookJob.id(for: book)
-        let (data, _) = try await send("PUT", "v1/books/\(id)/upload", body: try book.encoded(),
-                                       contentType: "application/json")
+        let (data, _) = try await Self.explainingOutdatedServer(book) {
+            try await send("PUT", "v1/books/\(id)/upload", body: try book.encoded(), contentType: "application/json")
+        }
         return try BookJSON.decoder.decode(BookJob.Summary.self, from: data)
     }
 
@@ -314,9 +329,12 @@ public enum GatewayBookError: Error, Equatable, CustomStringConvertible {
     case unreadable
     case http(status: Int, message: String)
     case digestMismatch(expected: String?, actual: String)
+    /// The Baton server is older than a feature the book uses.
+    case outdatedServer
 
     public var description: String {
         switch self {
+        case .outdatedServer: return Self.outdatedServerReason
         case .notHTTP: return "the Baton server's answer was not HTTP"
         case .unreadable: return "the Baton server answered with something Baton can't read"
         case let .http(status, message): return "the Baton server answered \(status): \(message)"
@@ -325,6 +343,9 @@ public enum GatewayBookError: Error, Equatable, CustomStringConvertible {
         }
     }
 
+    public static let outdatedServerReason =
+        "your Baton server is too old for expressive voices: update your Baton server, or choose another voice"
+
     /// The same, in a listener's words, for a status line.
     public var listenerReason: String {
         switch self {
@@ -332,6 +353,7 @@ public enum GatewayBookError: Error, Equatable, CustomStringConvertible {
         case .http(507, _): return "the Baton server is out of space for books"
         case .http(503, _): return "books are off on the Baton server"
         case .digestMismatch: return "a chapter arrived damaged and will be fetched again"
+        case .outdatedServer: return Self.outdatedServerReason
         default: return "the Baton server isn't answering"
         }
     }

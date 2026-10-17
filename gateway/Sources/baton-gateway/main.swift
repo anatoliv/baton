@@ -35,6 +35,9 @@ import Foundation
 //                         cannot read (a Docker service, a bare host name); book tasks need it local
 //   BATON_TTS_KOKORO_URL  Kokoro for rendering books (default http://127.0.0.1:8880)
 //   BATON_TTS_CHATTERBOX_URL  Chatterbox, if a book's voices use it (optional)
+//   BATON_TTS_OPENAI_URL  an OpenAI-compatible speech server such as Qwen3-TTS (optional), with
+//                         BATON_TTS_OPENAI_MODEL (default qwen3-tts) and BATON_TTS_OPENAI_KEY_FILE
+//                         or BATON_TTS_OPENAI_KEY when it asks for a key (`SpeechEngineConfig`)
 //   BATON_RENDER_CONCURRENCY  TTS requests in flight per book (default 2)
 //   BATON_BOOKS_MAX_BYTES     space for rendered books (default 4 GiB)
 //   BATON_BOOKS_KEEP_FINISHED_DAYS  how long a finished book's audio stays (default 30)
@@ -155,9 +158,10 @@ let bookStore = BookStore(
     maximumBytes: Int(env["BATON_BOOKS_MAX_BYTES"] ?? "") ?? BookStore.defaultMaximumBytes,
     keepFinished: (Double(env["BATON_BOOKS_KEEP_FINISHED_DAYS"] ?? "") ?? 30) * 86_400
 )
-var ttsEngines: [String: URL] = ["kokoro": URL(string: env["BATON_TTS_KOKORO_URL"] ?? "http://127.0.0.1:8880")!]
-if let chatterbox = env["BATON_TTS_CHATTERBOX_URL"].flatMap(URL.init(string:)) { ttsEngines["chatterbox"] = chatterbox }
-let synthesizer = HTTPSpeechSynthesizer(engines: ttsEngines)
+let ttsConfig = SpeechEngineConfig.load(env)
+for problem in ttsConfig.problems { FileHandle.standardError.write(Data("TTS: \(problem)\n".utf8)) }
+let ttsEndpoints = ttsConfig.endpoints
+let synthesizer = HTTPSpeechSynthesizer(endpoints: ttsEndpoints)
 let ffmpegPath = FFmpegMuxer.locate(env["BATON_FFMPEG"] ?? "ffmpeg")
 let bookRenderer: BookRenderer? = ffmpegPath.map { path in
     BookRenderer(store: bookStore, cacheDirectory: booksDirectory.appendingPathComponent("cache", isDirectory: true),
@@ -168,7 +172,7 @@ let bookRenderer: BookRenderer? = ffmpegPath.map { path in
 let books = BookRoutes(renderer: bookRenderer, store: bookStore, synthesizer: synthesizer,
                        unavailableReason: ffmpegPath == nil ? "ffmpeg is not installed on the gateway" : nil,
                        exporter: ffmpegPath.map { FFmpegMuxer(executable: $0) },
-                       voices: VoiceListing(engines: ttsEngines),
+                       voices: VoiceListing(endpoints: ttsEndpoints),
                        completion: BookCompletionRoute(
                            source: BookCompletionRoute.source(provider: env["BATON_LLM_PROVIDER"], baseURL: llmConfig.baseURL,
                                                               model: llmConfig.model),
@@ -176,7 +180,7 @@ let books = BookRoutes(renderer: bookRenderer, store: bookStore, synthesizer: sy
                            declaredLocal: env["BATON_LLM_LOCAL"] == "1"))
 if let bookRenderer {
     Task { await bookRenderer.startIfNeeded() }   // resumes any book left unfinished
-    FileHandle.standardOutput.write(Data("books: \(booksDirectory.path), TTS \(ttsEngines.mapValues(\.absoluteString))\n".utf8))
+    FileHandle.standardOutput.write(Data("books: \(booksDirectory.path), TTS \(Dictionary(ttsEndpoints.map { ($0.engine, $0.baseURL.absoluteString) }, uniquingKeysWith: { a, _ in a }))\n".utf8))
 } else {
     FileHandle.standardOutput.write(Data("books: off (ffmpeg not found)\n".utf8))
 }

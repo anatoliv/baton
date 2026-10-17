@@ -724,13 +724,20 @@ struct ConfiguredSpeechSynthesizer: SpeechSynthesizing {
     /// `cfg_weight` (confirmed against the LAN Chatterbox server on 2026-10-14). Without this overload the
     /// protocol's default dropped the style and every chapter rendered flat.
     func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data {
+        try await synthesize(text: text, voice: voice, speed: speed, style: style, instruction: nil)
+    }
+
+    /// The delivery instruction goes through too, to an expressive server.
+    func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?, instruction: String?) async throws -> Data {
         let builtIn = localEngine()
         switch BookVoiceSettings.route(voice: voice, engine: engineSetting(), builtIn: builtIn) {
         case .builtIn:
             guard let builtIn else { throw SynthesisError.transient(BookVoiceSettings.notReadyReason) }
             return try await builtIn.synthesizeWAV(text: text, voice: voice, speed: speed)
-        case .server:
-            return try await HTTPSpeechSynthesizer(engines: Self.engines()).synthesize(text: text, voice: voice, speed: speed, style: style)
+        case let .server(name):
+            // The Keychain is read only for the server that needs the key.
+            return try await HTTPSpeechSynthesizer(endpoints: Self.endpoints(withKey: name == SpeechEngines.openAI))
+                .synthesize(text: text, voice: voice, speed: speed, style: style, instruction: instruction)
         case let .refused(why):
             // Transient, so the book pauses with this line and carries on by itself once the
             // voices are downloaded or the setting changes, rather than failing for good.
@@ -745,7 +752,7 @@ struct ConfiguredSpeechSynthesizer: SpeechSynthesizing {
         let choice = choice()
         let servers = engines()
         let local: [Engine] = (choice == .server || builtIn() == nil) ? [] : [.thisMac]
-        let remote: [Engine] = choice == .builtIn ? [] : ["kokoro", "chatterbox"].filter { servers[$0] != nil }.map(Engine.server)
+        let remote: [Engine] = choice == .builtIn ? [] : ["kokoro", "chatterbox", SpeechEngines.openAI].filter { servers[$0] != nil }.map(Engine.server)
         return local + remote
     }
 
@@ -762,9 +769,23 @@ struct ConfiguredSpeechSynthesizer: SpeechSynthesizing {
     /// The engines Settings → Speech names, read per call. A blank host is left out, so a voice
     /// on that engine fails as "no host is configured" rather than as a bad URL.
     static func engines() -> [String: URL] {
-        var engines: [String: URL] = [:]
-        if let kokoro = URL(string: SpeechConfig.kokoroBaseURL), kokoro.host != nil { engines["kokoro"] = kokoro }
-        if let chatterbox = URL(string: SpeechConfig.chatterboxBaseURL), chatterbox.host != nil { engines["chatterbox"] = chatterbox }
-        return engines
+        Dictionary(endpoints().map { ($0.engine, $0.baseURL) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The same with what an expressive server also needs: its model, and its key when
+    /// `withKey`, which reads the Keychain.
+    static func endpoints(withKey: Bool = false) -> [SpeechEngineEndpoint] {
+        var endpoints: [SpeechEngineEndpoint] = []
+        if let kokoro = URL(string: SpeechConfig.kokoroBaseURL), kokoro.host != nil {
+            endpoints.append(SpeechEngineEndpoint(engine: SpeechEngines.kokoro, baseURL: kokoro))
+        }
+        if let chatterbox = URL(string: SpeechConfig.chatterboxBaseURL), chatterbox.host != nil {
+            endpoints.append(SpeechEngineEndpoint(engine: SpeechEngines.chatterbox, baseURL: chatterbox))
+        }
+        if var expressive = BookVoiceSettings.expressiveEndpoint(key: nil) {
+            if withKey { expressive = BookVoiceSettings.expressiveEndpoint(key: BookVoiceSettings.readExpressiveKey()) ?? expressive }
+            endpoints.append(expressive)
+        }
+        return endpoints
     }
 }

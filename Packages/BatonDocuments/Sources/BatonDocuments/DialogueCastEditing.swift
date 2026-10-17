@@ -172,6 +172,11 @@ extension DialogueCast {
         let speaking = Set(spans.compactMap(\.speaker))
         var castPlan = plan
         castPlan.characters = voiced.filter { speaking.contains($0.key) }
+        // Who each character is goes with the book for a voice that takes a delivery
+        // instruction; nothing changes for a cast that has none.
+        let traits = Dictionary(casting.sheet.characters.map { ($0.name, CharacterTraits(gender: $0.gender, age: $0.age)) },
+                                uniquingKeysWith: { first, _ in first })
+        castPlan = castPlan.keepingDirection(VoiceDirection(tone: plan.direction?.tone, characters: traits))
         guard !castPlan.characters.isEmpty else {
             return DocumentSpeech.prepare(document, voices: plan, audio: audio, pauses: pauses)
         }

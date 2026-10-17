@@ -1,5 +1,6 @@
 import BatonDocuments
 import BatonKokoroMLX
+import BatonSubsonicKit
 import Observation
 import SwiftUI
 
@@ -29,7 +30,7 @@ struct BookVoiceEngineSection: View {
     static let automaticNeeds = "Whenever the built-in voices are downloaded, uses them first for every voice they have (their 28 English voices), and the voice server for every other voice. The default."
     static let builtInNeeds = "Kokoro, run by Baton itself. English only, 28 voices. Needs the one-time \(BuiltInVoicesModel.sizeText) download and a Mac with Apple silicon. Works offline, and nothing leaves this Mac. Recommended on Apple silicon: in a side-by-side listening test they sounded the same as the server."
     static let serverNeeds = "A Kokoro or Chatterbox server at the addresses under Services above, for example on your home network. More languages, and Chatterbox's voices and voice cloning. Needs the address to answer, and the book's text is sent to it."
-    static let homeServerNote = "The Baton server makes books with its own voice server, the Kokoro and Chatterbox addresses set in the Baton server's own setup (BATON_TTS_KOKORO_URL and BATON_TTS_CHATTERBOX_URL), not with the choice above."
+    static let homeServerNote = "The Baton server makes books with its own voice server, the Kokoro, Chatterbox and expressive server addresses set in the Baton server's own setup (BATON_TTS_KOKORO_URL, BATON_TTS_CHATTERBOX_URL and BATON_TTS_OPENAI_URL), not with the choice above."
 
     var body: some View {
         Section {
@@ -40,6 +41,7 @@ struct BookVoiceEngineSection: View {
             builtInControls
             option(.server, needs: Self.serverNeeds, status: serverLine(.kokoro), good: answers(kokoro))
             serverDetail
+            ExpressiveServerFields()
             Picker("Make books on", selection: $makeBooksOn) {
                 ForEach(BookVoiceSettings.MakeBooksOn.allCases, id: \.self) { Text($0.title).tag($0) }
             }
@@ -258,5 +260,56 @@ private final class ProgressThrottle: @unchecked Sendable {
         guard done == total || last < 0 || abs(done - last) >= 1_000_000 else { return false }
         last = done
         return true
+    }
+}
+
+/// The expressive voice server: an OpenAI-compatible speech server such as
+/// Qwen3-TTS, by address, model and an optional key. Its voices join the pickers as their own
+/// group, read a sentence at a time with each character's delivery instruction. The key goes to
+/// the Keychain when saved, never to defaults, and is never shown again.
+struct ExpressiveServerFields: View {
+    @AppStorage(BookVoiceSettings.expressiveURLKey, store: BookVoiceSettings.defaults) private var address = ""
+    @AppStorage(BookVoiceSettings.expressiveModelKey, store: BookVoiceSettings.defaults) private var model = ""
+    @State private var key = ""
+    @State private var hasKey = NavidromeKeychain.availability(account: BookVoiceSettings.expressiveKeyAccount) == .present
+
+    static let explanation = "An OpenAI-compatible speech server, such as Qwen3-TTS, for more expressive narration. Its voices are listed as Expressive voices, read a sentence at a time, and each character is told how to sound. The book's text is sent to it."
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Expressive voice server").fontWeight(.medium)
+            Text(Self.explanation).font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("Address", text: $address, prompt: Text("http://host:port"))
+                .accessibilityIdentifier("expressive-server-address")
+            TextField("Model", text: $model, prompt: Text(SpeechEngines.defaultOpenAIModel))
+                .accessibilityIdentifier("expressive-server-model")
+            HStack {
+                SecureField("Key", text: $key, prompt: Text(hasKey ? "Saved in the Keychain" : "Only if the server asks for one"))
+                    .accessibilityIdentifier("expressive-server-key")
+                Button("Save Key") {
+                    _ = NavidromeKeychain.setSecret(key.trimmingCharacters(in: .whitespacesAndNewlines), account: BookVoiceSettings.expressiveKeyAccount)
+                    key = ""
+                    hasKey = true
+                }
+                .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
+                if hasKey {
+                    Button("Remove Key", role: .destructive) {
+                        NavidromeKeychain.deleteSecret(account: BookVoiceSettings.expressiveKeyAccount)
+                        hasKey = false
+                    }
+                }
+            }
+            Text(statusLine).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.leading, 24)
+    }
+
+    private var statusLine: String {
+        guard BookVoiceSettings.expressiveEndpoint(key: nil) != nil else {
+            return address.isEmpty ? "Expressive voices: no address set" : "Expressive voices: the address is not a web address"
+        }
+        let shownModel = model.isEmpty ? SpeechEngines.defaultOpenAIModel : model
+        return "Expressive voices at \(BookVoiceSettings.displayAddress(address)), model \(shownModel)"
     }
 }

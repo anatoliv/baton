@@ -144,6 +144,7 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         // listener, chat bridges, and a network sync scheduler in the test host are exactly
         // the real-world side effects `BatonEnvironment` exists to keep out.
         guard !BatonEnvironment.current.isTesting else { return }
+        BrandIcon.shared.start()
         let music = self.music!
 
         // Expose the composition root to Shortcuts/Siri, same shape as the

@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path d="M150 560Q330 430 512 560T874 560" stroke="#E98345" stroke-width="104" stroke-linecap="round" fill="none"/><path d="M150 792Q330 922 512 792T874 792" stroke="#E98345" stroke-width="104" stroke-linecap="round" fill="none" opacity=".7"/><g fill="#E98345"><path d="M360 400h60v-252h-60z"/><path d="M420 148Q560 164 560 300Q560 356 500 372Q548 316 512 264Q476 214 420 236z"/><g transform="translate(316 396) rotate(-22)"><ellipse rx="104" ry="80"/></g></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><style>:root{--brand-ink:#C45E36;--brand-ground:#FAF7F4}@media(prefers-color-scheme:dark){:root{--brand-ink:#ED986F;--brand-ground:#30343A}}</style><rect width="1024" height="1024" rx="224" fill="var(--brand-ground)"/><g xmlns="http://www.w3.org/2000/svg" fill="var(--brand-ink)">
+    <path d="M488 650V208C488 201 493 199 500 204C539 231 599 276 635 322C682 382 686 445 649 498C655 445 638 405 604 373C587 356 565 340 541 328V635Z" />
+    <ellipse cx="414" cy="648" rx="137" ry="96" transform="rotate(-20 414 648)" />
+  </g>
+  <path xmlns="http://www.w3.org/2000/svg" d="M302 786Q410 840 518 786" fill="none" stroke="var(--brand-ink)" stroke-width="38" stroke-linecap="round" />
+</svg>

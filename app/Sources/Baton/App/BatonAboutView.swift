@@ -12,9 +12,10 @@ struct BatonAboutView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "music.note")
-                .font(.system(size: 44, weight: .regular))
-                .foregroundStyle(.tint)
+            Image("BrandMark")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 64, height: 64)
                 .padding(.top, 4)
 
             Text("Baton")

@@ -103,7 +103,7 @@ final class VoiceSuggestionsTests: XCTestCase {
 
     func testTheVoiceListIsReadFromKokoro() async {
         let body = #"{"voices":[{"id":"af_heart","name":"af_heart"},{"id":"bf_emma","name":"bf_emma"}]}"#
-        let listed = await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", fetch: { request in
+        let listed = await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", others: [], fetch: { request in
             XCTAssertEqual(request.url?.path, "/v1/audio/voices")
             return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         })
@@ -122,7 +122,7 @@ final class VoiceSuggestionsTests: XCTestCase {
         }
         let builtIn = ["kokoro:af_heart", "kokoro:bf_emma", "kokoro:bm_george"]
         func narrator(_ engine: BookVoiceSettings.Engine) async -> String {
-            let list = await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", builtIn: builtIn,
+            let list = await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", others: [], builtIn: builtIn,
                                                               engine: engine, fetch: up)
             return await VoiceSuggestions.suggest(for: british, languageDefault: "kokoro:bm_george", sources: [],
                                                   available: list, executor: { _, _, _ in "" }).primary

@@ -459,8 +459,12 @@ public struct BookRoutes: Sendable {
                                      message: "a preview is at most \(Self.maximumPreviewCharacters) characters")
         }
         do {
+            // An expressive voice is previewed as it would narrate. The instruction is
+            // the gateway's own words; a caller cannot send one.
+            let instruction = SpeechEngines.takesInstructions(SpeechEngines.engine(of: voice))
+                ? DeliveryHints.instruction(speaker: nil, direction: nil, voice: voice, bookLanguage: nil) : nil
             let wav = try await synthesizer.synthesize(text: SecretRedactor.redact(text), voice: voice,
-                                                       speed: body["speed"] as? Double)
+                                                       speed: body["speed"] as? Double, style: nil, instruction: instruction)
             return httpResponse(status: "200 OK", contentType: "audio/wav", payload: wav)
         } catch let error as SynthesisError {
             if case .permanent = error { return httpErrorResponse(status: "400 Bad Request", message: error.description) }

@@ -47,6 +47,12 @@ enum BookVoiceSettings {
 
     static let engineKey = "baton.documents.voiceEngine"
     static let makeBooksOnKey = "baton.documents.makeBooksOn"
+    /// The expressive voice server: an OpenAI-compatible speech server such as
+    /// Qwen3-TTS. Its address and model are this Mac's settings; its key, if it needs one, is in
+    /// the Keychain under `expressiveKeyAccount`, never in defaults.
+    static let expressiveURLKey = "baton.documents.expressiveServerURL"
+    static let expressiveModelKey = "baton.documents.expressiveServerModel"
+    static let expressiveKeyAccount = "baton.documents.expressiveServerKey"
 
     /// Overridable in tests; Baton's own defaults otherwise.
     nonisolated(unsafe) static var defaults: UserDefaults = BatonStorage.defaults
@@ -61,10 +67,41 @@ enum BookVoiceSettings {
         set { defaults.set(newValue.rawValue, forKey: makeBooksOnKey) }
     }
 
-    /// Back to Automatic and Ask each time.
+    /// Back to Automatic and Ask each time. The expressive server's address, model and key are
+    /// your server, like the Kokoro and Chatterbox hosts, and stay.
     static func reset() {
         defaults.removeObject(forKey: engineKey)
         defaults.removeObject(forKey: makeBooksOnKey)
+    }
+
+    // MARK: - Expressive voice server
+
+    static var expressiveURL: String {
+        get { defaults.string(forKey: expressiveURLKey) ?? "" }
+        set { defaults.set(newValue.trimmingCharacters(in: .whitespaces), forKey: expressiveURLKey) }
+    }
+
+    static var expressiveModel: String {
+        get { defaults.string(forKey: expressiveModelKey) ?? "" }
+        set { defaults.set(newValue.trimmingCharacters(in: .whitespaces), forKey: expressiveModelKey) }
+    }
+
+    /// Reads the expressive server's key from the Keychain. Called only when a request is going
+    /// to that server or its voices are being listed, never for a Kokoro or Chatterbox chunk.
+    /// Tests replace it.
+    nonisolated(unsafe) static var readExpressiveKey: @Sendable () -> String? = {
+        NavidromeKeychain.secret(account: BookVoiceSettings.expressiveKeyAccount)
+    }
+
+    /// The server as an endpoint, or nil when no usable address is set. `key` is what to send
+    /// it, nil for an endpoint that only names the server.
+    static func expressiveEndpoint(key: String?) -> SpeechEngineEndpoint? {
+        guard let url = URL(string: expressiveURL), url.host != nil,
+              url.scheme == "http" || url.scheme == "https" else { return nil }
+        let model = expressiveModel
+        let typedKey = key?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return SpeechEngineEndpoint(engine: SpeechEngines.openAI, baseURL: url, model: model.isEmpty ? nil : model,
+                                    apiKey: typedKey.isEmpty ? nil : typedKey)
     }
 
     // MARK: - Routing

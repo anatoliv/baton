@@ -55,7 +55,9 @@ final class VoiceDirectoryTests: XCTestCase {
             let raw = String(spec.split(separator: ":", maxSplits: 1)[1])
             XCTAssertFalse(entry.isReadable, spec)
             XCTAssertEqual(entry.label, raw, spec)
-            XCTAssertEqual(entry.groupTitle, VoiceDirectory.otherGroupTitle, spec)
+            // Another engine's voice is listed under its engine; an unreadable
+            // Kokoro id under Other voices.
+            XCTAssertEqual(entry.groupTitle, spec.hasPrefix("chatterbox:") ? "Chatterbox" : VoiceDirectory.otherGroupTitle, spec)
         }
     }
 
@@ -65,7 +67,7 @@ final class VoiceDirectoryTests: XCTestCase {
         let groups = VoiceDirectory.groups(specs)
         XCTAssertEqual(groups.map(\.title), ["American English, female", "American English, male",
                                              "British English, female", "British English, male",
-                                             "Spanish, female", "Mandarin Chinese, male", "Other voices"])
+                                             "Spanish, female", "Mandarin Chinese, male", "Chatterbox"])
         // By name inside a group, and each voice once.
         XCTAssertEqual(groups[0].voices.map(\.name), ["Heart", "Sky"])
         XCTAssertEqual(groups.flatMap(\.voices).count, 8)

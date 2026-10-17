@@ -49,23 +49,45 @@ enum VoiceSuggestions {
             .first { !$0.contains("embed") }
     }
 
-    /// The voices a book made on this Mac can use, as `kokoro:<id>` specs, under Voice engine for
-    /// books:
+    /// The voices a book made on this Mac can use, as `"engine:voice"` specs, under Voice engine
+    /// for books, for the narrator, cast and Change Voice pickers:
     /// - Automatic: the Kokoro host's voices, or when none answers the built-in "This Mac" voices
-    /// if their model is downloaded, so import still offers a choice.
+    /// if their model is downloaded, so import still offers a choice; then every
+    ///   other configured engine's voices.
     /// - Built-in voices on this Mac: the built-in voices only, never asking a server.
-    /// - Voice server: the Kokoro host's voices only.
-    /// `builtIn` defaults to what this Mac has and `engine` to the setting; tests pass their own.
+    /// - Voice server: the Kokoro host's voices, then every other configured engine's.
+    /// The engines are listed by `SpeechEngines.listVoices`, the same listing the Baton server
+    /// answers `GET /v1/voices` with, so both apps offer an engine's voices the same way.
+    /// `others` defaults to the Chatterbox host when one was entered and the expressive server
+    /// when it is set; `builtIn` to what this Mac has and `engine` to the setting; tests pass
+    /// their own.
     static func availableVoices(kokoroBase: String = SpeechConfig.kokoroBaseURL,
+                                others: [SpeechEngineEndpoint]? = nil,
                                 builtIn: [String]? = nil,
                                 engine: BookVoiceSettings.Engine? = nil,
                                 fetch: DocumentImporter.Fetch = { try await URLSession.shared.data(for: $0) }) async -> [String] {
         let local = builtIn ?? BuiltInVoices.shared.availableVoiceIDs
         let engine = engine ?? BookVoiceSettings.engine
         if engine == .builtIn { return local }
-        let server = await serverVoices(kokoroBase: kokoroBase, fetch: fetch)
-        guard server.isEmpty, engine == .automatic else { return server }
-        return local
+        var endpoints = others ?? configuredOtherEngines()
+        if let kokoro = URL(string: kokoroBase), kokoro.host != nil {
+            endpoints.insert(SpeechEngineEndpoint(engine: SpeechEngines.kokoro, baseURL: kokoro), at: 0)
+        }
+        let listed = await SpeechEngines.listVoices(endpoints, fetch: { request in
+            let (data, response) = try await fetch(request)
+            return (data, (response as? HTTPURLResponse)?.statusCode ?? 200)
+        })
+        let server = listed.first { $0.engine == SpeechEngines.kokoro }?.voices ?? []
+        let rest = listed.filter { $0.engine != SpeechEngines.kokoro }.flatMap(\.voices)
+        return (server.isEmpty && engine == .automatic ? local : server) + rest
+    }
+
+    /// The engines other than Kokoro that this Mac has an address for: Chatterbox when someone
+    /// entered its host (its placeholder is not a server), and the expressive server.
+    static func configuredOtherEngines() -> [SpeechEngineEndpoint] {
+        ConfiguredSpeechSynthesizer.endpoints(withKey: true).filter {
+            $0.engine == SpeechEngines.openAI || ($0.engine == SpeechEngines.chatterbox && SpeechConfig.hasStoredHost(for: .chatterbox))
+        }
     }
 
     /// `availableVoices` for the voice picker: this Mac's voices, or why there are
@@ -76,19 +98,6 @@ enum VoiceSuggestions {
         return VoiceListing(voices: nil, problem: BookVoiceSettings.engine == .builtIn
             ? "Only the suggested voices are here, because the built-in voices are not downloaded. Download them in Settings, under Speech."
             : "Only the suggested voices are here, because no voice server answered. Check it in Settings, under Speech.")
-    }
-
-    /// The voices the Kokoro host itself lists, or none when it does not answer.
-    private static func serverVoices(kokoroBase: String, fetch: DocumentImporter.Fetch) async -> [String] {
-        guard let url = URL(string: kokoroBase)?.appendingPathComponent("v1/audio/voices") else { return [] }
-        guard let (data, _) = try? await fetch(URLRequest(url: url, timeoutInterval: 5)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let voices = object["voices"] as? [Any] else { return [] }
-        return voices.compactMap { entry -> String? in
-            if let id = (entry as? [String: Any])?["id"] as? String { return "kokoro:\(id)" }
-            if let id = entry as? String { return "kokoro:\(id)" }
-            return nil
-        }
     }
 
     /// A suggestion for `document`. Never throws: with no source, no voices or a useless answer
@@ -168,7 +177,7 @@ enum VoiceSuggestions {
     }
 }
 
-/// Plays one voice preview at a time on this Mac, through the configured Kokoro host.
+/// Plays one voice preview at a time on this Mac, through the configured voice engines.
 @MainActor
 @Observable
 final class VoicePreviewPlayer {
@@ -189,7 +198,11 @@ final class VoicePreviewPlayer {
 
     /// The seams are for tests (M4.4): a fake voice server and a fake speaker.
     init(synthesize: @escaping Synthesize = { text, voice in
-             try await ConfiguredSpeechSynthesizer().synthesize(text: text, voice: voice, speed: nil)
+             // An expressive voice is heard as it would narrate.
+             let instruction = SpeechEngines.takesInstructions(SpeechEngines.engine(of: voice))
+                 ? DeliveryHints.instruction(speaker: nil, direction: nil, voice: voice, bookLanguage: nil) : nil
+             return try await ConfiguredSpeechSynthesizer().synthesize(text: text, voice: voice, speed: nil, style: nil,
+                                                                       instruction: instruction)
          },
          play: @escaping Play = VoicePreviewPlayer.playAloud) {
         self.synthesize = synthesize

@@ -323,6 +323,16 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.4",
+            date: "October 2026",
+            highlight: "A new musical-note icon for Baton.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Baton has a distinct note icon on a warm light tile, with a softer charcoal version in Dark Mode. "
+                    + "The Dock follows your Mac's appearance independently of the app theme."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.3",
             date: "October 2026",
             highlight: "Share a mixtape, Play turns into Pause while a collection is playing, and books have covers.",

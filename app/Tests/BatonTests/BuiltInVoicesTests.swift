@@ -137,13 +137,13 @@ struct BuiltInVoicesTests {
     func importVoiceList() async {
         let down: DocumentImporter.Fetch = { _ in throw URLError(.cannotConnectToHost) }
         let builtIn = ["kokoro:af_heart", "kokoro:bm_george"]
-        #expect(await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", builtIn: builtIn, engine: .automatic, fetch: down) == builtIn)
-        #expect(await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", builtIn: [], engine: .automatic, fetch: down).isEmpty)
+        #expect(await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", others: [], builtIn: builtIn, engine: .automatic, fetch: down) == builtIn)
+        #expect(await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", others: [], builtIn: [], engine: .automatic, fetch: down).isEmpty)
         let up: DocumentImporter.Fetch = { request in
             (Data(#"{"voices":["af_heart","jf_alpha"]}"#.utf8),
              HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         }
-        #expect(await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", builtIn: builtIn, engine: .automatic, fetch: up)
+        #expect(await VoiceSuggestions.availableVoices(kokoroBase: "http://127.0.0.1:8880", others: [], builtIn: builtIn, engine: .automatic, fetch: up)
                 == ["kokoro:af_heart", "kokoro:jf_alpha"])
         let none = BuiltInVoices(store: KokoroModelStore(directory: temporaryDirectory("no-model-ids")))
         #expect(none.availableVoiceIDs.isEmpty)

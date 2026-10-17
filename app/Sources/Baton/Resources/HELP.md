@@ -1169,6 +1169,26 @@ hands it to Baton on your Mac instead.
 3. Under **Voice engine for books**, the **Voice server** line shows each address and whether
    it answers. Choose **Voice server**, or leave **Automatic**.
 
+#### An expressive voice server
+
+For narration that sounds more like a person reading, Baton can also use a speech server that
+answers the same requests as OpenAI's speech API. Qwen3-TTS is the one Baton was tuned with:
+it reads at an audiobook pace and moves its voice more than Kokoro does.
+
+1. Run the server on a machine on your network.
+2. In **Settings → Speech → Voice engine for books**, under **Expressive voice server**, enter its
+   address, such as `http://mybox.local:8190`, and the model name if it is not `qwen3-tts`. Enter
+   a key only if the server asks for one. **Save Key** keeps it in the Keychain.
+3. Its voices appear in the voice lists under **Expressive voices**, after Kokoro's. Qwen3-TTS's
+   own voices are shown by name, language and gender, such as "Aiden, English, male".
+
+An expressive voice reads one sentence at a time, with about half a second between sentences and
+about a second between paragraphs. Each line is sent with a short direction: the narrator is
+asked to read like an audiobook narrator in the book's tone, and each character in **Voice the
+dialogue** is described by their gender and age, such as "an elderly woman". A cast uses the
+narrator's engine, so with an expressive narrator the characters get expressive voices too.
+Kokoro books are read exactly as before.
+
 #### Setting up the Baton server's voice server
 
 The Baton server makes books with the voice server named in its own setup, whichever device
@@ -1179,7 +1199,10 @@ sent the book.
 2. In the Baton server's environment, set `BATON_TTS_KOKORO_URL` to Kokoro's address, for example
    `http://YOUR-TTS-HOST:8880`, and `BATON_TTS_CHATTERBOX_URL` to Chatterbox's if you use it.
    Without `BATON_TTS_KOKORO_URL` the Baton server looks for Kokoro on its own machine at
-   `http://127.0.0.1:8880`.
+   `http://127.0.0.1:8880`. For an expressive voice server, set `BATON_TTS_OPENAI_URL`, and
+   `BATON_TTS_OPENAI_MODEL` if its model is not `qwen3-tts`. If it needs a key, put the key in a
+   file only its owner can read (`chmod 600`) and set `BATON_TTS_OPENAI_KEY_FILE` to that file. Its voices then appear on the iPhone
+   too.
 3. Restart the Baton server. Its log names the voice servers it uses (`books: …, TTS …`). The
    Baton server also needs ffmpeg to make books. See [`gateway/README.md`](gateway/README.md).
 

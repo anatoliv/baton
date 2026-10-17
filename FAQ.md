@@ -536,6 +536,14 @@ books are made on your Baton server with the voice server set in its own setup
 (`BATON_TTS_KOKORO_URL`). See [Voices: on this Mac or on your Baton
 server](HELP.md#voices-on-this-mac-or-on-your-baton-server).
 
+**Can a book sound more like a person reading it?**
+Yes, with an expressive voice server such as Qwen3-TTS: any speech server that answers OpenAI's
+speech requests. Enter its address under Expressive voice server in Settings → Speech → Voice
+engine for books on the Mac, or set `BATON_TTS_OPENAI_URL` on your Baton server for the iPhone.
+Its voices are listed as Expressive voices. They read a sentence at a time with a reader's
+pauses, and each character in a cast is told how to sound from their gender and age. See [An
+expressive voice server](HELP.md#voices-on-this-mac-or-on-your-baton-server).
+
 **Can the characters have their own voices?**
 On the Mac, yes. Turn on Voice the dialogue in the import sheet. A model proposes a cast, you
 check it and pick the voices, and Baton works out who says each line. Any line nobody can place

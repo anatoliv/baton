@@ -167,11 +167,11 @@ struct BookVoiceSettingsTests {
         }
         let down: DocumentImporter.Fetch = { _ in throw URLError(.cannotConnectToHost) }
         let base = "http://127.0.0.1:8880"
-        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, builtIn: builtIn, engine: .builtIn, fetch: up) == builtIn)
-        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, builtIn: builtIn, engine: .server, fetch: up)
+        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, others: [], builtIn: builtIn, engine: .builtIn, fetch: up) == builtIn)
+        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, others: [], builtIn: builtIn, engine: .server, fetch: up)
                 == ["kokoro:af_heart", "kokoro:jf_alpha"])
-        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, builtIn: builtIn, engine: .server, fetch: down).isEmpty)
-        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, builtIn: builtIn, engine: .automatic, fetch: down) == builtIn)
+        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, others: [], builtIn: builtIn, engine: .server, fetch: down).isEmpty)
+        #expect(await VoiceSuggestions.availableVoices(kokoroBase: base, others: [], builtIn: builtIn, engine: .automatic, fetch: down) == builtIn)
     }
 
     // MARK: Where a book is made

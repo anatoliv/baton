@@ -38,8 +38,14 @@ public struct VoiceEntry: Sendable, Equatable, Hashable, Identifiable {
         return "\(name), \(accent), \(gender)"
     }
 
-    /// The title of the group it is listed under: "American English, female", or "Other voices".
+    /// The engine that reads it: `kokoro`, `chatterbox`, `openai`.
+    public var engine: String { HTTPSpeechSynthesizer.split(spec).engine }
+
+    /// The title of the group it is listed under: "American English, female" for a Kokoro
+    /// voice, the engine's name for another engine's ("Expressive voices", "Chatterbox",
+    /// TBX-11142), or "Other voices" for a Kokoro id that cannot be read.
     public var groupTitle: String {
+        if engine != SpeechEngines.kokoro { return SpeechEngines.title(engine) }
         guard let gender, let first = rawID.first, let place = VoiceDirectory.places[first] else {
             return VoiceDirectory.otherGroupTitle
         }
@@ -79,6 +85,12 @@ public enum VoiceDirectory {
         let engine = parts.count == 2 ? parts[0].lowercased() : "kokoro"
         let rawID = parts.count == 2 ? parts[1] : spec
         let full = "\(engine):\(rawID)"
+        // Qwen3-TTS's preset speakers say who they are: "Ryan, English, male".
+        if let preset = SpeechEngines.qwen3Preset(full) {
+            return VoiceEntry(spec: full, rawID: rawID, name: readableName(rawID),
+                              accent: DeliveryHints.languageNames[preset.language], gender: preset.gender,
+                              language: preset.language)
+        }
         let chars = Array(rawID)
         guard engine == "kokoro", chars.count > 3, chars[2] == "_",
               let place = places[chars[0]], let gender = genders[chars[1]],
@@ -114,10 +126,24 @@ public enum VoiceDirectory {
         .sorted { rank($0) < rank($1) }
     }
 
+    /// Kokoro's groups first, by place and gender, then each other engine's group in
+    /// `SpeechEngines.order`, then Kokoro's unreadable ids.
     private static func rank(_ group: VoiceGroup) -> (Int, Int, String) {
-        guard let first = group.voices.first, first.isReadable, let letter = first.rawID.first,
+        guard let first = group.voices.first else { return (Int.max, 0, group.title) }
+        if first.engine != SpeechEngines.kokoro { return (100 + SpeechEngines.order(first.engine), 0, group.title) }
+        guard first.isReadable, let letter = first.rawID.first,
               let place = places[letter] else { return (Int.max, 0, group.title) }
         return (place.order, first.gender == "female" ? 0 : 1, group.title)
+    }
+
+    /// The voices of every engine, grouped by engine: one section per engine that
+    /// offered any, in `SpeechEngines.order`, each with its own groups as `groups` makes them.
+    /// For a picker that shows engines as sections; `groups` is the same list flattened.
+    public static func byEngine(_ specs: [String], matching query: String = "") -> [EngineSection] {
+        let all = groups(specs, matching: query)
+        let engines = Dictionary(grouping: all, by: { $0.voices.first?.engine ?? SpeechEngines.kokoro })
+        return engines.map { EngineSection(engine: $0.key, title: SpeechEngines.title($0.key), groups: $0.value) }
+            .sorted { (SpeechEngines.order($0.engine), $0.engine) < (SpeechEngines.order($1.engine), $1.engine) }
     }
 
     /// The voices that match what was typed in the search field: every word typed must begin a
@@ -172,6 +198,15 @@ public enum VoiceDirectory {
         }
         return "Only the suggested voices are here, because \(reason)."
     }
+}
+
+/// One engine's voices in a picker (`VoiceDirectory.byEngine`).
+public struct EngineSection: Sendable, Equatable, Identifiable {
+    public var engine: String
+    /// "Kokoro", "Expressive voices", "Chatterbox".
+    public var title: String
+    public var groups: [VoiceGroup]
+    public var id: String { engine }
 }
 
 /// What a renderer said when asked for its voices: the list, or nil and why not.

@@ -305,6 +305,14 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.3",
+            date: "October 2026",
+            highlight: "A new musical-note icon for Baton.",
+            changes: [
+                .init(.improved, "Baton has a distinct note icon with light, dark and tinted Home Screen appearances. Your in-app theme stays independent."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.2",
             date: "October 2026",
             highlight: "Send a mixtape, songs your friends send now open in Baton, and Play turns into Pause while a collection is playing.",
