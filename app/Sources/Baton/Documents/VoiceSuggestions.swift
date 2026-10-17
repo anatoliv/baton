@@ -65,7 +65,7 @@ enum VoiceSuggestions {
                                 others: [SpeechEngineEndpoint]? = nil,
                                 builtIn: [String]? = nil,
                                 engine: BookVoiceSettings.Engine? = nil,
-                                fetch: DocumentImporter.Fetch = { try await URLSession.shared.data(for: $0) }) async -> [String] {
+                                fetch: DocumentImporter.Fetch = listingFetch) async -> [String] {
         let local = builtIn ?? BuiltInVoices.shared.availableVoiceIDs
         let engine = engine ?? BookVoiceSettings.engine
         if engine == .builtIn { return local }
@@ -80,6 +80,13 @@ enum VoiceSuggestions {
         let server = listed.first { $0.engine == SpeechEngines.kokoro }?.voices ?? []
         let rest = listed.filter { $0.engine != SpeechEngines.kokoro }.flatMap(\.voices)
         return (server.isEmpty && engine == .automatic ? local : server) + rest
+    }
+
+    /// A voice list read with the Baton server's cap (`CappedDownload.listingLimit`, 1 MB): a
+    /// server that answers more is refused as it streams and offers no voices, rather than
+    /// filling this Mac's memory.
+    static let listingFetch: DocumentImporter.Fetch = { request in
+        try await CappedDownload.data(for: request, limit: CappedDownload.listingLimit)
     }
 
     /// The engines other than Kokoro that this Mac has an address for: Chatterbox when someone

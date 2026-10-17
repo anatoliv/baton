@@ -15,7 +15,7 @@ final class BookRowsUITests: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
         server = try FakeHomeServer()
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
@@ -489,7 +489,7 @@ final class BookRowsUITests: XCTestCase {
         make.tap()
         XCTAssertTrue(waitFor(10) { self.server.requests("PUT").count == 1 }, "Make Audiobook sent nothing")
         app.tap()
-        XCTAssertTrue(waitFor(20) { !self.app.buttons["make-audiobook"].exists }, "the import screen should close")
+        ImportScreen.waitToClose(app)
         removeUIInterruptionMonitor(monitor)
     }
 

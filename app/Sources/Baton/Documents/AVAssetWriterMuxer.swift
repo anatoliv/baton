@@ -28,13 +28,26 @@ struct AVAssetWriterMuxer: AudioMuxing {
     }
 
     func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, tags: [String: String]) async throws {
+        try await encode(wav: wav, to: destination, bitrate: bitrate, channels: channels, sampleRate: nil, tags: tags)
+    }
+
+    /// At exactly `sampleRate` and `channels`: the reader hands the encoder PCM
+    /// already in that format, so every chapter file is alike and an M4B export's stream copy
+    /// never joins two formats.
+    func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, sampleRate: Int,
+                tags: [String: String]) async throws {
+        try await encode(wav: wav, to: destination, bitrate: bitrate, channels: channels, sampleRate: Optional(sampleRate), tags: tags)
+    }
+
+    private func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, sampleRate requested: Int?,
+                        tags: [String: String]) async throws {
         let asset = AVURLAsset(url: wav)
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
             throw MuxError.noAudioTrack(wav)
         }
         let sourceFormat = try await track.load(.formatDescriptions).first
             .flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
-        let sampleRate = sourceFormat?.mSampleRate ?? 24_000
+        let sampleRate = requested.map(Double.init) ?? sourceFormat?.mSampleRate ?? 24_000
 
         let partial = destination.deletingLastPathComponent()
             .appendingPathComponent(".\(destination.lastPathComponent).partial.m4a")
@@ -48,13 +61,19 @@ struct AVAssetWriterMuxer: AudioMuxing {
         } catch {
             throw MuxError.cannotRead(error.localizedDescription)
         }
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+        var pcm: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false,
             AVLinearPCMIsNonInterleaved: false,
-        ])
+        ]
+        // Asked for a format: the reader converts to it, so the encoder is given exactly that.
+        if requested != nil {
+            pcm[AVSampleRateKey] = sampleRate
+            pcm[AVNumberOfChannelsKey] = channels
+        }
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: pcm)
         reader.add(output)
         let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
             AVFormatIDKey: kAudioFormatMPEG4AAC,

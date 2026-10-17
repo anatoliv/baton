@@ -29,7 +29,7 @@ final class DocumentImportLiveWalkUITests: XCTestCase {
         gateway = url
         token = secret
         started = Date()
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

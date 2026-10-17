@@ -21,7 +21,7 @@ final class StorageScreenUITests: XCTestCase {
               let file = env["BATON_STORAGE_IMPORT_FILE"], !file.isEmpty else {
             throw XCTSkip("set BATON_STORAGE_GATEWAY_URL, BATON_STORAGE_GATEWAY_TOKEN and BATON_STORAGE_IMPORT_FILE to walk the Storage screen")
         }
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

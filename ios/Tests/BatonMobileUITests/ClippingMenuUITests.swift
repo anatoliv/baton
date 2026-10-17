@@ -17,7 +17,7 @@ final class ClippingMenuUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
@@ -54,7 +54,7 @@ final class ClippingMenuUITests: XCTestCase {
         row.tap()
         let bar = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 20), "nothing started playing")
-        bar.tap()
+        tapMiniBar(in: app)
         // `descendants(matching: .any)`, as the other player tests do: the identifier is on a
         // SwiftUI container that does not reliably surface as `otherElements`.
         let player = app.descendants(matching: .any)

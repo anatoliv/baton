@@ -364,7 +364,8 @@ enum BatonMCPToolCatalog {
             BatonMCPSpeakTools.definition(),
             BatonMCPReadTools.definition(),
         ] + (includeDocuments ? [BatonMCPDocumentTools.definition(), BatonMCPBookTools.definition()] : [])
-          + BatonMCPTranscriptTools.definitions() + BatonInterpreterTools.definitions())
+          + BatonMCPTranscriptTools.definitions() + BatonInterpreterTools.definitions()
+          + BatonMCPAppTools.definitions(includeBooks: includeDocuments))
     }
 
     private static func tool(
@@ -430,12 +431,12 @@ enum BatonMCPToolCatalog {
         defs.map { def in
             guard let name = def["name"] as? String else { return def }
             var d = def
-            let readOnly = readOnlyTools.contains(name)
+            let readOnly = readOnlyTools.contains(name) || BatonMCPAppTools.readOnlyNames.contains(name)
             var ann: [String: Any] = [
                 "title": name,
                 "readOnlyHint": readOnly,
-                "destructiveHint": name == "music_delete_playlist",
-                "openWorldHint": openWorldTools.contains(name),
+                "destructiveHint": name == "music_delete_playlist" || BatonMCPAppTools.destructiveNames.contains(name),
+                "openWorldHint": openWorldTools.contains(name) || BatonMCPAppTools.openWorldNames.contains(name),
             ]
             if readOnly { ann["idempotentHint"] = true }
             d["annotations"] = ann
@@ -531,7 +532,10 @@ enum BatonMCPToolCatalog {
             case "audio_suspend": text = audioSuspend(arguments, music, focus, sessionID: sessionID)
             case "audio_resume": text = try audioResume(arguments, music, focus)
             default:
-                return ("Unknown tool \"\(name)\".", true)
+                guard let answer = try await BatonMCPAppTools.run(name, arguments, music: music) else {
+                    return ("Unknown tool \"\(name)\".", true)
+                }
+                text = answer
             }
             return (text, false)
         } catch let error as BatonMCPToolError {
@@ -866,6 +870,23 @@ enum BatonMCPToolCatalog {
         return out
     }
 
+    /// Songs by exact id, in order, for the app tools (`BatonMCPAppTools`).
+    static func songs(ids: [String]) async throws -> [NavidromeSong] {
+        try await songsByID(ids, client: try musicClient())
+    }
+
+    /// What `query` finds, as `music_play` would queue it, for the app tools.
+    static func searchSongs(_ args: [String: Any]) async throws -> [NavidromeSong] {
+        guard let query = optionalString(args, "query") else { return [] }
+        do {
+            return try await resolvePlayQueue(query: query, client: try musicClient(), songCount: 50)
+        } catch let error as BatonMCPToolError {
+            throw error
+        } catch {
+            throw musicError(error)
+        }
+    }
+
     /// Fetches songs by exact id, preserving the caller's order. Ids that don't resolve
     /// are reported rather than skipped — a partially-played selection the caller thinks
     /// is complete is the same class of bug as a silently-dropped mix seed.
@@ -1074,7 +1095,7 @@ enum BatonMCPToolCatalog {
 
     /// The song a rating/like tool acts on: the top hit for `query`, or the current
     /// track when `query` is absent.
-    private static func resolveMusicSong(_ args: [String: Any], _ music: MusicModel) async throws -> NavidromeSong {
+    static func resolveMusicSong(_ args: [String: Any], _ music: MusicModel) async throws -> NavidromeSong {
         if let query = optionalString(args, "query") {
             let client = try musicClient()
             do {

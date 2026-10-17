@@ -35,7 +35,7 @@ final class StorageDomainUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
     func testTheAppUnderXCUITestResolvesOneStorageDomainForBothHalvesOfFriendSync() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
@@ -63,7 +63,7 @@ final class StorageDomainUITests: XCTestCase {
     /// would actually use. It must hold here too — a redirect that moved only one half would be
     /// worse than no redirect, since the run would look clean and test nothing.
     func testAProbeLaunchAlsoKeepsBothHalvesInOneDomain() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         // `-baton.defaultsSuite`'s environment fallback lives in `BatonStorage.redirect`.
         app.launchEnvironment["baton.resetSession"] = "1"

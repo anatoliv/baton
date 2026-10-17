@@ -350,8 +350,8 @@ final class TinyHTTPServer: @unchecked Sendable {
                             let path = head.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
                             let reply = handler(path, Data(data[split.upperBound...]))
                             let header = "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: \(reply.count)\r\nConnection: close\r\n\r\n"
-                            let out = Data(header.utf8) + reply
-                            _ = out.withUnsafeBytes { write(c, $0.baseAddress, out.count) }
+                            // Never a SIGPIPE if the client has gone.
+                            FixtureSocket.sendAll(Data(header.utf8) + reply, to: c)
                             break
                         }
                     }

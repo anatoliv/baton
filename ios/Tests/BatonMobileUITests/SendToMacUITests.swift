@@ -15,7 +15,7 @@ final class SendToMacUITests: XCTestCase {
         continueAfterFailure = false
         server = try FakeHomeServer()
         server.setBooksOff(reason: "no voice server is set up")
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

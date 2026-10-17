@@ -545,9 +545,11 @@ pauses, and each character in a cast is told how to sound from their gender and 
 expressive voice server](HELP.md#voices-on-this-mac-or-on-your-baton-server).
 
 **Can the characters have their own voices?**
-On the Mac, yes. Turn on Voice the dialogue in the import sheet. A model proposes a cast, you
-check it and pick the voices, and Baton works out who says each line. Any line nobody can place
-stays with the narrator. It is off for your first book, then starts the way you last left it.
+Yes, on the Mac and the iPhone. Turn on Voice the dialogue when you import a book. A model
+proposes a cast, you check it and pick the voices, and Baton works out who says each line. Any
+line nobody can place stays with the narrator. It is off for your first book, then starts the way
+you last left it. For a book already made, Change Voice… gives it a cast, edits the one it has,
+or turns it off.
 See [Voice the dialogue](HELP.md#voice-the-dialogue).
 
 **How do I free the space a book takes?**

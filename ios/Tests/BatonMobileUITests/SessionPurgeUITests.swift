@@ -16,7 +16,7 @@ final class SessionPurgeUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // A configured server, without typing: text entry is the one thing synthetic input
         // reliably cannot do, and every screen behind "connect" is otherwise unreachable.
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.

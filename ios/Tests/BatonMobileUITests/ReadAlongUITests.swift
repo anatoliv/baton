@@ -16,7 +16,7 @@ final class ReadAlongUITests: XCTestCase {
         continueAfterFailure = false
         server = try FakeHomeServer()
         server.setReadyOnSubmit(2)
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
@@ -70,7 +70,7 @@ final class ReadAlongUITests: XCTestCase {
         chapterOne.tap()
         let bar = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 15), "playing chapter 1 started nothing")
-        bar.tap()
+        tapMiniBar(in: app)
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "FullPlayerContent").firstMatch
             .waitForExistence(timeout: 10), "the full player did not open")
         XCTAssertFalse(app.buttons["Transcript"].exists, "a book chapter offers Read Along in place of Transcript")
@@ -115,9 +115,126 @@ final class ReadAlongUITests: XCTestCase {
                       "chapter 2's words should show")
         XCTAssertNil(litSentence(), "nothing is lit without timing")
         attach("read-along-untimed")
+
+        // The sleep timer is here too, without going back to the player.
+        let sleep = app.buttons["readalong-sleep-timer"].firstMatch
+        XCTAssertTrue(sleep.waitForExistence(timeout: 5), "Read Along offers the sleep timer while a book plays")
+        XCTAssertEqual(sleep.value as? String, "Off")
+        sleep.tap()
+        XCTAssertTrue(app.buttons["End of chapter"].firstMatch.waitForExistence(timeout: 5), "the sleep timer offers End of chapter")
+        app.buttons["15 minutes"].firstMatch.tap()
+        XCTAssertTrue(waitFor(3) { (sleep.value as? String) == "Stops in 15 minutes" },
+                      "15 minutes arms the timer (value: \(String(describing: sleep.value)))")
+        attach("read-along-sleep-armed")
+        sleep.tap()
+        let cancel = app.buttons["Cancel sleep timer"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "an armed timer can be cancelled from Read Along")
+        cancel.tap()
+        XCTAssertTrue(waitFor(3) { (sleep.value as? String) == "Off" }, "Cancel turns the timer off")
     }
 
+    /// Jump to current after the reader has scrolled away: it brings back the sentence
+    /// being heard, lit, every time. Paragraphs here run to several spoken chunks each, as a real
+    /// book's do; the short sentences of the test above are one chunk to a paragraph, which is
+    /// what hid this. The panel numbered its paragraphs and its sentences from 0 alike, so asking
+    /// to scroll to sentence 6 could land on paragraph 6, a page further on, with nothing lit.
+    func testJumpToCurrentAfterScrollingAwayShowsTheLitSentence() throws {
+        app.launchEnvironment["uitestImportText"] = Self.longParagraphBook
+        app.launch()
+        makeAudiobook()
+        openBooks()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '2 chapters'")).firstMatch
+            .waitForExistence(timeout: 30), "both chapters should come down")
+        openBook("Two Rooms")
+        let chapterOne = app.cells.containing(.staticText, identifier: "The Cell").firstMatch
+        XCTAssertTrue(chapterOne.waitForExistence(timeout: 10), "opening the book shows no chapter 1")
+        chapterOne.tap()
+        let bar = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 15), "playing chapter 1 started nothing")
+        XCTAssertTrue(openFullPlayer(in: app))
+
+        // Paused while the test finds a sentence to seek to; tapping it plays on from there.
+        let pause = app.buttons.matching(NSPredicate(format: "label == 'Pause' AND identifier != %@", PlayerControls.miniBar))
+            .allElementsBoundByIndex.first { $0.isHittable }
+        try XCTUnwrap(pause, "the full player offers no Pause").tap()
+        app.buttons["Read Along"].firstMatch.tap()
+        let panel = app.descendants(matching: .any).matching(identifier: "ReadAlong").firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 10), "Read Along did not open")
+        let sentences = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'readalong-sentence-'"))
+        XCTAssertTrue(sentences.firstMatch.waitForExistence(timeout: 10), "no sentences shown")
+        XCTAssertGreaterThanOrEqual(sentences.count, 30, "each paragraph should be several chunks, got \(sentences.count)")
+
+        // Seek to a sentence early in the chapter, where its number is also a paragraph's.
+        let opened = "lit \(litSentence().map(String.init) ?? "none") on opening; \(sentenceFrames(0 ... 12))"
+        var target: Int?
+        for _ in 0 ..< 12 where target == nil {
+            target = (5 ... 9).first { app.buttons["readalong-sentence-\($0)"].isHittable }
+            guard target == nil else { break }
+            if app.buttons["readalong-sentence-7"].frame.maxY < panel.frame.minY { panel.swipeDown() } else { panel.swipeUp() }
+        }
+        let lit = try XCTUnwrap(target, "no sentence between 5 and 9 on screen to seek to; \(sentenceFrames(0 ... 12)) panel \(panel.frame)")
+        report("Read Along on opening, paused: \(opened); panel \(panel.frame)")
+        app.buttons["readalong-sentence-\(lit)"].tap()
+        // It plays on from there, so by the first look the next chunk may already be lit.
+        XCTAssertTrue(waitFor(5) { self.litSentence().map { (lit ... lit + 1).contains($0) } ?? false },
+                      "tapping sentence \(lit) did not light it (lit: \(self.litSentence().map(String.init) ?? "none"))")
+
+        // Scroll away and jump back, twice: the second time after the first jump, as the
+        // owner reported it. Swipes go on into the chapter, then a little back. Tapping a
+        // sentence seeks there and plays on, so the lit sentence moves while the test swipes
+        // (about a second a chunk here): what Jump to current must show is whichever sentence
+        // is lit when it is pressed, which is what a listener sees (review of TBX-11038).
+        for (round, swipes) in [[true, true, true], [true, true, true, true, false]].enumerated() {
+            for up in swipes { if up { panel.swipeUp() } else { panel.swipeDown() } }
+            let jump = app.buttons["Jump to current"].firstMatch
+            XCTAssertTrue(jump.waitForExistence(timeout: 5), "scrolling away offers no Jump to current (round \(round))")
+            let away = try XCTUnwrap(litSentence(), "no sentence lit before the jump (round \(round))")
+            XCTAssertFalse(app.buttons["readalong-sentence-\(away)"].isHittable,
+                           "the lit sentence \(away) should be off screen after scrolling away (round \(round))")
+            jump.tap()
+            var shown: Int?
+            XCTAssertTrue(waitFor(4) {
+                guard let now = self.litSentence(), self.app.buttons["readalong-sentence-\(now)"].isHittable else { return false }
+                shown = now
+                return true
+            }, "Jump to current did not bring the lit sentence back on screen (round \(round)); lit \(self.litSentence().map(String.init) ?? "none") before the jump \(away); \(sentenceFrames(0 ... 40))")
+            report("round \(round): lit \(away) when Jump to current was pressed, lit \(shown.map(String.init) ?? "none") on screen after")
+            XCTAssertTrue(waitFor(3) { !jump.exists }, "following should resume after the jump (round \(round))")
+            attach("jump-to-current-\(round)")
+        }
+    }
+
+    /// Chapter 1 in long paragraphs, each four or more spoken chunks (`DocumentSpeech.packTarget`
+    /// is 280 characters), so sentence numbers and paragraph numbers part company at once.
+    private static let longParagraphBook: String = {
+        let sentence = "The machine hummed on through the long evening while she read the old letters again by the light of the screen"
+        let paragraphs = (1 ... 10).map { p in
+            (1 ... 8).map { s in "Paragraph \(p) line \(s). \(sentence)." }.joined(separator: " ")
+        }
+        return """
+        Two Rooms
+        by Nobody in Particular
+
+        Chapter 1 The Cell
+
+        \(paragraphs.joined(separator: "\n\n"))
+
+        Chapter 2 The Surface
+
+        The light at the top was grey, and the hills were bare. He waited a long while for the wind to drop before he climbed.
+        """
+    }()
+
     // MARK: - Steps
+
+    /// Where sentences are, for a failure message: id, frame, and whether a tap can reach it.
+    private func sentenceFrames(_ ids: ClosedRange<Int>) -> String {
+        ids.map { id in
+            let element = app.buttons["readalong-sentence-\(id)"]
+            guard element.exists else { return "\(id): none" }
+            return "\(id): y \(Int(element.frame.minY))...\(Int(element.frame.maxY))\(element.isHittable ? " hittable" : "")"
+        }.joined(separator: "; ")
+    }
 
     /// The index of the lit sentence, read from the selected trait.
     private func litSentence() -> Int? {
@@ -146,7 +263,7 @@ final class ReadAlongUITests: XCTestCase {
         make.tap()
         XCTAssertTrue(waitFor(10) { self.server.requests("PUT").count == 1 }, "Make Audiobook sent nothing")
         app.tap()
-        XCTAssertTrue(waitFor(20) { !self.app.buttons["make-audiobook"].exists }, "the import screen should close")
+        ImportScreen.waitToClose(app)
         removeUIInterruptionMonitor(monitor)
     }
 

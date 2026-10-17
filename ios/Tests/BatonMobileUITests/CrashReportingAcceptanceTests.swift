@@ -6,7 +6,7 @@ final class CrashReportingAcceptanceTests: XCTestCase {
     private func launch(_ mode: String) throws -> XCUIApplication {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["CRASH_REPORTING_ACCEPTANCE_TESTS"] == "1")
         continueAfterFailure = false
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.defaultsSuite"] = ThrowawayDefaults.name("8557")
         app.launchEnvironment["BATON_CRASH_REPORTING_ACCEPTANCE"] = mode
         app.launchEnvironment["baton.demoMode"] = "YES"

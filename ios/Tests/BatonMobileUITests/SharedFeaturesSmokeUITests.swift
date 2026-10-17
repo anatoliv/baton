@@ -20,7 +20,7 @@ final class SharedFeaturesSmokeUITests: XCTestCase {
         continueAfterFailure = false
         environment = ProcessInfo.processInfo.environment
         try XCTSkipUnless(environment["BATON_SHARED_SMOKE"] == "1", "requires the loopback sharing stand-ins")
-        let smokeApp = XCUIApplication()
+        let smokeApp = XCUIApplication.batonUnderTest()
         app = smokeApp
         addTeardownBlock { @MainActor [smokeApp] in
             XCTContext.runActivity(named: "smoke-final") { activity in

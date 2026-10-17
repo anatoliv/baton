@@ -281,6 +281,97 @@ public enum WAV {
         return Data(bytes[(from * frameBytes)..<(to * frameBytes)])
     }
 
+    /// Whether `converting` reads and writes this format: 16-bit integer or 32-bit float PCM.
+    public static func isConvertible(_ format: Format) -> Bool {
+        format.channels > 0 && format.sampleRate > 0
+            && ((format.audioFormat == 1 && format.bitsPerSample == 16) || (format.audioFormat == 3 && format.bitsPerSample == 32))
+    }
+
+    /// `pcm` in `source`'s format as `target`'s: a book whose lines are read by
+    /// different engines is made in one format, and the engines need not answer alike (Kokoro
+    /// 24 kHz mono 16-bit; another server another rate, float samples or two channels). Channels
+    /// are averaged to mono and copied out to the target's count, the rate is changed by
+    /// `resample` (windowed sinc, low-passed below the lower rate's Nyquist, so 48 kHz to 24 kHz
+    /// does not fold what is above 12 kHz back down), and samples are scaled between integer and
+    /// float. Deterministic: the same input gives the same bytes. Nil for a format it does not read.
+    public static func converting(_ pcm: Data, from source: Format, to target: Format) -> Data? {
+        guard isConvertible(source), isConvertible(target) else { return nil }
+        if source == target { return pcm }
+        let bytes = [UInt8](pcm)
+        let frameBytes = source.blockAlign
+        let frames = bytes.count / frameBytes
+        func value(_ at: Int) -> Double {
+            if source.audioFormat == 1 {
+                return Double(Int16(bitPattern: UInt16(bytes[at]) | UInt16(bytes[at + 1]) << 8)) / 32768
+            }
+            let bits = UInt32(bytes[at]) | UInt32(bytes[at + 1]) << 8 | UInt32(bytes[at + 2]) << 16 | UInt32(bytes[at + 3]) << 24
+            return Double(Float(bitPattern: bits))
+        }
+        let sampleBytes = Int(source.bitsPerSample) / 8
+        var mono = [Double](repeating: 0, count: frames)
+        for f in 0..<frames {
+            var sum = 0.0
+            for c in 0..<Int(source.channels) { sum += value(f * frameBytes + c * sampleBytes) }
+            mono[f] = sum / Double(source.channels)
+        }
+        let samples = source.sampleRate == target.sampleRate
+            ? mono : resample(mono, from: Int(source.sampleRate), to: Int(target.sampleRate))
+        var out = Data(capacity: samples.count * target.blockAlign)
+        for v in samples {
+            for _ in 0..<Int(target.channels) {
+                if target.audioFormat == 1 {
+                    let n = Int16(max(-32768, min(32767, (v * 32768).rounded())))
+                    withUnsafeBytes(of: n.littleEndian) { out.append(contentsOf: $0) }
+                } else {
+                    withUnsafeBytes(of: Float(v).bitPattern.littleEndian) { out.append(contentsOf: $0) }
+                }
+            }
+        }
+        return out
+    }
+
+    /// Taps either side of each output sample, in units of the lower rate's samples: 16 gives a
+    /// transition band of about a tenth of the band and a stopband below -70 dB with the
+    /// Blackman window, plenty for speech.
+    static let resampleZeroCrossings = 16
+
+    /// `samples` at `from` Hz as `to` Hz by windowed-sinc interpolation. The kernel's cutoff is
+    /// the lower of the two Nyquist frequencies, so downsampling low-passes first (no aliasing)
+    /// and upsampling interpolates band-limited. Blackman window; plain Double arithmetic in a
+    /// fixed order, so the result is the same on every run and every machine.
+    static func resample(_ samples: [Double], from: Int, to: Int) -> [Double] {
+        guard !samples.isEmpty, from > 0, to > 0 else { return [] }
+        let ratio = Double(to) / Double(from)
+        let cutoff = min(1, ratio)                      // as a fraction of the source's Nyquist
+        let half = Double(resampleZeroCrossings) / cutoff // half-width in source samples
+        let count = Int((Double(samples.count) * ratio).rounded())
+        var out = [Double](repeating: 0, count: count)
+        for f in 0..<count {
+            let center = Double(f) / ratio
+            let first = max(0, Int((center - half).rounded(.up)))
+            let last = min(samples.count - 1, Int((center + half).rounded(.down)))
+            guard first <= last else { continue }
+            var sum = 0.0
+            for k in first...last {
+                let d = Double(k) - center
+                let x = d * cutoff
+                let sinc = x == 0 ? 1 : sin(Double.pi * x) / (Double.pi * x)
+                let w = 0.42 + 0.5 * cos(Double.pi * d / half) + 0.08 * cos(2 * Double.pi * d / half)
+                sum += samples[k] * cutoff * sinc * w
+            }
+            out[f] = sum
+        }
+        return out
+    }
+
+    /// "24 kHz mono 16-bit", for a message about a clip that cannot be joined.
+    public static func describe(_ format: Format) -> String {
+        let rate = format.sampleRate % 1000 == 0 ? "\(format.sampleRate / 1000) kHz" : "\(format.sampleRate) Hz"
+        let channels = format.channels == 1 ? "mono" : (format.channels == 2 ? "stereo" : "\(format.channels) channels")
+        let kind = format.audioFormat == 3 ? "\(format.bitsPerSample)-bit float" : "\(format.bitsPerSample)-bit"
+        return "\(rate) \(channels) \(kind)"
+    }
+
     public static func header(format: Format, dataBytes: Int) -> Data {
         var d = Data()
         func put32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
@@ -300,6 +391,24 @@ public enum WAV {
 public protocol AudioMuxing: Sendable {
     /// Encode `wav` to an M4A at `destination`, tagged with the chapter's metadata.
     func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, tags: [String: String]) async throws
+    /// The same at exactly `sampleRate` and `channels`, whatever the WAV is: every
+    /// chapter file comes out alike, so an M4B export, which joins chapters by stream copy, can
+    /// never join two formats. The default keeps the WAV's rate, for an encoder (a test's copy)
+    /// that does not convert.
+    func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, sampleRate: Int, tags: [String: String]) async throws
+}
+
+extension AudioMuxing {
+    public func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, sampleRate: Int,
+                       tags: [String: String]) async throws {
+        try await encode(wav: wav, to: destination, bitrate: bitrate, channels: channels, tags: tags)
+    }
+}
+
+/// A book's one audio format and the voice it was taken from (`BookRenderer.bookFormat`).
+public struct BookFormat: Sendable, Equatable {
+    public var format: WAV.Format
+    public var voice: String
 }
 
 // MARK: - The render loop
@@ -332,6 +441,8 @@ public actor BookRenderer {
     private var worker: Task<Void, Never>?
     private var cancelled: Set<String> = []
     private var wake: [CheckedContinuation<Void, Never>] = []
+    /// Each job's one format, once known (`bookFormat`).
+    private var bookFormats: [String: BookFormat] = [:]
 
     public init(store: BookStore, cacheDirectory: URL, synthesizer: any SpeechSynthesizing,
                 muxer: any AudioMuxing, concurrency: Int = 2, retry: Retry = Retry(),
@@ -524,11 +635,12 @@ public actor BookRenderer {
         guard let dir = store.jobDirectory(job.id) else { throw BookStoreError.badID }
         let joined = dir.appendingPathComponent("chapter-\(index + 1).wav")
         let file = "chapter-\(index + 1).m4a"
-        let (seconds, timing) = try joinWAV(segments: segments, book: job.book, to: joined)
+        let format = try await bookFormat(job)
+        let (seconds, timing) = try joinWAV(segments: segments, book: job.book, format: format, to: joined)
         let tags = ["title": chapter.title, "album": job.book.title, "artist": job.book.author ?? "",
                     "track": "\(index + 1)/\(job.book.chapters.count)", "genre": "Audiobook"]
         try await muxer.encode(wav: joined, to: dir.appendingPathComponent(file), bitrate: job.book.audio.bitrate,
-                               channels: job.book.audio.channels, tags: tags)
+                               channels: job.book.audio.channels, sampleRate: AudioSettings.encodedSampleRate, tags: tags)
         try? FileManager.default.removeItem(at: joined)
         let encoded = dir.appendingPathComponent(file)
         let bytes = ((try? FileManager.default.attributesOfItem(atPath: encoded.path))?[.size] as? Int) ?? 0
@@ -553,6 +665,33 @@ public actor BookRenderer {
         log("book \(job.id.prefix(12)): chapter \(index + 1)/\(job.book.chapters.count) ready, \(Int(seconds)) s "
             + "(\(synthesized) synthesized, \(parts.count - synthesized) from cache)")
         return job
+    }
+
+    /// The one format a book's chapters are joined in: the narrator's, from the
+    /// narrator's first clip in the book, synthesized now when it is not in the cache yet. Taken
+    /// from a chapter's first clip instead, an untitled chapter that opens with a character
+    /// read by another engine came out in that engine's format, and the chapters of one book
+    /// could not be joined into one M4B. Nil only when the narrator reads nothing at all; a
+    /// chapter then takes its first clip's format. Kept per job: it does not change.
+    private func bookFormat(_ job: BookJob) async throws -> BookFormat? {
+        if let known = bookFormats[job.id] { return known }
+        let narrator = job.book.voices.narrator
+        for chapter in job.book.chapters {
+            for (_, part) in job.book.parts(of: chapter) where part.request.voice == narrator {
+                let url = cacheDirectory.appendingPathComponent(part.request.cacheKey + ".wav")
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    let data = try await synthesizeWithRetry(synthesizer, part.request, jobID: job.id)
+                    try data.write(to: url, options: .atomic)
+                }
+                guard let clip = WAV.parse(try Data(contentsOf: url)) else {
+                    throw SynthesisError.permanent("a cached clip is not WAV: \(url.lastPathComponent)")
+                }
+                let format = BookFormat(format: clip.format, voice: narrator)
+                bookFormats[job.id] = format
+                return format
+            }
+        }
+        return nil
     }
 
     /// Retry a transient failure forever (with backoff), pausing the job while it fails and
@@ -595,17 +734,20 @@ public actor BookRenderer {
 
     /// Concatenate the cached clips, with each part's pause as silence, into one WAV.
     /// Returns the duration in seconds and where each segment's speech starts and ends in it,
-    /// for read-along: a segment read sentence by sentence spans all its sentences. Every clip
-    /// must share one format; Kokoro always answers 24 kHz mono 16-bit, and a mixed cast across
-    /// engines is refused here rather than garbled.
-    nonisolated func joinWAV(segments: [SpeechSegment], book: PreparedBook,
+    /// for read-along: a segment read sentence by sentence spans all its sentences. The chapter
+    /// takes its first clip's format, and a clip in another (a cast whose voices come from
+    /// different engines, TBX-11141) is converted to it; only a clip in a format `WAV.converting`
+    /// does not read is refused, naming its voice, rather than garbled.
+    nonisolated func joinWAV(segments: [SpeechSegment], book: PreparedBook, format bookFormat: BookFormat? = nil,
                              to destination: URL) throws -> (seconds: Double, timing: ReadAlongTiming) {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
             throw SynthesisError.permanent("could not create \(destination.lastPathComponent)")
         }
         let handle = try FileHandle(forWritingTo: destination)
         defer { try? handle.close() }
-        var format: WAV.Format?
+        var format = bookFormat?.format
+        // Whose audio set the format, for a refusal that names the voice at fault.
+        var formatVoice = bookFormat?.voice
         var total = 0
         var timed: [ReadAlongTiming.Segment] = []
         try handle.write(contentsOf: Data(count: 44))   // header placeholder, rewritten below
@@ -616,14 +758,25 @@ public actor BookRenderer {
                 guard let clip = WAV.parse(try Data(contentsOf: url)) else {
                     throw SynthesisError.permanent("a cached clip is not WAV: \(url.lastPathComponent)")
                 }
-                if let format, format != clip.format {
-                    throw SynthesisError.permanent("voices in this book return different audio formats; render it with one engine")
+                var pcm = part.trimsSilence ? WAV.trimmingSilence(clip.pcm, format: clip.format) : clip.pcm
+                let target = format ?? clip.format
+                if format == nil { formatVoice = part.request.voice }
+                if target != clip.format {
+                    guard let converted = WAV.converting(pcm, from: clip.format, to: target) else {
+                        // The voice whose format cannot be read: this clip's, or the one the
+                        // book's format came from.
+                        let (unreadable, other) = WAV.isConvertible(clip.format)
+                            ? ((formatVoice ?? book.voices.narrator, target), (part.request.voice, clip.format))
+                            : ((part.request.voice, clip.format), (formatVoice ?? book.voices.narrator, target))
+                        throw SynthesisError.permanent("\(unreadable.0) answers \(WAV.describe(unreadable.1)) audio, which cannot be "
+                            + "joined with the \(WAV.describe(other.1)) of \(other.0)")
+                    }
+                    pcm = converted
                 }
-                format = clip.format
-                let pcm = part.trimsSilence ? WAV.trimmingSilence(clip.pcm, format: clip.format) : clip.pcm
-                let silence = Int(Double(clip.format.sampleRate) * Double(part.pauseBeforeMs) / 1000) * clip.format.blockAlign
+                format = target
+                let silence = Int(Double(target.sampleRate) * Double(part.pauseBeforeMs) / 1000) * target.blockAlign
                 if silence > 0 { try handle.write(contentsOf: Data(count: silence)); total += silence }
-                let bytesPerSecond = Double(clip.format.blockAlign) * Double(clip.format.sampleRate)
+                let bytesPerSecond = Double(target.blockAlign) * Double(target.sampleRate)
                 if start == nil { start = Double(total) / bytesPerSecond }
                 try handle.write(contentsOf: pcm)
                 total += pcm.count

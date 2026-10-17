@@ -13,7 +13,7 @@ final class BookSpeedSleepUITests: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
         server = try FakeHomeServer()
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

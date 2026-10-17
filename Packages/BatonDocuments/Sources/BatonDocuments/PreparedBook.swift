@@ -222,6 +222,12 @@ public struct AudioSettings: Codable, Sendable, Equatable {
         self.bitrate = bitrate
         self.channels = channels
     }
+
+    /// The sample rate every chapter is encoded at, on the Mac and the Baton server:
+    /// Kokoro's and Qwen3-TTS's own, so their books encode as they always have, and any two
+    /// chapters Baton makes can be joined by stream copy. Not part of the book: it never
+    /// changes a book's id.
+    public static let encodedSampleRate = 24_000
 }
 
 public struct PreparedChapter: Codable, Sendable, Equatable {

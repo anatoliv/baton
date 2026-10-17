@@ -4,6 +4,7 @@
 //   probe-ax press <pid> <label>    press the first button or segment whose title or description is <label>
 //   probe-ax show  <pid> <label>    scroll the first element labelled <label> into view
 //   probe-ax scroll <pid> <0...1>   set the largest window's first vertical scroll bar
+//   probe-ax scroll-to <pid> <label> <0...1>  set the scroll bar of the scroll area holding <label>
 //   probe-ax windows <pid>          "<window id> <width> <height>" per on-screen window, largest first
 //   probe-ax toggle <pid> <label>   press the first checkbox or switch whose title or description is <label>
 //   probe-ax value <pid> <label>    print that checkbox's value (1 on, 0 off)
@@ -188,6 +189,24 @@ case "show":
     }
     print("not found: \(label)")
     exit(1)
+case "scroll-to":
+    // probe-ax scroll-to <pid> <label> <0...1>: set the vertical scroll bar of the scroll area
+    // that holds the element labelled <label> (a sheet's list, not the window's first one).
+    guard args.count >= 5, let fraction = Double(args[4]) else { exit(64) }
+    let label = args[3]
+    var done = false
+    for window in windows where !done {
+        done = walk(window) { element in
+            guard string(element, kAXRoleAttribute) == kAXScrollAreaRole,
+                  let bar = attribute(element, kAXVerticalScrollBarAttribute),
+                  walk(element, { labels($0).contains(label) }) else { return false }
+            // swiftlint:disable:next force_cast
+            return AXUIElementSetAttributeValue(bar as! AXUIElement, kAXValueAttribute as CFString,
+                                                NSNumber(value: fraction)) == .success
+        }
+    }
+    print(done ? "done" : "no scroll area holds \(label)")
+    exit(done ? 0 : 1)
 case "scroll":
     guard args.count >= 4, let fraction = Double(args[3]) else { exit(64) }
     var done = false

@@ -16,7 +16,7 @@ final class PlayerLayoutUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // Bundled demo library, not the network — the same reasoning as
         // `DynamicTypePlayerUITests`: layout has nothing to do with a server.
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
@@ -151,6 +151,6 @@ final class PlayerLayoutUITests: XCTestCase {
             }
         }
         XCTAssertTrue(playing, "nothing in the bundled demo library started playing")
-        bar.tap()
+        tapMiniBar(in: app)
     }
 }

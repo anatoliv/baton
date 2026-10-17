@@ -9,7 +9,7 @@ import XCTest
 /// thing to establish is what stops us — a camera, or a Mac — and what a person sees here.
 final class ScannerReachabilityTests: XCTestCase {
     func testWhatTheScannerShowsWithoutACamera() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

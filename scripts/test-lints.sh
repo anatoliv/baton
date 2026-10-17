@@ -166,6 +166,27 @@ else
   bad "the default (unscoped) run covers both apps and is clean (expected pass, got nonzero)"
 fi
 
+# 6a. Phone UI tests launch with preference sync off (TBX-1000000014): a bare
+#     `XCUIApplication()` outside BatonUnderTest.swift fails, through its own override
+#     BATON_UITEST_LINT_SRC, so the planted tree feeds this lint alone.
+expect_uitest() {   # $1 = "clean"|"dirty", $2 = dir, $3 = name
+  BATON_UITEST_LINT_SRC="$2" LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1; local rc=$?
+  if [ "$1" = clean ]; then
+    [ "$rc" -eq 0 ] && ok "$3" || bad "$3 (expected pass, got $rc)"
+  else
+    [ "$rc" -ne 0 ] && ok "$3" || bad "$3 (expected FAIL, lint passed)"
+  fi
+}
+mkdir -p "$WORK/uitest-bare" "$WORK/uitest-helper"
+printf 'import XCTest\nfinal class A: XCTestCase { let app = XCUIApplication() }\n' > "$WORK/uitest-bare/AUITests.swift"
+expect_uitest dirty "$WORK/uitest-bare" "a phone UI suite with a bare XCUIApplication() is caught"
+printf 'import XCTest\nextension XCUIApplication { static func batonUnderTest() -> XCUIApplication { XCUIApplication() } }\n' \
+  > "$WORK/uitest-helper/BatonUnderTest.swift"
+printf 'import XCTest\nfinal class A: XCTestCase { let app = XCUIApplication.batonUnderTest()\n  let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard") }\n' \
+  > "$WORK/uitest-helper/AUITests.swift"
+expect_uitest clean "$WORK/uitest-helper" "the helper and a springboard app are not flagged"
+expect_uitest clean "ios/Tests/BatonMobileUITests" "the real phone UI tests all launch with preference sync off"
+
 # 6. W-20, the Linux-import lint (TBX-5323). It drives the SAME real block via a second
 # override, BATON_IMPORT_LINT_SRC, so a planted tree here does not also feed the W-16/W-18/
 # W-19 lints above (those still read the real app/Sources/Baton, which is clean per case 5).

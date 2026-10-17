@@ -30,7 +30,10 @@ raise SystemExit('unexpected fixture tool call')
 '''
 
 class UITestRunnerTests(unittest.TestCase):
-    def run_fixture(self, summary=None, *, summary_rc=0, xcode_rc=0, raw=None):
+    PRIMER='-only-testing:BatonMobileUITests/AAAFirstLaunchPrimer'
+
+    def run_fixture(self, summary=None, *, summary_rc=0, xcode_rc=0, raw=None, runner_args=('-only','SuiteA, SuiteB'),
+                    expected_only=None):
         with tempfile.TemporaryDirectory(prefix='baton-ui-reporting-') as folder:
             root = Path(folder)
             tools = root/'bin'; tools.mkdir()
@@ -44,12 +47,13 @@ class UITestRunnerTests(unittest.TestCase):
                  'TMPDIR':str(root),'UI_RUNNER_FIXTURE':str(fixtures),'UITEST_SIM':'synthetic-simulator',
                  'UITEST_DD':str(root/'dd'),'UITEST_RESULTS':str(root/'results'),
                  'UITEST_BUILD_LOG':str(root/'build.log')}
-            result=subprocess.run(['/bin/bash',str(RUNNER),'-only','SuiteA, SuiteB'],env=env,
+            result=subprocess.run(['/bin/bash',str(RUNNER),*runner_args],env=env,
                                   text=True,capture_output=True,timeout=15)
             args=json.loads((root/'argv.json').read_text())
             self.assertEqual(args[args.index('-collect-test-diagnostics')+1],'never')
+            # The first-launch primer leads every -only run (TBX-1000000045).
             self.assertEqual([arg for arg in args if arg.startswith('-only-testing:')],
-                             ['-only-testing:SuiteA','-only-testing:SuiteB'])
+                             expected_only or [self.PRIMER,'-only-testing:SuiteA','-only-testing:SuiteB'])
             self.assertFalse(any(arg.startswith('-skip-testing:') for arg in args))
             self.assertTrue((root/'results/ui.xcresult/attachment.txt').is_file())
             return result.returncode,result.stdout+result.stderr
@@ -57,6 +61,11 @@ class UITestRunnerTests(unittest.TestCase):
     def test_readable_success_keeps_all_counts(self):
         code,output=self.run_fixture({'passedTests':7,'failedTests':0,'skippedTests':4})
         self.assertEqual(code,0);self.assertIn('7 passed, 0 failed, 4 skipped',output)
+
+    def test_whole_target_run_names_only_the_target(self):
+        code,output=self.run_fixture({'passedTests':7,'failedTests':0,'skippedTests':4},runner_args=(),
+                                     expected_only=['-only-testing:BatonMobileUITests'])
+        self.assertEqual(code,0)
 
     def test_readable_failure_keeps_actual_failures(self):
         code,output=self.run_fixture({'passedTests':7,'failedTests':4,'skippedTests':0},xcode_rc=65)

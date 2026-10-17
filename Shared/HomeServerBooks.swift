@@ -426,8 +426,17 @@ final class HomeServerBooks {
     /// new job id; the same voice changes nothing.
     @discardableResult
     func changeVoice(jobID: String, to narrator: String) async throws -> String {
+        guard let book = preparedBook(forJob: jobID) else { throw Problem.nothingToRender }
+        return try await changeVoice(jobID: jobID, to: book.inVoice(narrator))
+    }
+
+    /// The same with the whole book as Change Voice… left it: a new narrator, a cast
+    /// given, edited or taken away. The cast travels in the book (`VoicePlan.characters` and each
+    /// line's speaker), and the home server reads each line in its speaker's voice.
+    @discardableResult
+    func changeVoice(jobID: String, to updated: PreparedBook) async throws -> String {
         guard let record = record(forJob: jobID), let book = preparedBook(forJob: jobID) else { throw Problem.nothingToRender }
-        let updated = book.inVoice(narrator)
+        let narrator = updated.voices.narrator
         guard BookJob.id(for: updated) != jobID else { return jobID }
         let present = (0..<record.chapterTitles.count).filter {
             !record.offloaded.contains($0) && clippings.item(documentID: record.documentID, chapterIndex: $0) != nil
@@ -437,6 +446,7 @@ final class HomeServerBooks {
         // With nothing here yet, every chapter simply comes down in the new voice.
         if !present.isEmpty {
             voiceChanges.begin(documentID: record.documentID, voice: narrator, previousVoices: book.voices,
+                               previousBook: updated.chapters == book.chapters ? nil : book,
                                jobID: newID, pending: present, startedHere: true)
         }
         return newID
@@ -452,8 +462,7 @@ final class HomeServerBooks {
             voiceChanges.abandon(documentID)
             return
         }
-        var back = book
-        back.voices = change.previousVoices
+        let back = change.bookBefore(book)
         if BookJob.id(for: back) != record.jobID {
             _ = try await resubmit(jobID: record.jobID, as: back)
         }
@@ -1173,6 +1182,10 @@ final class BookVoiceChanges {
         var voice: String
         /// The voices the book had, which Stop goes back to.
         var previousVoices: VoicePlan
+        /// The whole book it was, when the change gave it a cast, edited one or took one away
+        ///: who speaks each line is in its words, not its voices. Nil when only the
+        /// narrator changed, which `previousVoices` puts back.
+        var previousBook: PreparedBook? = nil
         /// The job making it in the new voice.
         var jobID: String
         /// The job it was made by before, kept until the change ends so Stop can go back to it
@@ -1186,6 +1199,25 @@ final class BookVoiceChanges {
         /// Started on this device. A change another device started is followed here (its
         /// chapters replaced as they land), and stopped from there.
         var startedHere: Bool
+
+        /// The book Stop goes back to, from the book as it is now: the whole book it was when
+        /// the change touched the cast, otherwise this one in the voices it had.
+        func bookBefore(_ now: PreparedBook) -> PreparedBook {
+            if let previousBook { return previousBook }
+            var back = now
+            back.voices = previousVoices
+            return back
+        }
+    }
+
+    /// The book before the first of several changes: a change that only moved the narrator kept
+    /// the words, so the book before it is the book before this one in the voices it started in.
+    nonisolated static func firstBook(earlier: Change?, previousBook: PreparedBook?) -> PreparedBook? {
+        guard let earlier else { return previousBook }
+        if let first = earlier.previousBook { return first }
+        guard var book = previousBook else { return nil }
+        book.voices = earlier.previousVoices
+        return book
     }
 
     private(set) var all: [Change]
@@ -1207,11 +1239,13 @@ final class BookVoiceChanges {
 
     /// Start, or restart in a third voice: a book changed again before the first change ended
     /// keeps the audio it had before either, so Stop still goes back to the voice it started in.
-    func begin(documentID: String, voice: String, previousVoices: VoicePlan, jobID: String, previousJobID: String? = nil,
+    func begin(documentID: String, voice: String, previousVoices: VoicePlan, previousBook: PreparedBook? = nil,
+               jobID: String, previousJobID: String? = nil,
                pending: [Int], startedHere: Bool, now: Date = Date()) {
         let earlier = change(forDocument: documentID)
         let change = Change(documentID: documentID, voice: voice,
-                            previousVoices: earlier?.previousVoices ?? previousVoices, jobID: jobID,
+                            previousVoices: earlier?.previousVoices ?? previousVoices,
+                            previousBook: Self.firstBook(earlier: earlier, previousBook: previousBook), jobID: jobID,
                             previousJobID: earlier == nil ? previousJobID : earlier?.previousJobID,
                             pending: pending.sorted(), held: earlier?.held ?? [], startedAt: now,
                             startedHere: startedHere || earlier?.startedHere == true)
@@ -1354,7 +1388,4 @@ final class BookVoiceChanges {
         guard let tag = VoiceCatalogue.describe(spec).tags.first(where: { $0.hasPrefix("good for") }) else { return nil }
         return tag.prefix(1).uppercased() + tag.dropFirst() + "."
     }
-
-    /// What the voice picker says about a book whose dialogue is voiced (G4).
-    nonisolated static let castNote = "This book voices the dialogue with a cast. Only the narrator changes; each character keeps its voice."
 }

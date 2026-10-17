@@ -202,10 +202,10 @@ box's Kokoro and run the gateway wherever it already runs.
 
 ## Pointing the apps at it
 
-- **Mac** — Settings → Remote → **Shared settings**. Paste the address and token, click
+- **Mac** — Settings → Remote → **Baton server**. Paste the address and token, click
   **Save token**, then **Test**.
-- **iPhone** — Settings → Music Friend, set **Answers come from** to **Home server**, then
-  fill in the same two fields under **Home server**.
+- **iPhone** — Settings → Music Friend, set **Answers come from** to **Baton server**, then
+  fill in the same two fields under **Baton server**.
 
 Neither app needs the gateway. With no gateway configured both work exactly as they always
 have; sync is an upgrade, not a dependency. The full walkthrough is in

@@ -53,8 +53,11 @@ extension DialogueCast {
                 // A line long enough to hear the voice in, and short enough to be a preview.
                 if samples[who] == nil || (samples[who]!.count < 40 && s.text.count <= 220) { samples[who] = s.text }
             }
+            // Proposed from the narrator's engine, so a cast sounds of a piece; from every voice
+            // offered when that engine has none to give. The person can choose any engine's.
+            let ownEngine = available.filter { Self.sameEngine($0, narrator) }
             let voices = DialogueCast.assignVoices(spans, cast: sheet.characters, narrator: narrator,
-                                                   available: available.filter { Self.sameEngine($0, narrator) })
+                                                   available: ownEngine.count > 1 ? ownEngine : available)
             self.init(speakers: sheet.characters.map { c in
                 Speaker(id: c.name, character: c, voice: voices[c.name], isNarrator: false,
                         lines: lines[c.name] ?? 0, sample: samples[c.name])
@@ -135,12 +138,12 @@ extension DialogueCast {
         // MARK: Voices
 
         /// Name → voice for the speakers read in a voice of their own: not the narrator, with a
-        /// voice chosen, and on the narrator's engine (a chapter is one audio format; a cast that
-        /// mixed Kokoro and Chatterbox could not be joined).
+        /// voice chosen. Any engine's: a chapter whose voices answer in different audio formats is
+        /// converted to one as it is joined (`WAV.converting`, TBX-11141).
         public func voices(narrator: String) -> [String: String] {
             var out: [String: String] = [:]
             for s in speakers where !s.isNarrator {
-                guard let voice = s.voice, Self.sameEngine(voice, narrator) else { continue }
+                guard let voice = s.voice else { continue }
                 out[s.name] = voice
             }
             return out

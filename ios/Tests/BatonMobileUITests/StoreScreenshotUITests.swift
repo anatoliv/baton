@@ -48,7 +48,7 @@ final class StoreScreenshotUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestServer"] = Self.server
@@ -272,7 +272,7 @@ final class StoreScreenshotUITests: XCTestCase {
         // Full-screen player, via the bar's stable identifier.
         let bar = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 15), "expected the now-playing bar")
-        bar.tap()
+        tapMiniBar(in: app)
         let player = app.descendants(matching: .any).matching(identifier: "FullPlayerContent").firstMatch
         XCTAssertTrue(player.waitForExistence(timeout: 15), "expected the full player")
         sleep(6) // artwork + palette settle

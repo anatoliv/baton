@@ -323,6 +323,15 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.5",
+            date: "October 2026",
+            highlight: "A better-sized Dock icon in light and dark appearances.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "The Dock icon now has more breathing room, matching the size of other Mac app icons in both light and dark appearances."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.4",
             date: "October 2026",
             highlight: "A new musical-note icon for Baton.",
@@ -472,10 +481,10 @@ extension HelpWhatsNewRelease {
                     "When Clippings is the first screen you open, the weekly suggestion about a "
                     + "finished book still appears."),
                 HelpWhatsNewChange(.fixed,
-                    "The Home Server list in Settings, Storage now updates after Render Again or "
+                    "The Baton Server list in Settings, Storage now updates after Render Again or "
                     + "Download Again."),
                 HelpWhatsNewChange(.fixed,
-                    "A cleanup rule such as After 7 days now reaches books made on your home "
+                    "A cleanup rule such as After 7 days now reaches books made on your Baton "
                     + "server as soon as Baton has heard from it, without opening Clippings first."),
                 HelpWhatsNewChange(.improved,
                     "Voice the dialogue keeps two people taking turns in a conversation, so a "

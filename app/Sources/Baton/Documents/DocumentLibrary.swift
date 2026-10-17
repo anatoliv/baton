@@ -573,15 +573,22 @@ final class DocumentLibrary {
     /// each chapter here plays in the old voice until its new audio takes its place.
     func changeVoice(_ book: BookShelf.Book, to narrator: String) async throws {
         guard let source = pronunciationSource(documentID: book.documentID) else { throw PronunciationError.noPreparedBook }
+        try await changeVoice(book, to: source.book.inVoice(narrator))
+    }
+
+    /// The same with the whole book as Change Voice… left it: a new narrator, and a
+    /// cast given, edited or taken away. Stop goes back to the book it was, cast and all.
+    func changeVoice(_ book: BookShelf.Book, to updated: PreparedBook) async throws {
+        guard let source = pronunciationSource(documentID: book.documentID) else { throw PronunciationError.noPreparedBook }
+        let narrator = updated.voices.narrator
         switch source.renderer {
         case .homeServer:
-            let newID = try await homeServer.changeVoice(jobID: source.jobID, to: narrator)
+            let newID = try await homeServer.changeVoice(jobID: source.jobID, to: updated)
             if newID != source.jobID, clippings.ledger.document(book.documentID)?.finished == true {
                 await homeServer.markFinished(jobID: newID)
             }
         case .thisMac:
             guard let stored = store.load(source.jobID) else { throw PronunciationError.noPreparedBook }
-            let updated = stored.book.inVoice(narrator)
             let newID = BookJob.id(for: updated)
             guard newID != source.jobID else { return }
             let present = book.chapters.filter { $0.item?.isPresent == true }.map(\.index)
@@ -591,6 +598,7 @@ final class DocumentLibrary {
             let keepPrevious = earlier == nil && stored.status == .ready && !present.isEmpty
             if !present.isEmpty {
                 voiceChanges.begin(documentID: book.documentID, voice: narrator, previousVoices: stored.book.voices,
+                                   previousBook: updated.chapters == stored.book.chapters ? nil : stored.book,
                                    jobID: newID, previousJobID: keepPrevious ? source.jobID : nil,
                                    pending: present, startedHere: true)
             }
@@ -624,9 +632,8 @@ final class DocumentLibrary {
             voiceChanges.abandon(book.documentID)
             if let previous = change.previousJobID, store.load(previous) != nil {
                 // Every chapter of it is already here: nothing to make.
-            } else if var back = stored?.book {
-                back.voices = change.previousVoices
-                try await submit(back)
+            } else if let now = stored?.book {
+                try await submit(change.bookBefore(now))
             }
         }
         refresh()

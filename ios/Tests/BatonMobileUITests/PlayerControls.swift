@@ -21,8 +21,13 @@ enum PlayerControls {
     static let dismissFullPlayer = "Minimize player"
 
     /// The mini bar's accessibility identifier. Note that it propagates to the bar's own
-    /// buttons and images, so a `firstMatch` on it can be the artwork rather than the
-    /// container — which is harmless, because the whole bar carries the tap gesture.
+    /// artwork, title and buttons, so a `firstMatch` on it is whichever of those the tree
+    /// lists first. Never tap that match: it is the artwork only while a cover is drawn, and
+    /// otherwise the bar's Play/Pause button, which pauses instead of opening the player.
+    /// That is how three tests failed on 2026-10-16 while book chapters had no cover, and
+    /// passed again once TBX-11064 gave them one. Use `tapMiniBar` instead,
+    /// which taps the middle of the bar as a person would. That tap paused the music too,
+    /// until the title was given the room up to the controls.
     static let miniBar = "NowPlayingBar"
 }
 
@@ -37,10 +42,32 @@ extension XCTestCase {
         let mini = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar).firstMatch
         XCTAssertTrue(mini.waitForExistence(timeout: timeout),
                       "the mini player must appear once something is playing")
-        mini.tap()
+        tapMiniBar(in: app)
         let opened = app.buttons[PlayerControls.dismissFullPlayer].waitForExistence(timeout: timeout)
         XCTAssertTrue(opened, "tapping the mini player must open the full player")
         return opened
+    }
+
+    /// Taps the mini bar where a person would: the middle of what it draws, away from its
+    /// buttons. The bar's elements are all named `PlayerControls.miniBar`, so their frames
+    /// together are the bar; its middle is the title or the space beside it, which open the
+    /// player. If a narrow bar puts a button there, the title is tapped instead.
+    func tapMiniBar(in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let parts = app.descendants(matching: .any).matching(identifier: PlayerControls.miniBar)
+            .allElementsBoundByIndex.filter { $0.exists && !$0.frame.isEmpty }
+        let buttons = parts.filter { $0.elementType == .button }.map { $0.frame }
+        let bar = parts.map { $0.frame }.reduce(CGRect.null) { $0.union($1) }
+        XCTAssertFalse(bar.isNull, "the mini bar has nothing on screen to tap", file: file, line: line)
+        var point = CGPoint(x: bar.midX, y: bar.midY)
+        if buttons.contains(where: { $0.contains(point) }),
+           let title = parts.first(where: { $0.elementType == .staticText }) {
+            point = CGPoint(x: title.frame.midX, y: title.frame.midY)
+        }
+        XCTAssertFalse(buttons.contains { $0.contains(point) }, "no part of the mini bar to tap that is not a button",
+                       file: file, line: line)
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: point.x, dy: point.y))
+            .tap()
     }
 
     /// Collapses the full player, and says so if it was not open to begin with.

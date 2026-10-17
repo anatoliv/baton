@@ -23,7 +23,7 @@ final class ChangeVoiceLiveWalkUITests: XCTestCase {
             throw XCTSkip("set BATON_LIVE_GATEWAY_URL, BATON_LIVE_GATEWAY_TOKEN and BATON_LIVE_IMPORT_FILE (ios/scripts/change-voice-live-walk.sh)")
         }
         if let voice = env["BATON_LIVE_TARGET_VOICE"], !voice.isEmpty { target = voice }
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
@@ -125,7 +125,7 @@ final class ChangeVoiceLiveWalkUITests: XCTestCase {
         let mini = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'The Storm'")).firstMatch
         XCTAssertTrue(mini.waitForExistence(timeout: 10), "Play did not start chapter 2, The Storm")
         attach("08a-mini-player-chapter-2")
-        mini.tap()
+        tapMiniBar(in: app)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
         mark("playing")
         attach("08-playing-after-change")

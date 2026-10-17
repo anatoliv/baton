@@ -95,7 +95,10 @@ xcodebuild build-for-testing "${ARGS[@]}" >"$BUILD_LOG" 2>&1 || {
 # which would run zero tests and — but for the all-skipped check below — report a pass.
 RUN=(-only-testing:BatonMobileUITests)
 if [ -n "$ONLY" ]; then
-  RUN=()
+  # The first launch after install, spent before the suites asked for (AAAFirstLaunchPrimer,
+  # TBX-1000000045): on the iOS 27 simulator it can come up without its launch environment or
+  # not at all, and whichever test went first failed for it. The whole-target run has it already.
+  RUN=(-only-testing:BatonMobileUITests/AAAFirstLaunchPrimer)
   IFS=',' read -ra WANTED <<<"$ONLY"
   for want in "${WANTED[@]}"; do
     want="${want#"${want%%[![:space:]]*}"}"   # trim both ends: a stray space in the list

@@ -383,7 +383,8 @@ private struct RemoteSettingsForm: View {
         isTesting = true
         testResult = nil
         Task {
-            let tools = RemoteNaturalLanguage.toolSchemas(from: BatonMCPToolCatalog.definitions())
+            // The chat's own catalog, without the MCP-only app tools.
+            let tools = RemoteNaturalLanguage.toolSchemas(from: MCPToolSurface.chatDefinitions())
             let outcome = await RemoteNaturalLanguage.test(config: config, tools: tools)
             testResult = outcome
             isTesting = false

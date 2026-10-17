@@ -19,7 +19,7 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // The bundled demo library, not demo.navidrome.org. Layout at a text size has
         // nothing to do with the network, so it should not depend on one — the same
         // reasoning DynamicTypePlayerUITests already records.
@@ -120,7 +120,7 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
     /// Skips when the server is not answering, per the rule the conversation eval set: an
     /// unreachable provider is not measurable rather than broken.
     func testAlphabetRailStaysAtAccessibilityTextSize() throws {
-        let live = XCUIApplication()
+        let live = XCUIApplication.batonUnderTest()
         live.launchEnvironment["baton.resetSession"] = "1"
         live.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
         live.launchEnvironment["uitestUser"] = "demo"
@@ -160,7 +160,7 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
     /// matter how low `-baton.railMinimum` goes. `-baton.demoRailFixture` adds a dozen artist-only rows
     /// spanning distinct letters (`DemoLibrary.railFixtureArtists`) only when this test asks for them.
     func testAlphabetRailStaysAtAccessibilityTextSizeOffline() {
-        let offline = XCUIApplication()
+        let offline = XCUIApplication.batonUnderTest()
         offline.launchEnvironment["baton.resetSession"] = "1"
         offline.launchEnvironment["baton.demoMode"] = "YES"
         offline.launchEnvironment["baton.demoRailFixture"] = "1"

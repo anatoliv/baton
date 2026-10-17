@@ -11,7 +11,7 @@ final class IncomingShareFlowUITests: XCTestCase {
         continueAfterFailure = false
         environment = ProcessInfo.processInfo.environment
         try XCTSkipUnless(environment["INCOMING_SHARE_FLOW_TESTS"] == "1", "requires isolated incoming-sharing fixtures")
-        let fixtureApp = XCUIApplication()
+        let fixtureApp = XCUIApplication.batonUnderTest()
         app = fixtureApp
         // XCTest's synchronous tearDown override is nonisolated. Its SDK-provided
         // main-actor teardown block keeps screenshots and app cleanup on the UI actor.

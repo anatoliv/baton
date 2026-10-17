@@ -18,7 +18,7 @@ final class SongSharingFlowUITests: XCTestCase {
         shareBase = try XCTUnwrap(env["SONG_SHARING_SHARE_URL"])
         adminToken = try XCTUnwrap(env["SONG_SHARING_ADMIN_TOKEN"])
         operatorToken = env["SONG_SHARING_OPERATOR_TOKEN"] ?? ""
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.terminate()
         let launchNonce = UUID().uuidString
         app.launchEnvironment["baton.launchProbe"] = launchNonce
@@ -453,7 +453,7 @@ final class SongSharingFlowUITests: XCTestCase {
         app.staticTexts[title].firstMatch.tap()
         let bar = app.descendants(matching: .any)["NowPlayingBar"].firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 20))
-        bar.tap()
+        tapMiniBar(in: app)
         XCTAssertTrue(app.buttons["Up Next"].waitForExistence(timeout: 10))
         app.buttons["Up Next"].tap()
         XCTAssertTrue(app.navigationBars["Up Next"].waitForExistence(timeout: 10))
@@ -484,7 +484,7 @@ final class SongSharingFlowUITests: XCTestCase {
         app.staticTexts[title].firstMatch.tap()
         let bar = app.descendants(matching: .any)["NowPlayingBar"].firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 20))
-        bar.tap()
+        tapMiniBar(in: app)
         XCTAssertTrue(app.buttons["Minimize player"].waitForExistence(timeout: 10))
         let heading = app.scrollViews["FullPlayerContent"].staticTexts[title].firstMatch
         XCTAssertTrue(heading.exists)

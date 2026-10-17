@@ -175,6 +175,20 @@ struct MusicBooksView: View {
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
+        // DEBUG only: `scripts/probe-dialogue-cast.sh` exports the first book that can be
+        // exported to this path, as Export Audiobook… does once its save panel is
+        // answered; the save panel runs in another process the probe does not drive. No Finder
+        // window is opened.
+        .task {
+            guard let path = ProcessInfo.processInfo.environment["BATON_DEBUG_EXPORT_BOOK"], !path.isEmpty else { return }
+            for _ in 0..<240 {
+                if documentsOn, let book = model.documents.shelf.first(where: { !$0.isRendering && canExport($0) }) {
+                    await runExport(book, to: URL(fileURLWithPath: path), reveal: false)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
         #endif
         .onChange(of: filterText, initial: true) { _, text in
             search.follow(store)
@@ -895,7 +909,7 @@ struct MusicBooksView: View {
         }
     }
 
-    private func runExport(_ book: BookShelf.Book, to url: URL) async {
+    private func runExport(_ book: BookShelf.Book, to url: URL, reveal: Bool = true) async {
         exportFailed = false
         exportLine = "Exporting \(book.title)…"
         do {
@@ -913,12 +927,12 @@ struct MusicBooksView: View {
                 if !outcome.hasMarks {
                     exportFailed = true   // shown in orange with Dismiss; the file is there
                     exportLine = "Exported without chapter marks: they need ffmpeg on this Mac (brew install ffmpeg)."
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    if reveal { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                     return
                 }
             }
             exportLine = nil
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+            if reveal { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         } catch {
             exportFailed = true
             exportLine = "The audiobook could not be exported: \(error)."

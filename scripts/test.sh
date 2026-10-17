@@ -994,6 +994,21 @@ if [ -n "$gateway_pkg_hits" ]; then
   red "  SwiftPM resolves every declared path package, so the image build fails without it."
   lint_fail=1
 fi
+# Every phone UI test launches Baton with preference sync off, through the one constructor
+# that sets it, `XCUIApplication.batonUnderTest()` (BatonUnderTest.swift). A test instance
+# that syncs sends its reset state to the owner's shared settings as the newest word, which
+# emptied them on 2026-10-14, and 30 suites had been written without the switch
+# (TBX-1000000014). A bare `XCUIApplication()` is how a new suite would leave it out.
+# `BATON_UITEST_LINT_SRC` lets `scripts/test-lints.sh` point this at a planted tree.
+UITEST_LINT_SRC="${BATON_UITEST_LINT_SRC:-ios/Tests/BatonMobileUITests}"
+bare_app_hits="$(grep -rnE 'XCUIApplication\(\)' "$UITEST_LINT_SRC" --include='*.swift' \
+  | grep -v '/BatonUnderTest\.swift:' || true)"
+if [ -n "$bare_app_hits" ]; then
+  red "  lint: a phone UI test makes its app without preference sync off:"
+  printf '%s\n' "$bare_app_hits" | sed 's/^/    /' >&2
+  red "  Use XCUIApplication.batonUnderTest(), which sets BATON_DEBUG_PREFERENCE_SYNC=off."
+  lint_fail=1
+fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 # The public mirror's own secrets guard, run over what this branch changed since it left
 # origin/main, so a LAN address or a house machine name is caught at merge rather than by

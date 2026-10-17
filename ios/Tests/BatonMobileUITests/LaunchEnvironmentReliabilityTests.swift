@@ -28,7 +28,7 @@ final class LaunchEnvironmentReliabilityTests: XCTestCase {
 
         for run in 1...launchCount {
             let expected = "run-\(run)-\(UUID().uuidString.prefix(8))"
-            let app = XCUIApplication()
+            let app = XCUIApplication.batonUnderTest()
             // Bundled demo library: no server, no network, so a slow or unreachable third
             // party cannot be mistaken for a delivery failure in this specific test.
             app.launchEnvironment["baton.resetSession"] = "1"

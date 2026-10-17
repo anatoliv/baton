@@ -22,11 +22,15 @@ final class BookScreenFunctionsUITests: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
         // Narrated chapters only for the test about them: they are seconds long, and the walk
-        // through every control would outlive the book.
-        server = try FakeHomeServer(speech: name.contains("RealSpeech"))
+        // through every control would outlive the book. The tones are two minutes each, so
+        // chapter 1 is still playing when the walk ends: with 30-second chapters chapter 2
+        // started as the sleep timer's menu opened, the menu stayed up and ignored the tap on
+        // "15 minutes", and the run failed on a toolbar button the open menu hid
+        // (TBX-1000000045, 2026-10-17).
+        server = try FakeHomeServer(speech: name.contains("RealSpeech"), chapterSeconds: 120)
         server.setReadyOnSubmit(3)
         server.setVoices(["kokoro:af_heart", "kokoro:am_adam", "kokoro:bf_emma"])
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
@@ -176,7 +180,7 @@ final class BookScreenFunctionsUITests: XCTestCase {
         // takes the book's chapters out of the player, and the mini player with them.)
         let bar = app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 5), "the mini player is there while a chapter is in the player")
-        bar.tap()
+        tapMiniBar(in: app)   // not bar.tap(): the first match can be the bar's Pause
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "FullPlayerContent").firstMatch
             .waitForExistence(timeout: 10), "the mini player opens the full player")
         attach("BookScreen-08b-full-player")
@@ -421,7 +425,7 @@ final class BookScreenFunctionsUITests: XCTestCase {
         make.tap()
         XCTAssertTrue(waitFor(10) { !self.server.requests("PUT").isEmpty }, "Make Audiobook sent nothing")
         app.tap()
-        XCTAssertTrue(waitFor(20) { !self.app.buttons["make-audiobook"].exists }, "the import screen should close")
+        ImportScreen.waitToClose(app)
         removeUIInterruptionMonitor(monitor)
     }
 

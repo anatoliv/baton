@@ -176,18 +176,32 @@ public final class QueueHandoff {
 
     /// Saves the current queue server-side. Called on pause and on backgrounding —
     /// not on a timer, so the server isn't hammered during normal listening.
-    public func saveNow() {
-        guard mayUseServerSlot else { return }
+    /// What `saveNow` did, so a caller can say so rather than assume a save.
+    public enum SaveOutcome: Equatable, Sendable {
+        /// Sent to the music server's queue slot.
+        case sent
+        /// No server, or a shared public one whose single slot belongs to everyone.
+        case unavailable
+        /// Nothing in the queue.
+        case emptyQueue
+        /// The same queue, track and place (to five seconds) as the last save.
+        case unchanged
+    }
+
+    @discardableResult
+    public func saveNow() -> SaveOutcome {
+        guard mayUseServerSlot else { return .unavailable }
         let songs = controller.queue
-        guard !songs.isEmpty else { return }
+        guard !songs.isEmpty else { return .emptyQueue }
         let current = controller.nowPlaying?.id
         let position = Int(controller.currentTime * 1000)
         // Skip a save when nothing moved — backgrounding right after pausing is common.
         let signature = "\(current ?? "-"):\(position / 5000):\(songs.count)"
-        guard signature != lastSavedSignature else { return }
+        guard signature != lastSavedSignature else { return .unchanged }
         lastSavedSignature = signature
         Task { [server] in
             await server.saveQueue(songs.map(\.id), current, position)
         }
+        return .sent
     }
 }

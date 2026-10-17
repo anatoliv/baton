@@ -17,7 +17,7 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         try XCTSkipUnless(env["MIXTAPE_COMPOSER_FLOW_TESTS"] == "1", "Requires the owned loopback composer harness")
         base = try XCTUnwrap(URL(string: try XCTUnwrap(env["MIXTAPE_COMPOSER_BASE"])))
         controlToken = try XCTUnwrap(env["MIXTAPE_COMPOSER_CONTROL_TOKEN"])
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         let nonce = UUID().uuidString
         app.launchEnvironment["baton.launchProbe"] = nonce
         app.launchEnvironment["baton.defaultsSuite"] = "io.tonebox.tests.mixtape." + UUID().uuidString

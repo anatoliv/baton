@@ -1072,9 +1072,11 @@ under **All voices**, each with a button to hear it in the book's own words. The
 made again where it was made before: on your Baton server, or on the Mac. Its row says "Making
 again in" the new voice, with how far it has got, and each chapter keeps playing in its old
 voice until its new one arrives and takes its place, so there is no gap and you keep your place
-in the book. Your pronunciations carry over. A book whose dialogue is voiced keeps its cast, and
-only the narrator changes. **Stop Making Again** in the same menu puts back the old voice. Your
-other devices pick up the new chapters as they arrive.
+in the book. Your pronunciations carry over. A new narrator keeps the book's cast. **Voice the
+dialogue** is there too: turn it on to give a book made with one narrator a cast, **Edit Cast…**
+to rename, merge, revoice or remove a speaker, or turn it off to go back to one narrator (see
+[Voice the dialogue](#voice-the-dialogue)). **Stop Making Again** in the same menu puts back the
+old voice, and the old cast with it. Your other devices pick up the new chapters as they arrive.
 
 **Turning it off.** Documents are on for everyone. The **Documents** switch under **Settings →
 Speech** on the Mac, or **Settings → Documents** on the iPhone, takes the import items, the drop
@@ -1185,9 +1187,10 @@ it reads at an audiobook pace and moves its voice more than Kokoro does.
 An expressive voice reads one sentence at a time, with about half a second between sentences and
 about a second between paragraphs. Each line is sent with a short direction: the narrator is
 asked to read like an audiobook narrator in the book's tone, and each character in **Voice the
-dialogue** is described by their gender and age, such as "an elderly woman". A cast uses the
-narrator's engine, so with an expressive narrator the characters get expressive voices too.
-Kokoro books are read exactly as before.
+dialogue** is described by their gender and age, such as "an elderly woman". A cast is proposed
+from the narrator's engine, so with an expressive narrator the characters get expressive voices
+too, and any character can be given a voice from another engine. Kokoro books are read exactly as
+before.
 
 #### Setting up the Baton server's voice server
 
@@ -1207,22 +1210,33 @@ sent the book.
    Baton server also needs ffmpeg to make books. See [`gateway/README.md`](gateway/README.md).
 
 ### Voice the dialogue
-<!-- baton:audience mac -->
 
-Normally one narrator reads everything. Turn on **Voice the dialogue** in the Mac's import sheet
-to give each speaking character a voice of their own. It is off for the first book you import
-on a Mac. After that it starts the way you last left it.
+Normally one narrator reads everything. Turn on **Voice the dialogue** when you import a book, on
+the Mac or the iPhone, to give each speaking character a voice of their own. It is off for the
+first book you import on a device. After that it starts the way you last left it there.
 
 A model reads passages from across the book and proposes a cast: who speaks, the names the text
-calls them by, and a voice for each from the narrator's own set. Nothing is used until you check
+calls them by, and a voice for each from the narrator's engine. Nothing is used until you check
 it. **Check the Cast…** lets you rename someone, merge two names for one person, mark the
-narrator, remove someone who never speaks, and choose a voice for each from the same list as the
-narrator's, with **Hear** to listen to them say one of their own lines. Then choose **Use This Cast**.
+narrator, remove someone who never speaks, and choose a voice for each from every engine you have,
+Kokoro, an expressive server or Chatterbox, with **Hear** to listen to them say one of their own
+lines. Then choose **Use This Cast**. Voices from different engines can share a chapter.
 
 Baton then works out who says each line. A line with a speech tag ("said Mr. Bennet") is placed
 by rules, and a model is asked about the rest, with a progress line and a **Skip** button. One
 line tells you how many have a speaker, and the narrator reads any that nobody can place. With no
 model answering, the sheet says so and the book stays with one narrator.
+
+On the iPhone the models are the ones it can reach: the model on your network that Baton's
+assistant uses, your Baton server's, and Apple Intelligence on the iPhone, with a cloud model only
+if you allow it. Your Baton server makes the book, and reads each line in its speaker's voice.
+
+**A book already made.** **Change Voice…** has the same switch. For a book made with one narrator,
+turn it on and the cast is proposed and checked as at import. For a book with a cast, **Edit
+Cast…** lets you rename, merge, give someone another voice, or remove them. Each line keeps the
+speaker it has, so nothing is worked out again, and the lines of someone you remove go back to the
+narrator. Turn it off for one narrator again. Then **Make Again**: the whole book is made again,
+and your place is kept.
 
 ### Book storage
 
@@ -2468,6 +2482,47 @@ play can suggest something from your collection instead of guessing at song titl
 |---|---|---|
 | `import_document` | Make a narrated book in Books from a file on this Mac or a link to one. Made where Settings → Speech → Make books on says. Listed while Settings → Speech → Documents is on. See [Listening to a document](#listening-to-a-document) | `path` or `url`, optional `where` |
 | `document_context` | Read the passages of a book in Books that the listener has already heard, never past their place, to answer a question about it. Listed while Settings → Speech → Documents is on | `book`, `question` |
+
+**The rest of the app** (listed on the control server only, not in the in-app chat). The tools
+that delete, revoke, share or replace something change nothing unless the agent passes
+`confirm: true`; without it they answer with what they would do. None of them returns a link,
+key, feed or stream address, file path or server address, except `share_mixtape`, which hands
+the link it has just made to the agent that asked for it.
+
+| Tool | What it does | Main inputs |
+|---|---|---|
+| `books_list` | The books in Books: chapters made, where the listener is, finished, narrator, cover and cast. Listed while Documents is on | none |
+| `book_chapters` | One book's chapters and whether each is ready | `book` |
+| `book_play` | Play a book from the listener's place, or from a chosen chapter | `book`, `chapter` |
+| `book_cast` | A book's narrator and, for voiced dialogue, each character's voice | `book` |
+| `book_change_voice` | Make a book again in another narrator's voice. Needs `confirm` | `book`, `voice`, `confirm` |
+| `book_cover` | Make a cover from the title and author, or remove the cover. Needs `confirm` | `book`, `action`, `confirm` |
+| `clippings_list` | The saved readings in Clippings, newest first | `limit` |
+| `clipping_play` | Play a clipping | `clipping` |
+| `clipping_delete` | Delete a clipping here, or on every device. Needs `confirm` | `clipping`, `everywhere`, `confirm` |
+| `podcasts_list` | The shows you follow by feed, with unplayed counts | none |
+| `podcast_episodes` | A show's episodes and how far you got | `show`, `limit` |
+| `podcast_play_episode` | Play an episode, by default the newest unplayed | `show`, `episode` |
+| `podcast_subscribe` | Follow a show by its feed address. Needs `confirm` | `feed_url`, `confirm` |
+| `podcast_unsubscribe` | Stop following a show. Needs `confirm` | `show`, `confirm` |
+| `radio_list_stations` | Your internet radio stations and the one on air | none |
+| `radio_play_station` | Play a station | `station` |
+| `later_list` | What is on Later | none |
+| `later_add` | Save a song to Later, by default the one playing | `query` |
+| `later_remove` | Take something off Later. Needs `confirm` | `item`, `confirm` |
+| `later_play` | Play something on Later | `item` |
+| `history` | Your latest plays, or your most-played tracks, albums or artists | `view`, `days`, `limit` |
+| `downloads_list` | What is downloaded, the space it takes, and offline mode | `limit` |
+| `download_songs` | Download songs for offline listening | `song_ids` or `query` |
+| `download_remove` | Remove downloaded songs from this Mac. Needs `confirm` | `ids`, `confirm` |
+| `shares_list` | The song links and mixtapes you shared, without the links | none |
+| `share_revoke` | Stop a shared link or mixtape playing for everyone. Needs `confirm` | `share_id`, `confirm` |
+| `share_mixtape` | Share 2 to 12 songs as one mixtape link. Needs `confirm` | `song_ids`, `title`, `confirm` |
+| `handoff_status` | Whether another device left a queue to pick up, and the linked devices | none |
+| `handoff_accept` | Pick up the queue another device left | none |
+| `handoff_save_queue` | Leave this Mac's queue for your other device. Needs `confirm` | `confirm` |
+| `playback_speed` | Read or set the speed podcasts and books play at | `rate` |
+| `settings_read` | What is set up and the playback, books and speech choices, never an address or key | none |
 
 ### Meeting interpretation routes
 

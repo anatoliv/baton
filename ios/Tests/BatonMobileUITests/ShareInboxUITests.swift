@@ -11,7 +11,7 @@ import XCTest
 final class ShareInboxUITests: XCTestCase {
     func testASharedDocumentOpensTheImportScreenOnceOnActivation() throws {
         continueAfterFailure = false
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
@@ -59,7 +59,7 @@ final class ShareInboxUITests: XCTestCase {
     /// copy can bring it back. The next launch opens it again; Cancel then ends it.
     func testASharedDocumentSurvivesAForceQuitUntilItsScreenCloses() throws {
         continueAfterFailure = false
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

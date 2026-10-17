@@ -68,13 +68,20 @@ struct NowPlayingBar: View {
                         .frame(width: artworkSide, height: artworkSide)
                         .clipShape(RoundedRectangle(cornerRadius: 7))
                         .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                    // The title fills the room up to the controls and opens the player itself.
+                    // It was a title and a `Spacer`, with the open gesture only on the bar
+                    // around them, and a tap in that gap, the middle of the bar when a title is
+                    // short, went to Pause instead: measured on iOS 26.5, anything within about
+                    // 16pt of Pause's 44pt frame paused the music.
                     VStack(alignment: .leading) {
                         Text(DisplayName.title(song.title)).font(.subheadline.weight(.medium)).lineLimit(1)
                         if let artist = DisplayName.artist(song.artist) {
                             Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
-                    Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onOpen)
                     // 44pt hit targets. These were the glyph's own ~20pt, which is a
                     // coin-sized target on a bus — and the mini bar is precisely where
                     // people tap without looking. The bar's height doesn't grow: the

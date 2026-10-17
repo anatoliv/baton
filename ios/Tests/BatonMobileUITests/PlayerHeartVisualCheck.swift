@@ -7,7 +7,7 @@ import XCTest
 /// about layout in this project more than once.
 final class PlayerHeartVisualCheck: XCTestCase {
     func testCaptureFullPlayer() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
@@ -39,8 +39,8 @@ final class PlayerHeartVisualCheck: XCTestCase {
         guard playing else { throw XCTSkip("nothing started playing") }
 
         // Open the full player from the mini bar.
-        // `.firstMatch`: the bar surfaces as more than one element in the tree.
-        app.descendants(matching: .any).matching(identifier: "NowPlayingBar").firstMatch.tap()
+        // Not the bar's first match, which can be its Pause button.
+        tapMiniBar(in: app)
         Thread.sleep(forTimeInterval: 3)
 
         let shot = XCUIScreen.main.screenshot()
@@ -53,7 +53,7 @@ final class PlayerHeartVisualCheck: XCTestCase {
     /// conversation. Layout is the class of change a compiler cannot confirm, and this
     /// project has shipped invisible and inert controls before.
     func testCaptureFriendScreen() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"

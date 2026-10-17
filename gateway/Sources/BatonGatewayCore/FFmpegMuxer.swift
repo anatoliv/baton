@@ -103,8 +103,21 @@ public struct FFmpegMuxer: AudioMuxing {
     }
 
     public func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, tags: [String: String]) async throws {
+        try await encode(wav: wav, to: destination, bitrate: bitrate, channels: channels, sampleRate: nil, tags: tags)
+    }
+
+    /// At exactly `sampleRate`, so every chapter can be joined by `exportM4B`'s
+    /// stream copy, whatever rate its WAV had.
+    public func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, sampleRate: Int,
+                       tags: [String: String]) async throws {
+        try await encode(wav: wav, to: destination, bitrate: bitrate, channels: channels, sampleRate: Optional(sampleRate), tags: tags)
+    }
+
+    private func encode(wav: URL, to destination: URL, bitrate: Int, channels: Int, sampleRate: Int?,
+                        tags: [String: String]) async throws {
         var arguments = ["-nostdin", "-y", "-loglevel", "error", "-i", wav.path,
                          "-c:a", "aac", "-b:a", "\(bitrate / 1000)k", "-ac", "\(channels)"]
+        if let sampleRate { arguments += ["-ar", "\(sampleRate)"] }
         for (key, value) in tags.sorted(by: { $0.key < $1.key }) { arguments += ["-metadata", "\(key)=\(value)"] }
         arguments += ["-movflags", "+faststart", "-f", "ipod", destination.path]
         try run(arguments)

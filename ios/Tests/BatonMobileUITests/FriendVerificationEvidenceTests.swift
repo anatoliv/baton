@@ -34,7 +34,7 @@ final class FriendVerificationEvidenceTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         try XCTSkipIf(stubBaseURL.isEmpty, "no stub provider supplied")
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

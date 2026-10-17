@@ -17,7 +17,7 @@ final class ScreenAuditUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // Demo mode: a real four-track library inside the bundle, so every
         // screen has content without needing a Navidrome server.
         // Reset first: one UI test signs in to a real server to prove the connection

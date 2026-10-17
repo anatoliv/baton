@@ -64,6 +64,16 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         // A link a friend outside the LAN can play (docs/plan-song-sharing.md). Refuses until
         // the owner has shared once by hand.
         "music_share",
+        // The rest of the app (TBX-11175, specs/mcp-coverage.md), MCP only: the chat surface
+        // leaves them out. The book_* ones are listed with documents on (MCPAppToolsTests).
+        "clippings_list", "clipping_play", "clipping_delete",
+        "podcasts_list", "podcast_episodes", "podcast_play_episode", "podcast_subscribe", "podcast_unsubscribe",
+        "radio_list_stations", "radio_play_station",
+        "later_list", "later_add", "later_remove", "later_play",
+        "history", "downloads_list", "download_songs", "download_remove",
+        "shares_list", "share_revoke", "share_mixtape",
+        "handoff_status", "handoff_accept", "handoff_save_queue",
+        "playback_speed", "settings_read",
     ]
 
     func testPublishedToolNamesExactlyMatchTheSnapshot() {
@@ -170,11 +180,17 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         XCTAssertEqual(recipient?["type"] as? String, "string")
     }
 
-    func testDeletePlaylistIsTheOnlyDestructiveTool() {
+    /// The destructive set is exactly playlist deletion and the app tools that delete, revoke or
+    /// replace, each of which does nothing without `confirm: true`.
+    func testTheDestructiveToolsAreExactlyTheseAndTheAppOnesTakeConfirm() {
         let destructive = catalog().filter {
             (($0.value["annotations"] as? [String: Any])?["destructiveHint"] as? Bool) == true
         }.keys.sorted()
-        XCTAssertEqual(destructive, ["music_delete_playlist"])
+        XCTAssertEqual(destructive, ["clipping_delete", "download_remove", "later_remove", "music_delete_playlist",
+                                     "podcast_unsubscribe", "share_revoke"])
+        for name in destructive where name != "music_delete_playlist" {
+            XCTAssertNotNil(properties(catalog()[name]!)["confirm"], "\(name) must take confirm")
+        }
     }
 
     func testToolsWithRequiredArgumentsStillDeclareThem() {

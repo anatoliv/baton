@@ -18,7 +18,7 @@ final class FullWalkUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // Reset first: one UI test signs in to a real server to prove the connection
         // badge, and without this every later test inherited that connection — the demo
         // library was gone and five unrelated screens failed for a reason that was not

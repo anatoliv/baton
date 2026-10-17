@@ -35,6 +35,10 @@ enum SessionPurge {
     /// which survive precisely because they aren't account data.
     private static let defaultsKeys = [
         "baton.documents.enabled",
+        // Voice the dialogue's starting point: the models that write a cast include
+        // the account's Baton server, so a new session starts with it off, and a UI test's
+        // choice does not carry into the next test.
+        "baton.documents.voiceTheDialogue",
         "baton.agent.route",
         "baton.agent.provider",
         "baton.agent.model",

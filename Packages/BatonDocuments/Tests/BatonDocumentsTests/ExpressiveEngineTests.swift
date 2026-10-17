@@ -468,13 +468,6 @@ final class SpeechFixtureServer: @unchecked Sendable {
     }
 
     private func serve(_ c: Int32, route: Route) {
-        #if canImport(Darwin)
-        // The capped client closes early; a fixture write must return EPIPE, not kill the host.
-        var noSignal: Int32 = 1
-        let status = setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
-        XCTAssertEqual(status, 0)
-        guard status == 0 else { return }
-        #endif
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 65_536)
         while true {
@@ -498,8 +491,7 @@ final class SpeechFixtureServer: @unchecked Sendable {
                 ? (200, "audio/wav", FakeSynthesizer.tone(seconds: 0.05)) : (404, "application/json", Data("{}".utf8)))
             let head = "HTTP/1.1 \(reply.status) X\r\nContent-Type: \(reply.contentType)\r\nContent-Length: \(reply.body.count)\r\n"
                 + "Connection: close\r\n\r\n"
-            let out = Data(head.utf8) + reply.body
-            _ = out.withUnsafeBytes { write(c, $0.baseAddress, out.count) }
+            FixtureSocket.sendAll(Data(head.utf8) + reply.body, to: c)
             return
         }
     }
@@ -507,5 +499,33 @@ final class SpeechFixtureServer: @unchecked Sendable {
     func stop() {
         shutdown(fd, Int32(SHUT_RDWR))
         close(fd)
+    }
+}
+
+/// Writing to a loopback client that may already be gone. `CappedDownload` closes
+/// the connection as soon as an answer passes its limit, and a plain `write()` to that socket
+/// raises SIGPIPE, which kills the whole test process (signal 13, in 12 of 20 runs of this
+/// suite without a guard). So the write never raises it: `SO_NOSIGPIPE` on the socket on
+/// Darwin, `MSG_NOSIGNAL` on each send on Linux, and EPIPE or ECONNRESET is the client having
+/// left, which ends the reply quietly. Short writes are continued.
+enum FixtureSocket {
+    static func sendAll(_ data: Data, to socket: Int32) {
+        #if canImport(Darwin)
+        var on: Int32 = 1
+        _ = setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        let flags: Int32 = 0
+        #else
+        let flags = Int32(MSG_NOSIGNAL)
+        #endif
+        data.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            var sent = 0
+            while sent < raw.count {
+                let n = send(socket, base + sent, raw.count - sent, flags)
+                if n > 0 { sent += n; continue }
+                if n < 0, errno == EINTR { continue }
+                return   // EPIPE, ECONNRESET: the client has gone, as a capped client does
+            }
+        }
     }
 }

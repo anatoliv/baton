@@ -35,7 +35,9 @@ chmod 600 "$CRED/baton-macos-artifact-upload.json"
 chmod 644 "$CRED/baton-ios-artifact-upload.json"
 
 LOCK="$WORK/gate.lock"
-sleep 60 & STANDIN=$!
+# The stand-in holder lives as long as this test, not for a fixed time: a slow run cannot
+# outlive it, and it goes away by itself if the test dies without its EXIT trap.
+( while kill -0 "$$" 2>/dev/null; do sleep 1; done ) & STANDIN=$!
 disown "$STANDIN" 2>/dev/null || true
 printf '%s\n%s\n%s\n%s\n%s\n' "$STANDIN" \
   "$(ps -o lstart= -p "$STANDIN" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')" \

@@ -33,7 +33,16 @@ struct VoicePicker: View {
     @State private var showAll = false
     @State private var query = ""
 
-    private var groups: [VoiceGroup] { VoiceDirectory.groups(all ?? [], matching: query) }
+    /// Every voice by engine (`VoiceDirectory.byEngine`, TBX-11142): Kokoro's groups by accent and
+    /// gender, then each other engine's. A cast can mix engines, so a speaker's list
+    /// is every engine's too.
+    private var sections: [EngineSection] { VoiceDirectory.byEngine(all ?? [], matching: query) }
+
+    /// A group's heading: with more than one engine listed, Kokoro's say so ("Kokoro · British
+    /// English, male"); another engine's group is already titled by the engine.
+    private func heading(_ group: VoiceGroup, in section: EngineSection, of count: Int) -> String {
+        count > 1 && group.title != section.title ? "\(section.title) · \(group.title)" : group.title
+    }
 
     /// The suggested voices, and below them the one chosen from All voices when it is not
     /// among them, so the choice stays in sight with All voices closed.
@@ -86,16 +95,19 @@ struct VoicePicker: View {
 
     private var allVoices: some View {
         LazyVStack(alignment: .leading, spacing: 4) {
-            ForEach(groups) { group in
-                Text(group.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    .padding(.top, 6)
-                    .accessibilityAddTraits(.isHeader)
-                ForEach(group.voices) { entry in
-                    NarratorOptionRow(voice: entry.spec, chosen: $chosen, playing: playing == entry.spec,
-                                      tag: tag(entry.spec), inGroup: true) { onPreview(entry.spec) }
+            let sections = self.sections
+            ForEach(sections) { section in
+                ForEach(section.groups) { group in
+                    Text(heading(group, in: section, of: sections.count)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .padding(.top, 6)
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(group.voices) { entry in
+                        NarratorOptionRow(voice: entry.spec, chosen: $chosen, playing: playing == entry.spec,
+                                          tag: tag(entry.spec), inGroup: true) { onPreview(entry.spec) }
+                    }
                 }
             }
-            if groups.isEmpty { noMatch }
+            if sections.isEmpty { noMatch }
         }
     }
     #else
@@ -123,15 +135,16 @@ struct VoicePicker: View {
                 if showAll { searchField }
             }
             if showAll {
-                ForEach(groups) { group in
-                    Section(group.title) {
+                let sections = self.sections
+                ForEach(sections.flatMap { section in section.groups.map { (section, $0) } }, id: \.1.id) { section, group in
+                    Section(heading(group, in: section, of: sections.count)) {
                         ForEach(group.voices) { entry in
                             NarratorOptionRow(voice: entry.spec, chosen: $chosen, playing: playing == entry.spec,
                                               tag: tag(entry.spec), inGroup: true) { onPreview(entry.spec) }
                         }
                     }
                 }
-                if groups.isEmpty { Section { noMatch } }
+                if sections.isEmpty { Section { noMatch } }
             }
         }
     }

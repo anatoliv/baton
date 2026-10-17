@@ -14,7 +14,7 @@ final class DurationVisualUITests: XCTestCase {
     override func setUpWithError() throws {
         try Self.skipUnlessDemoServerIsUp()
         continueAfterFailure = true
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // The list style is set through the defaults rather than by driving the sort
         // menu: the first attempt tapped a Picker row that never matched, so Albums
         // stayed in grid and the row this pass exists to check went unverified.

@@ -28,7 +28,7 @@ final class NarratorAllVoicesUITests: XCTestCase {
         XCTAssertEqual(Self.serverVoices.count, 68)
         server = try FakeHomeServer()
         server.setVoices(Self.serverVoices)
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
@@ -98,8 +98,14 @@ final class NarratorAllVoicesUITests: XCTestCase {
         XCTAssertTrue(waitFor(5) { george.isSelected }, "tapping George did not choose him")
         attach("2-import-search-british-male")
 
-        // The choice stays on top with All voices closed.
-        app.buttons["all-voices"].firstMatch.tap()
+        // The choice stays on top with All voices closed. All voices sits above the search
+        // field, and the list builds only the rows on screen: after George was revealed it can
+        // be scrolled out of the tree, so scroll back up to it first.
+        let closeAll = app.buttons["all-voices"].firstMatch
+        var back = 0
+        while !(closeAll.exists && closeAll.isHittable) && back < 6 { app.swipeDown(); back += 1 }
+        XCTAssertTrue(closeAll.waitForExistence(timeout: 5), "All voices cannot be scrolled back to")
+        closeAll.tap()
         let chosenOnTop = app.buttons["narrator-kokoro:bm_george"].firstMatch
         var ups = 0
         while !chosenOnTop.exists && ups < 6 { app.swipeDown(); ups += 1 }
@@ -130,9 +136,9 @@ final class NarratorAllVoicesUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Two Rooms"].firstMatch.waitForExistence(timeout: 30), "the import screen did not open")
         XCTAssertTrue(app.buttons["narrator-kokoro:af_heart"].firstMatch.waitForExistence(timeout: 20))
         make()
-        openClippings()
-        let row = app.buttons.containing(NSPredicate(format: "identifier BEGINSWITH 'book-'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 60), "the book row is not in Clippings")
+        BooksScreen.open(app)
+        let row = BooksScreen.row(app)
+        XCTAssertTrue(row.waitForExistence(timeout: 60), "the book row is not in Books")
         row.press(forDuration: 1.2)
         let change = app.buttons["Change Voice…"].firstMatch
         XCTAssertTrue(change.waitForExistence(timeout: 10), "the book's menu has no Change Voice…")
@@ -205,23 +211,7 @@ final class NarratorAllVoicesUITests: XCTestCase {
         XCTAssertTrue(waitFor(10) { self.server.requests("PUT").count >= 1 }, "Make Audiobook sent nothing")
         app.tap()
         removeUIInterruptionMonitor(monitor)
-        XCTAssertTrue(waitFor(30) { !self.app.staticTexts["Two Rooms"].firstMatch.exists || self.app.buttons["Library"].exists })
-    }
-
-    @MainActor
-    private func openClippings() {
-        let library = app.buttons["Library"].firstMatch
-        XCTAssertTrue(library.waitForExistence(timeout: 20), "no Library tab")
-        library.tap()
-        let entry = app.cells.containing(.staticText, identifier: "Clippings").firstMatch
-        let fallback = app.buttons["Clippings"].firstMatch
-        for _ in 0..<4 where !entry.exists && !fallback.exists {
-            if entry.waitForExistence(timeout: 5) || fallback.exists { break }
-            app.swipeUp()
-        }
-        if entry.exists { entry.tap(); return }
-        XCTAssertTrue(fallback.waitForExistence(timeout: 5), "no route to Clippings")
-        fallback.tap()
+        ImportScreen.waitToClose(app)
     }
 
     @MainActor

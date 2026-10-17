@@ -17,7 +17,7 @@ final class ServerStatusUITests: XCTestCase {
     override func setUpWithError() throws {
         try Self.skipUnlessDemoServerIsUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
@@ -162,7 +162,7 @@ final class ServerStatusUITests: XCTestCase {
         // deliberately absent — so testing it there proved nothing. A wiped session with
         // no demo mode is what a new install actually looks like.
         app.terminate()
-        let fresh = XCUIApplication()
+        let fresh = XCUIApplication.batonUnderTest()
         fresh.launchEnvironment["baton.resetSession"] = "1"
         fresh.launchEnvironment["uitestPublicDemoURL"] = "https://invalid."
         fresh.launch()

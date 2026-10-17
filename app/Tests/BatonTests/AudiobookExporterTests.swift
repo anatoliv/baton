@@ -162,6 +162,67 @@ final class AudiobookExporterTests: XCTestCase {
         }
     }
 
+    /// TBX-11141: a book whose voices answered in two formats, 48 kHz stereo float and Kokoro's
+    /// 24 kHz mono 16-bit. Each chapter is encoded at the one rate and channel count every chapter
+    /// gets, so the export's stream copy joins alike files, and Apple's decoder plays the M4B to
+    /// its full length. Joined as they came, the file reported its length and decoded to a third.
+    func testChaptersFromTwoFormatsExportToAnM4BThatPlaysToTheEnd() async throws {
+        guard let ffmpeg = AudiobookExporter.locateFFmpeg() else { throw XCTSkip("ffmpeg is not installed") }
+        func wav(_ name: String, format: WAV.Format, seconds: Double) throws -> URL {
+            let url = root.appendingPathComponent("\(name).wav")
+            let frames = Int(Double(format.sampleRate) * seconds)
+            var pcm = Data(capacity: frames * format.blockAlign)
+            for i in 0..<frames {
+                let v = 0.2 * sin(2 * Double.pi * 330 * Double(i) / Double(format.sampleRate))
+                for _ in 0..<Int(format.channels) {
+                    if format.audioFormat == 3 {
+                        withUnsafeBytes(of: Float(v).bitPattern.littleEndian) { pcm.append(contentsOf: $0) }
+                    } else {
+                        withUnsafeBytes(of: Int16(v * 32767).littleEndian) { pcm.append(contentsOf: $0) }
+                    }
+                }
+            }
+            try (WAV.header(format: format, dataBytes: pcm.count) + pcm).write(to: url)
+            return url
+        }
+        let sources = [
+            try wav("float-stereo", format: .init(audioFormat: 3, channels: 2, sampleRate: 48_000, bitsPerSample: 32), seconds: 2),
+            try wav("kokoro", format: .init(audioFormat: 1, channels: 1, sampleRate: 24_000, bitsPerSample: 16), seconds: 3),
+        ]
+        var files: [URL] = []
+        for (index, source) in sources.enumerated() {
+            let m4a = root.appendingPathComponent("mixed-\(index).m4a")
+            try await AVAssetWriterMuxer().encode(wav: source, to: m4a, bitrate: 48_000, channels: 1,
+                                                  sampleRate: AudioSettings.encodedSampleRate, tags: [:])
+            let chapterTracks = try await AVURLAsset(url: m4a).loadTracks(withMediaType: .audio)
+            let track = try XCTUnwrap(chapterTracks.first)
+            let descriptions = try await track.load(.formatDescriptions)
+            let description = try XCTUnwrap(descriptions.first)
+            let asbd = try XCTUnwrap(CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee)
+            XCTAssertEqual(asbd.mSampleRate, 24_000, "chapter \(index + 1) encoded at the one rate")
+            XCTAssertEqual(asbd.mChannelsPerFrame, 1, "chapter \(index + 1) encoded mono")
+            files.append(m4a)
+        }
+        let marks = [AudiobookExport.Mark(title: "Part 1", start: 0, end: 2), AudiobookExport.Mark(title: "Part 2", start: 2, end: 5)]
+        let out = root.appendingPathComponent("mixed.m4b")
+        _ = try await AudiobookExporter.export(chapters: files, marks: marks, title: "Two formats", author: nil, to: out,
+                                               tool: .ffmpeg(ffmpeg))
+        // Every sample Apple's decoder gives, counted: the length as heard, not as reported.
+        let asset = AVURLAsset(url: out)
+        let bookTracks = try await asset.loadTracks(withMediaType: .audio)
+        let track = try XCTUnwrap(bookTracks.first)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false, AVNumberOfChannelsKey: 1, AVSampleRateKey: 24_000,
+        ])
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+        var frames = 0
+        while let buffer = output.copyNextSampleBuffer() { frames += CMSampleBufferGetNumSamples(buffer) }
+        XCTAssertEqual(Double(frames) / 24_000, 5, accuracy: 0.2, "the M4B plays both chapters to the end")
+    }
+
     /// 0.25 s of silence then a tone, as 16-bit mono WAV at 24 kHz.
     private func toneWAV(_ name: String, seconds: Double, frequency: Double) throws -> URL {
         let wav = root.appendingPathComponent("\(name).wav")

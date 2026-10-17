@@ -79,6 +79,25 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
     /// Files from one Finder hand-over, gathered until the main actor's next turn.
     private var openedFiles: [URL] = []
 
+    /// Asks the system to re-read Baton's Services entries. pbs caches each
+    /// app's NSServices when it first sees the app, and a Sparkle update replaces the bundle in
+    /// place, so after the 0.20.4 update pbs still offered only Speak and Summarize with Baton,
+    /// without "Make an Audiobook with Baton", until the owner ran `pbs -update`.
+    /// `NSUpdateDynamicServices()` starts that same refresh. It spawns `pbs` and measured 0.4 to
+    /// 12 ms per call on this Mac, so it runs on a utility queue, off the launch path. Tests
+    /// replace it to count calls.
+    var updateDynamicServices: () -> Void = {
+        DispatchQueue.global(qos: .utility).async { NSUpdateDynamicServices() }
+    }
+    private var servicesRefreshed = false
+
+    /// Refreshes the Services registry once per process, however often it is called.
+    func refreshServicesRegistry() {
+        guard !servicesRefreshed else { return }
+        servicesRefreshed = true
+        updateDynamicServices()
+    }
+
     /// `onOpenURL` passes on only the first file of a Finder hand-over of several (seen on the
     /// probe: two files, one call). The open-documents Apple event it is answering still lists
     /// them all, so they are read from there, then gathered until the next turn: the import sheet
@@ -176,6 +195,7 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         // one) and goes where Finder's Open With goes.
         ScreenTextReader.shared.onDocumentFiles = { [weak self] urls in self?.openDocuments(urls) }
         NSApp.servicesProvider = ScreenTextReader.shared
+        refreshServicesRegistry()
         // The hotkey routes through the same capture path as the Services
         // entry, so both get identical source classification and cleaning.
         // `apply()` is a no-op while the key is unbound, which is the default.
@@ -485,6 +505,7 @@ struct BatonApp: App {
                     // Books, and the book probes' sheets, which live there since TBX-11018.
                     if environment["BATON_DEBUG_SHOW_BOOKS"] == "1" || environment["BATON_DEBUG_OPEN_BOOK"] == "1"
                         || environment["BATON_DEBUG_OPEN_CHANGE_VOICE"] == "book"
+                        || environment["BATON_DEBUG_EXPORT_BOOK"] != nil
                         || environment["BATON_DEBUG_OPEN_PRONUNCIATIONS"] == "1" {
                         commandRouter.pendingTab = .books
                     }

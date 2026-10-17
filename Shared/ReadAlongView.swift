@@ -25,6 +25,12 @@ struct ReadAlongPanel: View {
     @State private var readAlong: ReadAlong?
     @State private var isFollowing = true
 
+    /// A sentence's place in the scroll view, for `scrollTo`. Its own type because the
+    /// paragraphs' `ForEach` identities are numbers from 0 as well, and a bare `Int` found
+    /// paragraph 7 when it meant sentence 7: a jump, or following, landed pages further on,
+    /// with the lit sentence nowhere on screen.
+    private struct SentenceAnchor: Hashable { let index: Int }
+
     private var currentIndex: Int? {
         guard let currentTime, let readAlong else { return nil }
         return readAlong.sentenceIndex(at: currentTime)
@@ -95,16 +101,16 @@ struct ReadAlongPanel: View {
             }
             .onChange(of: currentIndex) { _, index in
                 guard isFollowing, let index else { return }
-                withAnimation(.easeInOut) { proxy.scrollTo(index, anchor: .center) }
+                withAnimation(.easeInOut) { proxy.scrollTo(SentenceAnchor(index: index), anchor: .center) }
             }
             .onAppear {
-                if let currentIndex { proxy.scrollTo(currentIndex, anchor: .center) }
+                if let currentIndex { proxy.scrollTo(SentenceAnchor(index: currentIndex), anchor: .center) }
             }
             .overlay(alignment: .bottom) {
                 if !isFollowing, let currentIndex {
                     Button {
                         isFollowing = true
-                        withAnimation(.easeInOut) { proxy.scrollTo(currentIndex, anchor: .center) }
+                        withAnimation(.easeInOut) { proxy.scrollTo(SentenceAnchor(index: currentIndex), anchor: .center) }
                     } label: {
                         Label("Jump to current", systemImage: "location.fill")
                             .font(.callout.weight(.medium))
@@ -140,14 +146,14 @@ struct ReadAlongPanel: View {
                 onSeek(start)
             } label: { text }
                 .buttonStyle(.plain)
-                .id(sentence.id)
+                .id(SentenceAnchor(index: sentence.id))
                 .accessibilityIdentifier("readalong-sentence-\(sentence.id)")
                 .accessibilityAddTraits(isCurrent ? .isSelected : [])
                 .accessibilityHint("Plays from this sentence")
                 .animation(.easeInOut(duration: 0.25), value: isCurrent)
         } else {
             text
-                .id(sentence.id)
+                .id(SentenceAnchor(index: sentence.id))
                 .accessibilityIdentifier("readalong-sentence-\(sentence.id)")
         }
     }

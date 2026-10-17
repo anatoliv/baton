@@ -24,7 +24,7 @@ final class LiveLibraryRailCaptureTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         try XCTSkipIf(serverURL.isEmpty || secret.isEmpty, "live server credentials not provided")
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         // Artists defaults to list; the grid is the layout that collapsed to one column.

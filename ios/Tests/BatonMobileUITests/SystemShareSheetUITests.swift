@@ -25,7 +25,7 @@ final class SystemShareSheetUITests: XCTestCase {
         guard environment["BATON_SYSTEM_SHARE_WALK"] == "1" else {
             throw XCTSkip("set TEST_RUNNER_BATON_SYSTEM_SHARE_WALK=1 to walk the system share sheet (network and a PDF in Files needed)")
         }
-        baton = XCUIApplication()
+        baton = XCUIApplication.batonUnderTest()
         baton.launchEnvironment["baton.resetSession"] = "1"
         baton.launchEnvironment["baton.demoMode"] = "YES"
         baton.launchEnvironment["uitestBypassBiometrics"] = "1"

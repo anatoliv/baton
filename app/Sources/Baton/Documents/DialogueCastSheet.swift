@@ -16,33 +16,12 @@ import SwiftUI
 /// Once the cast is checked, a model places the lines the rules leave (`DialogueCast.fill`,
 /// TBX-10894: rules first, then a model, so most lines get a voice). With no model the rules'
 /// lines stand and the sheet says so in one line.
-struct DialogueCastChoice: Equatable {
-    enum Phase: Equatable {
-        case idle
-        case writing
-        case ready(DialogueCast.Casting)
-        case unavailable(String)
-    }
+///
+/// The flow itself is shared with the iPhone (`DialogueCastFlow`, TBX-11141); this Mac brings
+/// its models, its voices and its words.
+typealias DialogueCastChoice = DialogueCastFlow.Choice
 
-    enum Placing: Equatable {
-        /// Not asked: the cast has not been checked.
-        case idle
-        case placing(done: Int, of: Int)
-        /// The model's answers (none when no model answered or the person skipped), and the line
-        /// that says what happened.
-        case placed(DialogueCast.Fill, line: String)
-    }
-
-    /// Off unless asked: `remembered` starts a new import as the person last left it.
-    var isOn = false
-    var phase = Phase.idle
-    /// The voices the speakers can choose from (the Kokoro host's list when the cast was written).
-    var voices: [String] = []
-    /// The person has checked the cast and pressed Use This Cast. Nothing a model wrote is used
-    /// before that.
-    var reviewed = false
-    var placing = Placing.idle
-
+extension DialogueCastFlow.Choice {
     /// The switch as the person last set it on this Mac, off for the first book ever imported
     /// here. A device-local key, deliberately not in `PreferenceSync.syncedKeys`:
     /// whether a Mac voices dialogue depends on the models it can reach. Like the other document
@@ -51,72 +30,30 @@ struct DialogueCastChoice: Equatable {
     static let rememberedKey = "baton.documents.voiceTheDialogue"
 
     static func remembered(in defaults: UserDefaults = BatonStorage.defaults) -> DialogueCastChoice {
-        var choice = DialogueCastChoice()
-        choice.isOn = defaults.object(forKey: rememberedKey) as? Bool ?? false
-        return choice
+        DialogueCastChoice(isOn: defaults.object(forKey: rememberedKey) as? Bool ?? false)
     }
 
     static func remember(_ isOn: Bool, in defaults: UserDefaults = BatonStorage.defaults) {
         defaults.set(isOn, forKey: rememberedKey)
     }
-
-    /// The cast that goes into the book: on, written, and checked.
-    var castingToUse: DialogueCast.Casting? {
-        guard isOn, reviewed, case let .ready(casting) = phase else { return nil }
-        return casting
-    }
-
-    /// The model's speakers for the lines the rules left, with the cast they were asked with.
-    var fillToUse: DialogueCast.Fill? {
-        guard castingToUse != nil, case let .placed(fill, _) = placing else { return nil }
-        return fill
-    }
-
-    /// Make Audiobook waits while the cast is being written, has not been checked, or its
-    /// remaining lines are being placed.
-    var holdsTheBook: Bool {
-        guard isOn else { return false }
-        switch phase {
-        case .writing: return true
-        case .ready:
-            if case .placing = placing { return true }
-            return !reviewed
-        case .idle, .unavailable: return false
-        }
-    }
 }
 
 enum DialogueCastEditing {
-    static let modelTask = ModelTask.castSheet
+    static let modelTask = DialogueCastFlow.castTask
+    static let fillTask = DialogueCastFlow.fillTask
 
-    /// The book the import sheet submits: with the checked cast when there is one, otherwise the
-    /// narrator-only book exactly as it was made before casts existed (same id, same chunks).
     static func book(_ document: ImportedDocument, plan: VoicePlan, choice: DialogueCastChoice) -> PreparedBook {
-        guard let casting = choice.castingToUse else { return DocumentSpeech.prepare(document, voices: plan) }
-        return DialogueCast.prepare(document, plan: plan, casting: casting, fill: choice.fillToUse)
+        DialogueCastFlow.book(document, plan: plan, choice: choice)
     }
-
-    /// Placing the lines the rules leave: chapters, so chapter consent for a cloud source.
-    static let fillTask = ModelTask.dialogueCast
 
     /// Why no model places the remaining lines when no source may.
     static func noFillLine(router: ModelRouter) -> String {
-        guard let cloud = router.awaitingConsent(for: fillTask).first else {
-            return "No model on this Mac or the Baton server can place the lines without a speech tag, so the narrator reads those."
-        }
+        guard let cloud = router.awaitingConsent(for: fillTask).first else { return DialogueCastFlow.noFillLine(device: "this Mac") }
         return "No model on this Mac or the Baton server can place the lines without a speech tag, and "
             + "\(CloudModelConsent.notAllowedClause(cloud, fillTask.content)), so the narrator reads those."
     }
 
-    /// What placing did, in one line.
-    static func placedLine(_ fill: DialogueCast.Fill) -> String {
-        guard let source = fill.source else {
-            return "No model answered for the lines without a speech tag, so the narrator reads those."
-        }
-        let placed = fill.placedByRules + fill.speakers.count
-        return "\(source) placed \(fill.speakers.count) more lines, so \(placed) of \(fill.quotes) lines have a speaker. "
-            + "The narrator reads the rest."
-    }
+    static func placedLine(_ fill: DialogueCast.Fill) -> String { DialogueCastFlow.placedLine(fill) }
 
     /// Ask a model about the lines the rules leave, with the checked cast.
     @MainActor
@@ -124,94 +61,35 @@ enum DialogueCastEditing {
                       progress: @escaping @MainActor (Int, Int) -> Void) async -> (fill: DialogueCast.Fill, line: String) {
         let routing = await VoiceSuggestions.liveRouting()
         let router = routing.router()
-        guard !router.plan(for: fillTask).usable.isEmpty else { return (DialogueCast.Fill(), noFillLine(router: router)) }
-        let executor = routing.executor
-        let failure = FailureNote()
-        let fill = await DialogueCast.fill(document, cast: casting.sheet, complete: { system, user in
-            do {
-                return try await router.complete(fillTask, system: system, user: user, executor: executor)
-            } catch {
-                failure.note(String(describing: error))
-                throw error
-            }
-        }, progress: { done, total in await progress(done, total) })
-        if fill.source == nil {
-            documentsLog.error("cast lines: no model answered: \(failure.text ?? "nothing to ask", privacy: .public)")
-        }
-        return (fill, placedLine(fill))
+        return await DialogueCastFlow.place(document, casting: casting, router: router, executor: routing.executor,
+                                            noModel: noFillLine(router: router),
+                                            log: { documentsLog.error("\($0, privacy: .public)") },
+                                            progress: { done, total in await progress(done, total) })
     }
 
     /// Why there is no cast list when no source may write one.
     static func noModelLine(router: ModelRouter) -> String {
-        guard let cloud = router.awaitingConsent(for: modelTask).first else {
-            return "No model on this Mac or the Baton server can write a cast list, so the narrator reads every line."
-        }
+        guard let cloud = router.awaitingConsent(for: modelTask).first else { return DialogueCastFlow.noCastLine(device: "this Mac") }
         return "No model on this Mac or the Baton server can write a cast list, and "
             + "\(CloudModelConsent.notAllowedClause(cloud, modelTask.content)), so the narrator reads every line."
     }
 
-    /// A cast is joined into one file per chapter, so its voices share the narrator's engine;
-    /// only Kokoro offers a list of voices to cast from.
-    static func narratorLine(_ narrator: String) -> String? {
-        narrator.hasPrefix("kokoro:") ? nil : "A cast needs a Kokoro narrator. With this narrator every line is read in one voice."
-    }
 
     /// Ask a model for the cast list, then count lines and choose voices with the rules.
+    /// `voices` lists what the speakers can be given: this Mac's voice server's by default.
     @MainActor
-    static func propose(for document: ImportedDocument, narrator: String) async -> (phase: DialogueCastChoice.Phase, voices: [String]) {
+    static func propose(for document: ImportedDocument, narrator: String,
+                        voices: @escaping @Sendable () async -> [String] = { await VoiceSuggestions.availableVoices() })
+        async -> (phase: DialogueCastChoice.Phase, voices: [String]) {
         let routing = await VoiceSuggestions.liveRouting()
         let router = routing.router()
-        guard !router.plan(for: modelTask).usable.isEmpty else { return (.unavailable(noModelLine(router: router)), []) }
-        async let listed = VoiceSuggestions.availableVoices()
-        let executor = routing.executor
-        let failure = FailureNote()
-        let made = await CastSheetGenerator.generate(for: document) { system, user in
-            do {
-                return try await router.complete(modelTask, system: system, user: user, executor: executor)
-            } catch {
-                failure.note(String(describing: error))
-                throw error
-            }
-        }
-        let voices = await listed
-        guard let source = made.source else {
-            documentsLog.error("cast list: no model answered: \(failure.text ?? "no dialogue found", privacy: .public)")
-            return (.unavailable("No model answered for the cast list, so the narrator reads every line."), voices)
-        }
-        guard !made.sheet.characters.isEmpty else {
-            return (.unavailable("\(source) found no speaking characters, so the narrator reads every line."), voices)
-        }
-        let sheet = made.sheet
-        let casting = await Task.detached(priority: .userInitiated) {
-            DialogueCast.Casting(sheet: sheet, document: document, narrator: narrator, available: voices, source: source)
-        }.value
-        return (.ready(casting), voices)
+        return await DialogueCastFlow.propose(for: document, narrator: narrator, router: router, executor: routing.executor,
+                                              voices: voices, noModel: noModelLine(router: router),
+                                              log: { documentsLog.error("\($0, privacy: .public)") })
     }
 
-    /// Why the router's call failed, kept for the log: `CastSheetGenerator` only says that it did.
-    final class FailureNote: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value: String?
-        func note(_ text: String) { lock.withLock { value = text } }
-        var text: String? { lock.withLock { value } }
-    }
-
-    /// "bm_george, British male".
-    static func voiceLabel(_ spec: String) -> String {
-        let d = VoiceCatalogue.describe(spec)
-        let name = spec.split(separator: ":", maxSplits: 1).last.map(String.init) ?? spec
-        let about = [d.accent?.capitalized, d.gender].compactMap { $0 }.joined(separator: " ")
-        return about.isEmpty ? name : "\(name), \(about)"
-    }
-
-    /// "12 lines found", "no lines found".
-    static func linesLabel(_ count: Int) -> String {
-        switch count {
-        case 0: "no lines found"
-        case 1: "1 line found"
-        default: "\(count) lines found"
-        }
-    }
+    static func voiceLabel(_ spec: String) -> String { DialogueCastFlow.voiceLabel(spec) }
+    static func linesLabel(_ count: Int) -> String { DialogueCastFlow.linesLabel(count) }
 }
 
 /// The import sheet's section: the switch, what is happening, and the way into the editor.
@@ -228,6 +106,11 @@ struct DialogueCastSection: View {
     var rendererVoices: [String]? = nil
     /// Previews come from the Baton server, which makes the book.
     var previewOnServer = false
+    /// The switch is the import default (`remembered`); Change Voice… leaves that alone.
+    var remembers = true
+    /// The voices the speakers can be given: the renderer's, when the caller knows them
+    /// (Change Voice…); this Mac's voice server's otherwise.
+    var offeredVoices: (@Sendable () async -> [String])? = nil
     @State private var editing = false
     @State private var waiting = false
     @State private var placingTask: Task<Void, Never>?
@@ -246,7 +129,7 @@ struct DialogueCastSection: View {
             }
         }
         .onChange(of: choice.isOn) { _, on in
-            DialogueCastChoice.remember(on)
+            if remembers { DialogueCastChoice.remember(on) }
             if on { start() }
         }
         .onAppear {
@@ -286,9 +169,6 @@ struct DialogueCastSection: View {
         case let .unavailable(why):
             Text(why).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
         case let .ready(casting):
-            if let line = DialogueCastEditing.narratorLine(narrator) {
-                Text(line).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
             HStack(alignment: .firstTextBaseline) {
                 Text(summary(casting)).font(.caption).foregroundStyle(choice.reviewed ? Color.secondary : Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -302,9 +182,7 @@ struct DialogueCastSection: View {
             case let .placing(done, total):
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(total > 0 ? "Finding who speaks the lines without a speech tag: part \(min(done + 1, total)) of \(total)…"
-                                   : "Finding who speaks the lines without a speech tag…")
-                        .font(.caption)
+                    Text(DialogueCastFlow.placingLine(done: done, of: total)).font(.caption)
                     Spacer()
                     Button("Skip") { skipPlacing() }
                         .controlSize(.small)
@@ -335,14 +213,11 @@ struct DialogueCastSection: View {
     private func skipPlacing() {
         placingTask?.cancel()
         placingTask = nil
-        choice.placing = .placed(DialogueCast.Fill(), line: "Skipped: the narrator reads the lines without a speech tag.")
+        choice.placing = .placed(DialogueCast.Fill(), line: DialogueCastFlow.skippedLine)
     }
 
     private func summary(_ casting: DialogueCast.Casting) -> String {
-        let voiced = casting.voices(narrator: narrator).count
-        let people = casting.speakers.count == 1 ? "1 speaker" : "\(casting.speakers.count) speakers"
-        if choice.reviewed { return "\(people), \(voiced) with a voice of their own. Lines nobody can place are read by the narrator." }
-        return "\(casting.source ?? "A model") proposed \(people). Check the cast before the book is made: a model gets some of them wrong."
+        DialogueCastFlow.summary(casting, narrator: narrator, reviewed: choice.reviewed)
     }
 
     /// Written once per book; asked again only when there was none to show.
@@ -360,7 +235,11 @@ struct DialogueCastSection: View {
         choice.phase = .writing
         choice.reviewed = false
         choice.placing = .idle
-        let result = await DialogueCastEditing.propose(for: document, narrator: narrator)
+        let result = if let offeredVoices {
+            await DialogueCastEditing.propose(for: document, narrator: narrator, voices: offeredVoices)
+        } else {
+            await DialogueCastEditing.propose(for: document, narrator: narrator)
+        }
         choice.phase = result.phase
         choice.voices = result.voices
     }
@@ -374,6 +253,11 @@ struct CastSheetEditor: View {
     let narrator: String
     let voices: [String]
     let previewFallback: String
+    /// Said under the title; by default, who proposed the cast and that it needs checking.
+    var intro: String?
+    /// The phrases the text uses for each speaker find their lines. A cast already in a book has
+    /// its lines found (Change Voice…), so it has no phrases to edit.
+    var showsPhrases = true
     let onDone: (DialogueCast.Casting) -> Void
     let onCancel: () -> Void
 
@@ -387,29 +271,28 @@ struct CastSheetEditor: View {
     @State private var aliasDrafts: [String: String] = [:]
 
     init(casting: DialogueCast.Casting, narrator: String, voices: [String], previewFallback: String,
-         preview: VoicePreviewPlayer = VoicePreviewPlayer(),
+         preview: VoicePreviewPlayer = VoicePreviewPlayer(), intro: String? = nil, showsPhrases: Bool = true,
          onDone: @escaping (DialogueCast.Casting) -> Void, onCancel: @escaping () -> Void) {
         _casting = State(initialValue: casting)
         _preview = State(initialValue: preview)
         self.narrator = narrator
         self.voices = voices
         self.previewFallback = previewFallback
+        self.intro = intro
+        self.showsPhrases = showsPhrases
         self.onDone = onDone
         self.onCancel = onCancel
     }
 
     /// The narrator's engine only: a chapter is joined from clips of one format.
     private var choices: [String] {
-        let engine = narrator.split(separator: ":").first.map(String.init) ?? "kokoro"
-        var list = voices.filter { $0.hasPrefix(engine + ":") }
-        for chosen in casting.speakers.compactMap(\.voice) where !list.contains(chosen) { list.append(chosen) }
-        return list
+        DialogueCastFlow.speakerVoices(narrator: narrator, offered: voices, casting: casting)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Check the Cast").font(.title3.weight(.semibold))
-            Text("Proposed by \(casting.source ?? "a model"). Correct anything that is wrong before the book is made. "
+            Text((intro ?? "Proposed by \(casting.source ?? "a model"). Correct anything that is wrong before the book is made. ")
                  + "The narrator, \(DialogueCastEditing.voiceLabel(narrator)), reads the story and any line nobody can place.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             ScrollView {
@@ -511,11 +394,13 @@ struct CastSheetEditor: View {
                     .disabled(speaker.voice == nil)
                 }
             }
-            TextField("Also called in the text, separated by commas", text: aliasBinding(speaker))
-                .textFieldStyle(.roundedBorder)
-                .font(.caption)
-                .onSubmit { _ = applyDrafts() }
-                .accessibilityLabel("Also called, for \(speaker.name)")
+            if showsPhrases {
+                TextField("Also called in the text, separated by commas", text: aliasBinding(speaker))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .onSubmit { _ = applyDrafts() }
+                    .accessibilityLabel("Also called, for \(speaker.name)")
+            }
         }
     }
 
@@ -528,11 +413,7 @@ struct CastSheetEditor: View {
 
     /// The speaker's voice now, then the voices best for dialogue in the narrator's language.
     private func suggestions(_ speaker: DialogueCast.Casting.Speaker) -> [String] {
-        let language = VoiceCatalogue.declaredLanguage(narrator) ?? "en"
-        let best = VoiceCatalogue.candidates(language: language, available: choices)
-            .sorted { VoiceCatalogue.dialogueRank($0) < VoiceCatalogue.dialogueRank($1) }
-            .map(\.spec).filter { $0 != narrator }
-        return Array(([speaker.voice].compactMap { $0 } + best.filter { $0 != speaker.voice }).prefix(4))
+        DialogueCastFlow.suggestedVoices(for: speaker, narrator: narrator, choices: choices)
     }
 
     private func voicePicker(_ speaker: DialogueCast.Casting.Speaker) -> some View {

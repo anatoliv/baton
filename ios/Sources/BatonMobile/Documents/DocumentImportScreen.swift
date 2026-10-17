@@ -40,6 +40,13 @@ struct DocumentImportScreen: View {
     @State private var allVoices: [String]?
     @State private var voicesProblem: String?
     @State private var voicesLoading = true
+    /// Voice the dialogue: the switch as last left on this iPhone, and the cast.
+    @State private var cast = MobileCastModel(MobileCast.remembered(), remembers: true)
+
+    private var readyDocument: ImportedDocument? {
+        if case let .ready(document, _) = phase { return document }
+        return nil
+    }
 
     /// Asks for the narrator choice once the book is read and the home server makes books.
     private var narratorKey: String? {
@@ -70,6 +77,8 @@ struct DocumentImportScreen: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDone) }
             }
         }
+        .castEditor(cast, document: readyDocument, narrator: chosen ?? readyDocument.map { DocumentVoices.languageDefault(for: $0) } ?? "",
+                    voices: allVoices, model: model)
         .task { await read() }
         .task {
             let answer = await model.books.availability()
@@ -140,6 +149,7 @@ struct DocumentImportScreen: View {
                             tag: { $0 == remembered ? "last used" : nil },
                             detail: { $0 == (narrators?.primary ?? voice) ? "The default voice for the book's language." : nil },
                             onPreview: { option in Task { await playPreview(document, voice: option) } })
+                MobileCastSection(cast: cast, document: document, narrator: chosen ?? voice, model: model)
             } else {
                 Section("Narrator") {
                     VStack(alignment: .leading, spacing: 2) {
@@ -165,7 +175,7 @@ struct DocumentImportScreen: View {
                             Spacer()
                         }
                     }
-                    .disabled(submitting)
+                    .disabled(submitting || cast.choice.holdsTheBook)
                     .accessibilityIdentifier("make-audiobook")
                 case .some(false):
                     // Send to my Mac, or AirDrop to it.
@@ -205,7 +215,9 @@ struct DocumentImportScreen: View {
         // The chosen narrator goes in the book's voice plan, as the Mac's home-server submission
         // carries its narrator. The phone has no model suggestion yet, so no tone to
         // style a Chatterbox narrator with; the shared plan carries one the day it does (M8.7).
-        let book = DocumentSpeech.prepare(document, voices: .forBook(narrator: voice, suggestion: narrators))
+        // A checked cast travels in the book: each line's speaker and the plan's characters,
+        // which the Baton server reads each line by.
+        let book = DialogueCastFlow.book(document, plan: .forBook(narrator: voice, suggestion: narrators), choice: cast.choice)
         Task {
             do {
                 try await model.books.submit(book)

@@ -24,7 +24,7 @@ final class ReviewPromptUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchArguments += [
             "-baton.resetSession",
             "-baton.demoMode", "YES",

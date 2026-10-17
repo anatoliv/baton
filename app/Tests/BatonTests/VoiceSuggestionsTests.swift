@@ -238,3 +238,26 @@ final class VoicePreviewPlayerTests: XCTestCase {
         XCTAssertTrue(speaker.played.isEmpty)
     }
 }
+
+/// The Mac's voice list is read with the Baton server's cap: 1 MB, refused as it
+/// streams, as `SpeechEngines.listVoices` reads it on the server.
+final class VoiceListingCapTests: XCTestCase {
+    func testAVoiceListLargerThanTheCapIsRefusedAndOneWithinItIsRead() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("voice-cap-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let huge = Data(("{\"voices\":[" + Array(repeating: "\"af_heart\"", count: 120_000).joined(separator: ",") + "]}").utf8)
+        XCTAssertGreaterThan(huge.count, CappedDownload.listingLimit)
+        let big = dir.appendingPathComponent("big.json"), small = dir.appendingPathComponent("small.json")
+        try huge.write(to: big)
+        try Data(#"{"voices":["af_heart"]}"#.utf8).write(to: small)
+        do {
+            _ = try await VoiceSuggestions.listingFetch(URLRequest(url: big))
+            XCTFail("a list over 1 MB should be refused")
+        } catch let error as CappedDownload.TooLarge {
+            XCTAssertEqual(error.limit, 1_024 * 1_024)
+        }
+        let (data, _) = try await VoiceSuggestions.listingFetch(URLRequest(url: small))
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), #"{"voices":["af_heart"]}"#)
+    }
+}

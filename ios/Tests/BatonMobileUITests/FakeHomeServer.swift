@@ -26,6 +26,7 @@ final class FakeHomeServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "fake-home-server")
     private let lock = NSLock()
     private var jobs: [String: BookJob] = [:]
+    private var submitted: [PreparedBook] = []
     private var readyCount: [String: Int] = [:]
     private var readyOnSubmit = 0
     private var log: [Request] = []
@@ -38,7 +39,9 @@ final class FakeHomeServer: @unchecked Sendable {
     /// through `TEST_RUNNER_BATON_UITEST_SPEECH_DIR`. Speech, not a tone, so the now-playing bars and
     /// Read Along are seen against what a book really sounds like. Nil: the tones.
     private let speech: (seconds: [Double], timing: [ReadAlongTiming?])?
-    private func seconds(chapter n: Int) -> Double { speech.map { $0.seconds[(n - 1) % $0.seconds.count] } ?? 30 }
+    /// How long each tone chapter is, when there are no narrated chapters.
+    private let toneSeconds: Double
+    private func seconds(chapter n: Int) -> Double { speech.map { $0.seconds[(n - 1) % $0.seconds.count] } ?? toneSeconds }
     /// Whether `GET /v1/books` answers that books are on, and why not when they are off.
     private var booksOn = true
     private var booksOffReason = "no voice server is set up"
@@ -57,10 +60,17 @@ final class FakeHomeServer: @unchecked Sendable {
     /// test turns it on; then the home server's model answers with `homeReply`.
     private var answersBookTasks = false
     private let homeReply = "Previously, Ada wound the great clock in the hall all winter, and a letter came that was not from Tobias."
+    /// Voice the dialogue: the cast list the model writes (JSON as a model answers),
+    /// who it says speaks each line it is asked to place (by quote id, "c1q3"), and how long
+    /// placing takes. Nil answers those prompts like any other, with the recap.
+    private var castSheet: String?
+    private var castFill: [String: String]?
+    private var castFillDelay: TimeInterval = 0
 
     /// `speech`: serve the narrated chapters from `BATON_UITEST_SPEECH_DIR` when the runner has
-    /// them; otherwise, and by default, the tones.
-    init(speech useSpeech: Bool = false) throws {
+    /// them; otherwise, and by default, the tones, each `chapterSeconds` long.
+    init(speech useSpeech: Bool = false, chapterSeconds: Double = 30) throws {
+        toneSeconds = chapterSeconds
         if useSpeech, let folder = ProcessInfo.processInfo.environment["BATON_UITEST_SPEECH_DIR"], !folder.isEmpty {
             let dir = URL(fileURLWithPath: folder)
             let files = (1...9).map { dir.appendingPathComponent("chapter-\($0).m4a") }
@@ -75,7 +85,7 @@ final class FakeHomeServer: @unchecked Sendable {
                     .flatMap(ReadAlongTiming.decode)
             })
         } else {
-            chapterAudio = try (0..<4).map { try Self.makeAudio(seconds: 30, frequency: 440 + 110 * Double($0)) }
+            chapterAudio = try (0..<4).map { try Self.makeAudio(seconds: chapterSeconds, frequency: 440 + 110 * Double($0)) }
             speech = nil
         }
         previewSpeech = try Self.makeWAV(seconds: 4)
@@ -112,6 +122,15 @@ final class FakeHomeServer: @unchecked Sendable {
     func storedFile(_ id: String) -> (contentType: String, body: Data)? { lock.withLock { files[id] } }
     var requests: [Request] { lock.withLock { log } }
     func setAnswersBookTasks(_ on: Bool) { lock.withLock { answersBookTasks = on } }
+    /// The model's answers for Voice the dialogue: the cast list, and who speaks the lines it
+    /// is asked about (those it knows; the others it leaves out), after `fillDelay` seconds.
+    func setCastReplies(sheet: String?, fill: [String: String]?, fillDelay: TimeInterval = 0) {
+        lock.withLock { castSheet = sheet; castFill = fill; castFillDelay = fillDelay }
+    }
+    /// A submitted book as it was sent.
+    func book(_ id: String) -> PreparedBook? { lock.withLock { jobs[id]?.book } }
+    /// Every submitted book, in the order sent.
+    var submittedBooks: [PreparedBook] { lock.withLock { submitted } }
     /// Every body sent to `path`, oldest first.
     func bodies(_ path: String) -> [Data] { lock.withLock { bodies[path] ?? [] } }
     /// The narrator of every submitted book.
@@ -143,7 +162,11 @@ final class FakeHomeServer: @unchecked Sendable {
                 var head = "HTTP/1.1 \(status) \(status < 300 ? "OK" : "Error")\r\nContent-Length: \(body.count)\r\nConnection: close\r\n"
                 for (name, value) in headers { head += "\(name): \(value)\r\n" }
                 head += "\r\n"
-                connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
+                let reply = Data(head.utf8) + body
+                let wait = self.delay(request.method, request.body)
+                self.queue.asyncAfter(deadline: .now() + wait) {
+                    connection.send(content: reply, completion: .contentProcessed { _ in connection.cancel() })
+                }
                 return
             }
             if done || error != nil { connection.cancel(); return }
@@ -179,7 +202,7 @@ final class FakeHomeServer: @unchecked Sendable {
             if method == "POST" { bodies[path, default: []].append(body) }
             let parts = path.split(separator: "/").map(String.init)
             if method == "POST", path == "/v1/chat/completions" {
-                let reply: [String: Any] = ["choices": [["message": ["role": "assistant", "content": modelReply],
+                let reply: [String: Any] = ["choices": [["message": ["role": "assistant", "content": modelText(body, otherwise: modelReply)],
                                                          "finish_reason": "stop"]]]
                 return (200, ["Content-Type": "application/json"], (try? JSONSerialization.data(withJSONObject: reply)) ?? Data())
             }
@@ -187,7 +210,7 @@ final class FakeHomeServer: @unchecked Sendable {
                 guard answersBookTasks else {
                     return (404, ["Content-Type": "application/json"], Data(#"{"error":"no such book"}"#.utf8))
                 }
-                let reply: [String: Any] = ["text": homeReply, "model": "fake-home-model"]
+                let reply: [String: Any] = ["text": modelText(body, otherwise: homeReply), "model": "fake-home-model"]
                 return (200, ["Content-Type": "application/json"], (try? JSONSerialization.data(withJSONObject: reply)) ?? Data())
             }
             if method == "POST", path == "/v1/speech/preview" { return (200, ["Content-Type": "audio/wav"], previewSpeech) }
@@ -215,6 +238,7 @@ final class FakeHomeServer: @unchecked Sendable {
             if method == "PUT" {
                 guard let book = try? PreparedBook.decode(body) else { return (400, [:], Data()) }
                 jobs[id] = BookJob(id: id, book: book)
+                submitted.append(book)
                 readyCount[id] = readyOnSubmit
                 return (201, ["Content-Type": "application/json"], (try? BookJSON.encoder.encode(summary(jobs[id]!))) ?? Data())
             }
@@ -225,7 +249,7 @@ final class FakeHomeServer: @unchecked Sendable {
             if parts.count == 4, parts[3] == "book" {
                 return (200, ["Content-Type": "application/json"], (try? job.book.encoded()) ?? Data())
             }
-            // Read-along timing for chapter 1, its chunks spread over its 30 seconds.
+            // Read-along timing for chapter 1, its chunks spread over its length.
             // Every other chapter answers 404, as one made before timing was kept does.
             if parts.count == 6, parts[3] == "chapters", parts[5] == "timing", let n = Int(parts[4]) {
                 if let speech {
@@ -234,7 +258,7 @@ final class FakeHomeServer: @unchecked Sendable {
                 }
                 guard n == 1, n <= (readyCount[id] ?? 0), let segments = job.book.chapters.first?.segments,
                       !segments.isEmpty else { return (404, [:], Data()) }
-                let span = 30.0 / Double(segments.count)
+                let span = toneSeconds / Double(segments.count)
                 let timing = ReadAlongTiming(segments: segments.enumerated().map { i, segment in
                     .init(text: segment.text, paragraph: segment.paragraph,
                           start: Double(i) * span, end: Double(i + 1) * span - 0.2)
@@ -249,6 +273,37 @@ final class FakeHomeServer: @unchecked Sendable {
             }
             return (200, ["Content-Type": "application/json"], (try? BookJSON.encoder.encode(summary(job))) ?? Data())
         }
+    }
+
+    /// The prompts of a model request, as one text: `{"system", "user"}` for the home server's
+    /// book route, `{"messages": [...]}` for an OpenAI-shaped one.
+    private static func prompts(_ body: Data) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return "" }
+        if let messages = object["messages"] as? [[String: Any]] {
+            return messages.compactMap { $0["content"] as? String }.joined(separator: "\n")
+        }
+        return [object["system"], object["user"]].compactMap { $0 as? String }.joined(separator: "\n")
+    }
+
+    private static func isFill(_ prompts: String) -> Bool { prompts.contains("You attribute quoted dialogue") }
+
+    /// What the model says: the cast list, who speaks each asked line, or `otherwise`. Called
+    /// holding the lock.
+    private func modelText(_ body: Data, otherwise: String) -> String {
+        let text = Self.prompts(body)
+        if let castSheet, text.contains("You prepare the cast list") { return castSheet }
+        if let castFill, Self.isFill(text), let ask = text.components(separatedBy: "ASK: ").last {
+            let ids = ask.split(whereSeparator: { $0 == "," || $0.isNewline }).map { $0.trimmingCharacters(in: .whitespaces) }
+            let answer = castFill.filter { ids.contains($0.key) }
+            return (try? JSONSerialization.data(withJSONObject: answer)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        }
+        return otherwise
+    }
+
+    /// How long to hold a reply: placing lines takes `castFillDelay`.
+    private func delay(_ method: String, _ body: Data) -> TimeInterval {
+        guard method == "POST" else { return 0 }
+        return lock.withLock { castFill != nil && Self.isFill(Self.prompts(body)) ? castFillDelay : 0 }
     }
 
     /// The gateway's file routes, as `GatewayRoutes.file` answers them. Called holding the lock.

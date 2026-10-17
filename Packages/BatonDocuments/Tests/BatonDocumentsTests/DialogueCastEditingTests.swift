@@ -87,14 +87,16 @@ final class DialogueCastEditingTests: XCTestCase {
         XCTAssertNotNil(c.voices(narrator: narrator)["Mary"])
     }
 
-    func testVoicesAreChosenPerSpeakerAndOnlyOnTheNarratorsEngine() {
+    /// Any engine's voice: a chapter's clips are converted to one format as it is
+    /// joined, so a Kokoro narrator can have an expressive or a Chatterbox character.
+    func testVoicesAreChosenPerSpeakerFromAnyEngine() {
         var c = casting()
         c.setVoice("Tom", "kokoro:bm_fable")
         c.setVoice("Mary", "chatterbox:Emily.wav")
         c.setVoice("Thomas", nil)
         let plan = c.voices(narrator: narrator)
         XCTAssertEqual(plan["Tom"], "kokoro:bm_fable")
-        XCTAssertNil(plan["Mary"], "a Chatterbox clip cannot be joined with Kokoro narration")
+        XCTAssertEqual(plan["Mary"], "chatterbox:Emily.wav")
         XCTAssertNil(plan["Thomas"], "no voice: the narrator reads")
     }
 

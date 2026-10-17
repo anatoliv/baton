@@ -23,7 +23,7 @@ final class BookCoversLiveWalkUITests: XCTestCase {
             throw XCTSkip("set BATON_LIVE_GATEWAY_URL and BATON_LIVE_GATEWAY_TOKEN to walk book covers against a home server")
         }
         find = env["BATON_LIVE_FIND"] != "0"
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

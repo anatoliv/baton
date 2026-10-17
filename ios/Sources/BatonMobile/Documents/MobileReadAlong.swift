@@ -30,6 +30,16 @@ struct MobileReadAlongSheet: View {
             .navigationTitle(chapter?.clipping.documentTitle ?? "Read Along")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // The sleep timer, as in the full player this sheet covers: reading
+                // along in bed is when it is wanted, and closing the text to find the moon is
+                // what the owner asked not to do. The same menu and choices as everywhere else.
+                if model.music.nowPlaying != nil || model.music.sleepTimerArmed {
+                    ToolbarItem(placement: .topBarLeading) {
+                        SleepTimerMenu(model: model) { SleepTimerLabel(model: model) }
+                            .accessibilityValue(SleepTimerLabel.value(model))
+                            .accessibilityIdentifier("readalong-sleep-timer")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }

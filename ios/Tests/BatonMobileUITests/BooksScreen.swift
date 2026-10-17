@@ -54,3 +54,28 @@ enum BooksScreen {
         XCTAssertTrue(row(app).waitForExistence(timeout: 10), "not back on the Books list", file: file, line: line)
     }
 }
+
+/// The import screen after Make Audiobook. It closes only once the book is on
+/// its way and the notification question, asked once per install, has been answered
+/// (`DocumentImportScreen.submit` awaits `requestNotificationPermission` before `onDone`). The
+/// suites answered that question through an interruption monitor, which fires only on the next
+/// interaction: their one `app.tap()` came about 0.4 s after the alert on an idle iPhone 18 Pro
+/// simulator (iOS 27.0), and when the alert came later the screen stayed up behind it. Then
+/// "the import screen should close" failed, or Library was tapped under the sheet and "no route
+/// to Books" did. This answers the alert on SpringBoard itself for as long as it waits.
+enum ImportScreen {
+    static func waitToClose(_ app: XCUIApplication, timeout: TimeInterval = 30,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let make = app.buttons["make-audiobook"].firstMatch
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            for name in ["Don’t Allow", "Don't Allow"] where springboard.buttons[name].exists {
+                springboard.buttons[name].tap()
+            }
+            if !make.exists { return }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+        }
+        XCTFail("the import screen should close\n\(app.debugDescription)", file: file, line: line)
+    }
+}

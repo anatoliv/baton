@@ -191,6 +191,70 @@ final class BookVoiceChangeTests: XCTestCase {
         XCTAssertEqual(library.homeServer.preparedBook(forJob: record.jobID)?.voices.characters, book.voices.characters)
     }
 
+    /// Voice the dialogue in Change Voice…: a book made with one narrator is given a
+    /// cast, which travels to the home server in the book; Stop puts back the book it was.
+    func testABookIsGivenACastAndStopTakesItAway() async throws {
+        let fake = FakeGateway()
+        let clippings = clippingStore()
+        let (library, book, oldID) = try await collectedOnHomeServer(fake, clippings)
+        let prepared = try XCTUnwrap(library.pronunciationSource(documentID: book.documentID)?.book)
+        var change = DialogueCastFlow.Change(prepared)
+        XCTAssertFalse(change.hadCast)
+        let sheet = DialogueCast.CastSheet(characters: [DialogueCast.Character(name: "Vashti", gender: "f"),
+                                                        DialogueCast.Character(name: "Kuno", gender: "m")])
+        let casting = DialogueCast.Casting(sheet: sheet, document: prepared.spokenDocument, narrator: "kokoro:af_heart",
+                                           available: ["kokoro:af_heart", "kokoro:bf_emma", "kokoro:bm_george"], source: "a test model")
+        change.choice.isOn = true
+        change.choice.phase = .ready(casting)
+        change.choice.reviewed = true
+        change.choice.placing = .placed(DialogueCast.Fill(), line: DialogueCastFlow.skippedLine)
+        XCTAssertTrue(change.changes(narrator: "kokoro:af_heart"), "the same narrator, a new cast")
+
+        try await library.changeVoice(try row(library, book.documentID), to: change.book(narrator: "kokoro:af_heart"))
+
+        let record = try XCTUnwrap(library.homeServer.record(forDocument: book.documentID))
+        XCTAssertNotEqual(record.jobID, oldID)
+        let sent = try XCTUnwrap(fake.submitted(record.jobID))
+        XCTAssertEqual(Set(sent.voices.characters.keys), ["Vashti", "Kuno"])
+        XCTAssertEqual(Set(sent.chapters.flatMap(\.segments).compactMap(\.speaker)), ["Vashti", "Kuno"], "each line knows its speaker")
+        XCTAssertEqual(sent.lexicon, book.lexicon, "the pronunciations stay")
+        XCTAssertNotNil(library.voiceChange(for: try row(library, book.documentID)))
+
+        try await library.cancelVoiceChange(try row(library, book.documentID))
+        XCTAssertEqual(library.homeServer.record(forDocument: book.documentID)?.jobID, oldID, "the book it was, one narrator")
+    }
+
+    /// A cast edited (a speaker renamed and revoiced) or turned off; Stop puts the cast back.
+    func testACastIsEditedOrTurnedOffAndStopPutsItBack() async throws {
+        let fake = FakeGateway()
+        let clippings = clippingStore()
+        let (library, book, oldID) = try await collectedOnHomeServer(fake, clippings, cast: true)
+        let prepared = try XCTUnwrap(library.pronunciationSource(documentID: book.documentID)?.book)
+        var change = DialogueCastFlow.Change(prepared)
+        XCTAssertTrue(change.hadCast)
+        var edited = try XCTUnwrap(change.edited)
+        XCTAssertTrue(edited.rename("Vashti", to: "Mother"))
+        edited.setVoice("Kuno", "kokoro:bm_fable")
+        change.edited = edited
+
+        try await library.changeVoice(try row(library, book.documentID), to: change.book(narrator: "kokoro:af_heart"))
+        var sent = try XCTUnwrap(fake.submitted(try XCTUnwrap(library.homeServer.record(forDocument: book.documentID)).jobID))
+        XCTAssertEqual(sent.voices.characters, ["Mother": "kokoro:bf_emma", "Kuno": "kokoro:bm_fable"])
+        XCTAssertEqual(sent.chapters.flatMap(\.segments).map(\.speaker),
+                       book.chapters.flatMap(\.segments).map { $0.speaker == "Vashti" ? "Mother" : $0.speaker })
+        try await library.cancelVoiceChange(try row(library, book.documentID))
+        XCTAssertEqual(library.homeServer.record(forDocument: book.documentID)?.jobID, oldID, "the cast it had")
+
+        change.choice.isOn = false
+        try await library.changeVoice(try row(library, book.documentID), to: change.book(narrator: "kokoro:am_adam"))
+        sent = try XCTUnwrap(fake.submitted(try XCTUnwrap(library.homeServer.record(forDocument: book.documentID)).jobID))
+        XCTAssertEqual(sent.voices.narrator, "kokoro:am_adam")
+        XCTAssertEqual(sent.voices.characters, [:])
+        XCTAssertFalse(sent.chapters.flatMap(\.segments).contains { $0.speaker != nil }, "one narrator reads everything")
+        try await library.cancelVoiceChange(try row(library, book.documentID))
+        XCTAssertEqual(library.homeServer.record(forDocument: book.documentID)?.jobID, oldID)
+    }
+
     /// TBX-10985's other device: a book it adopted from the home server follows the job the first
     /// device made again, and its chapters are replaced in their rows rather than kept in the old
     /// voice for ever.

@@ -16,7 +16,7 @@ final class DynamicTypePlayerUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = XCUIApplication.batonUnderTest()
         // The bundled demo library, not demo.navidrome.org. Driven against the live
         // server this test failed three times in three different places — no mini bar, no
         // album page, an unreachable control — which is a flaky test rather than three
@@ -69,7 +69,7 @@ final class DynamicTypePlayerUITests: XCTestCase {
         }
         XCTAssertTrue(playing, "nothing in the bundled demo library started playing")
 
-        bar.tap()
+        tapMiniBar(in: app)
 
         // The controls, not the decoration. `isHittable` is the assertion that matters:
         // an element can exist while sitting off-screen, which is exactly what used to

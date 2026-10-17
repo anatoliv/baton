@@ -136,7 +136,7 @@ final class DialogueCastSheetTests: XCTestCase {
         let fill = DialogueCast.Fill(speakers: ["c1q2": "Tom", "c1q5": "Mary"], asked: 2, answered: 2,
                                      source: "chat on the home server", quotes: 10, placedByRules: 4)
         XCTAssertEqual(DialogueCastEditing.placedLine(fill),
-                       "chat on the home server placed 2 more lines, so 6 of 10 lines have a speaker. The narrator reads the rest.")
+                       "Placed by chat on the home server: 2 more lines, so 6 of 10 lines have a speaker. The narrator reads the rest.")
         XCTAssertEqual(DialogueCastEditing.placedLine(DialogueCast.Fill(quotes: 10, placedByRules: 4)),
                        "No model answered for the lines without a speech tag, so the narrator reads those.")
         XCTAssertEqual(DialogueCastEditing.noFillLine(router: ModelRouter(sources: [])),
@@ -162,7 +162,5 @@ final class DialogueCastSheetTests: XCTestCase {
         let cloud = ModelSource(name: "Anthropic", provider: .anthropic, baseURL: "https://api.anthropic.com", model: "m", contextTokens: 200_000)
         XCTAssertTrue(DialogueCastEditing.noModelLine(router: ModelRouter(sources: [cloud]))
             .contains("sending excerpts to Anthropic is not allowed"))
-        XCTAssertNotNil(DialogueCastEditing.narratorLine("chatterbox:Emily.wav"))
-        XCTAssertNil(DialogueCastEditing.narratorLine(narrator))
     }
 }
