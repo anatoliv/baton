@@ -63,9 +63,9 @@ let transport = POSIXTransport(
 do {
     try transport.serve(
         port: config.port,
-        handle: { request in service.handle(request).data },
+        handle: { request in await service.handleAsync(request).data },
         upload: { request, file in service.handleUpload(request, file: file).data },
-        peerHandle: { request, peer in service.handle(request, peer: peer).data })
+        peerHandle: { request, peer in await service.handleAsync(request, peer: peer).data })
 } catch {
     FileHandle.standardError.write(Data("baton-share: cannot listen on \(config.port): \(error)\n".utf8))
     exit(69) // EX_UNAVAILABLE

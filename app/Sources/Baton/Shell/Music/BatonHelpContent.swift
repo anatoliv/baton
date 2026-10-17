@@ -323,6 +323,15 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.6",
+            date: "October 2026",
+            highlight: "The Dock icon follows your Mac's appearance.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "The Dock icon switches between porcelain and charcoal with macOS, independently of the app's Light or Dark setting."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.5",
             date: "October 2026",
             highlight: "A better-sized Dock icon in light and dark appearances.",

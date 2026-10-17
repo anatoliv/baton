@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "enabled": false,
+  "enrollment_enabled": false,
+  "sending_enabled": false,
+  "source_digests": {
+    "private_contact/__init__.py": "b7c264630da9789452544537a2b0f86602f923ea5eef816b7f3ffd4735daaf78",
+    "private_contact/service.py": "4bdbb167a97c49880e1d4c97780853be6c145842bc808139e050668cacd4995c",
+    "private_contact/custody.py": "85f40656c370aa131b45c1134be30daa547c5d9aa801d7789aa18d9483a1da07",
+    "private_contact/bridge.py": "097a1cf3af769c3a10a091c946044eb1e3a0e9110eee0c1f28fbb374e21eda9d",
+    "private_contact/runtime.py": "71bbea24628e91226660973b2bb391a443b2157785920ee7222b28ac7be1e77b",
+    "private_contact/__main__.py": "4c692904cc2043cec913122a6bf0be1918dc460bbc5daccd672bc906b53b649e",
+    "private_contact/feedback.py": "046a527422ca7713f9e84bf5cb7acb40dae96ef20977fccdc71fdedded7c8b34",
+    "private_contact/recipient.py": "5ef89017be129852f52a574f9e155767080008b340e49f1e0860913788bb4ccd",
+    "private_contact/ses_smtp.py": "d71fe0ff98604148c44455e89d2ad8e7b689922ea70cdc95d7f2c1122fee4a41",
+    "gateway/Sources/BatonShareServer/ShareContactBridge.swift": "716d4eee884a547a1a642374665c75ac3cd58dea4c346e014ab6a5909110a139",
+    "gateway/Sources/BatonShareServer/ShareConfiguration.swift": "503349eabf1841f263b6244308a7da24ea2a388a4bdbe06518cdb939e08f6ed0",
+    "gateway/Sources/BatonShareServer/ShareEnforcementStore.swift": "a7ea4ad07b1bfe61e5aeb5fd21a9366d8da6cb2631adc3eecfd01eec90693be4",
+    "gateway/Sources/BatonShareServer/ShareService.swift": "51831e8876159277ef0ac7e76e8a5ef03812ddda2d773561abd3264bca4bacde",
+    "gateway/Sources/BatonShareServer/ShareContactRelay.swift": "22fe7e5c8ab4affe8e0649d1eda43af19ef502b4205c430602b973b0097b1cb1",
+    "gateway/Sources/baton-share/main.swift": "3e81123b0298c365c61086095fbbab4d97d80ab7adb6ed62c0664cf469b46783"
+  },
+  "source_revision": null,
+  "deployment_card": null,
+  "operational_approval": null,
+  "qualified": false,
+  "state_root": null,
+  "contact_directory": null,
+  "history_directory": null,
+  "authority_directory": null,
+  "socket_file": null,
+  "export_root": null,
+  "onedrive_root": null,
+  "public_mounts": [],
+  "inputs": {
+    "encryption_key_file": null,
+    "journal_key_file": null,
+    "verifier_key_file": null,
+    "operator_key_file": null,
+    "reader_token_file": null,
+    "smtp_file": null,
+    "sns_certificate_file": null
+  },
+  "share_port": null,
+  "dns_resolver": null,
+  "sns": {
+    "certificate_url": null,
+    "fingerprint": null,
+    "topic": null,
+    "account": null,
+    "identity": null
+  },
+  "runtime_executable": null,
+  "runtime_digest": null,
+  "cryptography_version": null,
+  "iam": {
+    "principal_linkage_verified": false,
+    "recipient_amendment_verified": false,
+    "current_policy_digest": null,
+    "candidate_policy_digest": null,
+    "candidate_policy_file": null,
+    "rollback_policy_file": null
+  },
+  "backup": {
+    "retention_days": 30,
+    "destructive_expiry_enabled": false,
+    "remote_verified": false,
+    "held_cases_verified": false
+  }
+}

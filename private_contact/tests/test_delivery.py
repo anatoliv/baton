@@ -14,6 +14,8 @@ class SyntheticCustody:
         self.lock = threading.RLock()
         self.fail = False
         self.ready = True
+    def submission(self):
+        return self.lock
     def reconciled(self):
         return self.ready
     def transact(self, operation):

@@ -95,6 +95,118 @@ final class ShareEnforcementTests: XCTestCase {
             headers: ["authorization": "Bearer " + (secret ?? owner)], contentLength: bytes.count), file: staged)
     }
 
+    func testContactRelayBindsGrantAndReleasesStoreBeforePrivateReadback() async throws {
+        _ = try makeShare()
+        let reader = String(repeating: "R", count: 48)
+        var configuration = service.config
+        configuration.contactBridge = try ShareContactConfiguration(readerDigest: ShareHash.secretDigest(reader), relayPort: 8791)
+        let testClock = clock!
+        let current = try ShareService(config: configuration, clock: { testClock.now })
+        service = current
+        let granted = send("POST", "/v1/share/contact/authorization",
+            body: try JSONSerialization.data(withJSONObject: ["purpose": "enroll", "include": []]), secret: owner)
+        let grant = try XCTUnwrap((try JSONSerialization.jsonObject(with: granted.body) as? [String: String])?["authorization"])
+        let privateBody = try JSONSerialization.data(withJSONObject: ["authorization": grant, "address": "PUBLIC@fixture.invalid",
+            "consent": "contact-v1", "include": []])
+        let request = HTTPRequestMessage(method: "POST", path: "/v1/share/contact/private/enroll", query: [:],
+            headers: ["authorization": "Bearer " + owner, "content-type": "application/json"], body: privateBody)
+        let response = await current.handleContactRelay(request) { port, path, body in
+            XCTAssertEqual(port, 8791); XCTAssertEqual(path, "/enroll"); XCTAssertEqual(body, privateBody)
+            // Actual readback re-enters the service; this cannot run if relay holds its store lock.
+            let consume = current.handle(HTTPRequestMessage(method: "POST", path: "/v1/share/admin/contact/installation", query: [:],
+                headers: ["authorization": "Bearer " + reader],
+                body: try JSONSerialization.data(withJSONObject: ["authorization": grant, "purpose": "enroll"])), peer: .loopback)
+            XCTAssertEqual(consume.status, 200)
+            return ShareResponse.json(["status": "pending"], headers: ["Set-Cookie": "PUBLIC FIXTURE"])
+        }
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(response.headers, ["Cache-Control": "private, no-store"])
+        let replay = await current.handleContactRelay(request) { _, _, _ in XCTFail("Replayed grant was forwarded"); return .noContent }
+        XCTAssertEqual(replay.status, 404)
+        XCTAssertFalse(send("GET", "/v1/share/shares", secret: owner).body.contains(Data("PUBLIC@fixture.invalid".utf8)))
+    }
+
+    func testContactRelayRejectsForeignPurposeOperatorAndOversizedRequests() async throws {
+        _ = try makeShare()
+        var configuration = service.config
+        configuration.contactBridge = try ShareContactConfiguration(readerDigest: ShareHash.secretDigest(String(repeating: "R", count: 48)), relayPort: 8791)
+        let testClock = clock!
+        service = try ShareService(config: configuration, clock: { testClock.now })
+        let granted = send("POST", "/v1/share/contact/authorization",
+            body: try JSONSerialization.data(withJSONObject: ["purpose": "status", "include": []]), secret: owner)
+        let grant = try XCTUnwrap((try JSONSerialization.jsonObject(with: granted.body) as? [String: String])?["authorization"])
+        let body = try JSONSerialization.data(withJSONObject: ["authorization": grant])
+        for (endpoint, bearer, raw) in [("status", differentOwner, body), ("withdraw", owner, body),
+                                        ("operator/job", owner, body), ("status", owner, Data(repeating: 65, count: 65537))] {
+            let response = await service.handleContactRelay(HTTPRequestMessage(method: "POST", path: "/v1/share/contact/private/" + endpoint, query: [:],
+                headers: ["authorization": "Bearer " + bearer, "content-type": "application/json"], body: raw)) { _, _, _ in
+                XCTFail("Unqualified request was forwarded"); return .noContent
+            }
+            XCTAssertEqual(response.status, 404)
+        }
+    }
+
+    func testContactAuthorizationUsesActualInstallationOwnership() throws {
+        let id = try makeShare()
+        let body = try JSONSerialization.data(withJSONObject: ["purpose": "enroll", "include": [id]])
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: owner).status, 404)
+        var configuration = service.config
+        configuration.contactBridge = try ShareContactConfiguration(readerDigest: ShareHash.secretDigest(String(repeating: "R", count: 48)))
+        let testClock = clock!
+        service = try ShareService(config: configuration, clock: { testClock.now })
+        let response = send("POST", "/v1/share/contact/authorization", body: body, secret: owner)
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: differentOwner).status, 404)
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: id + "#public-fragment").status, 401)
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body).status, 401)
+        configuration.contactBridge = try ShareContactConfiguration(readerDigest: ShareHash.secretDigest(operatorToken))
+        XCTAssertThrowsError(try ShareService(config: configuration, clock: { testClock.now }))
+    }
+
+    func testContactReadbackConsumesScopeAndRejectsStaleAction() throws {
+        let id = try makeShare()
+        let reader = String(repeating: "R", count: 48)
+        var configuration = service.config
+        configuration.contactBridge = try ShareContactConfiguration(readerDigest: ShareHash.secretDigest(reader))
+        let testClock = clock!
+        service = try ShareService(config: configuration, clock: { testClock.now })
+        let authorization = send("POST", "/v1/share/contact/authorization",
+            body: try JSONSerialization.data(withJSONObject: ["purpose": "enroll", "include": [id]]), secret: owner)
+        let ticket = try XCTUnwrap((try JSONSerialization.jsonObject(with: authorization.body) as? [String: String])?["authorization"])
+        XCTAssertEqual(ticket.count, 43)
+        XCTAssertFalse(String(decoding: authorization.body, as: UTF8.self).contains(ShareHash.secretDigest(owner)))
+        let body = try JSONSerialization.data(withJSONObject: ["authorization": ticket, "purpose": "enroll"])
+        let path = "/v1/share/admin/contact/installation"
+        XCTAssertEqual(send("POST", path, body: body, secret: reader).status, 404)
+        XCTAssertEqual(send("POST", path, body: body, secret: operatorToken, peer: .loopback).status, 404)
+        XCTAssertEqual(send("POST", path, body: body, secret: reader, peer: .loopback,
+                            headers: ["x-forwarded-for": "127.0.0.1"]).status, 404)
+        let wrong = try JSONSerialization.data(withJSONObject: ["authorization": ticket, "purpose": "verify"])
+        XCTAssertEqual(send("POST", path, body: wrong, secret: reader, peer: .loopback).status, 404)
+        let consumed = send("POST", path, body: body, secret: reader, peer: .loopback)
+        XCTAssertEqual(consumed.status, 200)
+        XCTAssertEqual(send("POST", path, body: body, secret: reader, peer: .loopback).status, 404)
+        service = try ShareService(config: configuration, clock: { testClock.now })
+        XCTAssertEqual(send("POST", path, body: body, secret: reader, peer: .loopback).status, 404)
+        let expiring = send("POST", "/v1/share/contact/authorization",
+            body: try JSONSerialization.data(withJSONObject: ["purpose": "status", "include": [String]()]), secret: owner)
+        let expiredTicket = try XCTUnwrap((try JSONSerialization.jsonObject(with: expiring.body) as? [String: String])?["authorization"])
+        clock.advance(61)
+        let expiredBody = try JSONSerialization.data(withJSONObject: ["authorization": expiredTicket, "purpose": "status"])
+        XCTAssertEqual(send("POST", path, body: expiredBody, secret: reader, peer: .loopback).status, 404)
+        let receipt = try apply(.disableShare, id: id)
+        let actionBody = try JSONSerialization.data(withJSONObject: ["operation": receipt.operationID, "share": id])
+        let actionPath = "/v1/share/admin/contact/action"
+        let actual = send("POST", actionPath, body: actionBody, secret: reader, peer: .loopback)
+        XCTAssertEqual(actual.status, 200)
+        let scope = try XCTUnwrap(JSONSerialization.jsonObject(with: actual.body) as? [String: Any])
+        XCTAssertEqual(scope["installation"] as? String, ShareHash.secretDigest(owner))
+        XCTAssertEqual(scope["case"] as? String, "case_123")
+        XCTAssertEqual(scope["action"] as? String, "disable-share")
+        _ = try apply(.restoreShare, id: id)
+        XCTAssertEqual(send("POST", actionPath, body: actionBody, secret: reader, peer: .loopback).status, 404)
+    }
+
     func testUnsuspendAfterEveryAnchorAndAuditReceiptAreSwept() throws {
         let anchor = try makeShare()
         let revoked = try makeShare()

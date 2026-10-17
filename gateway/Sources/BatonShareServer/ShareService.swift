@@ -16,6 +16,7 @@ public final class ShareService: @unchecked Sendable {
     let limiter = RateLimiter()
     let page: SharePage
     let mixtapePage: MixtapePage
+    var activeContactRelays = 0
     var attestationVerifier: AppAttestVerifier?
     // Only the internal, explicitly injected prototype initializer enables this bridge.
     // Ordinary configuration creates no fresh push tables, collects no tokens and sends
@@ -28,11 +29,19 @@ public final class ShareService: @unchecked Sendable {
 
     public init(config: ShareConfiguration, salt: DailySalt = DailySalt(),
                 clock: @escaping @Sendable () -> Date = { Date() }) throws {
+        if let contact = config.contactBridge {
+            guard contact.relayPort != config.port,
+                  config.adminToken.map({ ShareHash.secretDigest($0) != contact.readerDigest }) ?? true,
+                  config.enforcement.map({ ShareHash.secretDigest($0.token) != contact.readerDigest }) ?? true else {
+                throw ConfigurationError("contact requires a distinct read-only capability")
+            }
+        }
         self.config = config
         self.salt = salt
         self.clock = clock
         store = try ShareStore(root: config.dataDirectory)
         try store.database.execute(Self.attestationSchema)
+        try store.database.execute(Self.contactSchema)
         attestationVerifier = try config.appAttest.map(AppAttestVerifier.init(config:))
         page = try SharePage(config: config)
         mixtapePage = try MixtapePage(config: config)
@@ -71,10 +80,41 @@ public final class ShareService: @unchecked Sendable {
 
     // MARK: - Entry points
 
+    /// Only the bounded installation relay waits outside the store lock. The worker
+    /// calls back to consume its grant, so holding that lock would deadlock readback.
+    public func handleAsync(_ request: HTTPRequestMessage, peer: ConnectionPeer = .unknown) async -> ShareResponse {
+        await handleContactRelay(request, peer: peer, forward: ShareContactRelay.forward)
+    }
+
+    func handleContactRelay(_ request: HTTPRequestMessage, peer: ConnectionPeer = .unknown,
+                            forward: @Sendable (UInt16, String, Data) async throws -> ShareResponse) async -> ShareResponse {
+        guard request.path.hasPrefix("/v1/share/contact/private/") else { return handle(request, peer: peer) }
+        let preparation = lock.withLock { prepareContactRelay(request) }
+        switch preparation {
+        case let .refused(response): return response
+        case let .ready(port, path, body):
+            defer { lock.withLock { activeContactRelays -= 1 } }
+            do {
+                var response = try await forward(port, path, body)
+                guard response.body.count <= 65536, [200, 400, 403, 503].contains(response.status) else {
+                    return ShareContactRelay.unavailable
+                }
+                response.headers = ["Cache-Control": "private, no-store"]
+                response.contentType = "application/json"
+                return response
+            } catch { return ShareContactRelay.unavailable }
+        }
+    }
+
     public func handle(_ request: HTTPRequestMessage, peer: ConnectionPeer = .unknown) -> ShareResponse {
         lock.lock()
         defer { lock.unlock() }
         do {
+            if request.path == "/v1/share/contact/authorization" || request.path.hasPrefix("/v1/share/admin/contact/") {
+                var response = try contactRoute(request, peer: peer)
+                response.headers["Cache-Control"] = "private, no-store"
+                return response
+            }
             if request.path == "/v1/share/admin/enforcement" || request.path.hasPrefix("/v1/share/admin/enforcement/") {
                 return try enforcementRoute(request, peer: peer)
             }

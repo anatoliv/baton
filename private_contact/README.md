@@ -1,76 +1,42 @@
-# Private contact domain preparation
+# Private contact candidate
 
-This disconnected package models optional installation-bound verified contact and
-case-specific notice orchestration. It has no production mode, HTTP server,
-native wiring, filesystem/database adapter, SES sending adapter, credentials or keys.
-The standalone `sns_feedback.py` admission adapter verifies original SNS
-Notifications; it is disconnected from the service and has no synthetic marker.
-`ContactService` defaults disabled. The only accepted mode is `synthetic`, with
-all injected adapters explicitly marked synthetic and a synthetic consent version.
-These markers prevent accidental ordinary construction; they are not a security
-attestation or a substitute for deployment controls. Never connect this mode to
-real identities, secrets, provider transport or operator cases.
+This package implements optional installation-bound verified contact, reviewed
+case notices and private access. It defaults off. The protected executable loader
+requires exact source/runtime pins, private input locators, custody separation,
+operational approval and qualified sending/backup facts before production admission.
+The [disabled manifest](manifest.disabled.json) supplies no credentials or paths.
+The [runtime runbook](../docs/song-sharing-private-contact-runtime-2026-10-07.md)
+records contracts, exact command forms and the remaining operational gates.
 
-Run the isolated reserved-data acceptance from the repository root:
+The public share service authenticates its existing installation bearer and
+issues a short-lived purpose-bound opaque grant. The private worker consumes that
+grant over an authenticated loopback readback; the public process holds only the
+reader verifier. Public share fragments never prove ownership. Private operator
+requests additionally require signed path/body/expiry/nonce envelopes. Committed
+server receipt inventory identifies required notices independently of enqueue.
 
-```sh
-python3 -m unittest private_contact.tests.test_delivery -v
-```
+ContactService distinguishes accepted SMTP submission, verified provider feedback
+and originating-installation private notice access. The production-shaped SMTP
+adapter uses the adopted SES endpoint with verified STARTTLS; SNS admission checks
+the pinned certificate, exact topic/account/sender and signed event. No live
+provider connection or feedback route has been qualified by the local tests.
 
-The tests call service boundaries and observe captured mail, authorized private
-readback and public status. They do not inspect private storage fields to certify
-behavior. The in-memory transactional fixture survives replacement of the service
-object and serializes threads. This is a service-restart simulation, not evidence
-of disk persistence, encryption, process failure durability or backup recovery.
+AES-GCM SQLite custody stores sealed private state. JournaledCustody commits the
+separately retained authoritative checkpoint before the primary cache. Restoring
+an old primary remains blocked until authenticated reconciliation replaces it
+with live authoritative history. The authority/replay ledger is retained separately.
+Whole-database rollback is outside this restore protocol and needs host controls.
+Exports remain sealed; remote synchronization, held-case retention and destructive
+expiration require operational evidence. Destructive expiration is disabled.
 
-## Required adapters before any future production implementation
-
-- `custody.transact(operation)` must commit a deep-isolated private state and
-  returned result atomically and serialize every process. Its schema includes
-  contacts, coverage/consent, keyed challenges, rates, jobs, grants, minimal
-  provider references, transition history and private escalations. Failed commits
-  before submission must send nothing; failed commits after possible submission
-  must leave a durable dispatch lease which becomes unknown, never retry blindly.
-  `custody.reconciled()` must stay false after restore until withdrawals, expiry,
-  consent revisions and authoritative action history are reconciled. Its boolean
-  is an injected dependency, not an implemented restore verifier.
-- `authority.installation(proof, purpose, utc)` returns only an authorized private
-  installation handle. A production adapter must validate a single-use,
-  purpose-bound, short-lived bridge authorization, with replay protection and
-  authenticated service transport. No raw installation bearer enters this package.
-  Verification and access must independently authorize the same installation.
-  `authority.owned(proof, shares, utc)` must prove any historical coverage using
-  the existing owner-list boundary; public share/key possession is insufficient.
-- `authority.case(review, utc, scope)` admits only a separately reviewed private
-  operation and its exact installation/case/action/revision/share/creation-time
-  and notice snapshot. `current_case(scope, utc)` must revalidate current case
-  authorization immediately before sending/access. Notice correctness, reviewed
-  legal instructions, redacted location without fragments, expiry, recall and
-  restoration limits remain the private reviewer/adapter's obligations. A boolean
-  synthetic authority does not establish any of these production facts.
-- `authority.recipient(address)` must validate the approved recipient policy and
-  actual domain mail capability, including null-MX refusal. No live DNS check is
-  supplied. Reserved `.invalid` recipients work only in the captured-mail fixture.
-- `secrets.random()` must supply collision-resistant, cryptographically random
-  codes/references. `secrets.verifier(purpose, value)` must supply domain-separated
-  keyed verifiers with qualified private key custody and rotation. The only key
-  in tests is public fixture text; no actual key is created or read.
-- `mail.send(message)` consumes only a generic verification/notice template,
-  recipient and typed code. It returns `accepted` with a provider reference,
-  confirmed pre-acceptance `transient`, `permanent`, or `unknown`. Arbitrary
-  exceptions, malformed results and ambiguous acceptance become unknown.
-  The production template must include consent purpose, originating-app entry,
-  expiry and approved reply/intake route without notice details or sensitive URLs.
-  An SES SMTP/API adapter must distinguish pre-acceptance failure from possible
-  DATA/API acceptance and retain only private minimum evidence. No such adapter
-  exists here; the quota-alert sender stays operator-only.
-- `feedback.admit(envelope)` must validate the actual approved transport/signature,
-  body limits, provider/account/sending scope and canonical event identity before
-  returning only `event`, `message`, `outcome`. It must strip recipients, headers,
-  bodies and reject malformed/orphan/foreign callbacks without logging payloads.
-  The orchestration deduplicates events and correlates only known accepted sends.
-  Unknown sends lacking a recoverable provider reference require operator recovery
-  and escalation; this package does not pretend to recover SES exactly-once sends.
+The tests use stdlib unittest, public cryptographic vectors, disposable owned
+directories, reserved `.invalid` recipients and captured transport. The qualified
+interpreter and narrow exact commands are in the
+[test extension](../.claude/skill-extensions/test-writer-agent/EXTENSION.md).
+The connected test starts the actual local Swift share executable and private Unix
+handler, observes authorized notice access and withdrawal, then stops its process
+and server thread. It proves the local source boundary, not a native screen,
+production deployment, actual inbox delivery or staffed escalation.
 
 ## Standalone SNS feedback admission
 
@@ -136,8 +102,14 @@ synthetic-only `ContactService`.
 
 `feedback_ingress.py` exposes only `/feedback` on a separate private Unix socket.
 The reviewed integration recipe reconstructs the allowlisted `63e4a33` worker,
-applies its exact runtime/CLI patch and overlays these modules. Main's domain
-service remains disabled; the retained worker is not blindly merged. The local
+applies its exact runtime/CLI patch and overlays these modules. Since TBX-11094
+(October 17) that worker source is also in this tree, with both recorded patches
+applied, so main builds and tests it. The in-tree Python equals the recipe's
+`--with-backup` output except `recipient.py`, which carries the later TBX-9554 DNS
+boundary fix; the recipe itself still reproduces the qualified artifact from
+`63e4a33`. The two `*.disabled.json` manifests stay pinned to the reviewed candidate
+`ae41af28`, which `gateway/deploy/private-contact/prepare.py` still accepts; a
+future rollout pins its own admitted source. The service stays disabled. The local
 acceptance exercises the reconstructed real worker, real encrypted journal and
 the Tonebox receiver with reserved signed messages and captured SMTP.
 
@@ -154,43 +126,9 @@ Signature order and hash selection follow the
 The SES scope and outcome fields follow
 [AWS SES event contents](https://docs.aws.amazon.com/ses/latest/dg/event-publishing-retrieving-sns-contents.html).
 
-Only aggregate integers and bounded error categories are suitable for ordinary
-logs/tasks. Internal bounded refusals have a separate exception type; arbitrary
-adapter errors, including adapter-thrown public `Denied`, become `unavailable`. `private_job` requires operator authorization and returns private
-state/history/escalation readback without notice, code or grant. Even these private
-per-case transitions must not be emitted to ordinary logs. The private notice
-itself is returned only through current installation authorization plus its live
-case grant; no public/enforcement or owner-list schema is extended.
-
-## Synthetic policy bounds and limits
-
-The acceptance model uses the prepared proposals: 15-minute challenge, five
-guesses, one pending challenge, three enrollment sends per hour per installation
-and keyed mailbox, global 100/hour, verified replacements, 90-day route review,
-24-hour grants and disconnected-address expiry, two-minute dispatch leases,
-three confirmed-transient attempts within four hours with 60/600-second delays,
-with the age bound checked before leasing and again immediately before submission,
-30-minute missing receipt and four-hour access escalation. It additionally models
-20 case-access attempts per installation per hour, and refuses conflicting
-creation-time snapshots under an existing job identity. These are simulation
-bounds for review, not adopted production policy or provider quotas.
-
-Withdrawal blocks queued/future delivery and invalidates access. A generic mail
-whose submission already began can still arrive; it cannot be recalled. The
-in-flight-withdrawal test observes this boundary and verifies stale completion
-cannot reopen access. Late failure feedback disables only the matching current
-contact revision and preserves its private history. A later delivery event does
-not resurrect withdrawn routes or erase escalations.
-
-Escalation here means a record available in restricted private custody and
-operator readback. It does not establish a monitored destination, backup staff,
-acknowledgement or manual delivery. Receipt versus access observations remain
-separate; authenticated access proves installation access, never legal identity.
-No tracking pixel, read receipt or public case URL is introduced.
-
-Active case/feedback/rate history beyond the modeled expiry behavior is not
-production retention code. The selected encrypted store must implement approved
-case closure/preservation, erasure and encrypted-backup lifecycle before a
-production mode can be added. Future production admission also needs bounds for
-case-job/global dispatch rates and private state size, real schema migrations,
-clock handling, two-process locking and crash-safe commit fault acceptance.
+Only bounded errors and aggregate counts belong in ordinary logs. Addresses,
+grants, installation bearers, notice contents, provider payloads and private state
+must not enter logs, public share rows or task evidence. Authenticated access proves
+installation access, not legal identity. Already submitted mail cannot be recalled;
+withdrawal blocks future delivery and invalidates private access. Unknown submission
+is fenced and escalated rather than retried automatically.

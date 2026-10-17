@@ -1,2 +1,2 @@
-"""Private notice orchestration. No production adapters or executable are supplied."""
+"""Private notice service; protected executable construction defaults disabled."""
 from .service import ContactService, Denied

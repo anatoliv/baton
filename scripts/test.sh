@@ -1896,13 +1896,23 @@ else
   #
   # Failures only, on purpose: a green run's log is noise, and copying every result bundle
   # would quietly put gigabytes somewhere nobody empties.
-  keep_dir="$HOME/Library/Logs/Baton/gate-failures/$(date +%Y-%m-%d_%H-%M-%S)"
+  # BATON_GATE_FAILURE_LOG_ROOT lets a sandboxed lane keep its failure logs inside its own
+  # writable tree (TBX-8731, recovered by TBX-11094); the default is unchanged. The logs go
+  # in a gate-failures directory of their own below it, and the pruning below only ever
+  # removes dated entries there, so pointing it at a directory that holds anything else
+  # cannot delete that.
+  if [ -n "${BATON_GATE_FAILURE_LOG_ROOT:-}" ]; then
+    failure_root="$BATON_GATE_FAILURE_LOG_ROOT/gate-failures"
+  else
+    failure_root="$HOME/Library/Logs/Baton/gate-failures"
+  fi
+  keep_dir="$failure_root/$(date +%Y-%m-%d_%H-%M-%S)"
   if mkdir -p "$keep_dir" 2>/dev/null; then
     cp "$LOG" "$keep_dir/xcodebuild.log" 2>/dev/null || true
     [ -d "$RESULT_BUNDLE" ] && cp -R "$RESULT_BUNDLE" "$keep_dir/results.xcresult" 2>/dev/null || true
     # Bounded, so this can never become the thing that fills the disk. Ten is enough to
     # cover a bad afternoon and small enough to stay ignorable.
-    ls -dt "$HOME/Library/Logs/Baton/gate-failures"/* 2>/dev/null | tail -n +11 | while read -r old; do
+    ls -dt "$failure_root"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9] 2>/dev/null | tail -n +11 | while read -r old; do
       rm -rf "$old"
     done
     red "  Kept: $keep_dir"

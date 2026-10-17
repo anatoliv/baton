@@ -22,6 +22,7 @@ public struct ShareConfiguration: Sendable {
     public var adminToken: String?
     /// A separately provisioned local-operator capability. Nil disables every operator route.
     public var enforcement: EnforcementConfiguration? = nil
+    public var contactBridge: ShareContactConfiguration? = nil
     public var blobDelivery: BlobDelivery
     /// The internal nginx location the blobs are served from under `accel`.
     public var accelPrefix: String
@@ -126,6 +127,15 @@ public struct ShareConfiguration: Sendable {
                 throw ConfigurationError("App Attest requires an HTTPS public service origin (HTTP only for loopback probes)")
             }
             config.appAttest = .init(appID: appID, environment: environment, audience: audience, bundleVersions: versionSet, validationCategories: categorySet)
+        }
+        if let digest = env["BATON_SHARE_CONTACT_READER_DIGEST"] {
+            let relayPort = try env["BATON_SHARE_CONTACT_RELAY_PORT"].map { value -> UInt16 in
+                guard let port = UInt16(value), port != 0, port != config.port else {
+                    throw ConfigurationError("invalid contact relay port")
+                }
+                return port
+            }
+            config.contactBridge = try ShareContactConfiguration(readerDigest: digest, relayPort: relayPort)
         }
         config.enforcement = try EnforcementConfiguration.fromEnvironment(env)
         return config

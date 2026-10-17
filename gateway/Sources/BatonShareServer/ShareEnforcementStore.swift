@@ -51,7 +51,8 @@ extension ShareStore {
                                                          ("suspension_ref", "TEXT NOT NULL DEFAULT ''")]),
                                  ("enforcement_operations", [("reason_code", "TEXT NOT NULL DEFAULT ''"),
                                                             ("target_id", "TEXT NOT NULL DEFAULT ''"),
-                                                            ("affected_ids", "TEXT NOT NULL DEFAULT '[]'")])] {
+                                                            ("affected_ids", "TEXT NOT NULL DEFAULT '[]'"),
+                                                            ("contact_revisions", "TEXT NOT NULL DEFAULT '{}'")])] {
             let existing = Set(try database.query("PRAGMA table_info(\(table))").compactMap { $0["name"]?.text })
             for (column, declaration) in columns where !existing.contains(column) {
                 try database.execute("ALTER TABLE \(table) ADD COLUMN \(column) \(declaration)")
@@ -189,9 +190,16 @@ extension ShareStore {
     }
 
     func recordEnforcement(fingerprint: String, receipt: EnforcementReceipt, plan: EnforcementPlan, retainUntil: Int64) throws {
-        try database.run("INSERT INTO enforcement_operations(operation_id,fingerprint,receipt,retain_until,reason_code,target_id,affected_ids) VALUES(?,?,?,?,?,?,?)",
+        var revisions: [String: Int64] = [:]
+        for affected in plan.affected {
+            if let record = try share(id: affected.id), let state = try enforcementState(id: affected.id) {
+                revisions[affected.id] = try Self.contactRevision(overlay: state.revision,
+                    installation: sharerRevision(digest: record.sharerDigest))
+            }
+        }
+        try database.run("INSERT INTO enforcement_operations(operation_id,fingerprint,receipt,retain_until,reason_code,target_id,affected_ids,contact_revisions) VALUES(?,?,?,?,?,?,?,?)",
                          [.text(receipt.operationID), .text(fingerprint), .text(Self.json(receipt)), .int(retainUntil),
-                          .text(plan.request.reasonCode), .text(plan.request.shareID ?? ""), .text(Self.json(plan.affected.map(\.id)))])
+                          .text(plan.request.reasonCode), .text(plan.request.shareID ?? ""), .text(Self.json(plan.affected.map(\.id))), .text(Self.json(revisions))])
     }
 
     func enqueueEnforcementCleanup(id: String, as status: ShareStatus, now: Int64, operationID: String? = nil) throws {

@@ -23,8 +23,11 @@ final class BrandIcon {
     }
 
     private func apply() {
-        let style = UserDefaults(suiteName: UserDefaults.globalDomain)?
-            .string(forKey: "AppleInterfaceStyle")
+        // Read only macOS's global appearance key, independently of application defaults.
+        let style = CFPreferencesCopyValue(
+            "AppleInterfaceStyle" as CFString, kCFPreferencesAnyApplication,
+            kCFPreferencesCurrentUser, kCFPreferencesAnyHost
+        ) as? String
         guard let icon = NSImage(named: style == "Dark" ? "DockIconDark" : "DockIconLight") else { return }
         NSApplication.shared.applicationIconImage = icon
     }

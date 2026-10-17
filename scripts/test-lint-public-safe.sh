@@ -105,5 +105,21 @@ else
   bad "a missing guard anchor did not fail with status 2. Got: $out"
 fi
 
+# An exclude also needs a purge: rsync protects an excluded path inherited from
+# the old public checkout. Exercise the publisher's actual purge on a planted
+# old mirror, retaining app source beside the internal evidence fixture.
+. "$ROOT/scripts/release-kit/lib/public-safe.sh"
+MIRROR="$WORK/inherited-mirror"
+mkdir -p "$MIRROR/evidence/old" "$MIRROR/app"
+printf 'internal result fixture\n' >"$MIRROR/evidence/old/result-path.txt"
+printf 'public app fixture\n' >"$MIRROR/app/Keep.swift"
+PURGE="$(rk_extract_block "$ROOT/scripts/publish-repo.sh" '^rm -rf "[$]MIRROR"/docs ' "-name '[*][.]local[.]json' .*-delete" 'the purge of excluded paths')"
+if [ -n "$PURGE" ] && (eval "$PURGE") && \
+   [ ! -e "$MIRROR/evidence" ] && [ -f "$MIRROR/app/Keep.swift" ]; then
+  ok "the stock purge removes inherited internal evidence and retains app source"
+else
+  bad "excluded internal evidence survives the public mirror purge"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

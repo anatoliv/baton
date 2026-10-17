@@ -1,10 +1,9 @@
-"""Private domain preparation, disconnected from public sharing and production.
+"""Private installation-bound consent, notice outbox and authenticated case access.
 
-Adapters are trusted boundaries, not implemented security mechanisms. `synthetic`
-mode exists only for reserved-data acceptance; no production enable mode exists.
-Custody.transact must atomically commit a deep-isolated private state and result,
-serializing writers across processes and surviving restarts. No file store is
-provided because encryption, key custody and backup reconciliation are unqualified.
+Defaults are disabled. Production construction requires protected runtime admission
+and concrete authenticated bridge, sealed journal, TLS SES and signed SNS adapters.
+Local mode exercises those source seams with captured transport and public fixtures.
+Operational custody/inputs/provider/inbox acceptance is separately owner-gated.
 """
 from __future__ import annotations
 
@@ -22,12 +21,16 @@ class _Refusal(Exception):
 
 
 class ContactService:
-    def __init__(self, *, custody, authority, secrets, mail, feedback, clock, mode='disabled'):
+    def __init__(self, *, custody, authority, secrets, mail, feedback, clock, mode='disabled', admission=None):
         self.custody, self.authority, self.secrets = custody, authority, secrets
         self.mail, self.feedback, self.clock = mail, feedback, clock
-        self.enabled = mode == 'synthetic' and all(
-            getattr(adapter, 'synthetic', False) is True
-            for adapter in (custody, authority, secrets, mail, feedback))
+        self.mode, self.admission = mode, admission
+        self.consent = 'synthetic-consent-v1' if mode == 'synthetic' else 'contact-v1'
+        adapters = (custody, authority, secrets, mail, feedback)
+        self.enabled = callable(getattr(custody, "submission", None)) and (mode == 'synthetic' and all(getattr(item, 'synthetic', False) is True for item in adapters)
+                        or mode == 'local' and all(getattr(item, 'production_ready', False) is True for item in adapters)
+                        or mode == 'production' and getattr(admission, 'allow_service', False) is True
+                        and all(getattr(item, 'production_ready', False) is True for item in adapters))
 
     def _call(self, operation):
         if not self.enabled:
@@ -42,7 +45,8 @@ class ContactService:
                 state['time'] = now
                 self._reconcile(state, now)
                 return operation(state, now), state
-            return self.custody.transact(transaction)
+            with self.custody.submission():
+                return self.custody.transact(transaction)
         except _Refusal as refusal:
             raise Denied(str(refusal)) from None
         except Exception:
@@ -113,11 +117,16 @@ class ContactService:
 
     def enroll(self, proof, address, consent, include=()):
         """Explicit opt-in; responses contain neither address, code nor pseudonym."""
+        if self.mode == 'production' and (not getattr(self.admission, 'allow_enrollment', False)
+                                          or not getattr(self.admission, 'allow_sending', False)):
+            raise Denied('disabled')
         def prepare(state, now):
+            if len(state['contacts']) >= 5000 or len(state['challenges']) >= 5000:
+                raise _Refusal('stateLimit')
             installation = self._installation(proof, 'enroll', now)
             if (not isinstance(address, str) or len(address) > 254
                     or not re.fullmatch(r'[A-Za-z0-9.!#$%&\'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+', address)
-                    or consent != 'synthetic-consent-v1' or len(include) > 200
+                    or consent != self.consent or len(include) > 200
                     or not self.authority.recipient(address)):
                 raise _Refusal('invalid')
             if include and not self.authority.owned(proof, include, now):
@@ -139,26 +148,70 @@ class ContactService:
                 delivery='dispatching')
             return installation, challenge, dict(kind='verification', recipient=address, code=code)
         installation, challenge, message = self._call(prepare)
-        outcome, _ = self._send(message)
-        def complete(state, now):
+        def authorized(state, now):
+            pending = state['challenges'].get(installation)
+            return bool(pending and pending['id'] == challenge
+                        and pending['delivery'] == 'dispatching' and pending['expires'] > now)
+        def complete(state, now, outcome, provider):
             pending = state['challenges'].get(installation)
             if pending and pending['id'] == challenge:
                 pending['delivery'] = outcome
                 if outcome in ('unknown', 'permanent'):
                     state['escalations'].append(dict(job=None, reason='enrollmentDeliveryReview', at=now))
-            return {'status': 'pending'}
-        return self._call(complete)
+                return {'status': 'pending'}
+            # A withdrawal after DATA cannot retract that mail. Retain only
+            # its minimal private outcome; never restore the challenge/code.
+            if outcome in ('accepted', 'unknown'):
+                state['escalations'].append(dict(job=None, reason='withdrawnEnrollmentSubmission',
+                    outcome=outcome, provider=provider, at=now))
+            contact = state['contacts'].get(installation)
+            return {'status': 'verified' if contact and contact['active'] else 'disconnected'}
+        return self._submit(message, lambda: self._call(authorized),
+                            lambda outcome, provider: self._call(
+                                lambda state, now: complete(state, now, outcome, provider)))
 
-    def _send(self, message):
-        try:
-            outcome, identifier = self.mail.send(message)
-            if outcome not in ('accepted', 'transient', 'permanent', 'unknown'):
-                return 'unknown', None
-            if outcome == 'accepted' and (not isinstance(identifier, str) or not 1 <= len(identifier) <= 256):
-                return 'unknown', None
-            return outcome, identifier
-        except Exception:
+    @staticmethod
+    def _outcome(result):
+        outcome, identifier = result
+        if outcome not in ('accepted', 'transient', 'permanent', 'unknown', 'cancelled'):
             return 'unknown', None
+        if outcome == 'accepted' and (not isinstance(identifier, str) or not 1 <= len(identifier) <= 256):
+            return 'unknown', None
+        return outcome, identifier
+
+    def _submit(self, message, authorized, complete):
+        """One consent fence from final authorization through outcome commit.
+
+        No database transaction spans network I/O. Production SMTP connects
+        first, then enters this fence before envelope/DATA. Captured generic
+        transports define their send invocation as the irreversible boundary.
+        """
+        completed = []
+        def guarded(transmit):
+            with self.custody.submission():
+                if not authorized():
+                    result = ('cancelled', None)
+                else:
+                    try:
+                        result = self._outcome(transmit(authorized))
+                    except Exception:
+                        result = ('unknown', None)
+                value = complete(*result)
+                completed.append(value)
+                return result
+        try:
+            if getattr(self.mail, 'supports_submission_fence', False) is True:
+                result = self.mail.send(message, submit=guarded)
+            else:
+                result = guarded(lambda authorized: self.mail.send(message))
+        except Exception:
+            # A failed durable outcome commit remains protected by the lease;
+            # retry/recovery cannot interpret it as confirmed nonacceptance.
+            raise Denied('unavailable') from None
+        if completed:
+            return completed[0]
+        with self.custody.submission():
+            return complete(*self._outcome(result))
 
     def verify(self, proof, code):
         def operation(state, now):
@@ -214,16 +267,18 @@ class ContactService:
                 raise _Refusal('invalid')
             contact = state['contacts'].get(installation)
             contact_revision = contact['revision'] if contact else 0
-            identity = (case, operation, revision, contact_revision)
+            identity = (case, operation, revision, contact_revision, share, installation)
             for job in state['jobs'].values():
                 if tuple(job['identity']) == identity:
                     if job['notice'] != notice or job['installation'] != installation or job['share'] != share or job['share_created'] != created:
                         raise _Refusal('conflict')
                     return job['id']
+            if len(state['jobs']) >= 10000:
+                raise _Refusal('stateLimit')
             identifier, code = self.secrets.random(), self.secrets.random()
             job = dict(id=identifier, identity=identity, installation=installation,
                        contact_revision=contact_revision, share=share, share_created=created, notice=copy.deepcopy(notice),
-                       state='queued', created=now, grant_until=now + 86400,
+                       state='queued', created=now, grant_until=now + 14400,
                        grant=self._verify(installation + ':grant:', code), code=code,
                        next_at=now, attempts=0, messages=[], delivered=False,
                        history=[('queued', now)], escalations=[], lease=None, lease_until=0)
@@ -240,7 +295,8 @@ class ContactService:
         return (contact and contact['active'] and contact['revision'] == job['contact_revision']
                 and contact['expires'] > now and job['grant_until'] > now
                 and self.authority.current_case(dict(installation=job['installation'],
-                    case=job['identity'][0], operation=job['identity'][1], revision=job['identity'][2]), now))
+                    case=job['identity'][0], operation=job['identity'][1], revision=job['identity'][2],
+                    share=job['share'], created=job['share_created']), now))
 
     def _submission_window(self, state, job, now):
         if now - job['created'] < 14400:
@@ -250,7 +306,11 @@ class ContactService:
         return False
 
     def dispatch(self):
+        if self.mode == 'production' and not getattr(self.admission, 'allow_sending', False):
+            raise Denied('disabled')
         def lease(state, now):
+            if len(state['rates'].get('globalDispatch', [])) >= 100:
+                return None
             for job in state['jobs'].values():
                 if job['state'] not in ('queued', 'transientFailure'):
                     continue
@@ -260,6 +320,7 @@ class ContactService:
                     self._transition(job, 'cancelled', now)
                     self._escalate(state, job, 'unreachable', now)
                     continue
+                state['rates'].setdefault('globalDispatch', []).append(now)
                 job['attempts'] += 1
                 job['lease'], job['lease_until'] = self.secrets.random(), now + 120
                 self._transition(job, 'dispatching', now)
@@ -280,14 +341,20 @@ class ContactService:
         message = self._call(prepare)
         if message is None:
             return {'dispatched': 0}
-        outcome, provider = self._send(message)
-        def finish(state, now):
+        def finish(state, now, outcome, provider):
             job = state['jobs'][identifier]
-            # Unknown lease recovery never resubmits. A late worker cannot overwrite it.
+            if outcome == 'cancelled':
+                return {'dispatched': 0}
+            # Persist accepted references even after already-started DATA is
+            # followed by cancellation/unknown recovery. Never reopen access.
+            if job['lease'] == token and outcome == 'accepted' and provider not in job['messages']:
+                job['messages'].append(provider)
+                job['history'].append(('submissionAccepted', now))
             if job['lease'] != token or job['state'] != 'dispatching' or job['lease_until'] <= now:
+                if job['lease'] == token and outcome == 'unknown':
+                    self._escalate(state, job, 'outcomeUnknown', now)
                 return {'dispatched': 1}
             if outcome == 'accepted':
-                job['messages'].append(provider)
                 self._transition(job, 'providerAccepted', now)
             elif outcome == 'transient' and job['attempts'] < 3 and now - job['created'] < 14400:
                 job['next_at'] = now + (60 if job['attempts'] == 1 else 600)
@@ -297,7 +364,9 @@ class ContactService:
                 self._transition(job, final, now)
                 self._escalate(state, job, final, now)
             return {'dispatched': 1}
-        return self._call(finish)
+        return self._submit(message, lambda: self._call(prepare) is not None,
+                            lambda outcome, provider: self._call(
+                                lambda state, now: finish(state, now, outcome, provider)))
 
     def feedback_event(self, envelope):
         def operation(state, now):
@@ -356,10 +425,11 @@ class ContactService:
         def operation(state, now):
             self._review(review, now, {'required': required})
             missing = 0
-            for case, operation, revision in required:
-                if not any(tuple(job['identity'][:3]) == (case, operation, revision)
+            for requirement in required:
+                if not any(tuple(job['identity'][:3]) == tuple(requirement[:3])
+                           and (len(requirement) == 3 or (job['share'], job['installation']) == tuple(requirement[3:]))
                            for job in state['jobs'].values()):
-                    record = dict(job=None, reason='missingNotice', at=now, required=(case, operation, revision))
+                    record = dict(job=None, reason='missingNotice', at=now, required=tuple(requirement))
                     if not any(item.get('required') == record['required'] for item in state['escalations']):
                         state['escalations'].append(record)
                     missing += 1

@@ -226,6 +226,7 @@ struct SharedLinksView: View {
     private var sharing: SongSharing { SongSharing.shared }
     @State private var pendingRevoke: ShareLedger.Record?
     @State private var actionError: String?
+    @State private var showsContact = false
 
     var body: some View {
         List {
@@ -248,6 +249,11 @@ struct SharedLinksView: View {
                 } footer: {
                     Text("Apple receives a device token and a generic reaction notification. Song titles, names, replies and decryption keys are excluded.")
                 }
+            }
+            // Private contact is dormant: its worker is not deployed and the share
+            // service answers 404 until it is configured, so the entry stays hidden by default.
+            if SharedContactView.enabled {
+                Button { showsContact = true } label: { Label("Private Contact", systemImage: "envelope") }
             }
             #if os(iOS)
             if !sharing.ledger.pendingFailures.isEmpty {
@@ -280,6 +286,7 @@ struct SharedLinksView: View {
                 }
             }
         }
+        .sheet(isPresented: $showsContact) { SharedContactView() }
         .navigationTitle("Shared Links")
         .task { await ReactionPushNotifications.shared.refreshAvailability(); await sharing.refresh() }
         .refreshable { await sharing.refresh() }
@@ -380,5 +387,94 @@ enum SharedLinkPasteboard {
         #else
             UIPasteboard.general.string = text
         #endif
+    }
+}
+
+/// Contact and notice text stay in this transient sheet, outside the share ledger.
+private struct SharedContactView: View {
+    /// Off unless a development or acceptance instance sets this key; never on by default.
+    static let enabledKey = "baton.share.privateContact"
+    static var enabled: Bool {
+        #if DEBUG
+        // UI tests reach the sheet through launchEnvironment, never launch arguments.
+        if ProcessInfo.processInfo.environment[enabledKey] == "1" { return true }
+        #endif
+        return BatonStorage.defaults.bool(forKey: enabledKey)
+    }
+    @Environment(\.dismiss) private var dismiss
+    @State private var address = ""
+    @State private var verificationCode = ""
+    @State private var noticeCode = ""
+    @State private var consent = false
+    @State private var includeExisting = false
+    @State private var status = "disconnected"
+    @State private var notice: ShareContactClient.Notice?
+    @State private var busy = false
+    @State private var requestTask: Task<Void, Never>?
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Optional private contact") {
+                    Text("Sharing stays account-free. Connect a verified email to receive private review notices. Unreachable cases need manual handling.")
+                    Text("Status: \(status)")
+                    if status != "verified" {
+                        TextField("Email address", text: $address)
+                        Toggle("I agree to use this email for private notices", isOn: $consent)
+                        Toggle("Include links already shared from this device", isOn: $includeExisting)
+                        Button("Connect email") {
+                            run { client in
+                                let result = try await client.enroll(address: address,
+                                    include: includeExisting ? SongSharing.shared.ledger.records.map(\.id) : [])
+                                status = result.status
+                                address = ""
+                            }
+                        }.disabled(!consent || address.isEmpty)
+                        TextField("Verification code from email", text: $verificationCode)
+                        Button("Verify email") {
+                            run { client in status = try await client.verify(code: verificationCode).status; verificationCode = "" }
+                        }.disabled(verificationCode.isEmpty)
+                    }
+                    Button("Disconnect email", role: .destructive) {
+                        run { client in
+                            status = try await client.withdraw().status
+                            verificationCode = ""; noticeCode = ""; notice = nil; consent = false
+                        }
+                    }
+                }
+                Section("Private notice") {
+                    TextField("Notice code from email", text: $noticeCode)
+                    Button("Open private notice") {
+                        run { client in notice = try await client.access(code: noticeCode); noticeCode = "" }
+                    }.disabled(noticeCode.isEmpty)
+                    if let notice {
+                        Text(notice.instructions)
+                        Text("Action: \(notice.action)").font(.caption)
+                        Text(notice.location).font(.caption)
+                    }
+                }
+                if let error { Text(error).foregroundStyle(Color.warningTint) }
+            }
+            .disabled(busy)
+            .navigationTitle("Private Contact")
+            .toolbar { Button("Done") { dismiss() } }
+            .task { run { client in status = try await client.status().status } }
+            .onDisappear { requestTask?.cancel(); requestTask = nil; address = ""; verificationCode = ""; noticeCode = ""; notice = nil }
+        }
+        #if os(macOS)
+        .frame(minWidth: 460, minHeight: 480)
+        #endif
+    }
+    private func run(_ action: @escaping @MainActor (ShareContactClient) async throws -> Void) {
+        guard !busy else { return }
+        busy = true; error = nil
+        requestTask = Task { @MainActor in
+            defer { busy = false }
+            do {
+                let sharing = try SongSharing.shared.client()
+                try await action(ShareContactClient(base: sharing.base, secret: sharing.secret))
+            } catch { self.error = "Private contact is unavailable. Check the code or try again later." }
+        }
     }
 }
