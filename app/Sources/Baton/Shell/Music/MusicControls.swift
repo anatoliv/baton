@@ -227,6 +227,9 @@ struct SleepTimerMenu: View {
                 Divider()
                 Button("Turn off sleep timer", role: .destructive) { player.cancelSleepTimer() }
             }
+            // Clock's other two, which start music rather than stop it.
+            Divider()
+            MacAlarmMenuItems(model: model, choice: nil)
         } label: {
             Image(systemName: player.sleepTimerArmed ? "moon.fill" : "moon")
                 .font(font)

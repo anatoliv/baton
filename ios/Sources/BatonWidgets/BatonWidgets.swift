@@ -10,6 +10,10 @@ struct BatonWidgets: WidgetBundle {
     var body: some Widget {
         NowPlayingWidget()
         NowPlayingLiveActivity()
+        // An alarm's snooze and a running timer on the Lock Screen.
+        if #available(iOS 26.0, *) {
+            AlarmLiveActivity()
+        }
     }
 }
 

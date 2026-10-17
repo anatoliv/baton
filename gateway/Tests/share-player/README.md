@@ -7,6 +7,14 @@ wrong keys, revoked and expired links, unknown links, pending-to-ready polling, 
 cap and cap increase/extension, private metadata, Open Graph privacy, CSP errors,
 and iPhone/Mac Get Baton attribution without external navigation.
 Each run writes screenshots and `result.json`. A skip is printed explicitly.
+
+The full walk also opens a mixtape page (`/m/`, `mixtape-page.mjs`) through the same service and
+nginx: header, expiry and plays-left chips, keyboard Play, pause, seek, Next, the one-line session
+prompt for Previous (Not now spends nothing, Start listening spends one play), a reaction, revoked
+and expired links reading as ended, the unknown page, and screenshots at 390 and 1280 px in light
+and dark. Its synthetic media comes from `make-mixtape-media.py`, which needs `/private/tmp`,
+ffmpeg and a Python with `cryptography` (`SHARE_E2E_PYTHON` selects one). Without them, or against
+a service with mixtapes off or a public service, `result.json` lists the mixtape walk as skipped.
 Run different engines sequentially on macOS: simultaneous browser processes can
 interrupt the system media output and make the long listening check unmeasurable.
 WebKit behavior runs without screenshots and must pass all application/CSP checks

@@ -44,6 +44,10 @@ struct RootTabView: View {
 
     var body: some View {
         tabs
+            // Alarm and Timer: the editor from any song's menu, and the Clock-style
+            // ringing card when one goes off.
+            .alarmSheetPresenter(model.alarms)
+            .alarmRingingOverlay(model.alarms)
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 if let url = activity.webpageURL { Task { await route(url) } }
             }

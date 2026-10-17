@@ -68,6 +68,8 @@ struct BatonSettingsView: View {
             BatonServersPane()
         case .playback:
             BatonPlaybackPane()
+        case .alarms:
+            BatonAlarmsPane()
         case .equalizer:
             BatonEqualizerPane()
         case .actions:
@@ -92,6 +94,7 @@ struct BatonSettingsView: View {
 enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case servers
     case playback
+    case alarms
     case equalizer
     case actions
     case speech
@@ -107,6 +110,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .servers: "Music Servers"
         case .playback: "Playback"
+        case .alarms: "Alarms & Timer"
         case .equalizer: "Equalizer"
         case .actions: "Actions"
         case .speech: "Speech"
@@ -122,6 +126,7 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .servers: "server.rack"
         case .playback: "play.circle"
+        case .alarms: "alarm"
         case .equalizer: "slider.horizontal.3"
         case .actions: "bolt.horizontal.circle"
         case .speech: "waveform"

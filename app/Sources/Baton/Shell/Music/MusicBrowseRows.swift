@@ -227,6 +227,8 @@ func songPlaybackMenuItems(_ song: NavidromeSong, _ model: MusicModel,
     Button(SongAction.findMoreLikeThis.label, systemImage: SongAction.findMoreLikeThis.symbol) {
         model.discoverySeed = song
     }
+    // Clock's Alarm and Timer, with this song where Clock has a ringtone.
+    MacAlarmMenuItems(model: model, choice: .song(song))
     // Where this song lives. The phone has had these since it shipped; the Mac never did,
     // despite `pendingSourceNavigation` — the exact mechanism they need — existing for
     // versions and being used by the full-screen player's "Playing from" link. A dead end

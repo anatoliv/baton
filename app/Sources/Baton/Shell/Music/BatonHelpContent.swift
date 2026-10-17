@@ -323,6 +323,21 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.7",
+            date: "October 2026",
+            highlight: "Alarm and Timer, like the Clock app's, that wake you with Baton.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Set an alarm that plays a song, playlist, album or book. Right-click a song and choose Set Alarm…, "
+                    + "or use the moon menu for what is playing. Pick the time, repeat days, a label and Snooze; "
+                    + "Settings, Alarms & Timer lists them with a switch each."),
+                HelpWhatsNewChange(.added,
+                    "Start Timer… counts down and then plays what you chose, with Pause, Resume and Cancel. "
+                    + "When either goes off, a card offers Stop, Snooze and Keep Playing. If Baton isn't running, "
+                    + "a notification opens it and plays."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.6",
             date: "October 2026",
             highlight: "The Dock icon follows your Mac's appearance.",

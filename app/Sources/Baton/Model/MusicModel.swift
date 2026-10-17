@@ -115,6 +115,10 @@ final class MusicModel {
     /// composer as a sheet. Nil when closed.
     var shareSong: NavidromeSong?
 
+    /// Clock-style Alarm and Timer that play a chosen item. Started by the app
+    /// delegate at launch, never inside the test host.
+    let alarms: MacAlarms
+
     /// Re-synthesize and play a past spoken summary from history, in its original voice. Stops any
     /// current/paused utterance first so it starts *now* rather than queuing behind it — this is a
     /// deliberate user action (Replay / the pane's Play), not an agent's FIFO summary.
@@ -159,6 +163,7 @@ final class MusicModel {
     /// the default auto-detects.
     init(environment: BatonEnvironment = .current) {
         music = StreamingPlaybackController(environment: environment)
+        alarms = MacAlarms(player: music)
         musicEqualizer = MusicEqualizer(environment: environment)
         eqProcessor = AudioEQProcessor(coefficients: musicEqualizer.coefficients, levels: AudioLevelMonitor.shared.snapshot)
         scrobbler = ScrobbleService(listenBrainz: musicScrobbler, lastfm: musicLastFM, localArchive: musicHistory)

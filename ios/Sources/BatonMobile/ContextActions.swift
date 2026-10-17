@@ -83,6 +83,10 @@ struct SongContextMenu: ViewModifier {
                 // it with the things that need one.
                 PinMenuButton(item: .song(song), model: model)
 
+                // Clock's Alarm and Timer, with this song where Clock has a ringtone
+                //. Local and server songs alike, so the demo has them too.
+                AlarmMenuItems(choice: .song(song))
+
                 // Everything below needs a server: rating, playlists and similarity are
                 // all server-side. In demo mode they'd fail silently, so they're absent.
                 //

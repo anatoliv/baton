@@ -79,8 +79,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.20.6"
-    CURRENT_PROJECT_VERSION: "123"
+    MARKETING_VERSION: "0.20.7"
+    CURRENT_PROJECT_VERSION: "124"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -219,6 +219,10 @@ targets:
       - path: ../Shared/ReadAlongView.swift
       # The voice picker, one for both apps: suggested voices, then every voice (TBX-11028).
       - path: ../Shared/VoicePicker.swift
+      # Clock-style Alarm and Timer, the screens and the notification path, one for both apps
+      # (TBX-11171, specs/alarm-and-timer.md).
+      - path: ../Shared/AlarmViews.swift
+      - path: ../Shared/AlarmNotifications.swift
       - path: ../Shared/ReactionPushNotifications.swift
     settings:
       base:

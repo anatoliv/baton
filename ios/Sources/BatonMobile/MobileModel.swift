@@ -13,6 +13,8 @@ import UIKit
 @Observable
 final class MobileModel {
     let music: StreamingPlaybackController
+    /// Clock-style Alarm and Timer that play a chosen item.
+    let alarms: MobileAlarms
     let musicLibrary: MusicLibraryStore
     let pins: PinStore
     let scrobbles: ScrobbleService
@@ -311,6 +313,7 @@ final class MobileModel {
         #endif
         let controller = StreamingPlaybackController()
         music = controller
+        alarms = MobileAlarms(player: controller)
         musicLibrary = MusicLibraryStore()
         pins = PinStore()
         history = MusicPlayHistory()

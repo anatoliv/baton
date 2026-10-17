@@ -41,6 +41,7 @@ answer, the [FAQ](FAQ.md) is shorter. For the deeper design and architecture, se
 - [Adaptive artwork colors](#adaptive-artwork-colors)
 - [The queue, shuffle, repeat, and autoplay](#the-queue-shuffle-repeat-and-autoplay)
 - [Sleep timer](#sleep-timer)
+- [Alarm and Timer](#alarm-and-timer)
 - [Sound quality: gapless, crossfade, loudness](#sound-quality-gapless-crossfade-loudness)
 - [The equalizer](#the-equalizer)
 - [Rating, liking, and multi-select](#rating-liking-and-multi-select)
@@ -1425,6 +1426,45 @@ about five seconds rather than cutting off mid-note. There's a **Turn off sleep 
 once one is armed, and an agent can arm or cancel the timer too. The iPhone's player has the
 same choices under its moon icon, and so does the moon at the top of **Clippings** and **Books**
 on the iPhone while something plays. Once a timer is set, that one shows the time left or **End of chapter**.
+
+---
+
+## Alarm and Timer
+
+These work like the Alarm and Timer in Apple's Clock app, except that what rings is something
+from Baton: a song, a playlist, an album, or a book from where you left it. The sleep timer
+above is unchanged; it stops music, and these start it.
+
+**Setting one.** Long-press a song (right-click on the Mac) and choose **Set Alarm…** or
+**Start Timer…**, or open the moon menu in the player, which offers both for whatever is
+playing. A book's menu in **Books** has them too. The list lives in **Settings > Alarms &
+Timer** on both apps.
+
+- **Alarm:** choose the time, **Repeat** days (or none for a one-off), a **Label**, what to
+  **Play**, and whether **Snooze** is on. Alarms sit in a list with a switch each, as in Clock.
+  Tap one to change it or delete it; a one-off alarm switches itself off after it goes off.
+- **Timer:** turn the hours, minutes and seconds, pick what plays **When Timer Ends**, and
+  tap **Start**. While it runs you can **Pause**, **Resume** or **Cancel** it.
+
+**When it goes off.** If Baton is open, or playing in the background, the chosen item starts
+at the time and a card offers **Stop** (the music stops), **Snooze** (it goes off again in
+nine minutes) and **Keep Playing**.
+
+**On iPhone, with Baton closed.** On iOS 26 and later the alarm rings as a real system alarm,
+on the Lock Screen and through Silent mode, the first time asking your permission. iOS doesn't
+let an app start its own music at a set time while it isn't running, so the alarm rings with
+the iPhone's own alarm sound, and tapping **Play**, or just opening Baton within ten minutes,
+starts your track. With Snooze on, the alert's button is **Snooze** instead; open Baton while
+it rings or snoozes and your track plays. On iOS 18 to 25 you get a notification with Baton's
+chime instead; tap it, or **Play**, to start the track.
+
+**On the Mac.** Baton runs in the menu bar, so it plays the item itself at the time. If Baton
+isn't running, a notification appears at the time, and clicking it opens Baton and plays it.
+An alarm that comes round while the Mac is asleep, and is more than ten minutes late when it
+wakes, is shown as missed rather than starting music out of nowhere.
+
+Alarms follow the clock on the wall: 7:00 stays 7:00 when the clocks change or you travel.
+They belong to the device you set them on and aren't shared between your iPhone and Mac.
 
 ---
 

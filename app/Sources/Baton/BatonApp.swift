@@ -219,10 +219,13 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
         chat.apply()
         remoteHost.service = chat
         // Route spoken-summary notifications ("Play" action) to the engine.
-        let notifier = SpeechNotificationDelegate(speech: music.speech)
+        let notifier = SpeechNotificationDelegate(speech: music.speech, alarms: music.alarms)
         UNUserNotificationCenter.current().delegate = notifier
         SpeechNotifier.registerCategory()
         speechNotifier = notifier
+        // Alarm and Timer: Baton's own clock while it runs, and a notification for
+        // each alarm in case it is not running at the time.
+        music.alarms.start(model: music)
         // Bring up the floating speaking HUD (independent, all-Spaces panel).
         speakingHUD = SpeakingHUDPresenter(model: music)
     }
@@ -577,6 +580,18 @@ struct BatonApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 760, height: 560)
+        .defaultPosition(.center)
+
+        // Alarm and Timer's editor, opened by "Set Alarm…" and "Start Timer…".
+        Window("Alarm", id: MacAlarms.editorWindowID) {
+            MacAlarmWindow()
+                .environment(music)
+                .tint(.batonOrange)
+                .batonChrome()
+                .defaultAppStorage(BatonStorage.defaults)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 460, height: 520)
         .defaultPosition(.center)
 
         // In-app Help window (⌘?). Two-pane help center that renders the

@@ -269,6 +269,25 @@ struct MobileSettingsView: View {
                          : "Connect a model provider or your Baton server, then test it. The Friend tab appears once the test passes.")
                 }
 
+                // Clock's Alarm and Timer, playing a Baton track, book or playlist.
+                Section {
+                    NavigationLink {
+                        AlarmsHomeView(center: model.alarms.center, nowPlaying: { MobileAlarms.nowPlaying(model) })
+                    } label: {
+                        LabeledContent {
+                            let on = model.alarms.store.alarms.filter(\.isEnabled).count
+                            if model.alarms.store.timer != nil {
+                                Text("Timer running").foregroundStyle(.secondary)
+                            } else if on > 0 {
+                                Text(on == 1 ? "1 on" : "\(on) on").foregroundStyle(.secondary)
+                            }
+                        } label: {
+                            Label("Alarms & Timer", systemImage: "alarm")
+                        }
+                    }
+                    .accessibilityIdentifier("settings-alarms")
+                }
+
                 Section {
                     Toggle("Equalizer", isOn: Binding(
                         get: { model.equalizer.isEnabled },

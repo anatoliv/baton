@@ -1,10 +1,125 @@
-html { color-scheme: dark; background: #171310; color: #f5eee8; font-family: system-ui, sans-serif; } body { margin: 0; } a { color: #e98345; }
-main { max-width: 620px; margin: 4rem auto; padding: 2rem; background: var(--surface, #241e19); border-radius: 24px; }
-h1 { font-size: clamp(1.6rem, 4vw, 2.4rem); } .kicker { color: #e98345; } #status { min-height: 1.5em; }
-button { font: inherit; cursor: pointer; padding: .65rem 1rem; color: inherit; background: transparent; border: 1px solid #947660; border-radius: 9px; }
-button:disabled { opacity: .45; cursor: default; } button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #e98345; outline-offset: 3px; }
-.controls { display: flex; justify-content: space-between; gap: .5rem; margin: 1rem 0; } #tracks { padding-left: 1.5rem; } #tracks li { margin: .5rem 0; }
-#tracks button { width: 100%; text-align: left; } #tracks [aria-current="true"] { border-color: #e98345; background: #513725; }
-#seek { width: 100%; } .disclosure, footer { font-size: .85rem; line-height: 1.6; opacity: .75; } #admission { border: 1px solid #e98345; padding: 1rem; }
-fieldset { border: 0; padding: 1rem 0; } fieldset button { margin: .3rem; } [hidden] { display: none !important; }
-@media (max-width: 650px) { main { margin: 1rem; padding: 1.3rem; } .controls button { padding: .65rem; } }
+/* Baton mixtape page (TBX-1000000067). Brand tokens: Tonebox docs/design/app-family (TBX-11146),
+   porcelain light and soft charcoal dark with copper. --copper fills; --copper-ink is text-safe. */
+:root {
+  --bg: #FAF7F4; --surface: #FFFFFF; --sunken: #F2EDE8; --ink: #262A30; --ink-dim: #686A70; --line: #DED8D2;
+  --copper: #C45E36; --copper-ink: #A94E2B; --on-copper: #FFFFFF; --copper-wash: #F7E9E2; --track: #E6DFD8;
+  --shadow: 0 1px 2px rgba(38, 42, 48, .06), 0 12px 32px -16px rgba(38, 42, 48, .22);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #30343A; --surface: #3A3F46; --sunken: #353A40; --ink: #F8F5F1; --ink-dim: #BDB7B0; --line: #555A61;
+    --copper: #ED986F; --copper-ink: #ED986F; --on-copper: #262A30; --copper-wash: #4A4340; --track: #555A61;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 14px 36px -18px rgba(0, 0, 0, .6);
+    color-scheme: dark;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font: 400 1rem/1.45 var(--sans); overflow-x: hidden; }
+a { color: var(--copper-ink); text-underline-offset: 2px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 3px solid var(--copper); outline-offset: 2px; }
+main { width: 100%; max-width: 640px; margin: 0 auto; padding: 40px 24px 32px; }
+p { margin: 0; }
+
+/* Header: cover tile, kicker, title, counts and the expiry/plays chips. */
+.head { display: flex; gap: 18px; align-items: center; }
+.cover { flex: none; width: 88px; height: 88px; border-radius: 20px; background: var(--copper); display: grid; place-items: center; }
+.cover svg { width: 64px; height: 64px; fill: var(--on-copper); }
+.cover .sweep { fill: none; stroke: var(--on-copper); stroke-width: 38; stroke-linecap: round; }
+.head-text { min-width: 0; }
+.kicker { color: var(--copper-ink); font-size: .8rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+h1 { margin: 2px 0 2px; font-size: clamp(1.4rem, 1.1rem + 1.6vw, 2rem); line-height: 1.15; overflow-wrap: anywhere; }
+#byline { color: var(--ink-dim); overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { font-size: .8rem; padding: 3px 10px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
+#status { min-height: 1.45em; margin: 16px 0 4px; color: var(--ink-dim); font-size: .92rem; }
+#status:empty { margin: 8px 0 0; }
+
+#player { display: flex; flex-direction: column; gap: 16px; }
+
+/* One player card. */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 18px 20px 16px; box-shadow: var(--shadow); }
+.prompt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: -4px -6px 14px; padding: 10px 12px;
+  border-radius: 12px; background: var(--copper-wash); }
+.prompt p { font-weight: 600; font-size: .95rem; }
+.prompt-actions { display: flex; gap: 8px; }
+.prompt button { border-radius: 999px; padding: 7px 14px; font-size: .9rem; font-weight: 600; border: 1px solid transparent; }
+.prompt .primary { background: var(--copper); color: var(--on-copper); }
+.prompt .quiet { background: transparent; color: var(--ink); border-color: var(--line); }
+.now { min-width: 0; }
+#current { font-weight: 650; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#current-by { color: var(--ink-dim); font-size: .92rem; min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The copper progress bar is the native range input, so keyboard, touch and screen readers work. */
+#seek { --progress: 0%; display: block; width: 100%; height: 22px; margin: 12px 0 2px; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+#seek:disabled { cursor: default; }
+#seek::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--copper) var(--progress), var(--track) var(--progress)); }
+#seek::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: var(--copper); border: 2px solid var(--surface); }
+#seek::-moz-range-track { height: 6px; border-radius: 3px; background: var(--track); }
+#seek::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--copper); }
+#seek::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--copper); border: 2px solid var(--surface); }
+#seek:disabled::-webkit-slider-thumb { opacity: 0; }
+#seek:disabled::-moz-range-thumb { opacity: 0; }
+.times { display: flex; justify-content: space-between; font-size: .8rem; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+.controls { display: flex; align-items: center; justify-content: center; gap: 28px; margin-top: 6px; }
+.skip { width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; color: var(--ink); }
+.skip svg { width: 26px; height: 26px; fill: currentColor; }
+.skip:disabled { opacity: .3; }
+.play { position: relative; width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--copper); color: var(--on-copper); display: grid; place-items: center; box-shadow: var(--shadow); }
+.play svg { width: 30px; height: 30px; fill: currentColor; grid-area: 1 / 1; }
+.play .i-pause, .play .spinner { display: none; }
+.play[data-mode="pause"] .i-play { display: none; }
+.play[data-mode="pause"] .i-pause { display: block; }
+.play[data-mode="loading"] .i-play { display: none; }
+.play[data-mode="loading"] .spinner { display: block; grid-area: 1 / 1; width: 26px; height: 26px; border-radius: 50%; border: 3px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+.play:disabled:not([data-mode="loading"]) { opacity: .55; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Tappable track rows. The current row is copper with a speaker in place of its number. */
+.tracks { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.tracks li { border-bottom: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 6px; border: 0; background: transparent; text-align: left; border-radius: 10px; }
+.row:hover:not(:disabled) { background: var(--sunken); }
+.row:disabled { color: inherit; }
+.row-num { color: var(--ink-dim); font-variant-numeric: tabular-nums; text-align: center; }
+.row-text { min-width: 0; }
+.row-title, .row-by { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-by { color: var(--ink-dim); font-size: .88rem; }
+.row-time { color: var(--ink-dim); font-size: .88rem; font-variant-numeric: tabular-nums; }
+.row-speaker { display: none; width: 20px; height: 20px; margin: 0 auto; fill: var(--copper-ink); }
+.row[aria-current="true"] .row-title, .row[aria-current="true"] .row-time { color: var(--copper-ink); font-weight: 650; }
+.row[aria-current="true"] .row-num { display: none; }
+.row[aria-current="true"] .row-speaker { display: block; }
+
+/* Compact reactions. */
+.reactions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.react-label { font-size: .85rem; font-weight: 600; color: var(--ink-dim); margin-right: 4px; }
+.reactions button { min-width: 40px; height: 40px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 1.15rem; line-height: 1; }
+.reactions button:disabled { opacity: .45; }
+.react-status { order: 99; font-size: .85rem; color: var(--copper-ink); margin-left: 4px; }
+
+footer { margin-top: 28px; font-size: .85rem; color: var(--ink-dim); text-align: center; }
+body:not([data-state="ready"]) .listen-note { display: none; }
+.noscript { margin-top: 16px; color: var(--ink-dim); }
+
+/* Phone: the card sticks to the bottom while the list scrolls under it. */
+@media (max-width: 640px) {
+  main { padding: 20px 16px 24px; }
+  .cover { width: 72px; height: 72px; border-radius: 16px; }
+  .cover svg { width: 52px; height: 52px; }
+  .head { gap: 14px; }
+  .card { order: 3; position: sticky; bottom: 0; z-index: 2; margin: 0 -8px; padding: 14px 16px 12px; border-radius: 18px 18px 0 0; border-bottom: 0;
+    padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .tracks { order: 1; }
+  .reactions { order: 2; }
+  .controls { gap: 22px; margin-top: 2px; }
+  .play { width: 58px; height: 58px; }
+  footer { margin-top: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .play[data-mode="loading"] .spinner { animation: none; } }

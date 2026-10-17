@@ -107,7 +107,8 @@ try {
     assert.equal(response.headers.get("referrer-policy"), "no-referrer");
     const html = await response.text(); assert.ok(!html.includes("synthetic") && !html.includes("encryptedManifest"));
     await page.goto(url); await page.locator("#player").waitFor({ state: "visible" });
-    assert.deepEqual(await page.locator("#tracks button").allTextContents(), ["Second synthetic · Fixture", "First synthetic · Fixture"]);
+    assert.deepEqual(await page.locator("#tracks .row-title").allTextContents(), ["Second synthetic", "First synthetic"]);
+    assert.equal(await page.locator("#plays-left").textContent(), `${timeoutOnly ? 12 : 2} plays left`); assert.equal(await page.isVisible("#admission"), false);
     assert.equal(sessions(), 0); assert.equal(tracks().length, 0); assert.equal(new URL(page.url()).hash, "");
   });
   if (disposalOnly) {
@@ -143,7 +144,7 @@ try {
     assert.equal(sessions(), 1); assert.equal(tracks().length, 1); assert.equal(tracks()[0].auth, true);
   });
   await check("automatic authenticated order and container listening analytics", async () => {
-    await page.waitForFunction(() => document.getElementById("current").textContent.startsWith("2. First"), { timeout: 22000 });
+    await page.waitForFunction(() => document.getElementById("current").textContent === "First synthetic", { timeout: 22000 });
     await page.waitForFunction(() => document.getElementById("audio").currentTime > 15, { timeout: 20000 });
     assert.equal(tracks().length, 2); assert.equal(sessions(), 1);
     assert.ok(tracks()[0].path.endsWith("/ICEiIyQlJicoKSorLC0uLw"));
@@ -160,11 +161,13 @@ try {
   });
   await check("spent transfer budget requires confirmation and cancel spends nothing", async () => {
     await page.locator("#previous").click(); await page.locator("#admission").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#admission-text").textContent(), "Start a new listen? It uses your last play.");
     assert.equal(sessions(), 1); assert.equal(tracks().length, 2);
     await page.locator("#cancel").click(); assert.equal(sessions(), 1);
     await page.locator("#previous").click(); await page.locator("#confirm").click();
-    await page.waitForFunction(() => document.getElementById("current").textContent.startsWith("1. Second") && document.getElementById("audio").currentTime > 1);
-    assert.equal(sessions(), 2); assert.equal(tracks().length, 3);
+    // The card names the selected track at once; the Pause state means its own audio is playing.
+    await page.waitForFunction(() => document.getElementById("current").textContent === "Second synthetic" && document.getElementById("play").dataset.mode === "pause" && document.getElementById("audio").currentTime > 1);
+    assert.equal(sessions(), 2); assert.equal(tracks().length, 3); assert.equal(await page.locator("#plays-left").textContent(), "No plays left");
     const blobs = await page.evaluate(() => window.__blobLifecycle);
     assert.equal(blobs.peak, 1); assert.equal(blobs.live, 1); assert.equal(blobs.revoked, 2);
     receipt.blobLifecycle = blobs;
@@ -230,7 +233,7 @@ try {
   receipt.outcome = "PASS";
 } catch {
   receipt.outcome = "FAIL"; receipt.failedAfter = receipt.checks.length; receipt.failureStage=stage; receipt.failedCheck=activeCheck;
-  if (page) receipt.state = await page.evaluate(() => ({state:document.body.dataset.state,status:document.getElementById("status")?.textContent,current:document.getElementById("current")?.textContent,clock:document.getElementById("clock")?.textContent})).catch(() => null);
+  if (page) receipt.state = await page.evaluate(() => ({state:document.body.dataset.state,status:document.getElementById("status")?.textContent,current:document.getElementById("current")?.textContent,elapsed:document.getElementById("elapsed")?.textContent})).catch(() => null);
   process.exitCode = 1;
 } finally {
   receipt.mode = disposalOnly ? "public owned-request disposal" : timeoutOnly ? "actual 60-second resource deadlines" : restoreOnly ? "real back navigation" : safetyOnly ? "focused safety/layout" : "ordered media";

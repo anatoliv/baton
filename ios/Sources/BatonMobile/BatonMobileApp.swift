@@ -7,9 +7,9 @@ import UserNotifications
 /// Transfer handlers run once their session's queued delegate events have replayed;
 /// notification callbacks forward to the explicitly configured opt-in coordinator.
 final class BatonAppDelegate: NSObject, UIApplicationDelegate {
-    private let reactionNotificationDelegate = ReactionPushNotificationDelegate()
+    private let notificationDelegate = BatonNotificationDelegate()
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        UNUserNotificationCenter.current().delegate = reactionNotificationDelegate
+        UNUserNotificationCenter.current().delegate = notificationDelegate
         return true
     }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
@@ -86,6 +86,10 @@ struct BatonMobileApp: App {
             guard let model, let song = model.music.nowPlaying else { return }
             Task { await model.musicLibrary.toggleLike(song) }
         }
+        // Alarm and Timer: the in-app clock, and AlarmKit or notifications for
+        // when Baton is not running. Started here so an alarm's Play that launched the app is
+        // answered as soon as the model exists.
+        model.alarms.start(model: model)
     }
     var body: some Scene {
         WindowGroup {
@@ -130,6 +134,9 @@ struct BatonMobileApp: App {
                 // looked at, not on a timer; the background refresh covers the pocket.
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     Task { await model.collectBooks() }
+                    // An alarm or timer that went off while Baton was away plays now, within
+                    // its grace, as the spec says.
+                    model.alarms.appBecameActive()
                 }
                 // Something shared to "Baton" from another app waits in the App Group inbox,
                 // since a share extension cannot open the app; the oldest opens here.
@@ -171,6 +178,27 @@ enum UITestShareWhenAway {
     }
 }
 #endif
+
+/// The phone's notification delegate: Baton's alarm notifications first, then the
+/// reaction pushes it always handled.
+final class BatonNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    private let reactions = ReactionPushNotificationDelegate()
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        // Baton is in front, so its own clock is already playing the alarm: not twice.
+        if AlarmNotificationBridge.alarmID(in: notification.request.content) != nil { return [] }
+        return await reactions.userNotificationCenter(center, willPresent: notification)
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        if let alarm = AlarmNotificationBridge.response(response) {
+            await MainActor.run { AppServices.shared?.alarms.handle(alarm) }
+            return
+        }
+        await reactions.userNotificationCenter(center, didReceive: response)
+    }
+}
 
 /// Carries a main-thread-only closure across a @Sendable boundary. Safe here because
 /// the engine calls it via the main actor.

@@ -273,9 +273,22 @@ struct BooksView: View {
         storageActions(book)
         Toggle("Keep on This iPhone", isOn: keepBinding(book))
         changeVoiceActions(book)
+        // Wake to the book, from where it was left.
+        if let choice = alarmChoice(book) {
+            Section { AlarmMenuItems(choice: choice) }
+        }
         if let covers {
             Section("Cover") { BookCoverMenu(covers: covers, book: book) }
         }
+    }
+
+    /// The book as an alarm plays it: its chapters from the synced place. At the time the
+    /// alarm re-reads the place, so it resumes where the book was left by then.
+    private func alarmChoice(_ book: MobileBookShelf.Book) -> AlarmChoice? {
+        let (songs, start) = MobileBookShelf.queue(for: book)
+        guard !songs.isEmpty else { return nil }
+        return AlarmChoice(title: book.title, subtitle: book.author, kind: .book, songs: songs, startIndex: start,
+                           source: Self.source(book))
     }
 
     // MARK: - An open book

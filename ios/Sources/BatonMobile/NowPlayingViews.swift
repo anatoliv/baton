@@ -378,6 +378,8 @@ struct FullPlayerView: View {
             }
         }
         .songSharePresenter(model: model)
+        .alarmSheetPresenter(model.alarms)
+        .alarmRingingOverlay(model.alarms)
     }
 
     /// The palette is extracted at the canonical size so this sheet, the Mac window
@@ -750,6 +752,11 @@ struct SleepTimerMenu<Label: View>: View {
                                               isSpoken: model.music.isSpokenNowPlaying)) {
                 model.music.sleepAtEndOfTrack()
             }
+            // Clock's other two, which start music rather than stop it. The sleep
+            // timer above is unchanged.
+            Section {
+                AlarmMenuItems(choice: MobileAlarms.nowPlaying(model))
+            }
         } label: {
             label()
         }
@@ -895,6 +902,7 @@ struct QueueSheet: View {
             .accessibilityIdentifier("QueueSheet")
         }
         .songSharePresenter(model: model)
+        .alarmSheetPresenter(model.alarms)
     }
 }
 
@@ -1006,6 +1014,7 @@ struct RelatedSheet: View {
             loading = false
         }
         .songSharePresenter(model: model)
+        .alarmSheetPresenter(model.alarms)
     }
 }
 

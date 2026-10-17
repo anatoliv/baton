@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import UserNotifications
 
@@ -75,13 +76,21 @@ enum SpeechNotifier {
 /// hops onto the main actor to drive playback.
 final class SpeechNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     private let speech: SpeechPlaybackEngine
-    init(speech: SpeechPlaybackEngine) { self.speech = speech }
+    /// Baton's alarm notifications are answered here too, since a process has one
+    /// notification delegate.
+    private let alarms: MacAlarms?
+    init(speech: SpeechPlaybackEngine, alarms: MacAlarms? = nil) {
+        self.speech = speech
+        self.alarms = alarms
+    }
 
     /// Show the banner even when Baton is frontmost.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
+        // Baton is running, so its own clock is already playing the alarm: not twice.
+        if AlarmNotificationBridge.alarmID(in: notification.request.content) != nil { return [] }
         if ReactionPushNotifications.routeData(notification.request.content.userInfo) != nil {
             return await ReactionPushNotifications.shared.optedIn ? [.banner] : []
         }
@@ -92,6 +101,14 @@ final class SpeechNotificationDelegate: NSObject, UNUserNotificationCenterDelega
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        if let alarm = AlarmNotificationBridge.response(response) {
+            let alarms = alarms
+            await MainActor.run {
+                NSApp.activate(ignoringOtherApps: true)
+                if let alarms { AlarmNotificationBridge.handle(alarm, center: alarms.center) }
+            }
+            return
+        }
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
            let route = ReactionPushNotifications.routeData(response.notification.request.content.userInfo) {
             await ReactionPushNotifications.shared.handleOwnerRoute(route)

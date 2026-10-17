@@ -305,6 +305,16 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.4",
+            date: "October 2026",
+            highlight: "Alarm and Timer, like the Clock app's, that wake you with Baton.",
+            changes: [
+                .init(.added, "Set an alarm that plays a song, playlist, album or book. Long-press a song and choose Set Alarm…, or use the moon menu in the player. Pick the time, repeat days, a label and Snooze; Settings, Alarms & Timer lists them with a switch each."),
+                .init(.added, "Start Timer… counts down and then plays what you chose, with Pause, Resume and Cancel."),
+                .init(.added, "On iOS 26 your alarm rings as a real alarm on the Lock Screen, with the iPhone's alarm sound. Tap Play, or open Baton, and your track starts. On earlier iOS versions it arrives as a notification with Baton's chime."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.3",
             date: "October 2026",
             highlight: "A new musical-note icon for Baton.",

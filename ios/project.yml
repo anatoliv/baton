@@ -56,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.5.3"
+    MARKETING_VERSION: "1.5.4"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -152,6 +152,10 @@ targets:
       - path: ../Shared/ReadAlongView.swift
       # The voice picker, one for both apps: suggested voices, then every voice (TBX-11028).
       - path: ../Shared/VoicePicker.swift
+      # Clock-style Alarm and Timer, the screens and the notification path, one for both apps
+      # (TBX-11171, specs/alarm-and-timer.md).
+      - path: ../Shared/AlarmViews.swift
+      - path: ../Shared/AlarmNotifications.swift
       # The share extension's inbox, read here when the app becomes active (TBX-10846).
       - path: Sources/BatonShare/PendingShareInbox.swift
       - path: ../Shared/ReactionPushNotifications.swift
@@ -180,6 +184,8 @@ targets:
         # The CarPlay scene delegate is referenced via $(PRODUCT_MODULE_NAME), so
         # it follows this automatically.
         PRODUCT_MODULE_NAME: BatonMobile
+        # AlarmKit exists from iOS 26; weak, so the app still launches on iOS 18 (TBX-11171).
+        OTHER_LDFLAGS: "$(inherited) -weak_framework AlarmKit"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Brand orange (#E98345) as the global accent, so `.tint`/`Color.accentColor`
         # resolve to Baton's identity everywhere — the design doc's Brand rule.
@@ -221,6 +227,9 @@ targets:
         # times a day while the app is closed, and posts "Chapter 1 is ready" (M5.4).
         BGTaskSchedulerPermittedIdentifiers: [io.tonebox.baton.books.refresh]
         NSSupportsLiveActivities: true
+        # AlarmKit's permission prompt (iOS 26 and later): Baton's alarms and timer ring as
+        # system alarms and play the chosen track when answered (TBX-11171).
+        NSAlarmKitUsageDescription: "Baton rings the alarms and timers you set, then plays the track, book or playlist you chose for them."
         # Export compliance, declared once here so every future build skips the
         # App Store Connect prompt. Baton uses only Apple-provided HTTPS/TLS and
         # CryptoKit — no proprietary or non-standard cryptography — which is the
@@ -311,6 +320,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tonebox.baton.widgets
+        OTHER_LDFLAGS: "$(inherited) -weak_framework AlarmKit"
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
     info:

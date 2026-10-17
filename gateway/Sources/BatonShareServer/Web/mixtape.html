@@ -1,19 +1,33 @@
 <!doctype html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
 <title>{{DOC_TITLE}}</title>{{OG_TAGS}}
 <link rel="icon" href="/m/_/icon.svg?v={{V}}"><link rel="stylesheet" href="/m/_/mixtape.css?v={{V}}">
 <script type="module" src="/m/_/mixtape.mjs?v={{V}}"></script></head>
 <body data-state="{{STATE}}"><script type="application/json" id="mixtape-data">{{DATA}}</script>
-<main><p class="kicker">Baton · Mixtape</p><h1 id="title">{{HEADLINE}}</h1><p id="byline">{{SUBLINE}}</p>
+<main>
+<header class="head">
+<div class="cover" aria-hidden="true"><svg viewBox="73 105 820 820" focusable="false"><path d="M488 650V208C488 201 493 199 500 204C539 231 599 276 635 322C682 382 686 445 649 498C655 445 638 405 604 373C587 356 565 340 541 328V635Z"/><ellipse cx="414" cy="648" rx="137" ry="96" transform="rotate(-20 414 648)"/><path class="sweep" d="M302 786Q410 840 518 786"/></svg></div>
+<div class="head-text"><p class="kicker">Baton mixtape</p><h1 id="title">{{HEADLINE}}</h1><p id="byline">{{SUBLINE}}</p>
+<p id="chips" class="chips" hidden><span id="ends" class="chip" hidden></span><span id="plays-left" class="chip" hidden></span></p></div>
+</header>
 <p id="status" role="status" aria-live="polite"></p>
 <section id="player" hidden aria-label="Mixtape player">
-<ol id="tracks" aria-label="Track order"></ol>
-<p id="current" aria-live="polite"></p><audio id="audio" preload="none"></audio>
-<div class="controls"><button id="previous" type="button">Previous</button><button id="play" type="button">Play mixtape</button><button id="next" type="button">Next</button></div>
-<label for="seek">Seek in current track</label><input id="seek" type="range" min="0" max="1000" value="0" disabled><p id="clock">0:00 / 0:00</p>
-<p class="disclosure">Play starts one listening session, lasting up to 30 minutes or this link’s expiry. It includes one transfer of the mixtape. Pause and seek reuse the current track. Returning to a released track may need another session and play.</p>
-<div id="admission" hidden role="group" aria-label="Confirm another listening session"><p>Continue with a new listening session? This uses another play from the link’s allowance.</p><button id="confirm" type="button">Use another play</button><button id="cancel" type="button">Cancel</button></div>
-<fieldset id="reactions" disabled><legend>Send a reaction to the sender</legend></fieldset><p id="reaction-status" role="status"></p>
-</section><noscript>JavaScript is needed to unlock and listen to this mixtape.</noscript>
-<footer><a href="https://batonmusic.app">About Baton</a></footer></main></body></html>
+<div id="card" class="card">
+<div id="admission" class="prompt" hidden role="group" aria-labelledby="admission-text"><p id="admission-text">Start a new listen?</p><div class="prompt-actions"><button id="confirm" class="primary" type="button">Start listening</button><button id="cancel" class="quiet" type="button">Not now</button></div></div>
+<div class="now"><p id="current" aria-live="polite"></p><p id="current-by"></p></div>
+<audio id="audio" preload="none"></audio>
+<input id="seek" type="range" min="0" max="1000" value="0" disabled aria-label="Seek in current track">
+<div class="times"><span id="elapsed">0:00</span><span id="remaining" aria-label="Time remaining">-0:00</span></div>
+<div class="controls">
+<button id="previous" class="skip" type="button" aria-label="Previous track"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h2v14H6zM19 5.8v12.4a.8.8 0 0 1-1.2.7L9.4 12.7a.8.8 0 0 1 0-1.4l8.4-6.2a.8.8 0 0 1 1.2.7Z"/></svg></button>
+<button id="play" class="play" type="button" aria-label="Play"><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.6v12.8a.9.9 0 0 0 1.4.8l10-6.4a.9.9 0 0 0 0-1.6l-10-6.4A.9.9 0 0 0 8 5.6Z"/></svg><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg><span class="spinner" aria-hidden="true"></span></button>
+<button id="next" class="skip" type="button" aria-label="Next track"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 5h2v14h-2zM5 5.8v12.4a.8.8 0 0 0 1.2.7l8.4-6.2a.8.8 0 0 0 0-1.4L6.2 5.1A.8.8 0 0 0 5 5.8Z"/></svg></button>
+</div>
+</div>
+<ol id="tracks" class="tracks" aria-label="Tracks"></ol>
+<div id="reactions" class="reactions" role="group" aria-labelledby="react-label"><span id="react-label" class="react-label">React</span><span id="reaction-status" class="react-status" role="status"></span></div>
+</section><noscript><p class="noscript">JavaScript is needed to unlock and listen to this mixtape.</p></noscript>
+<footer><span class="listen-note">Each listen lasts up to 30 minutes. </span>Made with <a href="https://batonmusic.app">Baton</a></footer>
+</main></body></html>

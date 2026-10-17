@@ -167,6 +167,8 @@ struct BatonMenuBarContent: View {
                     Button("Turn Off Sleep Timer") { player.cancelSleepTimer() }
                 }
             }
+            // Clock's Alarm and Timer, playing what is playing now.
+            MacAlarmMenuItems(model: model, choice: nil)
         }
 
         Divider()

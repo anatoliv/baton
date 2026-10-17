@@ -8,6 +8,7 @@ let root = null, manifest = null, session = null, currentURL = null, loadedIndex
 let busy = false, pendingIndex = null, closed = false, cancelLoad = null, loadGeneration = 0;
 let everAdmitted = false, containerDeadline = 0;
 let started = false, thirty = false, completed = false, listened = 0, lastTick = null;
+let remainingPlays = null; // display only; the service enforces the cap
 const endedTracks = new Set();
 const ownedRequests = new Set();
 const resourceDeadlineMilliseconds = 60000;
@@ -17,22 +18,48 @@ const canonical = (value, length) => {
   return bytes;
 };
 const status = message => { $("status").textContent = message; };
+const fmt = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+const length = seconds => seconds < 60 ? `${seconds} sec` : `${Math.round(seconds / 60)} min`;
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 function unavailable(state, message) {
   document.body.dataset.state = state;
-  status(message); $("player").hidden = true; releaseTrack(); session = null;
+  status(message); $("player").hidden = true; $("chips").hidden = true; releaseTrack(); session = null;
+}
+function chips() {
+  $("plays-left").hidden = remainingPlays === null;
+  if (remainingPlays !== null) $("plays-left").textContent = remainingPlays === 0 ? "No plays left" : `${plural(remainingPlays, "play", "plays")} left`;
+}
+function endsLabel(deadline) {
+  const end = new Date(deadline), today = end.toDateString() === new Date().toDateString();
+  const when = new Intl.DateTimeFormat(undefined, today ? { hour: "numeric", minute: "2-digit", timeZoneName: "short" }
+    : { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(end);
+  return `Ends ${today ? "today, " : ""}${when}`;
+}
+// The card names the selected track; the list marks the loaded (or loading) one.
+function showTrack(index) {
+  const track = manifest.tracks[index];
+  $("current").textContent = track.metadata.title; $("current-by").textContent = track.metadata.artist;
+  if (index !== loadedIndex || !currentURL) { $("seek").style.setProperty("--progress", "0%"); $("seek").value = "0"; times(0, track.metadata.durationSeconds); }
+}
+function times(elapsed, duration) {
+  $("elapsed").textContent = fmt(elapsed); $("remaining").textContent = `-${fmt(Math.max(0, duration - elapsed))}`;
 }
 function controls() {
   if (!manifest || closed) return;
-  $("play").disabled = busy || pendingIndex !== null;
-  $("play").textContent = busy ? "Loading…" : currentURL && !audio.paused ? "Pause" : "Play";
-  $("previous").disabled = busy || pendingIndex !== null || selected === 0;
-  $("next").disabled = busy || pendingIndex !== null || selected === manifest.tracks.length - 1;
+  const waiting = busy || pendingIndex !== null, playing = Boolean(currentURL) && !audio.paused;
+  $("play").disabled = waiting;
+  $("play").dataset.mode = busy ? "loading" : playing ? "pause" : "play";
+  $("play").setAttribute("aria-label", busy ? "Loading" : playing ? "Pause" : "Play");
+  $("play").setAttribute("aria-busy", busy ? "true" : "false");
+  $("previous").disabled = waiting || selected === 0;
+  $("next").disabled = waiting || selected === manifest.tracks.length - 1;
+  const current = busy ? selected : currentURL ? loadedIndex : -1;
   for (const [index, button] of [...$("tracks").querySelectorAll("button")].entries()) {
-    button.disabled = busy || pendingIndex !== null;
-    button.setAttribute("aria-current", index === selected ? "true" : "false");
+    button.disabled = waiting;
+    if (index === current) button.setAttribute("aria-current", "true"); else button.removeAttribute("aria-current");
   }
   $("seek").disabled = busy || !currentURL;
-  $("reactions").disabled = !session;
+  for (const button of $("reactions").querySelectorAll("button")) button.disabled = !session;
 }
 function releaseTrack() {
   audio.pause(); audio.removeAttribute("src"); audio.load();
@@ -83,8 +110,11 @@ function event(type, extra = {}) {
   if (!session || closed) return;
   request("/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, ...extra }) }, true).catch(() => {});
 }
-function confirmation(index, message) {
+// The one-line session prompt. Starting a new listen spends a play, so it is always explicit.
+function confirmation(index, message = "") {
   audio.pause(); session = null; pendingIndex = index;
+  $("admission-text").textContent = remainingPlays === null || remainingPlays === 0 ? "Start a new listen? It uses 1 play from this link."
+    : remainingPlays === 1 ? "Start a new listen? It uses your last play." : `Start a new listen? It uses 1 of your ${remainingPlays} plays.`;
   $("admission").hidden = false; status(message);
   controls(); $("confirm").focus();
 }
@@ -97,6 +127,7 @@ async function admit() {
       !Number.isSafeInteger(value.remainingPlays) || value.remainingPlays < 0) throw new ShareCryptoError("format", "Invalid session");
   if (closed) return;
   session = { token: value.token, expiresAt: deadline, remainingBytes: value.remainingBytes };
+  remainingPlays = value.remainingPlays; chips();
   started = false; thirty = false; completed = false; listened = 0; lastTick = null; endedTracks.clear();
 }
 async function playTrack(index, confirmed = false) {
@@ -112,11 +143,11 @@ async function playTrack(index, confirmed = false) {
   }
   const track = manifest.tracks[index];
   if (!confirmed && session && (session.expiresAt <= Date.now() || session.remainingBytes < track.audioBytes)) {
-    confirmation(index, "The listening session has ended or its transfer allowance is used."); return;
+    confirmation(index); return;
   }
   // After a previous admission, an invalid session is never replaced on an ordinary Play.
-  if (!confirmed && !session && everAdmitted) { confirmation(index, "A new listening session needs your confirmation."); return; }
-  busy = true; selected = index; controls();
+  if (!confirmed && !session && everAdmitted) { confirmation(index); return; }
+  busy = true; selected = index; showTrack(index); controls();
   const generation = ++loadGeneration;
   cancelLoad = new AbortController();
   status("Unlocking the complete track…");
@@ -132,13 +163,12 @@ async function playTrack(index, confirmed = false) {
     if (closed || generation !== loadGeneration) { plain.fill(0); return; }
     try { currentURL = URL.createObjectURL(new Blob([plain], { type: "audio/mpeg" })); } finally { plain.fill(0); }
     preparedForPlayback = true; loadedIndex = index; audio.src = currentURL;
-    $("current").textContent = `${index + 1}. ${track.metadata.title}${track.metadata.artist ? ` · ${track.metadata.artist}` : ""}`;
-    $("seek").value = "0";
+    $("seek").value = "0"; $("seek").style.setProperty("--progress", "0%");
     await audio.play(); status("");
   } catch (error) {
     if (closed) return;
     if (error.code === "session" || error.code === "transfer_budget") {
-      confirmation(index, "The listening session has ended or its transfer allowance is used.");
+      confirmation(index);
     } else if (["expired", "play_cap", "unsupported", "share_disabled"].includes(error.code)) {
       unavailable(error.code, error.code === "play_cap" ? "No new listening sessions remain. Ask the sender for a fresh link." : "This mixtape is unavailable or has ended.");
     } else if (error instanceof ShareCryptoError || error instanceof SyntaxError) {
@@ -161,12 +191,14 @@ $("confirm").addEventListener("click", () => {
   if (index !== null) playTrack(index, true);
 });
 $("cancel").addEventListener("click", () => {
-  pendingIndex = null; $("admission").hidden = true; status("Canceled. The current track remains available in memory."); controls(); $("play").focus();
+  pendingIndex = null; $("admission").hidden = true; status(""); controls(); $("play").focus();
 });
 $("seek").addEventListener("input", () => {
-  if (currentURL && Number.isFinite(audio.duration)) { audio.currentTime = audio.duration * Number($("seek").value) / 1000; lastTick = null; }
+  if (currentURL && Number.isFinite(audio.duration)) {
+    audio.currentTime = audio.duration * Number($("seek").value) / 1000; lastTick = null;
+    $("seek").style.setProperty("--progress", `${Number($("seek").value) / 10}%`); times(audio.currentTime, audio.duration);
+  }
 });
-const fmt = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 function clock() {
   const now = performance.now();
   if (!audio.paused && !audio.seeking && audio.readyState >= 3) {
@@ -174,9 +206,13 @@ function clock() {
     lastTick = now;
     if (!thirty && listened >= 30) { thirty = true; event("play_30s"); }
   } else lastTick = null;
-  const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
-  $("clock").textContent = `${fmt(audio.currentTime)} / ${fmt(duration)}`;
-  if (duration && !audio.seeking) $("seek").value = String(Math.round(audio.currentTime / duration * 1000));
+  if (!manifest || loadedIndex < 0) return;
+  const duration = Number.isFinite(audio.duration) ? audio.duration : manifest.tracks[loadedIndex].metadata.durationSeconds;
+  times(audio.currentTime, duration);
+  if (duration && !audio.seeking) {
+    $("seek").value = String(Math.round(audio.currentTime / duration * 1000));
+    $("seek").style.setProperty("--progress", `${Math.min(100, audio.currentTime / duration * 100)}%`);
+  }
 }
 audio.addEventListener("timeupdate", clock);
 audio.addEventListener("playing", () => { if (!started) { started = true; event("play_started"); } lastTick = performance.now(); controls(); });
@@ -202,23 +238,35 @@ async function initialize() {
     if (!Number.isFinite(containerDeadline) || containerDeadline <= Date.now() || details.status !== "ready") throw new ShareCryptoError("format", "Invalid lifecycle");
     manifest = await authenticateManifest(details, root);
     if (closed) { manifest = null; return; }
-    $("title").textContent = manifest.title; $("byline").textContent = `${manifest.tracks.length} tracks · ${fmt(manifest.durationSeconds)}`;
+    $("title").textContent = manifest.title; $("byline").textContent = `${plural(manifest.tracks.length, "track", "tracks")} · ${length(manifest.durationSeconds)}`;
     document.title = manifest.title;
+    $("ends").textContent = endsLabel(containerDeadline); $("ends").hidden = false;
+    remainingPlays = Number.isSafeInteger(details.remainingPlays) && details.remainingPlays >= 0 ? details.remainingPlays : null;
+    chips(); $("chips").hidden = false;
+    const element = (tag, className, text) => { const node = document.createElement(tag); node.className = className; if (text !== undefined) node.textContent = text; return node; };
     for (const [index, track] of manifest.tracks.entries()) {
-      const li = document.createElement("li"), button = document.createElement("button");
-      button.type = "button"; button.textContent = `${track.metadata.title}${track.metadata.artist ? ` · ${track.metadata.artist}` : ""}`;
+      const li = document.createElement("li"), button = element("button", "row"), words = element("span", "row-text");
+      const speaker = document.createElementNS("http://www.w3.org/2000/svg", "svg"), path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      speaker.setAttribute("viewBox", "0 0 24 24"); speaker.setAttribute("class", "row-speaker"); speaker.setAttribute("aria-hidden", "true");
+      path.setAttribute("d", "M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15 8.6a4.5 4.5 0 0 1 0 6.8l-1-1.1a3 3 0 0 0 0-4.6zm2.4-2.5a8 8 0 0 1 0 11.8l-1.1-1.1a6.4 6.4 0 0 0 0-9.6z");
+      speaker.append(path);
+      words.append(element("span", "row-title", track.metadata.title));
+      if (track.metadata.artist) words.append(element("span", "row-by", track.metadata.artist));
+      button.type = "button";
+      button.setAttribute("aria-label", `Track ${index + 1}: ${track.metadata.title}${track.metadata.artist ? ` by ${track.metadata.artist}` : ""}, ${fmt(track.metadata.durationSeconds)}`);
+      button.append(element("span", "row-num", String(index + 1)), speaker, words, element("span", "row-time", fmt(track.metadata.durationSeconds)));
       button.addEventListener("click", () => playTrack(index)); li.append(button); $("tracks").append(li);
     }
     for (const reaction of data.reactions) {
       const button = document.createElement("button"); button.type = "button"; button.textContent = reaction; button.setAttribute("aria-label", `React ${reaction}`);
       button.addEventListener("click", async () => {
-        button.disabled = true;
+        button.disabled = true; $("reaction-status").textContent = "";
         try { await request("/reactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emoji: reaction }) }, true); $("reaction-status").textContent = "Reaction sent."; }
         catch { $("reaction-status").textContent = "Reaction could not be sent. The session may have ended."; }
-        finally { button.disabled = false; }
-      }); $("reactions").append(button);
+        finally { button.disabled = false; controls(); }
+      }); $("reaction-status").before(button);
     }
-    $("player").hidden = false; status("Ready. Play starts one listening session."); controls();
+    showTrack(0); $("player").hidden = false; status(""); controls();
   } catch (error) {
     if (closed) return;
     unavailable("failed", error.code === "timeout"

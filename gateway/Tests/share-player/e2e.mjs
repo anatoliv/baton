@@ -32,6 +32,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { verifyMediaErrorRecovery } from "./media-errors.mjs";
+import { verifyMixtapePage } from "./mixtape-page.mjs";
 import { measureStartup, registerOwnedBrowser, registerOwnedBrowserServer } from "./startup.mjs";
 
 import { seal } from "../../Sources/BatonShareServer/Web/share-crypto.mjs";
@@ -126,7 +127,7 @@ step(external ? `using the running service at ${external}` : `starting ${binary}
 const server = external ? null : spawn(binary, [], {
   env: { ...process.env, BATON_SHARE_DATA: join(work, "data"), BATON_SHARE_PORT: String(port),
     BATON_SHARE_PUBLIC_BASE: base, BATON_SHARE_BLOB_DELIVERY: viaNginx ? "accel" : "direct",
-    BATON_SHARE_ADMIN_TOKEN: admin },
+    BATON_SHARE_ADMIN_TOKEN: admin, BATON_SHARE_MIXTAPES: "1" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let serverLog = "";
@@ -179,6 +180,7 @@ let browser;
 let browserServer;
 let activePage;
 const mintedIDs = [];
+const skips = [];
 try {
   for (let i = 0; i < 50; i++) {
     if (await fetch(`${direct}/${external ? "v1/share/config" : "health"}`, { signal: AbortSignal.timeout(1000) }).then((r) => r.ok, () => false)) break;
@@ -618,6 +620,14 @@ try {
       await Promise.all(contexts.map((ctx) => ctx.close()));
     }
   }
+
+  // ---------- The mixtape page (/m/), TBX-1000000067 ----------
+
+  if (publicOnly) skips.push("mixtape page: no mixtape fixtures against a public service");
+  else {
+    const skipped = await verifyMixtapePage({ browser, context, base, direct, api, evidence, dataDir, external, step, screenshot, monitor, problems });
+    if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
+  }
   }
   assert.deepEqual(problems, [], "no unexpected browser errors");
   // Revoke every remaining fixture, including public runs, leaving tombstones only.
@@ -638,7 +648,7 @@ try {
   }
   writeFileSync(join(evidence, "result.json"), JSON.stringify({ engine, viaNginx, publicOnly, listeners, mediaErrorsOnly, startupOnly, passed: true,
     appErrors: 0, screenshotErrors,
-    skips: [...(external ? ["local deadline acceleration"] : []), ...(publicOnly ? ["internal admin aggregate report"] : [])] }, null, 2));
+    skips: [...(external ? ["local deadline acceleration"] : []), ...(publicOnly ? ["internal admin aggregate report"] : []), ...skips] }, null, 2));
 
   await browser.close();
   console.log(`PASS — screenshots in ${evidence}`);

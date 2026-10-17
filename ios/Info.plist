@@ -70,6 +70,8 @@
 	<string>public.app-category.music</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Baton rings the alarms and timers you set, then plays the track, book or playlist you chose for them.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoadsForMedia</key>
