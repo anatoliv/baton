@@ -132,7 +132,9 @@ final class ClippingAudioReplacementTests: XCTestCase {
         c.seek(to: 18.5)
         try await wait(10) { c.currentIndex == 1 }
         XCTAssertEqual(c.currentIndex, 1)
-        try await wait(5) { c.itemDurationsForTesting.current != nil }
+        // Logical advancement can precede AVQueuePlayer.currentItem changing. Wait for
+        // the replacement asset, not the previous chapter's already-known duration.
+        try await wait(5) { (c.itemDurationsForTesting.current ?? 0) > 30 }
         XCTAssertEqual(c.itemDurationsForTesting.current ?? 0, 40, accuracy: 0.5, "chapter 2 plays in the new voice")
     }
 

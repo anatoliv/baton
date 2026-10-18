@@ -273,6 +273,7 @@ struct FullScreenNowPlaying: View {
                     Text(setting.label).tag(setting.rawValue)
                 }
             }
+            .pickerStyle(.inline)
         } label: {
             Image(systemName: "circle.lefthalf.filled").font(.title3)
         }

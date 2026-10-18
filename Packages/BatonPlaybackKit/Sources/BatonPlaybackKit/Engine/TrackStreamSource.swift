@@ -96,6 +96,10 @@ actor TrackStreamSource {
     /// on a seek.
     private var parseOffset: Int64 = 0
     private var networkTask: Task<Void, Never>?
+    private var downloadGeneration: UInt64 = 0
+    /// Original-stream offset of the first byte in the current spool. The decoder
+    /// retains its container index when an indexed seek fetches a new byte range.
+    private var spoolBaseOffset: Int64 = 0
     private var networkFailure: SourceError?
     private var deliveredFormat = false
     /// Frames to drop from the front of the next decoded buffer (sample-accurate seek
@@ -148,8 +152,11 @@ actor TrackStreamSource {
         rangeStart = max(0, fromByte)
         bytesToDrop = 0
         let request = makeRequest(fromByte: rangeStart)
+        downloadGeneration &+= 1
+        let generation = downloadGeneration
+        let requestedByte = rangeStart
         networkTask = Task { [weak self] in
-            await self?.runDownload(request: request)
+            await self?.runDownload(request: request, generation: generation, requestedByte: requestedByte)
         }
     }
 
@@ -174,7 +181,7 @@ actor TrackStreamSource {
     /// those bytes sitting in the array, unspooled and undecodable, until either more
     /// arrived or the stream ended — the opposite of what its own comment intended. Chunks
     /// reach the spool as they land.
-    private func runDownload(request: URLRequest) async {
+    private func runDownload(request: URLRequest, generation: UInt64, requestedByte: Int64) async {
         let (events, continuation) = AsyncThrowingStream<DownloadEvent, Error>.makeStream()
         let delegate = StreamDownloadDelegate(continuation: continuation)
         // A delegate is per-session, so this track gets its own rather than sharing
@@ -187,7 +194,7 @@ actor TrackStreamSource {
 
         do {
             for try await event in events {
-                if cancelled { task.cancel(); return }
+                if cancelled || generation != downloadGeneration || Task.isCancelled { task.cancel(); return }
                 switch event {
                 case .head(let statusCode, let expectedLength):
                     guard (200 ..< 300).contains(statusCode) else {
@@ -201,12 +208,14 @@ actor TrackStreamSource {
                     // hand the parser a stream that starts somewhere other than it was told,
                     // drop the prefix as it arrives: same bytes over the wire as before this
                     // feature existed, and the spool still begins where it was promised.
-                    if rangeStart > 0, statusCode != 206 {
+                    if requestedByte > 0, statusCode != 206 {
                         rangeHonoured = false
-                        bytesToDrop = rangeStart
-                        engineLog.info("engine: server ignored Range, dropping \(self.rangeStart) bytes to reach the seek point")
+                        bytesToDrop = requestedByte
+                        engineLog.info("engine: server ignored Range, dropping \(requestedByte) bytes to reach the seek point")
                     }
-                    if expectedLength > 0 { spool?.expectedByteCount = expectedLength }
+                    if expectedLength > 0 {
+                        spool?.expectedByteCount = expectedLength + (statusCode == 206 ? spoolBaseOffset : 0)
+                    }
                 case .data(let data):
                     var data = data
                     if bytesToDrop > 0 {
@@ -220,11 +229,11 @@ actor TrackStreamSource {
             }
             // Safe on the cancel path too: `cancel()` drops the spool before cancelling the
             // task, so a torn-down source has nothing left to mark complete.
-            spool?.markComplete()
+            if generation == downloadGeneration { spool?.markComplete() }
         } catch {
             // A cancelled transfer is a teardown, not a failure. Reporting one would raise a
             // spurious error against a track the user has already moved on from.
-            if cancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+            if cancelled || generation != downloadGeneration || error is CancellationError || (error as? URLError)?.code == .cancelled {
                 return
             }
             networkFailure = .transport(error.localizedDescription)
@@ -258,7 +267,7 @@ actor TrackStreamSource {
                 case .waiting: continue
                 case .ended: break
                 }
-                if spool.isComplete, spool.byteCount <= parseOffset { break }
+                if spool.isComplete, spoolBaseOffset + spool.byteCount <= parseOffset { break }
             }
             if let format = decoder.pcmFormat {
                 deliveredFormat = true
@@ -293,7 +302,7 @@ actor TrackStreamSource {
     private enum ParseStep { case produced([AVAudioPCMBuffer]), waiting, ended }
 
     private func parseMore(spool: StreamSpool, decoder: AudioStreamDecoder) async throws -> ParseStep {
-        guard let data = spool.read(at: parseOffset, length: Self.parseChunkBytes) else {
+        guard let data = spool.read(at: parseOffset - spoolBaseOffset, length: Self.parseChunkBytes) else {
             if spool.isComplete { return .ended }
             // Nothing spooled at the read position yet — the network is behind. Wait a
             // beat; cancellation lands between polls.
@@ -348,20 +357,39 @@ actor TrackStreamSource {
     // MARK: - Seek
 
     enum SeekOutcome: Equatable {
-        /// Repositioned inside the spool; subsequent pulls decode from the target.
+        /// Decoder positioned at the target in the spool or an exact indexed range.
         case repositioned
         /// The target's bytes haven't arrived (or can't be mapped) — the caller
         /// re-requests the stream with `timeOffset` instead (see `StreamSeek`).
         case unreachable
     }
 
-    /// Reposition decoding to `seconds` (stream-local). Only reachable positions
-    /// succeed — the spool must already hold the mapped byte.
-    func seek(toSeconds seconds: TimeInterval) -> SeekOutcome {
+    /// Reposition decoding to `seconds` (stream-local). A container with an exact
+    /// packet index can fetch a new range while retaining the header and decoder.
+    /// Estimated mappings keep the existing reload fallback.
+    func seek(toSeconds seconds: TimeInterval, allowIndexedReload: Bool = false) -> SeekOutcome {
         guard let spool, let decoder, decoder.sampleRate > 0 else { return .unreachable }
         let targetFrame = Int64(seconds * decoder.sampleRate)
-        guard let target = decoder.seekTarget(forFrame: targetFrame),
-              target.byteOffset < spool.byteCount else { return .unreachable }
+        guard let target = decoder.seekTarget(forFrame: targetFrame) else { return .unreachable }
+        if target.byteOffset < spoolBaseOffset || target.byteOffset >= spoolBaseOffset + spool.byteCount {
+            guard allowIndexedReload, !target.isEstimate, target.byteOffset >= 0,
+                  let end = spool.expectedByteCount, target.byteOffset < end,
+                  let replacement = try? StreamSpool() else { return .unreachable }
+            networkTask?.cancel()
+            downloadGeneration &+= 1
+            let generation = downloadGeneration
+            spool.closeAndDelete()
+            self.spool = replacement
+            spoolBaseOffset = target.byteOffset
+            networkFailure = nil
+            bytesToDrop = 0
+            rangeHonoured = true
+            let requestedByte = rangeStart + target.byteOffset
+            let request = makeRequest(fromByte: requestedByte)
+            networkTask = Task { [weak self] in
+                await self?.runDownload(request: request, generation: generation, requestedByte: requestedByte)
+            }
+        }
         parseOffset = target.byteOffset
         stagedBuffers.removeAll() // pre-seek audio must not play after the jump
         decoder.signalDiscontinuity()
@@ -378,9 +406,10 @@ actor TrackStreamSource {
     func reachableSeconds() -> ClosedRange<TimeInterval>? {
         guard let spool, let decoder,
               let bytesPerSecond = decoder.estimatedBytesPerSecond, bytesPerSecond > 0 else { return nil }
-        let audioBytes = max(0, spool.byteCount - decoder.dataOffset)
+        let audioBytes = max(0, spoolBaseOffset + spool.byteCount - decoder.dataOffset)
+        let start = Double(max(0, spoolBaseOffset - decoder.dataOffset)) / bytesPerSecond
         let end = Double(audioBytes) / bytesPerSecond
-        return end > 0 ? 0...end : nil
+        return end > start ? start...end : nil
     }
 
     /// Re-announce the decoded format on the next pull.

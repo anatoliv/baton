@@ -1326,6 +1326,10 @@ a **waveform scrubber** for tracks you've downloaded. Along the side are panels 
 **Queue**, **Lyrics**, and **Related** tracks. Press **Space** to play or pause, and
 **Escape** to leave full-screen.
 
+On the Mac, click **Appearance** beside AirPlay to choose **System**, **Light**, or **Dark**
+directly. The full player and Mini Player share this choice with Settings. **System** follows
+your Mac's appearance.
+
 ### Lyrics
 
 The **Lyrics** panel shows words for whatever is playing. When they arrive with timings they

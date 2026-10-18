@@ -323,6 +323,17 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.11",
+            date: "October 2026",
+            highlight: "Change appearance directly from the player.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Click the Appearance button beside AirPlay to choose System, Light or Dark directly."),
+                HelpWhatsNewChange(.fixed,
+                    "Seeking through long M4A files resumes from the indexed position without decoding the whole beginning again."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.10",
             date: "October 2026",
             highlight: "The player follows your appearance, with a quick switch while you listen.",

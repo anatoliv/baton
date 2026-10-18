@@ -362,6 +362,16 @@ public final class EnginePlaybackController {
             case .direct:
                 await performInSpoolSeek(to: target, source: source, generation: generation)
             case .reload(let offset):
+                // M4A/MP4 containers need their parsed header when a
+                // range starts mid-file. Keep that decoder instead of fetching and
+                // decoding hours of prefix audio again.
+                if !track.supportsTimeOffset, source != nil,
+                   let suffix = track.song?.suffix?.lowercased(),
+                   suffix == "m4a" || suffix == "mp4" {
+                    await performInSpoolSeek(to: target, source: source, generation: generation,
+                                             allowIndexedReload: true)
+                    return
+                }
                 // Ask the outgoing source where that second lives in the file *before*
                 // `load` tears it down — it is the only thing that knows, and a moment
                 // later it will not exist. Nil means the parser could not map it, and the
@@ -448,9 +458,11 @@ public final class EnginePlaybackController {
         startFeeder(on: activeDeck, source: source, track: track, resuming: false, generation: generation)
     }
 
-    private func performInSpoolSeek(to target: TimeInterval, source: TrackStreamSource?, generation: Int) async {
+    private func performInSpoolSeek(to target: TimeInterval, source: TrackStreamSource?, generation: Int,
+                                    allowIndexedReload: Bool = false) async {
         guard let source else { return }
-        let outcome = await source.seek(toSeconds: target - streamStartOffset)
+        let outcome = await source.seek(toSeconds: target - streamStartOffset,
+                                        allowIndexedReload: allowIndexedReload)
         guard generation == loadGeneration else { return }
         guard outcome == .repositioned, let track = nowPlaying else {
             // The spool disagreed after all (estimate drift) — fall back to the reload
