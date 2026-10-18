@@ -339,6 +339,8 @@ public final class ClippingStore {
                              now: Date = Date()) throws -> (item: Item, previous: PreviousAudio?) {
         loadIfNeeded()
         guard var item = item(id: id) else { throw StoreError.couldNotStore("no clipping \(id) to give new audio") }
+        let oldSongID = item.songID
+        let oldDuration = item.clipping.durationSeconds
         let durationSeconds = durationSeconds ?? Self.measuredDuration(of: source)
         let ext = source.pathExtension.isEmpty ? "m4a" : source.pathExtension
         let destination = audioURL(id, extension: ext)
@@ -382,7 +384,31 @@ public final class ClippingStore {
         }
         reload()
         clippingLog.notice("gave a clipping new audio (\(item.clipping.title, privacy: .public))")
-        return (Item(clipping: item.clipping, url: destination), previous)
+        let replaced = Item(clipping: item.clipping, url: destination)
+        NotificationCenter.default.post(name: Self.audioReplaced, object: self,
+                                        userInfo: [Self.audioReplacementKey: AudioReplacement(
+                                            previousSongID: oldSongID, previousDurationSeconds: oldDuration,
+                                            song: replaced.asSong)])
+        return (replaced, previous)
+    }
+
+    /// Posted on the main actor after `replaceAudio` gives a clipping other audio (Change Voice,
+    /// Stop on a Change Voice, a reading read again). The player holds `AVPlayerItem`s made from
+    /// the old file, which an open file keeps alive under its new name, so without this it went
+    /// on in the old voice until a relaunch rebuilt its queue. The user info's
+    /// `audioReplacementKey` is an `AudioReplacement`.
+    public nonisolated static let audioReplaced = Notification.Name("io.tonebox.baton.clippingAudioReplaced")
+    public nonisolated static let audioReplacementKey = "replacement"
+
+    /// Which song in a queue now has other audio, and what it is now.
+    public struct AudioReplacement: Sendable, Equatable {
+        /// The id the player had for it: its file URL before, which is the same as now unless
+        /// the new audio is another kind of file.
+        public var previousSongID: String
+        /// How long the old audio was, to find the same place in the new.
+        public var previousDurationSeconds: Double?
+        /// The clipping as the player is to have it now.
+        public var song: NavidromeSong
     }
 
     /// The length of an audio file, or nil when it cannot be read as audio.

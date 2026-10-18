@@ -25,10 +25,10 @@ import SwiftUI
 /// transport are a fixed design rather than a preference, which `AppearanceSetting` also says.
 struct BatonChrome: ViewModifier {
     @AppStorage(AppearanceSetting.key, store: BatonStorage.defaults)
-    private var appearanceRaw = AppearanceSetting.dark.rawValue
+    private var appearanceRaw = AppearanceSetting.defaultValue.rawValue
 
     private var appearance: AppearanceSetting {
-        AppearanceSetting(rawValue: appearanceRaw) ?? .dark
+        AppearanceSetting(rawValue: appearanceRaw) ?? AppearanceSetting.defaultValue
     }
 
     func body(content: Content) -> some View {

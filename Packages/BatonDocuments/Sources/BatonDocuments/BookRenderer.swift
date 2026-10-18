@@ -439,6 +439,9 @@ public actor BookRenderer {
     let log: @Sendable (String) -> Void
 
     private var worker: Task<Void, Never>?
+    /// The job being made now, and the task making it, so cancelling that job stops its work
+    /// where it is.
+    private var current: (id: String, task: Task<Void, Never>)?
     private var cancelled: Set<String> = []
     private var wake: [CheckedContinuation<Void, Never>] = []
     /// Each job's one format, once known (`bookFormat`).
@@ -476,9 +479,14 @@ public actor BookRenderer {
         return .created(job.summary)
     }
 
+    /// Stop making a book and remove it. The job being made stops where it is: a chunk whose
+    /// voice keeps failing is retried until it answers, and a cancel that only marked the job
+    /// left that retry going, so the book submitted after it (the same book in another voice,
+    /// from Change Voice) waited behind it until a relaunch.
     public func cancel(_ id: String) {
         cancelled.insert(id)
         store.remove(id)
+        if let current, current.id == id { current.task.cancel() }
         poke()
     }
 
@@ -553,7 +561,13 @@ public actor BookRenderer {
     private func loop() async {
         while !Task.isCancelled {
             if let job = nextJob() {
-                await render(job)
+                // Its own task, so `cancel` can stop this job alone; `stop` reaches it through
+                // the handler.
+                let task = Task { await self.render(job) }
+                current = (job.id, task)
+                await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+                // Only its own: after a stop and a start, a newer loop may own the slot by now.
+                if current?.task == task { current = nil }
             } else {
                 await withCheckedContinuation { wake.append($0) }
             }

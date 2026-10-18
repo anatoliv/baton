@@ -28,6 +28,7 @@ class MacAssociationTests(unittest.TestCase):
         self.work = self.root / "work"; self.work.mkdir(mode=0o700)
         self.now = dt.datetime.now(dt.timezone.utc)
         self.cert = b"synthetic-public-certificate-not-a-real-identity"
+        self.signer = "Developer ID Application: Synthetic Owner (Q8822GNL2H)"
         self.source = {"com.apple.security.app-sandbox": False, "com.apple.security.network.client": True,
                        "com.apple.security.network.server": True, subject.DOMAIN_KEY: subject.DOMAINS}
         self.profile = {"UUID": "11111111-2222-3333-4444-555555555555", "Platform": ["OSX"],
@@ -54,7 +55,8 @@ class MacAssociationTests(unittest.TestCase):
         return subject.profile_claims(profile or self.profile, source or self.source, self.cert, self.now)
 
     def preflight(self, env=None):
-        with patch.object(subject, "run", return_value=plistlib.dumps(self.profile)), patch.object(subject, "check_certificate"):
+        with patch.object(subject, "run", return_value=plistlib.dumps(self.profile)), \
+                patch.object(subject, "check_certificate", return_value=self.signer):
             return subject.preflight(self.source_path, self.aasa_path, self.work, self.env if env is None else env)
 
     def testPrefixComesFromProfileNotTeamOrPhone(self):
@@ -65,6 +67,14 @@ class MacAssociationTests(unittest.TestCase):
 
     def testProfileDomainWildcardAuthorizesOnlyExactSourceDomains(self):
         self.assertEqual(self.claims()[subject.DOMAIN_KEY], subject.DOMAINS)
+        # The real "Baton Mac Developer ID" profile grants the capability as the string "*".
+        self.profile["Entitlements"][subject.DOMAIN_KEY] = "*"
+        self.assertEqual(self.claims()[subject.DOMAIN_KEY], subject.DOMAINS)
+        for grant in ["applinks:batonmusic.app", "", ["applinks:batonmusic.app"]]:
+            with self.subTest(grant=grant):
+                self.profile["Entitlements"][subject.DOMAIN_KEY] = grant
+                with self.assertRaises(subject.QualificationError): self.claims()
+        self.profile["Entitlements"][subject.DOMAIN_KEY] = ["*"]
         changed = dict(self.source); changed[subject.DOMAIN_KEY] = ["applinks:foreign.example"]
         with self.assertRaises(subject.QualificationError): self.claims(source=changed)
 
@@ -106,13 +116,16 @@ class MacAssociationTests(unittest.TestCase):
         cases = [(valid_subject, valid_dates, valid_text, True),
                  (valid_subject.replace("Developer ID Application", "Developer ID Installer"), valid_dates, valid_text, False),
                  (valid_subject.replace("OU = Q8822GNL2H", "OU = OTHERTEAM1"), valid_dates, valid_text, False),
+                 (valid_subject.replace("Owner (Q8822GNL2H)", "Owner (OTHERTEAM1)"), valid_dates, valid_text, False),
+                 (valid_subject.replace("Synthetic Owner", "Synthetic // Owner"), valid_dates, valid_text, False),
                  (valid_subject, valid_dates.replace("2040", "2021"), valid_text, False),
                  (valid_subject, valid_dates.replace("2020", "2030"), valid_text, False),
                  (valid_subject, valid_dates, "other-extension", False)]
         for index, (cert_subject, cert_dates, text, accepted) in enumerate(cases):
             with self.subTest(case=index), patch.object(subject, "run", side_effect=[cert_subject.encode(), cert_dates.encode(), text.encode()]):
                 if accepted:
-                    subject.check_certificate(self.cert_path, "Q8822GNL2H", self.now)
+                    self.assertEqual(subject.check_certificate(self.cert_path, "Q8822GNL2H", self.now),
+                                     "Developer ID Application: Synthetic Owner (Q8822GNL2H)")
                 else:
                     with self.assertRaises(subject.QualificationError): subject.check_certificate(self.cert_path, "Q8822GNL2H", self.now)
 
@@ -147,21 +160,40 @@ class MacAssociationTests(unittest.TestCase):
                 with self.assertRaises(subject.QualificationError): subject.check_aasa(aasa, "ZZZZZZZZZZ.io.tonebox.baton")
 
     def testMissingInputsStopBeforeAnyInspectorOrSnapshot(self):
-        for name in self.env:
+        for name in set(self.env) - {"MAC_ASSOCIATION_CERTIFICATE_FILE"}:
             with self.subTest(name=name), patch.object(subject, "run") as inspector:
                 env = dict(self.env); del env[name]
                 with self.assertRaises(subject.QualificationError): self.preflight(env)
                 inspector.assert_not_called()
                 self.assertFalse((self.work / "state.json").exists())
 
-    def testWrongPinnedHashesAndAmbiguousSigningIdentityFailBeforeInspection(self):
-        for key, value in [("MAC_ASSOCIATION_PROFILE_SHA256", "0" * 64),
-                           ("MAC_ASSOCIATION_CERTIFICATE_SHA256", "0" * 64),
-                           ("SIGN_ID", "Developer ID Application: synthetic name")]:
-            with self.subTest(key=key), patch.object(subject, "run") as inspector:
-                env = dict(self.env); env[key] = value
-                with self.assertRaises(subject.QualificationError): subject.preflight(self.source_path, self.aasa_path, self.work, env)
-                inspector.assert_not_called()
+    def testLeafComesFromTheApprovedProfileByPinnedHashWhenNoFileIsGiven(self):
+        env = dict(self.env); del env["MAC_ASSOCIATION_CERTIFICATE_FILE"]
+        state = self.preflight(env)
+        self.assertEqual(Path(state["certificate"]).read_bytes(), self.cert)
+        self.profile["DeveloperCertificates"] = [b"another-leaf"]
+        with self.assertRaises(subject.QualificationError): self.preflight(env)
+
+    def testWrongPinnedProfileHashFailsBeforeInspection(self):
+        with patch.object(subject, "run") as inspector:
+            env = dict(self.env); env["MAC_ASSOCIATION_PROFILE_SHA256"] = "0" * 64
+            with self.assertRaises(subject.QualificationError): subject.preflight(self.source_path, self.aasa_path, self.work, env)
+            inspector.assert_not_called()
+
+    def testWrongCertificateOrSigningIdentityFailsClosed(self):
+        for env_change in [{"MAC_ASSOCIATION_CERTIFICATE_SHA256": "0" * 64},
+                           {"MAC_ASSOCIATION_CERTIFICATE_SHA256": "0" * 64, "MAC_ASSOCIATION_CERTIFICATE_FILE": ""},
+                           {"SIGN_ID": "Developer ID Application: Someone Else (Q8822GNL2H)"},
+                           {"SIGN_ID": "0" * 40}]:
+            with self.subTest(change=env_change):
+                env = dict(self.env); env.update(env_change)
+                with self.assertRaises(subject.QualificationError): self.preflight(env)
+                self.assertFalse((self.work / "state.json").exists())
+
+    def testSigningIdentityMayBeTheLeafsFullNameAndBuildsWithIt(self):
+        env = dict(self.env); env["SIGN_ID"] = self.signer
+        self.preflight(env)
+        self.assertIn("CODE_SIGN_IDENTITY = " + self.signer + "\n", (self.work / "association.xcconfig").read_text())
 
     def testCoreOnlySourceDoesNotReadProfileCertificateOrKeychain(self):
         core = dict(self.source); del core[subject.DOMAIN_KEY]
@@ -186,7 +218,9 @@ class MacAssociationTests(unittest.TestCase):
         self.assertEqual(claims, self.claims())
         settings = (self.work / "association.xcconfig").read_text()
         self.assertIn("CODE_SIGN_STYLE = Manual", settings)
-        self.assertIn("PROVISIONING_PROFILE = " + self.profile["UUID"], settings)
+        self.assertIn("BATON_MAC_RELEASE_PROFILE = " + self.profile["UUID"], settings)
+        self.assertNotIn("PROVISIONING_PROFILE", settings)  # package targets refuse a profile
+        self.assertIn("CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO", settings)
         self.assertNotIn("CODE_SIGNING_ALLOWED", settings)
         self.assertEqual((self.work / "state.json").stat().st_mode & 0o777, 0o600)
 
@@ -292,7 +326,7 @@ class MacAssociationTests(unittest.TestCase):
         self.assertIn('resume_assert_stapled_dmg "from the stapled DMG"', source)
         self.assertIn('resume_assert_stapled_dmg "before publishing"', source)
         self.assertIn('resume_assert_stapled_dmg "before publishing the qualified DMG"', source)
-        self.assertIn('SIGN_DEPTH=()', source)
+        self.assertIn('SIGN_ARGS=(--force --options runtime --timestamp)', source)
         self.assertNotIn("-allowProvisioningUpdates", source)
 
 

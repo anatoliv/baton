@@ -1681,8 +1681,8 @@ App Store or the Mac download.
 **When a friend sends you a song** and Baton is on your iPhone, the link opens in Baton
 instead of the browser. You see the song and your friend's note, with **Play** to listen right
 there and **Find in my library** to play your own copy if you have it. After half a minute you
-can send a reaction back. **Open in browser** shows the web page instead. On the Mac, song links
-still open in the browser.
+can send a reaction back. **Open in browser** shows the web page instead. On the Mac, song and
+mixtape links open in Baton too, from version 0.20.8.
 
 **Sharing a mixtape.** To send a few songs as one link, select 2 to 12 of your liked songs and
 click the share button in the selection bar on the Mac (**Share selected as a mixtape**), or open **Liked** in Library on the iPhone, tap

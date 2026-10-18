@@ -21,9 +21,8 @@ struct MobileSettingsView: View {
     /// Whether the reporter actually came up, re-read after each toggle.
     @State private var crashStatus = CrashReporting.currentStatus
     @AppStorage("baton.display.keepAwake") private var keepAwake = false
-    /// Defaults to Dark, which is what the app has always been — so this setting appearing
-    /// changes nothing until somebody moves it.
-    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
+    /// Follow System unless the user has saved an appearance choice.
+    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.defaultValue.rawValue
     @AppStorage(LRCLIBLyrics.enabledKey) private var lrclibEnabled = false
     /// "Find More Like This", pointed outward at the public catalogues. Off by default.
     @AppStorage(ExternalDiscovery.enabledKey) private var externalDiscoveryEnabled = false

@@ -9,9 +9,8 @@ import SwiftUI
 /// near-black text over a warm wash is unreadable. But "the player needs dark" is not the
 /// same claim as "you may not use this app in light mode", and nothing offered a way out.
 ///
-/// So this is the way out, defaulting to Dark: nobody's app changes today, and the people
-/// for whom a permanently dark window is a problem have an answer that does not involve
-/// giving up the app.
+/// New installations follow System. A saved choice remains authoritative, and the player
+/// keeps its deliberate dark styling independently of the surrounding app chrome.
 public enum AppearanceSetting: String, CaseIterable, Identifiable, Sendable {
     case system, light, dark
 
@@ -41,8 +40,14 @@ public enum AppearanceSetting: String, CaseIterable, Identifiable, Sendable {
     /// room and a phone in bed genuinely want different answers.
     public static let key = "baton.appearance"
 
+    public static let defaultValue: AppearanceSetting = .system
+
+    public static func read(from defaults: UserDefaults) -> AppearanceSetting {
+        AppearanceSetting(rawValue: defaults.string(forKey: key) ?? "") ?? defaultValue
+    }
+
     public static var current: AppearanceSetting {
-        AppearanceSetting(rawValue: BatonStorage.defaults.string(forKey: key) ?? "") ?? .dark
+        read(from: BatonStorage.defaults)
     }
 }
 

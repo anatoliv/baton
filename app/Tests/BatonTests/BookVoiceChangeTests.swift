@@ -420,6 +420,69 @@ final class BookVoiceChangeTests: XCTestCase {
         XCTAssertEqual(clippings.item(id: kept.id)?.clipping.voice, "kokoro:af_heart")
     }
 
+    // MARK: - A voice that cannot be had
+
+    /// Refuses one voice as unreachable, every time, the way a voice server that is down or an
+    /// engine that will not read the voice does; reads any other.
+    actor OneVoiceDown: SpeechSynthesizing {
+        let down: String
+        init(down: String) { self.down = down }
+        func synthesize(text: String, voice: String, speed: Double?) async throws -> Data {
+            if voice == down { throw SynthesisError.transient("kokoro did not answer: connection refused") }
+            return try await VoicedKokoro().synthesize(text: text, voice: voice, speed: speed)
+        }
+    }
+
+    /// Owner report, 2026-10-17: "after changing the voice, the old voices stays active until
+    /// application is restarted". A book paused because its voice cannot be had is the usual
+    /// reason to change the voice; the paused job's retry went on after Change Voice cancelled
+    /// it, and this Mac's renderer, which makes one book at a time, never reached the book in
+    /// its new voice until a relaunch. It is made at once now, and says so while it is.
+    func testABookPausedOnItsVoiceIsMadeInTheNewVoiceWithoutARelaunch() async throws {
+        let clippings = clippingStore()
+        // A long backoff, as in the app: the retry is asleep when Change Voice comes.
+        let library = DocumentLibrary(clippings: clippings, directory: root.appendingPathComponent("Books"),
+                                      synthesizer: OneVoiceDown(down: "kokoro:af_heart"),
+                                      retry: .init(initialDelay: 30, maximumDelay: 60),
+                                      refreshInterval: .milliseconds(20), storageDefaults: ThrowawayDefaults.make("voice-change-paused"),
+                                      gateway: { nil })
+        library.start(force: true)
+        let book = try book()
+        let oldID = try await library.submit(book)
+        try await eventually(library, timeout: 10) { library.store.load(oldID)?.status == .paused }
+        XCTAssertEqual(library.store.load(oldID)?.status, .paused, "the old voice cannot be had")
+        XCTAssertTrue(library.canChangeVoice(try row(library, book.documentID)))
+
+        try await library.changeVoice(try row(library, book.documentID), to: "kokoro:af_sky")
+        let newID = BookJob.id(for: book.inVoice("kokoro:af_sky"))
+        XCTAssertEqual(library.job(forDocument: book.documentID)?.id, newID)
+
+        try await eventually(library, timeout: 10) {
+            clippings.chapters(ofDocument: book.documentID).count == 2
+        }
+        XCTAssertEqual(clippings.chapters(ofDocument: book.documentID).map(\.clipping.voice), ["kokoro:af_sky", "kokoro:af_sky"],
+                       "the book is made in its new voice without a relaunch")
+        XCTAssertNil(library.store.load(oldID), "the paused job is gone")
+    }
+
+    /// Read Along shows the timing of the audio a chapter has now: a chapter given a new voice
+    /// keeps its row and id, so the panel's timing is keyed by the audio as well.
+    func testReadAlongTimingFollowsTheChaptersAudio() throws {
+        let clippings = clippingStore()
+        let first = root.appendingPathComponent("first.m4a")
+        try Data(repeating: 0x41, count: 2_048).write(to: first)
+        let kept = try clippings.adopt(first, title: "Chapter 1", sha256: "aa",
+                                       chapter: .init(documentID: "doc", documentTitle: "Book", author: nil,
+                                                      chapterIndex: 0, chapterTitle: "Chapter 1"),
+                                       voice: "kokoro:af_heart")
+        let second = root.appendingPathComponent("second.m4a")
+        try Data(repeating: 0x42, count: 2_048).write(to: second)
+        let (replaced, _) = try clippings.replaceAudio(id: kept.id, with: second, durationSeconds: 3, sha256: "bb",
+                                                       voice: "kokoro:af_sky")
+        XCTAssertEqual(replaced.id, kept.id)
+        XCTAssertNotEqual(ReadAlongPanel.timingIdentity(of: replaced), ReadAlongPanel.timingIdentity(of: kept))
+    }
+
     // MARK: - Waiting
 
     private func eventually(_ library: DocumentLibrary, timeout: TimeInterval = 30, _ condition: () -> Bool) async throws {

@@ -813,6 +813,9 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// and a `play()` would do nothing.
     var hasCurrentItem: Bool { player.currentItem != nil }
 
+    /// The song a crossfade is blending into, while one is.
+    var crossfadeSongID: String? { crossfadingInto?.id }
+
     /// The URL the player is actually sounding right now.
     ///
     /// The one observation that separates "named the right track" from "played the right
@@ -828,4 +831,14 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// Stand in for "this stream was fetched with `timeOffset`", which a local file can't
     /// produce (it is fully seekable, so a seek never needs a re-request). Test seam.
     func setStreamStartOffsetForTesting(_ seconds: TimeInterval) { streamStartOffset = seconds }
+
+    /// How long the item playing and the gapless next item are, as each item's own asset says:
+    /// the audio the player holds, not the queue's account of it.
+    var itemDurationsForTesting: (current: Double?, next: Double?) {
+        func seconds(_ item: AVPlayerItem?) -> Double? {
+            guard let value = item?.duration.seconds, value.isFinite, value > 0 else { return nil }
+            return value
+        }
+        return (seconds(player.currentItem), seconds(preload?.item))
+    }
 }

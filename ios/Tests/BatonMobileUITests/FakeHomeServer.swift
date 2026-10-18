@@ -42,6 +42,15 @@ final class FakeHomeServer: @unchecked Sendable {
     /// How long each tone chapter is, when there are no narrated chapters.
     private let toneSeconds: Double
     private func seconds(chapter n: Int) -> Double { speech.map { $0.seconds[(n - 1) % $0.seconds.count] } ?? toneSeconds }
+    /// Other tones for a book read by one narrator, so a book made again in
+    /// another voice is other audio, of another length, and the player can be seen to take it.
+    private var voiced: [String: (seconds: Double, audio: [Data])] = [:]
+    private func audio(chapter n: Int, of job: BookJob) -> Data {
+        voiced[job.book.voices.narrator].map { $0.audio[(n - 1) % $0.audio.count] } ?? audio(chapter: n)
+    }
+    private func seconds(chapter n: Int, of job: BookJob) -> Double {
+        voiced[job.book.voices.narrator]?.seconds ?? seconds(chapter: n)
+    }
     /// Whether `GET /v1/books` answers that books are on, and why not when they are off.
     private var booksOn = true
     private var booksOffReason = "no voice server is set up"
@@ -116,6 +125,11 @@ final class FakeHomeServer: @unchecked Sendable {
     func setBooksOff(reason: String) { lock.withLock { booksOn = false; booksOffReason = reason } }
     /// List these voices on `GET /v1/voices`, or answer 404 with nil.
     func setVoices(_ specs: [String]?) { lock.withLock { voices = specs } }
+    /// Chapters `seconds` long, in tones of their own, for a book read by `narrator`.
+    func setChapterSeconds(_ seconds: Double, forNarrator narrator: String) throws {
+        let audio = try (0..<4).map { try Self.makeAudio(seconds: seconds, frequency: 330 + 110 * Double($0)) }
+        lock.withLock { voiced[narrator] = (seconds, audio) }
+    }
     /// The narrator of a submitted book, as its voice plan names it.
     func narrator(ofBook id: String) -> String? { lock.withLock { jobs[id]?.book.voices.narrator } }
     /// A file the app put in the file store, with its content type.
@@ -267,9 +281,9 @@ final class FakeHomeServer: @unchecked Sendable {
             }
             if parts.count == 5, parts[3] == "chapters", let n = Int(parts[4]) {
                 guard n >= 1, n <= (readyCount[id] ?? 0) else { return (404, [:], Data()) }
-                let chapter = audio(chapter: n)
+                let chapter = audio(chapter: n, of: job)
                 return (200, ["Content-Type": "audio/mp4", "X-Baton-SHA256": SHA256Digest.hex(of: chapter),
-                              "X-Baton-Duration": String(format: "%.3f", seconds(chapter: n)), "X-Baton-Name": "chapter-\(n).m4a"], chapter)
+                              "X-Baton-Duration": String(format: "%.3f", seconds(chapter: n, of: job)), "X-Baton-Name": "chapter-\(n).m4a"], chapter)
             }
             return (200, ["Content-Type": "application/json"], (try? BookJSON.encoder.encode(summary(job))) ?? Data())
         }
@@ -337,8 +351,9 @@ final class FakeHomeServer: @unchecked Sendable {
         let ready = readyCount[job.id] ?? 0
         for i in job.chapters.indices {
             job.chapters[i] = i < ready
-                ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio(chapter: i + 1).count, seconds: seconds(chapter: i + 1),
-                         sha256: SHA256Digest.hex(of: audio(chapter: i + 1)))
+                ? .ready(file: "chapter-\(i + 1).m4a", bytes: audio(chapter: i + 1, of: original).count,
+                         seconds: seconds(chapter: i + 1, of: original),
+                         sha256: SHA256Digest.hex(of: audio(chapter: i + 1, of: original)))
                 : (i == ready ? .rendering(done: 1, of: 4) : .queued)
         }
         job.status = ready >= job.chapters.count ? .ready : .rendering

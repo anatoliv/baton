@@ -979,9 +979,11 @@ else
   bad "wiring: publish.sh holds mac-app-host past its last reap (reap $pack_reap, release ${pack_release:-none})"
 fi
 
-if grep -q "trap publish_cleanup EXIT INT TERM" scripts/publish.sh \
-   && grep -A5 '^publish_cleanup()' scripts/publish.sh | grep -q 'gate_lock_release' \
-   && grep -A5 '^publish_cleanup()' scripts/publish.sh | grep -q 'native_lock_release_all'; then
+if grep -q '^trap publish_cleanup EXIT$' scripts/publish.sh \
+   && grep -q "^trap 'exit 130' INT$" scripts/publish.sh \
+   && grep -q "^trap 'exit 143' TERM$" scripts/publish.sh \
+   && sed -n '/^publish_cleanup() {/,/^}/p' scripts/publish.sh | grep -q 'gate_lock_release' \
+   && sed -n '/^publish_cleanup() {/,/^}/p' scripts/publish.sh | grep -q 'native_lock_release_all'; then
   ok "wiring: the release releases every lock and intent through every exit path"
 else
   bad "wiring: publish.sh does not release its locks from its shared exit cleanup"

@@ -878,6 +878,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     func startCrossfadeForTesting(to index: Int, seconds: Double = 0.3) { startCrossfade(to: index, duration: seconds) }
     /// The queue index the deck's gapless look-ahead item stands for, or nil when none is queued.
     public var gaplessPreloadIndexForTesting: Int? { avDeck.preload?.index }
+    /// The lengths of the current and gapless-next items as their assets report them.
+    public var itemDurationsForTesting: (current: Double?, next: Double?) { avDeck.itemDurationsForTesting }
     #endif
 
     /// Owns the gapless prefetch machinery (in-flight tasks + the ephemeral disk cache + the
@@ -1171,7 +1173,18 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         configureNowPlaying()
         // If a prior run crashed while ducked for audio focus, restore the stranded volume.
         recoverStuckDuckFromPreviousSession()
+        // A chapter or reading given a new voice is heard in it now. Posted on
+        // the main actor by `ClippingStore`, which is main-actor isolated.
+        audioReplacedObserver = NotificationCenter.default.addObserver(
+            forName: ClippingStore.audioReplaced, object: nil, queue: nil
+        ) { [weak self] note in
+            guard let replacement = note.userInfo?[ClippingStore.audioReplacementKey] as? ClippingStore.AudioReplacement
+            else { return }
+            MainActor.assumeIsolated { self?.audioReplaced(replacement) }
+        }
     }
+
+    @ObservationIgnored private var audioReplacedObserver: NSObjectProtocol?
 
     // Radio-awareness hooks for media-key / Now Playing remote commands. Wired by MusicModel; nil
     // (no-op) in tests / when radio isn't used. Stored here because extensions can't hold stored
@@ -2359,6 +2372,71 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         if !preloadURL.isFileURL {
             startGaplessPrefetch(songID: songID, streamURL: streamURL, index: planned)
         }
+    }
+
+    /// A song in the queue has other audio under it: a book chapter or a reading made again in
+    /// another voice, or put back in its old one (`ClippingStore.replaceAudio`, TBX-1000000105).
+    ///
+    /// The file is replaced under the same name, but an `AVPlayerItem` already made from it
+    /// keeps the old audio, since an open file outlives its name. The player held two: the
+    /// track it is on (playing, paused or stopped), and the gapless next track, queued as soon
+    /// as the current one starts. Both played the old voice, the next chapter in full, and only
+    /// a relaunch, which builds every item afresh, brought the new one. So:
+    /// - the queue takes the song as it is now (its length, and its URL when the new audio is
+    ///   another kind of file);
+    /// - a gapless or crossfade item made from the old audio is dropped, and the next one is
+    ///   made from the new file;
+    /// - the current track is opened again at the same place, as a share of its length, since
+    ///   another voice reads at another pace; playing goes on playing, paused stays paused, and
+    ///   stopped stays stopped at its start.
+    func audioReplaced(_ replacement: ClippingStore.AudioReplacement) {
+        let old = replacement.previousSongID
+        let song = replacement.song
+        guard queue.contains(where: { $0.id == old }) else { return }
+        let wasCurrent = nowPlaying?.id == old
+        let place = currentTime
+        // A blend into or out of it is made of the old audio: end it, and the boundary that
+        // follows is an ordinary one, made from the new file. A blend between other tracks
+        // carries on.
+        if isCrossfading || avDeck.isCrossfadeRampActive, wasCurrent || avDeck.crossfadeSongID == old {
+            cancelCrossfade()
+        }
+        if let preload = avDeck.preload, preload.songID == old { avDeck.clearPreparedNext() }
+        queue = queue.map { $0.id == old ? song : $0 }
+        orderBeforeShuffle = orderBeforeShuffle?.map { $0.id == old ? song : $0 }
+        if queueSourceSongIDs?.remove(old) != nil { queueSourceSongIDs?.insert(song.id) }
+        defer { persistQueue() }   // the queue as it is now, and the place in the new audio
+        streamingLog.info("audio replaced under the queue for \(song.title, privacy: .public)\(wasCurrent ? " (current track)" : "")")
+        guard wasCurrent, !engineOwnsPlayback else {
+            preloadGaplessNextIfNeeded()
+            return
+        }
+        // A file on this device has no server to honour a stream offset: it opens at its start
+        // and seeks to the place once ready, a reading as well as a chapter.
+        let newLength = song.duration.map(Double.init)
+        let target = min(Self.samePlace(place, from: replacement.previousDurationSeconds, to: newLength),
+                         max(0, (newLength ?? .infinity) - 1))
+        switch state {
+        case .playing, .loading, .paused:
+            pendingSeek = target > 0 ? target : nil
+            loadCurrent(autoplay: state != .paused, isContinuation: true)
+            if target > 0 { currentTime = target }
+        case .idle:
+            // Stopped keeps its track at 0:00 for a later Play; that track is now the new file.
+            guard avDeck.hasCurrentItem else { return }
+            loadCurrent(autoplay: false, isContinuation: true)
+            state = .idle
+            pushNowPlaying()
+        case .error:
+            break   // Retry opens the file again, and finds the new audio.
+        }
+    }
+
+    /// The same place in audio of another length: the same share of it. Unchanged when either
+    /// length is unknown.
+    nonisolated static func samePlace(_ seconds: TimeInterval, from oldLength: Double?, to newLength: Double?) -> TimeInterval {
+        guard let oldLength, let newLength, oldLength > 0, newLength > 0 else { return seconds }
+        return seconds * newLength / oldLength
     }
 
     /// Withdraw a gapless preload that was already set up before "pause at end of track"

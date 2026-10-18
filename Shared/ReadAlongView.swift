@@ -58,12 +58,19 @@ struct ReadAlongPanel: View {
         //. Not for VoiceOver: a release build says nothing extra.
         .accessibilityValue(currentTime.map { String(format: "playhead %.2f", $0) } ?? "")
         #endif
-        .task(id: item.id) {
+        // By the audio as well as the chapter: a chapter given a new voice keeps its row and
+        // id, and its sentences sit at other times in the new audio.
+        .task(id: Self.timingIdentity(of: item)) {
             readAlong = nil
             isFollowing = true
             let timing = await loadTiming(item)
             readAlong = ReadAlong(timing: timing, fallbackText: item.clipping.text)
         }
+    }
+
+    /// What the timing shown belongs to: this chapter in this audio.
+    static func timingIdentity(of item: ClippingStore.Item) -> String {
+        "\(item.id)|\(item.clipping.sha256 ?? "")|\(item.clipping.voice ?? "")"
     }
 
     private func content(_ along: ReadAlong) -> some View {

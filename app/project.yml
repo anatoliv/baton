@@ -79,8 +79,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.20.7"
-    CURRENT_PROJECT_VERSION: "124"
+    MARKETING_VERSION: "0.20.8"
+    CURRENT_PROJECT_VERSION: "125"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -245,6 +245,23 @@ targets:
         # are chosen — no per-string wrapping needed. English is the development/source language.
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
         SWIFT_EMIT_LOC_STRINGS: YES
+        # Set here rather than through XcodeGen's `entitlements:` key, which would write the
+        # same file into every configuration and override the Release one below.
+        CODE_SIGN_ENTITLEMENTS: Baton.entitlements
+      configs:
+        # Song and mixtape links on batonmusic.app open in the app (TBX-8693). Only Release
+        # carries the restricted associated-domains entitlement, and scripts/publish.sh signs
+        # it with the "Baton Mac Developer ID" profile. Debug, test and probe builds keep the
+        # core-only Baton.entitlements: no Mac App Development profile has Associated Domains,
+        # and a restricted entitlement with no profile makes AMFI refuse to launch the app.
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Baton.Release.entitlements
+          # publish.sh sets BATON_MAC_RELEASE_PROFILE to the qualified profile's UUID (with
+          # manual Developer ID signing) through its xcconfig. Only this target reads it:
+          # Swift package targets refuse any provisioning profile. Without it, a Release build
+          # cannot sign (no development profile has the capability), so build Release through
+          # publish.sh; nothing else in the repo does.
+          PROVISIONING_PROFILE_SPECIFIER: "$(BATON_MAC_RELEASE_PROFILE)"
     info:
       path: Info.plist
       properties:
@@ -390,12 +407,6 @@ targets:
         # Shared EdDSA public key (the private key lives in the login Keychain;
         # Sparkle recommends one key across all your apps). Public, safe to commit.
         SUPublicEDKey: "pDgN5Ibe6Q9QY5cxRpXmXLm/S2lBGbVLy/eBVEW1nTo="
-    entitlements:
-      path: Baton.entitlements
-      properties:
-        com.apple.security.app-sandbox: false
-        com.apple.security.network.client: true
-        com.apple.security.network.server: true
 
   BatonTests:
     type: bundle.unit-test

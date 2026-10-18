@@ -36,6 +36,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 DIR="$PWD"
+REAL_PYTHON="$(command -v python3)"
 # The subject is overridable so a mutant copy can be driven through this same harness,
 # which is how each of the three fixes was shown red before it was written. See
 # test-release-guard-mutants.sh for the same idea applied to the release guard:
@@ -412,6 +413,13 @@ if grep -q 'BATON_INTERNAL_DIAGNOSTICS="$INTERNAL_DIAGNOSTICS"' "$SUBJECT" && \
   ok "TBX-5498 the destructive canary is explicit, bounded to Crashbox TestFlight, and off by default"
 else
   bad "TBX-5498: the destructive canary build flag is no longer fail-closed"
+fi
+
+if "$REAL_PYTHON" "$DIR/test-attach-build.py" >"$WORK/attach-tests.log" 2>&1; then
+  ok "TBX-1000000095 attachment pagination: 8 focused cases, no Apple or credentials"
+else
+  bad "TBX-1000000095 attachment pagination regression"
+  cat "$WORK/attach-tests.log"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

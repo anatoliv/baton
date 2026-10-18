@@ -305,6 +305,14 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.5",
+            date: "October 2026",
+            highlight: "Baton follows your iPhone's appearance on new installations.",
+            changes: [
+                .init(.fixed, "New installations start with System appearance. Your saved Light or Dark choice stays unchanged."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.4",
             date: "October 2026",
             highlight: "Alarm and Timer, like the Clock app's, that wake you with Baton.",

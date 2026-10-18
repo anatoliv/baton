@@ -26,9 +26,9 @@ struct RootTabView: View {
     /// every tab was flat black while the Mac's whole window took its color
     /// from the track.
     @State private var paletteLoader = ArtworkPaletteLoader()
-    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
+    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.defaultValue.rawValue
     private var appearance: AppearanceSetting {
-        AppearanceSetting(rawValue: appearanceRaw) ?? .dark
+        AppearanceSetting(rawValue: appearanceRaw) ?? AppearanceSetting.defaultValue
     }
 
     /// Cover URL at the canonical extraction size, so the phone derives the

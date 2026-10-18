@@ -49,8 +49,8 @@ cp -R "$ROOT/scripts" "$SRC/scripts"
 cp -R "$ROOT/ios/scripts" "$SRC/ios/scripts"
 cp -R "$ROOT/gateway/deploy" "$SRC/gateway/deploy"
 cp "$ROOT/app/project.yml" "$SRC/app/project.yml"
-# publish.sh's associated-domain preflight (TBX-8693) reads these before its guard.
-cp "$ROOT/app/Baton.entitlements" "$SRC/app/Baton.entitlements"
+# publish.sh's associated-domain preflight (TBX-8693) reads these; it runs after the guard.
+cp "$ROOT/app/Baton.entitlements" "$ROOT/app/Baton.Release.entitlements" "$SRC/app/"
 mkdir -p "$SRC/website/.well-known"
 cp "$ROOT/website/.well-known/apple-app-site-association" "$SRC/website/.well-known/apple-app-site-association"
 cp "$ROOT/ios/project.yml" "$SRC/ios/project.yml"

@@ -878,5 +878,11 @@ else
   bad "TBX-8675/TBX-8676 song-sharing script regressions"
 fi
 
+if python3 "$PWD/scripts/test-publish-shell.py"; then
+  ok "TBX-11148 Bash3.2 signing arguments and cleanup exit status"
+else
+  bad "TBX-11148 Bash3.2 publisher shell regressions"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

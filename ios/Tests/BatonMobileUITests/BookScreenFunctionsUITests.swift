@@ -205,6 +205,49 @@ final class BookScreenFunctionsUITests: XCTestCase {
         attach("BookScreen-09-list")
     }
 
+    /// Owner report, 2026-10-17: "after changing the voice, the old voices stays active until
+    /// application is restarted". A book playing when the home server has made
+    /// it again goes on in the new voice, at the same place, without a relaunch: here the new
+    /// voice's chapters are a minute long against the old two, so the full player's length says
+    /// which audio the player holds.
+    func testABookPlayingWhenItsNewVoiceLandsIsHeardInIt() throws {
+        try server.setChapterSeconds(60, forNarrator: "kokoro:am_adam")
+        app.launch()
+        openTheBook()
+        let main = BooksScreen.playButton(app)
+        main.tap()
+        XCTAssertTrue(waitFor(10) { main.label == "Pause" }, "the book plays, got \(main.label)")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 6))
+
+        openFullPlayer(in: app)
+        let content = app.descendants(matching: .any).matching(identifier: "FullPlayerContent").firstMatch
+        let elapsed = app.staticTexts["player-elapsed"].firstMatch
+        XCTAssertTrue(content.buttons["2:00"].firstMatch.waitForExistence(timeout: 10),
+                      "chapter 1 in the old voice is two minutes long\n\(app.debugDescription)")
+        report("before the change: \(elapsed.label) of 2:00 at \(Date())")
+        attach("VoiceLive-01-old-voice")
+        dismissFullPlayer(in: app)
+
+        // Change Voice…: the home server has it made at once (`setReadyOnSubmit(3)`).
+        revealAbovePlayer(app.buttons["Change Voice…"].firstMatch).tap()
+        let adam = app.buttons["narrator-kokoro:am_adam"].firstMatch
+        XCTAssertTrue(adam.waitForExistence(timeout: 15), "Change Voice offers Adam")
+        adam.tap()
+        app.buttons["make-again"].firstMatch.tap()
+        report("Make Again pressed at \(Date())")
+
+        openFullPlayer(in: app)
+        XCTAssertTrue(content.buttons["1:00"].firstMatch.waitForExistence(timeout: 60),
+                      "the playing chapter is the new voice's one-minute audio, without a relaunch\n\(app.debugDescription)")
+        report("after the change: \(elapsed.label) of 1:00 at \(Date())")
+        attach("VoiceLive-02-new-voice")
+        let first = elapsed.label
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 3))
+        XCTAssertNotEqual(elapsed.label, first, "and it plays on")
+        dismissFullPlayer(in: app)
+        XCTAssertEqual(server.narrators.sorted(), ["kokoro:am_adam"], "the home server holds the book in its new voice only")
+    }
+
     /// The two buttons at larger text sizes: one line each and the same size side by side while
     /// that fits, else stacked at full width, never wrapped.
     func testTheButtonsAtLargerTextSizes() throws {

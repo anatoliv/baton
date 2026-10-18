@@ -1,5 +1,6 @@
 import SwiftUI
 import XCTest
+import BatonSubsonicKit
 @testable import Baton
 
 /// `Shared/` is compiled into both apps and is not a package, so it has no test target of its
@@ -163,11 +164,37 @@ final class SharedBrowseAndActionsTests: XCTestCase {
         XCTAssertEqual(AppearanceSetting.allCases.map(\.label), ["System", "Light", "Dark"])
     }
 
-    /// Dark by default, so nobody's app changes: the artwork wash is built for a dark ground.
-    /// An unreadable or absent stored value falls back to it rather than to `.system`.
-    func testAnUnrecognisedStoredValueFallsBackToDark() {
-        XCTAssertEqual(AppearanceSetting(rawValue: "sepia"), nil)
-        XCTAssertEqual(AppearanceSetting(rawValue: "") ?? .dark, .dark)
+    func testNewInstallationUsesSystemWithoutSavingAnOverride() {
+        let suite = ThrowawayDefaults.name("appearance")
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertNil(defaults.object(forKey: AppearanceSetting.key))
+        XCTAssertEqual(AppearanceSetting.defaultValue, .system)
+        XCTAssertEqual(AppearanceSetting.read(from: defaults), .system)
+        XCTAssertNil(defaults.object(forKey: AppearanceSetting.key))
+    }
+
+    func testSavedAppearanceChoicesRemainAuthoritative() {
+        let suite = ThrowawayDefaults.name("appearance")
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        for choice in AppearanceSetting.allCases {
+            defaults.set(choice.rawValue, forKey: AppearanceSetting.key)
+            XCTAssertEqual(AppearanceSetting.read(from: defaults), choice)
+            XCTAssertEqual(defaults.string(forKey: AppearanceSetting.key), choice.rawValue)
+        }
+    }
+
+    func testUnrecognisedAppearanceUsesSystemWithoutRewritingTheStoredValue() {
+        let suite = ThrowawayDefaults.name("appearance")
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        defaults.set("sepia", forKey: AppearanceSetting.key)
+        XCTAssertEqual(AppearanceSetting.read(from: defaults), .system)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSetting.key), "sepia")
     }
 
     // MARK: - MixCards

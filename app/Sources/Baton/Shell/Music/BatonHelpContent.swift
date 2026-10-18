@@ -323,6 +323,20 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.8",
+            date: "October 2026",
+            highlight: "A new voice plays without a restart, and song links from friends open in Baton.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "When you change a book's voice, you hear the new voice as soon as it is made, without restarting Baton. "
+                    + "A chapter that is playing carries on from about the same place."),
+                HelpWhatsNewChange(.improved,
+                    "Song and mixtape links a friend sends you now open in Baton on your Mac, as they do on iPhone."),
+                HelpWhatsNewChange(.fixed,
+                    "New installations start with System appearance. Your saved Light or Dark choice stays unchanged."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.7",
             date: "October 2026",
             highlight: "Alarm and Timer, like the Clock app's, that wake you with Baton.",

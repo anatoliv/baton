@@ -44,8 +44,11 @@ def digest(data):
 
 
 def decode_profile(path):
-    # Explicit system certificate store; never discover or inspect the owner's login keychain.
-    return plistlib.loads(run(["/usr/bin/security", "cms", "-D", "-k", "/Library/Keychains/System.keychain", "-i", str(path)]))
+    # Checks the CMS signature over the profile and reads its payload without any keychain.
+    # (`security cms -D -k <System.keychain>` tried to import the signer into that keychain and
+    # failed without root on the first real profile; the login keychain is never consulted.)
+    # Chain trust is not decided here: Apple's own checks at build, sign and launch do that.
+    return plistlib.loads(run(["/usr/bin/openssl", "smime", "-inform", "DER", "-verify", "-noverify", "-in", str(path)]))
 
 
 def write_private(path, data):
@@ -127,7 +130,9 @@ def profile_claims(profile, source, certificate, now):
     domains = source.get(DOMAIN_KEY)
     require(domains == DOMAINS, "source must request exactly the two reviewed applinks domains")
     authorization = allowed.get(DOMAIN_KEY, [])
-    require(isinstance(authorization, list) and all(domain in authorization or "*" in authorization for domain in domains),
+    # Apple's Developer ID profiles grant the capability as the plain string "*".
+    require(authorization == "*" or (isinstance(authorization, list) and
+                                     all(domain in authorization or "*" in authorization for domain in domains)),
             "profile does not authorize every requested associated domain")
     claims = dict(source)
     for key, value in [(APP_ID_KEY, app_id), (TEAM_KEY, team)]:
@@ -149,8 +154,10 @@ def profile_claims(profile, source, certificate, now):
 
 
 def check_certificate(path, team, now):
-    subject = run(["/usr/bin/openssl", "x509", "-inform", "DER", "-in", str(path), "-noout", "-subject", "-nameopt", "sep_multiline,sname"]).decode()
-    require(re.search(r"^\s*CN\s*=\s*Developer ID Application: .+", subject, re.M), "signing leaf is not Developer ID Application")
+    subject = run(["/usr/bin/openssl", "x509", "-inform", "DER", "-in", str(path), "-noout", "-subject", "-nameopt", "sep_multiline,sname,utf8"]).decode()
+    common_name = re.search(r"^\s*CN\s*=\s*(Developer ID Application: [^\n]+?)\s*$", subject, re.M)
+    require(common_name and re.fullmatch(r"Developer ID Application: [\w .,'&-]{1,120} \(" + re.escape(team) + r"\)", common_name[1]),
+            "signing leaf is not a Developer ID Application certificate for this team")
     require(re.search(r"^\s*OU\s*=\s*" + re.escape(team) + r"\s*$", subject, re.M), "signing leaf team disagrees with profile")
     dates = run(["/usr/bin/openssl", "x509", "-inform", "DER", "-in", str(path), "-noout", "-dates"]).decode().splitlines()
     values = dict(line.split("=", 1) for line in dates)
@@ -159,6 +166,7 @@ def check_certificate(path, team, now):
     require(parse(values["notBefore"]) <= now < parse(values["notAfter"]), "signing certificate is not currently valid")
     text = run(["/usr/bin/openssl", "x509", "-inform", "DER", "-in", str(path), "-noout", "-text"]).decode()
     require("1.2.840.113635.100.6.1.13" in text, "Developer ID Application extension is missing")
+    return common_name[1]
 
 
 def preflight(source_path, aasa_path, workspace, environment):
@@ -171,21 +179,33 @@ def preflight(source_path, aasa_path, workspace, environment):
              "sourceSHA256": digest(source_data), "aasa": str(Path(aasa_path).resolve()), "claims": source}
     if state["associated"]:
         names = ["MAC_ASSOCIATION_PROFILE_FILE", "MAC_ASSOCIATION_PROFILE_SHA256",
-                 "MAC_ASSOCIATION_CERTIFICATE_FILE", "MAC_ASSOCIATION_CERTIFICATE_SHA256", "SIGN_ID"]
-        require(all(environment.get(name) for name in names), "associated-domain signing needs explicit approved profile/certificate files, hashes and SIGN_ID")
-        profile_bytes = read(environment[names[0]])
-        certificate = read(environment[names[2]], 65536)
-        require(re.fullmatch(r"[0-9a-fA-F]{64}", environment[names[1]]) and digest(profile_bytes) == environment[names[1]].lower(), "approved profile hash mismatch")
-        require(re.fullmatch(r"[0-9a-fA-F]{64}", environment[names[3]]) and digest(certificate) == environment[names[3]].lower(), "approved certificate hash mismatch")
-        require(environment["SIGN_ID"].lower() == hashlib.sha1(certificate).hexdigest(), "SIGN_ID must select the exact approved leaf certificate SHA1")
+                 "MAC_ASSOCIATION_CERTIFICATE_SHA256", "SIGN_ID"]
+        require(all(environment.get(name) for name in names), "associated-domain signing needs explicit approved profile file, profile and certificate hashes and SIGN_ID")
+        profile_bytes = read(environment["MAC_ASSOCIATION_PROFILE_FILE"])
+        require(re.fullmatch(r"[0-9a-fA-F]{64}", environment["MAC_ASSOCIATION_PROFILE_SHA256"]) and digest(profile_bytes) == environment["MAC_ASSOCIATION_PROFILE_SHA256"].lower(), "approved profile hash mismatch")
+        require(re.fullmatch(r"[0-9a-fA-F]{64}", environment["MAC_ASSOCIATION_CERTIFICATE_SHA256"]), "approved certificate hash is malformed")
         profile_path = workspace / "approved.provisionprofile"
         cert_path = workspace / "approved.cer"
-        write_private(profile_path, profile_bytes); write_private(cert_path, certificate)
+        write_private(profile_path, profile_bytes)
         # Decoding is inspection, not a substitute for Apple/OS profile trust or DER acceptance.
         profile = decode_profile(profile_path)
+        if environment.get("MAC_ASSOCIATION_CERTIFICATE_FILE"):
+            certificate = read(environment["MAC_ASSOCIATION_CERTIFICATE_FILE"], 65536)
+        else:
+            # The approved profile embeds its public signing leaf; select it by the pinned hash.
+            leaves = [leaf for leaf in profile.get("DeveloperCertificates", [])
+                      if isinstance(leaf, bytes) and digest(leaf) == environment["MAC_ASSOCIATION_CERTIFICATE_SHA256"].lower()]
+            require(len(leaves) == 1, "approved certificate is not in the approved profile")
+            certificate = leaves[0]
+        require(digest(certificate) == environment["MAC_ASSOCIATION_CERTIFICATE_SHA256"].lower(), "approved certificate hash mismatch")
+        write_private(cert_path, certificate)
         now = dt.datetime.now(dt.timezone.utc)
         claims = profile_claims(profile, source, certificate, now)
-        check_certificate(cert_path, claims[TEAM_KEY], now)
+        name = check_certificate(cert_path, claims[TEAM_KEY], now)
+        # SIGN_ID is the certificate's SHA1 or its full common name; either selects this leaf,
+        # and the signed-artifact readback below proves which leaf actually signed.
+        require(environment["SIGN_ID"].lower() == hashlib.sha1(certificate).hexdigest() or environment["SIGN_ID"] == name,
+                "SIGN_ID must name or hash the exact approved leaf certificate")
         aasa_data = read(aasa_path)
         check_aasa(json.loads(aasa_data), claims[APP_ID_KEY])
         state.update(claims=claims, profileSHA256=digest(profile_bytes), certificateSHA256=digest(certificate),
@@ -193,11 +213,16 @@ def preflight(source_path, aasa_path, workspace, environment):
                      profile=str(profile_path), certificate=str(cert_path), aasaSHA256=digest(aasa_data))
         # Xcode signs the nested product normally using an already installed exact profile.
         # No provisioning-update flag or installation/account mutation is performed here.
+        # An -xcconfig reaches every target, and package targets refuse any profile, so the
+        # UUID travels in a variable only the Baton target's Release configuration reads
+        # (app/project.yml: PROVISIONING_PROFILE_SPECIFIER = $(BATON_MAC_RELEASE_PROFILE)).
         settings = (
-            "CODE_SIGN_STYLE = Manual\nCODE_SIGN_IDENTITY = " + environment["SIGN_ID"] + "\n"
+            "CODE_SIGN_STYLE = Manual\nCODE_SIGN_IDENTITY = " + name + "\n"
             "DEVELOPMENT_TEAM = " + claims[TEAM_KEY] + "\n"
-            "PROVISIONING_PROFILE = " + profile["UUID"] + "\n"
-            "PROVISIONING_PROFILE_SPECIFIER = " + profile["UUID"] + "\n").encode()
+            # An `xcodebuild build` otherwise injects get-task-allow, which a Developer ID
+            # release must not carry and which the qualification below refuses.
+            "CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO\n"
+            "BATON_MAC_RELEASE_PROFILE = " + profile["UUID"] + "\n").encode()
         state["xcconfigSHA256"] = digest(settings)
         write_private(workspace / "association.xcconfig", settings)
     else:

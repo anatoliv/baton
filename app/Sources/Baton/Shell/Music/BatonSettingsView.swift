@@ -543,9 +543,8 @@ private struct BatonAgentsPane: View {
 /// *window* (⌘-menu → About Baton) still uses `BatonAboutView`; this is the
 /// consistent in-Settings presentation of the same facts.
 private struct BatonAboutPane: View {
-    /// Defaults to Dark — what the window has always been — so this appearing changes
-    /// nothing until somebody moves it.
-    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.dark.rawValue
+    /// Follow System unless the user has saved an appearance choice.
+    @AppStorage(AppearanceSetting.key) private var appearanceRaw = AppearanceSetting.defaultValue.rawValue
     @AppStorage(LRCLIBLyrics.enabledKey) private var lrclibEnabled = false
 
     /// Opt-in remote crash & error reporting. Off by default. See CrashReporting.
