@@ -138,4 +138,41 @@ final class PendingImportRelaunchTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: pending.path))
         XCTAssertNil(MobileModel().pendingDocumentImport, "nothing comes back on the launch after")
     }
+
+    /// An import screen's close ends its own document only. Make Audiobook's
+    /// upload keeps going after Cancel and closes the screen when it returns; by then another
+    /// document may be on screen, and that late close must leave it there.
+    func testALateCloseFromAnEarlierImportScreenLeavesTheNextDocumentPending() {
+        let model = MobileModel()
+        let first = work.appendingPathComponent("First.txt")
+        let second = work.appendingPathComponent("Second.txt")
+
+        // Make Audiobook on the first document, then Cancel while the upload is out.
+        model.pendingDocumentImport = first
+        let firstScreen = model.importGeneration
+        model.endImport(generation: firstScreen)          // Cancel
+        XCTAssertNil(model.pendingDocumentImport, "Cancel closes its own screen")
+
+        // A second document opens; the first upload returns and closes "its" screen.
+        model.pendingDocumentImport = second
+        model.endImport(generation: firstScreen)
+        XCTAssertEqual(model.pendingDocumentImport, second, "the late close leaves the second import screen up")
+
+        // The same file opened again after Cancel is a new screen too.
+        let secondScreen = model.importGeneration
+        model.endImport(generation: secondScreen)
+        model.pendingDocumentImport = second
+        model.endImport(generation: secondScreen)
+        XCTAssertEqual(model.pendingDocumentImport, second, "a reopened document is not closed by the earlier screen")
+
+        // Another document taking the screen without a Cancel: the first screen's close is stale.
+        let reopened = model.importGeneration
+        model.pendingDocumentImport = first
+        model.endImport(generation: reopened)
+        XCTAssertEqual(model.pendingDocumentImport, first)
+
+        // The screen on show still closes itself.
+        model.endImport(generation: model.importGeneration)
+        XCTAssertNil(model.pendingDocumentImport)
+    }
 }

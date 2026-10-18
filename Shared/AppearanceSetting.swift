@@ -10,7 +10,8 @@ import SwiftUI
 /// same claim as "you may not use this app in light mode", and nothing offered a way out.
 ///
 /// New installations follow System. A saved choice remains authoritative, and the player
-/// keeps its deliberate dark styling independently of the surrounding app chrome.
+/// follows this choice on Mac, including the full player and Mini Player. The iPhone
+/// player retains its separate dark treatment.
 public enum AppearanceSetting: String, CaseIterable, Identifiable, Sendable {
     case system, light, dark
 
@@ -54,9 +55,8 @@ public enum AppearanceSetting: String, CaseIterable, Identifiable, Sendable {
 public extension View {
     /// Applies the user's appearance choice.
     ///
-    /// Player surfaces should NOT use this — they stay dark unconditionally, because the
-    /// artwork wash and the white-on-dark transport are a fixed design rather than a
-    /// preference. This is for the library, browse and settings chrome around them.
+    /// Mac windows, including player windows, share this choice. The iPhone player
+    /// currently supplies its own dark appearance.
     func batonAppearance(_ setting: AppearanceSetting) -> some View {
         preferredColorScheme(setting.colorScheme)
     }

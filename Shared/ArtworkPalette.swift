@@ -22,35 +22,23 @@ struct ArtworkPalette: Equatable {
         accent: Color(red: 0.22, green: 0.22, blue: 0.22)
     )
 
-    /// The accent as applied to **foreground** player controls (progress fill, volume
-    /// fill, favorite/active state), against the `.dark` backdrop tone. Enforces the
-    /// design doc's Brand ⇄ Dynamic + contrast rules: (near-)grayscale artwork falls
-    /// back to brand orange; otherwise the vibrant accent is lightened until it clears
-    /// AA (4.5:1) against flat black.
-    ///
-    /// Kept as the property every existing caller already uses, defaulting to `.dark`:
-    /// the player surfaces (`FullScreenNowPlaying`, `MiniPlayerWindowView`, the iOS
-    /// player) force a dark backdrop regardless of the app's appearance setting, and
-    /// flat black is at least as dark as that real backdrop
-    /// (`backdropWorstCase(for: .dark)`), so it stays the conservative reference this
-    /// value has always been checked against.
+    /// Foreground accent for legacy dark player callers, including the iPhone player.
     var uiAccent: Color { uiAccent(for: .dark) }
 
-    /// `uiAccent`, told which backdrop tone it is actually drawn against.
-    ///
-    /// This used to be one fixed reference — flat black — on the reasoning that
-    /// `AdaptiveBackdrop` is always dark. That stopped being true the moment Light mode
-    /// got its own wash (WS7, PR #60): `NowPlayingBar` in the main window follows the
-    /// ambient appearance rather than forcing `.dark`, so in Light mode its accent was
-    /// still being lightened to survive *black* while the ground behind it had been
-    /// pulled toward white (`backdropLayers(for: .light)`) — an accent legible on
-    /// black can be nearly invisible on that light wash. For `.light` this clamps
-    /// against `backdropWorstCase(for: .light)` instead: this palette's own flattened,
-    /// worst-case rendering of the light wash, rather than a guess that assumed dark.
+    /// Correct the extracted accent (or neutral brand fallback) for the displayed ground.
+    /// Light surfaces need a darker accent; dark surfaces retain the existing correction.
     func uiAccent(for tone: BackdropTone) -> Color {
-        if Contrast.saturation(accent) < 0.15 { return .batonOrange }
-        let reference: Color = tone == .dark ? .black : backdropWorstCase(for: .light)
-        return Contrast.ensureContrast(of: accent, against: reference, min: 4.5)
+        let candidate = Contrast.saturation(accent) < 0.15 ? Color.batonOrange : accent
+        if tone == .dark {
+            return Contrast.ensureContrast(of: candidate, against: .black, min: 4.5)
+        }
+        let ground = backdropWorstCase(for: .light)
+        if Contrast.ratio(candidate, ground) >= 4.5 { return candidate }
+        for step in 1...12 {
+            let darker = Contrast.blend(candidate, toward: .black, amount: Double(step) / 12)
+            if Contrast.ratio(darker, ground) >= 4.5 { return darker }
+        }
+        return .black
     }
 }
 
@@ -251,19 +239,13 @@ final class ArtworkPaletteLoader {
 extension ArtworkPalette {
     /// Which ground the wash is painted for.
     ///
-    /// The wash used to have only one answer, and it was always the dark one: deep
-    /// `secondary` under three glows and a black scrim. That is right in the player,
-    /// where the transport is white on purpose. It is wrong everywhere else the moment
-    /// somebody picks Settings → Appearance → Light, because the text above it flips to
-    /// near-black while the ground stays near-black with it.
+    /// Match the artwork wash to the foreground's resolved light or dark appearance.
     enum BackdropTone: Equatable, Sendable {
         case dark, light
 
         /// What a caller with no forced tone actually gets: the ambient appearance,
         /// light or dark. `AdaptiveBackdrop.resolvedTone` and any other caller whose
-        /// backdrop follows `\.colorScheme` (rather than forcing `.dark`, the way the
-        /// player surfaces do) should use this rather than re-deriving the same
-        /// two-way match — `MusicView`'s `NowPlayingBar` accent is the other caller.
+        /// backdrop follows `\.colorScheme` use the same tone for foreground accents.
         static func resolved(for colorScheme: ColorScheme) -> BackdropTone {
             colorScheme == .light ? .light : .dark
         }
@@ -333,10 +315,8 @@ extension ArtworkPalette {
 /// "color-from-artwork" surface. Layer content over it with `.ultraThinMaterial`
 /// for the smoked-glass look.
 ///
-/// Follows the colour scheme it is placed in unless a `tone` is passed. Player surfaces
-/// pass `.dark` and mean it: they draw white transport on this ground whatever the app's
-/// appearance setting says, and `.preferredColorScheme(.dark)` on an ancestor is a
-/// presentation-level request rather than a promise about this view's environment.
+/// Follows the colour scheme it is placed in unless a `tone` is passed. Mac players
+/// follow the app preference; the iPhone player still supplies an explicit dark tone.
 struct AdaptiveBackdrop: View {
     let palette: ArtworkPalette
     /// Nil follows `\.colorScheme`; a value overrides it.

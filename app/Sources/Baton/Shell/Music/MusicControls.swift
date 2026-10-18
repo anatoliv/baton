@@ -86,7 +86,7 @@ struct MusicScrubber: View {
                 Text("-" + Self.time(max(0, duration - shownTime)))
             }
             .font(.caption.monospacedDigit())
-            .foregroundStyle(tint.opacity(0.75))
+            .foregroundStyle(.secondary)
         }
         // VoiceOver: one adjustable element (the custom drag track has no built-in a11y). Rotor
         // up/down seeks ±10s; the value reads elapsed-of-total.
@@ -105,7 +105,7 @@ struct MusicScrubber: View {
 
     @ViewBuilder private func capsuleTrack(width: CGFloat) -> some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(tint.opacity(0.22)).frame(height: 4)
+            Capsule().fill(Color.primary.opacity(0.45)).frame(height: 4)
             Capsule().fill(tint).frame(width: max(0, width * progress), height: 4)
             Circle().fill(tint)
                 .frame(width: dragProgress == nil ? 11 : 15, height: dragProgress == nil ? 11 : 15)
@@ -125,7 +125,7 @@ struct MusicScrubber: View {
                 let h = max(2, CGFloat(amp) * size.height)
                 let x = CGFloat(i) * (barW + gap)
                 let rect = CGRect(x: x, y: (size.height - h) / 2, width: barW, height: h)
-                let color = Double(i) <= playedTo ? tint : tint.opacity(0.28)
+                let color = Double(i) <= playedTo ? tint : Color.primary.opacity(0.45)
                 ctx.fill(Path(roundedRect: rect, cornerRadius: barW / 2), with: .color(color))
             }
         }
@@ -162,7 +162,7 @@ struct MusicVolumeControl: View {
             Button { onToggleMute?() } label: {
                 Image(systemName: showSlash ? "speaker.slash.fill" : "speaker.fill")
                     .font(.caption2)
-                    .foregroundStyle(tint.opacity(isMuted ? 1 : 0.7))
+                    .foregroundStyle(.primary)
                     .frame(width: 14)
                     .contentShape(Rectangle())
             }
@@ -174,8 +174,8 @@ struct MusicVolumeControl: View {
             GeometryReader { geo in
                 let width = geo.size.width
                 ZStack(alignment: .leading) {
-                    Capsule().fill(tint.opacity(0.2)).frame(height: 4)
-                    Capsule().fill(tint.opacity(0.9)).frame(width: width * fillFraction, height: 4)
+                    Capsule().fill(Color.primary.opacity(0.45)).frame(height: 4)
+                    Capsule().fill(tint).frame(width: width * fillFraction, height: 4)
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -299,7 +299,7 @@ struct MusicRatingCluster: View {
                     // FullScreenNowPlaying has been passing `palette.uiAccent` all along —
                     // into a branch that ignored it, so the heart stayed pink over every
                     // cover. Callers that want pink pass pink.
-                    .foregroundStyle(liked ? tint : tint.opacity(0.8))
+                    .foregroundStyle(liked ? tint : .primary)
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
@@ -314,7 +314,7 @@ struct MusicRatingCluster: View {
                     } label: {
                         Image(systemName: star <= rating ? "star.fill" : "star")
                             .font(.body)
-                            .foregroundStyle(star <= rating ? tint : tint.opacity(0.55))
+                            .foregroundStyle(star <= rating ? tint : .primary)
                             .frame(width: 24, height: 28)
                             .contentShape(Rectangle())
                     }

@@ -4,7 +4,7 @@
 // ever sees. This module unlocks the song in the browser and plays it from a blob URL: no Media
 // Source Extensions, which iOS Safari restricts, and seeking for free.
 
-import { base64Decode, base64UrlDecode, open, ShareCryptoError } from "./share-crypto.mjs";
+import { audioType, base64Decode, base64UrlDecode, open, ShareCryptoError } from "./share-crypto.mjs";
 
 const data = JSON.parse(document.getElementById("share-data").textContent);
 const $ = (id) => document.getElementById(id);
@@ -206,7 +206,7 @@ async function unlock() {
   try {
     const sealed = await fetchWithProgress(`${api}/audio`, data.share.audioBytes, (f) => progress(f * 0.85));
     const plain = await open(sealed, key, "audio", (f) => progress(0.85 + f * 0.15));
-    unlocked = URL.createObjectURL(new Blob([plain], { type: "audio/mpeg" }));
+    unlocked = URL.createObjectURL(new Blob([plain], { type: audioType(plain) }));
     audio.src = unlocked;
     $("seek").disabled = false;
     status("");

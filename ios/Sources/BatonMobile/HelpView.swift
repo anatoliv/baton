@@ -305,6 +305,18 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.6",
+            date: "October 2026",
+            highlight: "Alarm and Timer in two taps, from the player, and they wake you into it.",
+            changes: [
+                .init(.improved, "Set a timer or an alarm from the clock beside the sleep timer in the player, or from any song, album, playlist or book menu. Tap 5, 10, 15 or 30 minutes or an hour and Start, or pick a time like 7:00 tomorrow and Save. Your alarms are listed right there, so Settings no longer holds them."),
+                .init(.added, "Choose what plays from anything in your library, with nothing playing: search songs, albums, playlists, books and radio, or pick from Recently Played. A round button on each row plays ten seconds of it first."),
+                .init(.added, "A pill above the player counts the timer down, or shows tomorrow's alarm, with a tap to change it and an ✕ to cancel."),
+                .init(.fixed, "When a timer or alarm goes off, a full-screen ring comes up over whatever you were doing, Settings included. Keep playing, open player takes you straight to the player; Snooze waits nine minutes; Stop pauses."),
+                .init(.fixed, "When you change a book's voice, you hear the new voice as soon as it is made, without restarting Baton. A chapter that is playing carries on from about the same place."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.5",
             date: "October 2026",
             highlight: "Baton follows your iPhone's appearance on new installations.",

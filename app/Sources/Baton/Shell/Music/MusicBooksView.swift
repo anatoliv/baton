@@ -44,6 +44,8 @@ struct MusicBooksView: View {
     @State private var readingAlong: BookShelf.Book?
     /// The book whose voice is being changed.
     @State private var changingBook: BookShelf.Book?
+    /// The book being shared as a link.
+    @State private var sharingBook: BookShareDraft?
     /// An export in progress, or why the last one failed (M8.8).
     @State private var exportLine: String?
     @State private var exportFailed = false
@@ -243,6 +245,7 @@ struct MusicBooksView: View {
         .sheet(item: $readingAlong) { book in
             ReadAlongSheet(book: book) { chapter in startPlaying(book, fromChapter: chapter) }
         }
+        .sheet(item: $sharingBook) { draft in ShareBookSheet(book: draft) }
         .sheet(item: $changingBook) { book in
             if let target = ChangeVoiceSheet.Target.book(book, library: model.documents) {
                 ChangeVoiceSheet(target: target) { changingBook = nil }
@@ -375,9 +378,17 @@ struct MusicBooksView: View {
         if let first = book.chapters.compactMap(\.item).first(where: \.isPresent) {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([first.url]) }
         }
+        // Wake to the book, from where it was left.
+        if let choice = MacAlarms.bookChoice(book) {
+            Divider()
+            MacAlarmMenuItems(model: model, choice: choice)
+        }
         Divider()
         Button("Export Audiobook…") { exportAudiobook(book) }
             .disabled(exportLine != nil && !exportFailed || !canExport(book))
+        // A link a friend outside the LAN can play, as a song's Share… makes.
+        Button("Share…") { sharingBook = BookShareDraft(book, covers: covers) }
+            .disabled(!book.chapters.contains { $0.item?.isPresent == true })
         if model.documents.canEditPronunciations(book) {
             Button("Pronunciations…") { pronouncing = book }
         }

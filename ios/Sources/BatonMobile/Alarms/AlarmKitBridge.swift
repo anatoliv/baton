@@ -55,6 +55,15 @@ final class AlarmKitBridge: AlarmSystemBridge {
 
     var isAuthorized: Bool { manager.authorizationState == .authorized }
 
+    var permission: MobileAlarms.Permission {
+        switch manager.authorizationState {
+        case .authorized: .allowed
+        case .denied: .denied
+        case .notDetermined: .notAsked
+        @unknown default: .unavailable
+        }
+    }
+
     func authorize() async -> Bool {
         switch manager.authorizationState {
         case .authorized: return true

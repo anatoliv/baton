@@ -66,6 +66,18 @@ struct ColorContrastTests {
         #expect(Contrast.ratio(.errorTint, .batonOrange) >= 1.25)
     }
 
+    @Test("Opaque reduced-transparency chrome keeps semantic labels readable in both themes")
+    @MainActor
+    func opaqueChromeFollowsAppearance() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try #require(NSAppearance(named: name))
+            appearance.performAsCurrentDrawingAppearance {
+                #expect(Contrast.ratio(Color(nsColor: .labelColor), .chromeOpaque) >= 7)
+                #expect(Contrast.ratio(Color(nsColor: .secondaryLabelColor), .chromeOpaque) >= 3)
+            }
+        }
+    }
+
     // MARK: uiAccent (Brand ⇄ Dynamic + contrast)
 
     @Test("Grayscale artwork falls back to brand orange for the player accent")
@@ -84,6 +96,15 @@ struct ColorContrastTests {
         // A deep, saturated blue that would be unreadable as-is on the dark backdrop.
         let palette = ArtworkPalette(primary: .blue, secondary: .black, accent: Color(red: 0, green: 0, blue: 0.30))
         #expect(Contrast.ratio(palette.uiAccent, .black) >= 4.5)
+    }
+
+    @Test("Light player accents clear AA, including the neutral brand fallback")
+    func lightPlayerAccentsAreLegible() {
+        for accent in [Color.gray, .white, .yellow, .red, .blue, .batonOrange] {
+            let palette = ArtworkPalette(primary: accent, secondary: .black, accent: accent)
+            #expect(Contrast.ratio(palette.uiAccent(for: .light),
+                                   palette.backdropWorstCase(for: .light)) >= 4.5)
+        }
     }
 
     // MARK: Extractor accent stability

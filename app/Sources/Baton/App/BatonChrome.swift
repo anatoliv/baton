@@ -1,3 +1,4 @@
+import AppKit
 import BatonSubsonicKit
 import SwiftUI
 
@@ -21,8 +22,7 @@ import SwiftUI
 ///   the store here means the order of the two modifiers cannot change the answer, and a
 ///   `-baton.defaultsSuite` probe reads the probe's setting rather than the owner's.
 ///
-/// The player surfaces are deliberately not this: the artwork wash and the white-on-dark
-/// transport are a fixed design rather than a preference, which `AppearanceSetting` also says.
+/// Applies to every Mac window, including the detached Mini Player.
 struct BatonChrome: ViewModifier {
     @AppStorage(AppearanceSetting.key, store: BatonStorage.defaults)
     private var appearanceRaw = AppearanceSetting.defaultValue.rawValue
@@ -32,7 +32,20 @@ struct BatonChrome: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content.batonAppearance(appearance)
+        content
+            .onAppear { Self.applyAppearance(appearance) }
+            .onChange(of: appearanceRaw) { _, _ in Self.applyAppearance(appearance) }
+    }
+
+    /// One native appearance for this app process. Nil keeps System live through AppKit.
+    @MainActor
+    static func applyAppearance(_ setting: AppearanceSetting) {
+        let resolved: NSAppearance? = switch setting {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+        if NSApp.appearance?.name != resolved?.name { NSApp.appearance = resolved }
     }
 }
 

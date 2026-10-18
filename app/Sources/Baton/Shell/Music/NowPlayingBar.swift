@@ -132,6 +132,8 @@ struct NowPlayingBar: View {
                     }
                     SleepTimerMenu(font: .body, tint: .secondary)
                         .help("Sleep timer")
+                    // Alarm and Timer, beside the moon, with the pill while one is set.
+                    MacAlarmClockButton(font: .body, tint: .secondary)
                     // The system picker routes AVPlayer, which plays nothing while the
                     // engine deck is active — it showed routes as connected while the audio
                     // stayed put. Swap in the per-app device picker exactly when that is

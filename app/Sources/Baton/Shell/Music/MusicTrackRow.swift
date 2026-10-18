@@ -90,6 +90,8 @@ struct MusicTrackRow: View {
 /// `MusicRatingStars` (songs) and the album row both use it so the look is identical.
 struct MusicStarRating: View {
     let rating: Int
+    var tint: Color = .yellow
+    var unselectedTint: Color = .secondary.opacity(0.45)
     var onRate: (Int) -> Void
 
     var body: some View {
@@ -98,7 +100,7 @@ struct MusicStarRating: View {
                 Button { onRate(rating == star ? 0 : star) } label: {
                     Image(systemName: star <= rating ? "star.fill" : "star")
                         .font(.subheadline)
-                        .foregroundStyle(star <= rating ? Color.yellow : .secondary.opacity(0.45))
+                        .foregroundStyle(star <= rating ? tint : unselectedTint)
                         .frame(width: 16, height: 24)
                         .contentShape(Rectangle())
                 }

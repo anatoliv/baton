@@ -104,7 +104,24 @@ final class MobileModel {
     /// A file or link waiting for the import screen (Files "Open in", a pasted link, M5.2).
     /// Set through `offerImport(_:)` it is kept on disk until the screen closes.
     var pendingDocumentImport: URL? {
-        didSet { if pendingDocumentImport == nil { PendingImportStore.shared.clear() } }
+        didSet {
+            if pendingDocumentImport != oldValue { importGeneration += 1 }
+            if pendingDocumentImport == nil { PendingImportStore.shared.clear() }
+        }
+    }
+
+    /// Which offer of a document the import screen on show belongs to. It moves
+    /// whenever the pending document changes, Cancel and a new document included.
+    @ObservationIgnored private(set) var importGeneration = 0
+
+    /// Ends the import an import screen was showing, and only that one.
+    ///
+    /// Make Audiobook's upload keeps going after Cancel, or after another document takes the
+    /// screen, and calls the screen's close when it returns. That late call used to clear
+    /// whatever was pending by then, closing the next document's import screen under the person.
+    func endImport(generation: Int) {
+        guard generation == importGeneration else { return }
+        pendingDocumentImport = nil
     }
 
     /// Offer a document from outside the app (the share sheet, Files, a picked file, a pasted
@@ -215,6 +232,10 @@ final class MobileModel {
     private(set) var playerPresentationRequests = 0
 
     func requestFullPlayer() { playerPresentationRequests += 1 }
+
+    /// Whether the full player sheet is up, kept by `RootTabView`, so an alarm's "Keep playing,
+    /// open player" closes only what is over it rather than the player itself.
+    @ObservationIgnored var fullPlayerIsUp = false
 
     /// Why the last `baton://` link could not be carried out, or nil. `RootTabView` shows it
     /// and clears it. See `DeepLinkOutcome`.

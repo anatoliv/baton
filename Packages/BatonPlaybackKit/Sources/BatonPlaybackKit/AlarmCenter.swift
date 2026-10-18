@@ -116,6 +116,14 @@ public final class AlarmCenter {
     @ObservationIgnored public var canPlayInApp: @MainActor () -> Bool = { true }
     /// How long after the time Baton waits for playback before sounding the chime instead.
     @ObservationIgnored public var chimeFallbackDelay: TimeInterval = 10
+    /// Tunes in a radio station chosen for an alarm, and stops it. Radio plays
+    /// through its own engine, not the queue, so each app supplies these.
+    @ObservationIgnored public var playRadio: (@MainActor (AlarmChoice.Station) -> Void)?
+    @ObservationIgnored public var stopRadio: (@MainActor () -> Void)?
+    @ObservationIgnored public var radioIsPlaying: @MainActor () -> Bool = { false }
+    /// Brings the full Now Playing player forward: the ringing's "Keep playing, open player"
+    ///. The phone closes whatever sheet is up first; the Mac fronts its window.
+    @ObservationIgnored public var showPlayer: (@MainActor () -> Void)?
 
     /// The alarm or timer going off now, for the ringing screen.
     public private(set) var ringing: AlarmFire?
@@ -232,6 +240,18 @@ public final class AlarmCenter {
         // Quiet the system copy whichever way this arrived: an AlarmKit alert answered by Play
         // was seen still sounding until Baton stopped it (simulator walk, 2026-10-17).
         system?.silence(id: fire.alarmID)
+        if fire.choice.kind == .radio, let station = fire.choice.station {
+            ringing = fire
+            if let playRadio {
+                player.pause()
+                playRadio(station)
+                armChimeFallback(for: fire)
+            } else {
+                say("\(fire.label): radio can't start here, so Baton rang instead.")
+                playChime?()
+            }
+            return
+        }
         let (songs, index) = resolve(fire.choice)
         ringing = fire
         guard !songs.isEmpty else {
@@ -249,7 +269,7 @@ public final class AlarmCenter {
         let delay = chimeFallbackDelay
         fallbackTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self, self.ringing == fire, !self.player.isPlaying else { return }
+            guard !Task.isCancelled, let self, self.ringing == fire, !self.player.isPlaying, !self.radioIsPlaying() else { return }
             self.playChime?()
         }
     }
@@ -258,17 +278,39 @@ public final class AlarmCenter {
 
     /// Stop: the music stops, as Clock's Stop silences the alarm.
     public func stopRinging() {
-        guard ringing != nil else { return }
+        guard let fire = ringing else { return }
         finishRinging()
-        player.pause()
+        pausePlayback(for: fire)
     }
 
-    /// Snooze: the music pauses and the alarm goes off again in nine minutes.
+    /// Snooze: the music pauses and it goes off again in nine minutes. A timer has no snooze in
+    /// Clock; here it starts a nine-minute timer for the same item, so the ringing card's
+    /// Snooze means the same thing for both.
     public func snoozeRinging() {
         guard let fire = ringing else { return }
         finishRinging()
+        pausePlayback(for: fire)
+        switch fire.kind {
+        case .alarm: store.snooze(id: fire.alarmID, now: now())
+        case .timer: store.startTimer(duration: BatonAlarm.snoozeInterval, label: fire.label, choice: fire.choice, now: now())
+        }
+    }
+
+    /// Whether the ringing card offers Snooze: always for a timer, and for an alarm whose Snooze
+    /// is on.
+    public static func offersSnooze(_ fire: AlarmFire) -> Bool { fire.kind == .timer || fire.snoozeEnabled }
+
+    /// "Keep playing, open player": the ringing goes, the music carries on and the full player
+    /// comes forward, so the person is never left on the screen they were on.
+    public func keepPlayingAndShowPlayer() {
+        guard ringing != nil else { return }
+        finishRinging()
+        showPlayer?()
+    }
+
+    private func pausePlayback(for fire: AlarmFire) {
+        if fire.choice.kind == .radio { stopRadio?() }
         player.pause()
-        if fire.kind == .alarm { store.snooze(id: fire.alarmID, now: now()) }
     }
 
     /// Dismiss the ringing and let the music carry on.

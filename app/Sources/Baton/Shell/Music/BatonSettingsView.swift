@@ -68,8 +68,6 @@ struct BatonSettingsView: View {
             BatonServersPane()
         case .playback:
             BatonPlaybackPane()
-        case .alarms:
-            BatonAlarmsPane()
         case .equalizer:
             BatonEqualizerPane()
         case .actions:
@@ -94,7 +92,6 @@ struct BatonSettingsView: View {
 enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case servers
     case playback
-    case alarms
     case equalizer
     case actions
     case speech
@@ -110,7 +107,6 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .servers: "Music Servers"
         case .playback: "Playback"
-        case .alarms: "Alarms & Timer"
         case .equalizer: "Equalizer"
         case .actions: "Actions"
         case .speech: "Speech"
@@ -126,7 +122,6 @@ enum BatonSettingsCategory: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .servers: "server.rack"
         case .playback: "play.circle"
-        case .alarms: "alarm"
         case .equalizer: "slider.horizontal.3"
         case .actions: "bolt.horizontal.circle"
         case .speech: "waveform"
@@ -610,10 +605,8 @@ private struct BatonAboutPane: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                Text("Baton's library window was always dark, because the colour wash it "
-                     + "takes from your artwork needs a dark ground to stay readable, while "
-                     + "these settings followed your system, so the app disagreed with "
-                     + "itself. Pick once. The player keeps its dark treatment either way.")
+                Text("Choose the appearance for all Baton windows, including the player and Mini Player. "
+                     + "System follows your Mac. You can also change this from the player's Appearance menu.")
                     .font(.callout).foregroundStyle(.secondary)
             }
 

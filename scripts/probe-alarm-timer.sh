@@ -7,8 +7,9 @@
 # with a timer set at launch by BATON_DEBUG_ALARM_PROBE_TIMER, so nothing on screen is clicked
 # to arm it. Then it checks, through the probe's own MCP server and its accessibility tree:
 # nothing plays before the timer ends; the chosen file plays when it does; the floating ringing
-# card is up with Stop and Keep Playing; Stop on that card pauses the music and takes the card
-# down. The audio is silence, so the run is quiet on the owner's speakers.
+# card is up with Keep playing, open player, Snooze 9 min and Stop; "Keep playing, open player"
+# takes the card down with the music still playing and the Baton window up; the player's clock
+# opens the quick sheet (TBX-1000000112). The audio is silence, so the run is quiet on the owner's speakers.
 #
 # Build a DEBUG probe under its own bundle id first, so it never shares the owner's Baton's
 # ports or notifications: PROBE_BUNDLE_ID=io.tonebox.baton.dev.alarm scripts/probe-build.sh <dir>
@@ -73,9 +74,11 @@ after="$(now_playing)"
 echo "   after: $after"
 echo "$after" | grep -q "Wake Up"; verdict "the chosen file is what plays" $?
 echo "$after" | grep -qi "playing"; verdict "and it is playing" $?
-wait_for 5 'texts | grep -q "Keep Playing"'
+wait_for 5 'texts | grep -q "Keep playing, open player"'
 texts > "$EVIDENCE/ringing-texts.txt"
 grep -q "Probe timer" "$EVIDENCE/ringing-texts.txt"; verdict "the ringing card names the timer" $?
+grep -q "Keep playing, open player" "$EVIDENCE/ringing-texts.txt"; verdict "with Keep playing, open player" $?
+grep -q "Snooze 9 min" "$EVIDENCE/ringing-texts.txt"; verdict "with Snooze 9 min" $?
 grep -q "Stop" "$EVIDENCE/ringing-texts.txt"; verdict "with Stop" $?
 n=0
 while read -r wid w h; do
@@ -95,13 +98,52 @@ for w in list where (w[kCGWindowOwnerPID as String] as? Int) == pid && (w[kCGWin
   screencapture -x -o -l "$wid" "$EVIDENCE/mac-ringing-card.png" && echo "   screenshot: $EVIDENCE/mac-ringing-card.png"
 done
 
-say "Stop"
-"$AX_BIN" press "$PID" "Stop" >/dev/null 2>&1
-sleep 1.5
-stopped="$(now_playing)"
-echo "   after Stop: $stopped"
-echo "$stopped" | grep -qi "paused"; verdict "Stop pauses the music" $?
-texts | grep -q "Keep Playing"; [ $? -ne 0 ]; verdict "and the card is gone" $?
+say "Keep playing, open player (TBX-1000000112)"
+"$AX_BIN" press "$PID" "Keep playing, open player" >/dev/null 2>&1
+sleep 2
+kept="$(now_playing)"
+echo "   after: $kept"
+echo "$kept" | grep -q "Wake Up" && ! echo "$kept" | grep -qi "paused"; verdict "the music carries on" $?
+texts | grep -q "Keep playing, open player"; [ $? -ne 0 ]; verdict "and the card is gone" $?
+"$AX_BIN" windows "$PID" > "$EVIDENCE/windows-after-open-player.txt" 2>&1
+[ -s "$EVIDENCE/windows-after-open-player.txt" ]; verdict "a Baton window is in front" $?
+texts > "$EVIDENCE/player-texts.txt"
+grep -q "Wake Up" "$EVIDENCE/player-texts.txt"; verdict "showing the chosen track" $?
+n=0
+while read -r wid w h; do
+  [ -n "$wid" ] || continue
+  n=$((n + 1))
+  screencapture -x -o -l "$wid" "$EVIDENCE/mac-player-window-$n.png" && echo "   screenshot: $EVIDENCE/mac-player-window-$n.png (${w}x${h})"
+done < <("$AX_BIN" windows "$PID")
+
+# Every on-screen window of the probe, popovers included: $1 names the shots.
+shoot() {
+  /usr/bin/swift -e '
+import CoreGraphics
+let pid = Int(CommandLine.arguments[1])!
+let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+for w in list where (w[kCGWindowOwnerPID as String] as? Int) == pid {
+    print(w[kCGWindowNumber as String] as! Int)
+}' "$PID" 2>/dev/null | while read -r wid; do
+    screencapture -x -o -l "$wid" "$EVIDENCE/mac-$1-$wid.png" && echo "   screenshot: $EVIDENCE/mac-$1-$wid.png"
+  done
+}
+
+say "the clock's popover"
+"$AX_BIN" press "$PID" "Alarm and Timer" >/dev/null 2>&1
+sleep 2
+texts > "$EVIDENCE/popover-texts.txt"
+grep -q "5 min" "$EVIDENCE/popover-texts.txt" && grep -q "Then play" "$EVIDENCE/popover-texts.txt"
+verdict "the clock opens the quick sheet with presets and Then play" $?
+shoot popover
+# The row reads "Then play, <what plays>", so press it by the name it has.
+then_play="$(sed -n 's/^\[button\] \(Then play.*\)$/\1/p' "$EVIDENCE/popover-texts.txt" | head -1)"
+"$AX_BIN" press "$PID" "$then_play" >/dev/null 2>&1
+sleep 2
+texts > "$EVIDENCE/picker-texts.txt"
+grep -q "What to Play" "$EVIDENCE/picker-texts.txt" && grep -q "Browse" "$EVIDENCE/picker-texts.txt"
+verdict "Then play opens What to Play (search and Browse)" $?
+shoot picker
 
 say "result"
 [ "$fail" = 0 ] && echo "PASS" || echo "FAIL"

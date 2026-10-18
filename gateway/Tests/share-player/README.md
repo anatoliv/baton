@@ -12,7 +12,10 @@ The full walk also opens a mixtape page (`/m/`, `mixtape-page.mjs`) through the 
 nginx: header, expiry and plays-left chips, keyboard Play, pause, seek, Next, the one-line session
 prompt for Previous (Not now spends nothing, Start listening spends one play), a reaction, revoked
 and expired links reading as ended, the unknown page, and screenshots at 390 and 1280 px in light
-and dark. Its synthetic media comes from `make-mixtape-media.py`, which needs `/private/tmp`,
+and dark. It also checks that nginx sends one `Referrer-Policy: no-referrer` for `/m/`, that the
+phone's docked player follows the list in the DOM and Tab order (and leads it when wide), that
+"Start listening" meets 4.5:1 contrast in both schemes, and that the time remaining has a
+visually hidden label rather than an `aria-label` on a plain span. Its synthetic media comes from `make-mixtape-media.py`, which needs `/private/tmp`,
 ffmpeg and a Python with `cryptography` (`SHARE_E2E_PYTHON` selects one). Without them, or against
 a service with mixtapes off or a public service, `result.json` lists the mixtape walk as skipped.
 Run different engines sequentially on macOS: simultaneous browser processes can

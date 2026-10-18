@@ -709,12 +709,22 @@ struct FullPlayerView: View {
                 .frame(width: 44, height: 24)
                 .frame(maxWidth: .infinity)
 
+            // Alarm and Timer, beside the moon that stops music.
+            AlarmClockButton {
+                Image(systemName: alarmActive ? "alarm.fill" : "alarm")
+                    .foregroundStyle(alarmActive ? accent : .white.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+
             sleepMenu
                 .frame(maxWidth: .infinity)
         }
         .font(.body.weight(.medium))
         .padding(.horizontal, 40)
     }
+
+    /// A timer running or an alarm due within a day: the clock fills, as the moon does.
+    private var alarmActive: Bool { AlarmPillState.current(model.alarms.store) != nil }
 
     private var sleepMenu: some View {
         SleepTimerMenu(model: model) {

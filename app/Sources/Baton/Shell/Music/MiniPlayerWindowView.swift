@@ -10,6 +10,7 @@ struct MiniPlayerWindowView: View {
     static let windowID = "tonebox-mini-player"
 
     @Environment(MusicModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     /// Compact (tiny) by default; expanded reveals volume, rating, and Up Next. Persisted.
@@ -42,7 +43,7 @@ struct MiniPlayerWindowView: View {
     }
 
     /// Contrast-corrected dynamic accent for the scrubber/volume fills + active state.
-    private var accent: Color { paletteLoader.palette.uiAccent }
+    private var accent: Color { paletteLoader.palette.uiAccent(for: .resolved(for: colorScheme)) }
 
     /// The player's last playback error, if the transport is in an error state.
     ///
@@ -122,7 +123,7 @@ struct MiniPlayerWindowView: View {
         .padding(14)
         .frame(width: 320)
         .miniPlayerPanel(cornerRadius: 16)
-        .preferredColorScheme(.dark)
+        .accentColor(ArtworkPalette.neutral.uiAccent(for: .resolved(for: colorScheme)))
         .background(MiniPlayerWindowConfigurator())
     }
 
@@ -158,7 +159,7 @@ struct MiniPlayerWindowView: View {
                     Text(player.nowPlaying?.displayArtistName ?? "")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     if let context = playingFrom {
-                        Text(context).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                        Text(context).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 0)
@@ -178,7 +179,7 @@ struct MiniPlayerWindowView: View {
     @ViewBuilder private var ratingRow: some View {
         if let song = player.nowPlaying {
             HStack {
-                MusicStarRating(rating: model.musicLibrary.rating(song)) { newRating in
+                MusicStarRating(rating: model.musicLibrary.rating(song), tint: accent, unselectedTint: .primary) { newRating in
                     Task { await model.musicLibrary.setRating(song, rating: newRating) }
                 }
                 Spacer()

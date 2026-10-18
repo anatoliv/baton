@@ -117,8 +117,8 @@ struct MusicLyricLines: View {
     }
 
     private func color(_ index: Int) -> Color {
-        guard lyrics.synced else { return .white.opacity(0.85) }
-        if index == currentLine { return .white }
-        return .white.opacity(0.4)
+        guard lyrics.synced else { return .primary }
+        if index == currentLine { return .primary }
+        return .secondary
     }
 }

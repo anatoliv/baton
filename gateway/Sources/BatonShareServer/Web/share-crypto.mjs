@@ -154,3 +154,15 @@ export async function seal(plaintext, key, purpose, recordSize = 65536, baseNonc
   }
   return out;
 }
+
+/**
+ * The media type of decrypted audio, by what it is rather than what it was assumed to be
+ * (specs/book-sharing.md): a book chapter is AAC in MP4 (`ftyp` at offset 4), a song is MP3.
+ * Labelled truthfully, no browser has to sniff past a wrong type (macOS WebKit and Chromium do;
+ * Firefox and iPhone Safari were not measured).
+ * Not part of the format; it lives here because both players import this module.
+ */
+export function audioType(bytes) {
+  const ftyp = bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+  return ftyp ? "audio/mp4" : "audio/mpeg";
+}

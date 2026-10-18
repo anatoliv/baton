@@ -1,5 +1,6 @@
 import AppKit
 import BatonPlaybackKit
+import BatonSubsonicKit
 import Foundation
 import SwiftUI
 
@@ -14,6 +15,11 @@ final class MacAlarms {
     let center: AlarmCenter
     /// What the alarm window shows: set by a menu, then the window is opened.
     var request: AlarmRequest?
+    /// Lent by a view that is always drawn (the menu bar label, the main window), so the ringing
+    /// card can bring the Baton window forward.
+    @ObservationIgnored var openWindow: OpenWindowAction?
+    @ObservationIgnored weak var router: BatonCommandRouter?
+    @ObservationIgnored private weak var model: MusicModel?
     @ObservationIgnored private var chime: NSSound?
     @ObservationIgnored private var panel: NSPanel?
     @ObservationIgnored private var started = false
@@ -30,7 +36,15 @@ final class MacAlarms {
     func start(model: MusicModel, systemNotifications: Bool = true) {
         guard !started else { return }
         started = true
+        self.model = model
         center.playChime = { [weak self] in self?.playChime() }
+        // A radio station chosen to wake to plays through the radio engine.
+        center.playRadio = { [weak model] station in
+            model?.internetRadio.play(NavidromeRadioStation(id: station.id, name: station.name, streamUrl: station.streamURL))
+        }
+        center.stopRadio = { [weak model] in model?.internetRadio.stop() }
+        center.radioIsPlaying = { [weak model] in model?.internetRadio.engine.isPlaying == true }
+        center.showPlayer = { [weak self] in self?.showPlayer() }
         center.stopChime = { [weak self] in self?.chime?.stop() }
         center.notify = { [weak model] text in model?.music.postToast(text, symbol: "alarm", seconds: 6) }
         if systemNotifications, !Self.systemSwitchedOff {
@@ -73,6 +87,52 @@ final class MacAlarms {
         return AlarmChoice.queue(player.queue, at: player.currentIndex, source: player.queueSource, isBook: isBook)
     }
 
+    /// "Keep playing, open player": Baton forward, its window open, the full-screen player up.
+    func showPlayer() {
+        NSApp.activate(ignoringOtherApps: true)
+        let open = NSApp.windows.contains { $0.isVisible && $0.identifier?.rawValue.hasPrefix(MusicWindowView.windowID) == true }
+        if !open { openWindow?(id: MusicWindowView.windowID) }
+        router?.showNowPlayingToken += 1
+        // A window opened just now was not there to see the first request.
+        if !open {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.router?.showNowPlayingToken += 1
+            }
+        }
+    }
+
+    /// What the quick sheet needs: the defaults for "Then play" and the picker's library.
+    var sheetContext: AlarmSheetContext {
+        let model = model
+        return AlarmSheetContext(
+            center: center,
+            nowPlaying: { model.flatMap(Self.nowPlaying) },
+            lastPlayed: { model.flatMap { AlarmQuickSetup.lastPlayed($0.musicHistory) } },
+            makeSource: {
+                guard let model else { return MacEmptyPickerSource() }
+                return LibraryAlarmPickerSource(library: model.musicLibrary, history: model.musicHistory,
+                                                radio: model.internetRadio) { [weak model] in
+                    guard let model, model.documentsSwitch.isOn else { return [] }
+                    return model.documents.shelf.compactMap { book in
+                        Self.bookChoice(book).map {
+                            AlarmPickItem.book(documentID: book.documentID, title: book.title, author: book.author, choice: $0)
+                        }
+                    }
+                }
+            },
+            makePreview: { model.map { AlarmPreviewPlayer(player: $0.music, radio: $0.internetRadio) } }
+        )
+    }
+
+    /// A book as an alarm plays it, from where it was left.
+    static func bookChoice(_ book: BookShelf.Book) -> AlarmChoice? {
+        let (songs, start) = BookPlayback.queue(for: book)
+        guard !songs.isEmpty else { return nil }
+        return AlarmChoice(title: book.title, subtitle: book.author, kind: .book, songs: songs, startIndex: start,
+                           source: BookTransport.source(documentID: book.documentID, title: book.title))
+    }
+
     private func playChime() {
         guard let url = Bundle.main.url(forResource: "BatonAlarmChime", withExtension: "caf"),
               let sound = NSSound(contentsOf: url, byReference: true) else { return }
@@ -111,7 +171,7 @@ final class MacAlarms {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 330),
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 420),
                             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
                             backing: .buffered, defer: false)
         panel.titleVisibility = .hidden
@@ -126,15 +186,22 @@ final class MacAlarms {
     }
 }
 
-/// "Set Alarm…" and "Start Timer…" for a Mac menu, for `choice` (or what is playing).
+/// "Set Alarm…" and "Start Timer…" for a Mac menu: the quick sheet in its own small window, with
+/// `choice` (or an album's or playlist's `item`, fetched in the sheet) as "Then play". A menu
+/// cannot anchor a popover, so menus open the window; the player's clock opens the popover.
 struct MacAlarmMenuItems: View {
     let model: MusicModel
-    let choice: AlarmChoice?
+    var choice: AlarmChoice?
+    var item: AlarmPickItem?
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Set Alarm…", systemImage: "alarm") { open(.newAlarm(choice ?? MacAlarms.nowPlaying(model))) }
-        Button("Start Timer…", systemImage: "timer") { open(.timer(choice ?? MacAlarms.nowPlaying(model))) }
+        Button("Set Alarm…", systemImage: "alarm") {
+            open(item.map { .pick(.alarm, $0) } ?? .newAlarm(choice ?? MacAlarms.nowPlaying(model)))
+        }
+        Button("Start Timer…", systemImage: "timer") {
+            open(item.map { .pick(.timer, $0) } ?? .timer(choice ?? MacAlarms.nowPlaying(model)))
+        }
     }
 
     private func open(_ request: AlarmRequest) {
@@ -144,25 +211,105 @@ struct MacAlarmMenuItems: View {
     }
 }
 
-/// The window the menus open: the editor or the timer, or the list when opened on its own.
+/// The window the menus open: the quick sheet for what was asked, or the alarms on their own.
 struct MacAlarmWindow: View {
     @Environment(MusicModel.self) private var model
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         let request = model.alarms.request ?? .list
-        AlarmSheet(request: request, center: model.alarms.center, nowPlaying: { MacAlarms.nowPlaying(model) })
-            .id(request.id)
-            .onDisappear { model.alarms.request = nil }
+        AlarmQuickSheet(request: request, context: model.alarms.sheetContext) {
+            dismissWindow(id: MacAlarms.editorWindowID)
+        }
+        .id(request.id)
+        .frame(minWidth: 400, idealWidth: 420, minHeight: 520, idealHeight: 600)
+        .onDisappear { model.alarms.request = nil }
+        .alarmWindowOpener(model.alarms)
     }
 }
 
-/// Settings > Alarms & Timer: Clock's list, in a pane.
-struct BatonAlarmsPane: View {
+/// The player's clock: the quick sheet as a popover. While a timer runs or an
+/// alarm is due within a day, the pill stands beside it with the countdown and a ✕.
+struct MacAlarmClockButton: View {
+
     @Environment(MusicModel.self) private var model
+    var font: Font = .body
+    var tint: Color = .secondary
+    var showsPill = true
+    @State private var showsSheet = false
+    /// The clock opens Timer; the pill opens on what it shows.
+    @State private var request: AlarmRequest = .timer(nil)
+    /// The scheme where the clock sits: dark in the full-screen player, the app's elsewhere.
+    @Environment(\.colorScheme) private var anchorScheme
 
     var body: some View {
-        NavigationStack {
-            AlarmsHomeView(center: model.alarms.center, nowPlaying: { MacAlarms.nowPlaying(model) })
+        HStack(spacing: 6) {
+            if showsPill {
+                AlarmPill(center: model.alarms.center, open: { request = .list; showsSheet = true }, compact: true)
+            }
+            Button {
+                request = .timer(nil)
+                showsSheet = true
+            } label: {
+                Image(systemName: "alarm")
+                    .font(font)
+                    .foregroundStyle(tint)
+            }
+            .buttonStyle(.plain)
+            .help("Alarm and Timer")
+            .accessibilityLabel("Alarm and Timer")
+            .accessibilityIdentifier("player-alarm-clock")
+        }
+        .popover(isPresented: $showsSheet, arrowEdge: .top) {
+            MacAlarmPopoverContent(scheme: anchorScheme) {
+                AlarmQuickSheet(request: request, context: model.alarms.sheetContext) { showsSheet = false }
+            }
         }
     }
+}
+
+/// The popover's content in the colour scheme of where the clock sits, on a background of that
+/// scheme, with the ordinary label colour (the full-screen player's header otherwise passes its
+/// white foreground into the popover, white text on a light popover).
+private struct MacAlarmPopoverContent<Content: View>: View {
+    let scheme: ColorScheme
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .scrollContentBackground(.hidden)
+            .frame(width: 400, height: 580)
+            .background(scheme == .dark ? Color(white: 0.13) : Color(white: 0.96))
+            .tint(.batonOrange)
+            // The full-screen player's header draws its controls white, and a popover's content
+            // inherits that foreground style; the sheet's text is the ordinary label colour.
+            .foregroundStyle(Color.primary)
+            .environment(\.colorScheme, scheme)
+            .preferredColorScheme(scheme)
+    }
+}
+
+extension View {
+    /// Lends this view's `openWindow` to the alarms, for the ringing card's "open player".
+    func alarmWindowOpener(_ alarms: MacAlarms) -> some View {
+        modifier(AlarmWindowOpener(alarms: alarms))
+    }
+}
+
+private struct AlarmWindowOpener: ViewModifier {
+    let alarms: MacAlarms
+    @Environment(\.openWindow) private var openWindow
+
+    func body(content: Content) -> some View {
+        content.onAppear { alarms.openWindow = openWindow }
+    }
+}
+
+@MainActor
+private final class MacEmptyPickerSource: AlarmPickerSource {
+    func recent() -> [AlarmPickItem] { [] }
+    func browse(_ section: AlarmPickerModel.Section) async -> [AlarmPickItem] { [] }
+    func search(_ query: String) async -> [AlarmPickItem] { [] }
+    func choice(for item: AlarmPickItem) async -> AlarmChoice? { nil }
+    func previewURL(for choice: AlarmChoice) -> URL? { nil }
 }

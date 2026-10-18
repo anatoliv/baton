@@ -7,6 +7,15 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// WCAG contrast ratio of two computed "rgb(r, g, b)" colors.
+function contrast(...colors) {
+  const [a, b] = colors.map((color) => {
+    const [r, g, bl] = color.match(/\d+(\.\d+)?/g).slice(0, 3).map((v) => { const c = Number(v) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  });
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
 // Returns null when it ran, or the reason it was skipped.
 export async function verifyMixtapePage({ browser, context, base, direct, api, evidence, dataDir, external, step, screenshot, monitor, problems }) {
   const config = await fetch(`${base}/v1/share/config`).then((r) => r.json());
@@ -43,9 +52,9 @@ export async function verifyMixtapePage({ browser, context, base, direct, api, e
   const shell = await fetch(`${base}/m/${tape.id}`);
   assert.equal(shell.status, 200);
   assert.equal(shell.headers.get("cache-control"), "no-store");
-  // The page states no-referrer itself. Through nginx the header is still the site default today:
-  // deploy/nginx/default.conf maps only ^/s/ to no-referrer and share-proxy.inc hides the service's.
-  assert.ok(["no-referrer", "strict-origin-when-cross-origin"].includes(shell.headers.get("referrer-policy")));
+  // One Referrer-Policy, no-referrer: deploy/nginx/default.conf maps ^/m/ like ^/s/, and share-proxy.inc
+  // hides the service's own copy so the header is not sent twice (TBX-1000000079).
+  assert.equal(shell.headers.get("referrer-policy"), "no-referrer", "one Referrer-Policy, the mixtape page's");
   assert.equal((await fetch(`${base}/m/${tape.id}`.replace(base, direct))).headers.get("referrer-policy"), "no-referrer", "the service says no-referrer");
   assert.equal(shell.headers.get("x-content-type-options"), "nosniff");
   assert.match(shell.headers.get("content-security-policy") ?? "", /default-src 'none'.*connect-src 'self'/);
@@ -78,6 +87,10 @@ export async function verifyMixtapePage({ browser, context, base, direct, api, e
   assert.equal(await text(page, "#current"), "Second synthetic");
   assert.equal(await text(page, "#current-by"), "Fixture");
   assert.equal(await text(page, "#remaining"), "-0:18");
+  // A plain span's aria-label is ignored by most screen readers; the label is visually hidden text.
+  assert.equal(await page.getAttribute("#remaining", "aria-label"), null);
+  assert.equal(await page.evaluate(() => document.getElementById("remaining").parentElement.textContent), "Time remaining -0:18");
+  assert.equal(await page.evaluate(() => document.querySelector(".times .visually-hidden").getBoundingClientRect().width <= 1), true);
   assert.equal(await page.isVisible("#admission"), false, "no session prompt before one is needed");
   assert.equal(await page.isVisible(".disclosure"), false, "the rules paragraph is gone");
   assert.equal(await page.getAttribute("#play", "aria-label"), "Play");
@@ -87,6 +100,23 @@ export async function verifyMixtapePage({ browser, context, base, direct, api, e
   assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("card")).position), "sticky", "the phone player sticks");
   assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("card")).bottom), "0px");
   assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), "rgb(48, 52, 58)", "charcoal in dark");
+  // WCAG 2.4.3: the card is docked under the list on a phone, and the DOM and Tab order say so too.
+  const order = () => page.evaluate(() => [...document.getElementById("player").children].map((node) => node.id).join(","));
+  assert.equal(await order(), "tracks,reactions,card", "on a phone the card follows the list in the DOM");
+  // WebKit on macOS tabs only to fields and links unless the system's keyboard navigation setting is
+  // on, as Safari does, so the Tab key is checked in the other engines; the DOM order holds in all.
+  const tabsToButtons = browser.browserType().name() !== "webkit";
+  if (tabsToButtons) {
+    await page.locator("#tracks .row").last().focus(); await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "play", "Tab goes from the last row to the docked player");
+  }
+  await page.locator("#tracks .row").last().focus();
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.waitForFunction(() => document.getElementById("player").firstElementChild.id === "card");
+  assert.equal(await order(), "card,tracks,reactions", "wide, the card leads in the DOM as it does on screen");
+  assert.equal(await page.evaluate(() => document.activeElement === [...document.querySelectorAll("#tracks .row")].at(-1)), true, "focus survives the move");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => document.getElementById("player").lastElementChild.id === "card");
   assert.equal((await summary(tape.id)).stats.fetches, 0, "opening the page spends no play");
 
   step("mixtape page: Play from the keyboard starts one listening session");
@@ -158,6 +188,13 @@ export async function verifyMixtapePage({ browser, context, base, direct, api, e
     assert.equal(await shot.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `no horizontal scroll at ${width}`);
     assert.equal(await shot.evaluate(() => getComputedStyle(document.getElementById("card")).position), width < 641 ? "sticky" : "static");
     assert.equal(await shot.evaluate(() => getComputedStyle(document.body).backgroundColor), scheme === "light" ? "rgb(250, 247, 244)" : "rgb(48, 52, 58)");
+    // "Start listening" is 0.9rem text on a copper fill: it needs AA 4.5:1 in both schemes.
+    const confirm = await shot.evaluate(() => { const style = getComputedStyle(document.getElementById("confirm")); return [style.color, style.backgroundColor]; });
+    assert.ok(contrast(...confirm) >= 4.5, `Start listening contrast ${contrast(...confirm).toFixed(2)}:1 in ${scheme}`);
+    if (width > 640 && tabsToButtons) {
+      await shot.focus("#next"); await shot.keyboard.press("Tab");
+      assert.equal(await shot.evaluate(() => document.activeElement.className), "row", "wide, Tab goes from the player to the first row");
+    }
     await shot.click("#play");
     await audioAfter(shot, 1.2);
     await shot.click("#play");

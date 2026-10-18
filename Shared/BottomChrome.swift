@@ -8,8 +8,9 @@ import SwiftUI
 /// far enough to read as misaligned, close enough to look like a mistake rather than a
 /// choice.
 ///
-/// One constant so a third floating element cannot introduce a third inset, which is
-/// exactly how the first two drifted.
+/// One constant for the capsules Baton draws, so a third floating element cannot introduce a
+/// third inset, which is exactly how the first two drifted. The system's accessory slot has its
+/// own, measured, in `systemAccessoryInset`.
 public enum BottomChrome {
     /// Outer inset for a floating capsule.
     ///
@@ -18,8 +19,9 @@ public enum BottomChrome {
     /// branch never calls `bottomChromeCapsule()` — the system draws the container and
     /// owns its inset. So on the current OS this constant governs the Friend composer
     /// alone, and the 20pt is an eyeball match to the system slot rather than a measured
-    /// agreement with it. There is no public API that reports the accessory's inset, which
-    /// is why it stays an eyeball match instead of being derived.
+    /// agreement with it. There is no public API that reports the accessory's inset; the
+    /// slot has since been measured at 21pt (`systemAccessoryInset`, TBX-1000000140), and
+    /// the composer has not been moved to it.
     ///
     /// Where it genuinely aligns two things is the `.standalone` path — iPad, and iOS 18
     /// through 25 — where the mini player draws its own capsule through the same modifier.
@@ -30,6 +32,13 @@ public enum BottomChrome {
     /// again on iOS 26, the fix is this number, checked against a screenshot — the code
     /// cannot enforce it.
     public static let inset: CGFloat = 20
+    /// Where the system draws the mini player on an iPhone with iOS 26: the tab bar's accessory
+    /// slot, 21pt in from each edge, like the tab bar itself. Measured, not reported by any API:
+    /// the owner's photo (390pt iPhone, TestFlight) and the iPhone 16e and 17 Pro Max simulators on
+    /// iOS 26.5 put the accessory's and the tab bar's capsule strokes at 21pt.
+    /// The Alarm and Timer pill uses it to line up with the player; the Friend composer above
+    /// still uses `inset`, a point narrower on each side.
+    public static let systemAccessoryInset: CGFloat = 21
     /// Gap between stacked capsules.
     public static let gap: CGFloat = 4
     public static let shadowRadius: CGFloat = 8

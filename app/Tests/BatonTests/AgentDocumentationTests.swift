@@ -126,6 +126,7 @@ final class AgentDocumentationTests: XCTestCase {
         "Playing music": "playing",
         "The queue, shuffle, repeat, and autoplay": "playing",
         "Sleep timer": "playing",
+        "Alarm and Timer": "alarm",
         "Sharing a song with a friend": "sharing",
         "Sound quality: gapless, crossfade, loudness": "sound",
         "The equalizer": "sound",
@@ -178,12 +179,6 @@ final class AgentDocumentationTests: XCTestCase {
             + "transcripts start selling the app.",
         "Settings reference": "an exhaustive reference belongs in the bundled guide, not the shop window",
         "Troubleshooting": "the bundled guide is the copy someone reaches for once something is wrong",
-        // New in Mac 0.20.7 and iPhone 1.5.4. Not a judgement that it belongs
-        // off the page: the release gate found the section undecided, and the public copy
-        // is owed rather than written in a release lane.
-        "Alarm and Timer": "OWED: described on no public page yet. index.html and help.html "
-            + "have 0 mentions. The public section is TBX-1000000092; remove this entry "
-            + "when it lands.",
     ]
 
     /// Omissions whose stated reason is "it is covered on another public page", and the

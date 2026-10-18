@@ -40,6 +40,8 @@ struct BooksView: View {
     @State private var pendingBookDelete: MobileBookShelf.Book?
     /// The book whose voice is being changed.
     @State private var changingVoice: MobileBookShelf.Book?
+    /// The book being shared as a link.
+    @State private var sharingBook: BookShareDraft?
     @State private var showsReadAlong = false
     /// "Previously…": offered by Play on a book last heard more than a day ago.
     @State private var recap = MobileRecapOffer()
@@ -116,6 +118,7 @@ struct BooksView: View {
         .sheet(item: $changingVoice) { book in
             ChangeVoiceScreen(book: book, model: model) { changingVoice = nil }
         }
+        .sheet(item: $sharingBook) { draft in ShareBookSheet(book: draft) }
         .sheet(isPresented: $showsReadAlong) {
             MobileReadAlongSheet(model: model)
         }
@@ -270,11 +273,12 @@ struct BooksView: View {
     @ViewBuilder
     private func bookMenu(_ book: MobileBookShelf.Book) -> some View {
         Button(mainAction(book).title) { performMain(book) }.disabled(book.readyChapters.isEmpty)
+        shareButton(book)
         storageActions(book)
         Toggle("Keep on This iPhone", isOn: keepBinding(book))
         changeVoiceActions(book)
         // Wake to the book, from where it was left.
-        if let choice = alarmChoice(book) {
+        if let choice = MobileAlarms.bookChoice(book) {
             Section { AlarmMenuItems(choice: choice) }
         }
         if let covers {
@@ -282,13 +286,13 @@ struct BooksView: View {
         }
     }
 
-    /// The book as an alarm plays it: its chapters from the synced place. At the time the
-    /// alarm re-reads the place, so it resumes where the book was left by then.
-    private func alarmChoice(_ book: MobileBookShelf.Book) -> AlarmChoice? {
-        let (songs, start) = MobileBookShelf.queue(for: book)
-        guard !songs.isEmpty else { return nil }
-        return AlarmChoice(title: book.title, subtitle: book.author, kind: .book, songs: songs, startIndex: start,
-                           source: Self.source(book))
+    /// Share…: a link a friend outside the LAN can play, as a song's Share… makes.
+    private func shareButton(_ book: MobileBookShelf.Book) -> some View {
+        Button { sharingBook = BookShareDraft(book, covers: covers) } label: {
+            Label("Share…", systemImage: "square.and.arrow.up")
+        }
+        .disabled(book.readyChapters.isEmpty)
+        .accessibilityIdentifier("book-share")
     }
 
     // MARK: - An open book
@@ -308,6 +312,7 @@ struct BooksView: View {
                 } header: {
                     Text("Chapters")
                 }
+                Section { shareButton(book) }
                 Section {
                     HStack {
                         Label(book.storedText, systemImage: "internaldrive")

@@ -76,6 +76,19 @@ enum ImportScreen {
             if !make.exists { return }
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
         }
-        XCTFail("the import screen should close\n\(app.debugDescription)", file: file, line: line)
+        // TBX-1000000071: one run stopped here with Make Audiobook disabled, the screen still
+        // awaiting the book's PUT or the notification permission request, and only Baton's
+        // hierarchy was kept, so which, and whether an alert was up, could not be told. Eight
+        // later runs on fresh simulators closed in about 2 s, through the interruption monitor and
+        // through a copy of this loop. Say what SpringBoard shows too, so a next occurrence names
+        // its cause.
+        XCTFail("""
+            the import screen should close (Make Audiobook \(make.exists && make.isEnabled ? "enabled" : "disabled") \
+            after \(Int(timeout)) s)
+            BATON:
+            \(app.debugDescription)
+            SPRINGBOARD:
+            \(springboard.debugDescription)
+            """, file: file, line: line)
     }
 }

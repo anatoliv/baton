@@ -60,11 +60,13 @@ private struct AdaptiveMaterialBackground<S: Shape>: ViewModifier {
 public extension Color {
     /// The opaque stand-in for `.ultraThinMaterial` when transparency is reduced.
     ///
-    /// Deliberately not `.background`: this chrome sits over the artwork wash on a
-    /// permanently dark surface, and the system background colour is light in light mode,
-    /// which would invert the chrome for the one group of users who asked for *less*
-    /// visual complexity.
+    /// Mac chrome follows the window appearance, including the now-playing bar.
+    /// The iPhone player's existing dark fallback stays unchanged.
+    #if os(macOS)
+    static let chromeOpaque = Color(nsColor: .windowBackgroundColor)
+    #else
     static let chromeOpaque = Color(white: 0.12)
+    #endif
 }
 
 /// Whether state should carry a shape as well as a colour.

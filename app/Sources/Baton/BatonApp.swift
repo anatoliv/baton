@@ -362,6 +362,7 @@ struct BatonApp: App {
         _commandRouter = State(initialValue: router)
         appDelegate.music = music
         appDelegate.commandRouter = router
+        music.alarms.router = router
     }
 
     /// A failed link says so, in the same place a failed drag already does.
@@ -522,6 +523,7 @@ struct BatonApp: App {
                 // DEBUG only, and nothing in a release build: lends `openWindow` to the
                 // `-baton.debugOpenWindow` launch flag. See BatonDebugWindows.
                 .batonDebugWindowOpener()
+                .alarmWindowOpener(music.alarms)
         }
         // Match Tonebox's music window: SwiftUI-managed title-bar hiding, persistent
         // across window reconfiguration (unlike poking NSWindow, which SwiftUI keeps
@@ -543,12 +545,9 @@ struct BatonApp: App {
         }
 
         // Detached mini player (⌘⌥M elsewhere; opened via the transport's mini button).
-        // The one window with no `.batonChrome()`, and deliberately: `MiniPlayerWindowView`
-        // sets `.preferredColorScheme(.dark)` itself. It is a player surface — artwork wash,
-        // white-on-dark transport — and `AppearanceSetting` says those are a design rather
-        // than a preference. `BatonChromeCoverageTests` knows about this one by name.
         Window("Mini Player", id: MiniPlayerWindowView.windowID) {
             MiniPlayerWindowView()
+                .batonChrome()
                 .environment(music)
                 .tint(.batonOrange)
                 .defaultAppStorage(BatonStorage.defaults)
@@ -657,6 +656,8 @@ struct BatonApp: App {
             // probe launched with the main window closed can borrow `openWindow` from.
             BatonMenuBarLabel(model: music)
                 .batonDebugWindowOpener()
+                // And the alarm's "Keep playing, open player", for the same reason.
+                .alarmWindowOpener(music.alarms)
         }
     }
 }

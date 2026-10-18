@@ -19,7 +19,7 @@
 <div class="now"><p id="current" aria-live="polite"></p><p id="current-by"></p></div>
 <audio id="audio" preload="none"></audio>
 <input id="seek" type="range" min="0" max="1000" value="0" disabled aria-label="Seek in current track">
-<div class="times"><span id="elapsed">0:00</span><span id="remaining" aria-label="Time remaining">-0:00</span></div>
+<div class="times"><span id="elapsed">0:00</span><span><span class="visually-hidden">Time remaining </span><span id="remaining">-0:00</span></span></div>
 <div class="controls">
 <button id="previous" class="skip" type="button" aria-label="Previous track"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h2v14H6zM19 5.8v12.4a.8.8 0 0 1-1.2.7L9.4 12.7a.8.8 0 0 1 0-1.4l8.4-6.2a.8.8 0 0 1 1.2.7Z"/></svg></button>
 <button id="play" class="play" type="button" aria-label="Play"><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.6v12.8a.9.9 0 0 0 1.4.8l10-6.4a.9.9 0 0 0 0-1.6l-10-6.4A.9.9 0 0 0 8 5.6Z"/></svg><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg><span class="spinner" aria-hidden="true"></span></button>

@@ -203,13 +203,17 @@ public final class MusicLibraryStore {
 
     /// Demo-mode search: filter the bundled catalogue, since there is no server.
     private func searchDemo(_ query: String) {
+        searchResults = demoResults(query)
+    }
+
+    private func demoResults(_ query: String) -> NavidromeSearchResults {
         let needle = NavidromeClient.foldedForSearch(query).lowercased()
-        guard !needle.isEmpty else { searchResults = .empty; return }
+        guard !needle.isEmpty else { return .empty }
         let songs = demoSongs.filter {
             let hay = NavidromeClient.foldedForSearch("\($0.title) \($0.artist ?? "") \($0.album ?? "")").lowercased()
             return hay.contains(needle)
         }
-        searchResults = NavidromeSearchResults(
+        return NavidromeSearchResults(
             songs: songs,
             albums: albums.filter { NavidromeClient.foldedForSearch($0.name).lowercased().contains(needle) },
             artists: []
@@ -325,6 +329,17 @@ public final class MusicLibraryStore {
     }
 
     // MARK: - Search + browse
+
+    /// The same search as `search(_:)`, returned rather than kept, for a picker that must not
+    /// change what the Search screen shows (the alarm's "What to play", TBX-1000000112).
+    public func searchResults(for query: String) async -> NavidromeSearchResults {
+        if isDemo { return demoResults(query) }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .empty }
+        return await fetch(default: .empty) {
+            try await $0.search3(query: trimmed, songCount: 30, albumCount: 20, artistCount: 0)
+        }
+    }
 
     public func search(_ query: String) async {
         if isDemo { searchDemo(query); return }

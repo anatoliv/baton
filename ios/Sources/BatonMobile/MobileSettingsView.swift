@@ -268,23 +268,15 @@ struct MobileSettingsView: View {
                          : "Connect a model provider or your Baton server, then test it. The Friend tab appears once the test passes.")
                 }
 
-                // Clock's Alarm and Timer, playing a Baton track, book or playlist.
+                // Alarm and Timer live where they are set now: the player's clock, any song, album,
+                // playlist or book menu, and the pill above the player. Settings
+                // keeps only whether the system may ring them.
                 Section {
-                    NavigationLink {
-                        AlarmsHomeView(center: model.alarms.center, nowPlaying: { MobileAlarms.nowPlaying(model) })
-                    } label: {
-                        LabeledContent {
-                            let on = model.alarms.store.alarms.filter(\.isEnabled).count
-                            if model.alarms.store.timer != nil {
-                                Text("Timer running").foregroundStyle(.secondary)
-                            } else if on > 0 {
-                                Text(on == 1 ? "1 on" : "\(on) on").foregroundStyle(.secondary)
-                            }
-                        } label: {
-                            Label("Alarms & Timer", systemImage: "alarm")
-                        }
-                    }
-                    .accessibilityIdentifier("settings-alarms")
+                    AlarmPermissionRow(alarms: model.alarms)
+                } header: {
+                    Text("Alarm and Timer")
+                } footer: {
+                    Text("Set an alarm or a timer from the clock in the player, from a song, album, playlist or book menu, or from the pill above the player.")
                 }
 
                 Section {
@@ -798,5 +790,40 @@ struct MobileSettingsView: View {
                 if on { ledger.grant(source, .chapter) } else { ledger.revoke(source, .chapter) }
                 consentRevision += 1
             })
+    }
+}
+
+/// Whether the system may ring Baton's alarms, with the way to change it.
+private struct AlarmPermissionRow: View {
+    let alarms: MobileAlarms
+    @State private var permission: MobileAlarms.Permission?
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        LabeledContent("Rings with Baton closed") {
+            Text(text).foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("settings-alarm-permission")
+        .task { permission = await alarms.permission() }
+        if permission == .notAsked {
+            Button("Allow Alarms") {
+                Task {
+                    _ = await alarms.center.requestPermission()
+                    permission = await alarms.permission()
+                }
+            }
+        } else if permission == .denied, let url = URL(string: UIApplication.openSettingsURLString) {
+            Button("Turn On in iPhone Settings") { openURL(url) }
+        }
+    }
+
+    private var text: String {
+        switch permission {
+        case .allowed?: "Allowed"
+        case .notAsked?: "Not asked yet"
+        case .denied?: "Off"
+        case .unavailable?: "Only while Baton runs"
+        case nil: ""
+        }
     }
 }

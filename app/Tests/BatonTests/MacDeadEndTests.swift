@@ -82,9 +82,6 @@ struct MacDeadEndTests {
 
     // MARK: - F3. Every window follows the appearance setting
 
-    /// The one window that is allowed not to: a player surface, dark by design.
-    private static let chromeExempt = "MiniPlayerWindowView"
-
     @Test("Every window scene applies the appearance setting")
     func everySceneCarriesChrome() throws {
         let text = try source("app/Sources/Baton/BatonApp.swift")
@@ -97,7 +94,6 @@ struct MacDeadEndTests {
             let name = String(scene.prefix { $0 != ")" })
             // Stop at the next scene or the end of the body, whichever comes first.
             let block = scene.components(separatedBy: "\n        MenuBarExtra").first ?? scene
-            guard !block.contains(Self.chromeExempt) else { continue }
             if !block.contains(".batonChrome()") { offenders.append(name) }
         }
         #expect(offenders.isEmpty, "windows that ignore the appearance setting: \(offenders)")

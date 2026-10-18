@@ -79,8 +79,8 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.20.8"
-    CURRENT_PROJECT_VERSION: "125"
+    MARKETING_VERSION: "0.20.10"
+    CURRENT_PROJECT_VERSION: "127"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
@@ -211,6 +211,7 @@ targets:
       - path: ../Shared/SharedMixtapeView.swift
       - path: ../Shared/SongSharing.swift
       - path: ../Shared/ShareMixtapeViews.swift
+      - path: ../Shared/ShareBookViews.swift
       - path: ../Shared/ShareSongViews.swift
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift

@@ -1432,23 +1432,47 @@ on the iPhone while something plays. Once a timer is set, that one shows the tim
 ## Alarm and Timer
 
 These work like the Alarm and Timer in Apple's Clock app, except that what rings is something
-from Baton: a song, a playlist, an album, or a book from where you left it. The sleep timer
-above is unchanged; it stops music, and these start it.
+from Baton: a song, an album, a playlist, a book from where you left it, or a radio station. The
+sleep timer above is unchanged; it stops music, and these start it.
 
-**Setting one.** Long-press a song (right-click on the Mac) and choose **Set Alarm…** or
-**Start Timer…**, or open the moon menu in the player, which offers both for whatever is
-playing. A book's menu in **Books** has them too. The list lives in **Settings > Alarms &
-Timer** on both apps.
+**Setting one.** It takes a couple of taps from wherever you are:
 
-- **Alarm:** choose the time, **Repeat** days (or none for a one-off), a **Label**, what to
-  **Play**, and whether **Snooze** is on. Alarms sit in a list with a switch each, as in Clock.
-  Tap one to change it or delete it; a one-off alarm switches itself off after it goes off.
-- **Timer:** turn the hours, minutes and seconds, pick what plays **When Timer Ends**, and
-  tap **Start**. While it runs you can **Pause**, **Resume** or **Cancel** it.
+- **The clock in the player**, beside the sleep timer's moon, in the full player on the iPhone
+  and in the player bar or full-screen player on the Mac (a popover there).
+- **Set Alarm…** or **Start Timer…** in the menu of a song, an album, a playlist or a book
+  (long-press on the iPhone, right-click on the Mac), with that item already chosen. The Mac's
+  menu-bar menu and the sleep timer's menu have them too.
+- **The pill above the player.** While a timer runs, or an alarm is due within a day, a small
+  pill sits just above the mini player (beside the clock on the Mac): "Timer 12:34 · then …".
+  Tap it to open the sheet, or its ✕ to cancel the timer or switch the alarm off.
 
-**When it goes off.** If Baton is open, or playing in the background, the chosen item starts
-at the time and a card offers **Stop** (the music stops), **Snooze** (it goes off again in
-nine minutes) and **Keep Playing**.
+The sheet has two tabs:
+
+- **Timer:** tap **5 min**, **10 min**, **15 min**, **30 min** or **1 hr**, or **Custom** for
+  any length, then **Start**. While it runs the sheet shows the countdown with **Pause**,
+  **Resume** and **Cancel**.
+- **Alarm:** turn the time, or tap a quick pick such as **7:00 tomorrow** or **In 8 hours**,
+  choose repeat days, a label and Snooze, then **Save**. Your alarms are listed at the bottom
+  with a switch each; tap one to change it, swipe it (or use its menu) to delete it. A one-off
+  alarm switches itself off after it goes off.
+
+**Then play** is what starts when it goes off. It begins as what is playing, or the last thing
+you played, and a tap opens **What to Play**: search your songs, albums, playlists, books and
+radio, pick from Recently Played, or browse Playlists, Albums, Books and Radio. The round button
+on a row plays ten seconds of it, and stops when you leave the picker. Nothing needs to be
+playing to choose.
+
+**When it goes off.** If Baton is open, or playing in the background, the chosen item starts at
+the time and a ringing screen comes up over whatever you were doing, Settings included, with
+three answers:
+
+- **Keep playing, open player** closes whatever was open and takes you to the full player.
+- **Snooze 9 min** pauses and goes off again in nine minutes (for a timer, a fresh nine-minute
+  timer for the same item). An alarm offers it only when its Snooze is on.
+- **Stop** pauses the music.
+
+On the Mac the ringing card floats over every Space with the same three buttons, and **Keep
+playing, open player** brings the Baton window forward with its full-screen player.
 
 **On iPhone, with Baton closed.** On iOS 26 and later the alarm rings as a real system alarm,
 on the Lock Screen and through Silent mode, the first time asking your permission. iOS doesn't
@@ -1456,7 +1480,8 @@ let an app start its own music at a set time while it isn't running, so the alar
 the iPhone's own alarm sound, and tapping **Play**, or just opening Baton within ten minutes,
 starts your track. With Snooze on, the alert's button is **Snooze** instead; open Baton while
 it rings or snoozes and your track plays. On iOS 18 to 25 you get a notification with Baton's
-chime instead; tap it, or **Play**, to start the track.
+chime instead; tap it, or **Play**, to start the track. **Settings > Alarm and Timer** shows
+whether alarms may ring with Baton closed, and takes you to the iPhone's Settings to change it.
 
 **On the Mac.** Baton runs in the menu bar, so it plays the item itself at the time. If Baton
 isn't running, a notification appears at the time, and clicking it opens Baton and plays it.
@@ -1693,6 +1718,14 @@ browser or in Baton on their iPhone, and it works like a shared song in every ot
 tracks are encrypted on your device, the key is in the link, and it is listed in **Shared Links**.
 If the share service doesn't offer mixtapes yet, the mixtape sheet says so and **Create Link**
 stays off.
+
+**Sharing a book.** Choose **Share…** in a book's menu (right-click a book on the Mac, or open the
+book's **More** menu; long-press a book on the iPhone, or open it and tap **Share…** under the
+chapters). Pick the chapters with **From** and **Through**: one link holds up to 12 chapters and
+20 minutes, so a short book goes whole and a long one goes a few chapters at a time. One chapter
+becomes a song link and two or more become a mixtape your friend plays in order. Only the
+chapters' audio is uploaded, encrypted like a song; the book's text stays on your device. A
+chapter whose audio isn't on this device can't be shared until you get it back.
 
 **To see who listened**, open **Shared Links**: in Settings on the iPhone, and in Settings,
 About on the Mac. It lists every link this device has sent, when each one ends, how often it was
@@ -3143,9 +3176,9 @@ Baton's version, its license (MIT), and a link to the website, then eight sectio
 - **Lyrics**: **Look up missing lyrics**, which asks LRCLIB for words your server doesn't
   carry. See [Lyrics](#lyrics). (It lives here rather than under Playback, which is not where
   you would look for it, worth knowing.)
-- **Appearance**: light, dark, or follow the system, for the settings and help windows. The
-  player keeps its dark treatment either way, because the colour it takes from your artwork
-  needs a dark ground to stay readable.
+- **Appearance**: Light, Dark, or System for all Baton windows, including the full player
+  and Mini Player. The Appearance button at the top right of the full player changes the
+  same setting; the crescent beside it remains the sleep timer.
 - **Startup**: whether Baton opens when you sign in, so the menu-bar controls are there
   straight away.
 - **Updates**: the auto-update feed, its status, an "automatically check for updates" toggle,

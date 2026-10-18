@@ -265,3 +265,12 @@ extension BookPlayback {
         }
     }
 }
+
+extension BookShareDraft {
+    /// A Mac book as Share… sees it: the chapters whose audio is here.
+    @MainActor init(_ book: BookShelf.Book, covers: BookCovers?) {
+        self.init(documentID: book.documentID, title: book.title, author: book.author,
+                  chapters: book.chapters.map { (index: $0.index, title: $0.title, item: $0.item) },
+                  coverURL: covers?.url(for: book.documentID))
+    }
+}

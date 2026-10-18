@@ -323,6 +323,39 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.10",
+            date: "October 2026",
+            highlight: "The player follows your appearance, with a quick switch while you listen.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "The full player and Mini Player follow System, Light or Dark, just like the rest of Baton."),
+                HelpWhatsNewChange(.added,
+                    "Use the Appearance button beside AirPlay in the full player to change the app theme. "
+                    + "It shares the setting in Settings and leaves your music and queue in place."),
+                HelpWhatsNewChange(.fixed,
+                    "Queue panels, tabs, ratings and playback controls are easier to read in Light and Dark."),
+            ]
+        ),
+        HelpWhatsNewRelease(
+            version: "0.20.9",
+            date: "October 2026",
+            highlight: "Alarm and Timer in two clicks, from the player, and they wake you into it.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Click the clock beside the sleep timer in the player for a popover with Timer and Alarm. "
+                    + "Pick 5, 10, 15 or 30 minutes or an hour and Start, or a time like 7:00 tomorrow and Save. "
+                    + "Albums, playlists and books have Set Alarm… and Start Timer… in their menus too, and your "
+                    + "alarms are listed in the popover rather than in Settings."),
+                HelpWhatsNewChange(.added,
+                    "Choose what plays from anything in your library, with nothing playing: search songs, albums, "
+                    + "playlists, books and radio, or pick from Recently Played, with a ten-second preview from the "
+                    + "round button on each row. A pill beside the clock counts a timer down, with an ✕ to cancel."),
+                HelpWhatsNewChange(.improved,
+                    "The ringing card offers Keep playing, open player (the Baton window comes forward with its "
+                    + "full-screen player), Snooze 9 min and Stop."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.8",
             date: "October 2026",
             highlight: "A new voice plays without a restart, and song links from friends open in Baton.",

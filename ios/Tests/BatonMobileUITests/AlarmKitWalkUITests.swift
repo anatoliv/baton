@@ -44,7 +44,7 @@ final class AlarmKitWalkUITests: XCTestCase {
         XCTAssertTrue(setAlarm.waitForExistence(timeout: 5))
         setAlarm.tap()
 
-        // Snooze off, so the alert's button is Play.
+        // Snooze off, so the alert's button is Play. The quick sheet opens on the Alarm tab.
         let snooze = app.switches["Snooze"].firstMatch
         XCTAssertTrue(snooze.waitForExistence(timeout: 10))
         if (snooze.value as? String) == "1" { snooze.switches.firstMatch.exists ? snooze.switches.firstMatch.tap() : snooze.tap() }
@@ -82,9 +82,12 @@ final class AlarmKitWalkUITests: XCTestCase {
         let ringing = app.descendants(matching: .any)["alarm-ringing"]
         if ringing.waitForExistence(timeout: 10) {
             attach(app, "baton-ringing-card")
-            app.buttons["alarm-keep-playing"].tap()
+            // "Keep playing, open player" lands in the full player.
+            app.buttons["alarm-open-player"].tap()
+        } else {
+            XCTAssertTrue(openFullPlayer(in: app))
         }
-        XCTAssertTrue(openFullPlayer(in: app))
+        XCTAssertTrue(app.buttons[PlayerControls.dismissFullPlayer].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts[chosen].waitForExistence(timeout: 10), "the player holds the chosen track")
         let elapsed = app.staticTexts["player-elapsed"]
         XCTAssertTrue(elapsed.waitForExistence(timeout: 5))

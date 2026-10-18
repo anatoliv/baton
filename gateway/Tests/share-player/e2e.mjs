@@ -17,7 +17,7 @@
 // SHARE_E2E_PUBLIC=https://<approved-host> also selects public mode. It checks public
 // routing and headers, skips the internal admin report and revokes all minted fixtures.
 //
-// Needs ffmpeg (to make a real MP3) and the selected Playwright browser. Not in the merge gate:
+// Needs ffmpeg (to make a real MP3 and AAC book chapters) and the selected Playwright browser. Not in the merge gate:
 // each engine takes about a minute, mostly listening through the song like a person would. The
 // assertions that matter are the ones a unit test cannot make: the browser decrypts with the
 // key from the fragment, the <audio> clock moves, the CSP lets every request through, and the
@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { verifyBookChapters } from "./book-chapter.mjs";
 import { verifyMediaErrorRecovery } from "./media-errors.mjs";
 import { verifyMixtapePage } from "./mixtape-page.mjs";
 import { measureStartup, registerOwnedBrowser, registerOwnedBrowserServer } from "./startup.mjs";
@@ -619,6 +620,14 @@ try {
     } finally {
       await Promise.all(contexts.map((ctx) => ctx.close()));
     }
+  }
+
+  // ---------- A book's chapters (AAC) on both players, TBX-1000000132 ----------
+
+  if (publicOnly) skips.push("book chapters: no book fixtures against a public service");
+  else {
+    const skipped = await verifyBookChapters({ browser, base, api, evidence, work, step, screenshot, monitor, problems });
+    if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
   }
 
   // ---------- The mixtape page (/m/), TBX-1000000067 ----------

@@ -232,13 +232,24 @@ final class SongSharing {
                                    reviewPreservationConsent: reviewConsent)
         }.value
 
-        stage = .uploading(0)
         #if os(iOS)
         // Only ciphertext survives suspension. The preparation MP3 is no longer
         // needed once sealing is complete, even while the background task runs.
         try FileManager.default.removeItem(at: file.deletingLastPathComponent())
-        return try await backgroundUploader.enqueue(prepared, client: shareClient, songID: song.id,
-                                                     title: song.title, artist: metadata.artist, attestationPolicy: config.appAttest,
+        #endif
+        return try await upload(prepared, client: shareClient, config: config, songID: song.id, title: song.title,
+                                artist: metadata.artist, onBackgroundUploadHandOff: onBackgroundUploadHandOff)
+    }
+
+    /// Sends a sealed song and records its link: in the background session on the iPhone, in
+    /// the foreground on the Mac. Songs and single book chapters both end here.
+    private func upload(_ prepared: PreparedShare, client shareClient: ShareClient, config: ShareConfig,
+                        songID: String, title: String, artist: String,
+                        onBackgroundUploadHandOff: (@MainActor () -> Void)?) async throws -> ShareLedger.Record {
+        stage = .uploading(0)
+        #if os(iOS)
+        return try await backgroundUploader.enqueue(prepared, client: shareClient, songID: songID,
+                                                     title: title, artist: artist, attestationPolicy: config.appAttest,
                                                      onHandOff: onBackgroundUploadHandOff)
         #else
         let (link, summary) = try await shareClient.share(prepared) { fraction in
@@ -246,9 +257,9 @@ final class SongSharing {
         }
         _ = ledger.takeFailures()
         let record = ShareLedger.Record(
-            id: summary.id, link: link.absoluteString, songID: song.id, title: song.title,
-            artist: metadata.artist, isPrivate: isPrivate, createdAt: Date(),
-            expiresAt: ShareDate.date(summary.expiresAt) ?? Date() + TimeInterval(expires), summary: summary)
+            id: summary.id, link: link.absoluteString, songID: songID, title: title,
+            artist: artist, isPrivate: prepared.request.preview == nil, createdAt: Date(),
+            expiresAt: ShareDate.date(summary.expiresAt) ?? Date() + TimeInterval(prepared.request.expiresInSeconds), summary: summary)
         ledger.add(record)
         save()
         return record
@@ -297,21 +308,153 @@ final class SongSharing {
                 playCap: config.defaultPlayCap, client: clientInfo, reviewPreservationConsent: consent)
         }.value
         inputs.removeAll() // Only ciphertext remains in the durable upload ticket.
+        let record = try await upload(prepared, client: client, config: config, songIDs: songs.map(\.id),
+                                      onBackgroundUploadHandOff: onBackgroundUploadHandOff, onStaged: onStaged)
+        BatonStorage.defaults.set(true, forKey: Self.disclosureKey)
+        return record
+    }
+
+    /// Stages a sealed mixtape as a protected upload ticket and sends it: the background session
+    /// on the iPhone, the foreground coordinator on the Mac. Mixtapes and book chapters both end here.
+    private func upload(_ prepared: PreparedMixtape, client: ShareClient, config: ShareConfig, songIDs: [String],
+                        onBackgroundUploadHandOff: (@MainActor () -> Void)?,
+                        onStaged: (@MainActor (UUID) -> Void)?) async throws -> ShareLedger.Record {
         stage = .uploading(0)
-        let record: ShareLedger.Record
         #if os(iOS)
-        record = try await backgroundUploader.enqueue(prepared, client: client, songIDs: songs.map(\.id),
+        return try await backgroundUploader.enqueue(prepared, client: client, songIDs: songIDs,
             attestationPolicy: config.appAttest, onHandOff: onBackgroundUploadHandOff, onStaged: onStaged)
         #else
-        let job = try mixtapeStore.stage(prepared, base: base, songIDs: songs.map(\.id))
+        let job = try mixtapeStore.stage(prepared, base: base, songIDs: songIDs)
         onStaged?(job.id)
-        record = try await mixtapeUploader.resume(job.id, client: client) { fraction in
+        let record = try await mixtapeUploader.resume(job.id, client: client) { fraction in
             Task { @MainActor in self.stage = .uploading(fraction) }
         }
         ledger = ShareLedger.load(from: ledgerURL)
-        #endif
-        BatonStorage.defaults.set(true, forKey: Self.disclosureKey)
         return record
+        #endif
+    }
+
+    /// Shares chapters of a book (`specs/book-sharing.md`, Phase 1, TBX-1000000132): one chapter
+    /// as a song link, two to twelve as a mixtape, within the limits the service advertises. The
+    /// audio is the chapters' own files on this device, so nothing is fetched, and no text
+    /// leaves it: titles travel only as the link's metadata, encrypted when previews are off.
+    func shareBook(_ book: BookShareDraft, chapters selected: [BookShareDraft.Chapter], options: Options,
+                   onBackgroundUploadHandOff: (@MainActor () -> Void)? = nil,
+                   onStaged: (@MainActor (UUID) -> Void)? = nil) async throws -> ShareLedger.Record {
+        defer { stage = nil }
+        do {
+            let record = try await performBook(book, chapters: selected, options: options,
+                                               onBackgroundUploadHandOff: onBackgroundUploadHandOff, onStaged: onStaged)
+            BatonStorage.defaults.set(true, forKey: Self.disclosureKey)
+            return record
+        } catch let error as SongShareError {
+            if let reason = error.reportReason { note(reason) }
+            throw error
+        } catch let failure as ShareClient.Failure {
+            if case .transport = failure { note("network") }
+            throw SongShareError(failure)
+        } catch {
+            #if os(iOS)
+            if let failure = error as? BackgroundShareUploadEngine.Failure {
+                throw SongShareError.other(failure.errorDescription ?? "Sharing did not finish.")
+            }
+            #endif
+            note("other")
+            throw SongShareError.other(error.localizedDescription)
+        }
+    }
+
+    private func performBook(_ book: BookShareDraft, chapters selected: [BookShareDraft.Chapter], options: Options,
+                             onBackgroundUploadHandOff: (@MainActor () -> Void)?,
+                             onStaged: (@MainActor (UUID) -> Void)?) async throws -> ShareLedger.Record {
+        let shareClient = try client()
+        // Asked when the composer acts, never in the background: the kill switch and the limits.
+        let config = try await shareClient.mixtapeConfiguration()
+        guard config.enabled else { throw SongShareError.paused }
+
+        stage = .preparing
+        let planned = try selected.map { chapter in
+            guard let bytes = (try? FileManager.default.attributesOfItem(atPath: chapter.url.path))?[.size] as? Int else {
+                throw SongShareError.other("A chapter's audio is no longer on this device. Get it back, then share again.")
+            }
+            return ShareBookPlan.Chapter(index: chapter.index, title: chapter.title,
+                                         durationSeconds: chapter.durationSeconds, bytes: bytes)
+        }
+        let container: ShareBookPlan.Container
+        switch ShareBookPlan.check(planned, limits: .init(config: config)) {
+        case let .success(kind): container = kind
+        case let .failure(refusal): throw SongShareError.other(refusal.message)
+        }
+
+        let credits = ShareBookPlan.credits(book: book.title, author: book.author)
+        let from = options.from.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clientInfo = ShareClientInfo(platform: Self.platform, appVersion: Self.appVersion)
+        let reviewConsent = options.reviewPreservation ? CreateShareRequest.reviewConsentVersion : nil
+        let expires = options.expiresInSeconds
+        let cap = config.defaultPlayCap
+        func peaks(_ chapter: BookShareDraft.Chapter) async -> [Int] {
+            await WaveformExtractor.bars(forSongID: "share-book-\(chapter.url.lastPathComponent)", url: chapter.url, count: 200)
+                .map { SharePresentation.peaks($0, count: 200) } ?? []
+        }
+
+        switch container {
+        case .song:
+            let chapter = selected[0]
+            let title = ShareBookPlan.chapterTitle(planned[0], book: book.title, chapterCount: book.chapterCount)
+            let audio = try Data(contentsOf: chapter.url)
+            let artwork = book.coverURL.flatMap { Self.coverBytes(at: $0) }
+            let image = artwork.flatMap(Self.platformImage)
+            let accent = image.map { Self.hex(ArtworkColorExtractor.palette(from: $0).uiAccent) }
+            let shape = await peaks(chapter)
+            let metadata = ShareMetadata(title: title, artist: credits.artist, album: credits.album,
+                                         durationSeconds: planned[0].wireSeconds, from: from, note: options.note,
+                                         accent: accent, peaks: shape)
+            let card = options.showsDetails
+                ? Self.renderCard(title: title, artist: credits.artist, from: from, artwork: image,
+                                  accent: accent.flatMap(Self.color) ?? .batonOrange)
+                : nil
+            let failures = ledger.pendingFailures
+            let isPrivate = !options.showsDetails
+            let prepared = try await Task.detached(priority: .userInitiated) {
+                try PreparedShare.make(audio: audio, metadata: metadata, isPrivate: isPrivate,
+                                       expiresInSeconds: expires, playCap: cap, client: clientInfo,
+                                       artwork: artwork, card: card, recentFailures: failures,
+                                       reviewPreservationConsent: reviewConsent)
+            }.value
+            return try await upload(prepared, client: shareClient, config: config, songID: chapter.songID, title: title,
+                                    artist: credits.artist, onBackgroundUploadHandOff: onBackgroundUploadHandOff)
+        case .mixtape:
+            var inputs = [PreparedMixtape.Input]()
+            for (chapter, plan) in zip(selected, planned) {
+                stage = .preparing
+                let audio = try Data(contentsOf: chapter.url)
+                let shape = await peaks(chapter)
+                inputs.append(.init(audio: audio, metadata: .init(
+                    title: ShareBookPlan.chapterTitle(plan, book: book.title, chapterCount: book.chapterCount),
+                    artist: credits.artist, album: credits.album, durationSeconds: plan.wireSeconds,
+                    from: from, note: options.note, peaks: shape)))
+            }
+            let title = ShareBookPlan.title(book: book.title, selected: planned, chapterCount: book.chapterCount)
+            let preview: MixtapePreview? = options.showsDetails ? .init(title: title, from: from, note: options.note) : nil
+            let frozenInputs = inputs
+            let prepared = try await Task.detached(priority: .userInitiated) {
+                try PreparedMixtape.make(tracks: frozenInputs, title: title, preview: preview, expiresInSeconds: expires,
+                                         playCap: cap, client: clientInfo, reviewPreservationConsent: reviewConsent)
+            }.value
+            inputs.removeAll() // Only ciphertext remains in the durable upload ticket.
+            return try await upload(prepared, client: shareClient, config: config, songIDs: selected.map(\.songID),
+                                    onBackgroundUploadHandOff: onBackgroundUploadHandOff, onStaged: onStaged)
+        }
+    }
+
+    /// A book's cover as the song page's artwork: JPEG or PNG within the art limit, as it is.
+    /// Anything else is left off rather than re-encoded; the page has a placeholder.
+    nonisolated static func coverBytes(at url: URL) -> Data? {
+        guard let data = try? Data(contentsOf: url), data.count <= ShareLimits.standard.maxArtBytes else { return nil }
+        let head = [UInt8](data.prefix(8))
+        let isJPEG = head.starts(with: [0xFF, 0xD8, 0xFF])
+        let isPNG = head.starts(with: [0x89, 0x50, 0x4E, 0x47])
+        return isJPEG || isPNG ? data : nil
     }
 
     func resumeMixtapeUpload(_ id: UUID, onBackgroundUploadHandOff: (@MainActor () -> Void)? = nil) async throws -> ShareLedger.Record {

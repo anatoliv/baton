@@ -1,4 +1,4 @@
-import { base64UrlDecode, ShareCryptoError } from "./share-crypto.mjs";
+import { audioType, base64UrlDecode, ShareCryptoError } from "./share-crypto.mjs";
 import { canonicalTrackID, openTrack } from "./share-mixtape-crypto.mjs";
 import { authenticateManifest, readBounded } from "./mixtape-manifest.mjs";
 const $ = id => document.getElementById(id);
@@ -161,7 +161,7 @@ async function playTrack(index, confirmed = false) {
     session.remainingBytes -= track.audioBytes;
     const plain = await openTrack(encrypted, root, track);
     if (closed || generation !== loadGeneration) { plain.fill(0); return; }
-    try { currentURL = URL.createObjectURL(new Blob([plain], { type: "audio/mpeg" })); } finally { plain.fill(0); }
+    try { currentURL = URL.createObjectURL(new Blob([plain], { type: audioType(plain) })); } finally { plain.fill(0); }
     preparedForPlayback = true; loadedIndex = index; audio.src = currentURL;
     $("seek").value = "0"; $("seek").style.setProperty("--progress", "0%");
     await audio.play(); status("");
@@ -284,4 +284,15 @@ window.addEventListener("pagehide", dispose);
 // Pasting another invitation can be a same-document navigation. Discard its predecessor
 // before reloading; the new fragment must authenticate before any admission or transfer.
 window.addEventListener("hashchange", () => { dispose(); location.reload(); });
+// On a phone the player card docks under the list (mixtape.css). Keep the DOM in that order too,
+// so Tab meets the card where the eye does (WCAG 2.4.3): the list and reactions move, never the
+// card, so the <audio> inside it is not detached. Focus inside a moved node stays put. (TBX-1000000079)
+const phone = matchMedia("(max-width: 640px)");
+function placeCard() {
+  const card = $("card"), moving = [$("tracks"), $("reactions")], focused = document.activeElement;
+  if ((card === $("player").lastElementChild) === phone.matches) return;
+  for (const node of moving) phone.matches ? card.before(node) : $("player").append(node);
+  if (focused && moving.some(node => node.contains(focused)) && document.activeElement !== focused) focused.focus({ preventScroll: true });
+}
+phone.addEventListener("change", placeCard); placeCard();
 initialize();

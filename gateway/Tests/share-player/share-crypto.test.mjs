@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { base64Decode, base64UrlDecode, layout, open, seal, ShareCryptoError } from "../../Sources/BatonShareServer/Web/share-crypto.mjs";
+import { audioType, base64Decode, base64UrlDecode, layout, open, seal, ShareCryptoError } from "../../Sources/BatonShareServer/Web/share-crypto.mjs";
 
 const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("../../../specs/share-crypto/vectors.json", import.meta.url)), "utf8"));
 const hex = (h) => Uint8Array.from(h.match(/../g).map((b) => parseInt(b, 16)));
@@ -54,4 +54,16 @@ test("base64url decoding refuses anything else", () => {
 test("layout reports the record count", () => {
   const v = vectors.positive.find((p) => p.name === "three records and a tail");
   assert.equal(layout(base64Decode(v.ciphertext)).records, 4);
+});
+
+test("decrypted audio is labelled by what it is (specs/book-sharing.md)", () => {
+  // An M4A chapter: a box size, then "ftyp".
+  const m4a = Uint8Array.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20]);
+  assert.equal(audioType(m4a), "audio/mp4");
+  // An MP3 song, with an ID3 tag or a bare frame sync.
+  assert.equal(audioType(Uint8Array.from([0x49, 0x44, 0x33, 0x04, 0, 0, 0, 0, 0, 0])), "audio/mpeg");
+  assert.equal(audioType(Uint8Array.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0])), "audio/mpeg");
+  // Too short to tell keeps the old label.
+  assert.equal(audioType(new Uint8Array(0)), "audio/mpeg");
+  assert.equal(audioType(Uint8Array.from([0, 0, 0, 0x20, 0x66, 0x74, 0x79])), "audio/mpeg");
 });

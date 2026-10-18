@@ -44,9 +44,7 @@ struct MusicView: View {
     /// Close action for the pop-out window (nil inline). Drives the rail's close button.
     @Environment(\.musicWindowClose) private var windowClose
     @State private var closeHovering = false
-    /// `NowPlayingBar`'s backdrop here follows the ambient appearance (unlike
-    /// `FullScreenNowPlaying` and `MiniPlayerWindowView`, which force `.dark`), so its
-    /// accent has to resolve against whichever tone `AdaptiveBackdrop` actually painted.
+    /// Player accents resolve against the same appearance as the artwork backdrop.
     @Environment(\.colorScheme) private var colorScheme
 
     // Multi-select for the Albums / Playlists browse tabs (shared model + bar).
@@ -489,12 +487,7 @@ struct MusicView: View {
                 MusicNotConnectedView()
             }
         }
-        // The user's choice, defaulting to Dark. The wash *is* built for a dark ground —
-        // near-black text over a warm gradient is unreadable, which is why this was
-        // hardcoded — but the Mac then had two answers at once, since Settings and Help
-        // always followed the system. One control, one answer. The player surfaces stay
-        // dark regardless; they are a design, not a preference.
-        //
+        // One live app-wide appearance, including the player. New installs follow System.
         // On the outer `Group`, not inside the `if library.isConfigured` branch where it
         // used to sit. Below the branch it covered the library and not the
         // `MusicNotConnectedView` gate — which is the very first screen a new user sees, so

@@ -446,6 +446,8 @@ func albumActionMenuItems(
         run { await AlbumActions.radio(album, model) }
     }
     PinMenuButton(item: .album(album), model: model)
+    // Wake to this album, or play it when a timer ends.
+    MacAlarmMenuItems(model: model, item: .album(album))
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await AlbumActions.download(album, model) } }
     Button("Save as Playlist", systemImage: "square.and.arrow.down") {
@@ -721,6 +723,8 @@ func playlistActionMenuItems(
     Button("Add to Queue", systemImage: "text.append") { run { await PlaylistActions.queue(playlist, model) } }
     Button("Find Similar (Radio)", systemImage: "dot.radiowaves.left.and.right") { run { await PlaylistActions.radio(playlist, model) } }
     PinMenuButton(item: .playlist(playlist), model: model)
+    // Wake to this playlist, or play it when a timer ends.
+    MacAlarmMenuItems(model: model, item: .playlist(playlist))
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await PlaylistActions.download(playlist, model) } }
     WebhookRunner.menu(for: { MusicWebhookTokens.playlist(playlist) }, model)

@@ -1,8 +1,10 @@
 import AVFoundation
 import BatonPlaybackKit
+import BatonSubsonicKit
 import Foundation
 import SwiftUI
 import UIKit
+import UserNotifications
 
 /// The iPhone's Alarm and Timer (TBX-11171, specs/alarm-and-timer.md): the shared store and
 /// center, the system path for when Baton is not running (AlarmKit on iOS 26 and later, a
@@ -16,10 +18,27 @@ final class MobileAlarms {
     @ObservationIgnored private var chimePlayer: AVAudioPlayer?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var nowPlayingChoice: () -> AlarmChoice? = { nil }
+    @ObservationIgnored private weak var model: MobileModel?
+    @ObservationIgnored private let ringWindow = AlarmRingWindowController()
     /// Which system path rings alarms on this phone.
     private(set) var systemPath: SystemPath = .none
 
     enum SystemPath: String { case alarmKit, notifications, none }
+
+    /// Whether the system may ring Baton's alarms, for the Settings row that is all Settings
+    /// keeps of Alarm and Timer now.
+    enum Permission: Equatable { case allowed, notAsked, denied, unavailable }
+
+    func permission() async -> Permission {
+        if #available(iOS 26.0, *), let bridge = center.system as? AlarmKitBridge { return bridge.permission }
+        guard center.system is AlarmNotificationBridge else { return .unavailable }
+        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return .allowed
+        case .denied: return .denied
+        case .notDetermined: return .notAsked
+        @unknown default: return .unavailable
+        }
+    }
 
     /// `BATON_DEBUG_ALARM_SYSTEM=off` keeps the system path out of a UI test, so no AlarmKit or
     /// notification prompt covers the screen. Environment only, never launch arguments.
@@ -51,8 +70,18 @@ final class MobileAlarms {
     func start(model: MobileModel) {
         guard !started else { return }
         started = true
+        self.model = model
         nowPlayingChoice = { [weak model] in model.flatMap(Self.nowPlaying) }
         center.playChime = { [weak self] in self?.playChime() }
+        // A radio station chosen to wake to plays through the radio engine.
+        center.playRadio = { [weak model] station in
+            model?.radio.play(NavidromeRadioStation(id: station.id, name: station.name, streamUrl: station.streamURL))
+        }
+        center.stopRadio = { [weak model] in model?.radio.stop() }
+        center.radioIsPlaying = { [weak model] in model?.radio.engine.isPlaying == true }
+        // "Keep playing, open player": close whatever sheet is up, then the full player.
+        center.showPlayer = { [weak model] in if let model { Self.showFullPlayer(model) } }
+        ringWindow.watch(center)
         // A suspended Baton woken for a moment cannot start audio: then the system's alert
         // rings, and the item plays from its Play button or when Baton comes to the front.
         center.canPlayInApp = { [weak model] in
@@ -119,6 +148,67 @@ final class MobileAlarms {
 
     func choiceForNowPlaying() -> AlarmChoice? { nowPlayingChoice() }
 
+    /// What the quick sheet needs: the defaults for "Then play" and the picker's library.
+    var sheetContext: AlarmSheetContext {
+        let model = model
+        return AlarmSheetContext(
+            center: center,
+            nowPlaying: { [nowPlayingChoice] in nowPlayingChoice() },
+            lastPlayed: { model.flatMap { AlarmQuickSetup.lastPlayed($0.history) } },
+            makeSource: {
+                guard let model else { return EmptyAlarmPickerSource() }
+                return LibraryAlarmPickerSource(library: model.musicLibrary, history: model.history, radio: model.radio) {
+                    [weak model] in
+                    guard let model, model.documentsSwitch.isOn else { return [] }
+                    return model.shelfBooks.compactMap { book in
+                        Self.bookChoice(book).map {
+                            AlarmPickItem.book(documentID: book.documentID, title: book.title, author: book.author, choice: $0)
+                        }
+                    }
+                }
+            },
+            makePreview: { model.map { AlarmPreviewPlayer(player: $0.music, radio: $0.radio) } }
+        )
+    }
+
+    /// A book as an alarm plays it: its chapters from the synced place. At the time the alarm
+    /// re-reads the place, so it resumes where the book was left by then.
+    static func bookChoice(_ book: MobileBookShelf.Book) -> AlarmChoice? {
+        let (songs, start) = MobileBookShelf.queue(for: book)
+        guard !songs.isEmpty else { return nil }
+        return AlarmChoice(title: book.title, subtitle: book.author, kind: .book, songs: songs, startIndex: start,
+                           source: BookTransport.source(documentID: book.documentID, title: book.title))
+    }
+
+    /// Closes whatever is presented over the app (Settings, a menu's sheet, the alarm sheet) and
+    /// shows the full player, so the person lands where the music is. With the
+    /// full player already up, only what is over it closes.
+    static func showFullPlayer(_ model: MobileModel) {
+        guard let root = appRootController() else {
+            model.requestFullPlayer()
+            return
+        }
+        if model.fullPlayerIsUp, let player = root.presentedViewController {
+            if player.presentedViewController != nil { player.dismiss(animated: true) }
+            return
+        }
+        if let presented = root.presentedViewController, !presented.isBeingDismissed {
+            root.dismiss(animated: true) { Task { @MainActor in model.requestFullPlayer() } }
+        } else {
+            model.requestFullPlayer()
+        }
+    }
+
+    /// The app window's root, which every sheet is presented over. Not the ringing window.
+    static func appRootController() -> UIViewController? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.session.role == .windowApplication }
+            .flatMap(\.windows)
+            .filter { !($0 is AlarmRingWindow) }
+        return (windows.first(where: \.isKeyWindow) ?? windows.first)?.rootViewController
+    }
+
     /// What the player holds now, as an alarm would play it: the current track with the rest of
     /// its queue, or a book from its current chapter.
     static func nowPlaying(_ model: MobileModel) -> AlarmChoice? {
@@ -134,20 +224,82 @@ final class MobileAlarms {
     }
 }
 
-/// The ringing card and any notice over a screen. Both the root and the full player carry it,
-/// since the full player is a sheet over the root and would hide the root's.
-private struct AlarmRingingOverlay: ViewModifier {
+/// The ringing screen in a window of its own above every other, so it covers whatever is up
+/// when it goes off: Settings, a menu's sheet, the full player. In 1.5.4 the
+/// card was an overlay on the root, under any sheet, and the owner was left on Settings with
+/// the music playing and no way to it.
+final class AlarmRingWindow: UIWindow {}
+
+@MainActor
+final class AlarmRingWindowController {
+    private var window: AlarmRingWindow?
+    private weak var center: AlarmCenter?
+    private var sceneObserver: NSObjectProtocol?
+
+    func watch(_ center: AlarmCenter) {
+        self.center = center
+        // An alarm that rings during a cold launch, before the scene is attached, finds no scene
+        // to put its window in: try again when one becomes active.
+        sceneObserver = NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil,
+                                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sync() }
+        }
+        observe()
+    }
+
+    private func observe() {
+        guard let center else { return }
+        withObservationTracking {
+            _ = center.ringing
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.sync()
+                self?.observe()
+            }
+        }
+        sync()
+    }
+
+    private func sync() {
+        guard let center else { return }
+        if center.ringing == nil {
+            guard let window else { return }
+            window.isHidden = true
+            self.window = nil
+            MobileAlarms.appRootController()?.view.window?.makeKey()
+            return
+        }
+        guard window == nil else { return }
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.session.role == .windowApplication && $0.activationState != .unattached }) else { return }
+        let window = AlarmRingWindow(windowScene: scene)
+        window.windowLevel = .alert + 1
+        let host = UIHostingController(rootView: AlarmRingingCard(center: center, fullScreen: true).tint(.batonOrange))
+        host.view.backgroundColor = .clear
+        // VoiceOver reads the ringing screen, not the app under it.
+        host.view.accessibilityViewIsModal = true
+        window.rootViewController = host
+        let appearance = AppearanceSetting.current
+        window.overrideUserInterfaceStyle = switch appearance {
+        case .light: .light
+        case .dark: .dark
+        case .system: .unspecified
+        }
+        window.makeKeyAndVisible()
+        self.window = window
+        UIAccessibility.post(notification: .screenChanged, argument: host.view)
+    }
+}
+
+/// A notice over a screen (an alarm missed, or nothing left to play). Both the root and the
+/// full player carry it, since the full player is a sheet over the root and would hide the
+/// root's. The ringing itself is `AlarmRingWindowController`'s.
+private struct AlarmNoticeOverlay: ViewModifier {
     let center: AlarmCenter
 
     func body(content: Content) -> some View {
         content.overlay {
-            if center.ringing != nil {
-                ZStack {
-                    Color.black.opacity(0.35).ignoresSafeArea()
-                    AlarmRingingCard(center: center).padding(24)
-                }
-                .transition(.opacity)
-            } else if let notice = center.notice {
+            if center.ringing == nil, let notice = center.notice {
                 VStack {
                     HStack(alignment: .top) {
                         Image(systemName: "alarm")
@@ -164,12 +316,11 @@ private struct AlarmRingingOverlay: ViewModifier {
                 .accessibilityIdentifier("alarm-notice")
             }
         }
-        .animation(.default, value: center.ringing?.id)
     }
 }
 
-/// Presents the alarm editor and the timer from anywhere: a song's menu, the player's moon
-/// menu, Settings. One presenter per sheet level, as with sharing (`songSharePresenter`).
+/// Presents the quick sheet from anywhere: a menu, the player's clock, the pill. One presenter
+/// per sheet level, as with sharing (`songSharePresenter`).
 private struct AlarmSheetPresenter: ViewModifier {
     let alarms: MobileAlarms
     @State private var request: AlarmRequest?
@@ -178,7 +329,10 @@ private struct AlarmSheetPresenter: ViewModifier {
         content
             .environment(\.presentAlarmSheet, { request = $0 })
             .sheet(item: $request) { request in
-                AlarmSheet(request: request, center: alarms.center, nowPlaying: { alarms.choiceForNowPlaying() })
+                AlarmQuickSheet(request: request, context: alarms.sheetContext) { self.request = nil }
+                    .presentationDetents([.fraction(0.62), .large])
+                    .presentationDragIndicator(.visible)
+                    .tint(.batonOrange)
             }
     }
 }
@@ -196,7 +350,7 @@ extension EnvironmentValues {
 
 extension View {
     func alarmRingingOverlay(_ alarms: MobileAlarms) -> some View {
-        modifier(AlarmRingingOverlay(center: alarms.center))
+        modifier(AlarmNoticeOverlay(center: alarms.center))
     }
 
     func alarmSheetPresenter(_ alarms: MobileAlarms) -> some View {
@@ -204,15 +358,67 @@ extension View {
     }
 }
 
-/// "Set Alarm…" and "Start Timer…" for a menu, for `choice` or what is playing.
+/// "Set Alarm…" and "Start Timer…" for a menu: the quick sheet with `choice` (or, for an album
+/// or a playlist, `item`, fetched once the sheet is up) as "Then play".
 struct AlarmMenuItems: View {
-    let choice: AlarmChoice?
+    var choice: AlarmChoice?
+    var item: AlarmPickItem?
     @Environment(\.presentAlarmSheet) private var present
 
     var body: some View {
         if let present {
-            Button { present(.newAlarm(choice)) } label: { Label("Set Alarm…", systemImage: "alarm") }
-            Button { present(.timer(choice)) } label: { Label("Start Timer…", systemImage: "timer") }
+            Button {
+                present(item.map { .pick(.alarm, $0) } ?? .newAlarm(choice))
+            } label: { Label("Set Alarm…", systemImage: "alarm") }
+            Button {
+                present(item.map { .pick(.timer, $0) } ?? .timer(choice))
+            } label: { Label("Start Timer…", systemImage: "timer") }
         }
     }
+}
+
+/// The player's clock button, beside the sleep moon: the quick sheet on Timer (the running one,
+/// when there is one); the pill opens it on whatever it shows.
+struct AlarmClockButton<Label: View>: View {
+    @Environment(\.presentAlarmSheet) private var present
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        Button { present?(.timer(nil)) } label: { label() }
+            .accessibilityLabel("Alarm and Timer")
+            .accessibilityIdentifier("player-alarm-clock")
+    }
+}
+
+/// The pill above the mini player, presenting the sheet from where it sits.
+///
+/// As wide as the mini player under it, and capped at 620pt on the iPad as its
+/// bar is.
+struct MobileAlarmPill: View {
+    let alarms: MobileAlarms
+    @Environment(\.presentAlarmSheet) private var present
+
+    var body: some View {
+        AlarmPill(center: alarms.center, open: { present?(.list) }, fillsWidth: true)
+            .padding(.horizontal, Self.sideInset)
+            .readableWidth(620)
+            .padding(.bottom, 6)
+    }
+
+    /// The mini player's outer inset: the system accessory slot's on an iPhone with iOS 26, and
+    /// the player's own capsule's on the iPad and iOS 18 to 25.
+    static var sideInset: CGFloat {
+        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom != .pad { return BottomChrome.systemAccessoryInset }
+        return BottomChrome.inset
+    }
+}
+
+/// A picker with nothing behind it, before the app has started.
+@MainActor
+private final class EmptyAlarmPickerSource: AlarmPickerSource {
+    func recent() -> [AlarmPickItem] { [] }
+    func browse(_ section: AlarmPickerModel.Section) async -> [AlarmPickItem] { [] }
+    func search(_ query: String) async -> [AlarmPickItem] { [] }
+    func choice(for item: AlarmPickItem) async -> AlarmChoice? { nil }
+    func previewURL(for choice: AlarmChoice) -> URL? { nil }
 }

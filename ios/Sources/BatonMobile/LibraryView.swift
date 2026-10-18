@@ -716,6 +716,8 @@ struct PlaylistsView: View {
                         model.music.enqueue(songs)
                     }
                 } label: { Label("Add to Queue", systemImage: "text.append") }
+                // Wake to this playlist, or play it when a timer ends.
+                AlarmMenuItems(item: .playlist(playlist))
                 Divider()
                 Button { renaming = playlist; renameText = playlist.name } label: {
                     Label("Rename…", systemImage: "pencil")

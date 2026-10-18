@@ -13,7 +13,20 @@ import Observation
 /// What an alarm or timer plays: a snapshot of a queue, kept with the alarm so that the time can
 /// come with no library and no network.
 public struct AlarmChoice: Codable, Equatable, Sendable {
-    public enum Kind: String, Codable, Sendable { case song, queue, book, album, playlist }
+    public enum Kind: String, Codable, Sendable { case song, queue, book, album, playlist, radio }
+
+    /// An internet radio station, which plays through the radio engine rather than the queue
+    ///. Kept whole so the alarm needs no station list to tune in.
+    public struct Station: Codable, Equatable, Hashable, Sendable {
+        public var id: String
+        public var name: String
+        public var streamURL: String
+        public init(id: String, name: String, streamURL: String) {
+            self.id = id
+            self.name = name
+            self.streamURL = streamURL
+        }
+    }
 
     public var title: String
     public var subtitle: String?
@@ -21,6 +34,8 @@ public struct AlarmChoice: Codable, Equatable, Sendable {
     public var songs: [NavidromeSong]
     public var startIndex: Int
     public var source: StreamingPlaybackController.QueueSource?
+    /// Set for `.radio`; nil otherwise.
+    public var station: Station?
 
     /// A long queue is cut to this many items around where it starts. An alarm is a moment, not
     /// a library; this keeps the stored JSON small.
@@ -35,6 +50,13 @@ public struct AlarmChoice: Codable, Equatable, Sendable {
         self.songs = Array(songs[window])
         self.startIndex = max(0, min(startIndex - window.lowerBound, max(0, self.songs.count - 1)))
         self.source = source
+    }
+
+    /// A radio station, tuned in at the time.
+    public static func radio(_ station: Station) -> AlarmChoice {
+        var choice = AlarmChoice(title: station.name, subtitle: "Radio", kind: .radio, songs: [])
+        choice.station = station
+        return choice
     }
 
     /// One song, played on its own.
@@ -76,6 +98,7 @@ public struct AlarmChoice: Codable, Equatable, Sendable {
         case .book: "book"
         case .album: "square.stack"
         case .playlist: "music.note.list"
+        case .radio: "dot.radiowaves.left.and.right"
         }
     }
 

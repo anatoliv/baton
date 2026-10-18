@@ -1,5 +1,6 @@
 /* Baton mixtape page (TBX-1000000067). Brand tokens: Tonebox docs/design/app-family (TBX-11146),
-   porcelain light and soft charcoal dark with copper. --copper fills; --copper-ink is text-safe. */
+   porcelain light and soft charcoal dark with copper. --copper fills; --copper-ink is text-safe, and
+   is also the fill behind text: white on --copper is 4.2:1 in light, white on --copper-ink 5.5:1. */
 :root {
   --bg: #FAF7F4; --surface: #FFFFFF; --sunken: #F2EDE8; --ink: #262A30; --ink-dim: #686A70; --line: #DED8D2;
   --copper: #C45E36; --copper-ink: #A94E2B; --on-copper: #FFFFFF; --copper-wash: #F7E9E2; --track: #E6DFD8;
@@ -49,7 +50,7 @@ h1 { margin: 2px 0 2px; font-size: clamp(1.4rem, 1.1rem + 1.6vw, 2rem); line-hei
 .prompt p { font-weight: 600; font-size: .95rem; }
 .prompt-actions { display: flex; gap: 8px; }
 .prompt button { border-radius: 999px; padding: 7px 14px; font-size: .9rem; font-weight: 600; border: 1px solid transparent; }
-.prompt .primary { background: var(--copper); color: var(--on-copper); }
+.prompt .primary { background: var(--copper-ink); color: var(--on-copper); }
 .prompt .quiet { background: transparent; color: var(--ink); border-color: var(--line); }
 .now { min-width: 0; }
 #current { font-weight: 650; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -107,17 +108,17 @@ h1 { margin: 2px 0 2px; font-size: clamp(1.4rem, 1.1rem + 1.6vw, 2rem); line-hei
 footer { margin-top: 28px; font-size: .85rem; color: var(--ink-dim); text-align: center; }
 body:not([data-state="ready"]) .listen-note { display: none; }
 .noscript { margin-top: 16px; color: var(--ink-dim); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* Phone: the card sticks to the bottom while the list scrolls under it. */
+/* Phone: the card sticks to the bottom while the list scrolls under it. mixtape.mjs moves the list
+   and reactions above the card in the DOM at this width, so the focus order matches. */
 @media (max-width: 640px) {
   main { padding: 20px 16px 24px; }
   .cover { width: 72px; height: 72px; border-radius: 16px; }
   .cover svg { width: 52px; height: 52px; }
   .head { gap: 14px; }
-  .card { order: 3; position: sticky; bottom: 0; z-index: 2; margin: 0 -8px; padding: 14px 16px 12px; border-radius: 18px 18px 0 0; border-bottom: 0;
+  .card { position: sticky; bottom: 0; z-index: 2; margin: 0 -8px; padding: 14px 16px 12px; border-radius: 18px 18px 0 0; border-bottom: 0;
     padding-bottom: max(12px, env(safe-area-inset-bottom)); }
-  .tracks { order: 1; }
-  .reactions { order: 2; }
   .controls { gap: 22px; margin-top: 2px; }
   .play { width: 58px; height: 58px; }
   footer { margin-top: 20px; }

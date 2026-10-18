@@ -246,6 +246,7 @@ struct RootTabView: View {
             .compactMap { $0 as? UIWindowScene }
             .filter { $0.session.role == .windowApplication }
             .flatMap(\.windows)
+            .filter { !($0 is AlarmRingWindow) }   // the alarm's ringing window is not the app's root
         return (windows.first(where: \.isKeyWindow) ?? windows.first)?.rootViewController
     }
 
@@ -278,21 +279,26 @@ struct RootTabView: View {
             if model.agentConfig.isReady {
                 Tab("Friend", systemImage: "sparkles") {
                     MusicFriendView(model: model)
+                        .alarmPillInset(model.alarms)
                 }
             }
             // Home leads: on a phone the question is almost always "what do I put on",
             // not "what do I own", and the album grid answers the second one.
             Tab("Home", systemImage: "house") {
                 HomeView(model: model)
+                    .alarmPillInset(model.alarms)
             }
             Tab("Albums", systemImage: "square.stack") {
                 AlbumsGridView(model: model)
+                    .alarmPillInset(model.alarms)
             }
             Tab("Library", systemImage: "books.vertical") {
                 LibraryView(model: model)
+                    .alarmPillInset(model.alarms)
             }
             Tab("Search", systemImage: "magnifyingglass") {
                 SearchView(model: model)
+                    .alarmPillInset(model.alarms)
             }
             // Settings is deliberately not a tab.
             //
@@ -336,6 +342,7 @@ struct RootTabView: View {
         .onChange(of: model.playerPresentationRequests) { _, _ in
             showsFullPlayer = true
         }
+        .onChange(of: showsFullPlayer, initial: true) { _, up in model.fullPlayerIsUp = up }
         .onChange(of: model.revealedAlbum) { _, album in
             if album != nil, showsFullPlayer { showsFullPlayer = false }
         }
@@ -399,7 +406,11 @@ struct RootTabView: View {
         .sheet(item: Binding(get: { launchSheet }, set: { if $0 == nil { launchSheetClosed() } })) { sheet in
             switch sheet {
             case .importDocument(let url):
-                DocumentImportScreen(url: url, model: model) { model.pendingDocumentImport = nil }
+                // Closes this screen's own document only: a submit that finishes after Cancel, or
+                // after another document took the screen, must not close the next one.
+                DocumentImportScreen(url: url, model: model) { [generation = model.importGeneration] in
+                    model.endImport(generation: generation)
+                }
                     .onAppear { importPresentation.appeared(url) }
             case .whatsNew:
                 WhatsNewView()
@@ -518,6 +529,16 @@ struct RootTabView: View {
 
 /// Puts the mini player in the tab bar's accessory slot where the OS has one,
 /// and falls back to a bottom safe-area inset where it doesn't.
+/// The alarm pill sits in each tab's own bottom inset, so it lands just above the mini player and
+/// the tab bar whichever way the OS draws them.
+private extension View {
+    func alarmPillInset(_ alarms: MobileAlarms) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            MobileAlarmPill(alarms: alarms)
+        }
+    }
+}
+
 private struct NowPlayingAccessory: ViewModifier {
     let model: MobileModel
     let onTap: () -> Void

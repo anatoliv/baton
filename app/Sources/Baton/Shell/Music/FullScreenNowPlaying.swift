@@ -11,6 +11,9 @@ struct FullScreenNowPlaying: View {
     // window always provides it, so the deep link fires there.
     @Environment(BatonCommandRouter.self) private var router: BatonCommandRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AppearanceSetting.key, store: BatonStorage.defaults)
+    private var appearanceRaw = AppearanceSetting.defaultValue.rawValue
     @Binding var isPresented: Bool
     /// Override palette for snapshots/previews (nil = live-extracted from artwork).
     var previewPalette: ArtworkPalette?
@@ -44,13 +47,33 @@ struct FullScreenNowPlaying: View {
         previewPalette ?? paletteLoader.palette
     }
 
+    private var tone: ArtworkPalette.BackdropTone { .resolved(for: colorScheme) }
+    private var backdropPalette: ArtworkPalette { Self.backdropPalette(palette, for: colorScheme) }
+    private var accent: Color {
+        let candidate = palette.uiAccent(for: tone)
+        guard colorScheme == .dark else { return candidate }
+        return Contrast.ensureContrast(of: candidate,
+                                       against: backdropPalette.backdropWorstCase(for: .dark), min: 4.5)
+    }
+
+    /// Keep bright cover art within a charcoal range so semantic text stays readable.
+    /// This is local to the Mac player; the library and iPhone wash are unchanged.
+    static func backdropPalette(_ palette: ArtworkPalette, for scheme: ColorScheme) -> ArtworkPalette {
+        guard scheme == .dark else { return palette }
+        let charcoal = Color(white: 0.08)
+        return ArtworkPalette(
+            primary: Contrast.blend(palette.primary, toward: charcoal, amount: 0.75),
+            secondary: Contrast.blend(palette.secondary, toward: charcoal, amount: 0.75),
+            accent: Contrast.blend(palette.accent, toward: charcoal, amount: 0.75)
+        )
+    }
+    private var chromeAccent: Color { ArtworkPalette.neutral.uiAccent(for: tone) }
+
     var body: some View {
         GeometryReader { geo in
             let showQueue = queueVisibleOverride ?? (geo.size.width >= 900)
             ZStack {
-                // The player is dark by design, not by preference: the transport above
-                // this is white whatever the app's appearance setting says.
-                AdaptiveBackdrop(palette: palette, tone: .dark)
+                AdaptiveBackdrop(palette: backdropPalette)
 
                 VStack(spacing: 0) {
                     header(showQueue: showQueue)
@@ -82,7 +105,8 @@ struct FullScreenNowPlaying: View {
             .opacity(0)
             .accessibilityHidden(true)
         }
-        .preferredColorScheme(.dark)
+        .accentColor(chromeAccent)
+        .tint(chromeAccent)
         .onAppear { paletteLoader.update(url: coverURL(size: ArtworkColorExtractor.coverSize)) }
         // Key on the song id, not coverArtID: podcast episodes all have a nil coverArtID
         // (their art is a direct URL), so keying on the cover id would never refresh between
@@ -176,13 +200,15 @@ struct FullScreenNowPlaying: View {
             }
             Spacer()
             HStack(spacing: 20) {
-                AirPlayRoutePicker(tint: .white)
+                appearanceMenu
+                AirPlayRoutePicker(tint: .labelColor)
                     .frame(width: 22, height: 22)
                     .help("AirPlay / output device")
                 if player.isSpokenNowPlaying {
                     SpokenRateMenu(font: .title3, tint: .secondary)
                 }
                 sleepTimerMenu
+                MacAlarmClockButton(font: .title3, tint: .secondary)
                 Button { showRemovalConfirm = true } label: {
                     Image(systemName: "xmark.bin").font(.title3)
                 }
@@ -200,7 +226,7 @@ struct FullScreenNowPlaying: View {
             }
         }
         .padding(20)
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
     }
 
     /// The "PLAYING FROM · <name>" block. When `navigable`, a trailing chevron hints it's a
@@ -211,12 +237,12 @@ struct FullScreenNowPlaying: View {
             HStack(spacing: 4) {
                 Label(source.label, systemImage: source.icon)
                     .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 if navigable {
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.6))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -240,13 +266,33 @@ struct FullScreenNowPlaying: View {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { isPresented = false }
     }
 
+    private var appearanceMenu: some View {
+        Menu {
+            Picker("Appearance", selection: $appearanceRaw) {
+                ForEach(AppearanceSetting.allCases) { setting in
+                    Text(setting.label).tag(setting.rawValue)
+                }
+            }
+        } label: {
+            Image(systemName: "circle.lefthalf.filled").font(.title3)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Appearance: System, Light or Dark")
+        .accessibilityLabel("Appearance")
+        .accessibilityIdentifier("player-appearance")
+        .accessibilityValue((AppearanceSetting(rawValue: appearanceRaw) ?? .defaultValue).label)
+    }
+
     private var sleepTimerMenu: some View { SleepTimerMenu(font: .title3, tint: .secondary) }
 
     private func heroColumn(availableHeight: CGFloat) -> some View {
         // Scale the artwork with the window so a tall window doesn't leave a big empty
         // band under the header. Clamped so it stays sensible on small/huge windows.
-        let artHeight = min(max(availableHeight * 0.46, 300), 620)
-        return VStack(spacing: 24) {
+        let artHeight = min(620, max(140, min(availableHeight * 0.46, availableHeight - 440)))
+        // Keep transport and volume visible in the default-height window.
+        return VStack(spacing: availableHeight < 850 ? 12 : 24) {
             // Small, capped top gap so the hero sits just under the header (any extra
             // window height falls to the flexible bottom spacer) — no big empty band.
             Spacer(minLength: 0).frame(maxHeight: 16)
@@ -259,8 +305,8 @@ struct FullScreenNowPlaying: View {
                 .matchedArtwork(artNamespace, isSource: true)
                 // Playback glow: a soft artwork-colored halo while playing, over the
                 // depth shadow. Dynamic accent per the design doc's Player section.
-                .shadow(color: player.isPlaying ? palette.uiAccent.opacity(0.38) : .clear, radius: 44)
-                .shadow(color: .black.opacity(0.55), radius: player.isPlaying ? 52 : 34, y: 26)
+                .shadow(color: player.isPlaying ? accent.opacity(colorScheme == .light ? 0.15 : 0.38) : .clear, radius: 44)
+                .shadow(color: .black.opacity(colorScheme == .light ? 0.16 : 0.55), radius: player.isPlaying ? 52 : 34, y: 26)
                 // Applied *before* the scale below so it animates the glow only — leaving the
                 // breathing loop as the sole animation driving scaleEffect (two `.animation`s
                 // racing over one property is what froze it, see below).
@@ -283,7 +329,7 @@ struct FullScreenNowPlaying: View {
                 Text(player.nowPlaying?.title ?? "Nothing playing")
                     .font(.system(size: 32, weight: .bold)).lineLimit(1)
                 Text([player.nowPlaying?.displayArtistName, player.nowPlaying?.album].compactMap(\.self).joined(separator: " · "))
-                    .font(.title3).foregroundStyle(.white.opacity(0.72)).lineLimit(1)
+                    .font(.title3).foregroundStyle(.secondary).lineLimit(1)
                 if let song = player.nowPlaying {
                     HStack(spacing: 6) {
                         if let quality = song.qualityLabel { MusicMetaBadge(quality) }
@@ -296,11 +342,11 @@ struct FullScreenNowPlaying: View {
                 }
             }
             if let song = player.nowPlaying {
-                MusicRatingCluster(song: song, tint: palette.uiAccent)
+                MusicRatingCluster(song: song, tint: accent)
             }
             MusicScrubber(
                 currentTime: player.currentTime, duration: player.duration,
-                tint: palette.uiAccent, waveform: waveform
+                tint: accent, waveform: waveform
             ) { player.seek(to: $0) }
                 .task(id: player.nowPlaying?.id) { await loadWaveform() }
                 .frame(maxWidth: 520)
@@ -308,14 +354,14 @@ struct FullScreenNowPlaying: View {
             MusicVolumeControl(
                 percent: player.volumePercent,
                 isMuted: player.isMuted,
-                tint: palette.uiAccent,
+                tint: accent,
                 onChange: { player.setVolume(percent: $0) },
                 onToggleMute: { player.toggleMute() }
             )
             .frame(maxWidth: 220)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
     }
 
     /// The cover as a resizable Image so a fixed height yields a proportional width
@@ -325,11 +371,11 @@ struct FullScreenNowPlaying: View {
         if let coverImage {
             Image(nsImage: coverImage).resizable().aspectRatio(contentMode: .fit)
         } else if coverURL(size: 500) != nil {
-            Color.white.opacity(0.06).aspectRatio(1, contentMode: .fit)
+            Color.primary.opacity(0.06).aspectRatio(1, contentMode: .fit)
         } else {
             ZStack {
-                Color.white.opacity(0.06)
-                Image(systemName: "music.note").font(.system(size: 64)).foregroundStyle(.white.opacity(0.5))
+                Color.primary.opacity(0.06)
+                Image(systemName: "music.note").font(.system(size: 64)).foregroundStyle(.secondary)
             }
             .aspectRatio(1, contentMode: .fit)
         }
@@ -339,7 +385,7 @@ struct FullScreenNowPlaying: View {
         HStack(spacing: 26) {
             Button { player.toggleShuffle() } label: {
                 Image(systemName: "shuffle").font(.title3)
-                    .foregroundStyle(player.isShuffled ? palette.uiAccent : .white.opacity(0.7))
+                    .foregroundStyle(player.isShuffled ? accent : .primary)
             }
             .help("Shuffle")
             .accessibilityLabel("Shuffle")
@@ -360,20 +406,18 @@ struct FullScreenNowPlaying: View {
                 .accessibilityLabel("Next track")
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.title3)
-                    .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.7) : palette.uiAccent)
+                    .foregroundStyle(player.repeatMode == .off ? .primary : accent)
             }
             .help("Repeat")
             .accessibilityLabel("Repeat")
             .accessibilityValue(player.repeatMode.rawValue)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .disabled(player.nowPlaying == nil)
     }
 
-    /// Custom segmented control for the side panel — a clear pill selector so all
-    /// three tabs stay legible on the dark panel (the stock `.segmented` Picker
-    /// renders the unselected tabs almost invisibly here).
+    /// Side-panel tabs retain their selected pill in both appearances.
     /// A book chapter's Transcript tab reads along, so it is named for that.
     private var playingBookChapter: Bool {
         guard let song = player.nowPlaying else { return false }
@@ -388,22 +432,25 @@ struct FullScreenNowPlaying: View {
                 } label: {
                     Text(panel == .transcript && playingBookChapter ? "Read Along" : panel.rawValue)
                         .font(.callout.weight(.medium))
-                        .foregroundStyle(sidePanel == panel ? Color.white : Color.white.opacity(0.65))
+                        .foregroundStyle(sidePanel == panel
+                            ? (colorScheme == .light ? Color.white : Color.black)
+                            : Color.primary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(sidePanel == panel ? Color.accentColor : .clear)
+                                .fill(sidePanel == panel ? chromeAccent : .clear)
                         )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(sidePanel == panel ? .isSelected : [])
             }
         }
         .padding(3)
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(Color.primary.opacity(0.06))
         )
     }
 
@@ -462,7 +509,11 @@ struct FullScreenNowPlaying: View {
                     }
                 }
             }
-            .adaptiveMaterial(RoundedRectangle(cornerRadius: 16))
+            // Opaque semantic ground keeps queue text and controls independent of the artwork.
+            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .accentColor(chromeAccent)
+            .foregroundStyle(.primary)
         }
     }
 

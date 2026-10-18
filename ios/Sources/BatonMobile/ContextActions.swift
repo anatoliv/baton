@@ -283,6 +283,9 @@ struct AlbumContextMenu: ViewModifier {
 
                 PinMenuButton(item: .album(album), model: model)
 
+                // Wake to this album, or play it when a timer ends.
+                AlarmMenuItems(item: .album(album))
+
                 if !model.isDemoMode {
                     Divider()
                     Button {
