@@ -303,7 +303,7 @@ final class DocumentLibrary {
     /// A web page by its address: the article, not the page furniture, or the PDF or text the
     /// address serves.
     nonisolated static func importDocument(fromWeb url: URL,
-                                           fetch: @escaping DocumentImporter.Fetch = { try await URLSession.shared.data(for: $0) })
+                                           fetch: @escaping DocumentImporter.Fetch = DocumentImporter.pageFetch)
         async throws -> ImportedDocument {
         try await DocumentImporter.importURL(url, fetch: fetch)
     }
@@ -336,7 +336,7 @@ final class DocumentLibrary {
         // Made here again after it was removed from this Mac: it is this Mac's again, and the
         // copy sent before is replaced by this one.
         homeServer.unhide(documentID: book.documentID)
-        documentsLog.notice("submitted \"\(book.title, privacy: .public)\": \(book.chapters.count) chapters, \(book.segmentCount) chunks")
+        documentsLog.notice("submitted \"\(book.title, privacy: .private)\": \(book.chapters.count) chapters, \(book.segmentCount) chunks")
         refresh()
         return id
     }
@@ -615,7 +615,7 @@ final class DocumentLibrary {
             if let finishedAt = stored.finishedAt { _ = await renderer.markFinished(newID, at: finishedAt) }
         }
         refresh()
-        documentsLog.notice("book \"\(book.title, privacy: .public)\": making it again in \(narrator, privacy: .public)")
+        documentsLog.notice("book \"\(book.title, privacy: .private)\": making it again in \(narrator, privacy: .public)")
     }
 
     /// Stop making a book again: the chapters already replaced get their old audio back, and the

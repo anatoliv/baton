@@ -218,8 +218,9 @@ final class BatonMCPServer {
         isRunning = false
         boundPort = nil
         // Remove the discovery file so a stale token+port doesn't linger after quit/crash
-        // for another process to harvest.
-        if let dir = discoveryDirectory() {
+        // for another process to harvest. Only our own: an instance refused by the
+        // live-owner guard never wrote it, and the file is the live owner's. (TBX-1000000480 A-2)
+        if let dir = discoveryDirectory(), discoveryFilePid(in: dir) == Int(ProcessInfo.processInfo.processIdentifier) {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent("mcp.json"))
         }
     }
@@ -665,13 +666,18 @@ final class BatonMCPServer {
     /// The pid recorded in an existing discovery file, if that process is still alive and
     /// isn't us — i.e. another Baton instance already owns the MCP endpoint.
     private func liveForeignOwnerPid() -> Int32? {
-        guard let dir = discoveryDirectory(),
-              let data = try? Data(contentsOf: dir.appendingPathComponent("mcp.json")),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let pid = obj["pid"] as? Int, pid > 0 else { return nil }
+        guard let dir = discoveryDirectory(), let pid = discoveryFilePid(in: dir), pid > 0 else { return nil }
         let me = ProcessInfo.processInfo.processIdentifier
         guard Int32(pid) != me else { return nil }
         return kill(pid_t(pid), 0) == 0 ? Int32(pid) : nil // ESRCH ⇒ dead ⇒ stale, ignore
+    }
+
+    /// The pid recorded in `dir`'s `mcp.json`, if there is one.
+    private func discoveryFilePid(in dir: URL) -> Int? {
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent("mcp.json")),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return obj["pid"] as? Int
     }
 
     private func discoveryDirectory() -> URL? {

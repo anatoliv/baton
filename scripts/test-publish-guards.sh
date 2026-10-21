@@ -741,6 +741,62 @@ if [ "$(grep -c '^  dsym_state_line$' "$SUBJECT")" -ge 2 ]; then
 else
   bad "TBX-5372 wiring: an ending of publish.sh no longer says whether the dSYM was uploaded"
 fi
+
+# F-1: a resume with no retained archive must warn and carry on. publish.sh runs under
+# `set -euo pipefail`, where `ls` of an unmatched glob fails the lookup's pipeline and
+# ended the script silently before the warning, on every resume detach_failed_after_staple names.
+mkdir -p "$WORK/f1/dist/dsym"
+{ echo 'set -euo pipefail'
+  echo 'step() { printf "  . %s\n" "$*"; }'
+  echo 'warn() { printf "  ! %s\n" "$*"; }'
+  echo 'resuming() { [ "${RESUME_FROM_STAPLED:-0}" = 1 ]; }'
+  echo "cd '$WORK/f1'"
+  echo 'DIST=dist; DSYM_DIR="$DIST/dsym"; VERSION=0.19.3; BUILD=103'
+  printf '%s\n' "$RETAIN_STEP"
+  echo 'echo "CONTINUED"'; } >"$WORK/tf1.sh"
+out="$(RESUME_FROM_STAPLED=1 bash "$WORK/tf1.sh" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -q 'CONTINUED'; then
+  bad "F-1: a resume with no retained dSYM ended the script (rc=$rc) instead of warning. Got: $out"
+elif ! printf '%s' "$out" | grep -q 'no retained dSYM for 0.19.3 build 103'; then
+  bad "F-1: a resume with no retained dSYM continued without the warning. Got: $out"
+else
+  ok "F-1 a resume with no retained dSYM warns and continues under set -euo pipefail"
+fi
+
+# F-24: the appcast's EdDSA signature is read out of sign_update's output. A sed that
+# passes a non-matching line through unchanged made any output a "signature", and the
+# non-empty check before publishing accepted it. sign_update is stubbed to print a fixed line.
+SIG_BLOCK="$(awk '/^ED_SIG=""$/,/^fi$/' "$SUBJECT")"
+run_sig() {   # $1 = the line the stub sign_update prints
+  rm -rf "$WORK/f24"; mkdir -p "$WORK/f24/bin"
+  { echo '#!/bin/bash'; printf 'printf "%%s\\n" %q\n' "$1"; } >"$WORK/f24/bin/sign_update"
+  chmod +x "$WORK/f24/bin/sign_update"
+  { echo 'set -euo pipefail'
+    echo 'warn() { printf "  ! %s\n" "$*"; }'
+    echo "SPARKLE_BIN='$WORK/f24/bin'; DIST='$WORK/f24'; DMG_NAME=Baton-0.19.3.dmg"
+    printf '%s\n' "$SIG_BLOCK"
+    echo 'echo "ED_SIG=$ED_SIG"'; } >"$WORK/tf24.sh"
+  bash "$WORK/tf24.sh" 2>&1
+}
+GOOD_SIG="$(printf '%086d' 0 | tr 0 A)=="
+out="$(run_sig "Signing update failed: no key in keychain")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  bad "F-24: sign_update output with no edSignature was accepted as a signature. Got: $out"
+else
+  ok "F-24 sign_update output with no sparkle:edSignature is refused"
+fi
+out="$(run_sig 'sparkle:edSignature="notbase64" length="12"')"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  bad "F-24: an edSignature that is not 64 bytes of base64 was accepted. Got: $out"
+else
+  ok "F-24 an edSignature that is not 64 bytes of base64 is refused"
+fi
+out="$(run_sig "sparkle:edSignature=\"$GOOD_SIG\" length=\"12\"")"; rc=$?
+if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qxF "ED_SIG=$GOOD_SIG"; then
+  bad "F-24: a well-formed edSignature line was not accepted as exactly the signature (rc=$rc). Got: $out"
+else
+  ok "F-24 a well-formed edSignature line yields exactly the 88-character signature"
+fi
 UPLOAD_FN="$(awk '/^crashbox_upload_dsym\(\) \{$/,/^\}$/' "$SUBJECT")"
 UPLOAD_BLOCK="$(awk '/^  # TBX-5483:/,/^  # End TBX-5483\.$/' "$SUBJECT")"
 if [ -z "$UPLOAD_FN" ] || [ -z "$UPLOAD_BLOCK" ]; then
@@ -867,6 +923,69 @@ else
     bad "TBX-10955: a Release build with compiled MLX shaders was refused. Got: $out"
   else
     ok "TBX-10955 a Release build with compiled MLX shaders passes its build step"
+  fi
+fi
+
+# E-4: publish-site.sh uploads the CSS and JS before the HTML that names them
+# (~/Projects/_method/web-cache-policy.md, "Upload assets first, then the HTML"). One rsync
+# of the whole list sent index.html before styles.css, so a visitor in between got a page
+# whose stamped asset URLs did not exist yet. The real block runs with ssh and rsync as
+# recording functions, from this tree so every listed site file exists. ($ROOT now names a
+# fixture tree from the dSYM cases above; $PWD is still this checkout.)
+SITE_TREE="$PWD"
+SITE_SUBJECT="$SITE_TREE/scripts/publish-site.sh"
+SITE_RSYNC="$(grep -E '^RSYNC=\(|^\[ -n "\$\{DRY_RUN:-\}" \] && RSYNC\+=' "$SITE_SUBJECT")"
+SITE_BLOCK="$(awk '/^SITE_FILES=\($/,/^"\$\{RSYNC\[@\]\}" website\/\.well-known\//' "$SITE_SUBJECT")"
+if [ "$(printf '%s\n' "$SITE_RSYNC" | wc -l | tr -d ' ')" != 2 ] || [ -z "$SITE_BLOCK" ]; then
+  bad "E-4: publish-site.sh's RSYNC or static-sync anchors were not found; the upload was restructured"
+else
+  run_site_sync() {   # [DRY_RUN value]; one line per rsync call, its arguments tab-separated
+    { echo 'set -euo pipefail'
+      echo 'bold() { :; }; step() { :; }; fail() { echo "FAIL: $*" >&2; exit 1; }'
+      echo 'ssh() { :; }'
+      echo "rsync() { local IFS=\$'\\t'; printf '%s\\n' \"\$*\" >>'$WORK/e4-calls'; }"
+      echo "cd '$SITE_TREE'; WEB01=stub-host; REMOTE_DIR=/srv/site; HOSTNAME_FQDN=stub.example; DRY_RUN='${1:-}'"
+      echo '[ -n "$DRY_RUN" ] || unset DRY_RUN'
+      printf '%s\n' "$SITE_RSYNC"
+      printf '%s\n' "$SITE_BLOCK"; } >"$WORK/te4.sh"
+    : >"$WORK/e4-calls"
+    bash "$WORK/te4.sh" 2>&1 || return 1
+    cat "$WORK/e4-calls"
+  }
+  # The verdict: the first call naming any .html must come after every call naming .css/.js,
+  # exactly the listed site files are sent, once each, and each site call keeps the RSYNC flags.
+  check_site_order() {   # stdin: the calls; $1 = flags each site call starts with; $2 = SITE_FILES
+    python3 -c '
+import sys
+flags = sys.argv[1].split("\t")
+calls = [l.rstrip("\n").split("\t") for l in sys.stdin if l.strip()]
+site = [c for c in calls if c[-1].endswith("/site/") and not any(".well-known" in a for a in c)]
+if not site: sys.exit("no static-site rsync call recorded")
+for c in site:
+    if c[:len(flags)] != flags: sys.exit("a site call lost the RSYNC flags: %r" % c)
+files = [a for c in site for a in c[len(flags):-1]]
+if sorted(files) != sorted(sys.argv[2].split()): sys.exit("sent %r, not exactly SITE_FILES" % files)
+first_html = next((i for i, c in enumerate(site) if any(a.endswith(".html") for a in c)), None)
+if first_html is None: sys.exit("no HTML was uploaded")
+late = [a for c in site[first_html:] for a in c if a.endswith((".css", ".js"))]
+if late: sys.exit("CSS/JS uploaded with or after the HTML: %r" % late)
+print("ok %d files in %d calls" % (len(files), len(site)))
+' "$1" "$2"
+  }
+  listed="$(printf '%s\n' "$SITE_BLOCK" | awk '/^SITE_FILES=\($/{f=1;next} f&&/^\)$/{exit} f{gsub(/^ +/,"");print}')"
+  calls="$(run_site_sync)"; rc=$?
+  verdict="$(printf '%s\n' "$calls" | check_site_order "$(printf -- '-az\t--delete\t--human-readable\t--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r')" "$listed" 2>&1)"
+  if [ "$rc" -ne 0 ] || [ "${verdict#ok}" = "$verdict" ]; then
+    bad "E-4: the site upload does not send assets before the HTML (rc=$rc): $verdict"
+  else
+    ok "E-4 publish-site.sh uploads every CSS/JS asset before the HTML that names it ($verdict)"
+  fi
+  calls="$(run_site_sync 1)"; rc=$?
+  verdict="$(printf '%s\n' "$calls" | check_site_order "$(printf -- '-az\t--delete\t--human-readable\t--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r\t--dry-run\t--itemize-changes')" "$listed" 2>&1)"
+  if [ "$rc" -ne 0 ] || [ "${verdict#ok}" = "$verdict" ]; then
+    bad "E-4: under DRY_RUN=1 a site call is not a dry run, or the order is wrong (rc=$rc): $verdict"
+  else
+    ok "E-4 under DRY_RUN=1 every site call stays a dry run, in the same order"
   fi
 fi
 

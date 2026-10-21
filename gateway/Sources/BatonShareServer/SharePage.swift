@@ -165,19 +165,13 @@ public struct SharePage: Sendable {
         ], reactions: ShareLimits.reactions)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let json = ((try? encoder.encode(data)).map { String(decoding: $0, as: UTF8.self) } ?? "{}")
-            // Inside <script>, "</" ends the block whatever JSON thinks; escape every "<".
-            .replacingOccurrences(of: "<", with: "\\u003c")
+        let json = Self.scriptSafe((try? encoder.encode(data)).map { String(decoding: $0, as: UTF8.self) } ?? "{}")
 
-        let html = template
-            .replacingOccurrences(of: "{{V}}", with: version)
-            .replacingOccurrences(of: "{{STATE}}", with: stateName)
-            .replacingOccurrences(of: "{{DOC_TITLE}}", with: Self.escape(headline))
-            .replacingOccurrences(of: "{{OG_TAGS}}", with: ogTags)
-            .replacingOccurrences(of: "{{HEADLINE}}", with: Self.escape(headline))
-            .replacingOccurrences(of: "{{SUBLINE}}", with: Self.escape(subline))
-            .replacingOccurrences(of: "{{ABOUT_URL}}", with: Self.escape(config.aboutURL))
-            .replacingOccurrences(of: "{{DATA}}", with: json)
+        let html = Self.fill(template, [
+            "V": version, "STATE": stateName, "DOC_TITLE": Self.escape(headline), "OG_TAGS": ogTags,
+            "HEADLINE": Self.escape(headline), "SUBLINE": Self.escape(subline),
+            "ABOUT_URL": Self.escape(config.aboutURL), "DATA": json,
+        ])
         return ShareResponse(status: status, contentType: "text/html; charset=utf-8", body: Data(html.utf8),
                              headers: Self.pageHeaders)
     }
@@ -188,20 +182,52 @@ public struct SharePage: Sendable {
                     expiresAt: ShareDate.string(Date(timeIntervalSince1970: TimeInterval(record.expiresAt))))
     }
 
-    static func escape(_ text: String) -> String {
+    /// Replaces each `{{KEY}}` in one pass over the template. Inserted values are never scanned
+    /// again, so a sharer's text that looks like a placeholder stays text. Unknown keys are kept.
+    static func fill(_ template: String, _ values: [String: String]) -> String {
         var out = ""
-        out.reserveCapacity(text.count)
-        for character in text {
-            switch character {
-            case "&": out += "&amp;"
-            case "<": out += "&lt;"
-            case ">": out += "&gt;"
-            case "\"": out += "&quot;"
-            case "'": out += "&#39;"
-            default: out.append(character)
+        out.reserveCapacity(template.utf8.count)
+        var rest = template[...]
+        while let open = rest.range(of: "{{") {
+            out += rest[..<open.lowerBound]
+            guard let close = rest[open.upperBound...].range(of: "}}"),
+                  let value = values[String(rest[open.upperBound ..< close.lowerBound])] else {
+                out += "{"
+                rest = rest[rest.index(after: open.lowerBound)...]
+                continue
+            }
+            out += value
+            rest = rest[close.upperBound...]
+        }
+        out += rest
+        return out
+    }
+
+    /// Works on Unicode scalars, not Characters: `"` followed by a combining mark is one Character
+    /// that does not equal `"`, yet the browser still sees the raw quote.
+    static func escape(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            switch scalar {
+            case "&": out.append(contentsOf: "&amp;".unicodeScalars)
+            case "<": out.append(contentsOf: "&lt;".unicodeScalars)
+            case ">": out.append(contentsOf: "&gt;".unicodeScalars)
+            case "\"": out.append(contentsOf: "&quot;".unicodeScalars)
+            case "'": out.append(contentsOf: "&#39;".unicodeScalars)
+            default: out.append(scalar)
             }
         }
-        return out
+        return String(out)
+    }
+
+    /// Inside <script>, "</" ends the block whatever JSON thinks; escape every "<" scalar
+    /// (a String search would miss one followed by a combining mark).
+    static func scriptSafe(_ json: String) -> String {
+        var out = String.UnicodeScalarView()
+        for scalar in json.unicodeScalars {
+            if scalar == "<" { out.append(contentsOf: "\\u003c".unicodeScalars) } else { out.append(scalar) }
+        }
+        return String(out)
     }
 }
 
@@ -263,12 +289,9 @@ struct MixtapePage: Sendable {
                     ("twitter:card", "summary"), ("twitter:title", title), ("twitter:description", subline)]
         if let id { tags.append(("og:url", config.publicBase.appendingPathComponent("m").appendingPathComponent(id).absoluteString)) }
         let og = tags.map { key, value in "<meta \(key.hasPrefix("twitter:") ? "name" : "property")=\"\(key)\" content=\"\(SharePage.escape(value))\">" }.joined(separator: "\n")
-        let json = String(decoding: (try? JSONEncoder().encode(DataBlock(id: id, state: state, reactions: ShareLimits.reactions))) ?? Foundation.Data("{}".utf8), as: UTF8.self).replacingOccurrences(of: "<", with: "\\u003c")
-        var html = template
-        for (key, value) in ["V": version, "STATE": state, "DOC_TITLE": SharePage.escape(title), "HEADLINE": SharePage.escape(title),
-                             "SUBLINE": SharePage.escape(subline), "OG_TAGS": og, "DATA": json] {
-            html = html.replacingOccurrences(of: "{{\(key)}}", with: value)
-        }
+        let json = SharePage.scriptSafe(String(decoding: (try? JSONEncoder().encode(DataBlock(id: id, state: state, reactions: ShareLimits.reactions))) ?? Foundation.Data("{}".utf8), as: UTF8.self))
+        let html = SharePage.fill(template, ["V": version, "STATE": state, "DOC_TITLE": SharePage.escape(title), "HEADLINE": SharePage.escape(title),
+                                             "SUBLINE": SharePage.escape(subline), "OG_TAGS": og, "DATA": json])
         let status = state == "unknown" ? 404 : state == "expired" ? 410 : state == "unsupported" ? 409 : 200
         return .init(status: status, contentType: "text/html; charset=utf-8", body: Foundation.Data(html.utf8), headers: SharePage.pageHeaders)
     }

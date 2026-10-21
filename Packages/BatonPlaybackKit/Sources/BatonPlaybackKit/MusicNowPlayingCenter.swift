@@ -120,6 +120,15 @@ public final class MusicNowPlayingCenter {
         ] { command.isEnabled = false }
     }
 
+    /// Shows or hides Like and Never Play in Radio. The owner calls this whenever the handlers
+    /// behind them change, since they can arrive after `configure`.
+    public func setRatingCommandsEnabled(like: Bool, ban: Bool) {
+        guard configured else { return }
+        let center = MPRemoteCommandCenter.shared()
+        center.likeCommand.isEnabled = like
+        center.dislikeCommand.isEnabled = ban
+    }
+
     /// Fifteen seconds each way — the interval every podcast client has trained people on.
     public static let skipInterval: TimeInterval = 15
 

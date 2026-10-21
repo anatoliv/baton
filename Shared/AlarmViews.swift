@@ -757,6 +757,13 @@ struct AlarmRingingCard: View {
     let center: AlarmCenter
     var fullScreen = false
 
+    /// The floating card's width on the Mac, its padding included. A fixed width, not a maximum:
+    /// with only a maximum the panel took the card's minimum, a strip about 90 pt wide with the
+    /// label, the time and the buttons cut to nothing.
+    static let floatingWidth: CGFloat = 360
+    /// The time's font on the Mac's card, shared with the test that checks it fits on one line.
+    static let floatingTimeFont = Font.system(size: 40, weight: .light, design: .rounded)
+
     var body: some View {
         if let fire = center.ringing {
             VStack(spacing: fullScreen ? 18 : 12) {
@@ -766,14 +773,18 @@ struct AlarmRingingCard: View {
                     .foregroundStyle(Color.accentColor)
                     .symbolEffect(.bounce, options: .repeating)
                 Text(fire.label).font(fullScreen ? .title.weight(.semibold) : .title2.weight(.semibold))
+                    // On the Mac a long label wraps, centred, and the card grows to hold it.
+                    .multilineTextAlignment(fullScreen ? .leading : .center)
+                    .fixedSize(horizontal: false, vertical: !fullScreen)
                 Text(AlarmCenter.timeString(fire.occurrence))
-                    .font(.system(size: fullScreen ? 76 : 40, weight: .light, design: .rounded))
+                    .font(fullScreen ? .system(size: 76, weight: .light, design: .rounded) : Self.floatingTimeFont)
                     .monospacedDigit()
                 Label(fire.choice.summary, systemImage: fire.choice.symbol)
                     .font(.headline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: !fullScreen)
                     .accessibilityIdentifier("alarm-ringing-choice")
                 if fullScreen { Spacer(minLength: 20) }
                 VStack(spacing: 10) {
@@ -806,7 +817,11 @@ struct AlarmRingingCard: View {
                 .frame(maxWidth: 420)
             }
             .padding(fullScreen ? 28 : 20)
-            .frame(maxWidth: fullScreen ? .infinity : 360, maxHeight: fullScreen ? .infinity : nil)
+            // A fixed width proposes 360 to the words even when the panel asks the card's ideal
+            // size, so a long label is measured wrapped; a min and max width would measure it on
+            // one line and then cut off the second.
+            .frame(width: fullScreen ? nil : Self.floatingWidth)
+            .frame(maxWidth: fullScreen ? .infinity : Self.floatingWidth, maxHeight: fullScreen ? .infinity : nil)
             .background {
                 if fullScreen {
                     Rectangle().fill(.ultraThickMaterial).ignoresSafeArea()

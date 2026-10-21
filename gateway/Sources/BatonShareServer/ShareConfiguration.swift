@@ -22,6 +22,9 @@ public struct ShareConfiguration: Sendable {
     /// Whole-book links (`/b/`, specs/book-sharing.md Phase 2). Default-off until the owner
     /// approves the share-service deploy.
     public var booksEnabled: Bool = false
+    /// Album and playlist links on `/b/` (specs/collection-sharing.md). Default-off; effective only
+    /// with `booksEnabled`, whose routes, limits and page a collection shares.
+    public var collectionsEnabled: Bool = false
     public var adminToken: String?
     /// A separately provisioned local-operator capability. Nil disables every operator route.
     public var enforcement: EnforcementConfiguration? = nil
@@ -96,6 +99,13 @@ public struct ShareConfiguration: Sendable {
             case "1", "true": config.booksEnabled = true
             case "0", "false", "": config.booksEnabled = false
             default: throw ConfigurationError("BATON_SHARE_BOOKS must be 1 or 0")
+            }
+        }
+        if let value = env["BATON_SHARE_COLLECTIONS"] {
+            switch value.lowercased() {
+            case "1", "true": config.collectionsEnabled = true
+            case "0", "false", "": config.collectionsEnabled = false
+            default: throw ConfigurationError("BATON_SHARE_COLLECTIONS must be 1 or 0")
             }
         }
         if let token = env["BATON_SHARE_ADMIN_TOKEN"], !token.isEmpty {

@@ -80,12 +80,15 @@ public final class DiscordBridge {
             } catch is CancellationError {
                 return
             } catch let error as BridgeError {
-                if case .authFailed = error {
-                    // A bad token will never fix itself — stop instead of
-                    // hammering the Gateway (which bans on repeated bad auth).
+                switch error {
+                case .authFailed, .gatewayRefused:
+                    // A bad token or a refused intent will never fix itself — stop instead
+                    // of hammering the Gateway (which bans on repeated bad auth).
                     onStateChange(.failed(error.localizedDescription))
-                    remoteLog.error("Discord authentication failed; bridge stopped")
+                    remoteLog.error("Discord refused the bot; bridge stopped")
                     return
+                case .api, .malformed:
+                    break
                 }
                 guard !Task.isCancelled else { return }
                 onStateChange(.failed(error.localizedDescription))
@@ -123,7 +126,13 @@ public final class DiscordBridge {
         lastHeartbeatAcked = true
 
         while !Task.isCancelled {
-            let message = try await socket.receive()
+            let message: URLSessionWebSocketTask.Message
+            do {
+                message = try await socket.receive()
+            } catch {
+                if let fatal = Self.fatalCloseError(closeCode: socket.closeCode.rawValue) { throw fatal }
+                throw error
+            }
             guard let payload = Self.decode(message) else { continue }
             let op = payload["op"] as? Int ?? -1
 
@@ -471,14 +480,28 @@ public final class DiscordBridge {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
+    /// Gateway close codes that no reconnect can fix. Retrying them identifies again every
+    /// minute, and Discord resets the bot token after 1,000 identifies in a day.
+    nonisolated static func fatalCloseError(closeCode: Int) -> BridgeError? {
+        switch closeCode {
+        case 4004: .authFailed
+        case 4014: .gatewayRefused("Discord refused the Message Content intent. Turn it on under Bot in the "
+            + "Developer Portal, then switch Discord off and on in Settings → Remote.")
+        case 4010...4013: .gatewayRefused("Discord closed the connection (code \(closeCode)) and won't accept a retry.")
+        default: nil
+        }
+    }
+
+
     enum BridgeError: LocalizedError {
         case api(String)
         case malformed
         case authFailed
+        case gatewayRefused(String)
 
         var errorDescription: String? {
             switch self {
-            case let .api(message): message
+            case let .api(message), let .gatewayRefused(message): message
             case .malformed: "Unexpected response from Discord"
             case .authFailed: "Discord rejected the bot token. Check it in Settings → Remote."
             }

@@ -318,6 +318,25 @@ public enum NavidromeConfig {
         activeServer()?.customHeaders ?? [:]
     }
 
+    /// The active server's extra headers for a request to `url`: all of them when `url` is on
+    /// that server (same scheme, host and port), none for any other host. They often carry a
+    /// proxy's credential, and a podcast episode's id is its enclosure URL on the podcast's own
+    /// host, so they must never be sent there.
+    public static func customHeaders(for url: URL) -> [String: String] {
+        guard let server = serverURL, isSameOrigin(url, server) else { return [:] }
+        return customHeaders()
+    }
+
+    /// Whether two URLs share scheme, host and port, a missing port being the scheme's default.
+    public static func isSameOrigin(_ a: URL, _ b: URL) -> Bool {
+        func origin(_ url: URL) -> (String, String, Int)? {
+            guard let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else { return nil }
+            return (scheme, host, url.port ?? (scheme == "https" ? 443 : scheme == "http" ? 80 : -1))
+        }
+        guard let x = origin(a), let y = origin(b) else { return false }
+        return x == y
+    }
+
     /// Replaces the active server's extra headers (empty dict clears them).
     public static func setCustomHeaders(_ headers: [String: String]) {
         guard var entry = activeServer() else { return }

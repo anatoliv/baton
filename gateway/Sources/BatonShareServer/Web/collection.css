@@ -1,0 +1,147 @@
+/* Baton album and playlist page (TBX-1000000485), built from the book page (TBX-1000000132) and styled as
+   a music player. Brand tokens: Tonebox docs/design/app-family (TBX-11146), porcelain light and soft charcoal
+   dark with copper. --copper fills; --copper-ink is text-safe, and is also the fill behind text: white on
+   --copper is 4.2:1 in light, white on --copper-ink 5.5:1. */
+:root {
+  --bg: #FAF7F4; --surface: #FFFFFF; --sunken: #F2EDE8; --ink: #262A30; --ink-dim: #686A70; --line: #DED8D2;
+  --copper: #C45E36; --copper-ink: #A94E2B; --on-copper: #FFFFFF; --copper-wash: #F7E9E2; --track: #E6DFD8;
+  --shadow: 0 1px 2px rgba(38, 42, 48, .06), 0 12px 32px -16px rgba(38, 42, 48, .22);
+  --cover-shadow: 0 1px 2px rgba(38, 42, 48, .08), 0 18px 36px -18px rgba(38, 42, 48, .45);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #30343A; --surface: #3A3F46; --sunken: #353A40; --ink: #F8F5F1; --ink-dim: #BDB7B0; --line: #555A61;
+    --copper: #ED986F; --copper-ink: #ED986F; --on-copper: #262A30; --copper-wash: #4A4340; --track: #555A61;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 14px 36px -18px rgba(0, 0, 0, .6);
+    --cover-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 18px 40px -18px rgba(0, 0, 0, .75);
+    color-scheme: dark;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font: 400 1rem/1.45 var(--sans); overflow-x: hidden; }
+a { color: var(--copper-ink); text-underline-offset: 2px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 3px solid var(--copper); outline-offset: 2px; }
+main { width: 100%; max-width: 680px; margin: 0 auto; padding: 40px 24px 32px; }
+p { margin: 0; }
+
+/* Header: the cover (or a placeholder tinted from the title), the kind, title, artist and chips. */
+.head { display: flex; gap: 22px; align-items: center; }
+.cover { --hue: 18; position: relative; flex: none; width: 168px; height: 168px; border-radius: 14px; overflow: hidden; box-shadow: var(--cover-shadow);
+  background: linear-gradient(140deg, hsl(var(--hue) 42% 58%), hsl(calc(var(--hue) + 38) 38% 34%)); display: grid; place-items: center; }
+.cover .glyph { width: 46%; height: 46%; fill: none; stroke: rgba(255, 255, 255, .92); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover.has-art { background: var(--sunken); }
+.cover.has-art .glyph { display: none; }
+.head-text { min-width: 0; padding-bottom: 2px; }
+.kicker { color: var(--copper-ink); font-size: .8rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+h1 { margin: 2px 0 2px; font-size: clamp(1.45rem, 1.1rem + 1.8vw, 2.2rem); line-height: 1.12; overflow-wrap: anywhere; }
+#byline { font-weight: 600; overflow-wrap: anywhere; }
+#from { color: var(--ink-dim); overflow-wrap: anywhere; }
+#note { margin-top: 6px; white-space: pre-line; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { font-size: .8rem; padding: 3px 10px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
+#status { min-height: 1.45em; margin: 16px 0 4px; color: var(--ink-dim); font-size: .92rem; }
+#status:empty { margin: 8px 0 0; }
+
+#player { display: flex; flex-direction: column; gap: 16px; }
+
+/* One player card. */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 18px 20px 16px; box-shadow: var(--shadow); }
+.prompt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: -4px -6px 14px; padding: 10px 12px;
+  border-radius: 12px; background: var(--copper-wash); }
+.prompt p { font-weight: 600; font-size: .95rem; }
+.prompt-actions { display: flex; gap: 8px; }
+.prompt button { border-radius: 999px; padding: 7px 14px; font-size: .9rem; font-weight: 600; border: 1px solid transparent; }
+.prompt .primary { background: var(--copper-ink); color: var(--on-copper); }
+.prompt .quiet { background: transparent; color: var(--ink); border-color: var(--line); }
+.now { min-width: 0; }
+#current { font-weight: 650; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#current-of { color: var(--ink-dim); font-size: .92rem; min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The copper progress bar is the native range input, so keyboard, touch and screen readers work. */
+#seek { --progress: 0%; display: block; width: 100%; height: 22px; margin: 12px 0 2px; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+#seek:disabled { cursor: default; }
+#seek::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--copper) var(--progress), var(--track) var(--progress)); }
+#seek::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: var(--copper); border: 2px solid var(--surface); }
+#seek::-moz-range-track { height: 6px; border-radius: 3px; background: var(--track); }
+#seek::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--copper); }
+#seek::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--copper); border: 2px solid var(--surface); }
+#seek:disabled::-webkit-slider-thumb { opacity: 0; }
+#seek:disabled::-moz-range-thumb { opacity: 0; }
+.times { display: flex; justify-content: space-between; font-size: .8rem; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+.controls { display: flex; align-items: center; justify-content: center; gap: 24px; margin-top: 6px; }
+.skip { width: 48px; height: 48px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; color: var(--ink); }
+.skip svg { width: 26px; height: 26px; fill: currentColor; }
+.skip:disabled { opacity: .3; }
+.play { position: relative; width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--copper); color: var(--on-copper); display: grid; place-items: center; box-shadow: var(--shadow); }
+.play svg { width: 30px; height: 30px; fill: currentColor; grid-area: 1 / 1; }
+.play .i-pause, .play .spinner { display: none; }
+.play[data-mode="pause"] .i-play { display: none; }
+.play[data-mode="pause"] .i-pause { display: block; }
+.play[data-mode="loading"] .i-play { display: none; }
+.play[data-mode="loading"] .spinner { display: block; grid-area: 1 / 1; width: 26px; height: 26px; border-radius: 50%; border: 3px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+.play:disabled:not([data-mode="loading"]) { opacity: .55; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Shuffle and repeat (playlists): dim when off, copper with a dot when on; repeat one adds a "1". */
+.mode { position: relative; width: 44px; height: 44px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; color: var(--ink-dim); }
+.mode svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mode:disabled { opacity: .35; }
+.mode[aria-pressed="true"], .mode[data-repeat="all"], .mode[data-repeat="one"] { color: var(--copper-ink); }
+.mode[aria-pressed="true"]::after, .mode[data-repeat="all"]::after, .mode[data-repeat="one"]::after {
+  content: ""; position: absolute; bottom: 3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
+.mode .badge { display: none; position: absolute; top: 9px; right: 6px; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 7px;
+  background: var(--copper-ink); color: var(--on-copper); font-size: .6rem; font-weight: 700; line-height: 13px; text-align: center; }
+.mode[data-repeat="one"] .badge { display: block; }
+
+/* Tappable song rows. The current row is copper with a speaker in place of its number. */
+.tracks { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.tracks li { border-bottom: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 6px; border: 0; background: transparent; text-align: left; border-radius: 10px; }
+.row:hover:not(:disabled) { background: var(--sunken); }
+.row:disabled { color: inherit; }
+.row-num { color: var(--ink-dim); font-variant-numeric: tabular-nums; text-align: center; }
+.row-text { min-width: 0; }
+.row-title, .row-by { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-by { color: var(--ink-dim); font-size: .88rem; }
+.row-time { color: var(--ink-dim); font-size: .88rem; font-variant-numeric: tabular-nums; }
+.row-speaker { display: none; width: 20px; height: 20px; margin: 0 auto; fill: var(--copper-ink); }
+.row[aria-current="true"] .row-title, .row[aria-current="true"] .row-time { color: var(--copper-ink); font-weight: 650; }
+.row[aria-current="true"] .row-num { display: none; }
+.row[aria-current="true"] .row-speaker { display: block; }
+
+/* Compact reactions. */
+.reactions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.react-label { font-size: .85rem; font-weight: 600; color: var(--ink-dim); margin-right: 4px; }
+.reactions button { min-width: 40px; height: 40px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 1.15rem; line-height: 1; }
+.reactions button:disabled { opacity: .45; }
+.react-status { order: 99; font-size: .85rem; color: var(--copper-ink); margin-left: 4px; }
+
+footer { margin-top: 28px; font-size: .85rem; color: var(--ink-dim); text-align: center; }
+body:not([data-state="ready"]) .listen-note { display: none; }
+.noscript { margin-top: 16px; color: var(--ink-dim); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Phone: the cover leads, centred; the card sticks to the bottom while the list scrolls under it.
+   collection.mjs moves the list and reactions above the card in the DOM at this width, so the focus order matches. */
+@media (max-width: 640px) {
+  main { padding: 20px 16px 24px; }
+  .head { flex-direction: column; align-items: center; text-align: center; gap: 14px; }
+  .cover { width: 196px; height: 196px; border-radius: 12px; }
+  .head-text { width: 100%; }
+  .chips { justify-content: center; }
+  .card { position: sticky; bottom: 0; z-index: 2; margin: 0 -8px; padding: 14px 16px 12px; border-radius: 18px 18px 0 0; border-bottom: 0;
+    padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .controls { gap: 12px; margin-top: 2px; }
+  .play { width: 58px; height: 58px; }
+  footer { margin-top: 20px; }
+}
+@media (max-width: 360px) { .controls { gap: 4px; } .cover { width: 160px; height: 160px; } }
+@media (prefers-reduced-motion: reduce) { .play[data-mode="loading"] .spinner { animation: none; } }

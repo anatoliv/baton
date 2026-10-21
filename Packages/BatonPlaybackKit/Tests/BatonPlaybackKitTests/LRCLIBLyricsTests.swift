@@ -19,6 +19,21 @@ final class LRCLIBLyricsTests: XCTestCase {
         XCTAssertEqual(lines[2].start ?? 0, 62.5, accuracy: 0.001)
     }
 
+    /// A repeated chorus is often written once with every time it is sung. That is one line
+    /// per stamp, in time order, not one line with a stray `[00:45.00]` in its text.
+    func testALineWithSeveralStampsIsSungAtEachOfThem() throws {
+        let single = try XCTUnwrap(LRCLIBLyrics.parseLRC("[00:12.00][00:45.00]Chorus"))
+        XCTAssertEqual(single.map(\.text), ["Chorus", "Chorus"])
+        XCTAssertEqual(single.map(\.start), [12, 45])
+
+        let sheet = try XCTUnwrap(LRCLIBLyrics.parseLRC("""
+        [00:12.00][00:45.00]Chorus
+        [00:20.00]Verse
+        """))
+        XCTAssertEqual(sheet.map(\.text), ["Chorus", "Verse", "Chorus"])
+        XCTAssertEqual(sheet.map(\.start), [12, 20, 45])
+    }
+
     /// `[ar: …]`, `[length: …]` and friends are metadata. Rendering them as the first two
     /// lines of a song is the classic LRC parsing bug — and it is what a real sheet did, so
     /// this is asserted on what callers actually get.

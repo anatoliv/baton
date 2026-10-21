@@ -305,6 +305,16 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.9",
+            date: "October 2026",
+            highlight: "Share a whole album or playlist as one link.",
+            changes: [
+                .init(.added, "Choose Share… on an album or a playlist to send it as one link: from the ⋯ menu on an album, the share button on a playlist, or by touching and holding either. Your friend plays it in any browser, with no app and no account: the cover, every song, and shuffle and repeat for a playlist. Switch off songs to leave out, reorder a playlist, and choose how many people can listen."),
+                .init(.improved, "In Liked, select two or more songs and tap Share…, with no 12-song limit. A few short songs still go as a mixtape, and more go as one playlist link."),
+                .init(.improved, "Help and the FAQ are rewritten in plain English and checked against the app, with a list of contents at the top and links between related answers."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.8",
             date: "October 2026",
             highlight: "Alarms that wake you gently.",
@@ -317,7 +327,7 @@ struct WhatsNewView: View {
             date: "October 2026",
             highlight: "Alarms and timers ring with the song you chose.",
             changes: [
-                .init(.improved, "An alarm or timer now rings with the first 29 seconds of the song you picked, on the Lock Screen too. Open Baton from the alert and the whole song carries on. If Baton can't get the song in time, you hear Baton's chime instead of the iPhone's alarm sound."),
+                .init(.improved, "An alarm or timer now rings with the first 29 seconds of the song you picked, on the Lock Screen too. Open Baton from the alert and the whole song plays from the start. If Baton can't get the song in time, you hear Baton's chime instead of the iPhone's alarm sound."),
                 .init(.fixed, "Songs streamed from your server work as alarm sounds now, not just downloads and books."),
                 .init(.improved, "What to Play lists the last 50 songs you played, newest first and each once, with a ten-second preview on every row. Browse sits above them so it stays in reach."),
                 .init(.improved, "A timer and an alarm can be set at the same time. Each gets its own pill above the player, one above the other, and each ✕ cancels only its own."),

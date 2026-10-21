@@ -70,6 +70,22 @@ final class DocumentInboxTests: XCTestCase {
         XCTAssertEqual(offer.source?.lastPathComponent, "Two Rooms.md")
     }
 
+    /// The ids come from the gateway. One that is not a gateway id ("..") must never reach a path
+    /// on this Mac, least of all the cleanup after a failed fetch, which would remove the folder
+    /// the inbox lives in.
+    func testAnIdThatIsNotAGatewayIdIsNeverUsedAsAPath() async throws {
+        let mac = inbox()
+        let sentinel = root.appendingPathComponent("sentinel")
+        try Data("keep me".utf8).write(to: sentinel)
+        gateway.plant(id: "..", contentType: PendingImport.contentType)
+        gateway.plant(id: PendingImport.claimID(for: "..", device: mac.deviceID), contentType: PendingImport.claimContentType)
+
+        await mac.pickUp()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sentinel.path), "a gateway id deleted a folder outside the inbox")
+        XCTAssertTrue(mac.items.isEmpty)
+    }
+
     func testTwoMacsTakeItExactlyOnce() async throws {
         try await phoneSends()
         let a = inbox("mac-a"), b = inbox("mac-b")
@@ -196,6 +212,15 @@ final class InboxGatewayStandIn: @unchecked Sendable {
     }
 
     func unregister() { InboxGatewayProtocol.unregister(host: host) }
+    /// A listing entry the real gateway's id rule would never have let in, for the tests of what
+    /// the Mac does with one anyway.
+    func plant(id: String, contentType: String) {
+        lock.withLock {
+            stored[id] = Stored(meta: Meta(id: id, name: "planted", contentType: contentType, size: 0, sha256: nil,
+                                           createdAt: Date(timeIntervalSince1970: 1_700_000_000), origin: nil),
+                                body: Data())
+        }
+    }
     var requests: [Seen] { lock.withLock { seen } }
 
     func answer(_ request: URLRequest, body: Data) -> (Int, Data, [String: String]) {

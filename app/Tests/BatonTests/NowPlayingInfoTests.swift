@@ -71,4 +71,29 @@ final class NowPlayingInfoTests: XCTestCase {
             song: song(), isPlaying: true, currentTime: 0, duration: 100)
         XCTAssertEqual(info[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
     }
+
+    /// Like and Never Play in Radio reach the lock screen and CarPlay once the app supplies
+    /// them (TBX-1000000480 C1-2). The player wires its remote commands when it is made, and
+    /// the app sets these handlers after that, so both commands stayed disabled for good.
+    @MainActor
+    func testLikeAndNeverPlayInRadioEnableWhenTheAppSuppliesThemAfterLaunch() {
+        let suite = "io.tonebox.tests.nowplaying.rating"
+        UserDefaults(suiteName: suite)!.removePersistentDomain(forName: suite)
+        let c = StreamingPlaybackController(
+            streamURLProvider: { _ in URL(string: "file:///dev/null")! },
+            defaults: UserDefaults(suiteName: suite)!,
+            systemNowPlaying: true
+        )
+        let center = MPRemoteCommandCenter.shared()
+        c.remoteLikeHandler = {}
+        c.remoteBanHandler = {}
+
+        XCTAssertTrue(center.likeCommand.isEnabled, "Like stayed disabled after the app supplied it")
+        XCTAssertTrue(center.dislikeCommand.isEnabled, "Never Play in Radio stayed disabled after the app supplied it")
+
+        c.remoteLikeHandler = nil
+        c.remoteBanHandler = nil
+        XCTAssertFalse(center.likeCommand.isEnabled, "Like is offered with nothing to do it")
+        XCTAssertFalse(center.dislikeCommand.isEnabled)
+    }
 }

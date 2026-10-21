@@ -26,7 +26,10 @@ extension ShareService {
                 switch method {
                 case "GET": return .json(try mixtapeSummary(record))
                 case "DELETE":
-                    if record.status == .pending || record.status == .ready { try store.tombstone(id: record.id, as: .revoked, now: now) }
+                    if record.status == .pending || record.status == .ready {
+                        try store.tombstone(id: record.id, as: .revoked, now: now)
+                        try store.record(event: "share_revoked", at: now, shareID: record.id, sharerID: record.sharerID, props: ["kind": .string("mixtape")])
+                    }
                     return .noContent
                 case "PATCH":
                     guard config.mixtapesEnabled else { return mixtapesUnsupported }
@@ -238,6 +241,10 @@ extension ShareService {
         let visitor = visitor(who, shareID: record.id)
         guard try store.reactionCount(shareID: record.id, visitor: visitor, since: now - now % 86400) < config.limits.reactionsPerVisitorPerDay else { return .error(429, "rate_limited", "Try again later.") }
         try store.addReaction(shareID: record.id, reaction, visitor: visitor, at: now)
+        // Books answer reactions here too.
+        try store.record(event: "reaction_sent", at: now, shareID: record.id, sharerID: record.sharerID, visitor: visitor,
+                         props: ["emoji": .string(reaction.emoji), "hasName": .bool(!(reaction.name ?? "").isEmpty),
+                                 "hasReply": .bool(!(reaction.reply ?? "").isEmpty), "kind": .string(record.isBook ? "book" : "mixtape")])
         return .noContent
     }
 }

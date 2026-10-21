@@ -93,6 +93,35 @@ final class ShareLedgerTests: XCTestCase {
         XCTAssertEqual(ShareLedger.load(from: url), ShareLedger())
     }
 
+    func testAnUnreadableLedgerIsKeptAsideBeforeTheNextSaveReplacesIt() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ledger-\(UUID().uuidString)")
+        let url = dir.appendingPathComponent("shares.json")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func aside() throws -> [URL] {
+            try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix("shares.json.corrupt-") }
+        }
+        XCTAssertEqual(ShareLedger.load(from: url), ShareLedger(), "no ledger yet")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path), "and nothing set aside for it")
+
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let unreadable = Data(#"{"records":[{"id":"a","link":"https://batonmusic.app/s/a#only-here""#.utf8)
+        try unreadable.write(to: url)
+        XCTAssertEqual(ShareLedger.load(from: url), ShareLedger())
+        XCTAssertEqual(ShareLedger.load(from: url), ShareLedger(), "a second open finds nothing new to set aside")
+        var fresh = ShareLedger()
+        fresh.add(record("b"))
+        try fresh.save(to: url)
+
+        let kept = try aside()
+        XCTAssertEqual(kept.count, 1)
+        let copy = try XCTUnwrap(kept.first)
+        XCTAssertEqual(try Data(contentsOf: copy), unreadable, "the only copy of those keys survives the save")
+        let mode = try FileManager.default.attributesOfItem(atPath: copy.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(mode?.intValue, 0o600, "the copy holds link keys too")
+        XCTAssertEqual(ShareLedger.load(from: url), fresh)
+    }
+
     func testTypedNamespacesPreserveSameIDKeysAndHeldMixtapeOnReopen() throws {
         var ledger = ShareLedger()
         let single = record("same")

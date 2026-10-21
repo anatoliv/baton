@@ -94,7 +94,6 @@ struct MusicCollectionView: View {
     @State private var sel = MusicMultiSelect()
     /// Keyboard-navigation focus row in the songs list (↑/↓ move, Return plays, ⌘Return plays next).
     @State private var kbIndex: Int?
-    @State private var mixtapeDraft: MixtapeSelectionDraft?
     @State private var showSaveDialog = false
     @State private var saveName = ""
     @State private var showBatchRemoveConfirm = false
@@ -488,7 +487,6 @@ struct MusicCollectionView: View {
                 }
             }
         }
-        .sheet(item: $mixtapeDraft) { draft in ShareMixtapeSheet(songs: draft.songs) }
         .task { await onAppear() }
         // Find (⌘F) focuses the Search field. Handle both cases: the token bumped while this view
         // is already showing (onChange), and a ⌘F that also switched to Search from another tab —
@@ -712,8 +710,10 @@ struct MusicCollectionView: View {
             onToggleSelectAll: toggleSelectAll,
             onClear: clearSelection
         ) {
-            MusicBatchButton(system: "square.and.arrow.up", help: "Share selected as a mixtape", action: { mixtapeDraft = MixtapeSelectionDraft(songs: selectedSongs) })
-                .disabled(!(2...12).contains(selectedSongs.count))
+            // One link for the selection; the composer sends a few songs as a mixtape and more
+            // as a collection.
+            MusicBatchButton(system: CollectionShareEntry.symbol, help: "Share selected", action: shareSelection)
+                .disabled(!canShareSelection)
             MusicBatchButton(system: "play.fill", help: "Play selected", action: batchPlay)
             MusicBatchButton(system: "text.line.first.and.arrowtriangle.forward", help: "Play next", action: batchPlayNext)
             MusicBatchButton(system: "text.append", help: "Add to queue", action: batchQueue)
@@ -818,7 +818,8 @@ struct MusicCollectionView: View {
                                 song: song,
                                 isSelected: sel.contains(song.id),
                                 showLikeBadge: showLikeBadge,
-                                onToggleSelect: { selectClicked(song.id) }
+                                onToggleSelect: { selectClicked(song.id) },
+                                onShareSelection: shareSelectionAction(for: song)
                             ) {
                                 model.music.play(songs, startAt: index, source: source)
                             }
@@ -842,7 +843,8 @@ struct MusicCollectionView: View {
                                         showLikeBadge: showLikeBadge,
                                         showMetadataColumns: true,
                                         onToggleSelect: { selectClicked(song.id) },
-                                        highlighted: kbIndex == index
+                                        highlighted: kbIndex == index,
+                                        onShareSelection: shareSelectionAction(for: song)
                                     ) {
                                         model.music.play(songs, startAt: index, source: source)
                                     }
@@ -998,6 +1000,17 @@ struct MusicCollectionView: View {
         songs.filter { sel.contains($0.id) }
     }
 
+    /// One link for the selection: two or more songs, else the row's own Share….
+    private var canShareSelection: Bool { sel.ids.count >= 2 }
+
+    private func shareSelection() { CollectionShareEntry.shareSelection(selectedSongs, model) }
+
+    /// A selected row's menu also shares the whole selection, when there is one.
+    private func shareSelectionAction(for song: NavidromeSong) -> (() -> Void)? {
+        guard canShareSelection, sel.contains(song.id) else { return nil }
+        return shareSelection
+    }
+
     private var allSelected: Bool { sel.allSelected(segmentOrderedIDs) }
 
     private func toggleSelectAll() { sel.toggleSelectAll(segmentOrderedIDs) }
@@ -1114,6 +1127,8 @@ struct MusicLikedSongRow: View {
     var onToggleSelect: () -> Void = {}
     /// Keyboard-focus highlight (↑/↓ navigation) — distinct from multi-select and now-playing.
     var highlighted: Bool = false
+    /// Set on a selected row while two or more songs are selected: "Share N Songs…" in its menu.
+    var onShareSelection: (() -> Void)? = nil
     var onPlay: () -> Void
     @State private var hovering = false
     @State private var showRemoveConfirm = false
@@ -1256,6 +1271,9 @@ struct MusicLikedSongRow: View {
         .animation(.easeInOut(duration: 0.18), value: isPlaying)
         .contextMenu {
             songPlaybackMenuItems(song, model, router: router, onPlay: onPlay)
+            if let onShareSelection {
+                Button("Share Selected Songs…", systemImage: CollectionShareEntry.symbol, action: onShareSelection)
+            }
             Divider()
             songDownloadMenuItems(song, model)
             if isLocalOnly, let url = URL(string: song.id) {
@@ -1310,6 +1328,8 @@ struct LikedSongGridCell: View {
     /// selection, e.g. the artist detail).
     var showSelect: Bool = true
     var onToggleSelect: () -> Void = {}
+    /// Set on a selected card while two or more songs are selected: "Share N Songs…" in its menu.
+    var onShareSelection: (() -> Void)? = nil
     var onPlay: () -> Void
     @State private var hovering = false
     @State private var showRemoveConfirm = false
@@ -1353,6 +1373,9 @@ struct LikedSongGridCell: View {
         .onHover { hovering = $0 }
         .contextMenu {
             songPlaybackMenuItems(song, model, router: router, onPlay: onPlay)
+            if let onShareSelection {
+                Button("Share Selected Songs…", systemImage: CollectionShareEntry.symbol, action: onShareSelection)
+            }
             Divider()
             songDownloadMenuItems(song, model)
             songActionsMenu(song, model)

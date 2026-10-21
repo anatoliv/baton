@@ -420,6 +420,34 @@ final class BookVoiceChangeTests: XCTestCase {
         XCTAssertEqual(clippings.item(id: kept.id)?.clipping.voice, "kokoro:af_heart")
     }
 
+    /// Start, Stop, Start again on one reading: the first run, unwinding after the second has
+    /// begun, must leave the second's progress and its handle alone, or Stop can no longer stop it.
+    func testStartingAgainAfterStopKeepsTheNewRunStoppable() async throws {
+        let clippings = clippingStore()
+        let first = root.appendingPathComponent("first.m4a")
+        try Data(repeating: 0x41, count: 2_048).write(to: first)
+        let kept = try clippings.adopt(first, title: "Reading", text: "One sentence.", voice: "kokoro:af_heart")
+        let revoicer = ClippingRevoicer()
+        var stopped = 0
+        revoicer.synthesize = { _, _ in
+            do { try await Task.sleep(for: .seconds(30)) } catch { stopped += 1; throw error }
+            return Data()
+        }
+        revoicer.upload = { _, _, _ in nil }
+
+        revoicer.start(kept, voice: "kokoro:af_sky", in: clippings) { _ in }
+        try await eventuallyTrue { revoicer.running[kept.id] != nil }
+        revoicer.cancel(kept.id)
+        revoicer.start(kept, voice: "kokoro:af_bella", in: clippings) { _ in }
+        try await eventuallyTrue { stopped == 1 }
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(revoicer.running[kept.id]?.voice, "kokoro:af_bella", "the second run's progress was wiped")
+        revoicer.cancel(kept.id)
+        try await eventuallyTrue { stopped == 2 }
+        XCTAssertEqual(stopped, 2, "Stop no longer reached the second run")
+    }
+
     // MARK: - A voice that cannot be had
 
     /// Refuses one voice as unreachable, every time, the way a voice server that is down or an

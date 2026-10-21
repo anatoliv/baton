@@ -33,6 +33,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -128,7 +129,9 @@ class Client:
             # No status: the request never reached Apple. Callers that must not fail a build
             # on a dead network key off `status is None` to skip instead.
             raise ASCError(f"{method} {path} -> unreachable: {error.reason}")
-        except TimeoutError as error:
+        # socket.timeout too: only from 3.10 is it TimeoutError, and a release runs 3.9, where a
+        # slow response escaped as a raw traceback instead of this. (TBX-1000000480 B-12)
+        except (TimeoutError, socket.timeout) as error:
             raise ASCError(f"{method} {path} -> timed out after {self.timeout}s: {error}")
 
     def get(self, path):

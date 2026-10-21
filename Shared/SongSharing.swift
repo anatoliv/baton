@@ -153,6 +153,8 @@ final class SongSharing {
         case preparing
         /// A whole book, sealed chapter by chapter: done of total.
         case sealing(Int, Int)
+        /// An album or playlist, fetched and sealed song by song: done of total.
+        case collecting(Int, Int)
         case uploading(Double)
 
         var label: String {
@@ -160,6 +162,7 @@ final class SongSharing {
             case .fetching: "Getting the song from your music server…"
             case .preparing: "Encrypting…"
             case let .sealing(done, total): "Encrypting chapter \(min(total, done + 1)) of \(total)…"
+            case let .collecting(done, total): "Getting and encrypting song \(min(total, done + 1)) of \(total)…"
             case .uploading: "Uploading…"
             }
         }
@@ -487,11 +490,12 @@ final class SongSharing {
     /// to its stable background session at launch/foreground.
     func resumeMixtapeUploads() async throws {
         #if os(iOS)
-        _ = try mixtapeStore.load() // Preserve and report unreadable/invalid protected tickets.
+        let unreadable = try mixtapeStore.load().retained // Preserved, and reported after the others resume.
         await backgroundUploader.restore()
+        if !unreadable.isEmpty { throw URLError(.cannotDecodeContentData) }
         #else
         let client = try client(), loaded = try mixtapeStore.load()
-        var interrupted = false
+        var interrupted = !loaded.retained.isEmpty
         for job in loaded.jobs where job.isMixtape {
             do { _ = try await mixtapeUploader.resume(job.id, client: client) }
             catch { interrupted = true }
@@ -507,8 +511,15 @@ final class SongSharing {
     struct PendingBook: Identifiable, Equatable {
         let directory: URL
         let title: String
+        /// An album or playlist link; nil for a book.
+        var kind: ShareCollectionKind? = nil
         var id: URL { directory }
+        /// "Book", "Album" or "Playlist", for the unfinished link's row.
+        var noun: String { kind.map(SongSharing.noun) ?? "Book" }
     }
+
+    /// "Album" or "Playlist".
+    nonisolated static func noun(_ kind: ShareCollectionKind) -> String { kind == .album ? "Album" : "Playlist" }
 
     /// `Application Support/Baton/PendingBookShares/<uuid>/`: one folder per whole-book link in
     /// progress, holding its sealed chapters, key and exact request (`PreparedBookShare`). Kept until
@@ -541,7 +552,7 @@ final class SongSharing {
         return try await reportingBookFailures { try await self.uploadBook(directory) }
     }
 
-    /// Retries every staged whole-book link, from Shared Links.
+    /// Retries every staged whole-book, album and playlist link, from Shared Links.
     func resumeBookUploads() async throws {
         loadPendingBooks()
         var interrupted = false
@@ -550,7 +561,7 @@ final class SongSharing {
         }
         loadPendingBooks()
         if interrupted {
-            throw SongShareError.other("Some book links could not finish uploading. Their encrypted copies are kept on this device; try again when sharing is available.")
+            throw SongShareError.other("Some links could not finish uploading. Their encrypted copies are kept on this device; try again when sharing is available.")
         }
     }
 
@@ -601,15 +612,16 @@ final class SongSharing {
         pendingBooks = folders.compactMap { folder -> (PendingBook, Date)? in
             guard UUID(uuidString: folder.lastPathComponent) != nil,
                   manager.fileExists(atPath: folder.appendingPathComponent(PreparedBookShare.ticketName).path) else { return nil }
-            let title = (try? PreparedBookShare.load(from: folder))?.manifest.title ?? "A book"
+            let manifest = (try? PreparedBookShare.load(from: folder))?.manifest
             let created = (try? folder.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
-            return (PendingBook(directory: folder, title: title), created)
+            return (PendingBook(directory: folder, title: manifest?.title ?? "A book", kind: manifest?.kind), created)
         }
         .sorted { $0.1 > $1.1 }
         .map(\.0)
     }
 
-    private func reportingBookFailures(_ work: () async throws -> ShareLedger.Record) async throws -> ShareLedger.Record {
+    private func reportingBookFailures(collection: Bool = false,
+                                       _ work: () async throws -> ShareLedger.Record) async throws -> ShareLedger.Record {
         do {
             let record = try await work()
             BatonStorage.defaults.set(true, forKey: Self.disclosureKey)
@@ -618,7 +630,7 @@ final class SongSharing {
             if let reason = error.reportReason { note(reason) }
             throw error
         } catch let failure as PreparedBookShare.Failure {
-            let error = SongShareError.book(failure)
+            let error = collection ? SongShareError.collection(failure) : SongShareError.book(failure)
             if let reason = error.reportReason { note(reason) }
             throw error
         } catch let failure as ShareClient.Failure {
@@ -723,6 +735,10 @@ final class SongSharing {
             // The service ended this link before it was finished: nothing can resume it.
             try? prepared.remove()
             loadPendingBooks()
+            if let kind = prepared.manifest.kind {
+                let noun = Self.noun(kind).lowercased()
+                throw SongShareError.other("This \(noun)'s upload took too long and its link has ended. Share the \(noun) again to make a new link.")
+            }
             throw SongShareError.other("This book's upload took too long and its link has ended. Share the book again to make a new link.")
         }
         _ = ledger.takeFailures()
@@ -731,12 +747,236 @@ final class SongSharing {
             id: result.summary.share.id, link: result.link.absoluteString, songID: "", title: manifest.title,
             artist: manifest.author, isPrivate: prepared.request.preview == nil, createdAt: Date(),
             expiresAt: ShareDate.date(result.summary.share.expiresAt) ?? Date() + TimeInterval(prepared.request.expiresInSeconds),
-            summary: result.summary.share, kind: .book, bookSummary: result.summary)
+            summary: result.summary.share, kind: .book, bookSummary: result.summary, collection: manifest.kind)
         ledger.add(record)
         save()
         try? prepared.remove()
         loadPendingBooks()
         return record
+    }
+
+    // MARK: - Album and playlist links (`/b/`, specs/collection-sharing.md)
+
+    /// A song as the collection planner sees it: its length, whether it is on the server, and the
+    /// most the song and mixtape paths could fetch for it.
+    nonisolated static func collectionTrack(_ song: NavidromeSong) -> ShareCollectionPlan.Track {
+        let seconds = song.duration ?? 0
+        return .init(id: song.id, title: song.title, seconds: song.duration, onServer: !song.isLocalOnly,
+                     mp3Bytes: ShareCollectionPlan.mp3Bytes(seconds: seconds, suffix: song.suffix, bitRate: song.bitRate,
+                                                            size: song.size))
+    }
+
+    /// Where one collection track's audio comes from, decided on the main actor before sealing starts.
+    enum TrackSource: Sendable {
+        /// From the music server: AAC asked for first, MP3 if the device cannot read the answer, and
+        /// the offline download, if there is one, when the server cannot be reached.
+        case server(aac: URL, mp3: URL, headers: [String: String], download: URL?, title: String)
+        /// A file that is only on this device.
+        case file(URL, title: String)
+    }
+
+    /// Shares an album or a playlist (or picked songs, as a playlist) as one `/b/` link: each
+    /// track fetched as AAC or converted on the device, sealed and its plaintext deleted before the
+    /// next, then uploaded as a book is, with the same retry, App Attest and Unfinished links rules.
+    /// Offered only when the service advertises collections. `cover` is the JPEG to carry, if any.
+    func shareCollection(kind: ShareCollectionKind, title: String, artist: String, songs: [NavidromeSong], cover: Data?,
+                         options: Options, onStaged: (@MainActor (URL) -> Void)? = nil) async throws -> ShareLedger.Record {
+        defer { stage = nil }
+        return try await reportingBookFailures(collection: true) {
+            try await self.performCollection(kind: kind, title: title, artist: artist, songs: songs, cover: cover,
+                                             options: options, onStaged: onStaged)
+        }
+    }
+
+    private func performCollection(kind: ShareCollectionKind, title: String, artist: String, songs: [NavidromeSong], cover: Data?,
+                                   options: Options, onStaged: (@MainActor (URL) -> Void)?) async throws -> ShareLedger.Record {
+        let shareClient = try client()
+        // Asked when the composer acts: the kill switch, the advertisement and the caps.
+        let config = try await shareClient.bookConfiguration()
+        guard config.enabled else { throw SongShareError.paused }
+        guard let limits = ShareCollectionPlan.Service(config: config, kind: kind).collection else {
+            throw SongShareError.other("\(Self.noun(kind)) links aren't available on the share service yet.")
+        }
+        guard config.expiryChoices.contains(options.expiresInSeconds) else {
+            throw SongShareError.other("Choose how long the link lasts.")
+        }
+        let plan: ShareCollectionPlan.Collection
+        switch ShareCollectionPlan.collection(songs.map(Self.collectionTrack), kind: kind, limits: limits) {
+        case let .success(fits): plan = fits
+        case let .failure(refusal): throw SongShareError.other(refusal.message)
+        }
+        let sources = try songs.map(Self.trackSource)
+        let tracks = zip(songs, plan.bitRates).enumerated().map { offset, pair in
+            let (song, rate) = pair
+            return PreparedBookShare.PlannedTrack(
+                title: ShareCollectionPlan.wireText(song.title) ?? "Track \(offset + 1)",
+                artist: ShareCollectionPlan.wireText(song.displayArtistName), album: ShareCollectionPlan.wireText(song.album),
+                trackNumber: kind == .album ? song.track.flatMap { (1 ... ShareBookManifest.maxTrackNumber).contains($0) ? $0 : nil } : nil,
+                estimatedSeconds: song.duration ?? 1, bitRate: rate)
+        }
+        let rates = plan.bitRates
+        let name = ShareCollectionPlan.wireText(title) ?? (kind == .album ? "An album" : "A playlist")
+        let credit = ShareCollectionPlan.wireText(artist) ?? ""
+        let from = String(options.from.trimmingCharacters(in: .whitespacesAndNewlines).prefix(ShareLimits.maxFromLength))
+        let note = options.note
+        let preview = options.showsDetails ? BookPreview(title: name, author: credit, from: from, note: note) : nil
+        let image = cover.flatMap { data in ShareBookManifest.Cover.type(of: data).map { ShareBookManifest.Cover(type: $0, bytes: data) } }
+        let listeners = min(max(1, options.listeners ?? limits.defaultListeners), limits.maxListeners)
+        let consent = options.reviewPreservation ? CreateShareRequest.reviewConsentVersion : nil
+        let clientInfo = ShareClientInfo(platform: Self.platform, appVersion: Self.appVersion)
+        let expires = options.expiresInSeconds
+        let directory = bookStagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        stage = .collecting(0, tracks.count)
+        sealingDirectory = directory
+        defer { sealingDirectory = nil }
+        #if os(iOS)
+        // Fetching and sealing an album takes minutes; leaving the app keeps the short grace the
+        // system gives, as the upload does. A seal cut off here leaves a ticketless folder the sweeper removes.
+        let background = UIApplication.shared.beginBackgroundTask(withName: "Prepare album share", expirationHandler: nil)
+        defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+        #endif
+        do {
+            _ = try await Task.detached(priority: .userInitiated) {
+                try await PreparedBookShare.makeCollection(
+                    kind: kind, tracks: tracks, title: name, artist: credit, from: from, note: note, cover: image, preview: preview,
+                    expiresInSeconds: expires, listenerCap: listeners, client: clientInfo, reviewPreservationConsent: consent,
+                    limits: limits, directory: directory,
+                    produce: { index, destination in
+                        try await Self.produceTrack(sources[index], bitRate: rates[index], destination: destination)
+                    },
+                    progress: { done, total in Task { @MainActor in self.stage = .collecting(done, total) } })
+            }.value
+        } catch {
+            // Nothing usable was staged (makeCollection removes what it wrote); the fresh folder is this attempt's own.
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+        loadPendingBooks()
+        onStaged?(directory)
+        return try await uploadBook(directory, client: shareClient, config: config)
+    }
+
+    /// Where a song's audio comes from: the server with this device's credentials and headers, as
+    /// playback asks, or the file itself for a song that is only on this device.
+    private static func trackSource(_ song: NavidromeSong) throws -> TrackSource {
+        if song.isLocalOnly {
+            guard let url = URL(string: song.id), url.isFileURL else { throw SongShareError.notOnServer }
+            return .file(url, title: song.title)
+        }
+        guard let credentials = NavidromeConfig.credentials() else {
+            if let download = MusicDownloadStore.shared.localURL(for: song.id) { return .file(download, title: song.title) }
+            throw SongShareError.notConnected
+        }
+        do {
+            let client = try NavidromeConfig.makeClient()
+            return .server(aac: try client.streamURL(songID: song.id, maxBitRate: ShareCollectionLimits.musicBitRate / 1000, format: "aac"),
+                           mp3: try client.streamURL(songID: song.id, maxBitRate: 320, format: "mp3"),
+                           headers: credentials.customHeaders, download: MusicDownloadStore.shared.localURL(for: song.id),
+                           title: song.title)
+        } catch {
+            throw SongShareError.notConnected
+        }
+    }
+
+    /// One track's M4A at `destination`, at `bitRate`. The server is asked for AAC at that rate
+    /// (`stream?format=aac&maxBitRate=`); an AAC answer is remuxed as it is, anything else (a server
+    /// without an AAC transcoding answers with the original) is converted on the device, and an
+    /// answer the device cannot read is asked for again as MP3 and converted. Every intermediate
+    /// file lives beside `destination`, in the app-private staging folder, and is deleted here.
+    nonisolated static func produceTrack(_ source: TrackSource, bitRate: Int, destination: URL) async throws -> Int {
+        func convert(_ input: URL, title: String) async throws -> Int {
+            try? FileManager.default.removeItem(at: destination)
+            do { return try await ShareCollectionAudio.makeM4A(from: input, to: destination, bitRate: bitRate).seconds } catch {
+                try? FileManager.default.removeItem(at: destination)
+                if error is CancellationError { throw error }
+                throw SongShareError.other("“\(title)” couldn't be converted to AAC on this device. Turn it off to send the rest.")
+            }
+        }
+        switch source {
+        case let .file(url, title):
+            return try await convert(url, title: title)
+        case let .server(aac, mp3, headers, download, title):
+            let folder = destination.deletingLastPathComponent()
+            let fetched: URL
+            do {
+                fetched = try await fetchTrack(aac, headers: headers, into: folder)
+            } catch SongShareError.fetchFailed where download != nil {
+                // The server can't be reached; the offline copy can still go, converted here.
+                return try await convert(download!, title: title)
+            }
+            defer { try? FileManager.default.removeItem(at: fetched) }
+            do {
+                return try await convert(fetched, title: title)
+            } catch let error as SongShareError {
+                try? FileManager.default.removeItem(at: fetched)
+                guard let again = try? await fetchTrack(mp3, headers: headers, into: folder) else { throw error }
+                defer { try? FileManager.default.removeItem(at: again) }
+                return try await convert(again, title: title)
+            }
+        }
+    }
+
+    /// Downloads one stream answer into `folder`, named by what its bytes say it is.
+    private nonisolated static func fetchTrack(_ url: URL, headers: [String: String], into folder: URL) async throws -> URL {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 180
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        let (downloaded, response): (URL, URLResponse)
+        do { (downloaded, response) = try await URLSession.shared.download(for: request) } catch {
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw SongShareError.fetchFailed
+        }
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            try? FileManager.default.removeItem(at: downloaded)
+            throw SongShareError.fetchFailed
+        }
+        let head = (try? FileHandle(forReadingFrom: downloaded)).flatMap { handle in
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: 16)
+        } ?? Data()
+        let file = folder.appendingPathComponent("fetched-\(UUID().uuidString).\(ShareCollectionAudio.fileExtension(contentType: http.mimeType, head: head))")
+        do { try FileManager.default.moveItem(at: downloaded, to: file) } catch {
+            try? FileManager.default.removeItem(at: downloaded)
+            throw error
+        }
+        return file
+    }
+
+    /// The cover a collection link carries: an album's own cover, or a 2×2 mosaic of the first
+    /// four different album covers among `songs`, as a JPEG within the manifest's cap. Nil when no
+    /// cover can be had, which is fine: the page draws a placeholder.
+    func collectionCover(album: Bool, songs: [NavidromeSong]) async -> Data? {
+        let client = try? NavidromeConfig.makeClient()
+        func url(_ song: NavidromeSong) -> URL? {
+            song.artworkURL ?? client?.coverArtURL(id: song.coverArtID ?? song.albumID ?? song.id, size: 600)
+        }
+        if album {
+            for song in songs.prefix(3) {
+                guard let url = url(song), let bytes = await ArtworkCache.fetchBytes(for: url).0 else { continue }
+                if let jpeg = await Task.detached(operation: { ShareCollectionCover.jpeg(bytes) }).value { return jpeg }
+            }
+            return nil
+        }
+        var seen = Set<String>(), covers = [Data]()
+        for song in songs where covers.count < 4 {
+            let key = song.albumID ?? song.coverArtID ?? song.album ?? song.id
+            guard !seen.contains(key), let url = url(song) else { continue }
+            seen.insert(key)
+            if let bytes = await ArtworkCache.fetchBytes(for: url).0 { covers.append(bytes) }
+        }
+        let frozen = covers
+        return await Task.detached { ShareCollectionCover.mosaic(frozen) }.value
+    }
+
+    /// An album's or a playlist's songs, in order, from the music server.
+    func collectionSongs(_ source: CollectionShareDraft.Source) async throws -> [NavidromeSong] {
+        let client: NavidromeClient
+        do { client = try NavidromeConfig.makeClient() } catch { throw SongShareError.notConnected }
+        switch source {
+        case let .album(id): return try await client.getAlbum(id: id)
+        case let .playlist(id): return try await client.getPlaylist(id: id).songs
+        case .selection: return []
+        }
     }
 
     /// The song as MP3 at 320 kbps, from the owner's own server with their credentials and any
@@ -984,6 +1224,8 @@ enum SongShareError: LocalizedError, Equatable {
     case other(String)
     /// A whole book that could not be prepared as one link.
     case book(PreparedBookShare.Failure)
+    /// An album or playlist that could not be prepared as one link.
+    case collection(PreparedBookShare.Failure)
 
     init(_ failure: ShareClient.Failure) {
         switch failure {
@@ -1023,6 +1265,7 @@ enum SongShareError: LocalizedError, Equatable {
         case .keychain: "Couldn't save this device's sharing key to the Keychain."
         case let .service(message), let .other(message): message
         case let .book(failure): Self.message(failure)
+        case let .collection(failure): Self.collectionMessage(failure)
         }
     }
 
@@ -1041,6 +1284,20 @@ enum SongShareError: LocalizedError, Equatable {
         }
     }
 
+    private static func collectionMessage(_ failure: PreparedBookShare.Failure) -> String {
+        switch failure {
+        case .noChapters: "Pick at least one song."
+        case let .tooManyChapters(max): "One link holds up to \(max) songs."
+        case let .unreadable(track): "Song \(track) couldn't be read. Turn it off, or try again."
+        case let .chapterTooLong(track): "Song \(track) is too long for one link."
+        case .tooLong: "These songs are too long for one link."
+        case let .chapterTooLarge(track): "Song \(track) came out too large for one link. Turn it off to send the rest."
+        case .textTooLarge, .bookTooLarge: "These songs are too large for one link. Turn some off to send the rest."
+        case .manifestTooLarge, .requestTooLarge: "These songs have too many long names to fit one link. Turn some off to send the rest."
+        case .directoryInUse, .damaged: "The encrypted copy on this device is damaged. Share again to make a new link."
+        }
+    }
+
     /// The `recentFailures` reason for a failure that never reached the service, or `nil` when
     /// it did (the service counted it already) or it was never a real attempt.
     var reportReason: String? {
@@ -1049,7 +1306,7 @@ enum SongShareError: LocalizedError, Equatable {
         case .transcodeFailed: "transcode"
         case .tooLarge, .tooLong: "too_large"
         case .keychain, .other: "other"
-        case let .book(failure):
+        case let .book(failure), let .collection(failure):
             switch failure {
             case .tooManyChapters, .chapterTooLong, .tooLong, .chapterTooLarge, .textTooLarge, .bookTooLarge,
                  .manifestTooLarge, .requestTooLarge: "too_large"

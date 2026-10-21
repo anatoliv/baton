@@ -65,27 +65,41 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         app.buttons["Title"].tap()
         app.buttons["Select"].tap()
         for title in titles { app.staticTexts[title].firstMatch.tap() }
-        app.buttons["Share Mixtape"].tap()
-        XCTAssertTrue(app.navigationBars["Share Mixtape"].waitForExistence(timeout: 10))
+        app.buttons["Share…"].tap()
+        XCTAssertTrue(app.navigationBars["Share Songs"].waitForExistence(timeout: 10))
         for (index, title) in titles.enumerated() {
-            XCTAssertTrue(app.staticTexts["\(index + 1). \(title)"].exists)
+            XCTAssertTrue(track(index).label.hasPrefix("\(index + 1). \(title)"))
+            XCTAssertEqual(track(index).value as? String, "1", "every track starts switched on")
         }
+    }
+    /// The composer's per-track switch, by position. Its label starts "<n>. <title>" (then the
+    /// artist and duration), and <n> follows the position after a move.
+    private var resultLink: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "collection-share-result-link").firstMatch
+    }
+    private func track(_ index: Int) -> XCUIElement { app.switches["collection-share-track-\(index)"] }
+    /// Replaces the suggested title, whatever the composer suggested for these fixtures.
+    private func retitle(_ field: XCUIElement) {
+        let suggested = (field.value as? String) ?? ""
+        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: suggested.count) + "Ordered Fixture\n")
     }
     private func draft() {
         selectAllIntoDraft()
         app.buttons["Move Mixtape Fixture C up"].tap()
         app.buttons["Move Mixtape Fixture C up"].tap()
-        app.buttons["Remove Mixtape Fixture B"].tap()
-        XCTAssertTrue(app.staticTexts["1. Mixtape Fixture C"].exists)
-        XCTAssertTrue(app.staticTexts["2. Mixtape Fixture A"].exists)
-        XCTAssertFalse(app.staticTexts["3. Mixtape Fixture B"].exists)
-        XCTAssertEqual(app.switches["mixtape.public-preview"].value as? String, "0")
-        XCTAssertEqual(app.switches["mixtape-review-preservation"].value as? String, "0")
-        let disclosure = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Create Link uploads an encrypted copy")).firstMatch
+        // The composer has no Remove: a track leaves by switching it off.
+        track(2).tap()
+        XCTAssertTrue(track(0).label.hasPrefix("1. Mixtape Fixture C"))
+        XCTAssertTrue(track(1).label.hasPrefix("2. Mixtape Fixture A"))
+        XCTAssertTrue(track(2).label.hasPrefix("3. Mixtape Fixture B"))
+        XCTAssertEqual(track(2).value as? String, "0")
+        XCTAssertEqual(app.switches["collection-share-public-preview"].value as? String, "0")
+        XCTAssertEqual(app.switches["collection-share-review-preservation"].value as? String, "0")
+        let disclosure = app.descendants(matching: .any).matching(identifier: "collection-share-disclosure").firstMatch
         reveal(disclosure, swipingUp: true)
-        let field = app.textFields["mixtape.title"]
+        let field = app.textFields["collection-share-title"]
         reveal(field, swipingUp: false)
-        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7) + "Ordered Fixture\n")
+        retitle(field)
     }
     private func reveal(_ element: XCUIElement, swipingUp: Bool, existenceTimeout: TimeInterval = 5) {
         // Grouped Form sections are lazy. Exercise the same bounded scrolling a
@@ -98,7 +112,7 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         XCTAssertTrue(element.isHittable)
     }
     private func createdManifest(expectedTitles: [String]? = nil) async throws -> ShareMixtapeManifest {
-        let link = app.staticTexts["mixtape.result-link"]
+        let link = resultLink
         XCTAssertTrue(link.waitForExistence(timeout: 90), "The real ordered upload did not finish")
         // Never include the fragment in assertion messages, screenshots or receipts.
         let parts = try XCTUnwrap(URLComponents(string: link.label))
@@ -118,7 +132,7 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         let before = try await control(["release": true])
         draft()
         let editing = try await control(); XCTAssertEqual(editing["creates"], before["creates"])
-        app.buttons["mixtape-create-link"].tap()
+        app.buttons["collection-share-create-link"].tap()
         _ = try await createdManifest()
         let after = try await control()
         XCTAssertEqual(after["creates"], (before["creates"] ?? 0) + 1)
@@ -128,18 +142,18 @@ final class MixtapeComposerFlowUITests: XCTestCase {
     func testInterruptedUploadFreezesDraftAndExplicitRetryKeepsOneContainer() async throws {
         try launch(); defer { app.terminate() }
         let before = try await control(["loseFinalization": true])
-        draft(); app.buttons["mixtape-create-link"].tap()
-        let retry = app.buttons["mixtape-create-link"]
-        let interrupted = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Upload interrupted.")).firstMatch
+        draft(); app.buttons["collection-share-create-link"].tap()
+        let retry = app.buttons["collection-share-create-link"]
+        let interrupted = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "collection-share-failure", "Upload interrupted.")).firstMatch
         reveal(interrupted, swipingUp: true, existenceTimeout: 90)
         XCTAssertEqual(retry.label, "Retry Upload")
-        XCTAssertFalse(app.textFields["mixtape.title"].isEnabled)
+        XCTAssertFalse(app.textFields["collection-share-title"].isEnabled)
         let move = app.buttons["Move Mixtape Fixture C down"]
         reveal(move, swipingUp: false)
         XCTAssertFalse(move.isEnabled)
-        let remove = app.buttons["Remove Mixtape Fixture A"]
-        reveal(remove, swipingUp: true)
-        XCTAssertFalse(remove.isEnabled)
+        let toggle = track(1)
+        reveal(toggle, swipingUp: true)
+        XCTAssertFalse(toggle.isEnabled)
         let pending = try await control(); XCTAssertEqual(pending["creates"], (before["creates"] ?? 0) + 1)
         _ = try await control(["release": true])
         reveal(retry, swipingUp: false)
@@ -152,9 +166,8 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         let before = try await control(["release": true])
         selectAllIntoDraft()
         let editing = try await control(); XCTAssertEqual(editing["creates"], before["creates"])
-        let field = app.textFields["mixtape.title"]
-        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7) + "Ordered Fixture\n")
-        app.buttons["mixtape-create-link"].tap()
+        retitle(app.textFields["collection-share-title"])
+        app.buttons["collection-share-create-link"].tap()
         let manifest = try await createdManifest(expectedTitles: titles)
         XCTAssertEqual(manifest.tracks.map(\.metadata.durationSeconds), [400, 400, 400])
         let after = try await control()
@@ -194,17 +207,17 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         _ = try await uiControl("stats") // Refuse/skip before creating when the required seam is absent.
         draft()
         if preservation {
-            let consent = app.switches["mixtape-review-preservation"]
+            let consent = app.switches["collection-share-review-preservation"]
             reveal(consent, swipingUp: true); consent.tap()
             XCTAssertEqual(consent.value as? String, "1")
         }
-        app.buttons["mixtape-create-link"].tap(); _ = try await createdManifest()
-        let parts = try XCTUnwrap(URLComponents(string: app.staticTexts["mixtape.result-link"].label))
+        app.buttons["collection-share-create-link"].tap(); _ = try await createdManifest()
+        let parts = try XCTUnwrap(URLComponents(string: resultLink.label))
         let key = try XCTUnwrap(parts.fragment.flatMap(Base64URL.decode))
         let invitation = ShareInvitation(id: String(parts.path.dropFirst(3)), key: key, kind: .mixtape)
         _ = try await uiControl("register", link: invitation.url(base: base).absoluteString)
         // Never capture or attach the composer result: it displays the fragment.
-        app.navigationBars["Share Mixtape"].buttons["Done"].tap()
+        app.navigationBars["Share Songs"].buttons["Done"].tap()
         return invitation
     }
     private func uiDeliver(_ command: String) async throws {

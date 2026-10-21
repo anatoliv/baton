@@ -25,10 +25,16 @@ public struct PreparedBookShare: Sendable {
         public var title: String
         /// Whole seconds, at least 1 (`ShareBookPlan.Chapter.wireSeconds`).
         public var durationSeconds: Int
-        /// The chapter's read-along text, only when the sharer chose to include it.
+        /// The chapter's read-along text, only when the sharer chose to include it. Never on a track.
         public var text: ShareBookText?
-        public init(audio: URL, title: String, durationSeconds: Int, text: ShareBookText? = nil) {
+        /// A collection track's artist, album and number on its album; nil for a book chapter.
+        public var artist: String?
+        public var album: String?
+        public var trackNumber: Int?
+        public init(audio: URL, title: String, durationSeconds: Int, text: ShareBookText? = nil,
+                    artist: String? = nil, album: String? = nil, trackNumber: Int? = nil) {
             self.audio = audio; self.title = title; self.durationSeconds = durationSeconds; self.text = text
+            self.artist = artist; self.album = album; self.trackNumber = trackNumber
         }
     }
 
@@ -92,6 +98,7 @@ public struct PreparedBookShare: Sendable {
                             preview: BookPreview?, expiresInSeconds: Int, listenerCap: Int, client: ShareClientInfo,
                             reviewPreservationConsent: String? = nil, limits bookLimits: ShareBookLimits,
                             directory: URL, key: Data = ShareCrypto.newKey(), requestID: String = UUID().uuidString,
+                            kind: ShareCollectionKind? = nil, cover: ShareBookManifest.Cover? = nil,
                             progress: (@Sendable (_ sealed: Int, _ total: Int) -> Void)? = nil) throws -> Self {
         let limits = bookLimits.applied()
         guard key.count == ShareCrypto.keyLength else { throw ShareCrypto.Failure.badKey }
@@ -121,8 +128,10 @@ public struct PreparedBookShare: Sendable {
             guard audioBytes <= limits.maxBookBytes - total else { throw Failure.bookTooLarge }
             total += audioBytes
             var entry = ShareBookManifest.Chapter(id: freshID(), title: chapter.title, durationSeconds: chapter.durationSeconds,
-                                                  audioBytes: audioBytes, audioSHA256: placeholder)
-            let text = try chapter.text.map { try $0.encoded() }
+                                                  audioBytes: audioBytes, audioSHA256: placeholder,
+                                                  artist: kind == nil ? nil : chapter.artist, album: kind == nil ? nil : chapter.album,
+                                                  trackNumber: kind == nil ? nil : chapter.trackNumber)
+            let text = kind == nil ? try chapter.text.map { try $0.encoded() } : nil
             if let text {
                 let textBytes = ShareCrypto.sealedLength(plaintextLength: text.count)
                 guard textBytes <= limits.maxBookTextBytes else { throw Failure.textTooLarge(chapter: number) }
@@ -134,7 +143,11 @@ public struct PreparedBookShare: Sendable {
             texts.append(text)
         }
         // The manifest's sealed length does not depend on the hashes, so it is known now too.
-        let draft = ShareBookManifest(title: title, author: author, from: from, note: note, chapters: planned)
+        func makeManifest(_ chapters: [ShareBookManifest.Chapter]) -> ShareBookManifest {
+            guard let kind else { return ShareBookManifest(title: title, author: author, from: from, note: note, chapters: chapters) }
+            return ShareBookManifest(collection: kind, title: title, artist: author, from: from, note: note, cover: cover, tracks: chapters)
+        }
+        let draft = makeManifest(planned)
         let checked = try draft.validated(limits: limits)
         let manifestBytes = ShareCrypto.sealedLength(plaintextLength: try JSONEncoder().encode(checked).count)
         guard manifestBytes <= limits.maxBookManifestBytes else { throw Failure.manifestTooLarge }
@@ -177,25 +190,35 @@ public struct PreparedBookShare: Sendable {
                 sealedChapters.append(entry)
                 progress?(offset + 1, chapters.count)
             }
-            let manifest = try ShareBookManifest(title: title, author: author, from: from, note: note, chapters: sealedChapters)
-                .validated(limits: limits)
-            let encrypted = try manifest.seal(rootKey: key, limits: limits)
-            let request = try CreateBookRequest(
-                requestID: requestID, encryptedManifest: encrypted.base64EncodedString(), blobs: manifest.blobs,
-                totalDurationSeconds: manifest.durationSeconds, expiresInSeconds: expiresInSeconds, listenerCap: listenerCap,
-                preview: preview, client: client, reviewPreservationConsent: reviewPreservationConsent).validated(limits: limits)
-            guard request.totalBytes <= limits.maxBookBytes else { throw Failure.bookTooLarge }
-            let body = try Self.encode(request)
-            guard body.count <= maximumRequestBytes else { throw Failure.requestTooLarge }
-            let book = PreparedBookShare(directory: directory, key: key, request: request, requestBody: body, manifest: manifest,
-                                    blobs: blobs, limits: bookLimits)
-            try book.save()
+            let book = try assemble(makeManifest(sealedChapters), blobs: blobs, key: key, requestID: requestID, preview: preview,
+                                    expiresInSeconds: expiresInSeconds, listenerCap: listenerCap, client: client,
+                                    reviewPreservationConsent: reviewPreservationConsent, bookLimits: bookLimits, directory: directory)
             written.append(directory.appendingPathComponent(ticketName))
             return book
         } catch {
             for url in written { try? FileManager.default.removeItem(at: url) }
             throw error
         }
+    }
+
+    /// The last step of every make: the sealed manifest, the exact request bytes and the ticket.
+    static func assemble(_ draft: ShareBookManifest, blobs: [Blob], key: Data, requestID: String, preview: BookPreview?,
+                         expiresInSeconds: Int, listenerCap: Int, client: ShareClientInfo, reviewPreservationConsent: String?,
+                         bookLimits: ShareBookLimits, directory: URL) throws -> Self {
+        let limits = bookLimits.applied()
+        let manifest = try draft.validated(limits: limits)
+        let encrypted = try manifest.seal(rootKey: key, limits: limits)
+        let request = try CreateBookRequest(
+            requestID: requestID, encryptedManifest: encrypted.base64EncodedString(), blobs: manifest.blobs,
+            totalDurationSeconds: manifest.durationSeconds, expiresInSeconds: expiresInSeconds, listenerCap: listenerCap,
+            preview: preview, client: client, reviewPreservationConsent: reviewPreservationConsent, kind: manifest.kind).validated(limits: limits)
+        guard request.totalBytes <= limits.maxBookBytes else { throw Failure.bookTooLarge }
+        let body = try Self.encode(request)
+        guard body.count <= maximumRequestBytes else { throw Failure.requestTooLarge }
+        let book = PreparedBookShare(directory: directory, key: key, request: request, requestBody: body, manifest: manifest,
+                                     blobs: blobs, limits: bookLimits)
+        try book.save()
+        return book
     }
 
     private init(directory: URL, key: Data, request: CreateBookRequest, requestBody: Data, manifest: ShareBookManifest,
@@ -211,7 +234,7 @@ public struct PreparedBookShare: Sendable {
     }
 
     /// An app-private folder: this user only, out of backups, and holding no other book.
-    private static func prepare(_ directory: URL) throws {
+    static func prepare(_ directory: URL) throws {
         let manager = FileManager.default
         try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)

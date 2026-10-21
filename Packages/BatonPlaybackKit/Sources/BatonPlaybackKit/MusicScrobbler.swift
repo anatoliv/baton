@@ -140,6 +140,9 @@ public final class MusicScrobbler: ScrobbleDestination {
         return .valid(user: user)
     }
 
+    /// The service error for a payload that cannot be encoded, which no retry fixes.
+    nonisolated static let encodeFailure = "ListenBrainz: could not encode payload"
+
     private func post(listenType: String, scrobbles: [Scrobble]) async throws {
         let token = token.trimmingCharacters(in: .whitespaces)
         guard !token.isEmpty else { return }
@@ -149,7 +152,7 @@ public final class MusicScrobbler: ScrobbleDestination {
             "payload": scrobbles.map { Self.payload(for: $0, includeTimestamp: includeTimestamp) },
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: body) else {
-            throw ScrobbleError.service("ListenBrainz: could not encode payload")
+            throw ScrobbleError.service(Self.encodeFailure)
         }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"

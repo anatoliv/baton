@@ -176,6 +176,14 @@ final class ArtworkLoadOutcomeTests: XCTestCase {
         let stripped = ArtworkCache.byteCache
             .cachedResponse(for: URLRequest(url: ArtworkCache.cacheKeyURL(for: url)))
         XCTAssertNotNil(stripped, "the cover must be there under the key that repeats")
+        // The stored response carries a URL of its own, and Cache.db writes it to disk beside
+        // the key. It held the signed URL (TBX-1000000480 C3-2).
+        let storedNames = stripped?.response.url
+            .flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }?
+            .map(\.name) ?? []
+        XCTAssertTrue(ArtworkCache.authQueryItems.isDisjoint(with: storedNames),
+                      "the stored response's URL still carries \(storedNames.filter(ArtworkCache.authQueryItems.contains))")
+        XCTAssertNotNil(stripped?.response.url, "precondition: the stored response has a URL")
     }
 
     /// A 1x1 PNG, so a stubbed body actually decodes. Without this the 401 test would pass on

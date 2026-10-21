@@ -583,7 +583,8 @@ final class HomeServerBooks {
         // A collected book is asked about once per process too, so a finished book shows "kept
         // until" after a relaunch (M6.6); a book the home server has since removed is forgotten,
         // its chapters staying in Clippings.
-        for record in records where !isCollected(record) || summaries[record.jobID] == nil {
+        for listed in records where !isCollected(listed) || summaries[listed.jobID] == nil {
+            var record = listed
             if record.serverRemoved == true {
                 if summaries[record.jobID] == nil { summaries[record.jobID] = localSummary(record) }
                 continue
@@ -607,10 +608,16 @@ final class HomeServerBooks {
                 problem = (error as? GatewayBookError)?.listenerReason ?? error.localizedDescription
                 continue
             }
+            // The record is read again after every wait: Remove Download, or the book removed
+            // from this device, may have happened meanwhile, and what it removed stays removed.
+            guard wanted(record.jobID) != nil else { continue }
             summaries[record.jobID] = summary
             // The voice its chapters are in, for the clipping; read once per book.
             var narrator: String??
-            for chapter in summary.chapters where chapter.state == "ready" && !record.offloaded.contains(chapter.index) {
+            for chapter in summary.chapters where chapter.state == "ready" {
+                guard let current = wanted(record.jobID) else { break }
+                record = current
+                guard !record.offloaded.contains(chapter.index) else { continue }
                 let existing = clippings.item(documentID: record.documentID, chapterIndex: chapter.index)
                 // A chapter here in the old voice is replaced by the new one in its row.
                 let replacing = existing != nil
@@ -625,6 +632,11 @@ final class HomeServerBooks {
                     .appendingPathComponent("baton-chapter-\(UUID().uuidString).m4a")
                 do {
                     let file = try await client.downloadChapter(record.jobID, number: chapter.index + 1, to: temporary)
+                    guard let current = wanted(record.jobID), !current.offloaded.contains(chapter.index) else {
+                        try? FileManager.default.removeItem(at: temporary)
+                        continue
+                    }
+                    record = current
                     let title = record.chapterTitles.indices.contains(chapter.index) ? record.chapterTitles[chapter.index] : chapter.title
                     if replacing {
                         try voiceChanges.replace(documentID: record.documentID, chapterIndex: chapter.index, with: file.url,
@@ -640,6 +652,8 @@ final class HomeServerBooks {
                         // Gone from here while the book was made again: it came down new.
                         voiceChanges.settle(record.documentID, chapterIndex: chapter.index)
                     }
+                    // Still here when the row it was to replace went meanwhile.
+                    try? FileManager.default.removeItem(at: temporary)
                     // Read-along timing comes down with the chapter when the home server kept
                     // it; a gateway older than it has none, and the text shows without a highlight.
                     if let timing = try? await client.chapterTiming(record.jobID, number: chapter.index + 1) {
@@ -662,6 +676,12 @@ final class HomeServerBooks {
             }
         }
         return arrivals
+    }
+
+    /// The book's record as it is now, or nil once it is gone or removed from this device.
+    private func wanted(_ jobID: String) -> Record? {
+        guard let record = record(forJob: jobID), !hiddenDocumentIDs.contains(record.documentID) else { return nil }
+        return record
     }
 
     /// A chapter's read-along timing: the copy on this device, else, for a chapter
@@ -1030,12 +1050,22 @@ final class BookCleanup {
         let id = UUID().uuidString.lowercased()
         let folder = holdDirectory.appendingPathComponent(id, isDirectory: true)
         var held: [HeldChapter] = []
+        // Where each held file was, so a hold that cannot be finished puts them back.
+        var moved: [(from: URL, file: String)] = []
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             for item in book.present where item.isPresent {
                 let index = item.clipping.chapterIndex ?? held.count
                 let file = "chapter-\(index + 1).\(item.url.pathExtension.isEmpty ? "m4a" : item.url.pathExtension)"
-                try FileManager.default.moveItem(at: item.url, to: folder.appendingPathComponent(file))
+                do {
+                    try FileManager.default.moveItem(at: item.url, to: folder.appendingPathComponent(file))
+                } catch {
+                    // Two clippings of one chapter share a name here. The one not
+                    // held stays in Clippings rather than being deleted with no way back.
+                    log.error("could not hold chapter \(index + 1) of a deleted book, so it stays: \(String(describing: error), privacy: .public)")
+                    continue
+                }
+                moved.append((item.url, file))
                 held.append(HeldChapter(file: file, title: item.clipping.title, source: item.clipping.source,
                                         durationSeconds: item.clipping.durationSeconds, text: item.clipping.text,
                                         sha256: item.clipping.sha256,
@@ -1046,11 +1076,29 @@ final class BookCleanup {
             try JSONEncoder().encode(Held(chapters: held, payload: payload))
                 .write(to: folder.appendingPathComponent("held.json"), options: .atomic)
         } catch {
-            log.error("could not hold a deleted book's audio: \(String(describing: error), privacy: .public)")
+            log.error("could not hold a deleted book's audio, so it stays: \(String(describing: error), privacy: .public)")
+            var allBack = true
+            for entry in moved {
+                do {
+                    try FileManager.default.moveItem(at: folder.appendingPathComponent(entry.file), to: entry.from)
+                } catch {
+                    allBack = false
+                }
+            }
+            // A file that could not go back is still in the folder, so the folder stays with it.
+            if allBack {
+                try? FileManager.default.removeItem(at: folder)
+            } else {
+                log.error("could not put every chapter of a deleted book back, so its audio stays in the hold folder")
+            }
+            return
         }
         let bytes = held.reduce(0) { $0 + Self.size(folder.appendingPathComponent($1.file)) }
-        dropFromQueue(book.present.map(\.asSong.id))
-        for item in book.present { clippings.remove(id: item.id, everywhere: everywhere) }
+        // Only rows whose audio is now held (or was missing already): a chapter that could not
+        // be held keeps its audio and its row.
+        let gone = book.present.filter { !$0.isPresent }
+        dropFromQueue(gone.map(\.asSong.id))
+        for item in gone { clippings.remove(id: item.id, everywhere: everywhere) }
         record(BookStorage.Removed(id: id, documentID: book.documentID, title: book.title, author: book.author,
                                    bytes: bytes, removedAt: now, kind: .deleted, everywhere: everywhere,
                                    chapters: held.map(\.chapterIndex)))

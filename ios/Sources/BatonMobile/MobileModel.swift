@@ -543,6 +543,12 @@ final class MobileModel {
         listenBrainz.reload()
         lastfm.reload()
         musicLibrary.refreshConnection()
+        // The device link fixed its gateway address when it started, so without a restart it
+        // went on polling the old host with the imported token (TBX-1000000480 B-8).
+        if deviceLink.isRunning {
+            deviceLink.stop()
+            deviceLink.start()
+        }
     }
 
     #if DEBUG

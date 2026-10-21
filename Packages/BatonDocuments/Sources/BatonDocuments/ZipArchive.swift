@@ -35,14 +35,25 @@ struct ZipArchive {
 
     let data: [UInt8]
     let entries: [Entry]
+    private let inflated: Tally
 
     /// The largest entry Baton inflates: an EPUB chapter is kilobytes, a picture a few
     /// megabytes. Anything past this is a zip bomb or not a book.
     static let maximumEntryBytes = 64 * 1024 * 1024
+    /// The most one archive inflates in all, however many entries it has: a whole book's text
+    /// and its cover are far less, and many entries just under the per-entry cap are a bomb.
+    static let maximumArchiveBytes = 256 * 1024 * 1024
 
-    init(_ data: Data) throws {
+    private final class Tally {
+        let limit: Int
+        var bytes = 0
+        init(limit: Int) { self.limit = limit }
+    }
+
+    init(_ data: Data, maximumInflatedBytes: Int = maximumArchiveBytes) throws {
         let bytes = [UInt8](data)
         self.data = bytes
+        inflated = Tally(limit: maximumInflatedBytes)
         // The end-of-central-directory record is in the last 64 KB + 22 bytes (its comment can
         // be up to 64 KB long).
         guard bytes.count >= 22 else { throw Failure.notAZip }
@@ -61,6 +72,7 @@ struct ZipArchive {
         guard directoryOffset + directorySize <= bytes.count else { throw Failure.damaged("the directory is past the end") }
 
         var entries: [Entry] = []
+        var bodies = Set<Int>()
         var p = directoryOffset
         for _ in 0..<count {
             guard p + 46 <= bytes.count, Self.u32(bytes, p) == 0x0201_4B50 else { throw Failure.damaged("a directory entry is missing") }
@@ -76,8 +88,12 @@ struct ZipArchive {
             guard p + 46 + nameLength <= bytes.count else { throw Failure.damaged("a name runs past the end") }
             // Bit 11 says UTF-8; otherwise the name is CP437, which for EPUB paths is ASCII.
             let name = String(decoding: bytes[(p + 46)..<(p + 46 + nameLength)], as: UTF8.self)
-            entries.append(Entry(name: name, method: method, flags: flags, crc32: crc, compressedSize: compressed,
-                                 uncompressedSize: uncompressed, localHeaderOffset: offset))
+            // A second name for a body already listed is how a zip bomb repeats one payload;
+            // no real archive has one.
+            if bodies.insert(offset).inserted {
+                entries.append(Entry(name: name, method: method, flags: flags, crc32: crc, compressedSize: compressed,
+                                     uncompressedSize: uncompressed, localHeaderOffset: offset))
+            }
             p += 46 + nameLength + extraLength + commentLength
         }
         self.entries = entries
@@ -95,6 +111,11 @@ struct ZipArchive {
     func contents(of entry: Entry) throws -> Data {
         if entry.flags & 1 != 0 { throw Failure.unsupported("zip encryption") }
         guard entry.uncompressedSize <= Self.maximumEntryBytes else { throw Failure.unsupported("an entry larger than 64 MB") }
+        // Counted before inflating, at the size the entry declares, which also bounds the inflate.
+        guard inflated.bytes + entry.uncompressedSize <= inflated.limit else {
+            throw Failure.unsupported("more than \(inflated.limit / 1024 / 1024) MB of content")
+        }
+        inflated.bytes += entry.uncompressedSize
         let h = entry.localHeaderOffset
         guard h + 30 <= data.count, Self.u32(data, h) == 0x0403_4B50 else { throw Failure.damaged("\(entry.name) has no header") }
         let start = h + 30 + Int(Self.u16(data, h + 26)) + Int(Self.u16(data, h + 28))
@@ -105,7 +126,7 @@ struct ZipArchive {
         case 0:
             out = Array(raw)
         case 8:
-            do { out = try Inflate.inflate(raw, expectedSize: entry.uncompressedSize) } catch {
+            do { out = try Inflate.inflate(raw, expectedSize: entry.uncompressedSize, limit: entry.uncompressedSize) } catch {
                 throw Failure.damaged("\(entry.name) does not inflate: \(error)")
             }
         default:

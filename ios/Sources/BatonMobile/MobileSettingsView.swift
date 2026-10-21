@@ -545,7 +545,7 @@ struct MobileSettingsView: View {
 
                         Look Up Missing Lyrics and Look Outside My Library are the two \
                         things here that talk to a service other than your own server. \
-                        Lyrics sends a track's title, artist and length. Looking outside \
+                        Lyrics sends a track's title, artist, album and length. Looking outside \
                         sends the artist and title of the track you asked about, so the \
                         public catalogues can say what else is out there, never your \
                         library or your history. Both are off until you turn them on.

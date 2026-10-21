@@ -56,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.5.8"
+    MARKETING_VERSION: "1.5.9"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -143,8 +143,8 @@ targets:
       - path: ../Shared/SharedMixtapeModel.swift
       - path: ../Shared/SharedMixtapeView.swift
       - path: ../Shared/SongSharing.swift
-      - path: ../Shared/ShareMixtapeViews.swift
       - path: ../Shared/ShareBookViews.swift
+      - path: ../Shared/ShareCollectionViews.swift
       - path: ../Shared/ShareSongViews.swift
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
@@ -253,7 +253,7 @@ targets:
         NSCameraUsageDescription: "The camera reads the pairing code your Mac shows, so your iPhone can be set up without typing a server address and password. Nothing is recorded."
         NSMicrophoneUsageDescription: "The microphone lets you talk to your music friend — push to talk, ask for music."
         NSSpeechRecognitionUsageDescription: "Speech recognition turns what you say into a request for your music friend. On-device where available."
-        # baton:// deep links — net-new on iOS (the Mac app has none). Routes:
+        # baton:// deep links, claimed by the Mac app too (app/project.yml). Routes:
         # baton://album/<id> and baton://play/<songID>; more (agent, playlist) later.
         CFBundleURLTypes:
           - CFBundleURLName: io.tonebox.baton

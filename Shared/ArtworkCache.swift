@@ -194,7 +194,19 @@ public final class ArtworkCache {
             // check and is treated as delivered.
             let outcome = (response as? HTTPURLResponse).map { classify(status: $0.statusCode) } ?? .loaded
             guard outcome == .loaded else { return (nil, outcome) }
-            let stored = CachedURLResponse(response: response, data: data,
+            // The cache writes the response's own URL to disk beside the key, so the stored
+            // copy is rebuilt on the stripped URL; the server's response named the signed one
+            // (TBX-1000000480 C3-2). Set-Cookie goes too: it is a credential, not the picture.
+            var storedResponse = response
+            if let http = response as? HTTPURLResponse, let keyURL = keyRequest.url {
+                let headers = (http.allHeaderFields as? [String: String] ?? [:])
+                    .filter { $0.key.caseInsensitiveCompare("Set-Cookie") != .orderedSame }
+                guard let rebuilt = HTTPURLResponse(url: keyURL, statusCode: http.statusCode,
+                                                    httpVersion: "HTTP/1.1", headerFields: headers)
+                else { return (data, .loaded) }
+                storedResponse = rebuilt
+            }
+            let stored = CachedURLResponse(response: storedResponse, data: data,
                                            userInfo: [storedAtKey: now.timeIntervalSince1970],
                                            storagePolicy: .allowed)
             byteCache.storeCachedResponse(stored, for: keyRequest)

@@ -82,6 +82,11 @@ enum HTMLParser {
                                                "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header",
                                                "hgroup", "hr", "main", "menu", "nav", "ol", "p", "pre", "section",
                                                "table", "ul", "li", "dd", "dt"]
+    /// Open elements deeper than this are dropped and their content kept in the deepest one.
+    /// The importer's walk and the tree's teardown recurse once per level, and an import runs
+    /// on a 512 KB pool thread; end-tag matching also scans the open stack. No real page or
+    /// book nests anywhere near this.
+    static let maximumDepth = 256
 
     static func parse(_ html: String) -> HTMLNode {
         let bytes = Array(html.utf8)
@@ -203,6 +208,8 @@ enum HTMLParser {
                 break
             }
 
+            let opens = !(voidElements.contains(name) || selfClosing || rawTextElements.contains(name))
+            if opens, stack.count > maximumDepth { continue }
             let element = HTMLNode(kind: .element, name: name, attributes: attributes)
             stack.last!.append(element)
             if voidElements.contains(name) || selfClosing { continue }

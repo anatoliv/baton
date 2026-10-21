@@ -156,6 +156,13 @@ public struct BoundedShareReceiverTransport: ShareReceiverTransport {
     init(makeConfiguration: @escaping @Sendable () -> URLSessionConfiguration) {
         self.makeConfiguration = makeConfiguration
     }
+    /// The whole-transfer budget. A caller that chose one keeps it (a mixtape track upload asks
+    /// for 300 s); otherwise a small reply keeps 60 s and a song-sized download gets 300 s, so a
+    /// slow link is not refused every song. The request's own timeout still bounds a stall.
+    static func resourceTimeout(configured: TimeInterval, maximumBytes: Int) -> TimeInterval {
+        guard configured >= URLSessionConfiguration.ephemeral.timeoutIntervalForResource else { return configured }
+        return maximumBytes > 1_000_000 ? 300 : 60
+    }
     public func send(_ request: URLRequest, maximumBytes: Int) async throws -> ShareReceiverResponse {
         try await sendLimited(request, maximumBytes: maximumBytes, maximumErrorBytes: nil)
     }
@@ -202,7 +209,8 @@ private final class LimitedShareRequest: NSObject, URLSessionDataDelegate, @unch
             config.httpCookieStorage = nil
             config.urlCredentialStorage = nil
             config.httpShouldSetCookies = false
-            config.timeoutIntervalForResource = min(60, config.timeoutIntervalForResource)
+            config.timeoutIntervalForResource = BoundedShareReceiverTransport.resourceTimeout(
+                configured: config.timeoutIntervalForResource, maximumBytes: maximumBytes)
             let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
             self.session = session
             let task = session.dataTask(with: request)

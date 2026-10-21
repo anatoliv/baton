@@ -43,6 +43,42 @@ public struct ShareBookLimits: Codable, Equatable, Sendable {
     }
 }
 
+/// What the service advertises beside `collections: 1` (specs/collection-sharing.md): the kinds
+/// it takes and the cover cap. Every other cap is the book's (`ShareBookLimits`), shared.
+public struct ShareCollectionLimits: Codable, Equatable, Sendable {
+    public var kinds: [ShareCollectionKind]
+    public var maxCoverBytes: Int
+    public init(kinds: [ShareCollectionKind] = ShareCollectionKind.allCases, maxCoverBytes: Int = ShareBookManifest.maxCoverBytes) {
+        self.kinds = kinds; self.maxCoverBytes = maxCoverBytes
+    }
+
+    /// Music in a collection is AAC at this bit rate (books stay at their 48 kbps).
+    public static let musicBitRate = 128_000
+    /// Lower rates, highest first, for a track whose 128 kbps file would pass the per-track cap.
+    public static let fallbackBitRates = [96_000, 64_000, 48_000]
+
+    /// The highest bit rate at which a track of `seconds` seals within `maxTrackBytes`, allowing
+    /// for the container and BSH1 overhead, or nil when even the lowest would not fit.
+    public static func bitRate(forSeconds seconds: Int, maxTrackBytes: Int) -> Int? {
+        let budget = Double(maxTrackBytes) * 0.94 // MP4 boxes, the rate allowance and BSH1 tags
+        return ([musicBitRate] + fallbackBitRates).first { Double($0) / 8 * Double(max(1, seconds)) <= budget }
+    }
+
+    /// How far over its nominal rate a track may come out: the up-front estimate allows for it,
+    /// and a server's AAC is copied as it is only within it (otherwise it is encoded again), so the
+    /// caps checked before the first fetch hold as each track lands.
+    public static let rateAllowance = 1.05
+
+    /// The size a track will roughly have at `bitRate`, for the composer's estimate.
+    public static func estimatedBytes(seconds: Int, bitRate: Int = musicBitRate) -> Int {
+        Int(Double(bitRate) / 8 * Double(max(1, seconds)) * rateAllowance) + 4096
+    }
+
+    /// The encoder's sample rate for `bitRate`: AAC-LC stereo at 44.1 kHz cannot go below 64 kbps,
+    /// so the lower fallback rates encode at 32 kHz.
+    public static func sampleRate(forBitRate bitRate: Int) -> Int { bitRate < 64_000 ? 32_000 : 44_100 }
+}
+
 /// What the service knows about one stored blob of a book: whether it is chapter audio or
 /// read-along text (so it can apply that blob's cap), its sealed length and its SHA-256.
 public struct BookBlobDescriptor: Codable, Equatable, Sendable {
@@ -76,7 +112,10 @@ public struct BookPreview: Codable, Equatable, Sendable {
 /// `POST /v1/share/books`. Retried with the same `requestID` and identical bytes, it answers the
 /// same live book; an altered body under that ID is a 409.
 public struct CreateBookRequest: Codable, Equatable, Sendable {
+    /// `baton-book-1` for a book, `baton-collection-1` for an album or a playlist.
     public var schema = ShareBookManifest.schemaVersion
+    /// The collection's kind, in the clear so the service can count and present it; absent for a book.
+    public var kind: ShareCollectionKind?
     public var requestID: String
     public var encryptedManifest: String
     public var blobs: [String: BookBlobDescriptor]
@@ -90,7 +129,9 @@ public struct CreateBookRequest: Codable, Equatable, Sendable {
 
     public init(requestID: String = UUID().uuidString, encryptedManifest: String, blobs: [String: BookBlobDescriptor],
                 totalDurationSeconds: Int, expiresInSeconds: Int, listenerCap: Int, preview: BookPreview?,
-                client: ShareClientInfo, reviewPreservationConsent: String? = nil) {
+                client: ShareClientInfo, reviewPreservationConsent: String? = nil, kind: ShareCollectionKind? = nil) {
+        self.schema = kind == nil ? ShareBookManifest.schemaVersion : ShareBookManifest.collectionSchemaVersion
+        self.kind = kind
         self.requestID = requestID; self.encryptedManifest = encryptedManifest; self.blobs = blobs
         self.totalDurationSeconds = totalDurationSeconds; self.expiresInSeconds = expiresInSeconds
         self.listenerCap = listenerCap; self.preview = preview; self.client = client
@@ -104,7 +145,9 @@ public struct CreateBookRequest: Codable, Equatable, Sendable {
     public var chapterCount: Int { blobs.values.filter { $0.role == .audio }.count }
 
     public func validated(limits: ShareLimits = .standard) throws -> Self {
-        guard schema == ShareBookManifest.schemaVersion, UUID(uuidString: requestID) != nil,
+        let collection = kind != nil
+        guard schema == (collection ? ShareBookManifest.collectionSchemaVersion : ShareBookManifest.schemaVersion),
+              UUID(uuidString: requestID) != nil,
               (1 ... limits.maxBookSeconds).contains(totalDurationSeconds),
               limits.expiryChoices.contains(expiresInSeconds),
               (1 ... limits.maxBookListeners).contains(listenerCap),
@@ -114,7 +157,7 @@ public struct CreateBookRequest: Codable, Equatable, Sendable {
               (try? ShareCrypto.layout(headerBytes: Array(manifest.prefix(ShareCrypto.headerLength)), totalLength: manifest.count)) != nil
         else { throw ShareValidationError("book", "invalid book request") }
         let audio = blobs.values.filter { $0.role == .audio }.count
-        guard (1 ... limits.maxBookChapters).contains(audio), blobs.count - audio <= audio else {
+        guard (1 ... limits.maxBookChapters).contains(audio), blobs.count - audio <= audio, !collection || blobs.count == audio else {
             throw ShareValidationError("blobs", "must hold 1 to \(limits.maxBookChapters) chapters and at most one text each")
         }
         var total = manifest.count
@@ -148,6 +191,8 @@ public struct CreateBookResponse: Codable, Equatable, Sendable {
 /// `GET /v1/share/b/<id>`: what a listener's page or app needs before admission. Spends nothing.
 public struct PublicBook: Codable, Equatable, Sendable {
     public var schema: String = ShareBookManifest.schemaVersion
+    /// The collection's kind; absent for a book.
+    public var kind: ShareCollectionKind?
     public var status: ShareStatus
     public var preview: BookPreview?
     public var encryptedManifest: String
@@ -155,18 +200,21 @@ public struct PublicBook: Codable, Equatable, Sendable {
     public var expiresAt: String
     public var remainingListeners: Int
     public init(status: ShareStatus, preview: BookPreview?, encryptedManifest: String, blobs: [String: BookBlobDescriptor],
-                expiresAt: String, remainingListeners: Int) {
+                expiresAt: String, remainingListeners: Int, kind: ShareCollectionKind? = nil) {
+        self.schema = kind == nil ? ShareBookManifest.schemaVersion : ShareBookManifest.collectionSchemaVersion
+        self.kind = kind
         self.status = status; self.preview = preview; self.encryptedManifest = encryptedManifest; self.blobs = blobs
         self.expiresAt = expiresAt; self.remainingListeners = remainingListeners
     }
 
     /// Opens the manifest and checks every descriptor the service sent against it.
     public func open(rootKey: Data, limits: ShareLimits = .standard) throws -> ShareBookManifest {
-        guard schema == ShareBookManifest.schemaVersion, let bytes = Data(base64Encoded: encryptedManifest) else {
+        guard schema == (kind == nil ? ShareBookManifest.schemaVersion : ShareBookManifest.collectionSchemaVersion),
+              let bytes = Data(base64Encoded: encryptedManifest) else {
             throw ShareValidationError("book", "unsupported or malformed manifest")
         }
         let manifest = try ShareBookManifest.open(bytes, rootKey: rootKey, limits: limits)
-        guard manifest.blobs == blobs else {
+        guard manifest.schema == schema, manifest.kind == kind, manifest.blobs == blobs else {
             throw ShareValidationError("book", "descriptors do not match the authenticated manifest")
         }
         return manifest
@@ -196,8 +244,11 @@ public struct BookSummary: Codable, Equatable, Sendable {
     public var hasText: Bool
     public var reviewDeadline: String?
     public var pausedLifetimeSeconds: Int64?
+    /// An album or playlist link's kind; absent for a book. `chapterCount` is then its tracks.
+    public var kind: ShareCollectionKind?
     public init(share: ShareSummary, chapterCount: Int, hasText: Bool, reviewDeadline: String? = nil,
-                pausedLifetimeSeconds: Int64? = nil) {
+                pausedLifetimeSeconds: Int64? = nil, kind: ShareCollectionKind? = nil) {
+        self.kind = kind
         self.share = share; self.chapterCount = chapterCount; self.hasText = hasText
         self.reviewDeadline = reviewDeadline; self.pausedLifetimeSeconds = pausedLifetimeSeconds
     }

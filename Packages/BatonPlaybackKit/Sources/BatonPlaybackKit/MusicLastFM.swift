@@ -192,16 +192,30 @@ public final class MusicLastFM: ScrobbleDestination {
         }
 
         let (data, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
-            lastfmLog.error("Last.fm HTTP \(http.statusCode)")
-            throw ScrobbleError.http(http.statusCode)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+        if let failure = Self.failure(status: status, body: data) {
+            lastfmLog.error("Last.fm HTTP \(status, privacy: .public): \(String(describing: failure), privacy: .public)")
+            throw failure
         }
-        let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-        if let code = json["error"] as? Int {
-            let message = json["message"] as? String ?? "error \(code)"
-            lastfmLog.error("Last.fm error \(code, privacy: .public): \(message, privacy: .public)")
-            throw ScrobbleError.service("Last.fm \(code): \(message)")
-        }
-        return json
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
+
+    /// The error a Last.fm answer carries, or nil when it succeeded. Pure, for testing.
+    ///
+    /// Last.fm can name a temporary condition in the body of a 4xx, which the status alone
+    /// would file as a refusal, so those codes are reported as the service error they are.
+    nonisolated static func failure(status: Int, body: Data) -> ScrobbleError? {
+        let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+        let code = json["error"] as? Int
+        let service = code.map { ScrobbleError.service("Last.fm \($0): \(json["message"] as? String ?? "error \($0)")") }
+        if !(200 ..< 300).contains(status) {
+            if let code, temporaryErrorCodes.contains(code), let service { return service }
+            return .http(status)
+        }
+        return service
+    }
+
+    /// 8 operation failed (try again), 11 service offline, 16 temporarily unavailable, 29 rate
+    /// limit exceeded.
+    nonisolated static let temporaryErrorCodes: Set<Int> = [8, 11, 16, 29]
 }

@@ -627,7 +627,9 @@ public final class AlarmPreviewPlayer: AlarmPreviewing {
             radio.stop()
             stoppedStation = station
         }
-        let preview = AVPlayer(url: url)
+        let headers = NavidromeConfig.customHeaders(for: url)
+        let preview = AVPlayer(playerItem: AVPlayerItem(asset: AVURLAsset(
+            url: url, options: headers.isEmpty ? nil : ["AVURLAssetHTTPHeaderFieldsKey": headers])))
         preview.play()
         avPlayer = preview
     }

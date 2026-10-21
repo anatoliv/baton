@@ -507,6 +507,13 @@ struct MusicView: View {
             ShareSongSheet(song: song,
                            coverArtURL: song.coverArtID.flatMap { model.musicLibrary.coverArtURL(id: $0, size: 600) })
         }
+        // "Share…" on an album, a playlist or two or more selected songs: one link.
+        .sheet(item: shareCollectionBinding) { ShareCollectionSheet(draft: $0) }
+    }
+
+    /// Binding into the model's share-collection for the album/playlist/selection composer.
+    private var shareCollectionBinding: Binding<CollectionShareDraft?> {
+        Binding(get: { model.shareCollection }, set: { model.shareCollection = $0 })
     }
 
     /// Binding into the model's share-song for the "Share…" composer.

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,6 +47,8 @@ class Mock(http.server.BaseHTTPRequestHandler):
     version = "1.0"
     values = {}
     patches = []
+    # A localization path whose PATCH answers 500 without applying anything.
+    fail_patch = None
 
     def log_message(self, *args):
         pass
@@ -84,6 +87,8 @@ class Mock(http.server.BaseHTTPRequestHandler):
         attributes = body["data"]["attributes"]
         if path not in ("appInfoLocalizations/ILOC", "appStoreVersionLocalizations/VLOC"):
             return self._send({"errors": [{"detail": "no such localization"}]}, 404)
+        if path == Mock.fail_patch:
+            return self._send({"errors": [{"detail": "stub: server error"}]}, 500)
         Mock.patches.append((path, dict(attributes)))
         Mock.values.update(attributes)
         self._send({"data": {"id": body["data"]["id"], "attributes": attributes}})
@@ -93,6 +98,44 @@ def start_server():
     server = http.server.HTTPServer(("127.0.0.1", 0), Mock)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, f"http://127.0.0.1:{server.server_port}"
+
+
+class Slow(http.server.BaseHTTPRequestHandler):
+    """Accepts the request and answers too late: the read times out, not the connect."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        time.sleep(2)
+        try:
+            self.send_response(200)
+            self.end_headers()
+        except OSError:
+            pass
+
+
+def test_slow_server():
+    """TBX-1000000480 B-12. On the release's Python 3.9 a read timeout is socket.timeout,
+    which is neither URLError nor TimeoutError there, so it escaped as a raw traceback
+    instead of the ASCError with no status that `check` turns into SKIP."""
+    sys.path.insert(0, HERE)
+    import asc
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    client = asc.Client("TESTKEY", KEY_PATH, "00000000-0000-0000-0000-000000000000",
+                        api=f"http://127.0.0.1:{server.server_port}", timeout=0.5)
+    try:
+        client.get("apps")
+        outcome = "no error"
+    except asc.ASCError as error:
+        outcome = "status None" if error.status is None else f"status {error.status}"
+    except Exception as error:  # noqa: BLE001 - the defect is exactly an unexpected type
+        outcome = f"escaped as {type(error).__module__}.{type(error).__name__}"
+    server.shutdown()
+    check(outcome == "status None",
+          f"a slow response is an ASCError with no status, so check can SKIP ({outcome})")
 
 
 # --- harness ------------------------------------------------------------------------------
@@ -218,6 +261,23 @@ def test_compare():
     check(verdict == module.DRIFT and "name" in drifted,
           "compare: a new version does not excuse drift in the app-scoped fields")
 
+    # TBX-1000000480 B-13: save() opened the file for writing (truncating it) and then
+    # serialised into it, so a failure part-way left a half-written listing on disk.
+    with tempfile.TemporaryDirectory() as directory:
+        target = os.path.join(directory, "en-US.json")
+        with open(target, "w", encoding="utf-8") as handle:
+            json.dump({"intact": True}, handle)
+        module.METADATA = target
+        try:
+            module.save({"desired": {"name": "Baton"}, "unserialisable": object()})
+        except TypeError:
+            pass
+        with open(target, encoding="utf-8") as handle:
+            survived = handle.read()
+        check(survived == '{"intact": true}',
+              "save: a write that fails part-way leaves the previous file intact")
+        check(os.listdir(directory) == ["en-US.json"], "save: a failed write leaves no temp file")
+
 
 # --- the tool, end to end against the mock ------------------------------------------------
 
@@ -260,6 +320,7 @@ def main() -> int:
             expect_in=["A version is editable now"])
 
         print("\n-- unreachable --")
+        test_slow_server()
         dead = "http://127.0.0.1:1"
         run(["check"], document(), dead, 0, "an unreachable Apple skips by default",
             expect_in=["SKIP"])
@@ -300,6 +361,18 @@ def main() -> int:
         run(["push"], both, base, 0, "push writes both resources when both changed",
             expect_in=["patched appInfoLocalizations", "patched appStoreVersionLocalizations"])
         check(len(Mock.patches) == 2, "push made exactly two PATCHes")
+
+        # TBX-1000000480 B-13: the first PATCH lands and the second fails. The snapshot has
+        # to record the first, or the next check calls Baton's own write drift and refuses.
+        Mock.values, Mock.patches = dict(LIVE), []
+        Mock.fail_patch = "appStoreVersionLocalizations/VLOC"
+        written = run(["push"], both, base, 1, "push reports a failed second PATCH",
+                      expect_in=["patched appInfoLocalizations", "500"])
+        Mock.fail_patch = None
+        check(written["_live"]["values"]["name"] == "Baton",
+              "after a failed second PATCH the snapshot still records the first one")
+        run(["check"], written, base, 0, "check after the partial push sees no drift from our own write",
+            expect_in=["PENDING", "keywords"], expect_not_in=["DRIFT"])
 
         Mock.values, Mock.patches = dict(LIVE), []
         run(["push"], document(), base, 0, "push with nothing to do sends nothing",

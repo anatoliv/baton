@@ -89,6 +89,10 @@ public final class PodcastProgressStore {
         let dir = directory ?? PodcastProgressStore.defaultDirectory()
         storeURL = dir.appendingPathComponent("podcast-progress.json")
         serverEpisodesURL = dir.appendingPathComponent("podcast-server-episodes.json")
+        // Loaded here, not left to a view: playback from the menu bar or MCP records progress
+        // before any Podcasts screen appears, and a save from an unloaded store overwrites
+        // every other episode's place.
+        loadIfNeeded()
     }
 
     // MARK: - Load / persist

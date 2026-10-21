@@ -20,6 +20,20 @@ public enum SecretRedactor {
         (#"\bsk-[A-Za-z0-9_-]{16,}"#, "a redacted token"),
         // GitHub personal access / OAuth / server / user-to-server / refresh tokens.
         (#"\bgh[pousr]_[A-Za-z0-9]{16,}"#, "a redacted token"),
+        // GitHub fine-grained personal access tokens.
+        (#"\bgithub_pat_[A-Za-z0-9_]{22,}"#, "a redacted token"),
+        // GitLab personal access tokens.
+        (#"\bglpat-[A-Za-z0-9_-]{20,}"#, "a redacted token"),
+        // Stripe secret and restricted keys.
+        (#"\b[sr]k_live_[A-Za-z0-9]{16,}"#, "a redacted key"),
+        // npm and Hugging Face access tokens.
+        (#"\bnpm_[A-Za-z0-9]{30,}"#, "a redacted token"),
+        (#"\bhf_[A-Za-z0-9]{30,}"#, "a redacted token"),
+        // Telegram bot tokens: the bot's number, a colon, then a secret that starts with AA.
+        (#"\b[0-9]{6,12}:AA[A-Za-z0-9_-]{30,}"#, "a redacted token"),
+        // Discord bot tokens: the base64 of a snowflake id (so M, N or O first), a timestamp
+        // and an HMAC, dot separated.
+        (#"\b[MNO][A-Za-z0-9_-]{23,27}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,}"#, "a redacted token"),
         // Sentry auth tokens.
         (#"\bsntry[su]_[A-Za-z0-9_\-\.=]{16,}"#, "a redacted token"),
         // Slack.
@@ -34,8 +48,12 @@ public enum SecretRedactor {
         (#"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"#, "a redacted token"),
         // Anything handed over as a bearer credential.
         (#"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]{12,}"#, "bearer, a redacted token"),
-        // key=value and key: value assignments whose *name* says it is a secret.
-        (#"(?i)\b(api[-_]?key|secret|password|passwd|token|auth)\b\s*[:=]\s*\S+"#, "$1, a redacted value"),
+        // key=value and key: value assignments whose *name* says it is a secret, including an
+        // environment variable's prefix (`TELEGRAM_BOT_TOKEN=`), which `\b` alone cannot see
+        // past because `_` is a word character. A value an earlier shape already replaced is
+        // left as that placeholder.
+        (#"(?i)\b((?:[A-Za-z0-9_]*_)?(?:api[-_]?key|secret|password|passwd|token|auth))\b\s*[:=]\s*(?!a redacted )\S+"#,
+         "$1, a redacted value"),
     ]
 
     /// Replace every known credential shape. Idempotent: the placeholders match nothing.

@@ -73,6 +73,94 @@ final class ZipArchiveTests: XCTestCase {
     }
 }
 
+extension ZipArchiveTests {
+    /// Central-directory entries that all point at one body are the classic zip bomb: each
+    /// name inflates the same few kilobytes again. Only the first name is kept.
+    func testEntriesSharingOneBodyAreReadOnce() throws {
+        let body = TestZip.Body(name: "c0.xhtml", runs: 1000)
+        let zip = try ZipArchive(TestZip.archive([body], extraNames: (1..<50).map { (name: "c\($0).xhtml", sharing: 0) }))
+        XCTAssertEqual(try zip.contents(of: "c0.xhtml")?.count, body.size)
+        XCTAssertNil(try zip.contents(of: "c1.xhtml"), "a second name for the same body")
+    }
+
+    /// Each entry is within the per-entry cap, but together they are past the archive's total
+    /// (256 MB in use; a small total here, so the test inflates kilobytes, not gigabytes).
+    func testAnArchiveInflatesNoMoreThanItsTotal() throws {
+        let bodies = (0..<5).map { TestZip.Body(name: "c\($0).xhtml", runs: 1000) }
+        let zip = try ZipArchive(TestZip.archive(bodies), maximumInflatedBytes: 4 * bodies[0].size)
+        var read = 0
+        for body in bodies.prefix(4) { read += try XCTUnwrap(zip.contents(of: body.name)).count }
+        XCTAssertEqual(read, 4 * bodies[0].size)
+        XCTAssertThrowsError(try zip.contents(of: "c4.xhtml"), "a fifth entry is past the total")
+    }
+}
+
+/// Zip archives built in memory: each body is one byte and then `runs` copies of the longest
+/// match, as fixed-Huffman deflate, so megabytes come from kilobytes.
+enum TestZip {
+    struct Body {
+        var name: String
+        var runs: Int
+        var size: Int { 1 + 258 * runs }
+
+        var deflated: [UInt8] {
+            var out: [UInt8] = []
+            var buffer: UInt32 = 0
+            var count = 0
+            func put(_ value: Int, _ bits: Int, reversed: Bool) {
+                for i in 0..<bits {
+                    let bit = reversed ? (value >> (bits - 1 - i)) & 1 : (value >> i) & 1
+                    buffer |= UInt32(bit) << UInt32(count)
+                    count += 1
+                    if count == 8 { out.append(UInt8(buffer)); buffer = 0; count = 0 }
+                }
+            }
+            put(1, 1, reversed: false)        // last block
+            put(1, 2, reversed: false)        // fixed Huffman
+            put(0x30 + 0x61, 8, reversed: true) // literal "a"
+            for _ in 0..<runs {
+                put(0xC5, 8, reversed: true)  // length 258 (symbol 285)
+                put(0, 5, reversed: true)     // distance 1
+            }
+            put(0, 7, reversed: true)         // end of block (symbol 256)
+            if count > 0 { out.append(UInt8(buffer)) }
+            return out
+        }
+
+        var crc: UInt32 { CRC32.checksum([UInt8](repeating: UInt8(ascii: "a"), count: size)) }
+    }
+
+    static func archive(_ bodies: [Body], extraNames: [(name: String, sharing: Int)] = []) -> Data {
+        func le16(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8(v >> 8 & 0xFF)] }
+        func le32(_ v: Int) -> [UInt8] { (0..<4).map { UInt8(v >> ($0 * 8) & 0xFF) } }
+        var bytes: [UInt8] = []
+        var records: [(name: String, crc: Int, compressed: Int, size: Int, offset: Int)] = []
+        for body in bodies {
+            let payload = body.deflated
+            let name = Array(body.name.utf8)
+            let crc = Int(body.crc)
+            records.append((body.name, crc, payload.count, body.size, bytes.count))
+            bytes += le32(0x0403_4B50) + le16(20) + le16(0) + le16(8) + le16(0) + le16(0)
+            bytes += le32(crc) + le32(payload.count) + le32(body.size) + le16(name.count) + le16(0) + name + payload
+        }
+        for extra in extraNames {
+            let shared = records[extra.sharing]
+            records.append((extra.name, shared.crc, shared.compressed, shared.size, shared.offset))
+        }
+        let directoryOffset = bytes.count
+        for r in records {
+            let name = Array(r.name.utf8)
+            bytes += le32(0x0201_4B50) + le16(20) + le16(20) + le16(0) + le16(8) + le16(0) + le16(0)
+            bytes += le32(r.crc) + le32(r.compressed) + le32(r.size) + le16(name.count) + le16(0) + le16(0)
+            bytes += le16(0) + le16(0) + le32(0) + le32(r.offset) + name
+        }
+        let directorySize = bytes.count - directoryOffset
+        bytes += le32(0x0605_4B50) + le16(0) + le16(0) + le16(records.count) + le16(records.count)
+        bytes += le32(directorySize) + le32(directoryOffset) + le16(0)
+        return Data(bytes)
+    }
+}
+
 final class EPUBImporterTests: XCTestCase {
     private func importFixture(_ name: String) throws -> ImportedDocument {
         let data = try ZipArchiveTests.fixture(name)
@@ -120,6 +208,34 @@ final class EPUBImporterTests: XCTestCase {
         XCTAssertEqual(doc.chapters.map(\.paragraphs.count), [40, 1, 1])
         XCTAssertEqual(doc.chapters[0].spokenHeading, "Chapter 1", "the heading repeating the contents is not read twice")
         XCTAssertEqual(EPUBImporter.cover(try ZipArchiveTests.fixture("epub2-ncx.epub"))?.mediaType, "image/jpeg")
+    }
+
+    /// The fixture with one entry's compressed bytes changed, so it fails to inflate or its checksum.
+    private func damaged(_ fixture: String, entry name: String) throws -> Data {
+        var bytes = [UInt8](try ZipArchiveTests.fixture(fixture))
+        let entry = try XCTUnwrap(ZipArchive(Data(bytes)).entry(named: name))
+        let h = entry.localHeaderOffset
+        let start = h + 30 + Int(ZipArchive.u16(bytes, h + 26)) + Int(ZipArchive.u16(bytes, h + 28))
+        bytes[start + entry.compressedSize / 2] ^= 0x5A
+        return Data(bytes)
+    }
+
+    /// A chapter file that cannot be read is left out and said so, not dropped in silence.
+    func testADamagedChapterFileIsNamedInAWarning() throws {
+        let out = try EPUBImporter.read(damaged("epub3-anchors.epub", entry: "OEBPS/text/c3b.xhtml"), fallbackTitle: "book")
+        XCTAssertFalse(out.result.chapters.flatMap(\.paragraphs).contains("The last sentence of the book."))
+        XCTAssertTrue(out.warnings.contains(ImportWarning(.contentSkipped, detail: "c3b.xhtml, which could not be read")),
+                      "\(out.warnings)")
+    }
+
+    /// A package file that cannot be read is the importer's own failure, worded for the sheet,
+    /// not the zip reader's.
+    func testADamagedPackageFileIsUnreadable() throws {
+        let data = try damaged("epub3-anchors.epub", entry: "OEBPS/content.opf")
+        XCTAssertThrowsError(try EPUBImporter.read(data, fallbackTitle: "book")) { error in
+            guard case .unreadable(let why)? = error as? DocumentImporter.Failure else { return XCTFail("\(error)") }
+            XCTAssertTrue(why.contains("package file"), why)
+        }
     }
 
     func testAProtectedBookIsRefused() throws {

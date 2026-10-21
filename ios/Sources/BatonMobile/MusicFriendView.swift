@@ -214,6 +214,10 @@ struct MusicFriendView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .bottomChromeCapsule()
+        // After the capsule, so the element's frame is the capsule's and a UI test can line it
+        // up with the tab bar (BottomChromeAlignmentUITests).
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("FriendComposerCapsule")
     }
 
     /// Tap to start listening; tap again to stop and send what was heard.

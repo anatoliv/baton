@@ -26,8 +26,12 @@ public final class BackgroundDownloadEngine: NSObject, @unchecked Sendable {
         var duration: Int?
         var coverArtID: String?
         var artworkURL: URL?
+        /// `MusicDownloadStore.purgeGeneration` when the task was enqueued. Nil for a task from
+        /// a build before it existed, which counts as generation 0.
+        var generation: Int?
 
-        init(song: NavidromeSong) {
+        init(song: NavidromeSong, generation: Int) {
+            self.generation = generation
             id = song.id
             title = song.title
             artist = song.artist
@@ -50,11 +54,14 @@ public final class BackgroundDownloadEngine: NSObject, @unchecked Sendable {
     }
 
     private lazy var session: URLSession = {
+        if let configuration { return URLSession(configuration: configuration, delegate: self, delegateQueue: nil) }
         let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
         config.isDiscretionary = false
         config.sessionSendsLaunchEvents = true
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
+    /// A session configuration in place of the background one. Test seam.
+    private let configuration: URLSessionConfiguration?
 
     /// Called on the main actor when the system relaunch-completion handler should
     /// fire (set by the app delegate on iOS).
@@ -63,29 +70,42 @@ public final class BackgroundDownloadEngine: NSObject, @unchecked Sendable {
     /// Last progress fraction forwarded per task, so the main actor isn't flooded
     /// at wire speed (the DownloadProgressCoalescer lesson, cheaply).
     private var lastForwardedProgress: [Int: Double] = [:]
+    /// Tasks `cancelAll` cancelled, whose cancellation is not a failure to report.
+    private var cancelledByPurge: Set<Int> = []
     private let progressLock = NSLock()
 
     override public init() {
+        configuration = nil
         super.init()
+    }
+
+    init(configuration: URLSessionConfiguration) {
+        self.configuration = configuration
+        super.init()
+    }
+
+    /// The session's tasks that have not finished. Test seam.
+    func unfinishedTasks() async -> [URLSessionTask] {
+        await session.allTasks.filter { $0.state == .running || $0.state == .suspended }
     }
 
     /// Enqueues a background download for the song. Fire-and-forget: completion
     /// lands in the delegate, possibly in a later app launch.
     @MainActor
-    public func enqueue(_ song: NavidromeSong) {
+    public func enqueue(_ song: NavidromeSong, generation: Int = 0) {
         do {
             let url = try StreamingPlaybackController.resolveDownloadURL(songID: song.id)
             var request = URLRequest(url: url)
-            for (name, value) in NavidromeConfig.customHeaders() {
+            for (name, value) in NavidromeConfig.customHeaders(for: url) {
                 request.setValue(value, forHTTPHeaderField: name)
             }
             let task = session.downloadTask(with: request)
-            task.taskDescription = String(data: try JSONEncoder().encode(TaskTicket(song: song)), encoding: .utf8)
+            task.taskDescription = String(data: try JSONEncoder().encode(TaskTicket(song: song, generation: generation)), encoding: .utf8)
             task.resume()
         } catch {
             bgLog.error("enqueue \(song.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             Task { @MainActor in
-                MusicDownloadStore.shared.noteBackgroundFailure(song)
+                MusicDownloadStore.shared.noteBackgroundFailure(song, generation: generation)
             }
         }
     }
@@ -102,12 +122,24 @@ public final class BackgroundDownloadEngine: NSObject, @unchecked Sendable {
             }
             Task { @MainActor in
                 for ticket in tickets {
-                    MusicDownloadStore.shared.noteBackgroundRestored(ticket.song)
+                    MusicDownloadStore.shared.noteBackgroundRestored(ticket.song, generation: ticket.generation)
                 }
                 if !tickets.isEmpty {
                     bgLog.info("restored \(tickets.count) outstanding background download(s)")
                 }
             }
+        }
+    }
+
+    /// Cancels every task in the session, including ones from an earlier launch that only the
+    /// session remembers, so none of them finishes after a session purge.
+    public func cancelAll() {
+        session.getAllTasks { [weak self] tasks in
+            guard let self else { return }
+            self.progressLock.lock()
+            self.cancelledByPurge.formUnion(tasks.map(\.taskIdentifier))
+            self.progressLock.unlock()
+            for task in tasks { task.cancel() }
         }
     }
 
@@ -139,7 +171,7 @@ extension BackgroundDownloadEngine: URLSessionDownloadDelegate {
         Task { @MainActor in
             MusicDownloadStore.shared.completeBackgroundDownload(
                 song: ticket.song, temp: staging,
-                response: response ?? URLResponse()
+                response: response ?? URLResponse(), generation: ticket.generation
             )
         }
     }
@@ -167,12 +199,13 @@ extension BackgroundDownloadEngine: URLSessionDownloadDelegate {
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         progressLock.lock()
         lastForwardedProgress[task.taskIdentifier] = nil
+        let purged = cancelledByPurge.remove(task.taskIdentifier) != nil
         progressLock.unlock()
-        guard let error, let ticket = Self.ticket(from: task) else { return }
+        guard !purged, let error, let ticket = Self.ticket(from: task) else { return }
         let resume = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data
         bgLog.error("background download \(ticket.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
         Task { @MainActor in
-            MusicDownloadStore.shared.noteBackgroundFailure(ticket.song, resumeData: resume)
+            MusicDownloadStore.shared.noteBackgroundFailure(ticket.song, resumeData: resume, generation: ticket.generation)
         }
     }
 

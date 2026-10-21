@@ -54,6 +54,12 @@ final class ShareMixtapePageTests: XCTestCase {
         XCTAssertEqual(ended.status, 410)
         XCTAssertFalse(String(decoding: ended.body, as: UTF8.self).contains("Container"))
     }
+    func testPlaceholderTextInAPreviewIsNotExpanded() throws {
+        let id = try pending(preview: .init(title: "{{DATA}}", from: "{{OG_TAGS}}", note: "{{V}}"))
+        let html = String(decoding: send("/m/" + id).body, as: UTF8.self)
+        XCTAssertEqual(html.components(separatedBy: #""state":"#).count, 2, "the data block appears once: \(html)")
+        XCTAssertTrue(html.contains("<title>{{OG_TAGS}} sent you {{DATA}}</title>"), html)
+    }
     func testCanonicalRouteAndSeparateMutableAssetsDoNotBecomeSongLinks() throws {
         let id = try pending()
         XCTAssertEqual(send("/m//" + id).status, 404)

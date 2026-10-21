@@ -76,6 +76,7 @@ final class ShareWireTests: XCTestCase {
         XCTAssertThrowsError(try ShareMetadata(title: "x\u{7}", durationSeconds: 1).validated())
         XCTAssertThrowsError(try ShareMetadata(title: "x", durationSeconds: 1, from: "a\nb").validated())
         XCTAssertThrowsError(try ShareMetadata(title: "x", durationSeconds: 1, accent: "blue").validated())
+        XCTAssertThrowsError(try ShareMetadata(title: "x", durationSeconds: 1, accent: "#\u{FF26}\u{FF26}0000").validated())
         XCTAssertThrowsError(try ShareMetadata(title: "x", durationSeconds: 1, peaks: [256]).validated())
         XCTAssertThrowsError(try ShareMetadata(title: "x", durationSeconds: 1,
                                                note: String(repeating: "a", count: 281)).validated())
@@ -126,6 +127,9 @@ final class ShareWireTests: XCTestCase {
         request = makeCreate(); request.audioBytes = ShareLimits.standard.maxAudioBytes + 1
         XCTAssertThrowsError(try request.validated())
         request = makeCreate(); request.audioSHA256 = String(repeating: "A", count: 64)
+        XCTAssertThrowsError(try request.validated())
+        // Fullwidth digits are hex digits to Swift's Character but not to the browser or service.
+        request = makeCreate(); request.audioSHA256 = String(repeating: "\u{FF10}", count: 64)
         XCTAssertThrowsError(try request.validated())
         request = makeCreate(); request.client.platform = "android"
         XCTAssertThrowsError(try request.validated())

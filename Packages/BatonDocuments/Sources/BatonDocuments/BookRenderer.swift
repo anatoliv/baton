@@ -229,8 +229,12 @@ public enum WAV {
             var size = Int(u32(offset + 4))
             let body = offset + 8
             if id == "fmt ", body + 16 <= bytes.count {
-                format = Format(audioFormat: u16(body), channels: u16(body + 2), sampleRate: u32(body + 4),
-                                bitsPerSample: u16(body + 14))
+                let found = Format(audioFormat: u16(body), channels: u16(body + 2), sampleRate: u32(body + 4),
+                                   bitsPerSample: u16(body + 14))
+                // No audio has more, and within these the header's byte rate fits its 32 bits.
+                guard (1...8).contains(found.channels), (1...384_000).contains(found.sampleRate),
+                      [8, 16, 24, 32, 64].contains(found.bitsPerSample) else { return nil }
+                format = found
             } else if id == "data", let format {
                 // A streamed WAV writes 0 or 0xFFFFFFFF here and means "to the end".
                 if size == 0 || size == 0xFFFF_FFFF || body + size > bytes.count { size = bytes.count - body }
@@ -376,12 +380,16 @@ public enum WAV {
         var d = Data()
         func put32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
         func put16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        d.append(contentsOf: Array("RIFF".utf8)); put32(UInt32(36 + dataBytes))
+        // A size past 32 bits is written as 0xFFFFFFFF, which readers (and `parse`) take as
+        // "to the end", as for a streamed WAV.
+        func size(_ v: Int) -> UInt32 { UInt32(exactly: v) ?? 0xFFFF_FFFF }
+        d.append(contentsOf: Array("RIFF".utf8)); put32(size(36 + dataBytes))
         d.append(contentsOf: Array("WAVE".utf8))
         d.append(contentsOf: Array("fmt ".utf8)); put32(16)
         put16(format.audioFormat); put16(format.channels); put32(format.sampleRate)
-        put32(format.sampleRate * UInt32(format.blockAlign)); put16(UInt16(format.blockAlign)); put16(format.bitsPerSample)
-        d.append(contentsOf: Array("data".utf8)); put32(UInt32(dataBytes))
+        put32(UInt32(clamping: UInt64(format.sampleRate) * UInt64(format.blockAlign)))
+        put16(UInt16(clamping: format.blockAlign)); put16(format.bitsPerSample)
+        d.append(contentsOf: Array("data".utf8)); put32(size(dataBytes))
         return d
     }
 }

@@ -197,6 +197,7 @@ public final class PodcastSubscriptionStore {
     /// Removes a subscription and its cached episodes.
     public func unsubscribe(_ channel: PodcastChannel) {
         channels.removeAll { $0.id == channel.id }
+        noteLedger(channel.feedURL.absoluteString, removed: true)
         persist()
     }
 
@@ -232,7 +233,11 @@ public final class PodcastSubscriptionStore {
             for await channel in group { if let channel { out.append(channel) } }
             return out
         }
-        for channel in refreshed { upsert(channel) }
+        // Only shows still subscribed: one unsubscribed (or purged) while the fetches were in
+        // flight must not be put back by its own refresh.
+        for channel in refreshed where channels.contains(where: { $0.id == channel.id }) {
+            upsert(channel)
+        }
         channels.sort(by: Self.byRecency)
         persist()
     }

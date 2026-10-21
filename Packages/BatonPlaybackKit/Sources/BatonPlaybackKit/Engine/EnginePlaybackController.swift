@@ -1028,7 +1028,17 @@ public final class EnginePlaybackController {
                     engineLog.error("engine: retry \(attempt) abandoned, state moved to \("\(self.state)", privacy: .public) during the backoff")
                     return
                 }
+                // The host's next track loads through `.loading` too; this rung is for the
+                // track that failed, and must not replace one loaded since.
+                guard generation == loadGeneration else {
+                    engineLog.error("engine: retry \(attempt) abandoned, another track was loaded during the backoff")
+                    return
+                }
+                // The retry is the engine's own load, not a fresh intent: a pause made during
+                // the backoff still applies, and the load honours it once connected.
+                let intent = loadPauseIntent
                 load(track: track, startingAt: resumeAt, autoplay: true)
+                loadPauseIntent = intent
             }
             return
         }

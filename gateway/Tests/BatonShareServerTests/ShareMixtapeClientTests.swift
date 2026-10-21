@@ -9,7 +9,7 @@ import FoundationNetworking
 #endif
 
 private final class MixtapeHTTPBridge: @unchecked Sendable {
-    enum Alteration { case none, mismatchedReady, foreignCreate, foreignUpload, descriptor, manifest, audio, oversizedError }
+    enum Alteration { case none, mismatchedReady, foreignCreate, foreignUpload, descriptor, manifest, audio, oversizedError, htmlNotFound, otherNotFound, serviceNotFound }
     let service: ShareService
     let root: URL
     private let lock = NSLock()
@@ -56,6 +56,15 @@ private final class MixtapeHTTPBridge: @unchecked Sendable {
             response.body = try JSONEncoder().encode(value)
         }
         if alteration == .audio, path.contains("/tracks/"), response.status == 200 { response.body[response.body.count - 1] ^= 1 }
+        if [.htmlNotFound, .otherNotFound, .serviceNotFound].contains(alteration), method == "GET", path.hasPrefix("/v1/share/mixtapes/") {
+            let body: String
+            switch alteration {
+            case .htmlNotFound: body = "<html><body>404 Not Found</body></html>"
+            case .otherNotFound: body = #"{"error":"No such route.","code":"route"}"#
+            default: body = #"{"error":"No such share.","code":"not_found"}"#
+            }
+            response = .init(status: 404, contentType: alteration == .htmlNotFound ? "text/html" : "application/json", body: Data(body.utf8))
+        }
         if alteration == .oversizedError, path.contains("/tracks/"), method == "GET" { response = .init(status: 409, contentType: "application/json", body: Data(repeating: 32, count: 4097)) }
         return response
     }
@@ -210,6 +219,52 @@ final class ShareMixtapeClientTests: XCTestCase {
         XCTAssertTrue(ShareLedger.load(from: store.ledgerURL).records.isEmpty)
     }
 
+    func testAnEndedMixtapeTicketIsNotedOnceAndRemoved() async throws {
+        let store = ShareUploadStore(directory: root.appendingPathComponent("ended-tickets"), ledgerURL: root.appendingPathComponent("ended-ledger.json"))
+        var job = try store.stage(try prepared(), base: base, songIDs: ["second", "first"])
+        try store.attach(try await client.createMixtape(body: job.createBody!), to: &job)
+        // The decision the iPhone's background engine makes from the same owner read.
+        let pending = try await client.mixtape(job.record.id)
+        XCTAssertFalse(job.mixtapeEnded(by: pending))
+        var lapsed = pending; lapsed.share.expiresAt = ShareDate.string(Date() - 60)
+        XCTAssertTrue(job.mixtapeEnded(by: lapsed), "a pending mixtape past its expiry can never finish")
+        var held = lapsed; held.share.status = .expired; held.share.actionRequired = "review"
+        XCTAssertFalse(job.mixtapeEnded(by: held), "a held container keeps its ticket for review")
+        var ready = lapsed; ready.share.status = .ready
+        XCTAssertFalse(job.mixtapeEnded(by: ready))
+        XCTAssertFalse(job.mixtapeEnded(by: nil), "not found before its expiry is not proof it ended")
+        XCTAssertTrue(job.mixtapeEnded(by: nil, now: job.record.expiresAt + 1))
+        try await client.revokeMixtape(job.record.id)
+        do { _ = try await MixtapeUploadCoordinator(store: store).resume(job.id, client: client); XCTFail("an ended mixtape cannot finish") }
+        catch MixtapeUploadCoordinator.Failure.ended {} catch { XCTFail("expected ended, got \(error)") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.folder(job.id).path), "the key and ciphertext go with the link")
+        XCTAssertTrue(try store.load().jobs.isEmpty)
+        XCTAssertEqual(ShareLedger.load(from: store.ledgerURL).pendingFailures.count, 1)
+        XCTAssertTrue(ShareUploadStore.receipts(at: store.ledgerURL).contains(job.id.uuidString))
+    }
+
+    func testOnlyTheServicesNotFoundEndsALapsedMixtape() async throws {
+        var kept = [String: Bool](), keys = [String: Bool](), failures = [String: Int]()
+        for alteration in [MixtapeHTTPBridge.Alteration.htmlNotFound, .otherNotFound, .serviceNotFound] {
+            let name = "\(alteration)"
+            let store = ShareUploadStore(directory: root.appendingPathComponent("lapsed-" + name), ledgerURL: root.appendingPathComponent("lapsed-" + name + ".json"))
+            var job = try store.stage(try prepared(), base: base, songIDs: ["second", "first"])
+            try store.attach(try await client.createMixtape(body: job.createBody!), to: &job)
+            job.record.expiresAt = Date() - 60; try store.save(job)
+            bridge.alteration = alteration
+            do { _ = try await MixtapeUploadCoordinator(store: store).resume(job.id, client: client); XCTFail(name) } catch {}
+            bridge.alteration = .none
+            kept[name] = FileManager.default.fileExists(atPath: store.folder(job.id).path)
+            keys[name] = try store.load().jobs.first?.key == job.key
+            failures[name] = ShareLedger.load(from: store.ledgerURL).pendingFailures.count
+        }
+        // A proxy page or another route's 404 is not the service saying the share is gone: it may
+        // still be held, and the ticket holds its only key. Only the service's not_found ends it.
+        XCTAssertEqual(kept, ["htmlNotFound": true, "otherNotFound": true, "serviceNotFound": false])
+        XCTAssertEqual(keys, ["htmlNotFound": true, "otherNotFound": true, "serviceNotFound": false])
+        XCTAssertEqual(failures, ["htmlNotFound": 0, "otherNotFound": 0, "serviceNotFound": 1])
+    }
+
     func testPreVersionTicketReopensAndAtomicReceiptDoesNotDuplicateCompletion() async throws {
         let store = ShareUploadStore(directory: root.appendingPathComponent("old-tickets"), ledgerURL: root.appendingPathComponent("old-ledger.json"))
         let single = try PreparedShare.make(audio: Data("legacy".utf8), metadata: .init(title: "Legacy", durationSeconds: 2), isPrivate: true, expiresInSeconds: 86400, playCap: 1, client: .init(platform: "macos", appVersion: "synthetic"))
@@ -289,7 +344,9 @@ final class ShareMixtapeClientTests: XCTestCase {
             else { try FileManager.default.removeItem(at: ticket) }
             let before = bridge.requests().count
             do { _ = try await MixtapeUploadCoordinator(store: store).resume(job.id, client: client); XCTFail("malformed container must refuse") } catch {}
-            do { let loaded = try store.load(); XCTAssertTrue(loaded.orphans.isEmpty, "versioned recovery material cannot enter destructive legacy cleanup") } catch {}
+            let loaded = try store.load()
+            XCTAssertTrue(loaded.orphans.isEmpty, "versioned recovery material cannot enter destructive legacy cleanup")
+            XCTAssertEqual(loaded.retained, [job.id], damage)
             XCTAssertEqual(bridge.requests().count, before)
             XCTAssertTrue(ShareLedger.load(from: store.ledgerURL).records.isEmpty)
             XCTAssertTrue(ShareUploadStore.receipts(at: store.ledgerURL).isEmpty)
@@ -302,6 +359,28 @@ final class ShareMixtapeClientTests: XCTestCase {
         let old = try legacy.stage(single, base: base, songID: "old", title: "Old", artist: "")
         try ShareUploadStore.writeProtected(Data("{not json".utf8), to: legacy.folder(old.id).appendingPathComponent("ticket.json"))
         XCTAssertEqual(try legacy.load().orphans, [old.id])
+    }
+
+    func testOneDamagedOrHalfStagedTicketDoesNotHideTheOthers() async throws {
+        let store = ShareUploadStore(directory: root.appendingPathComponent("mixed-tickets"), ledgerURL: root.appendingPathComponent("mixed-ledger.json"))
+        let good = try store.stage(try prepared(), base: base, songIDs: ["second", "first"])
+        let single = try PreparedShare.make(audio: Data("song".utf8), metadata: .init(title: "Song", durationSeconds: 2), isPrivate: true, expiresInSeconds: 86400, playCap: 1, client: .init(platform: "macos", appVersion: "synthetic"))
+        let song = try store.stage(single, base: base, songID: "song", title: "Song", artist: "")
+        let damaged = try store.stage(try prepared(), base: base, songIDs: ["second", "first"])
+        try ShareUploadStore.writeProtected(Data(#"{"version":2,"#.utf8), to: store.folder(damaged.id).appendingPathComponent("ticket.json"))
+        // A seal killed after its track bodies were written and before its ticket.
+        let halfStaged = try store.stage(try prepared(), base: base, songIDs: ["second", "first"])
+        try FileManager.default.removeItem(at: store.folder(halfStaged.id).appendingPathComponent("ticket.json"))
+
+        let loaded = try store.load()
+        XCTAssertEqual(Set(loaded.jobs.map(\.id)), [good.id, song.id])
+        XCTAssertTrue(loaded.orphans.isEmpty, "damaged recovery material never enters orphan cleanup")
+        XCTAssertEqual(Set(loaded.retained), [damaged.id, halfStaged.id])
+        let record = try await MixtapeUploadCoordinator(store: store).resume(good.id, client: client)
+        XCTAssertEqual(record.containerKind, .mixtape)
+        for job in [damaged, halfStaged] {
+            for body in job.bodies { XCTAssertEqual(try Data(contentsOf: store.file(job.id, kind: body.kind)).count, body.bytes) }
+        }
     }
 
     func testOrderedOwnerAndRecipientFlowAuthenticatesBeforeExplicitAdmission() async throws {

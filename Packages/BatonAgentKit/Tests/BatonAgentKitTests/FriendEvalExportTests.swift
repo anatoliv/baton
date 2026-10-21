@@ -98,3 +98,20 @@ extension FriendEvalExportTests {
         XCTAssertFalse(exported.contains("play something\nquiet"))
     }
 }
+
+extension FriendEvalExportTests {
+    /// The note becomes a `//` comment, and a carriage return ends a Swift line comment
+    /// as surely as a newline does: whatever followed would compile as code.
+    func testLineBreaksInANoteStayInsideTheComment() {
+        let exported = FriendEvalExport.swiftCases(from: [
+            down("play my trance", .wrongTrack,
+                 note: "wrong one\rfatalError()\u{2028}really\u{2029}sure\r\nok"),
+        ])
+        let breaks: Set<Unicode.Scalar> = ["\r", "\u{2028}", "\u{2029}"]
+        XCTAssertFalse(exported.unicodeScalars.contains { breaks.contains($0) },
+                       "a line break in the note escaped the comment")
+        let commentLine = exported.components(separatedBy: "\n").first { $0.contains("// they said:") }
+        XCTAssertTrue(commentLine?.contains("fatalError()") == true, commentLine ?? "nil")
+        XCTAssertTrue(commentLine?.contains("ok") == true, commentLine ?? "nil")
+    }
+}

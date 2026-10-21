@@ -42,13 +42,25 @@ they were sequenced. ReplayGain and R128 loudness so nothing jumps out at you be
 A 10-band parametric EQ for when you want to shape the sound, a floating mini-player, media
 keys, AirPlay, and scrobbling to both ListenBrainz and Last.fm.
 
+It also wakes you up. [Alarm and Timer](HELP.md#alarm-and-timer) plays a song, an album, a
+playlist, a book or a station when it goes off, and Gentle Wake starts it quiet. And you can
+[share a song with a friend](HELP.md#sharing-a-song-with-a-friend), or a mixtape or a whole
+book, as a private link that plays in their browser or in Baton. The audio is encrypted on your
+device first, so Baton's share server can't play it.
+
 And because everything the interface can do is also exposed over a token-secured MCP server on
 loopback, any agent you trust can drive playback exactly the way you do. The same surface is
-what lets Baton answer to a **Telegram or Discord message** — `play kind of blue`, `vol 40`,
-or just tapping ⏭ — so the stereo takes orders from your phone. That connection is dialed
+what lets Baton answer to a **Telegram or Discord message** (`play kind of blue`, `vol 40`,
+or just tapping ⏭), so the stereo takes orders from your phone. That connection is dialed
 outward, never inward: no port is opened, and a chat controls nothing until you link it with
-a code Baton shows you. Your server credentials live in the macOS Keychain, and Baton only
-ever talks to the one server you point it at. Nothing else leaves your machine.
+a code Baton shows you. Your server credentials live in the macOS Keychain.
+
+Out of the box, Baton talks to your music server and checks for updates at batonmusic.app.
+Everything else is something you switch on or use: scrobbling to ListenBrainz or Last.fm,
+crash reports, missing lyrics from LRCLIB, music discovery outside your library, a model
+provider for the music friend, cloud models for book text, your own Baton server, and the
+share service when you send a friend a link.
+[Privacy and security](HELP.md#privacy-and-security) says what each one sends.
 
 ## Install
 
@@ -65,8 +77,8 @@ brew install --cask baton
 
 The `brew trust` step is not optional on Homebrew 6 and later: without it the install stops with
 *"Refusing to load cask … from untrusted tap"*. If you already have Baton in `/Applications`
-from a DMG, add `--force` to let the cask take it over (`brew install --cask --force baton`) —
-otherwise Homebrew refuses rather than overwrite an app it didn't install.
+from a DMG, add `--force` to let the cask take it over (`brew install --cask --force baton`).
+Otherwise Homebrew refuses rather than overwrite an app it didn't install.
 
 Or download the DMG from [batonmusic.app](https://batonmusic.app), or build from source.
 
@@ -75,7 +87,7 @@ itself current through Sparkle rather than through `brew upgrade`.
 
 ### On the iPhone
 
-Baton is on the App Store as [Baton Music](https://apps.apple.com/app/id6798304294). It
+Baton is on the App Store as [Baton: Navidrome Music Player](https://apps.apple.com/app/id6798304294). It
 connects to the same server and plays the same library, with offline downloads and the music
 friend, and it needs iOS 18 or later. It costs money where the Mac app doesn't, and that is
 what covers the Apple developer account the Mac build is signed with.
@@ -130,7 +142,7 @@ block](screenshots/baton-agents.png)
 <sub>The bearer token is masked in this screenshot; the app shows it only when you reveal it.</sub>
 
 The control server is live whenever Baton is running. It exposes 41 `music_*` operations
-(including `music_build_mix` and the library-discovery tools — genres, liked, similar songs,
+(including `music_build_mix` and the library-discovery tools: genres, liked, similar songs,
 artist info, and albums browsed by newest, most-played or random), the `audio_suspend` /
 `audio_resume` focus hand-off, and a `speak_summary` tool; it publishes now-playing, queue, playlists, liked, and recent history as
 live resources; and it writes a discovery file (endpoint URL and token) to

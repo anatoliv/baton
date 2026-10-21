@@ -34,6 +34,22 @@ public struct ShareUploadStore: Sendable {
             guard hasCreated, !hasFinalized, failure == nil else { return nil }
             return bodies.first { !completedKinds.contains($0.kind) }?.kind ?? "finalize"
         }
+
+        /// Whether this created mixtape's link has ended for good, given the owner read (`nil`
+        /// when the service itself answered `not_found`; any other 404 proves nothing), so its
+        /// ticket can go: an ended mixtape otherwise
+        /// keeps its key and ciphertext, and its recovery runs again on every launch. A held
+        /// container is kept for review whatever its dates say.
+        public func mixtapeEnded(by state: MixtapeSummary?, now: Date = Date()) -> Bool {
+            guard isMixtape, hasCreated, !hasFinalized else { return false }
+            guard let share = state?.share else { return record.expiresAt <= now }
+            guard share.actionRequired == nil else { return false }
+            switch share.status {
+            case .expired, .revoked: return true
+            case .pending: return (ShareDate.date(share.expiresAt) ?? record.expiresAt) <= now
+            case .ready: return false
+            }
+        }
     }
 
     public let directory: URL
@@ -106,10 +122,14 @@ public struct ShareUploadStore: Sendable {
 
     /// Corrupt/incomplete folders are returned separately, never silently interpreted
     /// as a new create. URLSession tasks for those IDs must be cancelled before cleanup.
-    public func load() throws -> (jobs: [Job], orphans: [UUID]) {
-        guard FileManager.default.fileExists(atPath: directory.path) else { return ([], []) }
+    /// `retained` folders still hold container recovery material that cannot be read
+    /// (damaged, unsupported, or a seal killed before its ticket): they are kept on disk,
+    /// never deleted as orphans, and never stop the other folders from loading.
+    public func load() throws -> (jobs: [Job], orphans: [UUID], retained: [UUID]) {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return ([], [], []) }
         var jobs: [Job] = []
         var orphans: [UUID] = []
+        var retained: [UUID] = []
         for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
             guard let id = UUID(uuidString: url.lastPathComponent) else { continue }
             let ticket = url.appendingPathComponent("ticket.json")
@@ -119,8 +139,7 @@ public struct ShareUploadStore: Sendable {
                 return Self.trackID(String(name.dropLast(5))) != nil
             }
             guard FileManager.default.fileExists(atPath: ticket.path) else {
-                guard !retainedTracks else { throw URLError(.cannotDecodeContentData) }
-                orphans.append(id)
+                if retainedTracks { retained.append(id) } else { orphans.append(id) }
                 continue
             }
             // Locked or unreadable files are not corrupt. Propagate the read error
@@ -130,7 +149,7 @@ public struct ShareUploadStore: Sendable {
             let versioned = retainedTracks || object?["version"] != nil
             if versioned {
                 guard let job = try? JSONDecoder().decode(Job.self, from: data), job.id == id,
-                      job.isMixtape, job.key.count == 16, Self.valid(job) else { throw URLError(.cannotDecodeContentData) }
+                      job.isMixtape, job.key.count == 16, Self.valid(job) else { retained.append(id); continue }
                 jobs.append(job)
                 continue
             }
@@ -138,13 +157,13 @@ public struct ShareUploadStore: Sendable {
                 if job.version != nil {
                     // A damaged or unsupported container ticket still owns private
                     // recovery material. Never pass it to legacy orphan deletion.
-                    guard job.isMixtape, job.key.count == 16, Self.valid(job) else { throw URLError(.cannotDecodeContentData) }
+                    guard job.isMixtape, job.key.count == 16, Self.valid(job) else { retained.append(id); continue }
                     jobs.append(job)
                 } else if job.key.count == 16, Self.valid(job) { jobs.append(job) }
                 else { orphans.append(id) }
             } else { orphans.append(id) }
         }
-        return (jobs, orphans)
+        return (jobs, orphans, retained)
     }
 
     public func remove(_ id: UUID) throws { try FileManager.default.removeItem(at: folder(id)) }
@@ -152,7 +171,7 @@ public struct ShareUploadStore: Sendable {
     /// Ledger and completion receipt share one atomic write. A crash between committing
     /// the result and deleting a ticket cannot duplicate a failure or lose a ready link.
     public func commit(_ job: Job) throws -> ShareLedger {
-        if job.isMixtape {
+        if job.isMixtape, job.failure == nil || job.mixtapeFinalized != nil {
             guard Self.valid(job), let summary = job.mixtapeFinalized,
                   summary.share.id == job.record.id, summary.share.status == .ready,
                   summary.share.actionRequired == nil else { throw URLError(.badServerResponse) }
@@ -308,9 +327,12 @@ public actor MixtapeUploadCoordinator {
                 try store.attach(try await client.createMixtape(body: body, proof: job.createProof), to: &job)
             }
             let created = job.mixtapeCreated!
-            let state = try await client.mixtape(created.id)
+            let state: MixtapeSummary
+            do { state = try await client.mixtape(created.id) }
+            catch ShareClient.Failure.service(status: 404, code: "not_found", _) where job.mixtapeEnded(by: nil) { try await end(job); throw Failure.ended }
             guard state.share.id == created.id else { throw Failure.interrupted }
             if state.share.actionRequired != nil { throw Failure.held }
+            if job.mixtapeEnded(by: state) { try await end(job); throw Failure.ended }
             if state.share.status == .ready { return try await finish(&job, summary: state) }
             guard state.share.status == .pending else { throw Failure.ended }
             for (index, item) in job.bodies.enumerated() where !job.completedKinds.contains(item.kind) {
@@ -325,6 +347,17 @@ public actor MixtapeUploadCoordinator {
             guard summary.share.id == created.id, summary.share.status == .ready else { throw Failure.interrupted }
             progress?(1); return try await finish(&job, summary: summary)
         } catch { throw error } // Never discard an unresolved protected ticket or create a replacement.
+    }
+    /// Notes the failure once (the receipt makes a repeat harmless) and removes the ticket.
+    private func end(_ job: ShareUploadStore.Job) async throws {
+        var ended = job
+        ended.failure = "network"
+        let store = self.store, callback = onLedgerChanged
+        try await MainActor.run {
+            let ledger = try store.commit(ended)
+            callback?(ledger)
+            try store.remove(ended.id)
+        }
     }
     private func finish(_ job: inout ShareUploadStore.Job, summary: MixtapeSummary) async throws -> ShareLedger.Record {
         guard summary.share.id == job.mixtapeCreated?.id, summary.share.id == job.record.id,

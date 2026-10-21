@@ -106,13 +106,17 @@ public enum DocumentImporter {
 
     // MARK: - Web pages
 
-    /// What fetching a URL needs from the caller: `URLSession.shared.data(for:)` in the apps,
-    /// a scripted answer in tests.
+    /// What fetching a URL needs from the caller: `pageFetch` in the apps, a scripted answer
+    /// in tests.
     public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     /// The largest page Baton reads. A long book as one HTML file is a few megabytes; anything
     /// past this is not an article.
     public static let maximumPageBytes = 30 * 1024 * 1024
+
+    /// The network, read only up to `maximumPageBytes`: a link that serves gigabytes is cut off
+    /// as it streams instead of being held whole before the size check.
+    public static let pageFetch: Fetch = { try await CappedDownload.data(for: $0, limit: maximumPageBytes) }
 
     /// A web page by its address: fetched, then read like an HTML file, or like a PDF or text
     /// file when that is what the address serves.
@@ -120,14 +124,16 @@ public enum DocumentImporter {
     /// The book's identity is the digest of the *text read*, not of the bytes: a page's bytes
     /// change with every visit (ads, timestamps, tracking ids) while its article does not, and
     /// importing the same article twice should find the existing book.
-    public static func importURL(_ url: URL, fetch: Fetch) async throws -> ImportedDocument {
+    public static func importURL(_ url: URL, fetch: Fetch = pageFetch) async throws -> ImportedDocument {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host != nil else {
             throw Failure.unreadableLink("it is not a web address (https://...)")
         }
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.setValue("text/html,application/xhtml+xml,application/pdf,text/plain;q=0.9,*/*;q=0.5", forHTTPHeaderField: "Accept")
         let (data, response): (Data, URLResponse)
-        do { (data, response) = try await fetch(request) } catch {
+        do { (data, response) = try await fetch(request) } catch is CappedDownload.TooLarge {
+            throw Failure.unreadableLink("the page is larger than Baton reads")
+        } catch {
             throw Failure.unreadableLink("the page could not be fetched (\(error.localizedDescription))")
         }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {

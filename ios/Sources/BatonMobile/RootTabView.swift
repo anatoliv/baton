@@ -126,7 +126,7 @@ struct RootTabView: View {
             }
             #endif
             .environment(\.nowPlayingPalette, paletteLoader.palette)
-            // The user's choice, defaulting to Dark — the same control the Mac now has,
+            // The user's choice, defaulting to System — the same control the Mac now has,
             // reading the same key. The player sheet stays dark on its own.
             .batonAppearance(appearance)
             .onAppear { paletteLoader.update(url: nowPlayingCoverURL) }

@@ -128,6 +128,16 @@ public struct VersionedStore<Payload: Codable> {
             }
             return (migrate(env.payload, env.version), .loaded)
         }
+        // A newer build may have reshaped the payload too, so its envelope need not decode here.
+        // That is still its data, not corruption: quarantining it removed the file and the next
+        // save wrote this build's state in its place.
+        if let found = storedVersionIfNewer() {
+            log.error("""
+                store \(name, privacy: .public) is version \(found) and this build understands \
+                \(currentVersion); cannot read it, leaving it untouched and refusing to write.
+                """)
+            return (nil, .newerThanThisBuild(found: found))
+        }
         // Legacy: a raw (unversioned) payload written by an older build — adopt as v1.
         if let legacy = try? decoder.decode(Payload.self, from: data) {
             log.notice("migrating unversioned store \(name, privacy: .public) → v\(currentVersion)")

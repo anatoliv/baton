@@ -252,6 +252,8 @@ final class StubStream: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var stall = false
     nonisolated(unsafe) static var requests = 0
     nonisolated(unsafe) static var requiredHeader: (String, String)?
+    /// Each request's URL and headers, in arrival order.
+    nonisolated(unsafe) static var seen: [(url: URL?, headers: [String: String])] = []
 
     static func reset() {
         body = Data()
@@ -260,6 +262,7 @@ final class StubStream: URLProtocol, @unchecked Sendable {
         stall = false
         requests = 0
         requiredHeader = nil
+        seen = []
     }
 
     static func session() -> URLSession {
@@ -273,6 +276,7 @@ final class StubStream: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         Self.requests += 1
+        Self.seen.append((request.url, request.allHTTPHeaderFields ?? [:]))
         guard !Self.stall, let url = request.url else { return }
         var status = Self.status
         if let (name, value) = Self.requiredHeader, request.value(forHTTPHeaderField: name) != value { status = 403 }

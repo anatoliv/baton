@@ -33,6 +33,9 @@ final class BatonControlSocket: @unchecked Sendable {
 
     private let socketURL: URL
     private var acceptThread: Thread?
+    /// Whether the file at `socketURL` is the one this instance bound, so `stop()` removes
+    /// only its own and never a live instance's.
+    private var boundPath = false
 
     // Shared mutable state is touched from both the main actor (start/stop) and the accept /
     // per-connection threads, so it lives behind a lock — plain vars were a data race (UB).
@@ -97,6 +100,17 @@ final class BatonControlSocket: @unchecked Sendable {
             controlSocketLog.error("control socket: mkdir failed: \(error.localizedDescription)")
             return
         }
+        guard var addr = Self.address(path) else {
+            controlSocketLog.error("control socket: path too long (\(path.utf8.count))")
+            return
+        }
+        // Another live Baton (one the MCP guard refused this instance for) answers on this path.
+        // Unlinking it would leave that instance listening where nobody can reach it, so only a
+        // file that answers nobody, a crash's leftover, is removed. (TBX-1000000480 A-1)
+        if Self.isAnswering(addr) {
+            controlSocketLog.error("control socket: another instance is listening; not starting")
+            return
+        }
         // A stale socket file from a previous run would make bind() fail with EADDRINUSE.
         unlink(path)
 
@@ -106,21 +120,6 @@ final class BatonControlSocket: @unchecked Sendable {
             return
         }
         Self.setNoSigPipe(fd) // a client closing mid-reply must not kill the app
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(path.utf8)
-        guard pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path) else {
-            controlSocketLog.error("control socket: path too long (\(pathBytes.count))")
-            close(fd)
-            return
-        }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: pathBytes.count) { dst in
-                for (i, b) in pathBytes.enumerated() { dst[i] = CChar(bitPattern: b) }
-                dst[pathBytes.count] = 0
-            }
-        }
 
         // Set umask around bind() so the socket file is created 0600 from the start — there's
         // otherwise a TOCTOU window between bind() (at the process umask) and chmod.
@@ -136,12 +135,14 @@ final class BatonControlSocket: @unchecked Sendable {
             close(fd)
             return
         }
+        boundPath = true
         // Owner-only (0600) — same trust model as the MCP token file (backstop to the umask).
         chmod(path, 0o600)
         guard listen(fd, 8) == 0 else {
             controlSocketLog.error("control socket: listen() failed errno \(errno)")
             close(fd)
             unlink(path)
+            boundPath = false
             return
         }
         listenFD = fd
@@ -163,7 +164,39 @@ final class BatonControlSocket: @unchecked Sendable {
         // if an fd number is reused).
         let fds = stateLock.withLock { _clientFDs }
         for fd in fds { shutdown(fd, SHUT_RDWR) }
-        unlink(socketURL.path)
+        if boundPath {
+            unlink(socketURL.path)
+            boundPath = false
+        }
+    }
+
+    /// The `sockaddr_un` for `path`, or nil when the path does not fit `sun_path`.
+    private static func address(_ path: String) -> sockaddr_un? {
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(path.utf8)
+        guard pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path) else { return nil }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: pathBytes.count + 1) { dst in
+                for (i, b) in pathBytes.enumerated() { dst[i] = CChar(bitPattern: b) }
+                dst[pathBytes.count] = 0
+            }
+        }
+        return addr
+    }
+
+    /// Whether something accepts connections at `addr`.
+    private static func isAnswering(_ addr: sockaddr_un) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        setNoSigPipe(fd)
+        var addr = addr
+        return withUnsafePointer(to: &addr) { aptr in
+            aptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size)) == 0
+            }
+        }
     }
 
     // MARK: - SIGPIPE-safe socket I/O

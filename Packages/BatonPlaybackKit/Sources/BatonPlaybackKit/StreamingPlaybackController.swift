@@ -127,7 +127,13 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     private func rotateListenRecord(to song: NavidromeSong?) {
         if let previous = listeningTrack, listenedSeconds >= 1 {
             onListenFinished?(previous.song, listenedSeconds, previous.duration)
+            // The play-event log closes here too: by the time the next track starts, the
+            // playhead and `nowPlaying` already belong to it, so that is too late to say what
+            // was left and how much of it was heard. The start time is still the outgoing one.
+            playbackEvents.record(song: previous.song, startedAt: currentTrackStartedAt,
+                                  listenedSeconds: listenedSeconds, reason: pendingEventReason)
         }
+        pendingEventReason = .interrupted
         listenedSeconds = 0
         lastClockSample = nil
         listeningTrack = song.map { ($0, Double($0.duration ?? 0)) }
@@ -232,22 +238,12 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// Wall-clock time the current track began — captured at every start path so a threshold
     /// scrobble (or a later offline retry) reports when playback actually started.
     @ObservationIgnored private var currentTrackStartedAt = Date()
-    /// Playback position when the current track began, so listened time is *audio* time
-    /// rather than wall clock — a track paused for an hour was not listened to for an hour.
-    @ObservationIgnored private var listenedSecondsAtStart: Double = 0
     /// Why the current track is about to end. Set by whoever ends it; read once, when the
     /// next one starts.
     @ObservationIgnored private var pendingEventReason: PlaybackEventLog.Event.Reason = .interrupted
-    /// What was played and for how long, for the music friend. Session-scoped.
+    /// What was played and for how long, for the music friend. Session-scoped. Recorded as
+    /// each track's listening record closes (`rotateListenRecord`).
     public let playbackEvents = PlaybackEventLog()
-
-    /// Records the track that is finishing, if it played for long enough to mean anything.
-    private func closeCurrentPlaybackEvent(reason: PlaybackEventLog.Event.Reason) {
-        guard let song = nowPlaying, startNotifiedForCurrentItem else { return }
-        let listened = max(0, currentTime - listenedSecondsAtStart)
-        playbackEvents.record(song: song, startedAt: currentTrackStartedAt,
-                              listenedSeconds: listened, reason: reason)
-    }
     /// Attaches/detaches the equalizer audio-mix on a freshly-loaded item (AppModel wires
     /// this to the EQ). Nil ⇒ no EQ.
     @ObservationIgnored public var configureAudioMix: (@MainActor (AVPlayerItem) -> Void)?
@@ -769,7 +765,12 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // catch-up) adds nothing. See `listenedSeconds`.
         if let previous = lastClockSample {
             let step = time - previous
-            if step > 0, step <= Self.maxListenStep { listenedSeconds += step }
+            if step > 0, step <= Self.maxListenStep {
+                listenedSeconds += step
+                // Audio is playing, which ends a failure run. The AVPlayer deck also clears it
+                // when an item is ready; the engine deck has no such signal, only this one.
+                if state == .playing { consecutiveFailures = 0 }
+            }
         }
         lastClockSample = time
         // Resume: once the item is ready (duration known), jump to the saved offset exactly
@@ -1133,7 +1134,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             // /PER-03: treat a non-HTTP or error response as failure (was `?? true`),
             // so an error page never gets cached and handed to the gapless boundary.
             var prefetchRequest = URLRequest(url: streamURL)
-            for (name, value) in NavidromeConfig.customHeaders() {
+            for (name, value) in NavidromeConfig.customHeaders(for: streamURL) {
                 prefetchRequest.setValue(value, forHTTPHeaderField: name)
             }
             guard let (temp, response) = try? await URLSession.shared.download(for: prefetchRequest),
@@ -1217,18 +1218,26 @@ public final class StreamingPlaybackController: RemotePlayerContext {
                 guard let self else { return }
                 handleRemoteSeek(to: max(0, min(duration, currentTime + delta)))
             },
-            // Nil unless the app supplied a way to do it. The engine has no opinion about
-            // what "liked" means; the library store does.
-            toggleLike: remoteLikeHandler,
-            ban: remoteBanHandler
+            // Read when pressed: the app supplies them after the player is made, which is
+            // after this runs. The engine has no opinion about what "liked" means; the
+            // library store does.
+            toggleLike: { [weak self] in self?.remoteLikeHandler?() },
+            ban: { [weak self] in self?.remoteBanHandler?() }
         ))
+        refreshRemoteRatingCommands()
     }
 
     /// Like / ban / liked-state, supplied by the app because the engine does not know what
     /// a "like" is. Absent on a host that has no library (the Watch, tests), and the OS
     /// then simply does not draw the buttons.
-    public var remoteLikeHandler: (() -> Void)?
-    public var remoteBanHandler: (() -> Void)?
+    public var remoteLikeHandler: (() -> Void)? { didSet { refreshRemoteRatingCommands() } }
+    public var remoteBanHandler: (() -> Void)? { didSet { refreshRemoteRatingCommands() } }
+
+    /// Offers Like and Never Play in Radio while, and only while, the app can act on them.
+    private func refreshRemoteRatingCommands() {
+        guard systemNowPlaying else { return }
+        nowPlayingCenter.setRatingCommandsEnabled(like: remoteLikeHandler != nil, ban: remoteBanHandler != nil)
+    }
     public var remoteIsLiked: ((NavidromeSong) -> Bool)?
 
     /// Cached Now Playing artwork URL, resolved once per cover id, so a pause or a seek
@@ -1268,14 +1277,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// `onTrackStarted?(song)` so every start path resumes + logs identically.
     private func notifyTrackStarted(_ song: NavidromeSong) {
         stopOnAirStation() // a library track is now audible; a station can't share the speakers with it
-        // Close out whatever was playing before this. Done here rather than at each exit
-        // point because every path into a new track comes through here — a manual skip, a
-        // natural end, a queue replacement — and hanging the bookkeeping off one of them
-        // is how you end up logging skips but not finishes.
-        closeCurrentPlaybackEvent(reason: pendingEventReason)
-        pendingEventReason = .interrupted
         currentTrackStartedAt = Date()
-        listenedSecondsAtStart = 0
         startNotifiedForCurrentItem = true
         onTrackStarted?(song)
         pendingResumeOffset = resumeOffsetProvider?(song)
@@ -1641,6 +1643,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // The synchronous advance — before the ramp starts, so nothing can observe a stale index.
         currentIndex = index
         skipBlendTarget = index
+        pendingSeek = nil // a retry's parked place belongs to the outgoing track
         // The look-ahead queued behind the outgoing track named the old "next". Usually that is
         // the very item this skip just made current: left queued, the outgoing track would roll
         // into it at its own end and the item would play a second time, and a later end would
@@ -2024,6 +2027,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         loadCurrentCountForTesting += 1
         #endif
         if !isRetry { sameTrackRetries = 0 } // a genuine (non-retry) load starts a fresh track
+        // A place parked by a retry belongs to that track; another track must not seek to it.
+        if !isRetry, !isContinuation { pendingSeek = nil }
         // A gentle alarm's rise stopped by Pause or Stop held its level; what plays next plays at
         // the person's volume (a rise under way is left to itself).
         releaseHeldWakeLevel()
@@ -2033,13 +2038,16 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         continueQueueIfNeeded()
         // A fresh item can end again — clear the end-handled guard.
         didHandleEnd = false
-        if !isContinuation {
+        // A retry of a track that has already started carries on that play: one start, one
+        // scrobble, one listen. Its pending resume offset, if not yet applied, still stands.
+        let continuesThisPlay = isContinuation || (isRetry && startNotifiedForCurrentItem)
+        if !continuesThisPlay {
             scrobbledCurrent = false
             startNotifiedForCurrentItem = false // set true by notifyTrackStarted (autoplay path)
             spuriousEndRecoveries = 0 // a new track starts with a fresh recovery budget
             // Close out the outgoing track's listening record before the new one begins.
             rotateListenRecord(to: nowPlaying)
-        } else {
+        } else if isContinuation {
             // The listener just chose where to be; a pending resume must not override it.
             pendingResumeOffset = nil
         }
@@ -2059,7 +2067,20 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             url = try annotatedStreamURL(song.id)
         } catch {
             streamingLog.error("stream URL failed: \(error.localizedDescription, privacy: .public)")
-            state = .error((error as? NavidromeError)?.errorDescription ?? error.localizedDescription)
+            // The deck still holds the previous track; left alone it plays on under this
+            // track's name. Silence it and show the error. A load meant to play then skips on,
+            // as a dead stream does once retried; asking for the URL again would get the same
+            // answer, so no retries here, and a paused load never starts playback.
+            if engineOwnsPlayback {
+                engineDeck?.stop()
+                engineOwnsPlayback = false
+            }
+            avDeck.clear()
+            currentTime = offset
+            duration = Double(song.duration ?? 0)
+            let message = (error as? NavidromeError)?.errorDescription ?? error.localizedDescription
+            state = .error(message)
+            if autoplay { handleLoadFailure(message, afterEngineLadder: true) }
             return
         }
 
@@ -2117,7 +2138,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
         deck.load(
             song: song, url: url, startingAt: deckStart, autoplay: autoplay,
-            headers: NavidromeConfig.customHeaders(),
+            headers: NavidromeConfig.customHeaders(for: url),
             supportsTimeOffset: StreamSeek.needsTranscode(suffix: song.suffix)
         )
         #if DEBUG
@@ -2131,7 +2152,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         if autoplay {
             resetFade() // also pushes the level, now that the deck knows its track
             state = .playing
-            if !isContinuation { notifyTrackStarted(song) }
+            if !continuesThisPlay { notifyTrackStarted(song) }
         } else {
             applyVolume()
             state = .paused
@@ -2550,6 +2571,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         #endif
         streamingLog.info("gapless advance → queue index \(index, privacy: .public) (no reload)")
         currentIndex = index
+        pendingSeek = nil
         currentTime = 0
         duration = Double(song.duration ?? 0)
         didHandleEnd = false
@@ -2840,6 +2862,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         rotateListenRecord(to: queue[nextIndex])
         if !alreadyAdvanced {
             currentIndex = nextIndex
+            pendingSeek = nil
             currentTime = 0
             duration = Double(queue[nextIndex].duration ?? 0)
             scrobbledCurrent = false

@@ -49,6 +49,16 @@ final class HTMLParserTests: XCTestCase {
         // The header wins over the page.
         XCTAssertTrue(HTMLParser.decode(bytes, contentType: "text/html; charset=ISO-8859-1").contains("caf\u{00E9}"))
     }
+
+    /// N unclosed starts then N end tags that match nothing: each end tag used to scan the
+    /// whole open stack, so this took about 24 s at 20,000.
+    func testUnmatchedEndTagsDoNotScanAnUnboundedStack() {
+        let html = "<p>" + String(repeating: "<b>", count: 20_000) + String(repeating: "</i>", count: 20_000) + "kept</p>"
+        let start = Date()
+        let doc = HTMLParser.parse(html)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+        XCTAssertEqual(doc.first(named: "p")?.textContent, "kept")
+    }
 }
 
 final class HTMLImporterTests: XCTestCase {
@@ -286,6 +296,26 @@ final class HTMLImporterTests: XCTestCase {
         }
     }
 
+    /// Thousands of nested elements on a small stack, as the import runs on the cooperative
+    /// pool (512 KB threads; XCTest's main thread has 8 MB and would hide the crash). The walk
+    /// and the tree's teardown both recurse per level.
+    func testDeeplyNestedMarkupImportsOnASmallStack() {
+        let sentence = "The machines in the basement had been running for a hundred years."
+        let html = "<html><body><p>" + String(repeating: "<span>", count: 5000) + sentence
+            + String(repeating: "</span>", count: 5000) + "</p></body></html>"
+        let done = expectation(description: "imported")
+        var text = ""
+        let thread = Thread {
+            let out = HTMLImporter.read(html, fallbackTitle: "page")
+            text = out.result.chapters.flatMap(\.paragraphs).joined(separator: "\n")
+            done.fulfill()
+        }
+        thread.stackSize = 512 * 1024
+        thread.start()
+        wait(for: [done], timeout: 30)
+        XCTAssertEqual(text, sentence)
+    }
+
     func testAnHTMLFileImportsThroughTheFrontDoor() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("quiet-machines.html")
         try Data(Self.newsPage.utf8).write(to: url)
@@ -365,6 +395,24 @@ final class URLImportTests: XCTestCase {
         }
     }
 
+    /// A page that never ends is cut off as it streams, not held whole and then measured: the
+    /// fetch the apps get by default stops reading at the cap.
+    func testAnEndlessPageIsCutOffWhileItStreams() async {
+        EndlessPageProtocol.reset()
+        CappedDownload.testProtocolClasses = [EndlessPageProtocol.self]
+        defer { CappedDownload.testProtocolClasses = [] }
+        do {
+            _ = try await DocumentImporter.importURL(URL(string: "https://endless.example/page")!)
+            XCTFail("an endless page should be refused")
+        } catch let failure as DocumentImporter.Failure {
+            XCTAssertEqual(failure, .unreadableLink("the page is larger than Baton reads"))
+        } catch {
+            XCTFail("\(error)")
+        }
+        XCTAssertLessThan(EndlessPageProtocol.delivered, EndlessPageProtocol.total / 2,
+                          "the whole body was read before the size check")
+    }
+
     /// A real page, when `BATON_LIVE_URL` names one: prints what was read, so a person can
     /// judge the extraction (the cloud session runs it against a few real sites).
     func testARealPage() async throws {
@@ -383,4 +431,40 @@ final class URLImportTests: XCTestCase {
         }
         XCTAssertGreaterThan(doc.wordCount, 100)
     }
+}
+
+/// Serves an HTML page of `total` bytes in 1 MB pieces with no declared length, stopping as
+/// soon as the client cancels.
+final class EndlessPageProtocol: URLProtocol, @unchecked Sendable {
+    static let total = 3 * DocumentImporter.maximumPageBytes
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var sent = 0
+    static var delivered: Int { lock.withLock { sent } }
+    static func reset() { lock.withLock { sent = 0 } }
+
+    private let stopped = NSLock()
+    private var isStopped = false
+
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "endless.example" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "text/html"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        let piece = Data(repeating: UInt8(ascii: "a"), count: 1024 * 1024)
+        DispatchQueue.global().async {
+            var offset = 0
+            while offset < Self.total {
+                if self.stopped.withLock({ self.isStopped }) { return }
+                self.client?.urlProtocol(self, didLoad: piece)
+                Self.lock.withLock { Self.sent += piece.count }
+                offset += piece.count
+                Thread.sleep(forTimeInterval: 0.002)
+            }
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() { stopped.withLock { isStopped = true } }
 }

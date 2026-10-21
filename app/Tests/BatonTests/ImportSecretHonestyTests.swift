@@ -85,4 +85,16 @@ final class ImportSecretHonestyTests: XCTestCase {
         NavidromeKeychain.refusedAccounts = ["baton.agent.apiKey"]
         XCTAssertFalse(NavidromeKeychain.setSecret("value", account: "baton.agent.apiKey"))
     }
+
+    /// The Mac's Import... alert said "imported" over a partial import (TBX-1000000480 X-4).
+    func testTheMacSummaryNamesTheAccountsThatWereNotSaved() {
+        let partial = SettingsTransfer.ImportResult(preferenceCount: 8, secretCount: 1, secretsRefused: 2,
+                                                    documentCount: 0, appVersion: nil)
+        XCTAssertTrue(partial.macSummary.contains("2 accounts could not be saved to the Keychain"),
+                      partial.macSummary)
+
+        let full = SettingsTransfer.ImportResult(preferenceCount: 8, secretCount: 1, secretsRefused: 0,
+                                                 documentCount: 0, appVersion: nil)
+        XCTAssertFalse(full.macSummary.contains("could not be saved"), full.macSummary)
+    }
 }

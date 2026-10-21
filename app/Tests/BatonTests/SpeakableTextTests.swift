@@ -229,4 +229,18 @@ final class SpeakableTextTests: XCTestCase {
         }
         XCTAssertTrue(chunks.joined(separator: " ").contains("deploy finished in 42 seconds"))
     }
+
+    /// A colour code glued to a secret puts a word character ("m") right before it, which hides
+    /// the secret from a pattern anchored on a word boundary. Escapes must go before redaction.
+    func testAColouredSecretIsStillRedacted() {
+        let coloured = [
+            "key \u{1B}[33m\(awsKeyID)\u{1B}[0m set",
+            "\u{1B}[1mpassword\u{1B}[0m=hunter2",
+        ]
+        for raw in coloured {
+            let spoken = SpeakableText.prepare(raw, profile: .terminal).joined(separator: " ")
+            XCTAssertFalse(spoken.contains(awsKeyID), "a coloured key survived redaction: \(spoken)")
+            XCTAssertFalse(spoken.contains("hunter2"), "a coloured password survived redaction: \(spoken)")
+        }
+    }
 }

@@ -238,13 +238,9 @@ struct NowPlayingWidgetView: View {
 /// activity on every track/pause change, and the system Now Playing controls remain
 /// the interactive surface.
 struct NowPlayingLiveActivity: Widget {
-    /// The window the progress bar animates across, anchored to when this state was
-    /// pushed. Clamped to a sane length so a stream reporting a nonsense duration cannot
-    /// leave a bar creeping for hours.
+    /// The window the progress bar animates across. See `WidgetFreshness.progressRange`.
     private func progressRange(_ state: NowPlayingActivityAttributes.ContentState) -> ClosedRange<Date> {
-        let now = Date()
-        let remaining = max(1, min(state.duration - state.elapsed, 60 * 60 * 6))
-        return now ... now.addingTimeInterval(remaining)
+        WidgetFreshness.progressRange(now: Date(), elapsed: state.elapsed, duration: state.duration)
     }
 
     var body: some WidgetConfiguration {

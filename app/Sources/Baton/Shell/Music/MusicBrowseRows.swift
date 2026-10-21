@@ -430,6 +430,50 @@ enum AlbumActions {
     }
 }
 
+/// What each "Share…" on an album, a playlist or a song selection hands the composer
+///. The songs go in display order when the view has them, else nil and the
+/// sheet loads the album or playlist itself.
+enum CollectionShareEntry {
+    static let symbol = "square.and.arrow.up"
+
+    static func album(_ album: NavidromeAlbum, songs: [NavidromeSong]? = nil) -> CollectionShareDraft {
+        .album(id: album.id, name: album.name, artist: album.displayArtistName ?? "", songs: loaded(songs))
+    }
+
+    static func playlist(_ playlist: NavidromePlaylist, name: String? = nil, songs: [NavidromeSong]? = nil) -> CollectionShareDraft {
+        .playlist(id: playlist.id, name: name ?? playlist.name, songs: loaded(songs))
+    }
+
+    /// The songs a selection's Share… sends: the server's, in the order given (a clipping has
+    /// no server copy, as the song Share… also says), or nil under two, where the row's own
+    /// Share… is the way.
+    static func selectionSongs(_ songs: [NavidromeSong]) -> [NavidromeSong]? {
+        let shareable = songs.filter { !$0.isLocalOnly }
+        return shareable.count >= 2 ? shareable : nil
+    }
+
+    static func selection(_ songs: [NavidromeSong]) -> CollectionShareDraft? {
+        selectionSongs(songs).map { .selection($0) }
+    }
+
+    /// Share… on a song selection. A clipping left out is said in a toast, as the other server
+    /// batch actions say it; if only one song is left, the song composer opens for it.
+    @MainActor static func shareSelection(_ songs: [NavidromeSong], _ model: MusicModel) {
+        let usable = MusicBatchActions.serverAddressable(songs, model, action: "share")
+        if let draft = selection(usable) {
+            model.shareCollection = draft
+        } else if let only = usable.first {
+            model.shareSong = only
+        }
+    }
+
+    /// An empty list is "not loaded yet" to the composer, not "share nothing".
+    private static func loaded(_ songs: [NavidromeSong]?) -> [NavidromeSong]? {
+        guard let songs, !songs.isEmpty else { return nil }
+        return songs
+    }
+}
+
 /// The full album action menu — identical to `artistActionMenuItems`, shared by the album
 /// list row and grid card so right-click is the same everywhere (and matches artists).
 @MainActor @ViewBuilder
@@ -453,6 +497,8 @@ func albumActionMenuItems(
     Button("Save as Playlist", systemImage: "square.and.arrow.down") {
         run { await AlbumActions.saveAsPlaylist(album, model) }
     }
+    // One link for the whole album; the composer loads its tracks.
+    Button("Share…", systemImage: CollectionShareEntry.symbol) { model.shareCollection = CollectionShareEntry.album(album) }
     WebhookRunner.menu(for: { MusicWebhookTokens.album(album) }, model)
     Divider()
     Button("Mark All for Removal", systemImage: "xmark.bin", role: .destructive) { onRemove() }
@@ -727,6 +773,8 @@ func playlistActionMenuItems(
     MacAlarmMenuItems(model: model, item: .playlist(playlist))
     Divider()
     Button("Download", systemImage: "arrow.down.circle") { run { await PlaylistActions.download(playlist, model) } }
+    // One link for the whole playlist; the composer loads its tracks.
+    Button("Share…", systemImage: CollectionShareEntry.symbol) { model.shareCollection = CollectionShareEntry.playlist(playlist) }
     WebhookRunner.menu(for: { MusicWebhookTokens.playlist(playlist) }, model)
     Divider()
     Button("Delete", systemImage: "trash", role: .destructive) { onDelete() }

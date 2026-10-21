@@ -47,11 +47,7 @@ public final class AlarmClipStore {
     /// The HTTP headers a stream from `url` needs: the active server's extra headers (a server
     /// behind a header-checking proxy) when the stream is on that server, as the player and
     /// downloads send them, and none for any other host, so they never leave for a podcast's.
-    public var headers: (URL) -> [String: String] = { url in
-        guard let server = NavidromeConfig.serverURL, server.host?.lowercased() == url.host?.lowercased(),
-              server.port == url.port else { return [:] }
-        return NavidromeConfig.customHeaders()
-    }
+    public var headers: (URL) -> [String: String] = { NavidromeConfig.customHeaders(for: $0) }
     /// The preparation running now. A second one waits for it, so two syncs never cut the same
     /// clip at once (the store's observer starts a sync for every change, and a cancelled sync
     /// task does not stop one already preparing).

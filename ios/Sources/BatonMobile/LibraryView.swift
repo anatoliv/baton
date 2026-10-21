@@ -203,7 +203,7 @@ struct LikedView: View {
     @State private var isSelecting = false
     @State private var selection: Set<String> = []
     @State private var showsBatchPlaylist = false
-    @State private var mixtapeDraft: MixtapeSelectionDraft?
+    @State private var sharing: CollectionShareDraft?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -263,7 +263,7 @@ struct LikedView: View {
                 }
             }
         }
-        .sheet(item: $mixtapeDraft) { draft in ShareMixtapeSheet(songs: draft.songs) }
+        .sheet(item: $sharing) { ShareCollectionSheet(draft: $0) }
         .sheet(isPresented: $showsBatchPlaylist) {
             PlaylistPickerSheet(songIDs: Array(selection), model: model)
         }
@@ -311,8 +311,17 @@ struct LikedView: View {
     /// The batch bar — only the actions that make sense on a multi-selection.
     private var selectionBar: some View {
         HStack(spacing: 18) {
-            Button { mixtapeDraft = MixtapeSelectionDraft(songs: sorted(filtered(model.musicLibrary.starred.songs)).filter { selection.contains($0.id) }) } label: { Label("Share Mixtape", systemImage: "square.and.arrow.up") }
-                .disabled(!(2...12).contains(selection.count))
+            // One Share… for any two or more songs: the composer sends a
+            // small selection as a mixtape and a larger one as a collection link.
+            if !model.isDemoMode {
+                Button {
+                    // In the order on screen, which `selectedSongs` is not.
+                    sharing = .selection(sorted(filtered(model.musicLibrary.starred.songs)).filter { selection.contains($0.id) })
+                } label: {
+                    Label(SongAction.share.sheetLabel, systemImage: SongAction.share.symbol)
+                }
+                .disabled(selection.count < 2)
+            }
             Button {
                 let songs = selectedSongs
                 model.music.enqueue(songs)
@@ -528,6 +537,7 @@ struct PlaylistsView: View {
     @State private var renaming: NavidromePlaylist?
     @State private var renameText = ""
     @State private var deleting: NavidromePlaylist?
+    @State private var sharing: CollectionShareDraft?
     /// Every other long list in the app can be narrowed; this one could only be sorted.
     @State private var filter = ""
 
@@ -646,6 +656,7 @@ struct PlaylistsView: View {
         } message: {
             Text("This removes the playlist from your music server. The songs stay in your library.")
         }
+        .sheet(item: $sharing) { ShareCollectionSheet(draft: $0) }
     }
 
     /// Client-sorted, so the client buckets — and says so in the same call rather than in
@@ -673,9 +684,50 @@ struct PlaylistsView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .contextMenu { playlistMenu(playlist) }
                 }
             }
             .padding(BrowseGrid.padding)
+        }
+    }
+
+    /// One long-press menu for both layouts; the grid had none, so Share… (and the rest)
+    /// was list-only.
+    @ViewBuilder
+    private func playlistMenu(_ playlist: NavidromePlaylist) -> some View {
+        CollectionPlayMenuItem(model: model, source: .init(label: playlist.name, kind: .playlist, id: playlist.id)) {
+            Task {
+                let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
+                model.music.play(songs, source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
+            }
+        }
+        Button {
+            Task {
+                let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
+                // Shuffle starts shuffled, with shuffle mode on, as every other menu's does.
+                model.music.playShuffled(songs, source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
+            }
+        } label: { Label("Shuffle", systemImage: "shuffle") }
+        Button {
+            Task {
+                let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
+                model.music.enqueue(songs)
+            }
+        } label: { Label("Add to Queue", systemImage: "text.append") }
+        // Wake to this playlist, or play it when a timer ends.
+        AlarmMenuItems(item: .playlist(playlist))
+        // One link for the playlist; the composer loads its songs.
+        if !model.isDemoMode {
+            Button { sharing = .playlist(id: playlist.id, name: playlist.name) } label: {
+                Label(SongAction.share.sheetLabel, systemImage: SongAction.share.symbol)
+            }
+        }
+        Divider()
+        Button { renaming = playlist; renameText = playlist.name } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+        Button(role: .destructive) { deleting = playlist } label: {
+            Label("Delete…", systemImage: "trash")
         }
     }
 
@@ -696,36 +748,7 @@ struct PlaylistsView: View {
                     }
                 }
             }
-            .contextMenu {
-                CollectionPlayMenuItem(model: model, source: .init(label: playlist.name, kind: .playlist, id: playlist.id)) {
-                    Task {
-                        let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
-                        model.music.play(songs, source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
-                    }
-                }
-                Button {
-                    Task {
-                        let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
-                        // Shuffle starts shuffled, with shuffle mode on, as every other menu's does.
-                        model.music.playShuffled(songs, source: .init(label: playlist.name, kind: .playlist, id: playlist.id))
-                    }
-                } label: { Label("Shuffle", systemImage: "shuffle") }
-                Button {
-                    Task {
-                        let songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? []
-                        model.music.enqueue(songs)
-                    }
-                } label: { Label("Add to Queue", systemImage: "text.append") }
-                // Wake to this playlist, or play it when a timer ends.
-                AlarmMenuItems(item: .playlist(playlist))
-                Divider()
-                Button { renaming = playlist; renameText = playlist.name } label: {
-                    Label("Rename…", systemImage: "pencil")
-                }
-                Button(role: .destructive) { deleting = playlist } label: {
-                    Label("Delete…", systemImage: "trash")
-                }
-            }
+            .contextMenu { playlistMenu(playlist) }
             .swipeActions {
                 Button(role: .destructive) { deleting = playlist } label: {
                     Label("Delete", systemImage: "trash")
@@ -746,6 +769,7 @@ struct PlaylistDetailView: View {
     @State private var songs: [NavidromeSong] = []
     @State private var isEditing = false
     @State private var filter = ""
+    @State private var sharing: CollectionShareDraft?
 
     /// The rows actually shown. Reorder/delete work on the *unfiltered* list only —
     /// moving row 3 of a filtered view would move the wrong song on the server.
@@ -819,12 +843,22 @@ struct PlaylistDetailView: View {
                 .disabled(songs.isEmpty)
                 .accessibilityLabel("Download all")
             }
+            // The playlist as one link, in its order, filter or not.
+            if !model.isDemoMode {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        sharing = .playlist(id: playlist.id, name: playlist.name, songs: songs.isEmpty ? nil : songs)
+                    } label: { Image(systemName: SongAction.share.symbol) }
+                    .accessibilityLabel(SongAction.share.sheetLabel)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isEditing ? "Done" : "Edit") { isEditing.toggle() }
                     .disabled(songs.isEmpty || model.isDemoMode)
             }
         }
         .task { songs = await model.musicLibrary.playlist(id: playlist.id)?.songs ?? [] }
+        .sheet(item: $sharing) { ShareCollectionSheet(draft: $0) }
         .songSharePresenter(model: model)
     }
 

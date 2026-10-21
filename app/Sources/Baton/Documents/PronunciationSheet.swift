@@ -157,7 +157,7 @@ extension DocumentLibrary {
         }
         refresh()
         if !affected.isEmpty {
-            documentsLog.notice("book \"\(updated.title, privacy: .public)\": lexicon changed, re-making \(affected.count) chapters")
+            documentsLog.notice("book \"\(updated.title, privacy: .private)\": lexicon changed, re-making \(affected.count) chapters")
         }
         return affected
     }

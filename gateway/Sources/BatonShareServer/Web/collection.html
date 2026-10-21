@@ -1,0 +1,54 @@
+<!doctype html>
+<!--
+  The album and playlist page (specs/collection-sharing.md, "The page"; TBX-1000000485), a /b/
+  link whose stored kind is album or playlist. Rendered by the book page renderer
+  (gateway/Sources/BatonShareServer/ShareBookPage.swift), which replaces each placeholder
+  (written in the markup below as the name inside double curly braces; not spelled out here,
+  because the renderer would replace it inside this comment too):
+    V          the asset version (a hash of every /b/_/ asset and the templates), as ?v=
+    STATE      ready, pending, expired, unknown or unsupported (also body[data-state])
+    DOC_TITLE  the <title>, HTML-escaped
+    OG_TAGS    Open Graph and Twitter meta tags; public mode uses the preview only,
+                   private mode says "Someone sent you an album" (or "a playlist") and names nothing
+    HEADLINE   the visible headline, HTML-escaped (the same text as the title)
+    SUBLINE    the visible subline (the note in public mode), HTML-escaped
+    DATA       JSON {"id","state","reactions","kind"} with every "<" escaped, in #collection-data
+  Nothing else is server-rendered: collection.mjs takes the key from the fragment, fetches
+  GET /v1/share/b/<id> and authenticates the manifest before showing any track or the cover.
+  The CSP forbids inline script and style, so everything else lives in collection.mjs and collection.css.
+-->
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>{{DOC_TITLE}}</title>{{OG_TAGS}}
+<link rel="icon" href="/b/_/icon.svg?v={{V}}"><link rel="stylesheet" href="/b/_/collection.css?v={{V}}">
+<script type="module" src="/b/_/collection.mjs?v={{V}}"></script></head>
+<body data-state="{{STATE}}"><script type="application/json" id="collection-data">{{DATA}}</script>
+<main>
+<header class="head">
+<div id="cover" class="cover" aria-hidden="true"><svg class="glyph" viewBox="0 0 24 24" focusable="false"><path d="M9 17.5V6.2a1 1 0 0 1 .8-1l8-1.6a1 1 0 0 1 1.2 1V15.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg><img id="art" alt="" hidden></div>
+<div class="head-text"><p id="kind" class="kicker">Baton</p><h1 id="title">{{HEADLINE}}</h1><p id="byline">{{SUBLINE}}</p>
+<p id="from" hidden></p><p id="note" hidden></p>
+<p id="chips" class="chips" hidden><span id="length" class="chip"></span><span id="ends" class="chip" hidden></span><span id="listeners" class="chip" hidden></span></p></div>
+</header>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="player" hidden aria-label="Player">
+<div id="card" class="card">
+<div id="admission" class="prompt" hidden role="group" aria-labelledby="admission-text"><p id="admission-text">Start listening?</p><div class="prompt-actions"><button id="confirm" class="primary" type="button">Start listening</button><button id="cancel" class="quiet" type="button">Not now</button></div></div>
+<div class="now"><p id="current" aria-live="polite"></p><p id="current-of"></p></div>
+<audio id="audio" preload="auto" controlslist="nodownload noplaybackrate noremoteplayback" disableremoteplayback></audio>
+<input id="seek" type="range" min="0" max="1000" value="0" disabled aria-label="Seek in current song">
+<div class="times"><span id="elapsed">0:00</span><span><span class="visually-hidden">Time remaining </span><span id="remaining">-0:00</span></span></div>
+<div class="controls">
+<button id="shuffle" class="mode" type="button" aria-label="Shuffle" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
+<button id="previous" class="skip" type="button" aria-label="Previous song"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h2v14H6zM19 5.8v12.4a.8.8 0 0 1-1.2.7L9.4 12.7a.8.8 0 0 1 0-1.4l8.4-6.2a.8.8 0 0 1 1.2.7Z"/></svg></button>
+<button id="play" class="play" type="button" aria-label="Play"><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.6v12.8a.9.9 0 0 0 1.4.8l10-6.4a.9.9 0 0 0 0-1.6l-10-6.4A.9.9 0 0 0 8 5.6Z"/></svg><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg><span class="spinner" aria-hidden="true"></span></button>
+<button id="next" class="skip" type="button" aria-label="Next song"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 5h2v14h-2zM5 5.8v12.4a.8.8 0 0 0 1.2.7l8.4-6.2a.8.8 0 0 0 0-1.4L6.2 5.1A.8.8 0 0 0 5 5.8Z"/></svg></button>
+<button id="repeat" class="mode" type="button" aria-label="Repeat: off" data-repeat="off" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg><span class="badge" aria-hidden="true">1</span></button>
+</div>
+</div>
+<ol id="tracks" class="tracks" aria-label="Songs"></ol>
+<div id="reactions" class="reactions" role="group" aria-labelledby="react-label"><span id="react-label" class="react-label">React</span><span id="reaction-status" class="react-status" role="status"></span></div>
+</section><noscript><p class="noscript">JavaScript is needed to unlock and listen to this music.</p></noscript>
+<footer><span class="listen-note">Starting to listen uses one of this link’s listeners, for as long as the link lasts. </span>Made with <a href="https://batonmusic.app">Baton</a></footer>
+</main></body></html>

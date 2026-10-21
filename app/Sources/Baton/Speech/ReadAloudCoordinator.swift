@@ -81,6 +81,10 @@ final class ReadAloudCoordinator {
     /// "enqueued" — the coordinator runs two chunks ahead of what is actually being spoken, and
     /// resuming from the enqueued position would silently skip whatever was still in the queue.
     @ObservationIgnored private var currentRanges: [NSRange] = []
+    /// Chunks handed to the engine so far in this reading. When synthesis falls behind playback
+    /// the engine's queue drains and it ends its session, dropping `reading`; every chunk handed
+    /// over has then been spoken, so this is where the reading got to.
+    @ObservationIgnored private var enqueuedChunks = 0
 
     /// The last reading that was started, exportable until another one replaces it.
     ///
@@ -215,6 +219,7 @@ final class ReadAloudCoordinator {
         resumingID = nil
         currentReadingID = id
         currentRanges = ranges
+        enqueuedChunks = 0
         task = Task { [weak self] in
             let completed = await self?.speak(chunks, ranges: ranges, voice: voice) ?? false
             guard let self else { return }
@@ -280,7 +285,7 @@ final class ReadAloudCoordinator {
     /// How far the *engine* has actually got, as a chunk index. Derived from the range it is
     /// speaking rather than from what has been enqueued, because those differ by the lookahead.
     private func spokenChunkIndex() -> Int {
-        guard let spoken = music.speech.reading?.spokenRange else { return 0 }
+        guard let spoken = music.speech.reading?.spokenRange else { return enqueuedChunks }
         guard let index = currentRanges.firstIndex(where: { $0.location == spoken.location }) else { return 0 }
         return index
     }
@@ -374,7 +379,7 @@ final class ReadAloudCoordinator {
             if Task.isCancelled { return false }
 
             if hostIsDown {
-                music.speech.play(.native(chunk), text: chunk, documentRange: range)
+                enqueue(.native(chunk), chunk, range)
                 continue
             }
             do {
@@ -382,8 +387,10 @@ final class ReadAloudCoordinator {
                 if Task.isCancelled { return false }
                 let url = try BatonMCPSpeakTools.writeTemp(audio)
                 consecutiveFailures = 0
-                music.speech.play(.file(url), text: chunk, documentRange: range)
+                enqueue(.file(url), chunk, range)
             } catch {
+                // Stopped while this chunk rendered: it belongs to a reading nobody wants now.
+                if Task.isCancelled { return false }
                 consecutiveFailures += 1
                 // The error, not a guess at it. This line used to say "TTS host unreachable"
                 // and discard `error` — asserting a cause it had not established, while the
@@ -399,10 +406,22 @@ final class ReadAloudCoordinator {
                 } else {
                     readAloudLog.notice("one chunk failed, still trying the host: \(reason, privacy: .public)")
                 }
-                music.speech.play(.native(chunk), text: chunk, documentRange: range)
+                enqueue(.native(chunk), chunk, range)
             }
         }
         return true
+    }
+
+    /// Hand one chunk to the engine, giving the HUD its document back first if the engine ended
+    /// its session while this chunk was still rendering. Not during a live interpretation: the
+    /// engine refuses every utterance then, so nothing here would be shown or heard.
+    private func enqueue(_ utterance: SpeechPlaybackEngine.Utterance, _ chunk: String, _ range: NSRange) {
+        guard !music.speech.interpretationActive else { return }
+        if music.speech.reading == nil, let fullText {
+            music.speech.reading = .init(text: fullText, spokenRange: range)
+        }
+        music.speech.play(utterance, text: chunk, documentRange: range)
+        enqueuedChunks += 1
     }
 
     /// Save where this reading got to, so it can be resumed.

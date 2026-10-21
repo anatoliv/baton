@@ -115,6 +115,15 @@ public final class RemoteControlSettings {
     /// code that leaks into a chat log is already spent.
     public private(set) var linkCode: String = RemoteControlSettings.makeLinkCode()
 
+    /// Wrong codes allowed against one code. Anyone who can message the bot can guess, and six
+    /// digits fall to a patient stranger, so past this the code is burned and linking stays shut
+    /// until the owner asks for a new one. Rotating alone would not do: every fresh code would
+    /// hand the guesser a fresh budget. Not persisted; a relaunch is the owner's action too.
+    static let maxFailedLinkAttempts = 5
+    private var failedLinkAttempts = 0
+    /// True once the guess budget is spent; the next `regenerateLinkCode()` reopens linking.
+    public private(set) var isLinkingLocked = false
+
     // MARK: Per-platform config
 
     public struct PlatformConfig: Equatable, Sendable {
@@ -309,7 +318,7 @@ public final class RemoteControlSettings {
         var config = self.config(for: platform)
         config.allowedSenders.insert(sender)
         setConfig(config, for: platform)
-        linkCode = Self.makeLinkCode()
+        regenerateLinkCode()
         remoteLog.notice("Authorized a new \(platform.rawValue, privacy: .public) sender")
     }
 
@@ -321,15 +330,27 @@ public final class RemoteControlSettings {
 
     /// Constant-time-ish comparison of a submitted link code. Codes are short and
     /// single-use, but there's no reason to leak length/prefix through timing.
+    /// A miss counts against the guess budget.
     public func matchesLinkCode(_ candidate: String) -> Bool {
+        guard !isLinkingLocked else { return false }
         let a = Array(linkCode.utf8), b = Array(candidate.trimmingCharacters(in: .whitespaces).utf8)
-        guard a.count == b.count else { return false }
-        var diff: UInt8 = 0
-        for i in a.indices { diff |= a[i] ^ b[i] }
-        return diff == 0
+        var diff: UInt8 = a.count == b.count ? 0 : 1
+        if diff == 0 { for i in a.indices { diff |= a[i] ^ b[i] } }
+        guard diff != 0 else { return true }
+        failedLinkAttempts += 1
+        if failedLinkAttempts >= Self.maxFailedLinkAttempts {
+            linkCode = Self.makeLinkCode()
+            isLinkingLocked = true
+            remoteLog.error("Too many wrong link codes; burned the code until a new one is made")
+        }
+        return false
     }
 
-    public func regenerateLinkCode() { linkCode = Self.makeLinkCode() }
+    public func regenerateLinkCode() {
+        linkCode = Self.makeLinkCode()
+        failedLinkAttempts = 0
+        isLinkingLocked = false
+    }
 
     // MARK: Persistence
 

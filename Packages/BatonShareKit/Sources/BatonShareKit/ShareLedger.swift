@@ -26,12 +26,22 @@ public struct ShareLedger: Codable, Equatable, Sendable {
         public var mixtapeSummary: MixtapeSummary?
         /// A whole-book link's last summary from `GET /v1/share/books` (kind `.book`).
         public var bookSummary: BookSummary?
+        /// An album or playlist link (specs/collection-sharing.md): a `/b/` link, so `kind` stays
+        /// `.book` and the record lives in the books file, which every app that reads it decodes
+        /// with this key ignored. Kept here as well as in `bookSummary` because a released app
+        /// that rewrites the books file drops both; the next refresh brings the summary's back.
+        public var collection: ShareCollectionKind?
+        /// The album or playlist kind, from the service's last word or from when it was made.
+        public var collectionKind: ShareCollectionKind? {
+            guard containerKind == .book else { return nil }
+            return bookSummary?.kind ?? collection
+        }
         public var containerKind: ShareInvitation.Kind { kind ?? .song }
         public var identity: String { "\(containerKind.rawValue):\(id)" }
 
         public init(id: String, link: String, songID: String, title: String, artist: String,
                     isPrivate: Bool, createdAt: Date, expiresAt: Date, summary: ShareSummary? = nil, kind: ShareInvitation.Kind? = nil, songIDs: [String]? = nil, mixtapeSummary: MixtapeSummary? = nil,
-                    bookSummary: BookSummary? = nil) {
+                    bookSummary: BookSummary? = nil, collection: ShareCollectionKind? = nil) {
             self.id = id
             self.link = link
             self.songID = songID
@@ -45,6 +55,7 @@ public struct ShareLedger: Codable, Equatable, Sendable {
             self.songIDs = songIDs
             self.mixtapeSummary = mixtapeSummary
             self.bookSummary = bookSummary
+            self.collection = collection
         }
 
         public var status: ShareStatus { summary?.status ?? (expiresAt <= Date() ? .expired : .ready) }
@@ -183,9 +194,27 @@ public struct ShareLedger: Codable, Equatable, Sendable {
 
     /// The ledger and, joined to it, the book links kept beside it (`booksURL`).
     public static func load(from url: URL) -> ShareLedger {
-        var ledger = (try? Data(contentsOf: url)).flatMap { try? decoder.decode(ShareLedger.self, from: $0) } ?? ShareLedger()
+        var ledger = ShareLedger()
+        if let data = try? Data(contentsOf: url) {
+            if let decoded = try? decoder.decode(ShareLedger.self, from: data) { ledger = decoded }
+            else if !data.isEmpty { keepAside(data, of: url) }
+        }
         ledger.join(books: loadBooks(beside: url))
         return ledger
+    }
+
+    /// An unreadable ledger (damage, or a newer app's file opened by an older one) starts empty,
+    /// and the next save replaces it. Its links' keys exist nowhere else, so its bytes are copied
+    /// to `<name>.corrupt-<timestamp>` first, once per distinct content.
+    private static func keepAside(_ data: Data, of url: URL) {
+        let prefix = url.lastPathComponent + ".corrupt-"
+        let dir = url.deletingLastPathComponent()
+        let existing = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        guard !existing.contains(where: { $0.lastPathComponent.hasPrefix(prefix) && (try? Data(contentsOf: $0)) == data }) else { return }
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        var aside = dir.appendingPathComponent(prefix + stamp)
+        if FileManager.default.fileExists(atPath: aside.path) { aside = dir.appendingPathComponent(prefix + stamp + "-" + UUID().uuidString) }
+        try? ShareUploadStore.writeProtected(data, to: aside)
     }
 
     /// Written atomically and readable only by this user: the file holds every link's key. Book

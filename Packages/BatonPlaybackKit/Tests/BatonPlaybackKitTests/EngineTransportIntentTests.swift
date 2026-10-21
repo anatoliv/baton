@@ -182,4 +182,29 @@ final class EngineTransportIntentTests: XCTestCase {
         XCTAssertEqual(engine.state, .playing,
                        "resume during the load did not withdraw the latched pause")
     }
+
+    /// A pause made while the engine waits to retry a failed stream holds when the retry runs
+    /// (TBX-1000000480 C1-7). The retry is the engine's own load, not a new intent, and it
+    /// used to clear the pause and start the audio while the host showed Paused.
+    func testAPauseDuringTheRetryBackoffHoldsWhenTheRetryRuns() async throws {
+        let wav = EngineTestSignals.sineWAV(frequency: 440, seconds: 30)
+        let server = try EngineHTTPServer(payload: wav,
+                                          delivery: .truncateAfter(bytes: 44 + 44_100 * 2, connections: 1),
+                                          contentType: "audio/wav")
+        defer { server.stop() }
+        let harness = try EngineRenderHarness(sampleRate: 44_100)
+        defer { harness.shutdown() }
+        harness.controller.stallTimeoutSeconds = 120
+        let a = EnginePlaybackController.Track(id: "A", url: server.url, duration: 30, supportsTimeOffset: false)
+        harness.controller.play(a)
+        try await harness.waitUntil(timeout: 20) { harness.controller.sameTrackRetriesForTesting == 1 }
+        XCTAssertEqual(harness.controller.state, .loading, "precondition: waiting out the backoff")
+
+        harness.controller.pause()
+        // The retry runs a second later and the second connection serves the whole file.
+        try await harness.waitUntil(timeout: 20) { harness.controller.loadCountForTesting >= 2 }
+        _ = await harness.waitUntilOrTimeout(seconds: 3) { harness.controller.state == .playing }
+
+        XCTAssertNotEqual(harness.controller.state, .playing, "paused during the backoff, playing after it")
+    }
 }

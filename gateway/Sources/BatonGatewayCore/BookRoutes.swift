@@ -309,7 +309,8 @@ public struct BookRoutes: Sendable {
     /// another device. The same audio again changes nothing. The last chapter makes the book ready.
     func receiveChapter(_ request: StreamingUpload.Request, _ staged: URL, id: String, number: String) -> Data {
         guard let expected = request.header("X-Baton-SHA256")?.lowercased(),
-              expected.count == 64, expected.allSatisfy({ $0.isHexDigit }) else {
+              expected.utf8.count == 64,
+              expected.utf8.allSatisfy({ (48 ... 57).contains($0) || (97 ... 102).contains($0) }) else {
             return httpErrorResponse(status: "400 Bad Request", message: "X-Baton-SHA256 is required")
         }
         guard let seconds = request.header("X-Baton-Duration").flatMap(Double.init), seconds.isFinite,

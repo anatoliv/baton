@@ -65,15 +65,15 @@ public enum AudiobookExport {
         return out
     }
 
-    /// ffmetadata escapes `=`, `;`, `#`, `\` and newlines with a backslash.
+    /// ffmetadata escapes `=`, `;`, `#`, `\` and line ends with a backslash. Scalar by scalar,
+    /// because "\r\n" is one Character; a NUL, which ends ffmpeg's line read, is dropped.
     static func escape(_ value: String) -> String {
-        var out = ""
-        for c in value {
-            if "=;#\\".contains(c) { out.append("\\") }
-            if c == "\n" { out += "\\\n"; continue }
+        var out = String.UnicodeScalarView()
+        for c in value.unicodeScalars where c != "\u{0}" {
+            if "=;#\\\r\n".unicodeScalars.contains(c) { out.append("\\") }
             out.append(c)
         }
-        return out
+        return String(out)
     }
 
     /// "The Machine Stops - E. M. Forster.m4b", safe as a file name anywhere.

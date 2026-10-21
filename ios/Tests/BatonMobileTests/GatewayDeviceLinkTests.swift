@@ -141,6 +141,30 @@ final class GatewayDeviceLinkTests: XCTestCase {
             """)
     }
 
+    // MARK: - A settings import moves the link
+
+    /// The link fixes its gateway address when it starts, and a settings import did not
+    /// restart it, so after "Set up from a Mac" the phone went on polling the old host, now
+    /// with the newly imported token (TBX-1000000480 B-8).
+    func testASettingsImportMovesTheLinkToTheImportedGateway() {
+        let key = "baton.agent.gatewayURL"
+        defer { BatonStorage.defaults.removeObject(forKey: key) }
+        let model = MobileModel()
+        model.agentConfig.gatewayURL = "http://127.0.0.1:59999"
+        model.deviceLink.start()
+        defer { model.deviceLink.stop() }
+        XCTAssertEqual(model.deviceLink.pollingURL?.port, 59999, "precondition: polling the first gateway")
+
+        // What an import does: the Mac's settings land in storage, then the model re-reads them.
+        BatonStorage.defaults.set("http://127.0.0.1:59998", forKey: key)
+        model.reloadAfterSettingsImport()
+
+        XCTAssertEqual(model.deviceLink.pollingURL?.port, 59998, """
+            after the import the link still polls the gateway it started with, carrying the \
+            imported token to the old host
+            """)
+    }
+
     // MARK: - Helpers
 
     private func makeLink(

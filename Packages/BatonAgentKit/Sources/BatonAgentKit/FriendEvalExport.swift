@@ -48,7 +48,8 @@ public enum FriendEvalExport {
             // read identically once they are both trailing comments, and the whole reason
             // this line is worth reading is that somebody typed it.
             let why = exchange.note.map { note in
-                " // they said: " + note.replacingOccurrences(of: "\n", with: " ")
+                // Every line break, not only \n: a \r ends a Swift line comment too.
+                " // they said: " + note.components(separatedBy: .newlines).joined(separator: " ")
             } ?? " // rated \(exchange.fault?.rawValue ?? "down") on \(exchange.date.formatted(date: .abbreviated, time: .omitted))"
             // The fault cannot decide the expectation, and guessing is worse than asking.
             //

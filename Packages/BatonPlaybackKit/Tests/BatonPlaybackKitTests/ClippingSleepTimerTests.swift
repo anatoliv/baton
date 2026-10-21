@@ -144,4 +144,52 @@ final class ClippingSleepTimerTests: XCTestCase {
         XCTAssertEqual(c.state, .playing)
         XCTAssertFalse(c.sleepTimerArmed)
     }
+
+    /// Changing the timer during the fade keeps the music audible (TBX-1000000480 C1-5). The
+    /// fade ran on to silence, and the stop it was heading for was refused because the timer
+    /// had changed, so the track played on at zero volume.
+    func testANewTimedSleepDuringTheFadeKeepsTheMusicAudible() {
+        let c = controller()
+        c.play(readings, startAt: 0)
+        c.armSleepTimer(seconds: 0.1, fadeSeconds: 0.6)
+        waitUntil({ c.fadeMultiplier < 1 }, seconds: 3)
+        XCTAssertLessThan(c.fadeMultiplier, 1, "the fade is under way")
+
+        c.setSleepTimer(minutes: 15)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+
+        XCTAssertEqual(c.state, .playing)
+        XCTAssertEqual(c.fadeMultiplier, 1, "playing, with the fade left at silence")
+        XCTAssertTrue(c.sleepTimerArmed)
+    }
+
+    func testEndOfChapterChosenDuringTheFadeKeepsTheMusicAudible() {
+        let c = controller()
+        c.play(readings, startAt: 0)
+        c.armSleepTimer(seconds: 0.1, fadeSeconds: 0.6)
+        waitUntil({ c.fadeMultiplier < 1 }, seconds: 3)
+        XCTAssertLessThan(c.fadeMultiplier, 1, "the fade is under way")
+
+        c.sleepAtEndOfTrack()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+
+        XCTAssertEqual(c.state, .playing)
+        XCTAssertEqual(c.fadeMultiplier, 1, "playing, with the fade left at silence")
+        XCTAssertTrue(c.sleepTimerArmed)
+    }
+
+    func testTurningTheTimerOffDuringTheFadeKeepsTheMusicAudible() {
+        let c = controller()
+        c.play(readings, startAt: 0)
+        c.armSleepTimer(seconds: 0.1, fadeSeconds: 0.6)
+        waitUntil({ c.fadeMultiplier < 1 }, seconds: 3)
+        XCTAssertLessThan(c.fadeMultiplier, 1, "the fade is under way")
+
+        c.setSleepTimer(minutes: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+
+        XCTAssertEqual(c.state, .playing)
+        XCTAssertEqual(c.fadeMultiplier, 1, "playing, with the fade left at silence")
+        XCTAssertFalse(c.sleepTimerArmed)
+    }
 }

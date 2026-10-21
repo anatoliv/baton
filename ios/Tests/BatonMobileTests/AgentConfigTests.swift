@@ -204,4 +204,61 @@ final class AgentConfigTests: XCTestCase {
         XCTAssertEqual(nl.baseURL, "https://api.openai.com/v1")
         XCTAssertTrue(nl.isConfigured)
     }
+
+    // MARK: - A pass belongs to the configuration that was tested
+
+    /// The connection test fingerprinted the configuration when the answer came back, so an
+    /// edit made while the request was in flight was marked verified without ever being
+    /// tried (TBX-1000000480 B-7).
+    func testAnEditMadeWhileTheTestRunsIsNotMarkedVerified() async throws {
+        let config = makeConfig()
+        config.route = .gateway
+        config.gatewayURL = "http://127.0.0.1:59997"
+        let model = MobileModel()
+        let client = AgentClient(tools: AgentTools(model: model), player: model.music, config: config)
+        URLProtocol.registerClass(SlowAgentGatewayProtocol.self)
+        defer { URLProtocol.unregisterClass(SlowAgentGatewayProtocol.self) }
+
+        let test = Task { await client.runConnectionTest() }
+        try await Task.sleep(for: .milliseconds(100))
+        config.gatewayURL = "http://127.0.0.1:59996"
+        let outcome = await test.value
+
+        guard case .ok = outcome else { return XCTFail("precondition: the stub gateway answers, got \(outcome)") }
+        XCTAssertFalse(config.isReady, "an address nobody tested was marked verified")
+    }
+
+    func testAnUnchangedConfigurationIsMarkedVerifiedByAPass() async {
+        let config = makeConfig()
+        config.route = .gateway
+        config.gatewayURL = "http://127.0.0.1:59997"
+        let model = MobileModel()
+        let client = AgentClient(tools: AgentTools(model: model), player: model.music, config: config)
+        URLProtocol.registerClass(SlowAgentGatewayProtocol.self)
+        defer { URLProtocol.unregisterClass(SlowAgentGatewayProtocol.self) }
+
+        _ = await client.runConnectionTest()
+
+        XCTAssertTrue(config.isReady)
+    }
+}
+
+/// A Baton server on 127.0.0.1:59997 that answers `/v1/agent` after 300 ms.
+final class SlowAgentGatewayProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "127.0.0.1" && request.url?.port == 59997
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(300)) { [weak self] in
+            guard let self, let url = self.request.url else { return }
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                           headerFields: ["Content-Type": "application/json"])!
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: Data(#"{"text":"Nothing is playing."}"#.utf8))
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
 }

@@ -70,14 +70,17 @@ final class MacAlarms {
     }
 
     #if DEBUG
-    /// A probe's timer, set at launch: `BATON_DEBUG_ALARM_PROBE_TIMER=<seconds>|<file URL>` starts a
-    /// timer that plays that file, so an isolated probe can be watched going off with no clicks.
+    /// A probe's timer, set at launch: `BATON_DEBUG_ALARM_PROBE_TIMER=<seconds>|<file URL>[|<label>]`
+    /// starts a timer that plays that file, so an isolated probe can be watched going off with no
+    /// clicks. The label defaults to "Probe timer".
     private func seedProbeTimer() {
-        guard let spec = ProcessInfo.processInfo.environment["BATON_DEBUG_ALARM_PROBE_TIMER"],
-              let bar = spec.firstIndex(of: "|"), let seconds = Double(spec[..<bar]),
-              let url = URL(string: String(spec[spec.index(after: bar)...])), url.isFileURL else { return }
+        guard let spec = ProcessInfo.processInfo.environment["BATON_DEBUG_ALARM_PROBE_TIMER"] else { return }
+        let parts = spec.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 2, let seconds = Double(parts[0]),
+              let url = URL(string: parts[1]), url.isFileURL else { return }
+        let label = parts.count > 2 && !parts[2].isEmpty ? parts[2] : "Probe timer"
         let song = NavidromeSong(id: url.absoluteString, title: url.deletingPathExtension().lastPathComponent, artist: "Probe")
-        store.startTimer(duration: seconds, label: "Probe timer", choice: .song(song))
+        store.startTimer(duration: seconds, label: label, choice: .song(song))
     }
     #endif
 
@@ -163,16 +166,28 @@ final class MacAlarms {
         }
         let panel = self.panel ?? makePanel()
         self.panel = panel
+        // A fresh card for each ringing, and the panel exactly its size: the card is a fixed width
+        // and as tall as its words, so nothing is cut off. The hosting view's
+        // default sizing options keep the panel there while it is up.
+        let host = NSHostingView(rootView: AlarmRingingCard(center: center).padding(8).tint(.batonOrange))
+        // No title bar inset: the panel's title bar is hidden and transparent, and its safe area
+        // would put an empty band about 33 pt tall above the card.
+        host.safeAreaRegions = []
+        panel.contentView = host
+        host.layoutSubtreeIfNeeded()
+        // The frame, not the content size: with a full-size content view the card fills the whole
+        // frame, and `setContentSize` would add a title bar's height of empty panel.
+        let size = host.fittingSize
+        var origin = panel.frame.origin
         if let screen = NSScreen.main {
-            let size = panel.frame.size
-            panel.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - size.width / 2,
-                                         y: screen.visibleFrame.maxY - size.height - 40))
+            origin = NSPoint(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.maxY - size.height - 40)
         }
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 380, height: 420),
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: AlarmRingingCard.floatingWidth + 16, height: 420),
                             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
                             backing: .buffered, defer: false)
         panel.titleVisibility = .hidden
@@ -182,7 +197,6 @@ final class MacAlarms {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = .clear
-        panel.contentView = NSHostingView(rootView: AlarmRingingCard(center: center).padding(8).tint(.batonOrange))
         return panel
     }
 }

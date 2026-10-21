@@ -106,9 +106,10 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// every track-logical reading is `streamStartOffset + player clock`. Zero otherwise.
     private(set) var streamStartOffset: TimeInterval = 0
 
-    /// Custom server headers (Cloudflare Access etc.) for every asset this deck builds,
-    /// carried from the last `load` so the preload and crossfade items get them too.
-    private var streamHeaders: [String: String] = [:]
+    /// The custom server headers (Cloudflare Access etc.) for a preload or crossfade URL,
+    /// worked out for that URL rather than carried from the last `load`: the next item can
+    /// be a podcast on another host after a song, or a server song after a download.
+    var headersFor: (URL) -> [String: String] = { NavidromeConfig.customHeaders(for: $0) }
 
     // MARK: - Level
 
@@ -228,6 +229,13 @@ public final class AVPlayerDeck: PlaybackDeck {
         return options.isEmpty ? AVURLAsset(url: url) : AVURLAsset(url: url, options: options)
     }
 
+    /// Every asset this deck plays is built here, so the headers each one carries are
+    /// observable in tests (`lastAssetHeaders`).
+    private func asset(_ url: URL, headers: [String: String]) -> AVURLAsset {
+        lastAssetHeaders = url.isFileURL ? [:] : headers
+        return Self.streamAsset(url, headers: headers)
+    }
+
     /// The out-of-band MIME type for a URL whose payload format we *know*, or nil to let
     /// AVFoundation work it out. Only our own `format=mp3` stream request qualifies — a
     /// wrong hint here wouldn't break an indicator, it would break playback.
@@ -248,7 +256,6 @@ public final class AVPlayerDeck: PlaybackDeck {
         transportFade.cancel(apply: { [weak self] in self?.applyVolume() })
         retireItemObservers()
 
-        streamHeaders = headers
         loadedSong = song
         metadataDuration = Double(song.duration ?? 0)
         // Seed duration from the track's metadata immediately — Navidrome transcodes on the
@@ -265,7 +272,7 @@ public final class AVPlayerDeck: PlaybackDeck {
         // than a branch that builds two URLs.
         let streamURL = StreamSeek.streamURL(url, offset: offset, transcode: supportsTimeOffset)
         lastLoadedURL = streamURL
-        let item = Self.makeItem(Self.streamAsset(streamURL, headers: headers))
+        let item = Self.makeItem(asset(streamURL, headers: headers))
         setCurrentItem(item)
         configureItem?(item)
         applyVolume()
@@ -672,7 +679,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     @discardableResult
     func prepareNext(song: NavidromeSong, at index: Int, url: URL) -> Bool {
         guard preload == nil, let current = loadedItem else { return false }
-        let item = Self.makeItem(Self.streamAsset(url, headers: streamHeaders))
+        let item = Self.makeItem(asset(url, headers: headersFor(url)))
         configureItem?(item) // attach EQ at preload creation, before it plays
         guard player.canInsert(item, after: current) else { return false }
         player.insert(item, after: current)
@@ -695,7 +702,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     func swapPreparedNext(to localURL: URL, index: Int, songID: String) -> Bool {
         guard let slot = preload, slot.matches(index: index, songID: songID),
               player.currentItem !== slot.item, let current = loadedItem else { return false }
-        let item = Self.makeItem(Self.streamAsset(localURL, headers: streamHeaders))
+        let item = Self.makeItem(asset(localURL, headers: headersFor(localURL)))
         configureItem?(item)
         guard player.canInsert(item, after: current) else { return false }
         player.remove(slot.item)
@@ -744,7 +751,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     func beginCrossfade(into song: NavidromeSong, url: URL, targetIn: Float,
                         duration seconds: Double, steps: Int = 24, rate: Float? = nil,
                         onComplete: @escaping @MainActor () -> Void) {
-        let item = Self.makeItem(Self.streamAsset(url, headers: streamHeaders))
+        let item = Self.makeItem(asset(url, headers: headersFor(url)))
         configureItem?(item)
         crossfadingInto = song
         let incomingRate = rate ?? playbackRate
@@ -827,6 +834,9 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// this deck's `StreamSeek` rewrite — the only place the offset/transcode decisions
     /// become observable.
     private(set) var lastLoadedURL: URL?
+
+    /// The headers the most recently built asset was given. Test seam.
+    private(set) var lastAssetHeaders: [String: String] = [:]
 
     /// Stand in for "this stream was fetched with `timeOffset`", which a local file can't
     /// produce (it is fully seekable, so a seek never needs a re-request). Test seam.

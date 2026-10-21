@@ -144,6 +144,9 @@ final class AgentClient {
         guard let profile = primaryProfile else {
             return .failed("Nothing is configured yet.")
         }
+        // The configuration this request tests. An edit made while it is in flight is a
+        // different configuration that nobody tried (TBX-1000000480 B-7).
+        let tested = config.fingerprint
         let outcome: RemoteNaturalLanguage.TestOutcome
         switch profile.dialect {
         case .direct:
@@ -161,7 +164,7 @@ final class AgentClient {
         case .gateway:
             outcome = await testGateway(profile)
         }
-        if case .ok = outcome { config.markVerified() }
+        if case .ok = outcome, config.fingerprint == tested { config.markVerified() }
         return outcome
     }
 

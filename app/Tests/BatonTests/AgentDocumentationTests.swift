@@ -53,7 +53,7 @@ final class AgentDocumentationTests: XCTestCase {
     /// The counts are prose, so they rot quietly rather than failing to compile.
     func testTheAdvertisedToolCountMatchesTheCatalog() throws {
         let musicTools = publishedToolNames.filter { $0.hasPrefix("music_") }.count
-        for file in ["HELP.md", "README.md", "website/help.html"] {
+        for file in ["HELP.md", "README.md", "FAQ.md", "website/help.html", "website/index.html"] {
             let text = try repoFile(file)
             XCTAssertTrue(
                 text.contains("\(musicTools) music operations")
@@ -111,7 +111,7 @@ final class AgentDocumentationTests: XCTestCase {
         "Baton on iPhone": "iphone",
         "Shared settings between your devices": "iphone",
         "Finding your way around": "browsing",
-        "Home (For You)": "browsing",
+        "Home": "browsing",
         "Search": "browsing",
         "Mixes": "browsing",
         "Albums and artists": "browsing",
@@ -123,6 +123,8 @@ final class AgentDocumentationTests: XCTestCase {
         "Rating, liking, and multi-select": "browsing",
         "Downloads and offline listening": "downloads",
         "Listening to a document": "documents",
+        "Clippings": "documents",
+        "Transcripts and summaries": "playing",
         "Playing music": "playing",
         "The queue, shuffle, repeat, and autoplay": "playing",
         "Sleep timer": "playing",
@@ -138,6 +140,7 @@ final class AgentDocumentationTests: XCTestCase {
         "Reading what's on your screen": "speech",
         "Letting an agent control your music": "agents",
         "Controlling Baton from Telegram or Discord": "remote",
+        "Backing up and restoring your settings": "backup",
         "Updates": "updates",
         "What's next": "roadmap",
         "Privacy and security": "faq",
@@ -163,20 +166,14 @@ final class AgentDocumentationTests: XCTestCase {
         "What Baton is, and what it isn't": "the page's hero and FAQ answer this in the reader's first ten seconds",
         "Browsing by folder": "detail of a browsing surface the page summarises in one section",
         "Later": "detail of a browsing surface the page summarises in one section",
-        "Clippings": "in-app workflow, nothing a reader decides to install over",
         "Adaptive artwork colors": "cosmetic, and visible in the screenshots on the landing page",
         "Finding music you don't have": "in-app workflow, nothing a reader decides to install over",
-        // These two read as settled and were not. Both said "large enough to want its own
+        // This once read as settled and was not: it said "large enough to want its own
         // page", which implies a page that does not exist. Measured 2026-09-07: the music
-        // friend is covered, on the landing page rather than here; transcripts are covered
-        // nowhere public at all. Same reason, two different situations, and only one of
-        // them is fine.
+        // friend is covered, on the landing page rather than here. Transcripts and
+        // Clippings, the other two gaps, got sections on the public page in TBX-1000000481.
         "The music friend": "covered on the landing page instead; see coveredElsewherePublicly, "
             + "which checks that claim rather than repeating it",
-        "Transcripts and summaries": "ACCEPTED GAP: described on no public page. "
-            + "index.html 0 mentions, help.html has no section for it. Kept off knowingly "
-            + "when TBX-5064 chose two hand-written surfaces, not overlooked. Revisit if "
-            + "transcripts start selling the app.",
         "Settings reference": "an exhaustive reference belongs in the bundled guide, not the shop window",
         "Troubleshooting": "the bundled guide is the copy someone reaches for once something is wrong",
     ]

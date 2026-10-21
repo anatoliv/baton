@@ -212,6 +212,10 @@ public final class ShareService: @unchecked Sendable {
                 if config.enabled && config.booksEnabled {
                     result.books = 1
                     result.book = ShareBookLimits(limits: config.limits)
+                    if config.collectionsEnabled {
+                        result.collections = 1
+                        result.collection = ShareCollectionLimits()
+                    }
                 }
                 if config.enabled, let push = reactionPushStore, push.policy.enabled,
                    reactionPushAdmission != nil {
@@ -308,7 +312,7 @@ public final class ShareService: @unchecked Sendable {
     }
 
     /// `kind` labels the `share_created` event for a container that the report counts apart
-    /// (`book`). `gate` runs after the ordinary create limits and before the quota, inside the
+    /// (`book`, `album`, `playlist`). `gate` runs after the ordinary create limits and before the quota, inside the
     /// caller's transaction, for a container's own limits and reservations.
     func createAuthorized(_ valid: CreateShareRequest, sharer: Sharer, who: ShareRequester, verified: Bool,
                           kind: String? = nil, gate: (() throws -> ShareResponse?)? = nil) throws -> ShareResponse {
@@ -325,13 +329,15 @@ public final class ShareService: @unchecked Sendable {
         else { return rateLimited("sharer_daily", now: now) }
         guard try store.liveShares(byDigest: sharer.digest) < config.limits.liveSharesPerSharer
         else { return rateLimited("sharer_live", now: now) }
-        guard limiter.allow("create:\(network)", limit: config.limits.createsPerNetworkPerDay, per: 86400, now: now)
+        // Peeked here and spent only once the create goes ahead, so a refusal costs nothing.
+        guard limiter.peek("create:\(network)", limit: config.limits.createsPerNetworkPerDay, per: 86400, now: now)
         else { return rateLimited("network_daily", now: now) }
         if let gate, let refusal = try gate() { return refusal }
         guard try store.quotaBytes() + Int64(valid.audioBytes) <= config.limits.quotaBytes else {
             return .error(503, "busy", "Sharing is busy right now. Try again later.")
         }
 
+        _ = limiter.allow("create:\(network)", limit: config.limits.createsPerNetworkPerDay, per: 86400, now: now)
         if isNew {
             _ = limiter.allow("new:\(network)", limit: config.limits.newSharersPerNetworkPerDay, per: 86400, now: now)
             try store.insertSharer(digest: sharer.digest, sharerID: sharer.id, platform: valid.client.platform, now: now)
@@ -391,6 +397,7 @@ public final class ShareService: @unchecked Sendable {
         guard record.status == .pending else {
             return .error(409, "state", "This share is already \(record.status.rawValue).")
         }
+        guard record.expiresAt > now else { return .error(409, "state", "This share has expired.") }
         let size = request.contentLength
         let head = try readHead(file)
         let contentType: String
@@ -477,6 +484,7 @@ public final class ShareService: @unchecked Sendable {
         guard record.status == .pending else {
             return .error(409, "state", "This share is already \(record.status.rawValue).")
         }
+        guard record.expiresAt > now else { return .error(409, "state", "This share has expired.") }
         guard record.audioStored else { return .error(409, "state", "Upload the audio first.") }
         try store.setStatus(id: id, .ready)
         try store.record(event: "share_finalized", at: now, shareID: id, sharerID: sharer.id,
@@ -507,6 +515,8 @@ public final class ShareService: @unchecked Sendable {
             guard (1 ... config.limits.maxExpirySeconds).contains(extend) else {
                 throw ShareValidationError("extendBySeconds", "must be from 1 to \(config.limits.maxExpirySeconds)")
             }
+            // An expired share the sweeper has not reached yet stays expired.
+            guard record.expiresAt > now else { throw ShareValidationError("extendBySeconds", "the share has expired") }
             record.expiresAt = min(record.expiresAt + Int64(extend), now + Int64(config.limits.maxExpirySeconds))
             try store.setExpiry(id: id, record.expiresAt)
             try store.record(event: "share_extended", at: now, shareID: id, sharerID: sharer.id)
@@ -660,9 +670,7 @@ public final class ShareService: @unchecked Sendable {
         switch kind {
         case .audio:
             guard record.audioStored else { return notFound }
-            let range = request.headers["range"]
-            let counts = range == nil || range!.replacingOccurrences(of: " ", with: "").hasPrefix("bytes=0-")
-            if counts {
+            if !Self.isContinuationRange(request.headers["range"], ifRange: request.headers["if-range"]) {
                 let now = self.now
                 try store.increment(id: id, .fetches)
                 try store.record(event: "audio_fetched", at: now, shareID: id, sharerID: record.sharerID,
@@ -693,13 +701,34 @@ public final class ShareService: @unchecked Sendable {
         }
     }
 
+    /// True only for a request nginx answers with part of the file after its start: exactly one
+    /// `bytes=N-` or `bytes=N-M` with N > 0 and no If-Range (a mismatched If-Range serves the whole
+    /// file). Every other spelling (no Range, start 0, a suffix, several ranges, another unit,
+    /// anything unparseable) gets the whole song, so it counts toward the play cap.
+    static func isContinuationRange(_ range: String?, ifRange: String?) -> Bool {
+        guard ifRange == nil, let range else { return false }
+        // nginx compares the first six characters with `bytes=` and ignores the header otherwise, so
+        // no space is allowed before `=`; spaces after it are skipped.
+        let value = range.trimmingCharacters(in: .whitespaces)
+        guard value.prefix(6).lowercased() == "bytes=" else { return false }
+        let pair = value.dropFirst(6).filter { $0 != " " && $0 != "\t" }
+            .split(separator: "-", omittingEmptySubsequences: false)
+        let digits: (Substring) -> Bool = { !$0.isEmpty && $0.utf8.allSatisfy { (48...57).contains($0) } }
+        guard pair.count == 2, digits(pair[0]), pair[1].isEmpty || digits(pair[1]) else { return false }
+        return pair[0].contains { $0 != "0" }
+    }
+
     func event(_ request: HTTPRequestMessage, id: String, who: ShareRequester) throws -> ShareResponse {
         if ShareLink.isValidID(id), let record = try store.share(id: id), try store.isEnforced(record) {
             return .error(410, "expired", "This share has ended.")
         }
-        guard case let .ready(record) = try publicState(id) else {
-            // A beacon for a share that has just ended, or a capped one: accepted and dropped, so
-            // a player that finishes a song after the cap is hit does not log an error.
+        let record: ShareRecord
+        switch try publicState(id) {
+        // The fetch that reached the cap is still a listen, so its beacons count.
+        case .ready(let live), .ended(let live, "play_cap"): record = live
+        default:
+            // A beacon for a share that has just ended: accepted and dropped, so a player that
+            // finishes a song after the link ends does not log an error.
             return .noContent
         }
         let event: PlayerEvent
@@ -726,8 +755,11 @@ public final class ShareService: @unchecked Sendable {
     }
 
     func react(_ request: HTTPRequestMessage, id: String, who: ShareRequester) throws -> ShareResponse {
-        guard case let .ready(record) = try publicState(id) else {
-            return .error(410, "expired", "This share has ended.")
+        let record: ShareRecord
+        switch try publicState(id) {
+        // Whoever made the last allowed fetch can still say what they thought of it.
+        case .ready(let live), .ended(let live, "play_cap"): record = live
+        default: return .error(410, "expired", "This share has ended.")
         }
         let reaction: ReactionRequest
         do {
@@ -828,7 +860,8 @@ extension ShareService {
         guard ShareLink.isValidID(id), let record = try store.share(id: id), record.isMixtape, !record.isBook else {
             return mixtapePage.render(id: nil, state: "unknown")
         }
-        guard config.enabled, try !store.isEnforced(record), record.expiresAt > now,
+        // Not `config.enabled`: pausing sharing refuses new shares, and links already sent keep playing.
+        guard try !store.isEnforced(record), record.expiresAt > now,
               record.status == .ready || record.status == .pending else { return mixtapePage.render(id: id, state: "expired") }
         let state = record.status == .pending ? "pending" : "ready"
         if let app = ClientClass.crawler(userAgent: who.userAgent) {

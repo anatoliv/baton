@@ -377,6 +377,20 @@ public final class PreferenceSync {
         localTimestamps = stamps
     }
 
+    /// Forgets what this device has changed and held, so its next sync behaves like a fresh
+    /// install's: it adopts the shared values and announces no deletions.
+    ///
+    /// For a wipe of this device's account data. The wipe removes synced keys, and without this
+    /// each removal is a stamped change of a key held at the last sync, which the push turns
+    /// into a tombstone that clears the setting on every other device (TBX-1000000480 B-1).
+    /// The snapshot is refreshed too, so a change notification still on its way from the
+    /// removals finds nothing moved and stamps nothing.
+    public func forgetLocalHistory() {
+        defaults.removeObject(forKey: Self.timestampsKey)
+        defaults.removeObject(forKey: Self.heldKeysKey)
+        if observer != nil { snapshot = currentValues() }
+    }
+
     /// Watches `UserDefaults` and stamps any synced key that changes.
     ///
     /// Replaces hand-placed `noteLocalChange` calls, which had drifted to covering 3 of the

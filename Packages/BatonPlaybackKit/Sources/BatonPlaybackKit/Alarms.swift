@@ -2,6 +2,7 @@ import BatonSubsonicKit
 import BatonSubsonicModels
 import Foundation
 import Observation
+import OSLog
 
 // Clock-style Alarm and Timer that play a chosen Baton item (TBX-11171, specs/alarm-and-timer.md).
 //
@@ -365,11 +366,19 @@ public final class AlarmStore {
         self.defaults = defaults
         self.key = key
         self.calendar = calendar
-        if let data = defaults.data(forKey: key), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) {
-            alarms = snapshot.alarms
-            timer = snapshot.timer
-            answered = snapshot.answered
-            stoppedByUser = snapshot.stoppedByUser ?? []
+        if let data = defaults.data(forKey: key) {
+            if let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) {
+                alarms = snapshot.alarms
+                timer = snapshot.timer
+                answered = snapshot.answered
+                stoppedByUser = snapshot.stoppedByUser ?? []
+            } else {
+                // Saved by a newer Baton (or damaged): keep it aside rather than let the next edit
+                // replace the person's alarms with an empty list.
+                defaults.set(data, forKey: key + ".unreadable")
+                Logger(subsystem: "io.tonebox.baton", category: "alarms")
+                    .error("Saved alarms could not be read; kept aside under \(key, privacy: .public).unreadable")
+            }
         }
         sortAlarms()
     }

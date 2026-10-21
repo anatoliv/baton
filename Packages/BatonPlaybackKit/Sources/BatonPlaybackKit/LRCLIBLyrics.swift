@@ -384,11 +384,16 @@ public enum LRCLIBLyrics {
     /// sheet with one malformed stamp still reads as lyrics.
     static func parseLRC(_ raw: String) -> [NavidromeLyrics.Line]? {
         var out: [NavidromeLyrics.Line] = []
+        // Where each line sorts if repeats force a re-sort: its own start, or for an untimed
+        // line the first stamp of the line it followed (the header, before any, stays on top).
+        var anchors: [Double] = []
+        var lastAnchor = -Double.infinity
+        var repeated = false
         for line in raw.split(separator: "\n", omittingEmptySubsequences: false) {
             let text = String(line)
             guard text.hasPrefix("["), let close = text.firstIndex(of: "]") else {
                 let trimmed = text.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty { out.append(.init(text: trimmed)) }
+                if !trimmed.isEmpty { out.append(.init(text: trimmed)); anchors.append(lastAnchor) }
                 continue
             }
             let stamp = String(text[text.index(after: text.startIndex) ..< close])
@@ -399,12 +404,30 @@ public enum LRCLIBLyrics {
                 // read `[offset:]` — dropping the header on the way past also discarded a
                 // real timing correction, which on one file was 47 seconds. Anything that
                 // is neither a stamp nor a known tag still disappears, as it always did.
-                if NavidromeLyrics.metadataTag(in: text) != nil { out.append(.init(text: text)) }
+                if NavidromeLyrics.metadataTag(in: text) != nil {
+                    out.append(.init(text: text)); anchors.append(lastAnchor)
+                }
                 continue
             }
-            out.append(.init(start: seconds, text: body))
+            // `[00:12.00][00:45.00]Chorus` is one line sung at each of its stamps.
+            var starts = [seconds]
+            var rest = Substring(body)
+            while rest.hasPrefix("["), let end = rest.firstIndex(of: "]"),
+                  let more = Self.seconds(fromLRCStamp: String(rest[rest.index(after: rest.startIndex) ..< end])) {
+                starts.append(more)
+                rest = rest[rest.index(after: end)...]
+            }
+            let words = rest.trimmingCharacters(in: .whitespaces)
+            for start in starts { out.append(.init(start: start, text: words)); anchors.append(start) }
+            lastAnchor = seconds
+            if starts.count > 1 { repeated = true }
         }
-        return out.isEmpty ? nil : out
+        guard !out.isEmpty else { return nil }
+        guard repeated else { return out }
+        // Repeats land out of order, so put the sheet back in time order.
+        return out.indices
+            .sorted { (anchors[$0], $0) < (anchors[$1], $1) }
+            .map { out[$0] }
     }
 
     static func seconds(fromLRCStamp stamp: String) -> Double? {

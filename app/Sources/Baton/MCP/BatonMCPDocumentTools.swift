@@ -70,7 +70,7 @@ enum BatonMCPDocumentTools {
     /// `makeBooksOn` is the setting, passed in so tests need not write Baton's defaults.
     static func run(_ args: [String: Any], library: DocumentLibrary,
                     makeBooksOn: BookVoiceSettings.MakeBooksOn = BookVoiceSettings.makeBooksOn,
-                    fetch: @escaping DocumentImporter.Fetch = { try await URLSession.shared.data(for: $0) })
+                    fetch: @escaping DocumentImporter.Fetch = DocumentImporter.pageFetch)
         async throws -> String {
         let path = (args["path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let link = (args["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -125,7 +125,7 @@ enum BatonMCPDocumentTools {
         }
         let jobID = try await library.submit(book, on: renderer)
         let estimate = ListeningEstimate(document)
-        documentsLog.notice("import_document: \"\(document.title, privacy: .public)\" submitted by an agent, made on \(renderer.rawValue, privacy: .public)")
+        documentsLog.notice("import_document: \"\(document.title, privacy: .private)\" submitted by an agent, made on \(renderer.rawValue, privacy: .public)")
 
         var reply: [String: Any] = [
             "status": "rendering",

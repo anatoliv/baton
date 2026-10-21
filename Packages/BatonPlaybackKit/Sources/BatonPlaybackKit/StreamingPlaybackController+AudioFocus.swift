@@ -71,10 +71,15 @@ extension StreamingPlaybackController {
         let generation = stateGeneration
         let previous = volumePercent
         let target = Self.duckTarget(from: previous, requested: toPercent)
+        // A duck already holding the level is superseded below, and its release then does
+        // nothing, so this token must restore what that one would have: the level before the
+        // first duck, not the ducked level now. Only while that restore still stands.
+        let carried: Int? = if let held = currentFocus, held.mode == .duck, held.didSuspend,
+                               held.generation == generation { held.previousVolumePercent } else { nil }
         // Only a genuine downward duck counts as "suspended". Nothing playing, or a target
         // at/above the current level, leaves a clean no-op token.
-        let didSuspend = state == .playing && target < previous
-        if didSuspend {
+        let didDuck = state == .playing && target < previous
+        if didDuck {
             // Lower the persisted `volumePercent` to the target WITHOUT bumping the
             // intervention counter — this is a focus duck, not a user volume change, so a
             // later user volume/transport change still cancels the auto-restore. Persisting
@@ -85,9 +90,10 @@ extension StreamingPlaybackController {
             // lands on `target` immediately, so nothing about recovery changes.
             rampFocusVolume(from: previous, to: target, duration: Self.duckRampSeconds)
         }
+        let restoreTo = carried ?? (didDuck ? previous : nil)
         let token = AudioFocusToken(
-            owner: owner, generation: generation, didSuspend: didSuspend,
-            mode: .duck, previousVolumePercent: didSuspend ? previous : nil
+            owner: owner, generation: generation, didSuspend: restoreTo != nil,
+            mode: .duck, previousVolumePercent: restoreTo
         )
         currentFocus = token
         persistActiveSuspend(token)

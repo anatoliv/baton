@@ -3,7 +3,7 @@
 //
 //   swift build --product baton-share            (in gateway/)
 //   node gateway/Tests/share-player/e2e.mjs [--nginx|--nginx-docker] [--browser=chromium|firefox|webkit]
-//     [--listeners=50|--media-errors-only|--startup-only|--book-only] [--chromium-channel=chromium]
+//     [--listeners=50|--media-errors-only|--startup-only|--book-only|--collection-only] [--chromium-channel=chromium]
 //     [--song-seconds=400 --download-mbps=10 --latency-ms=80] [path/to/baton-share] [evidence-dir]
 //
 // With --nginx, everything goes through a real nginx running deploy/nginx/default.conf (rewritten
@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 
 import { verifyBookChapters } from "./book-chapter.mjs";
 import { verifyBookPage } from "./book-page.mjs";
+import { verifyCollectionPage } from "./collection-page.mjs";
 import { verifyMediaErrorRecovery } from "./media-errors.mjs";
 import { verifyMixtapePage } from "./mixtape-page.mjs";
 import { measureStartup, registerOwnedBrowser, registerOwnedBrowserServer } from "./startup.mjs";
@@ -54,6 +55,9 @@ const latencyMs = Number(takeOption("--latency-ms", "0"));
 const mediaErrorsOnly = takeFlag("--media-errors-only");
 // Only the whole-book page walk (/b/), after the shared nginx checks: a quicker loop for the book page.
 const bookOnly = takeFlag("--book-only");
+// Only the album and playlist page walk (/b/ with a collection kind), after the shared nginx checks.
+const collectionOnly = takeFlag("--collection-only");
+assert.ok(!(bookOnly && collectionOnly), "--book-only and --collection-only are separate loops");
 assert.ok(!mediaErrorsOnly || !args.some(arg => arg.startsWith("--listeners=")), "media error cases run separately from listener load");
 const dockerNginx = takeFlag("--nginx-docker");
 const viaNginx = takeFlag("--nginx") || dockerNginx;
@@ -131,7 +135,7 @@ step(external ? `using the running service at ${external}` : `starting ${binary}
 const server = external ? null : spawn(binary, [], {
   env: { ...process.env, BATON_SHARE_DATA: join(work, "data"), BATON_SHARE_PORT: String(port),
     BATON_SHARE_PUBLIC_BASE: base, BATON_SHARE_BLOB_DELIVERY: viaNginx ? "accel" : "direct",
-    BATON_SHARE_ADMIN_TOKEN: admin, BATON_SHARE_MIXTAPES: "1", BATON_SHARE_BOOKS: "1" },
+    BATON_SHARE_ADMIN_TOKEN: admin, BATON_SHARE_MIXTAPES: "1", BATON_SHARE_BOOKS: "1", BATON_SHARE_COLLECTIONS: "1" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let serverLog = "";
@@ -159,6 +163,11 @@ if (viaNginx) {
   site = swap(site, "/etc/nginx/conf.d/share-proxy.inc", `${confPath}/share-proxy.inc`);
   site = swap(site, "alias /srv/baton-share/blobs/;", `alias ${dockerNginx ? "/data/blobs" : join(dataDir, "blobs")}/;`);
   site = swap(site, '"http://baton-share:8790"', `"${dockerNginx ? direct.replace("127.0.0.1", "host.docker.internal") : direct}"`);
+  // The site's server-level access_log lines (TBX-1000000489) would override the http-level
+  // choice below and need /var/log/nginx, which a host nginx lacks. The share log's own
+  // format is tested by deploy/test-share-log-format.sh.
+  for (const format of ["baton_site  if=$baton_log_site;", "baton_share if=$baton_log_share;"])
+    site = swap(site, `access_log /var/log/nginx/access.log ${format}`, "");
   writeFileSync(join(conf, "default.conf"), site);
   writeFileSync(join(conf, "share-proxy.inc"), readFileSync(join(repo, "deploy/nginx/share-proxy.inc")));
   const tmp = `${containerWork}/nginx-tmp`;
@@ -337,6 +346,12 @@ try {
     assert.ok(!publicOnly, "the book page walk is local only");
     const skipped = await verifyBookPage({ browser, base, direct, api, evidence, dataDir, external, work, step, screenshot, monitor, problems,
       activate: (bookPage) => { activePage = bookPage; } });
+    if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
+    assert.equal((await api("DELETE", `/v1/share/shares/${id}`)).status, 204);
+  } else if (collectionOnly) {
+    assert.ok(!publicOnly, "the collection page walk is local only");
+    const skipped = await verifyCollectionPage({ browser, base, api, evidence, dataDir, external, work, step, screenshot, monitor, problems,
+      activate: (collectionPage) => { activePage = collectionPage; } });
     if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
     assert.equal((await api("DELETE", `/v1/share/shares/${id}`)).status, 204);
   } else {
@@ -660,6 +675,15 @@ try {
       activate: (bookPage) => { activePage = bookPage; } });
     if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
   }
+
+  // ---------- The album and playlist page (/b/ with a collection kind), TBX-1000000485 ----------
+
+  if (publicOnly) skips.push("collection page: no collection fixtures against a public service");
+  else {
+    const skipped = await verifyCollectionPage({ browser, base, api, evidence, dataDir, external, work, step, screenshot, monitor, problems,
+      activate: (collectionPage) => { activePage = collectionPage; } });
+    if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
+  }
   }
   assert.deepEqual(problems, [], "no unexpected browser errors");
   // Revoke every remaining fixture, including public runs, leaving tombstones only.
@@ -678,7 +702,7 @@ try {
     }
     screenshotErrors.push(...problems);
   }
-  writeFileSync(join(evidence, "result.json"), JSON.stringify({ engine, viaNginx, publicOnly, listeners, mediaErrorsOnly, startupOnly, bookOnly, passed: true,
+  writeFileSync(join(evidence, "result.json"), JSON.stringify({ engine, viaNginx, publicOnly, listeners, mediaErrorsOnly, startupOnly, bookOnly, collectionOnly, passed: true,
     appErrors: 0, screenshotErrors,
     skips: [...(external ? ["local deadline acceleration"] : []), ...(publicOnly ? ["internal admin aggregate report"] : []), ...skips] }, null, 2));
 
@@ -689,7 +713,7 @@ try {
   if (activePage && !activePage.isClosed()) {
     try {
       await Promise.race([screenshot(activePage, join(evidence, "failure.png")), new Promise((r) => setTimeout(r, 5000))]);
-      // The page in use when it failed (the song, mixtape or book page); never its fragment.
+      // The page in use when it failed (the song, mixtape, book or collection page); never its fragment.
       const state = await Promise.race([new Promise((_, reject) => setTimeout(() => reject(new Error("state capture timed out")), 5000)), activePage.evaluate(() => ({ path: location.pathname, readyState: document.readyState, state: document.body?.dataset.state,
         playing: document.body.classList.contains("is-playing"), elapsed: document.getElementById("elapsed")?.textContent,
         status: document.getElementById("status")?.textContent, afterHidden: document.getElementById("after")?.hidden,

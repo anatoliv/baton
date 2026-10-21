@@ -90,11 +90,27 @@ extension NavidromeClient {
     /// Saves the play queue server-side (`savePlayQueue`): the ordered song ids, the
     /// current song, and the position within it. Overwrites the previous saved queue
     /// (one per user, by design — it's a handoff slot, not a history).
+    ///
+    /// A long queue is trimmed to `maxSavedPlayQueueIDs` around the current song: this is a GET
+    /// with one `id=` per song, and a few hundred overflow an 8 KB request line,
+    /// which failed the whole save. `current` is an id, so it stays valid in the window.
     public func savePlayQueue(songIDs: [String], currentID: String? = nil, positionMs: Int? = nil) async throws {
-        var query = songIDs.map { URLQueryItem(name: "id", value: $0) }
+        let ids = Self.playQueueWindow(songIDs, currentID: currentID)
+        var query = ids.map { URLQueryItem(name: "id", value: $0) }
         if let currentID { query.append(URLQueryItem(name: "current", value: currentID)) }
         if let positionMs { query.append(URLQueryItem(name: "position", value: String(max(0, positionMs)))) }
         _ = try await performJSON("savePlayQueue.view", retry: false, query: query)
+    }
+
+    static let maxSavedPlayQueueIDs = 200
+    /// Songs kept from before the current one; the rest of the window is what comes next.
+    static let savedPlayQueueLookback = 20
+
+    static func playQueueWindow(_ songIDs: [String], currentID: String?) -> ArraySlice<String> {
+        guard songIDs.count > maxSavedPlayQueueIDs else { return songIDs[...] }
+        let currentIndex = currentID.flatMap { songIDs.firstIndex(of: $0) } ?? 0
+        let start = max(0, min(currentIndex - savedPlayQueueLookback, songIDs.count - maxSavedPlayQueueIDs))
+        return songIDs[start ..< start + maxSavedPlayQueueIDs]
     }
 
     /// The last queue any client saved for this user (`getPlayQueue`), or nil when

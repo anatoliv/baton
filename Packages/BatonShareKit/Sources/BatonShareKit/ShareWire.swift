@@ -109,7 +109,8 @@ public enum ShareText {
     }
 
     public static func isHexColor(_ text: String) -> Bool {
-        text.count == 7 && text.first == "#" && text.dropFirst().allSatisfy(\.isHexDigit)
+        text.utf8.count == 7 && text.first == "#"
+            && text.utf8.dropFirst().allSatisfy { (48 ... 57).contains($0) || (65 ... 70).contains($0) || (97 ... 102).contains($0) }
     }
 }
 
@@ -225,7 +226,7 @@ public struct CreateShareRequest: Codable, Equatable, Sendable {
         guard (ShareCrypto.headerLength + ShareCrypto.tagLength ... limits.maxAudioBytes).contains(audioBytes) else {
             throw ShareValidationError("audioBytes", "must be at most \(limits.maxAudioBytes)")
         }
-        guard audioSHA256.count == 64, audioSHA256.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else {
+        guard ShareBookManifest.isLowerHex(audioSHA256) else {
             throw ShareValidationError("audioSHA256", "must be 64 lowercase hex characters")
         }
         guard ShareClientInfo.platforms.contains(client.platform) else {
@@ -369,6 +370,10 @@ public struct ShareConfig: Codable, Equatable, Sendable {
     public var books: Int?
     /// The book caps, advertised with `books`, so the composer holds no second copy of them.
     public var book: ShareBookLimits?
+    /// 1 when the service also takes album and playlist links on `/b/` (specs/collection-sharing.md);
+    /// advertised only with `books`, whose caps a collection shares.
+    public var collections: Int?
+    public var collection: ShareCollectionLimits?
     public var appAttest: ShareAttestationPolicy?
     public var reactionPush: ReactionPushAdvertisement?
     public var enabled: Bool

@@ -47,7 +47,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import sys
+import tempfile
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -93,10 +95,23 @@ def save(document: dict) -> None:
     `indent=2` and `ensure_ascii=False` so the result stays a readable diff — the whole
     point of the file is that a metadata change is reviewable, and an escaped-unicode blob
     is not.
+
+    Written to a temporary file beside it and moved into place, so a failure part-way
+    leaves the previous file rather than a truncated one. (TBX-1000000480 B-13)
     """
-    with open(METADATA, "w", encoding="utf-8") as handle:
-        json.dump(document, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+    directory = os.path.dirname(os.path.abspath(METADATA))
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{os.path.basename(METADATA)}.", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        if os.path.exists(METADATA):
+            os.chmod(temporary, stat.S_IMODE(os.stat(METADATA).st_mode))
+        os.replace(temporary, METADATA)
+    except BaseException:
+        os.unlink(temporary)
+        raise
 
 
 # --- reading Apple ----------------------------------------------------------------------
@@ -342,41 +357,45 @@ def command_push(args) -> int:
         return 0
 
     wrote, blocked = [], []
-    for fields, writable, path, kind in (
-        (APP_INFO_FIELDS, info_writable(live),
-         f"appInfoLocalizations/{live['appInfoLocalizationId']}", "appInfoLocalizations"),
-        (VERSION_FIELDS, version_writable(live),
-         f"appStoreVersionLocalizations/{live['versionLocalizationId']}",
-         "appStoreVersionLocalizations"),
-    ):
-        changed = {f: document["desired"][f] for f in fields if f in pending}
-        if not changed:
-            continue
-        if not writable:
-            blocked.extend(sorted(changed))
-            continue
-        if args.dry_run:
-            print(f"  would PATCH {kind}: {', '.join(sorted(changed))}")
+    try:
+        for fields, writable, path, kind in (
+            (APP_INFO_FIELDS, info_writable(live),
+             f"appInfoLocalizations/{live['appInfoLocalizationId']}", "appInfoLocalizations"),
+            (VERSION_FIELDS, version_writable(live),
+             f"appStoreVersionLocalizations/{live['versionLocalizationId']}",
+             "appStoreVersionLocalizations"),
+        ):
+            changed = {f: document["desired"][f] for f in fields if f in pending}
+            if not changed:
+                continue
+            if not writable:
+                blocked.extend(sorted(changed))
+                continue
+            if args.dry_run:
+                print(f"  would PATCH {kind}: {', '.join(sorted(changed))}")
+                wrote.extend(sorted(changed))
+                continue
+            client.patch(path, {"data": {
+                "id": path.split("/")[-1], "type": kind, "attributes": changed,
+            }})
+            print(f"  patched {kind}: {', '.join(sorted(changed))}")
             wrote.extend(sorted(changed))
-            continue
-        client.patch(path, {"data": {
-            "id": path.split("/")[-1], "type": kind, "attributes": changed,
-        }})
-        print(f"  patched {kind}: {', '.join(sorted(changed))}")
-        wrote.extend(sorted(changed))
+    finally:
+        # In a `finally` because a later PATCH can fail after an earlier one landed, and a
+        # snapshot that misses the landed one makes the next check or push call Baton's own
+        # write drift and refuse. (TBX-1000000480 B-13)
+        if wrote and not args.dry_run:
+            # Re-read rather than assuming the PATCH did what was asked. Apple normalises some
+            # fields (whitespace in keywords, for one), so the snapshot has to record what Apple
+            # ended up with or the very next `check` reports drift against our own write.
+            after = read_live(client, document["bundleId"], document["locale"])
+            document["_live"] = snapshot(after)
+            save(document)
+            print(f"\nPushed {len(wrote)} field(s) and re-read the result into the snapshot.")
 
     if args.dry_run:
         print("\n--dry-run: nothing was sent and the snapshot was not updated.")
         return 0
-
-    if wrote:
-        # Re-read rather than assuming the PATCH did what was asked. Apple normalises some
-        # fields (whitespace in keywords, for one), so the snapshot has to record what Apple
-        # ended up with or the very next `check` reports drift against our own write.
-        after = read_live(client, document["bundleId"], document["locale"])
-        document["_live"] = snapshot(after)
-        save(document)
-        print(f"\nPushed {len(wrote)} field(s) and re-read the result into the snapshot.")
 
     if blocked:
         print(f"\nStill pending, nothing editable to write them to "

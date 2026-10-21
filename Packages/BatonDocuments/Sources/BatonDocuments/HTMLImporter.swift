@@ -325,19 +325,36 @@ public enum HTMLImporter {
                 || type.contains("pagebreak")
         }
 
-        mutating func walk(_ node: HTMLNode) {
-            switch node.kind {
-            case .text:
-                lines[lines.count - 1] += node.text
-                if linkDepth > 0 { linkCharacters += node.text.trimmingCharacters(in: .whitespacesAndNewlines).count }
-            case .document:
-                node.children.forEach { walk($0) }
-            case .element:
-                element(node)
+        /// A node to read, or the end of an element whose children have all been read.
+        private enum Step {
+            case visit(HTMLNode)
+            case leave(isLink: Bool, isBlock: Bool)
+        }
+
+        /// In document order, with its own stack rather than recursion: an import runs on a
+        /// 512 KB pool thread, and a debug build's frames overflowed it at about 130 levels.
+        mutating func walk(_ root: HTMLNode) {
+            var work: [Step] = [.visit(root)]
+            while let step = work.popLast() {
+                switch step {
+                case .visit(let node):
+                    switch node.kind {
+                    case .text:
+                        lines[lines.count - 1] += node.text
+                        if linkDepth > 0 { linkCharacters += node.text.trimmingCharacters(in: .whitespacesAndNewlines).count }
+                    case .document:
+                        work.append(contentsOf: node.children.reversed().map(Step.visit))
+                    case .element:
+                        element(node, &work)
+                    }
+                case .leave(let isLink, let isBlock):
+                    if isLink { linkDepth -= 1 }
+                    if isBlock { flush() }
+                }
             }
         }
 
-        private mutating func element(_ node: HTMLNode) {
+        private mutating func element(_ node: HTMLNode, _ work: inout [Step]) {
             let name = node.name
             if let id = node.attribute("id") ?? (name == "a" ? node.attribute("name") : nil), anchors[id] == nil {
                 if HTMLImporter.blockElements.contains(name) || Self.headingLevel(name) != nil { flush() }
@@ -353,7 +370,7 @@ public enum HTMLImporter {
                     if !Block.mostlyLinks(node) { skipped.tables += 1 }
                     return
                 }
-                node.children.forEach { walk($0) }
+                work.append(contentsOf: node.children.reversed().map(Step.visit))
                 return
             case "pre":
                 flush()
@@ -412,9 +429,8 @@ public enum HTMLImporter {
             let isBlock = HTMLImporter.blockElements.contains(name)
             if isBlock { flush() }
             if isLink { linkDepth += 1 }
-            node.children.forEach { walk($0) }
-            if isLink { linkDepth -= 1 }
-            if isBlock { flush() }
+            work.append(.leave(isLink: isLink, isBlock: isBlock))
+            work.append(contentsOf: node.children.reversed().map(Step.visit))
         }
 
         /// A heading's words as they are read: picture titles in, page numbers and "¶" out.

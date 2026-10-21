@@ -139,6 +139,31 @@ final class PreferenceSyncDeletionTests: XCTestCase {
         XCTAssertEqual(phone.defaults.string(forKey: key), "Jazz")
     }
 
+    /// "Disconnect and delete my data" removes the account's synced keys from this device only.
+    /// Those removals are a wipe, not a decision about the shared settings, so once the purge
+    /// has forgotten this device's history the next sync must leave the shared values alone.
+    /// Before, each removal was stamped as a local change of a held key and pushed as a
+    /// tombstone with the old token, and the Mac cleared its own settings (TBX-1000000480 B-1).
+    func testAfterForgetLocalHistoryARemovedHeldKeyPushesNoTombstone() async throws {
+        let phone = device("iPhone")
+        phone.defaults.set("Rock", forKey: key)
+        phone.sync.noteLocalChange(key, at: Date(timeIntervalSinceNow: -120))
+        await syncs(phone)
+        phone.sync.startObservingChanges()
+        defer { phone.sync.stopObservingChanges() }
+
+        phone.defaults.removeObject(forKey: key)
+        phone.sync.noteLocalChange(key, at: Date(timeIntervalSinceNow: -60))
+        phone.sync.forgetLocalHistory()
+        // Let a main-queue change notification from the removal arrive, as it would in the app.
+        try await Task.sleep(for: .milliseconds(50))
+        await syncs(phone)
+
+        let entry = try XCTUnwrap(try FakeGateway.decodedDocument()[key])
+        XCTAssertFalse(entry.isTombstone, "a purge on this device cleared the setting everywhere")
+        XCTAssertEqual(try entryValue(entry), "Rock")
+    }
+
     // MARK: - A tombstone reaching a build that has never heard of one
 
     /// The stated risk of adding a field to `Entry`: a build without it must **ignore** the

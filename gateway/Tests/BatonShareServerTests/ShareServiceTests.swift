@@ -235,6 +235,56 @@ final class ShareServiceTests: XCTestCase {
         ])
     }
 
+    /// A quote or angle bracket followed by a combining mark is one Swift Character but still a raw
+    /// byte to the browser, so it must be escaped too.
+    func testACombiningMarkCannotCarryAQuoteOrBracketPastEscaping() throws {
+        let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
+        let preview: [String: Any] = ["title": "Song <\u{301}b>", "artist": "A'\u{301}&\u{301}>\u{301}",
+                                      "from": "Sam\"\u{301}", "durationSeconds": 200,
+                                      "note": "0;url=https://evil.example\"\u{301} http-equiv=refresh"]
+        let created = try decode(CreateShareResponse.self,
+                                 request("POST", "/v1/share/shares", json: createBody(sealed, preview: preview), secret: secret))
+        XCTAssertEqual(try upload(created.id, "audio", sealed).status, 200)
+        XCTAssertEqual(request("POST", "/v1/share/shares/\(created.id)/finalize", secret: secret).status, 200)
+        let html = Data(request("GET", "/s/\(created.id)").body)
+        let text = String(decoding: html, as: UTF8.self)
+        let mark = Data("\u{301}".utf8)
+        // The JSON block is script data, where only "<" matters; everywhere else all five do.
+        let start = try XCTUnwrap(html.range(of: Data(#"id="share-data">"#.utf8))).upperBound
+        let end = try XCTUnwrap(html.range(of: Data("</script>".utf8), in: start ..< html.endIndex)).lowerBound
+        XCTAssertFalse(html[start ..< end].contains(UInt8(ascii: "<")), "a raw < reached the JSON block")
+        let outside = html[..<start] + html[end...]
+        for raw in ["\"", "<", ">", "&", "'"] {
+            XCTAssertNil(outside.range(of: Data(raw.utf8) + mark), "a raw \(raw) before a combining mark reached the page")
+        }
+        XCTAssertNotNil(html.range(of: Data(#"<meta property="og:description" content="0;url=https://evil.example&quot;"#.utf8) + mark
+                                   + Data(#" http-equiv=refresh">"#.utf8)), text)
+        XCTAssertNotNil(html.range(of: Data("Sam&quot;".utf8) + mark + Data(" sent you Song &lt;".utf8) + mark), text)
+        // Ordinary text escapes exactly as it always has.
+        XCTAssertEqual(SharePage.escape(#"Beyoncé & "Jay-Z" <live> it's 👩‍👩‍👧"#),
+                       "Beyoncé &amp; &quot;Jay-Z&quot; &lt;live&gt; it&#39;s 👩‍👩‍👧")
+    }
+
+    /// A sharer's text that looks like a placeholder stays text: it is never expanded into the page's data.
+    func testPlaceholderTextInAPreviewIsNotExpanded() throws {
+        let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
+        let preview: [String: Any] = ["title": "{{DATA}}", "artist": "x\" http-equiv=refresh content=\"0;url=https://evil.example",
+                                      "from": "{{OG_TAGS}}", "note": "{{HEADLINE}}", "durationSeconds": 200]
+        let created = try decode(CreateShareResponse.self,
+                                 request("POST", "/v1/share/shares", json: createBody(sealed, preview: preview), secret: secret))
+        XCTAssertEqual(try upload(created.id, "audio", sealed).status, 200)
+        XCTAssertEqual(request("POST", "/v1/share/shares/\(created.id)/finalize", secret: secret).status, 200)
+        let html = String(decoding: request("GET", "/s/\(created.id)").body, as: UTF8.self)
+        XCTAssertEqual(html.components(separatedBy: #"id="share-data""#).count, 2, html)
+        XCTAssertEqual(html.components(separatedBy: #""state":"#).count, 2, "the data block appears once: \(html)")
+        // Outside the JSON block, the sharer's quote is only ever escaped text, never an attribute.
+        let outside = try XCTUnwrap(html.components(separatedBy: #"id="share-data">"#).first)
+            + (try XCTUnwrap(html.components(separatedBy: #"id="share-data">"#).last?.components(separatedBy: "</script>").dropFirst()
+                .joined(separator: "</script>")))
+        XCTAssertFalse(outside.replacingOccurrences(of: "&quot; http-equiv", with: "").contains("http-equiv"), html)
+        XCTAssertTrue(html.contains("<title>{{OG_TAGS}} sent you {{DATA}} by x&quot; http-equiv"), html)
+    }
+
     func testAPrivateShareKeepsItsDetailsOutOfThePage() throws {
         let key = ShareCrypto.newKey()
         let sealed = try ShareCrypto.seal(Data(count: 5000), key: key, purpose: .audio)
@@ -381,6 +431,29 @@ final class ShareServiceTests: XCTestCase {
         XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio").status, 200)
     }
 
+    /// nginx serves the whole file for every one of these, so each must count toward the cap.
+    func testThePlayCapCountsEveryWholeFileRangeSpelling() throws {
+        let whole: [[String: String]] = [
+            ["range": "BYTES=0-"], ["range": "Bytes=0-"], ["range": "bytes=00-"], ["range": " bytes = 0 - "],
+            ["range": "bytes=-26214400"], ["range": "bytes=5-9,0-"], ["range": "items=0-"],
+            ["range": "bytes=5-", "if-range": "\"etag\""], ["range": "bytes=abc-"], ["range": ""],
+            // nginx compares the first six characters with `bytes=`, so a space before `=` is another unit.
+            ["range": "Bytes = 05-"], ["range": "bytes =5-"],
+        ]
+        for headers in whole {
+            let made = try makeReadyShare(cap: 1)
+            XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio", headers: headers).status, 200)
+            XCTAssertEqual(code(request("GET", "/v1/share/p/\(made.id)/audio")), "play_cap",
+                           "a whole-file fetch with \(headers) counts")
+        }
+        // A strict single continuation range without If-Range is the only fetch that does not count.
+        let made = try makeReadyShare(cap: 1)
+        for range in ["bytes=5000-", "bytes=5-9", "bytes= 5 - ", "BYTES=5-", "Bytes=05-", "bytes=1-1"] {
+            XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio", headers: ["range": range]).status, 200, range)
+        }
+        XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio").status, 200, "continuations left the cap unspent")
+    }
+
     func testRevokeDeletesAtOnceAndReadsAsExpiredToTheFriend() throws {
         let made = try makeReadyShare()
         XCTAssertEqual(request("POST", "/v1/share/p/\(made.id)/reactions", json: ["emoji": "🔥"]).status, 204)
@@ -397,6 +470,23 @@ final class ShareServiceTests: XCTestCase {
                        .revoked, "the sharer still sees what they did")
         XCTAssertEqual(try service.store.reactions(shareID: made.id), [])
         XCTAssertEqual(request("PATCH", "/v1/share/shares/\(made.id)", json: ["extendBySeconds": 60], secret: secret).status, 409)
+    }
+
+    /// Past its stated time a share is over, even before the sweeper notices: the sharer cannot
+    /// extend it back to life or finish uploading it.
+    func testAnExpiredShareCannotBeExtendedUploadedOrFinalized() throws {
+        let made = try makeReadyShare(expires: 86400)
+        let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
+        let pending = try decode(CreateShareResponse.self,
+                                 request("POST", "/v1/share/shares", json: createBody(sealed, expires: 86400), secret: secret))
+        clock.advance(86400)
+        let extend = request("PATCH", "/v1/share/shares/\(made.id)", json: ["extendBySeconds": 86400], secret: secret)
+        XCTAssertEqual(extend.status, 400)
+        XCTAssertEqual(try service.store.share(id: made.id)?.expiresAt, Int64(clock.now.timeIntervalSince1970),
+                       "the expiry did not move")
+        XCTAssertEqual(code(request("GET", "/v1/share/p/\(made.id)/audio")), "expired")
+        XCTAssertEqual(try upload(pending.id, "audio", sealed).status, 409)
+        XCTAssertEqual(request("POST", "/v1/share/shares/\(pending.id)/finalize", secret: secret).status, 409)
     }
 
     func testExtendIsCappedAtThirtyDaysFromNow() throws {
@@ -431,6 +521,18 @@ final class ShareServiceTests: XCTestCase {
                        204, "another visitor is unaffected")
         clock.advance(60)
         XCTAssertEqual(request("POST", "/v1/share/p/\(made.id)/events", json: ["type": "play_30s"]).status, 204)
+    }
+
+    /// The fetch that reaches the cap is still a listen: its beacons and reaction count.
+    func testTheLastAllowedListenerCanStillReact() throws {
+        let made = try makeReadyShare(cap: 1)
+        XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio").status, 200)
+        XCTAssertEqual(request("POST", "/v1/share/p/\(made.id)/events", json: ["type": "play_started", "ms": 900]).status, 204)
+        XCTAssertEqual(request("POST", "/v1/share/p/\(made.id)/reactions", json: ["emoji": "❤️", "name": "Maya"]).status, 204)
+        XCTAssertEqual(try service.store.reactions(shareID: made.id).map(\.name), ["Maya"])
+        XCTAssertEqual(try events("play_started").count, 1)
+        XCTAssertEqual(try events("reaction_sent").count, 1)
+        XCTAssertEqual(code(request("GET", "/v1/share/p/\(made.id)/audio")), "play_cap", "the cap itself still holds")
     }
 
     func testReactionsAreLimitedAndValidated() throws {
@@ -510,6 +612,24 @@ final class ShareServiceTests: XCTestCase {
         let paused = request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret)
         XCTAssertEqual(code(paused), "share_disabled")
         XCTAssertEqual(try decode(ShareConfig.self, request("GET", "/v1/share/config")).enabled, false)
+    }
+
+    /// A create refused for space does not spend the network's daily allowance.
+    func testRefusedCreatesDoNotSpendTheNetworkAllowance() throws {
+        var limits = ShareLimits()
+        limits.quotaBytes = 200_000
+        limits.createsPerNetworkPerDay = 2
+        service = try makeService(limits: limits)
+        let made = try makeReadyShare()
+        let sealed = try ShareCrypto.seal(Data(count: 100_000), key: ShareCrypto.newKey(), purpose: .audio)
+        for _ in 0 ..< 3 {
+            XCTAssertEqual(code(request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret)), "busy")
+        }
+        XCTAssertEqual(request("DELETE", "/v1/share/shares/\(made.id)", secret: secret).status, 204)
+        let created = request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret)
+        XCTAssertEqual(created.status, 201, String(decoding: created.body, as: UTF8.self))
+        XCTAssertEqual(code(request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret)), "rate_limited",
+                       "the allowance itself still holds")
     }
 
     // MARK: - Sweeper

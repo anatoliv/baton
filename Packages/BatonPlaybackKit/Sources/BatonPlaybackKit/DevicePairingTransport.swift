@@ -35,6 +35,11 @@ public final class PairingHost {
 
     private var listener: NWListener?
     private var expiry: Task<Void, Never>?
+    /// The device waiting on the owner's answer, and the host's own wait for it. `stop` ends
+    /// both: the app's prompt may never answer (its pane closed, the code expired), and the
+    /// device's socket must not stay open behind it.
+    private var waitingConnection: NWConnection?
+    private var pendingApproval: (id: UUID, continuation: CheckedContinuation<Bool, Never>)?
 
     public init() {}
 
@@ -86,6 +91,9 @@ public final class PairingHost {
         expiry = nil
         listener?.cancel()
         listener = nil
+        waitingConnection?.cancel()
+        waitingConnection = nil
+        if let pendingApproval { answerApproval(pendingApproval.id, false) }
         if case .linked = state {} else { state = .idle }
     }
 
@@ -137,15 +145,23 @@ public final class PairingHost {
             connection.cancel()
             return
         }
-
-        state = .awaitingApproval(deviceName: hello.deviceName)
-        let approved = await approve?(hello.deviceName) ?? false
-        // The expiry may have fired while the prompt was on screen; if it did, this
-        // attempt is over regardless of what was clicked afterwards.
-        guard case .awaitingApproval = state else {
+        // Another device may have reached the prompt (or the attempt ended) while this one was
+        // being read: one link per code, so only the first valid hello is asked about.
+        guard case let .advertising(current) = state, current == invitation else {
             connection.cancel()
             return
         }
+
+        state = .awaitingApproval(deviceName: hello.deviceName)
+        waitingConnection = connection
+        let approved = await askApproval(hello.deviceName)
+        // The expiry or a stop may have ended this attempt while the prompt was on screen; if
+        // so, it is over regardless of what was clicked afterwards.
+        guard case .awaitingApproval = state, waitingConnection === connection else {
+            connection.cancel()
+            return
+        }
+        waitingConnection = nil
         guard approved else {
             connection.cancel()
             stop()
@@ -167,6 +183,26 @@ public final class PairingHost {
         expiry?.cancel()
         listener?.cancel()
         listener = nil
+    }
+
+    /// The app's answer, or false as soon as `stop` calls the attempt off, whichever comes first.
+    private func askApproval(_ deviceName: String) async -> Bool {
+        let id = UUID()
+        let approve = self.approve
+        return await withCheckedContinuation { continuation in
+            if let earlier = pendingApproval { answerApproval(earlier.id, false) }
+            pendingApproval = (id, continuation)
+            Task { @MainActor [weak self] in
+                let answer = await approve?(deviceName) ?? false
+                self?.answerApproval(id, answer)
+            }
+        }
+    }
+
+    private func answerApproval(_ id: UUID, _ answer: Bool) {
+        guard let pending = pendingApproval, pending.id == id else { return }
+        pendingApproval = nil
+        pending.continuation.resume(returning: answer)
     }
 
     private func receive(_ connection: NWConnection) async -> Data? {

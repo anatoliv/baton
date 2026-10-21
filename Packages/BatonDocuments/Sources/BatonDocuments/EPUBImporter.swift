@@ -36,8 +36,17 @@ public enum EPUBImporter {
         var fileEnd: [String: Int] = [:]
         var anchors: [String: Int] = [:]
         var skipped = HTMLImporter.Skipped()
+        var unreadable: [String] = []
         for path in book.spine {
-            guard fileStart[path] == nil, let bytes = try? zip.contents(of: path) else { continue }
+            guard fileStart[path] == nil else { continue }
+            let bytes: Data
+            do {
+                guard let found = try zip.contents(of: path) else { continue }
+                bytes = found
+            } catch {
+                unreadable.append(path.split(separator: "/").last.map(String.init) ?? path)
+                continue
+            }
             let document = HTMLParser.parse(HTMLParser.decode(bytes))
             let body = document.first(named: "body") ?? document
             HTMLImporter.removeFurniture(body, book: true)
@@ -132,6 +141,9 @@ public enum EPUBImporter {
         stats.paragraphRule = .markup
         var warnings: [ImportWarning] = []
         if let detail = skipped.detail { warnings.append(ImportWarning(.contentSkipped, detail: detail)) }
+        if !unreadable.isEmpty {
+            warnings.append(ImportWarning(.contentSkipped, detail: "\(unreadable.joined(separator: ", ")), which could not be read"))
+        }
         let result = LayoutTextImporter.Result(title: title, author: author, frontMatter: frontMatter, chapters: chapters,
                                                stats: stats, foundHeadings: chapters.count >= 2)
         return Output(result: result, language: book.language, warnings: warnings, languageRegion: book.languageRegion)
@@ -229,7 +241,11 @@ public enum EPUBImporter {
                     opfPath = path
                 }
             }
-            guard let opfPath, let opfData = try zip.contents(of: opfPath) else {
+            let opfData: Data?
+            do { opfData = try opfPath.flatMap { try zip.contents(of: $0) } } catch {
+                throw DocumentImporter.Failure.unreadable("this EPUB's package file could not be read: \(error)")
+            }
+            guard let opfPath, let opfData else {
                 throw DocumentImporter.Failure.unreadable("this EPUB has no package file")
             }
             let opf = HTMLParser.parse(HTMLParser.decode(opfData))

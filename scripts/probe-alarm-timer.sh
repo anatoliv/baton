@@ -11,6 +11,10 @@
 # takes the card down with the music still playing and the Baton window up; the player's clock
 # opens the quick sheet (TBX-1000000112). The audio is silence, so the run is quiet on the owner's speakers.
 #
+# The ringing card's words and look can be chosen, for a screenshot (TBX-1000000478):
+# ALARM_PROBE_LABEL (default "Probe timer"), ALARM_PROBE_TRACK (default "Wake Up") and
+# ALARM_PROBE_APPEARANCE (light or dark, written to the probe's own suite; unset follows the system).
+#
 # Build a DEBUG probe under its own bundle id first, so it never shares the owner's Baton's
 # ports or notifications: PROBE_BUNDLE_ID=io.tonebox.baton.dev.alarm scripts/probe-build.sh <dir>
 set -uo pipefail
@@ -22,6 +26,8 @@ mkdir -p "$EVIDENCE"
 EVIDENCE="$(cd "$EVIDENCE" && pwd -P)"
 WORK="$(mktemp -d -t baton-alarm-probe)"
 SUITE="$(probe_new_suite alarm)"
+LABEL="${ALARM_PROBE_LABEL:-Probe timer}"
+TRACK="${ALARM_PROBE_TRACK:-Wake Up}"
 PID=""
 fail=0
 T0=$(date +%s)
@@ -50,33 +56,38 @@ now_playing() { probe_mcp_tool "$SUITE" music_now_playing 2>/dev/null; }
 texts() { "$AX_BIN" texts "$PID" 2>/dev/null; }
 
 # Thirty seconds of silence, the "chosen track".
-/usr/bin/python3 - "$WORK/Wake Up.wav" <<'PY'
+/usr/bin/python3 - "$WORK/$TRACK.wav" <<'PY'
 import struct, sys, wave
 with wave.open(sys.argv[1], "wb") as w:
     w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
     w.writeframes(struct.pack("<h", 0) * 8000 * 30)
 PY
-FILE_URL="$(/usr/bin/python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).as_uri())' "$WORK/Wake Up.wav")"
+FILE_URL="$(/usr/bin/python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).as_uri())' "$WORK/$TRACK.wav")"
+case "${ALARM_PROBE_APPEARANCE:-}" in
+  light|dark) defaults write "$SUITE" baton.appearance "$ALARM_PROBE_APPEARANCE" ;;
+  "") ;;
+  *) echo "ALARM_PROBE_APPEARANCE is light or dark"; exit 2 ;;
+esac
 
 say "launch a probe with a 12-second timer"
 open -n -a "$APP" --env BATON_DEBUG_PREFERENCE_SYNC=off --env BATON_DEBUG_ALARM_SYSTEM=off \
-  --env "BATON_DEBUG_ALARM_PROBE_TIMER=12|$FILE_URL" --args -baton.defaultsSuite "$SUITE" || exit 1
+  --env "BATON_DEBUG_ALARM_PROBE_TIMER=12|$FILE_URL|$LABEL" --args -baton.defaultsSuite "$SUITE" || exit 1
 wait_for 20 'PID="$(pgrep -f -- "-baton.defaultsSuite $SUITE" | head -1)"; [ -n "$PID" ]'
 echo "   pid $PID, suite $SUITE"
 wait_for 20 '[ "$(probe_mcp_status "$SUITE")" = 200 ]'
 before="$(now_playing)"
 echo "   before: $before"
-case "$before" in *"Wake Up"*) verdict "nothing chosen plays before the timer ends" 1 ;; *) verdict "nothing chosen plays before the timer ends" 0 ;; esac
+case "$before" in *"$TRACK"*) verdict "nothing chosen plays before the timer ends" 1 ;; *) verdict "nothing chosen plays before the timer ends" 0 ;; esac
 
 say "the timer ends"
-wait_for 25 'now_playing | grep -q "Wake Up"'
+wait_for 25 'now_playing | grep -qF "$TRACK"'
 after="$(now_playing)"
 echo "   after: $after"
-echo "$after" | grep -q "Wake Up"; verdict "the chosen file is what plays" $?
+echo "$after" | grep -qF "$TRACK"; verdict "the chosen file is what plays" $?
 echo "$after" | grep -qi "playing"; verdict "and it is playing" $?
 wait_for 5 'texts | grep -q "Keep playing, open player"'
 texts > "$EVIDENCE/ringing-texts.txt"
-grep -q "Probe timer" "$EVIDENCE/ringing-texts.txt"; verdict "the ringing card names the timer" $?
+grep -qF "$LABEL" "$EVIDENCE/ringing-texts.txt"; verdict "the ringing card names the timer" $?
 grep -q "Keep playing, open player" "$EVIDENCE/ringing-texts.txt"; verdict "with Keep playing, open player" $?
 grep -q "Snooze 9 min" "$EVIDENCE/ringing-texts.txt"; verdict "with Snooze 9 min" $?
 grep -q "Stop" "$EVIDENCE/ringing-texts.txt"; verdict "with Stop" $?
@@ -103,12 +114,12 @@ say "Keep playing, open player (TBX-1000000112)"
 sleep 2
 kept="$(now_playing)"
 echo "   after: $kept"
-echo "$kept" | grep -q "Wake Up" && ! echo "$kept" | grep -qi "paused"; verdict "the music carries on" $?
+echo "$kept" | grep -qF "$TRACK" && ! echo "$kept" | grep -qi "paused"; verdict "the music carries on" $?
 texts | grep -q "Keep playing, open player"; [ $? -ne 0 ]; verdict "and the card is gone" $?
 "$AX_BIN" windows "$PID" > "$EVIDENCE/windows-after-open-player.txt" 2>&1
 [ -s "$EVIDENCE/windows-after-open-player.txt" ]; verdict "a Baton window is in front" $?
 texts > "$EVIDENCE/player-texts.txt"
-grep -q "Wake Up" "$EVIDENCE/player-texts.txt"; verdict "showing the chosen track" $?
+grep -qF "$TRACK" "$EVIDENCE/player-texts.txt"; verdict "showing the chosen track" $?
 n=0
 while read -r wid w h; do
   [ -n "$wid" ] || continue

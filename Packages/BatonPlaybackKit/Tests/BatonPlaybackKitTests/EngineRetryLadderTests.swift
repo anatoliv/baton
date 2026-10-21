@@ -90,4 +90,35 @@ final class EngineRetryLadderTests: XCTestCase {
                        "a track that recovered and played on must start its next failure run from zero")
         XCTAssertEqual(harness.controller.state, .playing)
     }
+
+    /// A retry scheduled for one track must not run once another has been loaded
+    /// (TBX-1000000480 C1-6). The rung only checked that the engine was still `.loading`, which
+    /// the next track's own load is too, so it reloaded the old track under the new one's name.
+    func testARetryForTheOldTrackDoesNotReplaceANewlyLoadedOne() async throws {
+        let wav = EngineTestSignals.sineWAV(frequency: 440, seconds: 30)
+        let serverA = try EngineHTTPServer(
+            payload: wav,
+            delivery: .truncateAfter(bytes: Self.bytesForOneSecond, connections: .max),
+            contentType: "audio/wav"
+        )
+        defer { serverA.stop() }
+        let harness = try EngineRenderHarness(sampleRate: 44_100)
+        defer { harness.shutdown() }
+        harness.controller.stallTimeoutSeconds = 120
+
+        let a = EnginePlaybackController.Track(id: "A", url: serverA.url, duration: 30, supportsTimeOffset: false)
+        harness.controller.play(a)
+        try await harness.waitUntil(timeout: 20) { harness.controller.sameTrackRetriesForTesting == 1 }
+        let connectionsAtNext = serverA.acceptedConnections
+
+        // Next, onto a track whose server is not there (a closed port), so it is still
+        // `.loading` when A's retry wakes.
+        let b = EnginePlaybackController.Track(id: "B", url: URL(string: "http://127.0.0.1:9/b")!,
+                                               duration: 30, supportsTimeOffset: false)
+        harness.controller.play(b)
+        _ = await harness.waitUntilOrTimeout(seconds: 3.5) { serverA.acceptedConnections > connectionsAtNext }
+
+        XCTAssertEqual(serverA.acceptedConnections, connectionsAtNext, "the old track was fetched again after the new one was loaded")
+        XCTAssertEqual(harness.controller.nowPlaying?.id, "B")
+    }
 }

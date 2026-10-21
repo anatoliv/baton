@@ -45,7 +45,6 @@ struct ScrobbleClassificationTests {
         #expect(ScrobbleService.isTransient(ScrobbleError.http(429)))
         #expect(ScrobbleService.isTransient(ScrobbleError.service("Last.fm 16: Service temporarily unavailable")))
         #expect(ScrobbleService.isTransient(ScrobbleError.service("Last.fm 40: Token has expired")))
-        #expect(ScrobbleService.isTransient(ScrobbleError.service("ListenBrainz: could not encode payload")))
     }
 
     @Test("first failure retries immediately, then backs off exponentially")

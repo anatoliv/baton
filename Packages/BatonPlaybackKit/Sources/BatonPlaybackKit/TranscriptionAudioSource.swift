@@ -78,7 +78,11 @@ public enum TranscriptionAudioSource: Equatable, Sendable {
                 .appendingPathExtension(url.pathExtension.isEmpty ? "audio" : url.pathExtension)
             do {
                 // `download` streams to disk rather than holding an hour of audio in memory.
-                let (downloaded, response) = try await session.download(from: url)
+                var request = URLRequest(url: url)
+                for (name, value) in NavidromeConfig.customHeaders(for: url) {
+                    request.setValue(value, forHTTPHeaderField: name)
+                }
+                let (downloaded, response) = try await session.download(for: request)
                 if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
                     try? FileManager.default.removeItem(at: downloaded)
                     throw ResolveError(message: "Fetching the audio failed (HTTP \(http.statusCode)).")

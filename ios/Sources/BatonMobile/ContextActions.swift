@@ -47,6 +47,32 @@ private struct SongSharePresenter: ViewModifier {
             .sheet(item: $request) { request in
                 ShareSongSheet(song: request.song, coverArtURL: request.coverArtURL)
             }
+            .modifier(CollectionSharePresenter())
+    }
+}
+
+// The album, playlist and selection composer (specs/collection-sharing.md, "The apps"), held
+// above the rows for the same reason as the song's: an album's long-press menu lives in a
+// recyclable cell. Riding on `songSharePresenter` so every screen that shares a song can
+// share a collection without a second modifier to forget.
+private struct CollectionSharePresentationKey: EnvironmentKey {
+    static var defaultValue: (@MainActor @Sendable (CollectionShareDraft) -> Void)? { nil }
+}
+
+extension EnvironmentValues {
+    var presentCollectionShare: (@MainActor @Sendable (CollectionShareDraft) -> Void)? {
+        get { self[CollectionSharePresentationKey.self] }
+        set { self[CollectionSharePresentationKey.self] = newValue }
+    }
+}
+
+private struct CollectionSharePresenter: ViewModifier {
+    @State private var draft: CollectionShareDraft?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.presentCollectionShare, { draft = $0 })
+            .sheet(item: $draft) { ShareCollectionSheet(draft: $0) }
     }
 }
 
@@ -261,6 +287,7 @@ struct AlbumContextMenu: ViewModifier {
     let model: MobileModel
     @State private var showsPlaylistPicker = false
     @State private var pickerSongIDs: [String] = []
+    @Environment(\.presentCollectionShare) private var presentCollectionShare
 
     func body(content: Content) -> some View {
         content
@@ -300,6 +327,14 @@ struct AlbumContextMenu: ViewModifier {
                             showsPlaylistPicker = true
                         }
                     } label: { Label("Add to Playlist…", systemImage: "music.note.list") }
+
+                    // One link for the whole record. Beside the song's own
+                    // Share…, behind the same server test: demo albums have no server copy.
+                    // The songs load in the composer, so the menu stays instant.
+                    Button {
+                        presentCollectionShare?(.album(id: album.id, name: album.name, artist: album.artist ?? ""))
+                    } label: { Label(SongAction.share.sheetLabel, systemImage: SongAction.share.symbol) }
+                    .disabled(presentCollectionShare == nil)
                 }
 
                 Button {

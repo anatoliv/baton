@@ -247,7 +247,7 @@ struct SharedLinksView: View {
                     ForEach(sharing.pendingBooks) { pending in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(pending.title).font(.headline).lineLimit(1)
-                            Text("Book link not finished uploading. Its encrypted copy is kept on this device.")
+                            Text("\(pending.noun) link not finished uploading. Its encrypted copy is kept on this device.")
                                 .font(.caption).foregroundStyle(.secondary)
                             HStack {
                                 Button("Retry Upload") {
@@ -263,7 +263,8 @@ struct SharedLinksView: View {
                         .accessibilityIdentifier("shared-links-pending-book")
                     }
                 } header: {
-                    Text("Unfinished book links")
+                    // Books, albums and playlists wait here alike.
+                    Text("Unfinished links")
                 }
             }
             if ReactionPushNotifications.shared.available || ReactionPushNotifications.shared.optedIn
@@ -323,12 +324,12 @@ struct SharedLinksView: View {
             await ReactionPushNotifications.shared.refreshAvailability()
             await sharing.refresh()
         }
-        .confirmationDialog("Discard this book link?", isPresented: Binding(
+        .confirmationDialog("Discard this link?", isPresented: Binding(
             get: { pendingDiscard != nil }, set: { if !$0 { pendingDiscard = nil } }), presenting: pendingDiscard
         ) { pending in
             Button("Discard", role: .destructive) { sharing.discardBookUpload(pending.directory) }
         } message: { pending in
-            Text("The encrypted copy of “\(pending.title)” is deleted from this device, and its unfinished link never plays. Share the book again to make a new one.")
+            Text("The encrypted copy of “\(pending.title)” is deleted from this device, and its unfinished link never plays. Share the \(pending.noun.lowercased()) again to make a new one.")
         }
         .refreshable { await sharing.refresh() }
         .confirmationDialog("Revoke this link?", isPresented: Binding(
@@ -421,10 +422,13 @@ struct SharedLinksView: View {
         }
     }
 
-    /// "30 chapters · 4 of 10 listeners · Read-along text"
+    /// "30 chapters · 4 of 10 listeners · Read-along text", or "Album · 14 songs · 4 of 10 listeners".
     private func bookLine(_ record: ShareLedger.Record, _ summary: ShareSummary) -> String {
         var parts = [String]()
-        if let chapters = record.bookSummary?.chapterCount { parts.append(chapters == 1 ? "1 chapter" : "\(chapters) chapters") }
+        if let kind = record.collectionKind {
+            parts.append(SongSharing.noun(kind))
+            if let songs = record.bookSummary?.chapterCount { parts.append(songs == 1 ? "1 song" : "\(songs) songs") }
+        } else if let chapters = record.bookSummary?.chapterCount { parts.append(chapters == 1 ? "1 chapter" : "\(chapters) chapters") }
         parts.append("\(summary.stats.fetches) of \(summary.playCap) listeners")
         if record.bookSummary?.hasText == true { parts.append("Read-along text") }
         return parts.joined(separator: " · ")

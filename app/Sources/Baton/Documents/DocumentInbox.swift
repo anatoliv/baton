@@ -160,7 +160,8 @@ final class DocumentInbox {
         pickups += 1
         for id in finished where !removing.contains(id) { await removeFromGateway(id) }
         do {
-            let held = try await relay.claim(as: deviceID)
+            // Ids name folders here, so one the gateway's own rule would refuse ("..") is never used.
+            let held = try await relay.claim(as: deviceID).filter(FileStoreID.isValid)
             var arrived = 0
             for id in held where !items.contains(where: { $0.id == id }) && !finished.contains(id) {
                 do {
@@ -275,7 +276,8 @@ final class DocumentInbox {
     }
 }
 
-/// The gateway's id rule (hex and dashes), for the one id this Mac makes up and keeps.
+/// The gateway's id rule (hex and dashes), for the one id this Mac makes up and keeps, and for
+/// the ids the gateway hands back before they become folder names.
 private enum FileStoreID {
     static func isValid(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 64 && id.allSatisfy { "0123456789abcdef-".contains($0) }

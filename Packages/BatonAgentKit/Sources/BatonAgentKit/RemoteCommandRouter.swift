@@ -154,6 +154,9 @@ public final class RemoteCommandRouter {
             if case let .link(code) = action {
                 guard settings.matchesLinkCode(code) else {
                     remoteLog.error("Rejected a bad link code from \(inbound.platform.rawValue, privacy: .public)")
+                    if settings.isLinkingLocked {
+                        return .plain("Too many wrong link codes. Press New code in Baton → Settings → Remote, then send that one.")
+                    }
                     return .plain("That link code isn't right. Baton → Settings → Remote shows the current one.")
                 }
                 settings.authorize(sender: inbound.senderID, on: inbound.platform)
@@ -458,6 +461,14 @@ public final class RemoteCommandRouter {
             let history = conversation.history(for: RemoteConversationLog.key(for: inbound))
             let resolution = try await resolveNaturalLanguage(
                 text, settings.naturalLanguage, tools, history, playerContext())
+            // The narrowed catalog is only a promise if dispatch keeps it: the model can
+            // name a withheld tool anyway.
+            guard tools.json.contains(where: { $0["name"] as? String == resolution.call.name }) else {
+                return .success(Self.reply(
+                    for: resolution.call,
+                    result: "That isn't something I do from a sentence. Send `help` for the commands.",
+                    isError: true))
+            }
             var reply = await run(resolution.call)
             if let preamble = resolution.preamble, !preamble.isEmpty {
                 reply.text = preamble + "\n\n" + reply.text

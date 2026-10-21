@@ -310,7 +310,7 @@ final class MacBookUploads {
                 summary = try await client.status(jobID)
             } else {
                 summary = try await client.upload(job.book)
-                log.notice("book \(jobID.prefix(12), privacy: .public): sent \"\(job.book.title, privacy: .public)\" to the Baton server")
+                log.notice("book \(jobID.prefix(12), privacy: .public): sent \"\(job.book.title, privacy: .private)\" to the Baton server")
                 onAccepted?(jobID)
             }
             checked.insert(jobID)

@@ -3,11 +3,16 @@
 // text blob, each an ordinary BSH1 stream under its own HKDF-derived key. Checked against the
 // "book" section of specs/share-crypto/vectors.json, which an independent Python
 // implementation wrote; the Swift kit's ShareBook.swift reproduces the same vectors.
+// An album or a playlist (baton-collection-1, specs/collection-sharing.md) is the same link under
+// the book's keys with its own manifest schema, checked against the "collection" section.
 import { base64Decode, open, ShareCryptoError } from "./share-crypto.mjs";
 import { canonicalTrackID } from "./share-mixtape-crypto.mjs";
 
 export const BOOK_SCHEMA = "baton-book-1";
 export const BOOK_TEXT_SCHEMA = "baton-book-text-1";
+export const COLLECTION_SCHEMA = "baton-collection-1";
+export const COLLECTION_KINDS = ["album", "playlist"];
+export const COVER = { maxBytes: 131072, maxTrackNumber: 9999 };
 export const LABELS = { manifest: "baton-share book v1 manifest", chapter: "baton-share book v1 chapter", text: "baton-share book v1 text" };
 // The format's own ceilings, the same numbers as ShareLimits' book fields.
 export const LIMITS = { maxChapters: 200, maxChapterAudioBytes: 26214400, maxChapterTextBytes: 1048576, maxBookBytes: 268435456,
@@ -49,11 +54,64 @@ function text(value, maximum, required = false, multiline = false) {
   return cleaned;
 }
 
+const B64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const startsWith = (bytes, signature) => signature.every((b, i) => bytes[i] === b);
+
+/** A collection's cover: canonical padded base64 of a JPEG or PNG of at most 128 KiB, its type matching its bytes. */
+function cover(value) {
+  if (!object(value) || !["image/jpeg", "image/png"].includes(value.type) || typeof value.data !== "string" ||
+      !value.data || !B64.test(value.data) || value.data.length > Math.ceil(COVER.maxBytes / 3) * 4) fail();
+  let bytes;
+  try { bytes = base64Decode(value.data); } catch { fail(); }
+  if (bytes.length < 1 || bytes.length > COVER.maxBytes) fail();
+  // Canonical: the unused bits of the last character are zero, so re-encoding gives the same text.
+  let binary = ""; for (const b of bytes) binary += String.fromCharCode(b);
+  if (btoa(binary) !== value.data) fail();
+  const jpeg = startsWith(bytes, [0xff, 0xd8, 0xff]), png = startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if ((value.type === "image/jpeg" && !jpeg) || (value.type === "image/png" && !png)) fail();
+  return { type: value.type, bytes };
+}
+
+/**
+ * Checks a decrypted album or playlist manifest the way ShareBookManifest.validated does for a
+ * collection. The result has the book's shape (`chapters`, `author`) plus `kind`, `cover` and each
+ * track's `artist`, `album` and `trackNumber`, so the same session and blob code plays it.
+ */
+export function validateCollection(manifest, encryptedBytes = 0) {
+  if (!object(manifest) || manifest.schema !== COLLECTION_SCHEMA || !COLLECTION_KINDS.includes(manifest.kind) ||
+      !Array.isArray(manifest.tracks) || manifest.tracks.length < 1 || manifest.tracks.length > LIMITS.maxChapters) fail();
+  const result = { schema: COLLECTION_SCHEMA, kind: manifest.kind, title: text(manifest.title, 200, true),
+    author: text(manifest.artist ?? "", 200), from: text(manifest.from ?? "", 60), note: text(manifest.note ?? "", 280, false, true),
+    cover: manifest.cover == null ? null : cover(manifest.cover), chapters: [] };
+  const seen = new Set();
+  let bytes = encryptedBytes, seconds = 0;
+  for (const track of manifest.tracks) {
+    if (!object(track) || !canonicalID(track.id) || seen.has(track.id) || track.text != null) fail();
+    seen.add(track.id);
+    const title = text(track.title, 200, true);
+    const artist = track.artist == null ? null : text(track.artist, 200);
+    const album = track.album == null ? null : text(track.album, 200);
+    if (track.trackNumber != null && (!Number.isSafeInteger(track.trackNumber) || track.trackNumber < 1 ||
+        track.trackNumber > COVER.maxTrackNumber)) fail();
+    if (!Number.isSafeInteger(track.durationSeconds) || track.durationSeconds < 1 ||
+        track.durationSeconds > LIMITS.maxChapterSeconds || track.durationSeconds > LIMITS.maxBookSeconds - seconds) fail();
+    if (!Number.isSafeInteger(track.audioBytes) || track.audioBytes < MIN_BLOB || track.audioBytes > LIMITS.maxChapterAudioBytes ||
+        track.audioBytes > LIMITS.maxBookBytes - bytes || !hash(track.audioSHA256)) fail();
+    bytes += track.audioBytes; seconds += track.durationSeconds;
+    result.chapters.push({ id: track.id, title, artist, album, trackNumber: track.trackNumber ?? null,
+      durationSeconds: track.durationSeconds, audioBytes: track.audioBytes, audioSHA256: track.audioSHA256 });
+  }
+  result.blobBytes = bytes - encryptedBytes;
+  result.durationSeconds = seconds;
+  return result;
+}
+
 /** Checks a decrypted manifest the way ShareBookManifest.validated does, before any chapter is requested. */
 export function validateManifest(manifest, encryptedBytes = 0) {
+  if (object(manifest) && manifest.schema === COLLECTION_SCHEMA) return validateCollection(manifest, encryptedBytes);
   if (!object(manifest) || manifest.schema !== BOOK_SCHEMA || !Array.isArray(manifest.chapters) ||
       manifest.chapters.length < 1 || manifest.chapters.length > LIMITS.maxChapters) fail();
-  const result = { title: text(manifest.title, 200, true), author: text(manifest.author ?? "", 200),
+  const result = { schema: BOOK_SCHEMA, kind: null, title: text(manifest.title, 200, true), author: text(manifest.author ?? "", 200),
     from: text(manifest.from ?? "", 60), note: text(manifest.note ?? "", 280, false, true), chapters: [] };
   const seen = new Set();
   let bytes = encryptedBytes, seconds = 0;
@@ -98,10 +156,14 @@ export async function openManifest(encrypted, root) {
  * before this returns.
  */
 export async function authenticateBook(details, root) {
-  if (!object(details) || details.schema !== BOOK_SCHEMA || !object(details.blobs) || typeof details.encryptedManifest !== "string" ||
-      details.encryptedManifest.length > 349528 ||
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(details.encryptedManifest)) fail();
+  if (!object(details) || ![BOOK_SCHEMA, COLLECTION_SCHEMA].includes(details.schema) || !object(details.blobs) ||
+      typeof details.encryptedManifest !== "string" || details.encryptedManifest.length > 349528 ||
+      !B64.test(details.encryptedManifest)) fail();
+  // A collection's descriptor names its kind; a book's names none. The manifest must agree with both.
+  const kind = details.kind ?? null;
+  if (details.schema === BOOK_SCHEMA ? kind !== null : !COLLECTION_KINDS.includes(kind)) fail();
   const book = await openManifest(base64Decode(details.encryptedManifest), root);
+  if (book.schema !== details.schema || book.kind !== kind) fail();
   const declared = new Map();
   for (const c of book.chapters) {
     declared.set(c.id, { role: "audio", bytes: c.audioBytes, sha256: c.audioSHA256 });

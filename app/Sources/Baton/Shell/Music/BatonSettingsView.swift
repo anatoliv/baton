@@ -592,7 +592,7 @@ private struct BatonAboutPane: View {
                 Text("Navidrome only serves lyrics that are embedded in your files, so for "
                      + "most libraries this panel is always empty. With this on, Baton asks "
                      + "LRCLIB (a free, open lyrics database) for anything your music server "
-                     + "doesn't have. It sends the track title, artist and length, and "
+                     + "doesn't have. It sends the track title, artist, album and length, and "
                      + "nothing else. Lyrics in your own files always win.")
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -712,7 +712,7 @@ private struct BatonSettingsBackupControls: View {
                     Button("Import…") { isImporting = true }
                 }
             }
-            Text("Move your Baton setup to another Mac. Preferences (playback, equalizer, layouts, spoken-summary voices, webhooks, and your music server list) are always included. Server passwords and scrobbler logins are optional; including them encrypts the file with a passphrase you set.")
+            Text("Move your Baton setup to another Mac or your iPhone. Your preferences and your music server list are always included. Turn on Include accounts & passwords to add your server passwords, scrobbler logins, Baton server token and API keys, encrypted with a passphrase you set. Chat bot tokens, webhook header values, the agent token, the expressive voice key and your share identity never leave this Mac.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         .sheet(isPresented: $showExportOptions) { exportOptionsSheet }
@@ -820,15 +820,28 @@ private struct BatonSettingsBackupControls: View {
     private func applyImport(_ data: Data, passphrase: String?) {
         do {
             let result = try SettingsTransfer.applyImport(data, passphrase: passphrase)
-            var summary = "Imported \(result.preferenceCount) preference\(result.preferenceCount == 1 ? "" : "s")"
-            if result.secretCount > 0 {
-                summary += " and \(result.secretCount) account\(result.secretCount == 1 ? "" : "s")"
-            }
-            summary += ". Quit and reopen Baton for everything to take effect."
-            message = AlertMessage(title: "Settings imported", body: summary)
+            message = AlertMessage(title: "Settings imported", body: result.macSummary)
         } catch {
             message = AlertMessage(title: "Import failed", body: error.localizedDescription)
         }
+    }
+}
+
+extension SettingsTransfer.ImportResult {
+    /// The Mac's Import... alert body.
+    var macSummary: String {
+        var summary = "Imported \(preferenceCount) preference\(preferenceCount == 1 ? "" : "s")"
+        if secretCount > 0 {
+            summary += " and \(secretCount) account\(secretCount == 1 ? "" : "s")"
+        }
+        summary += "."
+        // A partial import must not read as a full one. Same sentence as the iPhone's.
+        if secretsRefused > 0 {
+            summary += " \(secretsRefused) account\(secretsRefused == 1 ? "" : "s") could not be saved "
+                + "to the Keychain. You will need to enter those again."
+        }
+        summary += " Quit and reopen Baton for everything to take effect."
+        return summary
     }
 }
 

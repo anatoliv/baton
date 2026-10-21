@@ -1,3 +1,4 @@
+import Network
 import XCTest
 @testable import BatonPlaybackKit
 
@@ -64,6 +65,74 @@ final class PairingHostClientLoopbackTests: XCTestCase {
             return XCTFail("host never reached .linked — state is \(host.state)")
         }
         XCTAssertEqual(name, "ProbeDevice")
+    }
+
+    /// The prompt goes unanswered and the owner closes the pane (or the code expires): stopping
+    /// the host must end the attempt there and then. Before, the host stayed suspended on the
+    /// approval with the device's socket open, and the phone sat until its own 20-second
+    /// deadline (TBX-1000000480 A-10).
+    func testStoppingDuringAnUnansweredApprovalClosesTheConnection() async throws {
+        let host = PairingHost()
+        defer { host.stop() }
+        let prompt = UnansweredPrompt()
+        host.approve = { _ in await prompt.wait() }
+        host.makePayload = { _ in Data("never sent".utf8) }
+
+        try host.start(host: "127.0.0.1")
+        let invitation = try await advertisedInvitation(host)
+        let started = Date()
+        let redeem = Task { try? await PairingClient.redeem(invitation, deviceName: "ProbeDevice") }
+        for _ in 0 ..< 100 {
+            if case .awaitingApproval = host.state { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        guard case .awaitingApproval = host.state else {
+            prompt.answer(false)
+            return XCTFail("host never asked for approval: state is \(host.state)")
+        }
+        host.stop()
+        let received = await redeem.value
+        let waited = Date().timeIntervalSince(started)
+        prompt.answer(false)
+        XCTAssertNil(received, "nothing is sent for a link nobody approved")
+        XCTAssertLessThan(waited, 5, "the phone waited \(waited) s for a link that had already been called off")
+        XCTAssertEqual(host.state, .idle)
+    }
+
+    /// Two devices connect while the code is showing and both send a valid hello: only one may
+    /// reach the prompt. Before, the second took over the host's wait and the first was never
+    /// answered, so `stop` closed one socket and left the other device and its handler waiting.
+    func testTwoValidHellosAtOnceAskOnceAndStopClosesBoth() async throws {
+        let host = PairingHost()
+        defer { host.stop() }
+        let prompt = UnansweredPrompt()
+        var asked = 0
+        host.approve = { _ in asked += 1; return await prompt.wait() }
+        host.makePayload = { _ in Data("never sent".utf8) }
+
+        try host.start(host: "127.0.0.1")
+        let invitation = try await advertisedInvitation(host)
+        // Both connect before either says anything, so both handlers are past the first check.
+        let first = try await RawPairingPeer.connect(to: invitation)
+        let second = try await RawPairingPeer.connect(to: invitation)
+        try await Task.sleep(for: .milliseconds(200))
+        let hello = try JSONEncoder().encode(DevicePairing.hello(for: invitation, deviceName: "ProbeDevice"))
+        let started = Date()
+        let firstClosed = Task { await first.sendAndWaitForClose(hello) }
+        let secondClosed = Task { await second.sendAndWaitForClose(hello) }
+        for _ in 0 ..< 100 {
+            if case .awaitingApproval = host.state { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(asked, 1, "the owner is asked about one device, not two")
+        host.stop()
+        await firstClosed.value
+        await secondClosed.value
+        let waited = Date().timeIntervalSince(started)
+        prompt.answer(false)
+        XCTAssertLessThan(waited, 5, "a device's connection stayed open \(waited) s after the host stopped")
+        XCTAssertEqual(host.state, .idle)
     }
 
     /// The buffer is written from the receive callback and read from the timeout block, on
@@ -149,4 +218,71 @@ private final class RaceCounter: @unchecked Sendable {
     private var count = 0
     func increment() { lock.lock(); count += 1; lock.unlock() }
     var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+/// An approval prompt nobody answers, released at the end of the test so no task is left waiting.
+@MainActor
+private final class UnansweredPrompt {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var answered: Bool?
+
+    func wait() async -> Bool {
+        if let answered { return answered }
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func answer(_ value: Bool) {
+        answered = value
+        continuation?.resume(returning: value)
+        continuation = nil
+    }
+}
+
+/// A bare socket standing in for a phone, so the test decides when each hello is sent.
+private final class RawPairingPeer: @unchecked Sendable {
+    private let connection: NWConnection
+
+    private init(_ connection: NWConnection) { self.connection = connection }
+
+    static func connect(to invitation: DevicePairing.Invitation) async throws -> RawPairingPeer {
+        let connection = NWConnection(host: NWEndpoint.Host(invitation.host),
+                                      port: NWEndpoint.Port(rawValue: invitation.port)!, using: .tcp)
+        let ready: Bool = await withCheckedContinuation { continuation in
+            nonisolated(unsafe) var resumed = false
+            connection.stateUpdateHandler = { state in
+                guard !resumed else { return }
+                switch state {
+                case .ready: resumed = true; continuation.resume(returning: true)
+                case .failed, .cancelled: resumed = true; continuation.resume(returning: false)
+                default: break
+                }
+            }
+            connection.start(queue: .global())
+        }
+        guard ready else { throw XCTSkip("loopback connection did not come up") }
+        return RawPairingPeer(connection)
+    }
+
+    /// Sends `hello`, then returns when the host closes the connection (or after 20 s).
+    func sendAndWaitForClose(_ hello: Data) async {
+        connection.send(content: hello, completion: .contentProcessed { _ in })
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let lock = NSLock()
+            nonisolated(unsafe) var resumed = false
+            let finish = {
+                lock.lock(); defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume()
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 20, execute: finish)
+            func read() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { _, _, isComplete, error in
+                    if isComplete || error != nil { finish() } else { read() }
+                }
+            }
+            read()
+        }
+        connection.cancel()
+    }
 }

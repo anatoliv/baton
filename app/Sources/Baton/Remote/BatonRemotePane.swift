@@ -74,13 +74,15 @@ private struct RemoteSettingsForm: View {
                 Text("""
                 Baton connects out to Telegram and Discord; it never opens a port and nothing \
                 on your network is exposed. Bot tokens and any API key live in your login \
-                Keychain. Natural language is the only feature that contacts a third party.
+                Keychain. Natural language sends your messages to the model provider you chose.
 
-                It sends the sentence you typed and the list of Baton's own commands, never \
-                your credentials and never your listening history. Whether it sends anything \
-                *from* your library is decided by one setting: with "let it look around" off, \
-                it never does; with it on, what it looks up travels with the question, because \
-                that is how it can answer at all.
+                It sends the sentence you typed, the list of Baton's own commands, the track \
+                that is playing (title, artist, album and place in the queue) and the chat's \
+                last few exchanges, never your credentials. Those exchanges can include an \
+                earlier answer that listed songs from your library. Whether Baton looks \
+                anything up for it is decided by Let it look around first: off, it never looks \
+                anything up; on, what it looks up, what it remembers, a summary of your taste \
+                and its recent picks travel with the question, because that is how it can answer.
                 """)
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

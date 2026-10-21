@@ -176,6 +176,65 @@ final class EngineDeckBridgeTests: XCTestCase {
         XCTAssertEqual(c.currentIndex, 0, "and it must not skip the track on a first failure")
     }
 
+    /// A host retry of the same track carries on the play it interrupted (TBX-1000000480 C1-9).
+    /// It used to start it again: a second "track started" (history), a second scrobble with a
+    /// new start time that ScrobbleService does not dedupe, and the listen split in two.
+    func testAHostRetryOfTheSameTrackIsOnePlayNotTwo() async throws {
+        let rig = try makeRig(payload: EngineTestSignals.sineWAV(frequency: 440, seconds: 40))
+        defer { rig.shutdown() }
+        let c = rig.controller
+        var scrobbles = 0
+        var starts = 0
+        c.onScrobbleEligible = { _, _ in scrobbles += 1 }
+        c.onTrackStarted = { _ in starts += 1 }
+
+        c.play([song("lib1", duration: 40)])
+        XCTAssertTrue(c.engineOwnsPlaybackForTesting)
+        try await waitUntil {
+            rig.pipeline.scheduledSeconds(on: rig.bridge.engine.activeDeckForTesting) > 2.0
+        }
+        try await rig.renderPaced(seconds: 0.6)
+        c.seek(to: 25) // past the scrobble threshold (half of 40 s)
+        try await waitUntil(timeout: 15) { scrobbles >= 1 || c.currentTime >= 25.5 }
+        try await rig.renderPaced(seconds: 1.0)
+        XCTAssertEqual(scrobbles, 1, "precondition: the track scrobbled once")
+
+        c.simulateLoadFailureForTesting("blip") // the host's own retry, at the playhead
+        try await waitUntil(timeout: 5) { c.state == .playing }
+        try await rig.renderPaced(seconds: 1.5)
+
+        XCTAssertEqual(c.currentIndex, 0)
+        XCTAssertGreaterThan(c.currentTime, 20, "the retry resumed at the playhead")
+        XCTAssertEqual(scrobbles, 1, "a retry of the same track scrobbled it again")
+        XCTAssertEqual(starts, 1, "a retry of the same track reported a second track start")
+    }
+
+    /// A track that plays on the engine deck ends a failure run, as an AVPlayer item reaching
+    /// ready does (TBX-1000000480 C1-12). Without that, occasional dead tracks over a session
+    /// added up until the auto-skip stopped skipping.
+    func testATrackThatPlaysOnTheDeckClearsTheFailureCount() async throws {
+        let rig = try makeRig(payload: EngineTestSignals.sineWAV(frequency: 440, seconds: 20))
+        defer { rig.shutdown() }
+        let c = rig.controller
+        c.cycleRepeat() // all: the second failure wraps to the first track
+        XCTAssertEqual(c.repeatMode, .all)
+
+        c.play([song("lib1", duration: 20), song("lib2", duration: 20)])
+        c.simulateLoadFailureForTesting("dead", afterEngineLadder: true)
+        try await waitUntil(timeout: 10) { c.currentIndex == 1 }
+        XCTAssertEqual(c.state, .playing)
+        try await waitUntil {
+            rig.pipeline.scheduledSeconds(on: rig.bridge.engine.activeDeckForTesting) > 2.0
+        }
+        try await rig.renderPaced(seconds: 1.2)
+        XCTAssertGreaterThan(c.currentTime, 0.3, "precondition: the second track played on the deck")
+
+        // A second, unrelated dead track. One failure in a row, so it skips.
+        c.simulateLoadFailureForTesting("dead", afterEngineLadder: true)
+        try await waitUntil(timeout: 10) { c.currentIndex == 0 }
+        XCTAssertEqual(c.currentIndex, 0, "two failures with a played track between them stopped the queue")
+    }
+
     /// The end of an engine-owned track runs the HOST's advance policy: next track loads
     /// (also on the deck), queue index moves, nothing reports an error.
     func testEngineTrackEndAdvancesHostQueue() async throws {

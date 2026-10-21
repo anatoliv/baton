@@ -405,16 +405,9 @@ struct MobileAlarmPill: View {
 
     var body: some View {
         AlarmPill(center: alarms.center, open: { present?($0.request) }, fillsWidth: true)
-            .padding(.horizontal, Self.sideInset)
+            .padding(.horizontal, BottomChrome.floatingInset)
             .readableWidth(620)
             .padding(.bottom, 6)
-    }
-
-    /// The mini player's outer inset: the system accessory slot's on an iPhone with iOS 26, and
-    /// the player's own capsule's on the iPad and iOS 18 to 25.
-    static var sideInset: CGFloat {
-        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom != .pad { return BottomChrome.systemAccessoryInset }
-        return BottomChrome.inset
     }
 }
 

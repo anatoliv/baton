@@ -198,6 +198,66 @@ final class SilentFailureTests: XCTestCase {
         XCTAssertTrue(reopened.serverEpisodes.isEmpty, "and they must not come back off disk")
     }
 
+    // MARK: - Writing before anything has loaded
+
+    /// On the Mac only the Music window loaded podcast progress. Playback from the menu bar
+    /// or MCP recorded into an empty store and saved a one-entry file over everyone else's
+    /// place in every show.
+    func testRecordingProgressBeforeAnyLoadKeepsTheSavedEpisodes() {
+        let first = PodcastProgressStore(directory: dir)
+        first.loadIfNeeded()
+        first.record(id: "https://cdn.example/a.mp3", position: 600, duration: 3600)
+
+        let cold = PodcastProgressStore(directory: dir)
+        cold.record(id: "https://cdn.example/b.mp3", position: 120, duration: 3600)
+
+        let reopened = PodcastProgressStore(directory: dir)
+        reopened.loadIfNeeded()
+        XCTAssertEqual(reopened.resumeOffset(id: "https://cdn.example/a.mp3"), 600,
+                       "a save from a store nobody loaded must not wipe the episodes already saved")
+        XCTAssertEqual(reopened.resumeOffset(id: "https://cdn.example/b.mp3"), 120)
+    }
+
+    /// The same for pins: a pin from a surface that never loaded the list replaced it.
+    func testPinningBeforeAnyLoadKeepsTheSavedPins() {
+        let first = PinStore(directory: dir)
+        first.loadIfNeeded()
+        first.toggle(.song(song("s1")))
+
+        let cold = PinStore(directory: dir)
+        cold.toggle(.song(song("s2")))
+
+        let reopened = PinStore(directory: dir)
+        reopened.loadIfNeeded()
+        XCTAssertTrue(reopened.isPinned(PinnedItem.song(song("s1")).id),
+                      "a pin from a store nobody loaded must not wipe the saved pins")
+        XCTAssertTrue(reopened.isPinned(PinnedItem.song(song("s2")).id))
+    }
+
+    // MARK: - A torn last line in the listening archive
+
+    /// A crash mid-append leaves the last line without its newline. The next listen was
+    /// appended straight onto it, so both lines were lost as one unreadable line.
+    func testAListenAfterATornLineIsKeptOnItsOwnLine() throws {
+        let url = dir.appendingPathComponent("play-history.jsonl")
+        var file = try JSONEncoder().encode(MusicPlayHistory.Entry(
+            song: song("s1"), playedAt: Date(timeIntervalSince1970: 1_000_000)))
+        file.append(0x0A)
+        file.append(Data(#"{"song":{"id":"s2","title":"torn"#.utf8))
+        try file.write(to: url)
+
+        let history = MusicPlayHistory(defaults: suite(),
+                                       clock: { Date(timeIntervalSince1970: 2_000_000) },
+                                       directory: dir)
+        history.record(song("s3"), playedAt: Date(timeIntervalSince1970: 1_500_000))
+
+        let reopened = MusicPlayHistory(defaults: suite(),
+                                        clock: { Date(timeIntervalSince1970: 2_000_000) },
+                                        directory: dir)
+        XCTAssertEqual(Set(reopened.entries.map(\.song.id)), ["s1", "s3"],
+                       "the new listen must not be glued onto the torn line")
+    }
+
     // MARK: - S-F21: the sleep timer's ceiling
 
     /// `optionalInt` on the MCP surface also accepts a string, so a large number from any local

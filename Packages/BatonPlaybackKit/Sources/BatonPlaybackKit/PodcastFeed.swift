@@ -239,7 +239,15 @@ extension PodcastFeedParser {
         if trimmed.contains(":") {
             let parts = trimmed.split(separator: ":").map { Int($0) ?? -1 }
             guard !parts.contains(-1) else { return nil }
-            return parts.reduce(0) { $0 * 60 + $1 }
+            // Feed text, so overflow is possible; trapping here crashed every refresh of it.
+            var total = 0
+            for part in parts {
+                let (shifted, o1) = total.multipliedReportingOverflow(by: 60)
+                let (sum, o2) = shifted.addingReportingOverflow(part)
+                if o1 || o2 { return nil }
+                total = sum
+            }
+            return total
         }
         return Int(trimmed)
     }

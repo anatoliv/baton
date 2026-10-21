@@ -188,4 +188,20 @@ final class MusicLibraryStoreTests: XCTestCase {
         await library.deletePlaylist(id: "p1")
         XCTAssertNil(library.lastError)
     }
+
+    /// A UI delete goes through the store and never reloads playlists, so it has to tell the
+    /// MCP name cache itself, or the deleted playlist's id keeps resolving for up to 30 seconds
+    /// (TBX-1000000480 A-9).
+    func testDeletePlaylistDropsAStaleCachedName() async {
+        let library = store()
+        library.playlistsChanged = { PlaylistIDCache.shared.reset() } // as MusicModel wires it
+        PlaylistIDCache.shared.store([("workout", "p1")])
+        defer { PlaylistIDCache.shared.reset() }
+
+        await library.deletePlaylist(id: "p1")
+
+        XCTAssertNil(library.lastError)
+        XCTAssertNil(PlaylistIDCache.shared.id(forLoweredName: "workout"),
+                     "a deleted playlist must not stay resolvable from the cache")
+    }
 }

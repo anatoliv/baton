@@ -610,6 +610,16 @@ final class ShareBookServiceTests: XCTestCase {
 
     // MARK: - Page
 
+    /// BATON_SHARE_ENABLED=0 refuses new shares; links already sent keep playing, page included.
+    func testSharingPausedKeepsASentBookPagePlaying() throws {
+        let created = try ready(try book())
+        service = try reopen(enabled: false)
+        XCTAssertEqual(send("GET", "/v1/share/b/\(created.id)").status, 200)
+        let page = send("GET", "/b/\(created.id)")
+        XCTAssertEqual(page.status, 200)
+        XCTAssertTrue(String(decoding: page.body, as: UTF8.self).contains(#"data-state="ready""#))
+    }
+
     func testPageStatesAndPrivateModeShowsNothingIdentifying() throws {
         let hidden = try ready(try book())
         let page = send("GET", "/b/\(hidden.id)", agent: "Slackbot-LinkExpanding 1.0")
@@ -665,5 +675,23 @@ final class ShareBookServiceTests: XCTestCase {
         XCTAssertEqual(send("GET", "/b/_/missing.mjs").status, 404)
         XCTAssertEqual(ShareDeliveryCapacity.reservation(for: .init(method: "GET", path: blobPath("x", "y"), query: [:], headers: [:], body: Data()),
                                                          maximumAudioBytes: 100), 100 * 2 + 65_536)
+    }
+
+    /// Under accel nginx sends a song's blob, so the service's answer is headers only; a book or
+    /// mixtape blob is still sent by the service.
+    func testAccelSongBlobsReserveOnlyHeaders() {
+        func reservation(_ path: String, _ delivery: ShareConfiguration.BlobDelivery) -> Int {
+            ShareDeliveryCapacity.reservation(for: .init(method: "GET", path: path, query: [:], headers: [:], body: Data()),
+                                              maximumAudioBytes: 26_214_400, blobDelivery: delivery)
+        }
+        let id = Base64URL.encode(Data(repeating: 1, count: 16))
+        for kind in ["audio", "art", "card"] {
+            XCTAssertEqual(reservation("/v1/share/p/\(id)/\(kind)", .accel), 65_536, kind)
+            XCTAssertEqual(reservation("/v1/share/p/\(id)/\(kind)", .direct), 26_214_400 * 2 + 65_536, kind)
+        }
+        XCTAssertEqual(reservation(blobPath(id, "y"), .accel), 26_214_400 * 2 + 65_536)
+        XCTAssertEqual(reservation("/v1/share/m/\(id)/tracks/y", .accel), 26_214_400 * 2 + 65_536)
+        XCTAssertLessThanOrEqual(3 * reservation("/v1/share/p/\(id)/audio", .accel), ShareDeliveryCapacity.maximumBytes,
+                                 "a third concurrent song fetch is not refused for capacity")
     }
 }

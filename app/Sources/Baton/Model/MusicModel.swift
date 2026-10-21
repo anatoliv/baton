@@ -115,6 +115,10 @@ final class MusicModel {
     /// composer as a sheet. Nil when closed.
     var shareSong: NavidromeSong?
 
+    /// The album, playlist or song selection being shared as one link.
+    /// `MusicView` presents `ShareCollectionSheet` for it. Nil when closed.
+    var shareCollection: CollectionShareDraft?
+
     /// Clock-style Alarm and Timer that play a chosen item. Started by the app
     /// delegate at launch, never inside the test host.
     let alarms: MacAlarms
@@ -181,6 +185,7 @@ final class MusicModel {
         speech.ducking = speechDucker
         // Downloads LRU eviction ranks by last-played time from history.
         MusicDownloadStore.shared.lastPlayedProvider = { [musicHistory] in musicHistory.lastPlayedByID() }
+        musicLibrary.playlistsChanged = { PlaylistIDCache.shared.reset() }
         wire()
         // EXPERIMENT: attach the AVAudioEngine deck when the developer setting is on.
         // Never under test (the suites build their own pipelines), and a failed audio

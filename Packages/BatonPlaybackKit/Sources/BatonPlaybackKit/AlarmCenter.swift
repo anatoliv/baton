@@ -81,7 +81,10 @@ public final class AlarmClock {
         guard token != nil else { return }
         let current = now()
         guard let next = store.nextDue(after: current) else { return }
-        let nap = min(maxNap, max(0.02, next.timeIntervalSince(current)))
+        // An ended timer the app cannot answer yet stays due; look again each second rather than
+        // fifty times a second until the app can play or comes to the front.
+        let shortest: TimeInterval = next <= current && !canAnswer() ? 1 : 0.02
+        let nap = min(maxNap, max(shortest, next.timeIntervalSince(current)))
         task = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(nap))
             guard !Task.isCancelled else { return }
@@ -181,9 +184,14 @@ public final class AlarmCenter {
     private func scheduleSync() {
         guard let system else { return }
         syncTask?.cancel()
+        let previous = syncTask
         syncTask = Task { @MainActor [weak self, weak system] in
             // Coalesce a burst of edits (a toggle flicked twice) into one system update.
             try? await Task.sleep(for: .milliseconds(150))
+            // Cancelling only stops a sync that has not begun; one under way (AlarmKit preparing a
+            // clip) runs on. Wait for it, cancelled or not, so this one never overlaps it and the
+            // older one, finishing last, cannot put old settings back.
+            await previous?.value
             guard !Task.isCancelled, let self, let system else { return }
             await system.sync(self.store)
         }

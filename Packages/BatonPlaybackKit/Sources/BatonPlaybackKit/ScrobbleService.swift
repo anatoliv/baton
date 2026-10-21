@@ -228,8 +228,19 @@ public final class ScrobbleService {
             } catch {
                 // A transient failure (offline/timeout/5xx/429) must NOT count against
                 // maxAttempts — otherwise an offline evening permanently drops scrobbles.
-                let transient = Self.isTransient(error)
-                queue.fail(batch, countsAsAttempt: !transient)
+                var error = error
+                var transient = Self.isTransient(error)
+                if !transient, batch.count > 1 {
+                    // One listen the service refuses must not spend the attempts of the rest of
+                    // its batch, and in the end retire them with it, so each is sent alone.
+                    guard let refusal = await submitOneByOne(batch, to: destination) else {
+                        retryState[id] = nil
+                        continue
+                    }
+                    (error, transient) = refusal
+                } else {
+                    queue.fail(batch, countsAsAttempt: !transient)
+                }
                 let failures = (retryState[id]?.failures ?? 0) + 1
                 let wait = Self.backoffInterval(failures)
                 retryState[id] = (failures, now().addingTimeInterval(wait))
@@ -238,6 +249,26 @@ public final class ScrobbleService {
                 break
             }
         }
+    }
+
+    /// Sends each listen of a refused batch on its own: delivered ones are resolved, refused
+    /// ones charged an attempt each. Stops at a transient failure, leaving the rest untouched.
+    /// Returns the failure to back off for, or nil when every listen went through.
+    private func submitOneByOne(_ batch: [QueuedScrobble],
+                                to destination: ScrobbleDestination) async -> (Error, Bool)? {
+        var refusal: (Error, Bool)?
+        for item in batch {
+            do {
+                try await destination.submit([item.scrobble])
+                queue.resolve([item])
+            } catch {
+                let transient = Self.isTransient(error)
+                queue.fail([item], countsAsAttempt: !transient)
+                if transient { return (error, true) }
+                refusal = refusal ?? (error, false)
+            }
+        }
+        return refusal
     }
 
     /// Come back once the backoff has run out, so a destination that is simply down
@@ -267,9 +298,10 @@ public final class ScrobbleService {
     /// raise it, and everything they raised was filed as transient — including the 401 and
     /// the Last.fm 4/9/26 that mean "re-authenticate", which no amount of retrying fixes.
     /// A revoked session then filled the queue to `maxEntries` and dropped the oldest real
-    /// listens off the front while nothing ever retired. Only the codes that plainly mean
-    /// credentials are permanent here; an unrecognised code is still retried, because
-    /// getting the list wrong in the other direction throws listens away.
+    /// listens off the front while nothing ever retired. Among service messages only the ones
+    /// that plainly mean credentials, and a payload that cannot be encoded, are permanent; an
+    /// unrecognised one is still retried, because getting the list wrong in the other
+    /// direction throws listens away.
     public static func isTransient(_ error: Error) -> Bool {
         if error is URLError { return true }
         if let nav = error as? NavidromeError {
@@ -284,8 +316,12 @@ public final class ScrobbleService {
         }
         if let scrobble = error as? ScrobbleError {
             switch scrobble {
-            case .http(let status): return !(status == 401 || status == 403)
-            case .service(let message): return !MusicLastFM.isCredentialRejection(message)
+            // A 4xx is the service refusing this request, which a retry repeats, except a
+            // timeout (408) and rate limiting (429). Retried, it never retired and held up
+            // every later listen for that service.
+            case .http(let status): return !(400...499).contains(status) || status == 408 || status == 429
+            case .service(let message):
+                return !(MusicLastFM.isCredentialRejection(message) || message == MusicScrobbler.encodeFailure)
             }
         }
         return true // unknown provider error → retry rather than drop

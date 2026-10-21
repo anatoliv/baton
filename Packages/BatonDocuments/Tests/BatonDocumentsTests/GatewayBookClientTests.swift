@@ -254,6 +254,24 @@ final class AudiobookExportTests: XCTestCase {
         XCTAssertEqual(AudiobookExport.fileName(j.book), "Odd_ A=B; #1 - A. Writer.m4b")
     }
 
+    /// A title cannot end its line and start a section of its own: "\r\n" is one Character in
+    /// Swift, a NUL ends ffmpeg's line read, and either let "[CHAPTER]" through.
+    func testTitlesCannotInjectSections() {
+        let marks = [AudiobookExport.Mark(title: "Part 1\r\n[CHAPTER]\r\ntitle=x", start: 0, end: 1),
+                     AudiobookExport.Mark(title: "Part 2\r[CHAPTER]", start: 1, end: 2),
+                     AudiobookExport.Mark(title: "Part 3\u{0}[CHAPTER]", start: 2, end: 3)]
+        let meta = AudiobookExport.ffmetadata(book: job().book, marks: marks)
+        // Lines as ffmpeg's reader splits them: at CR, LF or NUL not escaped by a backslash.
+        var lines: [String] = [], line = "", escaped = false
+        for scalar in meta.unicodeScalars {
+            if !escaped, scalar == "\r" || scalar == "\n" || scalar == "\u{0}" { lines.append(line); line = ""; continue }
+            escaped = !escaped && scalar == "\\"
+            line.unicodeScalars.append(scalar)
+        }
+        XCTAssertEqual(lines.filter { $0.hasPrefix("[CHAPTER]") }.count, marks.count, meta.debugDescription)
+        XCTAssertEqual(lines.filter { $0.hasPrefix("title=x") }.count, 0, meta.debugDescription)
+    }
+
     func testTheClientDownloadsTheExportChecked() async throws {
         let audio = Data("pretend m4b".utf8)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

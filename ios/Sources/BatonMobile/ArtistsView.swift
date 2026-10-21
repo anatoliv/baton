@@ -269,6 +269,9 @@ struct ArtistDetailView: View {
         .navigationDestination(for: NavidromeAlbum.self) { album in
             AlbumDetailView(album: album, model: model)
         }
+        // The albums' long-press Share… presents from here; this screen is also opened as a
+        // sheet (Go to Artist) with no presenter above it.
+        .songSharePresenter(model: model)
     }
 
     private var source: QueueSource { .init(label: artist.name, kind: .artist, id: artist.id) }

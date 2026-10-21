@@ -393,7 +393,13 @@ public final class MusicLibraryStore {
         await run { client in self.starred = try await client.getStarred2() }
     }
 
+    /// Called whenever playlists are re-read (every create and edit does that) and after a
+    /// delete. The Mac's MCP name cache listens, so a playlist this process just created or
+    /// deleted is never resolved from an entry older than the change.
+    @ObservationIgnored public var playlistsChanged: (@MainActor () -> Void)?
+
     public func loadPlaylists() async {
+        playlistsChanged?()
         if isDemo { return }
 
         await run { client in self.playlists = try await client.getPlaylists() }
@@ -875,6 +881,7 @@ public final class MusicLibraryStore {
         do {
             try await clientProvider().deletePlaylist(id: id)
             playlists.removeAll { $0.id == id }
+            playlistsChanged?()
         } catch {
             reportFailure(error)
         }

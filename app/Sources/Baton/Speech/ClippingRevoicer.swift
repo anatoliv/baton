@@ -43,7 +43,10 @@ final class ClippingRevoicer {
     @ObservationIgnored var upload: (_ file: URL, _ name: String, _ origin: String?) async throws -> String? = ClippingRevoicer.gatewayUpload
     /// Removes the old copy from the gateway, by digest. Tests replace it.
     @ObservationIgnored var removeShared: (_ digest: String) async -> Void = ClippingRevoicer.gatewayDelete
-    @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
+    /// Each run carries a token, so a stopped run that unwinds after a new one has started on
+    /// the same clipping clears only its own handle and progress, never the new run's.
+    @ObservationIgnored private var tasks: [String: (token: UUID, task: Task<Void, Never>)] = [:]
+    @ObservationIgnored private var runs: [String: UUID] = [:]
 
     /// `kokoro:af_sky` as the voice server takes it, or nil for a voice it does not read.
     nonisolated static func speechVoice(_ spec: String) -> SpeechConfig.Voice? {
@@ -56,8 +59,9 @@ final class ClippingRevoicer {
     /// and not at all when stopped).
     func start(_ item: ClippingStore.Item, voice: String, in store: ClippingStore,
                finished: @escaping @MainActor (Error?) -> Void) {
-        tasks[item.id]?.cancel()
-        tasks[item.id] = Task { [weak self] in
+        tasks[item.id]?.task.cancel()
+        let token = UUID()
+        tasks[item.id] = (token, Task { [weak self] in
             guard let self else { return }
             do {
                 try await self.revoice(item, to: voice, in: store)
@@ -67,13 +71,13 @@ final class ClippingRevoicer {
             } catch {
                 finished(error)
             }
-            self.tasks[item.id] = nil
-        }
+            if self.tasks[item.id]?.token == token { self.tasks[item.id] = nil }
+        })
     }
 
     /// Stop reading it again: the old voice stays.
     func cancel(_ id: String) {
-        tasks[id]?.cancel()
+        tasks[id]?.task.cancel()
         tasks[id] = nil
         running[id] = nil
     }
@@ -88,12 +92,19 @@ final class ClippingRevoicer {
         // sentences, the size read aloud speaks.
         let chunks = SentenceSplitter.chunks(text)
         let staged = FileManager.default.temporaryDirectory.appendingPathComponent("baton-revoice-\(UUID().uuidString).m4a")
+        let run = UUID()
+        runs[item.id] = run
         running[item.id] = Progress(voice: voice, fraction: 0)
-        defer { running[item.id] = nil }
+        defer {
+            if runs[item.id] == run {
+                runs[item.id] = nil
+                running[item.id] = nil
+            }
+        }
         do {
             try await ReadAloudExport.write(chunks: chunks, voice: speechVoice, to: staged, synthesize: synthesize,
                                             fallback: false) { [weak self] fraction in
-                self?.running[item.id]?.fraction = fraction
+                if self?.runs[item.id] == run { self?.running[item.id]?.fraction = fraction }
             }
             try Task.checkCancellation()
         } catch {

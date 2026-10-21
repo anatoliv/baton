@@ -346,9 +346,16 @@ public final class MusicPlayHistory: LocalListenRecording {
                 try line.write(to: historyURL, options: .atomic)
                 return
             }
-            let handle = try FileHandle(forWritingTo: historyURL)
+            let handle = try FileHandle(forUpdating: historyURL)
             defer { try? handle.close() }
-            _ = try handle.seekToEnd()
+            let end = try handle.seekToEnd()
+            // A crash mid-append leaves the last line without its newline; end it first, or
+            // this listen is glued onto it and both are lost as one unreadable line.
+            if end > 0 {
+                try handle.seek(toOffset: end - 1)
+                if try handle.read(upToCount: 1) != Data([0x0A]) { line.insert(0x0A, at: 0) }
+                _ = try handle.seekToEnd()
+            }
             try handle.write(contentsOf: line)
         } catch {
             historyLog.error(

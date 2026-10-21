@@ -61,7 +61,7 @@ final class SharedFeaturesSmokeUITests: XCTestCase {
 
     private func songLink() throws -> URL { try XCTUnwrap(URL(string: try XCTUnwrap(environment["SMOKE_SONG_LINK"]))) }
 
-    /// Liked → Select → two songs → Share Mixtape, as a listener would.
+    /// Liked → Select → two songs → Share…, as a listener would.
     private func openComposer() {
         app.tabBars.buttons["Library"].tap()
         app.buttons["Liked"].firstMatch.tap()
@@ -69,8 +69,8 @@ final class SharedFeaturesSmokeUITests: XCTestCase {
         app.buttons["Select"].tap()
         app.staticTexts["Smoke Track 1"].firstMatch.tap()
         app.staticTexts["Smoke Track 2"].firstMatch.tap()
-        app.buttons["Share Mixtape"].tap()
-        XCTAssertTrue(app.navigationBars["Share Mixtape"].waitForExistence(timeout: 10))
+        app.buttons["Share…"].tap()
+        XCTAssertTrue(app.navigationBars["Share Songs"].waitForExistence(timeout: 10))
     }
 
     func testReceivedSongOpensAndPlays() throws {
@@ -102,13 +102,13 @@ final class SharedFeaturesSmokeUITests: XCTestCase {
     func testMixtapeComposedAndReceived() throws {
         try launch(shareBase: "SMOKE_SHARE_BASE")
         openComposer()
-        let create = app.buttons["mixtape-create-link"]
+        let create = app.buttons["collection-share-create-link"]
         XCTAssertTrue(create.waitForExistence(timeout: 10))
         let enabled = NSPredicate(format: "isEnabled == true")
         expectation(for: enabled, evaluatedWith: create)
         waitForExpectations(timeout: 20)
         create.tap()
-        let result = element("mixtape.result-link")
+        let result = element("collection-share-result-link")
         XCTAssertTrue(result.waitForExistence(timeout: 90), "the mixtape must upload to the loopback service")
         capture("mixtape-created")
         // The fixture hands back an http://127.0.0.1 link; Baton opens the same id and key
@@ -116,7 +116,7 @@ final class SharedFeaturesSmokeUITests: XCTestCase {
         let link = try XCTUnwrap(URLComponents(string: result.label))
         let id = try XCTUnwrap(link.path.split(separator: "/").last)
         let key = try XCTUnwrap(link.fragment)
-        app.navigationBars["Share Mixtape"].buttons["Done"].tap()
+        app.navigationBars["Share Songs"].buttons["Done"].tap()
         app.open(try XCTUnwrap(URL(string: "baton://mixtape/\(id)#\(key)")))
         XCTAssertTrue(element("incomingMixtape.sheet").waitForExistence(timeout: 20))
         XCTAssertTrue(element("incomingMixtape.title").waitForExistence(timeout: 30))
@@ -130,12 +130,13 @@ final class SharedFeaturesSmokeUITests: XCTestCase {
         openComposer()
         // Create Link stays disabled, and the form's last section says why.
         sleep(3)
-        XCTAssertFalse(app.buttons["mixtape-create-link"].isEnabled, "Create Link must not offer an upload that cannot work")
-        let unavailable = app.staticTexts["Mixtape sharing is unavailable until the service supports it."]
+        XCTAssertFalse(app.buttons["collection-share-create-link"].isEnabled, "Create Link must not offer an upload that cannot work")
+        let unavailable = element("collection-share-route")
         for _ in 0..<8 where !unavailable.exists { app.swipeUp() }
         XCTAssertTrue(unavailable.waitForExistence(timeout: 10))
+        XCTAssertEqual(unavailable.label, "Couldn't reach Baton's share service. Check your connection and try again.")
         capture("mixtape-unreachable")
-        app.navigationBars["Share Mixtape"].buttons["Cancel"].tap()
+        app.navigationBars["Share Songs"].buttons["Cancel"].tap()
         XCTAssertEqual(app.state, .runningForeground)
     }
 

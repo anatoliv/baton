@@ -328,7 +328,18 @@ public enum RemoteAgent {
             // *ended* the exchange gets to be the answer.
             lastText = ""
             var results: [RemoteAgentMessage.ToolResult] = []
+            // What was left out of `offered` is enforced here, not only by omission: text
+            // the model reads (a playlist name, a discovery result) can name any tool.
+            let offeredNames = Set(offered.json.compactMap { $0["name"] as? String })
             for pending in step.calls {
+                guard offeredNames.contains(pending.call.name) else {
+                    let refusal = "\(pending.call.name) is not available here. Use one of the tools you were given."
+                    toolCalls.append(.init(tool: pending.call.name,
+                                           arguments: Self.describe(pending.call.arguments),
+                                           succeeded: false))
+                    results.append(.init(id: pending.id, text: refusal, isError: true))
+                    continue
+                }
                 let (text, isError) = await runTool(pending.call)
                 toolsRun.append(pending.call.name)
                 toolCalls.append(.init(tool: pending.call.name,

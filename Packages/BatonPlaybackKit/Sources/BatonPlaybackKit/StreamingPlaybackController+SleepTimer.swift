@@ -19,6 +19,9 @@ extension StreamingPlaybackController {
     /// Values above `maxSleepTimerMinutes` are clamped to it.
     public func setSleepTimer(minutes: Int?) {
         sleepTimerTask?.cancel()
+        // A fade under way belongs to the timer being replaced. Left running it reaches
+        // silence, and the stop it was heading for is refused, so the music plays on unheard.
+        resetFade()
         sleepAfterCurrentTrack = false
         guard let requested = minutes, requested > 0 else {
             sleepTimerEndsAt = nil
@@ -70,6 +73,7 @@ extension StreamingPlaybackController {
     /// Arms a sleep timer that pauses when the current track finishes.
     public func sleepAtEndOfTrack() {
         sleepTimerTask?.cancel()
+        resetFade() // as in `setSleepTimer`: the replaced timer's fade must not run on to silence
         sleepTimerEndsAt = nil
         sleepAfterCurrentTrack = true
         // Gapless may already have the next track queued up in the `AVQueuePlayer` from

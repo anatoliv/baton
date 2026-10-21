@@ -71,14 +71,15 @@ public struct PodcastSubscriptionLedger: Codable, Equatable, Sendable {
 
     /// Bring the ledger into line with what this device actually holds.
     ///
-    /// Two rules, and the asymmetry between them is deliberate:
+    /// A feed the ledger has **never heard of** becomes a live record. That covers a new
+    /// subscription and the first run after upgrading.
     ///
-    /// - A feed the ledger has **never heard of** becomes a live record. That covers a new
-    ///   subscription and the first run after upgrading.
-    /// - A feed the ledger lists as **live** and the device no longer holds was unsubscribed
-    ///   here, and becomes a tombstone rather than simply vanishing.
+    /// Absence is never read as an unsubscribe. A live record this device does not hold is,
+    /// as often as not, a show another device subscribed to that this one hasn't fetched yet;
+    /// tombstoning it here would sync back and delete it on the device that subscribed.
+    /// `unsubscribe` records the tombstone explicitly instead.
     ///
-    /// What it deliberately does *not* do is flip an existing tombstone back to live merely
+    /// Nor does it flip an existing tombstone back to live merely
     /// because the show is still on disk. Between another device unsubscribing and this one
     /// getting round to applying it, the show is still present here — and a rule that read
     /// "present, therefore subscribed" would stamp a fresh subscription over the incoming
@@ -91,9 +92,6 @@ public struct PodcastSubscriptionLedger: Codable, Equatable, Sendable {
         let present = Set(feeds.map(PodcastSubscriptionLedger.normalize))
         for feed in present where record(for: feed) == nil {
             note(feed: feed, removed: false, at: date)
-        }
-        for existing in records where !existing.removed && !present.contains(existing.feed) {
-            note(feed: existing.feed, removed: true, at: date)
         }
     }
 

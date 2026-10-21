@@ -67,6 +67,17 @@ struct MusicDownloadsView: View {
     private var orderedIDs: [String] { filteredItems.map(\.id) }
     private var selectedItems: [MusicDownloadStore.DownloadItem] { filteredItems.filter { sel.contains($0.id) } }
 
+    /// One link for the selection: two or more songs, else the row's own Share….
+    private var canShareSelection: Bool { sel.ids.count >= 2 }
+
+    private func shareSelection() { CollectionShareEntry.shareSelection(selectedItems.map(\.song), model) }
+
+    /// A selected row's menu also shares the whole selection, when there is one.
+    private func shareSelectionAction(for item: MusicDownloadStore.DownloadItem) -> (() -> Void)? {
+        guard canShareSelection, sel.contains(item.id) else { return nil }
+        return shareSelection
+    }
+
     private var totalSizeText: String {
         ByteCountFormatter.string(fromByteCount: store.totalBytes(), countStyle: .file)
     }
@@ -185,6 +196,9 @@ struct MusicDownloadsView: View {
             onToggleSelectAll: { sel.toggleSelectAll(orderedIDs) },
             onClear: { sel.clear() }
         ) {
+            // One link for the selection.
+            MusicBatchButton(system: CollectionShareEntry.symbol, help: "Share selected", action: shareSelection)
+                .disabled(!canShareSelection)
             MusicBatchButton(system: "play.fill", help: "Play selected") {
                 let songs = selectedItems.map(\.song)
                 MusicBatchActions.play(model, shuffle: false, label: "Downloads", kind: .liked) { songs }
@@ -221,6 +235,7 @@ struct MusicDownloadsView: View {
                             item: item,
                             isSelected: sel.contains(item.id),
                             onToggleSelect: { sel.clicked(item.id, ordered: orderedIDs) },
+                            onShareSelection: shareSelectionAction(for: item),
                             onPlay: { play(item) },
                             onDelete: { pendingDelete = item }
                         )
@@ -240,6 +255,7 @@ struct MusicDownloadsView: View {
                                 item: item,
                                 isSelected: sel.contains(item.id),
                                 onToggleSelect: { sel.clicked(item.id, ordered: orderedIDs) },
+                                onShareSelection: shareSelectionAction(for: item),
                                 onPlay: { play(item) },
                                 onDelete: { pendingDelete = item }
                             )
@@ -332,6 +348,8 @@ private struct DownloadRow: View {
     let item: MusicDownloadStore.DownloadItem
     var isSelected = false
     var onToggleSelect: () -> Void = {}
+    /// Set on a selected item while two or more songs are selected: "Share Selected Songs…".
+    var onShareSelection: (() -> Void)? = nil
     let onPlay: () -> Void
     let onDelete: () -> Void
     @State private var hover = false
@@ -435,6 +453,9 @@ private struct DownloadRow: View {
                 Task { await model.musicLibrary.toggleLike(item.song) }
             }
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { startRadio() }
+            if let onShareSelection {
+                Button("Share Selected Songs…", systemImage: CollectionShareEntry.symbol, action: onShareSelection)
+            }
             Divider()
             Button("Delete Download", systemImage: "trash", role: .destructive, action: onDelete)
         }
@@ -472,6 +493,8 @@ private struct DownloadCard: View {
     let item: MusicDownloadStore.DownloadItem
     var isSelected = false
     var onToggleSelect: () -> Void = {}
+    /// Set on a selected item while two or more songs are selected: "Share Selected Songs…".
+    var onShareSelection: (() -> Void)? = nil
     let onPlay: () -> Void
     let onDelete: () -> Void
     @State private var hover = false
@@ -508,6 +531,9 @@ private struct DownloadCard: View {
         .contextMenu {
             Button("Play", action: onPlay)
             Button("Add to Queue", systemImage: "text.append") { model.music.enqueue([item.song]) }
+            if let onShareSelection {
+                Button("Share Selected Songs…", systemImage: CollectionShareEntry.symbol, action: onShareSelection)
+            }
             Divider()
             Button("Delete Download", role: .destructive, action: onDelete)
         }

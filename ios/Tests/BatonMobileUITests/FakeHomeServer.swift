@@ -75,6 +75,10 @@ final class FakeHomeServer: @unchecked Sendable {
     private var castSheet: String?
     private var castFill: [String: String]?
     private var castFillDelay: TimeInterval = 0
+    /// How long the reply to every PUT is held (a book's submit, `PUT /v1/books/{id}`, and a file
+    /// upload alike), as a slow home server or a slow upload holds it. The
+    /// request is taken at once; only the answer waits. Zero unless a test sets it.
+    private var submitDelay: TimeInterval = 0
 
     /// `speech`: serve the narrated chapters from `BATON_UITEST_SPEECH_DIR` when the runner has
     /// them; otherwise, and by default, the tones, each `chapterSeconds` long.
@@ -141,6 +145,8 @@ final class FakeHomeServer: @unchecked Sendable {
     func setCastReplies(sheet: String?, fill: [String: String]?, fillDelay: TimeInterval = 0) {
         lock.withLock { castSheet = sheet; castFill = fill; castFillDelay = fillDelay }
     }
+    /// Hold every PUT's reply (book submits included) for `seconds`.
+    func setSubmitDelay(_ seconds: TimeInterval) { lock.withLock { submitDelay = seconds } }
     /// A submitted book as it was sent.
     func book(_ id: String) -> PreparedBook? { lock.withLock { jobs[id]?.book } }
     /// Every submitted book, in the order sent.
@@ -314,8 +320,9 @@ final class FakeHomeServer: @unchecked Sendable {
         return otherwise
     }
 
-    /// How long to hold a reply: placing lines takes `castFillDelay`.
+    /// How long to hold a reply: placing lines takes `castFillDelay`, any PUT `submitDelay`.
     private func delay(_ method: String, _ body: Data) -> TimeInterval {
+        if method == "PUT" { return lock.withLock { submitDelay } }
         guard method == "POST" else { return 0 }
         return lock.withLock { castFill != nil && Self.isFill(Self.prompts(body)) ? castFillDelay : 0 }
     }

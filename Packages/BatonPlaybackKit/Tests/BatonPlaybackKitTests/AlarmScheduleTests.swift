@@ -220,6 +220,19 @@ final class AlarmScheduleTests: XCTestCase {
         XCTAssertEqual(second.timer?.endsAt, date(2026, 10, 17, 6, 5))
     }
 
+    /// Alarms this build cannot read (saved by a newer one, as `.radio` was added) are set aside,
+    /// not replaced by an empty list at the next edit (TBX-1000000480 C2-14).
+    func testUnreadableAlarmsAreSetAsideNotOverwritten() {
+        let defaults = ThrowawayDefaults.make("alarms.unreadable")
+        let cal = calendar(newYork)
+        let saved = Data(#"{"alarms":[{"kind":"from-a-newer-baton"}],"answered":{}}"#.utf8)
+        defaults.set(saved, forKey: AlarmStore.storageKey)
+        let store = AlarmStore(defaults: defaults, calendar: { cal })
+        XCTAssertTrue(store.alarms.isEmpty)
+        store.save(alarm(7, 0), now: date(2026, 10, 17, 6, 0))
+        XCTAssertEqual(defaults.data(forKey: AlarmStore.storageKey + ".unreadable"), saved)
+    }
+
     // MARK: Timer
 
     func testTimerPauseAndResumeKeepTheRemainingTime() {

@@ -122,7 +122,7 @@ enum MobileDocuments {
     }
 
     nonisolated static func importDocument(fromWeb url: URL) async throws -> ImportedDocument {
-        try await DocumentImporter.importURL(url) { try await URLSession.shared.data(for: $0) }
+        try await DocumentImporter.importURL(url)
     }
 
     // MARK: - "Chapter 1 is ready" (M5.4)

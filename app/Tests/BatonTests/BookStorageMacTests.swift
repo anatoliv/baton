@@ -158,6 +158,75 @@ final class BookStorageMacTests: XCTestCase {
         XCTAssertTrue(clippings.chapters(ofDocument: prepared.documentID).allSatisfy(\.isPresent))
     }
 
+    /// Two clippings for one chapter, as TBX-10975 once left, are both held under the same file
+    /// name, so the second cannot be. A chapter that is not held must not be deleted.
+    func testADeleteThatCannotHoldAChapterLeavesItInsteadOfDeletingIt() async throws {
+        let (library, clippings, _, prepared) = try await madeBook()
+        let extra = root.appendingPathComponent("extra.m4a")
+        try Data(repeating: 0x42, count: 2_048).write(to: extra)
+        try clippings.adopt(extra, title: "The Cell", durationSeconds: 1,
+                            chapter: .init(documentID: prepared.documentID, documentTitle: "Two Rooms", author: nil,
+                                           chapterIndex: 0, chapterTitle: "The Cell"))
+        let all = clippings.chapters(ofDocument: prepared.documentID)
+        XCTAssertEqual(all.count, 3)
+        var stored = library.stored(try XCTUnwrap(library.shelf.first))
+        stored.present = all
+
+        library.cleanup.delete(stored, everywhere: false)
+        let left = clippings.chapters(ofDocument: prepared.documentID)
+        XCTAssertEqual(left.count, 1, "the chapter it could not hold stays in Clippings")
+        XCTAssertTrue(left.allSatisfy(\.isPresent))
+        let entry = try XCTUnwrap(library.cleanup.removed.first)
+        XCTAssertEqual(entry.chapters, [0, 1])
+
+        try library.cleanup.restore(entry)
+        XCTAssertEqual(clippings.chapters(ofDocument: prepared.documentID).count, 3, "no chapter's audio was lost")
+    }
+
+    // MARK: - A collection already running
+
+    /// Something to do on the main actor while one chapter's download is on the wire.
+    private final class MidFlight: @unchecked Sendable {
+        private let lock = NSLock()
+        private var action: (@MainActor @Sendable () -> Void)?
+        func set(_ action: @escaping @MainActor @Sendable () -> Void) { lock.withLock { self.action = action } }
+        func take() -> (@MainActor @Sendable () -> Void)? { lock.withLock { defer { action = nil }; return action } }
+    }
+
+    /// A home server with the book on it and both chapters ready, and this device's books, whose
+    /// download of chapter 1 runs `midFlight` before it answers.
+    private func homeServerBook() throws
+        -> (HomeServerBooks, ClippingStore, PreparedBook, String, MidFlight) {
+        let fake = DocumentLibraryHomeServerTests.FakeGateway()
+        let prepared = try book()
+        let id = fake.add(prepared, ready: prepared.chapters.count)
+        let midFlight = MidFlight()
+        let clippings = clippingStore()
+        let books = HomeServerBooks(directory: root.appendingPathComponent("Books"), clippings: clippings, gateway: {
+            GatewayBookClient(baseURL: URL(string: "http://gateway.test:8788")!, token: "t") { request in
+                if request.url?.path.hasSuffix("/chapters/1") == true, let action = midFlight.take() { await action() }
+                return fake.answer(request)
+            }
+        })
+        return (books, clippings, prepared, id, midFlight)
+    }
+
+    func testADownloadRemovedWhileItIsCollectedDoesNotComeBack() async throws {
+        let (books, clippings, prepared, id, midFlight) = try homeServerBook()
+        midFlight.set { books.offload(jobID: id, chapters: [0, 1]) }
+        await books.collect()
+        XCTAssertEqual(clippings.chapters(ofDocument: prepared.documentID), [], "removed on purpose, so not fetched back")
+        XCTAssertEqual(books.record(forJob: id)?.offloaded, [0, 1])
+    }
+
+    func testABookRemovedFromThisDeviceWhileItIsCollectedLeavesNoChaptersBehind() async throws {
+        let (books, clippings, prepared, _, midFlight) = try homeServerBook()
+        midFlight.set { books.hide(documentID: prepared.documentID) }
+        await books.collect()
+        XCTAssertTrue(books.records.isEmpty)
+        XCTAssertEqual(clippings.chapters(ofDocument: prepared.documentID), [], "no chapters with no book")
+    }
+
     func testAfterAWeekADeletedBookIsPurged() async throws {
         let (library, _, _, _) = try await madeBook()
         await library.deleteBook(try XCTUnwrap(library.shelf.first), everywhere: false)

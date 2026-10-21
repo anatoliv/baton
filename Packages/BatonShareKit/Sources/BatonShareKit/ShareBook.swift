@@ -50,10 +50,24 @@ public enum ShareBookCrypto {
     }
 }
 
-/// The encrypted manifest of a book link: its title and author, the sender's From and note, and
-/// every chapter in order. All of it is inside the encryption, including chapter names and order.
+/// What a `/b/` link holds besides a book: an album or a playlist (specs/collection-sharing.md).
+public enum ShareCollectionKind: String, Codable, Equatable, Sendable, CaseIterable {
+    case album, playlist
+}
+
+/// The encrypted manifest of a `/b/` link. A book (`baton-book-1`) holds its title and author, the
+/// sender's From and note, and every chapter in order. An album or a playlist
+/// (`baton-collection-1`, specs/collection-sharing.md) is the same shape under its own schema: the
+/// kind, the title, the artist (kept in `author`), an optional cover image, and its tracks (kept in
+/// `chapters`, each with an optional artist, album and track number, and never read-along text).
+/// Both use the book's keys; the schema inside the authenticated manifest tells them apart. All of
+/// it is inside the encryption, including track names, order and the cover.
 public struct ShareBookManifest: Codable, Equatable, Sendable {
     public static let schemaVersion = "baton-book-1"
+    public static let collectionSchemaVersion = "baton-collection-1"
+    /// A cover's decoded bytes, at most (the whole manifest stays within 256 KiB sealed).
+    public static let maxCoverBytes = 131_072
+    public static let maxTrackNumber = 9999
 
     public struct Text: Codable, Equatable, Sendable {
         /// The text blob's own random ID (its storage name); its key comes from the chapter's ID.
@@ -63,41 +77,166 @@ public struct ShareBookManifest: Codable, Equatable, Sendable {
         public init(id: String, bytes: Int, sha256: String) { self.id = id; self.bytes = bytes; self.sha256 = sha256 }
     }
 
+    /// A collection's cover: a JPEG or PNG inside the manifest, so a listener sees it before
+    /// spending a listener and the service never sees it.
+    public struct Cover: Codable, Equatable, Sendable {
+        public static let types = ["image/jpeg", "image/png"]
+        public var type: String
+        /// Canonical, padded standard base64 of the image bytes.
+        public var data: String
+        public init(type: String, data: String) { self.type = type; self.data = data }
+        public init(type: String, bytes: Data) { self.type = type; self.data = bytes.base64EncodedString() }
+
+        public var bytes: Data? { Data(base64Encoded: data) }
+
+        /// The image's type from its signature, or nil for anything but JPEG or PNG.
+        public static func type(of bytes: Data) -> String? {
+            if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+            if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return "image/png" }
+            return nil
+        }
+
+        public func validated() throws -> Self {
+            guard Self.types.contains(type), let bytes = Data(base64Encoded: data), bytes.base64EncodedString() == data,
+                  (1 ... ShareBookManifest.maxCoverBytes).contains(bytes.count), Self.type(of: bytes) == type else {
+                throw ShareValidationError("cover", "must be a JPEG or PNG of at most \(ShareBookManifest.maxCoverBytes) bytes")
+            }
+            return self
+        }
+    }
+
+    /// A book's chapter, or a collection's track.
     public struct Chapter: Codable, Equatable, Sendable {
         public var id: String
         public var title: String
+        /// A track's own artist, when it has one. Never set on a book chapter.
+        public var artist: String?
+        /// A track's album, when it has one. Never set on a book chapter.
+        public var album: String?
+        /// A track's number on its album, 1 to 9999. Never set on a book chapter.
+        public var trackNumber: Int?
         public var durationSeconds: Int
         public var audioBytes: Int
         public var audioSHA256: String
         public var text: Text?
-        public init(id: String, title: String, durationSeconds: Int, audioBytes: Int, audioSHA256: String, text: Text? = nil) {
+        public init(id: String, title: String, durationSeconds: Int, audioBytes: Int, audioSHA256: String, text: Text? = nil,
+                    artist: String? = nil, album: String? = nil, trackNumber: Int? = nil) {
             self.id = id; self.title = title; self.durationSeconds = durationSeconds
             self.audioBytes = audioBytes; self.audioSHA256 = audioSHA256; self.text = text
+            self.artist = artist; self.album = album; self.trackNumber = trackNumber
+        }
+
+        enum CodingKeys: String, CodingKey { case id, title, artist, album, trackNumber, durationSeconds, audioBytes, audioSHA256, text }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            title = try c.decode(String.self, forKey: .title)
+            // Read leniently here, so a book chapter ignores these keys whatever they hold, as the
+            // browser does; a collection's tracks are decoded strictly too (`TrackFields`).
+            artist = (try? c.decodeIfPresent(String.self, forKey: .artist)) ?? nil
+            album = (try? c.decodeIfPresent(String.self, forKey: .album)) ?? nil
+            trackNumber = (try? c.decodeIfPresent(Int.self, forKey: .trackNumber)) ?? nil
+            durationSeconds = try c.decode(Int.self, forKey: .durationSeconds)
+            audioBytes = try c.decode(Int.self, forKey: .audioBytes)
+            audioSHA256 = try c.decode(String.self, forKey: .audioSHA256)
+            // A collection track carrying text is refused by `validated`, not dropped here.
+            text = try c.decodeIfPresent(Text.self, forKey: .text)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(title, forKey: .title)
+            try c.encodeIfPresent(artist, forKey: .artist)
+            try c.encodeIfPresent(album, forKey: .album)
+            try c.encodeIfPresent(trackNumber, forKey: .trackNumber)
+            try c.encode(durationSeconds, forKey: .durationSeconds)
+            try c.encode(audioBytes, forKey: .audioBytes)
+            try c.encode(audioSHA256, forKey: .audioSHA256)
+            try c.encodeIfPresent(text, forKey: .text)
         }
     }
 
     public var schema: String
+    /// nil for a book; the album or playlist for a collection.
+    public var kind: ShareCollectionKind?
     public var title: String
+    /// A book's author, or a collection's (album) artist.
     public var author: String
     public var from: String
     public var note: String
+    /// A collection's cover. Never set on a book.
+    public var cover: Cover?
+    /// A book's chapters, or a collection's tracks.
     public var chapters: [Chapter]
+
+    public var isCollection: Bool { kind != nil }
 
     public init(title: String, author: String = "", from: String = "", note: String = "", chapters: [Chapter]) {
         self.schema = Self.schemaVersion; self.title = title; self.author = author
         self.from = from; self.note = note; self.chapters = chapters
     }
 
-    enum CodingKeys: String, CodingKey { case schema, title, author, from, note, chapters }
+    /// An album or playlist manifest. `artist` is the album artist, and may be empty for a playlist.
+    public init(collection kind: ShareCollectionKind, title: String, artist: String = "", from: String = "", note: String = "",
+                cover: Cover? = nil, tracks: [Chapter]) {
+        self.schema = Self.collectionSchemaVersion; self.kind = kind; self.title = title; self.author = artist
+        self.from = from; self.note = note; self.cover = cover; self.chapters = tracks
+    }
+
+    enum CodingKeys: String, CodingKey { case schema, kind, title, author, artist, from, note, cover, chapters, tracks }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         schema = try c.decode(String.self, forKey: .schema)
         title = try c.decode(String.self, forKey: .title)
-        author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
         from = try c.decodeIfPresent(String.self, forKey: .from) ?? ""
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
-        chapters = try c.decode([Chapter].self, forKey: .chapters)
+        if schema == Self.collectionSchemaVersion {
+            // A missing or unknown kind is refused here; a book kind is not a kind.
+            kind = try c.decode(ShareCollectionKind.self, forKey: .kind)
+            author = try c.decodeIfPresent(String.self, forKey: .artist) ?? ""
+            cover = try c.decodeIfPresent(Cover.self, forKey: .cover)
+            chapters = try c.decode([Chapter].self, forKey: .tracks)
+            // A track's artist, album and number must have their types: a number written as text
+            // is refused, not dropped.
+            _ = try c.decode([TrackFields].self, forKey: .tracks)
+        } else {
+            author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
+            chapters = try c.decode([Chapter].self, forKey: .chapters)
+        }
+    }
+
+    /// A collection track's optional fields, decoded strictly.
+    private struct TrackFields: Decodable {
+        enum CodingKeys: String, CodingKey { case artist, album, trackNumber }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            _ = try c.decodeIfPresent(String.self, forKey: .artist)
+            _ = try c.decodeIfPresent(String.self, forKey: .album)
+            _ = try c.decodeIfPresent(Int.self, forKey: .trackNumber)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schema, forKey: .schema)
+        if let kind {
+            try c.encode(kind, forKey: .kind)
+            try c.encode(title, forKey: .title)
+            try c.encode(author, forKey: .artist)
+            try c.encode(from, forKey: .from)
+            try c.encode(note, forKey: .note)
+            try c.encodeIfPresent(cover, forKey: .cover)
+            try c.encode(chapters, forKey: .tracks)
+        } else {
+            try c.encode(title, forKey: .title)
+            try c.encode(author, forKey: .author)
+            try c.encode(from, forKey: .from)
+            try c.encode(note, forKey: .note)
+            try c.encode(chapters, forKey: .chapters)
+        }
     }
 
     /// Every sealed blob byte the manifest declares: audio and text, not the manifest itself.
@@ -117,7 +256,11 @@ public struct ShareBookManifest: Codable, Equatable, Sendable {
     /// Checks the whole manifest before any chapter is requested. `encryptedManifestBytes` counts
     /// against the book's total when known.
     public func validated(limits: ShareLimits = .standard, encryptedManifestBytes: Int = 0) throws -> Self {
-        guard schema == Self.schemaVersion else { throw ShareValidationError("schema", "unsupported book") }
+        if kind != nil {
+            guard schema == Self.collectionSchemaVersion else { throw ShareValidationError("schema", "unsupported collection") }
+        } else {
+            guard schema == Self.schemaVersion, cover == nil else { throw ShareValidationError("schema", "unsupported book") }
+        }
         guard (1 ... limits.maxBookChapters).contains(chapters.count) else {
             throw ShareValidationError("chapters", "must contain 1 to \(limits.maxBookChapters) chapters")
         }
@@ -127,6 +270,7 @@ public struct ShareBookManifest: Codable, Equatable, Sendable {
         result.author = try ShareText.clean(author, field: "author", max: ShareLimits.maxTitleLength)
         result.from = try ShareText.clean(from, field: "from", max: ShareLimits.maxFromLength)
         result.note = try ShareText.clean(note, field: "note", max: ShareLimits.maxNoteLength, allowNewlines: true)
+        result.cover = try cover?.validated()
         var seen = Set<String>(), bytes = encryptedManifestBytes, seconds = 0
         result.chapters = try chapters.map { chapter in
             var normalized = chapter
@@ -135,6 +279,17 @@ public struct ShareBookManifest: Codable, Equatable, Sendable {
             }
             normalized.title = try ShareText.clean(chapter.title, field: "chapters.title", max: ShareLimits.maxTitleLength)
             guard !normalized.title.isEmpty else { throw ShareValidationError("chapters.title", "is required") }
+            if isCollection {
+                guard chapter.text == nil else { throw ShareValidationError("tracks.text", "a track has no read-along text") }
+                normalized.artist = try chapter.artist.map { try ShareText.clean($0, field: "tracks.artist", max: ShareLimits.maxTitleLength) }
+                normalized.album = try chapter.album.map { try ShareText.clean($0, field: "tracks.album", max: ShareLimits.maxTitleLength) }
+                if let number = chapter.trackNumber, !(1 ... Self.maxTrackNumber).contains(number) {
+                    throw ShareValidationError("tracks.trackNumber", "must be from 1 to \(Self.maxTrackNumber)")
+                }
+            } else {
+                // A book chapter has none of these; like any unknown key, they are not read.
+                normalized.artist = nil; normalized.album = nil; normalized.trackNumber = nil
+            }
             guard (1 ... limits.maxBookChapterSeconds).contains(chapter.durationSeconds),
                   chapter.durationSeconds <= limits.maxBookSeconds - seconds else {
                 throw ShareValidationError("chapters.durationSeconds", "out of range")

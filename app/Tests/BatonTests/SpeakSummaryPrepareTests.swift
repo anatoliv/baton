@@ -15,6 +15,13 @@ final class SpeakSummaryPrepareTests: XCTestCase {
 
     private var suite: UserDefaults!
 
+    /// What the notification seam was handed, and what it answers.
+    @MainActor private final class PostBox {
+        var bodies: [String] = []
+        var result: SpeechNotifier.PostResult = .delivered
+    }
+    private var posts = PostBox()
+
     override func setUp() {
         suite = UserDefaults(suiteName: ThrowawayDefaults.name("speak-prepare"))!
         SpeechConfig.defaults = suite
@@ -26,9 +33,19 @@ final class SpeakSummaryPrepareTests: XCTestCase {
         SpeechConfig.announceImmediately = false
         SpeechConfig.alertWithNotification = true
         SpeechConfig.alertWithBanner = false
+        // Never a real notification from a test run.
+        posts = PostBox()
+        let box = posts
+        BatonMCPSpeakTools.postNotification = { text, _ in
+            box.bodies.append(text)
+            return box.result
+        }
     }
 
-    override func tearDown() { SpeechConfig.defaults = .standard }
+    override func tearDown() {
+        SpeechConfig.defaults = .standard
+        BatonMCPSpeakTools.postNotification = { await SpeechNotifier.post(text: $0, utterance: $1) }
+    }
 
     private let scrapings = """
     anatoli@mac baton % ./deploy.sh
@@ -72,5 +89,22 @@ final class SpeakSummaryPrepareTests: XCTestCase {
         } catch {
             XCTAssertTrue("\(error)".contains("sideways"))
         }
+    }
+
+    /// The notification body persists in Notification Center, and the fallback banner shows on
+    /// screen: both must carry the cleaned text, not the scrapings (TBX-1000000480 A-7).
+    func testTheNotificationAndFallbackBannerCarryThePreparedText() async throws {
+        let music = MusicModel()
+        posts.result = .denied
+        _ = try await BatonMCPSpeakTools.run(
+            ["text": scrapings, "prepare": "terminal", "mode": "notify", "session": "deploy-agent"], music
+        )
+
+        let posted = try XCTUnwrap(posts.bodies.first)
+        XCTAssertFalse(posted.contains("sntrys_"), "the raw token must never reach the notification body")
+        XCTAssertTrue(posted.contains("deploy finished in 42 seconds"))
+        let banner = try XCTUnwrap(music.speech.pendingAlerts.first)
+        XCTAssertFalse(banner.text.contains("sntrys_"), "the raw token must never reach the fallback banner")
+        XCTAssertEqual(banner.sessionLabel, "deploy-agent", "the fallback banner names the speaker like the other banner")
     }
 }

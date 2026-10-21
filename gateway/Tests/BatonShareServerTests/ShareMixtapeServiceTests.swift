@@ -101,6 +101,28 @@ final class ShareMixtapeServiceTests: XCTestCase {
         XCTAssertEqual(try decode(MixtapeSummary.self, send("GET", "/v1/share/mixtapes/\(created.id)", token: owner)).share.status, .revoked)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("blobs/\(created.id)").path))
     }
+    /// A mixtape's reactions and revocation leave the same usage rows a song's do, labelled as a mixtape.
+    func testReactionAndRevocationAreCountedAsMixtapeEvents() throws {
+        let created = try ready(try fixture()), admitted = try session(created.id)
+        let reaction = try JSONSerialization.data(withJSONObject: ["emoji": "❤️", "reply": "Lovely"])
+        XCTAssertEqual(send("POST", "/v1/share/m/\(created.id)/reactions", body: reaction, token: admitted.token).status, 204)
+        XCTAssertEqual(send("DELETE", "/v1/share/mixtapes/\(created.id)", token: owner).status, 204)
+        XCTAssertEqual(send("DELETE", "/v1/share/mixtapes/\(created.id)", token: owner).status, 204)
+        let rows = try service.store.database.query("SELECT type, props FROM events WHERE share_id=? AND type IN ('reaction_sent','share_revoked') ORDER BY id", [.text(created.id)])
+        XCTAssertEqual(rows.compactMap { $0["type"]?.text }, ["reaction_sent", "share_revoked"], "a repeated revoke records nothing more")
+        XCTAssertEqual(rows.compactMap { $0["props"]?.text }, [#"{"emoji":"❤️","hasName":false,"hasReply":true,"kind":"mixtape"}"#, #"{"kind":"mixtape"}"#])
+    }
+    /// BATON_SHARE_ENABLED=0 refuses new shares; links already sent keep playing, page included.
+    func testSharingPausedKeepsASentMixtapePagePlaying() throws {
+        let created = try ready(try fixture())
+        var config = ShareConfiguration(dataDirectory: root, enabled: false, blobDelivery: .direct)
+        config.mixtapesEnabled = true
+        service = try ShareService(config: config, clock: { [clock] in clock.now })
+        XCTAssertEqual(send("GET", "/v1/share/m/\(created.id)").status, 200)
+        let page = send("GET", "/m/\(created.id)")
+        XCTAssertEqual(page.status, 200)
+        XCTAssertTrue(String(decoding: page.body, as: UTF8.self).contains(#"data-state="ready""#))
+    }
     func largeFixture() throws -> Fixture {
         let key = Data(repeating: 8, count: 16)
         var tracks = [ShareMixtapeManifest.Track](), audio = [String: Data]()

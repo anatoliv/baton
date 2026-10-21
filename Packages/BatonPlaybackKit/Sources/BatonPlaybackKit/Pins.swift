@@ -122,6 +122,9 @@ public final class PinStore {
         // already there.
         store = VersionedStore<[PinnedItem]>(fileURL: storeURL, currentVersion: 1,
                                              keepBackup: true, log: pinLog)
+        // Loaded here, not left to a view: a pin toggled from a surface that never loaded the
+        // list would otherwise save just that one pin over the rest.
+        loadIfNeeded()
     }
 
     /// Pins newest-first (for the Later list).

@@ -105,7 +105,9 @@ final class MacAlarmsTests: XCTestCase {
         // the panel holds the card, and the card is tall enough for its three answers.
         let panel = try XCTUnwrap(NSApp.windows.first { $0 is NSPanel && $0.isVisible && $0.level == .floating })
         let card = try XCTUnwrap(panel.contentView)
-        XCTAssertGreaterThan(card.fittingSize.height, 330, "Keep playing, Snooze and Stop need the room: \(card.fittingSize)")
+        // About 322 pt with all three; without Snooze it would be about 283 (TBX-1000000478 took
+        // the title bar's empty band, about 33 pt, out of the card's height).
+        XCTAssertGreaterThan(card.fittingSize.height, 300, "Keep playing, Snooze and Stop need the room: \(card.fittingSize)")
         XCTAssertTrue(AlarmCenter.offersSnooze(try XCTUnwrap(alarms.center.ringing)), "a timer's card offers Snooze")
 
         let before = router.showNowPlayingToken
@@ -127,6 +129,91 @@ final class MacAlarmsTests: XCTestCase {
         alarms.store.cancelTimer()
         waitUntil(3) { !ringingPanelVisible }
         XCTAssertFalse(ringingPanelVisible, "Snooze takes the card down too")
+    }
+
+    /// The floating ringing card reads in full. Mac 0.20.13 opened it as a strip
+    /// about 100 pt wide: the card had only a maximum width, and the panel took the card's minimum,
+    /// so the label read "Al…", the time "•••" and the buttons were icons only. Here a timer and
+    /// then an alarm go off, each first with short words and then with a label and a track name
+    /// long enough to need two lines: the card is at least 320 pt wide, the panel is exactly the
+    /// card's size, the time and the three answers fit across it, and the long lines wrap onto a
+    /// second line rather than being cut off.
+    func testRingingCardIsWideEnoughToReadInFull() throws {
+        let model = MusicModel(environment: .testing)
+        defer { model.music.stop() }
+        let alarms = MacAlarms(player: model.music, defaults: ThrowawayDefaults.make("mac-alarms-width"))
+        alarms.start(model: model, systemNotifications: false)
+        defer { alarms.center.stop() }
+        let url = try tone("card").absoluteString
+        let shortSong = NavidromeSong(id: url, title: "Up", artist: "Baton")
+        let longSong = NavidromeSong(id: url, title: "Everything in Its Right Place (Live in Berlin)", artist: "Radiohead")
+        let longLabel = "Take the bread out of the oven and turn it off"
+
+        func ringTimer(_ label: String, _ song: NavidromeSong) throws -> CGSize {
+            alarms.store.startTimer(duration: 1, label: label, choice: .song(song))
+            waitUntil { alarms.center.ringing != nil }
+            return try ringingCardSize(alarms, "timer")
+        }
+        func ringAlarm(_ label: String, _ song: NavidromeSong) throws -> CGSize {
+            let alarm = BatonAlarm(hour: 6, minute: 45, label: label, choice: .song(song))
+            alarms.store.save(alarm)
+            alarms.center.systemIsAlerting(id: alarm.id)
+            XCTAssertEqual(alarms.center.ringing?.kind, .alarm)
+            let size = try ringingCardSize(alarms, "alarm")
+            alarms.store.delete(id: alarm.id)
+            return size
+        }
+
+        for (what, ring) in [("timer", ringTimer), ("alarm", ringAlarm)] {
+            let short = try ring("Tea", shortSong)
+            stopRinging(alarms)
+            let long = try ring(longLabel, longSong)
+            stopRinging(alarms)
+            XCTAssertEqual(long.width, short.width, accuracy: 1, "the \(what)'s card keeps its width for long words")
+            // A second line of the title2 label and of the headline "Then play" is about 38 pt.
+            XCTAssertGreaterThan(long.height - short.height, 30,
+                                 "the \(what)'s long label and track wrap onto a second line, not cut off: \(short) → \(long)")
+        }
+    }
+
+    private func stopRinging(_ alarms: MacAlarms) {
+        alarms.center.stopRinging()
+        waitUntil(3) { !ringingPanelVisible }
+    }
+
+    /// The ringing panel's size, after checking it reads in full.
+    private func ringingCardSize(_ alarms: MacAlarms, _ what: String,
+                                 file: StaticString = #filePath, line: UInt = #line) throws -> CGSize {
+        waitUntil(3) { ringingPanelVisible }
+        let fire = try XCTUnwrap(alarms.center.ringing, file: file, line: line)
+        let panel = try XCTUnwrap(NSApp.windows.first { $0 is NSPanel && $0.isVisible && $0.level == .floating },
+                                  file: file, line: line)
+        let host = try XCTUnwrap(panel.contentView, file: file, line: line)
+        host.layoutSubtreeIfNeeded()
+        let fit = host.fittingSize
+        XCTAssertGreaterThanOrEqual(fit.width, 320, "the \(what)'s card is wide enough to read: \(fit)", file: file, line: line)
+        XCTAssertEqual(panel.frame.width, fit.width, accuracy: 1, "the panel is the card's width: \(panel.frame.size)", file: file, line: line)
+        XCTAssertEqual(panel.frame.height, fit.height, accuracy: 1, "and its height, so nothing is cut off", file: file, line: line)
+
+        // The one-line parts, in the card's own fonts, fit across it: the card's width less the
+        // panel's 8 pt and the card's 20 pt padding on each side.
+        let column = fit.width - 2 * 8 - 2 * 20
+        let oneLine: [(String, AnyView)] = [
+            ("the time", AnyView(Text(AlarmCenter.timeString(fire.occurrence))
+                .font(AlarmRingingCard.floatingTimeFont).monospacedDigit())),
+            ("Keep playing", AnyView(Button {} label: { Label("Keep playing, open player", systemImage: "play.circle.fill") }
+                .buttonStyle(.borderedProminent).controlSize(.large))),
+            ("Snooze", AnyView(Button {} label: { Label("Snooze 9 min", systemImage: "zzz") }
+                .buttonStyle(.bordered).controlSize(.large))),
+            ("Stop", AnyView(Button(role: .destructive) {} label: { Label("Stop", systemImage: "stop.fill") }
+                .buttonStyle(.bordered).controlSize(.large))),
+        ]
+        for (part, view) in oneLine {
+            let ideal = NSHostingView(rootView: view.fixedSize()).fittingSize.width
+            XCTAssertLessThanOrEqual(ideal, column, "\(part) fits on one line across the \(what)'s card",
+                                     file: file, line: line)
+        }
+        return panel.frame.size
     }
 
     /// The popover's quick sheet: "Then play" defaults to what the player holds,

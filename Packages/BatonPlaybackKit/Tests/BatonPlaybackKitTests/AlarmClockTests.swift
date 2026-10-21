@@ -220,6 +220,54 @@ final class AlarmClockTests: XCTestCase {
         XCTAssertEqual(system.syncs, before + 1)
     }
 
+    /// A system sync that takes seconds (AlarmKit's apply prepares the clip) must not overlap the
+    /// next one: both read what is scheduled across their awaits, and the older one, finishing
+    /// last, would put old settings back (TBX-1000000480 B-14).
+    func testSystemSyncsNeverOverlap() async {
+        final class SlowSystem: AlarmSystemBridge {
+            var active = 0
+            var mostAtOnce = 0
+            var syncs = 0
+            func sync(_ store: AlarmStore) async {
+                active += 1
+                mostAtOnce = max(mostAtOnce, active)
+                // Like AlarmKit's clip preparation, this wait does not end when the sync is cancelled.
+                await Task { try? await Task.sleep(for: .milliseconds(500)) }.value
+                active -= 1
+                syncs += 1
+            }
+            func silence(id: UUID) {}
+            func authorize() async -> Bool { true }
+        }
+        let store = AlarmStore(defaults: ThrowawayDefaults.make("alarms.serial"))
+        let center = AlarmCenter(store: store, player: controller())
+        let system = SlowSystem()
+        center.system = system
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(system.active, 1, "the first sync is under way")
+        store.save(BatonAlarm(hour: 7, minute: 0, choice: .song(tracks[0])))
+        try? await Task.sleep(for: .milliseconds(300))
+        store.save(BatonAlarm(hour: 8, minute: 0, choice: .song(tracks[1])))
+        try? await Task.sleep(for: .milliseconds(1800))
+        XCTAssertEqual(system.mostAtOnce, 1)
+        XCTAssertEqual(system.syncs, 2, "the two edits made during the first sync coalesce into one more")
+    }
+
+    /// An ended timer Baton cannot answer (the iPhone in the background) stays due; the clock
+    /// must not wake fifty times a second waiting for the app to come forward (TBX-1000000480 C2-13).
+    func testClockDoesNotSpinOnAnUnansweredEndedTimer() {
+        let store = AlarmStore(defaults: ThrowawayDefaults.make("alarms.spin"))
+        store.startTimer(duration: 1, choice: .song(tracks[0]), now: Date().addingTimeInterval(-5))
+        var looks = 0
+        let clock = AlarmClock(store: store) { _ in XCTFail("nothing may be answered") }
+        clock.canAnswer = { looks += 1; return false }
+        clock.start()
+        defer { clock.stop() }
+        waitUntil({ false }, seconds: 0.6)
+        XCTAssertLessThanOrEqual(looks, 4)
+        XCTAssertNotNil(store.timer)
+    }
+
     /// A snooze the system took (AlarmKit's Snooze button, which Baton never hears about): Baton
     /// opened during it, half an hour after the first ring, plays the track rather than calling
     /// the alarm missed (TBX-11171 review).

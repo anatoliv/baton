@@ -216,6 +216,32 @@ final class SessionPurgeTests: XCTestCase {
         }
     }
 
+    /// The purge deleted the gateway address and token from storage and left the copies the
+    /// model holds in memory, with the sync heartbeat running and every removal stamped as a
+    /// local change. The next sync then went to the old gateway with the deleted token and
+    /// announced the account's settings as deleted, and the Mac removed them
+    /// (TBX-1000000480 B-1).
+    func testPurgeLetsGoOfTheGatewayAndItsSyncHistory() {
+        let model = MobileModel()
+        model.agentConfig.gatewayURL = "http://127.0.0.1:59999"
+        model.agentConfig.gatewayToken = "a-token"
+        model.preferenceSync.noteLocalChange("baton.agent.gatewayURL")
+        BatonStorage.defaults.set(["baton.agent.gatewayURL"], forKey: "baton.sync.keysHeldAtLastSync")
+        model.startSyncHeartbeat()
+        XCTAssertNotNil(model.pendingImportRelay(), "precondition: a gateway to forget")
+
+        SessionPurge.purge(model, keepDownloads: true)
+
+        XCTAssertEqual(model.agentConfig.gatewayURL, "", "the deleted gateway address is still in use")
+        XCTAssertEqual(model.agentConfig.gatewayToken, "", "the deleted gateway token is still in use")
+        XCTAssertNil(model.pendingImportRelay(), "Send to my Mac still reaches the old gateway")
+        XCTAssertFalse(model.isSyncHeartbeatRunning, "the heartbeat goes on syncing a wiped session")
+        XCTAssertNil(BatonStorage.defaults.object(forKey: "baton.sync.localTimestamps"),
+                     "the purge's own removals are stamped as edits to push")
+        XCTAssertNil(BatonStorage.defaults.object(forKey: "baton.sync.keysHeldAtLastSync"),
+                     "keys held before the purge would be announced as deleted")
+    }
+
     /// TBX-5230 (owner decision, 2026-09-09): the purge now takes the friend's memory and
     /// its learned corrections too, not just the exchange log. Both live in the shared
     /// `baton.friend.ledger`, so clearing them here must publish tombstones — not merely go

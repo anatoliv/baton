@@ -78,4 +78,39 @@ final class GatewayFilesTests: XCTestCase {
         let message = GatewayFiles.TransferError.notConfigured.errorDescription ?? ""
         XCTAssertTrue(message.contains("Settings"), message)
     }
+
+    /// The phone and the Mac put a listed id into a file path. The gateway only ever issues hex
+    /// and dashes, so anything else in a listing (an id like `../x`) is dropped rather than
+    /// trusted to stay inside a temporary folder (TBX-1000000480 B-19).
+    func testAListingDropsIDsTheGatewayWouldNeverIssue() async throws {
+        let good = String(repeating: "ab", count: 32)
+        ListingStub.body = Data("""
+        [{"id":"\(good)","name":"a.md","contentType":"text/markdown","size":1,"createdAt":"2026-10-21T10:00:00Z"},
+         {"id":"x/../../y","name":"b.md","contentType":"text/markdown","size":1,"createdAt":"2026-10-21T10:00:00Z"},
+         {"id":"../x","name":"c.md","contentType":"text/markdown","size":1,"createdAt":"2026-10-21T10:00:00Z"},
+         {"id":"","name":"d.md","contentType":"text/markdown","size":1,"createdAt":"2026-10-21T10:00:00Z"}]
+        """.utf8)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ListingStub.self]
+        let files = GatewayFiles(gatewayURL: URL(string: "http://gateway-files-listing.test")!, token: "t",
+                                 session: URLSession(configuration: configuration))
+        let listed = try await files.list()
+        XCTAssertEqual(listed.map(\.id), [good])
+    }
+}
+
+private final class ListingStub: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var body = Data()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

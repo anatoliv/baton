@@ -100,6 +100,28 @@ final class WAVTests: XCTestCase {
         XCTAssertNil(WAV.parse(Data("not audio at all".utf8)))
     }
 
+    /// A speech server's `fmt ` chunk is not trusted: a format no audio has is refused at parse,
+    /// rather than trapping on overflow when the joined chapter's header is written.
+    func testAnAbsurdFormatIsRefused() {
+        var absurd = FakeSynthesizer.tone(seconds: 0.1)
+        absurd.replaceSubrange(22..<24, with: [0xFF, 0xFF])             // channels
+        absurd.replaceSubrange(24..<28, with: [0xFF, 0xFF, 0xFF, 0xFF]) // sample rate
+        absurd.replaceSubrange(34..<36, with: [0xFF, 0xFF])             // bits per sample
+        XCTAssertNil(WAV.parse(absurd))
+        var silent = FakeSynthesizer.tone(seconds: 0.1)
+        silent.replaceSubrange(22..<24, with: [0, 0])
+        XCTAssertNil(WAV.parse(silent), "no channels")
+    }
+
+    /// Past 4 GB the sizes do not fit the header's 32 bits: it says "to the end", as a streamed
+    /// WAV does, instead of trapping.
+    func testAHeaderPastFourGigabytesSaysToTheEnd() throws {
+        let format = WAV.Format(audioFormat: 1, channels: 2, sampleRate: 48_000, bitsPerSample: 16)
+        let header = WAV.header(format: format, dataBytes: Int(UInt32.max) + 10)
+        XCTAssertEqual(Array(header[40..<44]), [0xFF, 0xFF, 0xFF, 0xFF])
+        XCTAssertEqual(Array(header[4..<8]), [0xFF, 0xFF, 0xFF, 0xFF])
+    }
+
     func testVoiceSpecSplit() {
         XCTAssertEqual(HTTPSpeechSynthesizer.split("kokoro:bf_emma").engine, "kokoro")
         XCTAssertEqual(HTTPSpeechSynthesizer.split("chatterbox:Emily.wav").voice, "Emily.wav")

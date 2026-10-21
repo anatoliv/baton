@@ -645,6 +645,9 @@ final class BookRoutesTests: XCTestCase {
         let noLength = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1,
                                  headers: ["X-Baton-SHA256": SHA256Digest.hex(of: audio1)])
         XCTAssertEqual(status(noLength), "400 Bad Request", "a chapter without its duration is refused")
+        let fullwidth = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1,
+                                  headers: ["X-Baton-SHA256": String(repeating: "\u{FF10}", count: 64), "X-Baton-Duration": "12.5"])
+        XCTAssertEqual(status(fullwidth), "400 Bad Request", "a digest of fullwidth digits is not a digest")
         let damaged = await put(routes, dir, "/v1/books/\(id)/chapters/1", body: audio1 + Data([1]),
                                 headers: chapterHeaders(audio1))
         XCTAssertEqual(status(damaged), "422 Unprocessable Entity", "a chapter damaged on the way is refused")

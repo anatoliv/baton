@@ -21,6 +21,10 @@ extension ShareStore {
         if !shares.contains("is_book") {
             try database.execute("ALTER TABLE shares ADD COLUMN is_book INTEGER NOT NULL DEFAULT 0")
         }
+        // A collection (specs/collection-sharing.md) is a book row whose kind is album or playlist.
+        if !shares.contains("book_kind") {
+            try database.execute("ALTER TABLE shares ADD COLUMN book_kind TEXT NOT NULL DEFAULT 'book'")
+        }
         let tracks = Set(try database.query("PRAGMA table_info(mixtape_tracks)").compactMap { $0["name"]?.text })
         if !tracks.contains("role") {
             try database.execute("ALTER TABLE mixtape_tracks ADD COLUMN role TEXT NOT NULL DEFAULT 'audio'")
@@ -34,13 +38,14 @@ extension ShareStore {
         }
     }
 
-    /// Live books held by one sharer (pending or ready), for the per-sharer live-book cap.
+    /// Live books held by one sharer (pending or ready), for the per-sharer live-book cap. Albums and
+    /// playlists are book rows too, so the cap is shared across every kind.
     func liveBooks(byDigest digest: String) throws -> Int {
         Int(try database.scalar("SELECT COUNT(*) FROM shares WHERE sharer_digest=? AND is_book=1 AND status IN ('pending','ready')", [.text(digest)]))
     }
 
     /// The book slice's durable promise: every live (or still-cleaning) book's stored bytes plus
-    /// its declared blobs not yet uploaded, exactly as `quotaBytes()` counts them.
+    /// its declared blobs not yet uploaded, exactly as `quotaBytes()` counts them. Collections included.
     func bookQuotaBytes() throws -> Int64 {
         try database.scalar("""
         SELECT COALESCE(SUM(stored_bytes + COALESCE((SELECT SUM(audio_bytes) FROM mixtape_tracks t WHERE t.share_id=shares.id AND stored=0),0)),0)

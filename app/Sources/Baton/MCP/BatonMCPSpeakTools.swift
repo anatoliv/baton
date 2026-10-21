@@ -10,6 +10,12 @@ import Foundation
 /// (hung off `MusicModel` as `music.speech`), notifications in `SpeechNotifier`.
 @MainActor
 enum BatonMCPSpeakTools {
+    /// Posts the "Task complete" notification. A seam so a test can see what would be posted
+    /// without putting a real notification on the machine running the suite.
+    static var postNotification: @MainActor (String, SpeechPlaybackEngine.Utterance) async -> SpeechNotifier.PostResult = {
+        await SpeechNotifier.post(text: $0, utterance: $1)
+    }
+
     // MARK: - Tool definition
 
     static func definition() -> [String: Any] {
@@ -44,7 +50,7 @@ enum BatonMCPSpeakTools {
                     "voice": ["type": "string", "description": "Explicit voice, overriding category. Either 'engine:voice' (e.g. 'kokoro:af_bella', 'chatterbox:Emily.wav') or a bare voice id."],
                     "engine": ["type": "string", "description": "'kokoro' (default, fast presets) or 'chatterbox' (premium / cloned voice)."],
                     "mode": ["type": "string", "description": "'notify' (default), 'banner', or 'auto'."],
-                    "session": ["type": "string", "description": "Short name for the calling agent/session (e.g. 'global-services'). Spoken before the summary when the speaker changes; sticky for this MCP connection. Max 40 chars."],
+                    "session": ["type": "string", "description": "Short name for the calling agent/session (e.g. 'global-services'). Never spoken: it labels the summary on screen and in history, and picks this agent's voice. Sticky for this MCP connection. Max 40 chars."],
                     "prepare": ["type": "string", "description": "Clean the text for the ear before speaking: 'terminal' (strip ANSI and shell prompts, keep the last command's output), 'browser' (drop web boilerplate), or 'generic'. Every option also removes anything shaped like a credential, shortens hashes and URLs, and announces code blocks rather than pronouncing them. Use 'terminal' when the text is command output."],
                 ],
                 "required": ["text"],
@@ -183,13 +189,13 @@ enum BatonMCPSpeakTools {
         if plan.notify {
             // If notifications are denied/undelivered, fall back to an in-app banner and say so —
             // never report "notified" for a summary the user will never see.
-            switch await SpeechNotifier.post(text: text, utterance: utterance) {
+            switch await postNotification(spokenText, utterance) {
             case .delivered:
                 delivered.append("notified")
             case .denied:
                 fallback = "notifications-denied"
                 if !bannerShown {
-                    music.speech.presentBanner(text: text, utterance: utterance)
+                    music.speech.presentBanner(text: spokenText, utterance: utterance, sessionLabel: sessionLabel)
                     bannerShown = true
                     delivered.append("banner_shown")
                 }

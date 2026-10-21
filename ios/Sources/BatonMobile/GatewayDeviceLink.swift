@@ -25,6 +25,10 @@ final class GatewayDeviceLink {
     /// only be answerable by reading the code.
     var isRunning: Bool { pollTask != nil }
 
+    /// The gateway the running loop polls. Fixed when the loop starts, so a new address
+    /// needs a restart.
+    private(set) var pollingURL: URL?
+
     /// The shortest gap between two polls once the gateway has answered with anything other
     /// than an empty hold, and the longest that gap is allowed to grow to.
     ///
@@ -64,10 +68,12 @@ final class GatewayDeviceLink {
         guard pollTask == nil, let profile = AgentClient.makeGatewayProfile(config) else { return }
         generation += 1
         let mine = generation
+        pollingURL = profile.baseURL
         pollTask = Task { [weak self] in
             await self?.pollLoop(profile: profile)
             guard let self, self.generation == mine else { return }
             self.pollTask = nil
+            self.pollingURL = nil
         }
     }
 
@@ -75,6 +81,7 @@ final class GatewayDeviceLink {
         generation += 1
         pollTask?.cancel()
         pollTask = nil
+        pollingURL = nil
     }
 
     // MARK: - What an answer means

@@ -443,6 +443,100 @@ final class ReadAloudCoordinatorTests: XCTestCase {
         XCTAssertEqual(store.entries.first?.chunks, chunks, "the whole reading has to be kept, not the tail")
     }
 
+    /// Synthesis falling behind playback drains the engine's queue part-way through a reading,
+    /// and the engine ends its session. Stopping in that gap must still save the place, not
+    /// chunk zero, or Resume starts the article over.
+    func testStoppingWhileSynthesisLagsPlaybackKeepsThePlace() async throws {
+        let (store, dir) = try scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let music = MusicModel()
+        let c = ReadAloudCoordinator(music: music, unfinished: store)
+        var requested = 0
+        // The first two chunks come back at once (a 1-byte clip ends as soon as it starts, so
+        // the engine drains), the third takes far longer than the test.
+        c.synthesize = { _, _ in
+            requested += 1
+            if requested >= 3 { try await Task.sleep(for: .seconds(30)) }
+            return Data([0x00])
+        }
+
+        let sentences = (1...6).map { "This is sentence number \($0), long enough to be its own chunk." }
+        c.read(.init(text: sentences.joined(separator: " "), profile: .generic, sourceName: "Google Chrome"))
+        await settle()
+        XCTAssertTrue(c.isReading, "the reading ended before the test could stop it")
+        XCTAssertEqual(requested, 3, "the third chunk should be the one still rendering")
+
+        c.stop()
+
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertEqual(store.entries.first?.resumeIndex, 2,
+                       "two chunks were spoken, so Resume picks up at the third")
+    }
+
+    /// Live interpretation stops the engine and makes it refuse every utterance. That empties
+    /// `reading` too, but nothing was spoken: the coordinator must neither put its document back
+    /// in the HUD nor count the refused chunk as heard.
+    func testARefusedChunkIsNeitherShownNorCountedAsSpoken() async throws {
+        let (store, dir) = try scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let music = MusicModel()
+        defer { music.speech.interpretationActive = false }
+        let c = ReadAloudCoordinator(music: music, unfinished: store)
+        var requested = 0
+        c.synthesize = { _, _ in
+            requested += 1
+            if requested == 3 { try await Task.sleep(for: .milliseconds(300)) }
+            if requested >= 4 { try await Task.sleep(for: .seconds(30)) }
+            return Data([0x00])
+        }
+
+        let sentences = (1...6).map { "This is sentence number \($0), long enough to be its own chunk." }
+        c.read(.init(text: sentences.joined(separator: " "), profile: .generic, sourceName: "Google Chrome"))
+        await settle()
+        // What `BatonInterpreterHub` does when an interpretation starts.
+        music.speech.stop()
+        music.speech.interpretationActive = true
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(requested, 4, "the third chunk should have come back while interpretation was on")
+
+        XCTAssertNil(music.speech.reading, "the reading's document came back into the HUD during an interpretation")
+        c.stop()
+        XCTAssertEqual(store.entries.first?.resumeIndex, 2, "a chunk the engine refused was counted as spoken")
+    }
+
+    /// A chunk still rendering when Stop lands must not be spoken afterwards, even with the
+    /// built-in voice standing in for the failure the cancellation looks like.
+    func testAChunkRenderingWhenStopLandsIsNotSpokenAfterwards() async {
+        SpeechConfig.fallbackEnabled = true
+        defer { SpeechConfig.fallbackEnabled = false }
+
+        let music = MusicModel()
+        defer { music.speech.stop() }
+        let c = ReadAloudCoordinator(music: music)
+        var requested = 0
+        c.synthesize = { _, _ in
+            requested += 1
+            if requested >= 2 { try await Task.sleep(for: .seconds(30)) }
+            return Data([0x00])
+        }
+
+        c.read(.init(
+            text: "The first sentence is long enough to be its own chunk here. "
+                + "The second sentence is also long enough to stand by itself. "
+                + "And the third sentence should never be asked for at all.",
+            profile: .generic, sourceName: nil
+        ))
+        await settle()
+        XCTAssertEqual(requested, 2, "the second chunk should be the one still rendering")
+        c.stop()
+        await settle()
+
+        XCTAssertFalse(music.speech.isSpeaking, "a stopped reading's chunk was spoken after Stop")
+        XCTAssertEqual(music.speech.queuedCount, 0)
+    }
+
     /// Resuming speaks the remainder, and does not start the article over.
     func testResumeStartsFromTheSavedPositionRatherThanTheBeginning() async throws {
         let (store, dir) = try scratchStore()

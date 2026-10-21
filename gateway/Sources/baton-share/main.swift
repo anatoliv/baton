@@ -57,7 +57,10 @@ let transport = POSIXTransport(
     maximumConcurrentConnections: 256,
     loopbackOnly: config.loopbackOnly,
     responseCapacity: .init(maximumBytes: ShareDeliveryCapacity.maximumBytes),
-    reserveResponseBytes: { ShareDeliveryCapacity.reservation(for: $0, maximumAudioBytes: config.limits.maxAudioBytes) },
+    reserveResponseBytes: {
+        ShareDeliveryCapacity.reservation(for: $0, maximumAudioBytes: config.limits.maxAudioBytes,
+                                          blobDelivery: config.blobDelivery)
+    },
     streamsBody: ShareService.streamsBody)
 
 do {

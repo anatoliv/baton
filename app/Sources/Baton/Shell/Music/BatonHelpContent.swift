@@ -323,6 +323,26 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.14",
+            date: "October 2026",
+            highlight: "Share a whole album or playlist as one link.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Click Share… on an album or a playlist, in its header or its right-click menu, to send it as one link. "
+                    + "Your friend plays it in any browser, with no app and no account: the cover, every song, and shuffle "
+                    + "and repeat for a playlist. Switch off songs to leave out, reorder a playlist, and choose how many "
+                    + "people can listen."),
+                HelpWhatsNewChange(.improved,
+                    "Share any two or more songs you select in Liked, Search or Downloads, not only up to 12 liked songs. "
+                    + "A few short songs still go as a mixtape, and more go as one playlist link."),
+                HelpWhatsNewChange(.improved,
+                    "Help and the FAQ are rewritten in plain English and checked against the app, with a list of contents "
+                    + "at the top and links between related answers."),
+                HelpWhatsNewChange(.fixed,
+                    "When an alarm or timer goes off, its card shows the label, the time, what plays and all three buttons in full. Before, it could open as a narrow strip with everything cut off."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.13",
             date: "October 2026",
             highlight: "Alarms that wake you gently.",

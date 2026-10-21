@@ -117,7 +117,7 @@ extension ShareClient {
         guard (200...299).contains(response.status) else {
             guard response.body.count <= 4096 else { throw Failure.unexpected(0) }
             let code = (try? JSONDecoder().decode(ShareErrorBody.self, from: response.body))?.code ?? "unavailable"
-            let known: Set<String> = ["unsupported", "busy", "state", "incomplete", "invalid", "checksum", "conflict", "action_required", "share_disabled", "rate_limited", "app_attest_invalid"]
+            let known: Set<String> = ["unsupported", "busy", "state", "incomplete", "invalid", "checksum", "conflict", "action_required", "share_disabled", "rate_limited", "app_attest_invalid", "not_found"]
             throw Failure.service(status: response.status, code: known.contains(code) ? code : "unavailable", message: "Mixtape request unavailable.")
         }
         return response.body

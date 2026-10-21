@@ -33,9 +33,11 @@ enum SpeakableText {
 
     /// Redact, normalize, then split into speakable chunks. The order is not negotiable:
     /// redaction happens before anything else can copy, reflow or split a secret into a shape
-    /// the patterns no longer match.
+    /// the patterns no longer match. The one exception is escape codes, stripped first: a
+    /// colour code glued to a secret ("\e[33mAKIA…") ends in a letter, which hides the secret
+    /// from a pattern that starts at a word boundary.
     static func prepare(_ raw: String, profile: SourceProfile) -> [String] {
-        chunks(normalize(redact(raw), profile: profile))
+        chunks(normalize(redact(stripControlSequences(raw)), profile: profile))
     }
 
     // MARK: - Redaction

@@ -114,7 +114,14 @@ public struct GatewayFiles: Sendable {
     public func list() async throws -> [RemoteFile] {
         let (data, response) = try await session.data(for: request("GET", "v1/files"))
         try Self.check(response, data)
-        return try JSONDecoder.gatewayISO8601.decode([RemoteFile].self, from: data)
+        // Callers put a listed id into a file path. The gateway only issues ids its `FileStore`
+        // whitelist allows (hex and dashes), so anything else is not trusted to stay in a folder.
+        return try JSONDecoder.gatewayISO8601.decode([RemoteFile].self, from: data).filter { Self.isGatewayID($0.id) }
+    }
+
+    /// The gateway `FileStore.sanitize` rule: 1 to 128 characters of hex and dashes.
+    static func isGatewayID(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 128 && id.allSatisfy { "0123456789abcdefABCDEF-".contains($0) }
     }
 
     /// Fetch a file to `destination`, **verifying it before returning**.

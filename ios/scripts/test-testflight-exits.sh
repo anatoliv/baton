@@ -415,6 +415,139 @@ else
   bad "TBX-5498: the destructive canary build flag is no longer fail-closed"
 fi
 
+# --- TBX-1000000480: the signing setup and its cleanup leave the machine as they found it --
+#
+# The real stretch from the end of the metadata step through the project.yml patch is run
+# as one piece: the per-run temp state, cleanup(), its trap, the temp keychain and the
+# signing patch. `security` and `xcodegen` are stubs that record what they were asked and
+# touch nothing; the patch is the real python3 over a copy of the real project.yml, in a
+# throwaway git repository.
+SIGNING_REGION="$(awk '
+  /^if \[ "\$\{SKIP_METADATA:-0\}" != "1" \]; then$/ { m = 1 }
+  m == 1 && /^fi$/ { m = 2; next }
+  m == 2 { print }
+  m == 2 && /^PY$/ { exit }' "$SUBJECT")"
+if ! printf '%s\n' "$SIGNING_REGION" | grep -q '^cleanup() {$' \
+   || ! printf '%s\n' "$SIGNING_REGION" | grep -q '^PY$'; then
+  bad "TBX-1000000480: signing region anchors not found in testflight.sh; update the anchors"
+  printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
+  exit 1
+fi
+
+mkdir -p "$WORK/tbin"
+cat >"$WORK/tbin/security" <<'EOF'
+#!/bin/bash
+# Records into $STUB_STATE; never prints or logs a password, never touches a keychain file.
+s="$STUB_STATE"; cmd="$1"; shift
+case "$cmd" in
+  list-keychains)
+    if [ "$*" = "-d user" ]; then
+      while IFS= read -r k; do printf '    "%s"\n' "$k"; done <"$s/list"
+    else
+      shift 3; printf '%s\n' "$@" >"$s/list"; printf '%s\n' "$*" >>"$s/sets"
+    fi ;;
+  create-keychain) printf '%s' "$2" >"$s/kcpass"; printf '%s\n' "$3" >>"$s/created" ;;
+  delete-keychain) printf '%s\n' "$1" >>"$s/deleted" ;;
+  find-identity) printf '  1) ABCDEF "%s"\n' "$STUB_IDENTITY" ;;
+esac
+exit 0
+EOF
+printf '#!/bin/bash\nexit 0\n' >"$WORK/tbin/xcodegen"
+chmod +x "$WORK/tbin/security" "$WORK/tbin/xcodegen"
+
+# run_signing <tag> <dirty: 0|1> [env assignments...]: prints the run's output
+run_signing() {
+  local tag="$1" dirty="$2"; shift 2
+  local T="$WORK/sign-$tag"
+  rm -rf "$T"; mkdir -p "$T/ios" "$T/home/Library/Keychains" "$T/state"
+  cp "$DIR/../project.yml" "$T/ios/project.yml"
+  git -C "$T/ios" init -q
+  git -C "$T/ios" add project.yml
+  git -C "$T/ios" -c user.name=t -c user.email=t@example.invalid commit -q -m base
+  if [ "$dirty" = 1 ]; then
+    printf '# a local edit nobody has committed yet\n' >>"$T/ios/project.yml"
+  fi
+  cp "$T/ios/project.yml" "$T/project.yml.before"
+  printf '%s\n' "$T/home/Library/Keychains/login.keychain-db" \
+                "$T/home/Library/Keychains/tonebox-build.keychain-db" >"$T/state/list"
+  cp "$T/state/list" "$T/list.before"
+  : >"$T/dist.p12"
+  { echo 'set -euo pipefail'
+    echo "DIR='$DIR'; IOS='$T/ios'; REPO='$T'; HOME='$T/home'"
+    echo 'die() { echo "ERROR: $*" >&2; exit 1; }'
+    echo 'IDENTITY="Apple Distribution: Test (TEAMID0000)"'
+    echo "P12_PATH='$T/dist.p12'; P12_PASSWORD=stub-p12"
+    echo 'APP_PROFILE="Baton App Store"; WIDGET_PROFILE="Baton Widgets App Store"'
+    echo 'SHARE_PROFILE="Baton Share App Store"; WITH_ENTITLEMENTS=1; BUILD=1789000000'
+    grep -E '^(KC|KCPASS)=' "$SUBJECT"
+    printf '%s\n' "$SIGNING_REGION"; } >"$T/signing.sh"
+  env -u KC -u KCPASS "$@" STUB_STATE="$T/state" STUB_IDENTITY="Apple Distribution: Test (TEAMID0000)" \
+    PATH="$WORK/tbin:/usr/bin:/bin:$PATH" bash "$T/signing.sh" 2>&1
+}
+
+# B-11: under SKIP_UPLOAD=1 a dirty tree is only advisory, so project.yml can hold the
+# developer's own uncommitted edits when the patch runs. Cleanup must put those back, not HEAD.
+out="$(run_signing dirty 1)"; T="$WORK/sign-dirty"
+if ! printf '%s' "$out" | grep -q "project.yml patched"; then
+  bad "B-11: the signing patch did not run, so this case proves nothing. Got: $out"
+elif ! cmp -s "$T/ios/project.yml" "$T/project.yml.before"; then
+  bad "B-11: cleanup did not restore project.yml as it was; uncommitted edits were lost"
+  diff "$T/project.yml.before" "$T/ios/project.yml" | head -8 | sed 's/^/        /'
+else
+  ok "B-11 cleanup restores project.yml with the developer's uncommitted edits intact"
+fi
+out="$(run_signing clean 0)"; T="$WORK/sign-clean"
+if cmp -s "$T/ios/project.yml" "$T/project.yml.before" && [ -z "$(git -C "$T/ios" status --porcelain)" ]; then
+  ok "B-11 on a clean tree cleanup still leaves project.yml exactly as committed"
+else
+  bad "B-11: on a clean tree cleanup left project.yml patched or changed. Got: $out"
+fi
+
+# B-10: the run prepends its keychain to the user's search list and cleanup puts that list
+# back, rather than resetting it to login alone and dropping every other keychain on it
+# (a parallel Tonebox release's among them). The keychain lives at a per-run path.
+T="$WORK/sign-clean"; KC_USED="$(head -1 "$T/state/created" 2>/dev/null)"
+if ! cmp -s "$T/state/list" "$T/list.before"; then
+  bad "B-10: cleanup did not restore the keychain search list. Before: $(tr '\n' ' ' <"$T/list.before") After: $(tr '\n' ' ' <"$T/state/list")"
+elif [ "$(head -1 "$T/state/sets")" != "$KC_USED $(tr '\n' ' ' <"$T/list.before" | sed 's/ $//')" ]; then
+  bad "B-10: step 1 did not prepend its keychain to the existing list. Set: $(head -1 "$T/state/sets")"
+else
+  ok "B-10 cleanup restores the whole keychain search list the run started with"
+fi
+KC_OTHER="$(head -1 "$WORK/sign-dirty/state/created" 2>/dev/null)"
+if [ -z "$KC_USED" ] || [ "$KC_USED" = /tmp/baton-build.keychain-db ] || [ "$KC_USED" = "$KC_OTHER" ]; then
+  bad "B-10: the temp keychain is at a fixed path two runs share: $KC_USED"
+elif [ -e "$(dirname "$KC_USED")" ]; then
+  bad "B-10: cleanup left the per-run temp directory behind: $(dirname "$KC_USED")"
+else
+  ok "B-10 each run's temp keychain has its own path, removed by cleanup"
+fi
+if grep -n '/tmp/baton-' "$SUBJECT" >"$WORK/fixed-tmp.txt"; then
+  bad "B-10: testflight.sh still writes fixed /tmp paths: $(tr '\n' ' ' <"$WORK/fixed-tmp.txt")"
+else
+  ok "B-10 testflight.sh uses no fixed /tmp path a concurrent run could collide on"
+fi
+
+# B-25: the temp keychain's password is generated per run unless one is given explicitly,
+# and never printed. Compared through the stub's record only; nothing here echoes a value.
+P1="$(cat "$WORK/sign-clean/state/kcpass" 2>/dev/null)"
+P2="$(cat "$WORK/sign-dirty/state/kcpass" 2>/dev/null)"
+if [ "${#P1}" -lt 16 ] || [ "$P1" = "$P2" ]; then
+  bad "B-25: two runs created their keychains with the same (or a short) default password"
+elif grep -qF -- "$P1" "$WORK/sign-clean/signing.sh" \
+     || { run_signing pw 0 >"$WORK/sign-pw.out"; P3="$(cat "$WORK/sign-pw/state/kcpass" 2>/dev/null)"
+          [ -z "$P3" ] || grep -qF -- "$P3" "$WORK/sign-pw.out"; }; then
+  bad "B-25: the generated keychain password is in the script or the run's output"
+else
+  ok "B-25 each run generates its own keychain password and prints none of it"
+fi
+run_signing override 0 KCPASS=explicit-override-pass >/dev/null
+if [ "$(cat "$WORK/sign-override/state/kcpass" 2>/dev/null)" = explicit-override-pass ]; then
+  ok "B-25 an explicit KCPASS is still honoured"
+else
+  bad "B-25: an explicit KCPASS override was ignored"
+fi
+
 if "$REAL_PYTHON" "$DIR/test-attach-build.py" >"$WORK/attach-tests.log" 2>&1; then
   ok "TBX-1000000095 attachment pagination: 8 focused cases, no Apple or credentials"
 else

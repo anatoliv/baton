@@ -49,4 +49,22 @@ final class VersionedStoreTests: XCTestCase {
                        "save must refuse while the unreadable bytes still cannot be rescued")
         XCTAssertEqual(try Data(contentsOf: original), damaged)
     }
+
+    /// A newer build may have changed the payload's shape as well as its stamp. Its file must be
+    /// left alone, not quarantined as corrupt and then replaced by this build's empty state.
+    func testANewerBuildsUndecodablePayloadIsNotQuarantinedOrOverwritten() throws {
+        let original = directory.appendingPathComponent("store.json")
+        let newer = Data(#"{"version":4,"payload":{"reshaped":true}}"#.utf8)
+        try newer.write(to: original)
+        let store = VersionedStore<[String]>(fileURL: original, currentVersion: 3)
+
+        let result = store.loadWithOutcome()
+
+        XCTAssertNil(result.payload)
+        XCTAssertEqual(result.outcome, .newerThanThisBuild(found: 4))
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertEqual(names, ["store.json"], "a newer build's file was quarantined")
+        XCTAssertFalse(store.save(["downgrade"]))
+        XCTAssertEqual(try Data(contentsOf: original), newer)
+    }
 }

@@ -76,6 +76,8 @@ public struct ShareReport: Codable, Equatable, Sendable {
 
     /// Whole-book links (`/b/`), counted apart from the totals they are also part of: the
     /// service labels a book's events `kind: book`. `listeners` is admitted listening sessions.
+    /// Album and playlist links (also `/b/`) are counted the same way under their own kind, in
+    /// `albums` and `playlists`, never in `books`.
     public struct Books: Codable, Equatable, Sendable {
         public var created = 0
         public var finalized = 0
@@ -116,6 +118,8 @@ public struct ShareReport: Codable, Equatable, Sendable {
     public var listening = Listening()
     public var engagement = Engagement()
     public var books = Books()
+    public var albums = Books()
+    public var playlists = Books()
     public var health = Health()
     public var rates = Rates()
 
@@ -142,14 +146,20 @@ public struct ShareReport: Codable, Equatable, Sendable {
             }
             let visitor = row["visitor"]?.text
             let share = row["share_id"]?.text
-            if props["kind"] == .string("book") {
+            let link: WritableKeyPath<ShareReport, Books>? = switch props["kind"] {
+            case .string("book")?: \.books
+            case .string("album")?: \.albums
+            case .string("playlist")?: \.playlists
+            default: nil
+            }
+            if let link {
                 switch type {
-                case "share_created": report.books.created += 1
-                case "share_finalized": report.books.finalized += 1
-                case "share_revoked": report.books.revoked += 1
-                case "page_opened" where text("state") == "ready": report.books.pageOpens += 1
-                case "link_unfurled": report.books.unfurls += 1
-                case "audio_fetched": report.books.listeners += 1
+                case "share_created": report[keyPath: link].created += 1
+                case "share_finalized": report[keyPath: link].finalized += 1
+                case "share_revoked": report[keyPath: link].revoked += 1
+                case "page_opened" where text("state") == "ready": report[keyPath: link].pageOpens += 1
+                case "link_unfurled": report[keyPath: link].unfurls += 1
+                case "audio_fetched": report[keyPath: link].listeners += 1
                 default: break
                 }
             }

@@ -31,7 +31,7 @@ final class RemoteAgentLoopTests: XCTestCase {
             history: [],
             playerContext: nil,
             config: config(),
-            tools: RemoteToolSchemas(json: []),
+            tools: RemoteAgent.toolSchemas(definitions: TestToolFixtures.definitions),
             runTool: { call in
                 switch call.name {
                 case "music_search":
@@ -80,7 +80,7 @@ final class RemoteAgentLoopTests: XCTestCase {
             history: [],
             playerContext: nil,
             config: config(),
-            tools: RemoteToolSchemas(json: []),
+            tools: RemoteAgent.toolSchemas(definitions: TestToolFixtures.definitions),
             runTool: { _ in (#"{"now_playing":{"title":"Absolutely"}}"#, false) },
             turn: { _, _ in
                 turns += 1
@@ -109,7 +109,7 @@ final class RemoteAgentLoopTests: XCTestCase {
             history: [],
             playerContext: nil,
             config: config(),
-            tools: RemoteToolSchemas(json: []),
+            tools: RemoteAgent.toolSchemas(definitions: TestToolFixtures.definitions),
             runTool: { _ in ("No songs matched \"nonsense\".", true) },
             turn: { messages, _ in
                 turnIndex += 1
@@ -121,6 +121,69 @@ final class RemoteAgentLoopTests: XCTestCase {
         )
         XCTAssertTrue(sawError, "the failure must reach the model as a tool result")
         XCTAssertEqual(outcome.text, "Couldn't find that one.")
+    }
+
+    /// Leaving a tool out of the schemas is a promise only if the loop keeps it.
+    /// Text the model reads (a playlist name, a discovery result) can name a tool
+    /// it was never offered; that call must come back as an error, not run.
+    func testAToolThatWasNotOfferedIsRefusedNotRun() async throws {
+        let definitions = TestToolFixtures.definitions + [
+            ["name": "music_delete_playlist", "description": "Delete a playlist.",
+             "inputSchema": ["type": "object", "properties": ["name": ["type": "string"]]]],
+        ]
+        var ran: [String] = []
+        var refusal: RemoteAgentMessage.ToolResult?
+        var turnIndex = 0
+        let outcome = try await RemoteAgent.run(
+            message: "play something chill",
+            history: [],
+            playerContext: nil,
+            config: config(),
+            tools: RemoteAgent.toolSchemas(definitions: definitions),
+            runTool: { call in
+                ran.append(call.name)
+                return (#"{"playing":{"title":"Deep Rooftop Chillout"}}"#, false)
+            },
+            turn: { messages, tools in
+                turnIndex += 1
+                XCTAssertFalse(tools.json.contains { $0["name"] as? String == "music_delete_playlist" })
+                refusal = refusal ?? messages.flatMap(\.results).first { $0.id == "call_music_delete_playlist" }
+                return turnIndex == 1
+                    ? RemoteAgentStep(calls: [
+                        self.call("music_delete_playlist", ["name": .string("Favourites")]),
+                        self.call("music_play", ["query": .string("chill")]),
+                    ])
+                    : RemoteAgentStep(text: "Playing something chill.")
+            }
+        )
+        XCTAssertEqual(ran, ["music_play"], "only the offered tool may run")
+        XCTAssertEqual(refusal?.isError, true, "the model must be told the call was refused")
+        XCTAssertEqual(outcome.toolCalls.first?.succeeded, false)
+        XCTAssertEqual(outcome.text, "Playing something chill.")
+    }
+
+    /// The last turn takes the looking tools away; a search named anyway must not run.
+    func testALookingToolOnTheLastTurnIsRefused() async throws {
+        var ran: [String] = []
+        let outcome = try await RemoteAgent.run(
+            message: "go forever",
+            history: [],
+            playerContext: nil,
+            config: config(),
+            tools: RemoteAgent.toolSchemas(definitions: TestToolFixtures.definitions),
+            runTool: { call in
+                ran.append(call.name)
+                return ("{}", false)
+            },
+            turn: { _, tools in
+                tools.isEmpty
+                    ? RemoteAgentStep(text: "Here's what I found.")
+                    : RemoteAgentStep(calls: [self.call("music_search", ["query": .string("x")])])
+            }
+        )
+        XCTAssertEqual(ran.count, RemoteAgent.maxTurns - 1, "the last turn's search must not run: \(ran)")
+        XCTAssertEqual(outcome.toolsRun, ran, "a refused call was not run")
+        XCTAssertEqual(outcome.text, "Here's what I found.")
     }
 
     /// A model that keeps calling tools forever must still produce an answer,

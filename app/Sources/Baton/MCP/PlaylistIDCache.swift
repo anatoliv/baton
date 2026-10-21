@@ -2,9 +2,10 @@ import Foundation
 
 /// Playlist name → id, for the short window an agent works in.
 ///
-/// Deliberately time-boxed rather than invalidated on write. Playlists are created and
-/// renamed by other clients too — the web UI, another Baton, a script — so any cache here is
-/// guessing about a world it does not own. Thirty seconds is long enough to collapse a burst
+/// Time-boxed rather than invalidated on every write. This process's own creates, deletes and
+/// edits reset it (`MusicLibraryStore.playlistsChanged`, whether the change came from an MCP
+/// tool or the UI), but playlists are created and renamed by other clients too — the web UI, another
+/// Baton, a script — so any cache here is guessing about a world it does not own. Thirty seconds is long enough to collapse a burst
 /// of related tool calls into one fetch and short enough that a rename made elsewhere is
 /// visible before anybody notices.
 ///
@@ -16,7 +17,8 @@ import Foundation
 final class PlaylistIDCache {
     static let shared = PlaylistIDCache()
 
-    private var entries: [String: String] = [:]
+    /// In server order: the near-match fallback takes the first hit, as the resolver does.
+    private var entries: [(name: String, id: String)] = []
     private var storedAt: Date?
     private let lifetime: TimeInterval = 30
 
@@ -24,23 +26,23 @@ final class PlaylistIDCache {
 
     func id(forLoweredName name: String) -> String? {
         guard let storedAt, Date().timeIntervalSince(storedAt) < lifetime else {
-            entries = [:]
+            entries = []
             return nil
         }
-        if let exact = entries[name] { return exact }
+        if let exact = entries.first(where: { $0.name == name }) { return exact.id }
         // Same fallback the resolver uses, so a cache hit and a cache miss agree about
         // which playlist "focus" means.
-        return entries.first { $0.key.contains(name) }?.value
+        return entries.first { $0.name.contains(name) }?.id
     }
 
     func store(_ pairs: [(String, String)]) {
-        entries = Dictionary(pairs, uniquingKeysWith: { first, _ in first })
+        entries = pairs.map { (name: $0.0, id: $0.1) }
         storedAt = Date()
     }
 
     /// Drops everything — used when the server changes underneath us.
     func reset() {
-        entries = [:]
+        entries = []
         storedAt = nil
     }
 }

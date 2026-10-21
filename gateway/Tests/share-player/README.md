@@ -31,6 +31,31 @@ completion and a reaction, wrong and missing keys, unknown, an expired or refuse
 token, blocked storage, pending to ready, revoke reading as expired and clearing storage, an
 expired link, contrast and screenshots at 390 and 1280 px in light and dark. `--book-only` runs
 only this walk after the shared nginx checks, for a quicker loop.
+Last, the full walk opens the album and playlist page (`/b/` with a collection kind,
+`collection-page.mjs`, TBX-1000000485; the spawned service also runs with
+`BATON_SHARE_COLLECTIONS=1`). It makes three 5-second songs as the apps seal music (AAC, 128 kbps,
+stereo, in an .m4a) and a small JPEG cover, seals them under the book keys as a `baton-collection-1`
+album (cover, track numbers 1, 2 and 4, one song by a guest artist) and a playlist (each song's
+artist and album, no cover, a public preview), and creates, uploads and finalizes both through the
+real service routes. It checks the shell's headers and CSP (`blob:` images and media), the versioned
+assets, private Open Graph ("Someone sent you an album") and a public preview that names no song;
+the authenticated header and song list (album numbers by track number, playlist by position,
+artists where they differ), the decrypted cover shown before anyone is admitted and the tinted
+placeholder without one; that opening and "Not now" spend nothing and request no song, and Start
+listening (from the keyboard) spends exactly one listener; song 1 on a moving media clock running
+into song 2 with no second admission (labelled `audio/mp4`, the previous Blob URL revoked); Media
+Session metadata where the engine has it; `localStorage` holding only `{token, expiresAt, track,
+seconds, shuffle, repeat}`; seek, Previous restarting a song past 3 s and going back a song inside
+them, Next stopping at the end; a reload resuming without a second listener or play-started; the
+fifth whole-song transfer meeting the 1.5× allowance (409 `transfer_budget`, "This listen has used
+its transfer allowance") and Start listening again spending one more; completion and a reaction;
+on the playlist, shuffle keeping the current song and playing the rest once, repeat cycling off,
+all and one, both surviving a reload, repeat one replaying from memory with no request, and repeat
+all running from the last song into the first; no element offering a download; wrong and missing
+keys and an unknown link; revoke reading as expired and clearing storage; an expired link; and
+contrast and screenshots of both kinds at 390 and 1280 px in light and dark
+(`collection-<kind>-<width>-<scheme>.png`, results in `collection-page.json`).
+`--collection-only` runs only this walk after the shared nginx checks.
 `SHARE_E2E_NGINX_LOG=1` adds nginx's per-request timings and info-level errors and saves them with the
 service log as `server.log` in the evidence folder; the book walk also leaves `book-phone.har` and, in
 Chromium, `book-network.json`. On 2026-10-21 that log showed the occasional 30 to 60 s stall in

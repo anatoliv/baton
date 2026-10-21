@@ -94,8 +94,8 @@ final class BackgroundShareUploadEngine: NSObject {
             return
         }
         restoring = true
-        let loaded: (jobs: [Job], orphans: [UUID])
-        do { loaded = try store.load() }
+        let loaded: (jobs: [Job], orphans: [UUID], retained: [UUID])
+        do { loaded = try store.load() } // Retained (unreadable container) folders stay on disk, untouched.
         catch {
             restoring = false
             for waiter in restoreWaiters { waiter.resume() }
@@ -366,7 +366,8 @@ final class BackgroundShareUploadEngine: NSObject {
                     waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload)
                     return
                 }
-                if summary.share.status == .ready { finalizeMixtape(id, summary: summary) }
+                if job.mixtapeEnded(by: summary) { endMixtape(id) }
+                else if summary.share.status == .ready { finalizeMixtape(id, summary: summary) }
                 else if summary.share.status == .pending {
                     if var current = jobs[id] {
                         current.record.expiresAt = ShareDate.date(summary.share.expiresAt) ?? current.record.expiresAt
@@ -375,7 +376,8 @@ final class BackgroundShareUploadEngine: NSObject {
                     }
                     schedule(id)
                 } else { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
-            } catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+            } catch ShareClient.Failure.service(status: 404, code: "not_found", _) where job.mixtapeEnded(by: nil) { endMixtape(id) }
+            catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
             return
         }
         guard let created = job.created else { return }
@@ -474,6 +476,15 @@ final class BackgroundShareUploadEngine: NSObject {
         guard var job = jobs[id] else { return }
         if job.isMixtape { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload); return }
         job.failure = reason
+        do { try store.save(job); jobs[id] = job; commit(job) }
+        catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+    }
+
+    /// A mixtape whose link ended before it finished: unlike an uncertain failure, nothing can
+    /// resume it, so the failure is noted and the ticket (key and ciphertext) is removed.
+    private func endMixtape(_ id: UUID) {
+        guard var job = jobs[id] else { return }
+        job.failure = "network"
         do { try store.save(job); jobs[id] = job; commit(job) }
         catch { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
     }

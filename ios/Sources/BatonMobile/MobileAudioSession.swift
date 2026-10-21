@@ -166,13 +166,16 @@ final class MobileAudioSession {
                 wasPlayingBeforeInterruption = false
                 return
             }
-            let options = optionsRaw.map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
             // Siri/Messages announcements over CarPlay often end an interruption
             // WITHOUT the .shouldResume flag even though resuming is exactly what the
             // user expects — so fall back to "were we playing before". (Vibrdrome's
             // fourth shipped fix; without it CarPlay goes silent after every
             // announcement until the user taps play.)
-            if options.contains(.shouldResume) || wasPlayingBeforeInterruption {
+            //
+            // And only then: .shouldResume says the interruption is over, not that the
+            // person wanted Baton playing. On its own it started a track they had paused
+            // before the call (TBX-1000000480 B-3).
+            if wasPlayingBeforeInterruption {
                 activateForPlayback()
                 controller.resume()
             }

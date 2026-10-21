@@ -69,6 +69,12 @@ public final class MusicDownloadStore {
     /// Supplies each song id's last-played time for LRU storage-cap eviction. Wired by MusicModel
     /// from play history; nil ⇒ never-played ordering (cap still enforced by size).
     @ObservationIgnored public var lastPlayedProvider: (() -> [String: Date])?
+    /// Bumped by every `deleteAll` and carried by each background task, so a task from before
+    /// a purge that still finishes (its completion already queued, or replayed after a
+    /// relaunch) is dropped rather than writing the old account back, even into a later
+    /// download of the same song. Persisted, because the session outlives the process.
+    @ObservationIgnored public static let purgeGenerationKey = "baton.downloads.purgeGeneration"
+    var purgeGeneration: Int { BatonStorage.defaults.integer(forKey: Self.purgeGenerationKey) }
 
     /// A downloaded track, resolved for display + playback by `downloadedItems()`.
     public struct DownloadItem: Identifiable, Hashable {
@@ -201,10 +207,22 @@ public final class MusicDownloadStore {
 
     /// Render the template for a song into a safe, de-duplicated `<name>.<ext>`.
     public func filename(for song: NavidromeSong, ext: String = "mp3") -> String {
-        Self.renderFilename(
+        var taken = manifest
+        let plain = Self.renderFilename(
             template: filenameTemplate,
             artist: song.artist, album: song.album, title: song.title, id: song.id,
-            taken: manifest, ext: ext
+            taken: [:], ext: ext
+        )
+        // A file already there under that name that is not this song's download is the user's
+        // own (the folder can be their library, ), so it counts as taken by another owner.
+        if manifest[song.id]?.caseInsensitiveCompare(plain) != .orderedSame,
+           FileManager.default.fileExists(atPath: directory.appendingPathComponent(plain).path) {
+            taken[""] = plain
+        }
+        return Self.renderFilename(
+            template: filenameTemplate,
+            artist: song.artist, album: song.album, title: song.title, id: song.id,
+            taken: taken, ext: ext
         )
     }
 
@@ -344,7 +362,7 @@ public final class MusicDownloadStore {
         if let backgroundEngine {
             inFlight.insert(song.id)
             downloadProgress[song.id] = 0
-            backgroundEngine.enqueue(song)
+            backgroundEngine.enqueue(song, generation: purgeGeneration)
             return true // enqueued; the delegate path finalizes (or records the failure)
         }
         inFlight.insert(song.id)
@@ -353,6 +371,7 @@ public final class MusicDownloadStore {
             inFlight.remove(song.id)
             downloadProgress[song.id] = nil
         }
+        var resumed = false
         do {
             // resolveStreamURL handles both library tracks (Subsonic stream id) and client-side
             // podcast episodes (id is the enclosure URL, streamed directly) — so this one path
@@ -368,10 +387,11 @@ public final class MusicDownloadStore {
             let response: URLResponse
             // Resume from persisted partial data if a prior attempt was interrupted.
             if let resume = persistedResumeData(for: song.id) {
+                resumed = true
                 (temp, response) = try await urlSession.download(resumeFrom: resume, delegate: observer)
             } else {
                 var request = URLRequest(url: url)
-                for (name, value) in NavidromeConfig.customHeaders() {
+                for (name, value) in NavidromeConfig.customHeaders(for: url) {
                     request.setValue(value, forHTTPHeaderField: name)
                 }
                 (temp, response) = try await urlSession.download(for: request, delegate: observer)
@@ -385,6 +405,10 @@ public final class MusicDownloadStore {
             // Persist any partial so a retry resumes instead of restarting from zero.
             if let resume = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
                 saveResumeData(resume, for: song.id)
+            } else if resumed {
+                // A blob that failed and gave no new one back (damaged, or its partial is gone)
+                // would fail the same way on every retry, so the next attempt starts fresh.
+                clearResumeData(for: song.id)
             }
             failedDownloads[song.id] = song
             return false
@@ -533,6 +557,15 @@ public final class MusicDownloadStore {
         downloadedIDs.removeAll()
         saveManifest()
         saveMeta()
+        BatonStorage.defaults.set(purgeGeneration + 1, forKey: Self.purgeGenerationKey)
+        backgroundEngine?.cancelAll()
+        inFlight.removeAll()
+        downloadProgress.removeAll()
+        failedDownloads.removeAll()
+        downloadedCollections.removeAll()
+        saveCollections()
+        // Resume blobs embed the authenticated request URL and the custom headers.
+        try? FileManager.default.removeItem(at: resumeDirectory)
     }
 
     /// Alias for `delete(_:)` — deletes a download's file and drops it from the manifest.
@@ -799,7 +832,12 @@ private final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate {
 
 extension MusicDownloadStore {
     /// Delegate entry: validation + commit for a background-completed download.
-    public func completeBackgroundDownload(song: NavidromeSong, temp: URL, response: URLResponse) {
+    public func completeBackgroundDownload(song: NavidromeSong, temp: URL, response: URLResponse,
+                                           generation: Int? = nil) {
+        if (generation ?? 0) != purgeGeneration {
+            try? FileManager.default.removeItem(at: temp)
+            return
+        }
         inFlight.remove(song.id)
         downloadProgress[song.id] = nil
         clearResumeData(for: song.id)
@@ -815,7 +853,8 @@ extension MusicDownloadStore {
         downloadProgress[id] = fraction
     }
 
-    public func noteBackgroundFailure(_ song: NavidromeSong, resumeData: Data? = nil) {
+    public func noteBackgroundFailure(_ song: NavidromeSong, resumeData: Data? = nil, generation: Int? = nil) {
+        if (generation ?? 0) != purgeGeneration { return }
         inFlight.remove(song.id)
         downloadProgress[song.id] = nil
         if let resumeData { saveResumeData(resumeData, for: song.id) }
@@ -823,8 +862,8 @@ extension MusicDownloadStore {
     }
 
     /// A task found alive after relaunch — resurrect its in-flight UI state.
-    public func noteBackgroundRestored(_ song: NavidromeSong) {
-        guard !isDownloaded(song.id) else { return }
+    public func noteBackgroundRestored(_ song: NavidromeSong, generation: Int? = nil) {
+        guard !isDownloaded(song.id), (generation ?? 0) == purgeGeneration else { return }
         inFlight.insert(song.id)
         if downloadProgress[song.id] == nil { downloadProgress[song.id] = 0 }
     }

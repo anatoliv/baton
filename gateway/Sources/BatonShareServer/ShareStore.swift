@@ -26,6 +26,8 @@ public struct ShareRecord: Equatable, Sendable {
     /// A whole-book link (`/b/`): also `isMixtape`, so every song route refuses it.
     public var isBook: Bool = false
     public var accessGeneration: Int64 = 1
+    /// A `/b/` link's collection kind (album or playlist); nil for a book and every other share.
+    public var bookKind: ShareCollectionKind? = nil
 
     /// Whether the play cap has been reached: the audio answers 410 from here on.
     public var isCapped: Bool { stats.fetches >= playCap }
@@ -335,11 +337,13 @@ public final class ShareStore {
         var result = SweepResult()
         try sweepEnforcement(now: now)
         try database.run("DELETE FROM mixtape_sessions WHERE deadline<=?", [.int(now)])
-        for row in try database.query("SELECT id, sharer_id FROM shares WHERE status = 'ready' AND expires_at <= ? AND id NOT IN (SELECT share_id FROM share_enforcement WHERE disabled=1)",
+        for row in try database.query("SELECT id, sharer_id, is_book, book_kind FROM shares WHERE status = 'ready' AND expires_at <= ? AND id NOT IN (SELECT share_id FROM share_enforcement WHERE disabled=1)",
                                       [.int(now)]) {
             guard let id = row["id"]?.text else { continue }
             try tombstone(id: id, as: .expired, now: now)
-            try record(event: "share_expired", at: now, shareID: id, sharerID: row["sharer_id"]?.text)
+            // A /b/ link's expiry carries its kind (book, album or playlist), as its listener-seen expiry does.
+            let kind: [String: PropValue] = row["is_book"]?.int == 1 ? ["kind": .string(row["book_kind"]?.text ?? "book")] : [:]
+            try record(event: "share_expired", at: now, shareID: id, sharerID: row["sharer_id"]?.text, props: kind)
             result.expired += 1
         }
         // A book gets its own, longer upload window (pendingBookLifetimeSeconds); songs and
@@ -404,7 +408,8 @@ public final class ShareStore {
             cardType: row["card_type"]?.text,
             storedBytes: row["stored_bytes"]?.int ?? 0,
             stats: stats, reviewPreservationConsent: row["review_consent"]?.text,
-            isMixtape: row["is_mixtape"]?.int == 1, isBook: row["is_book"]?.int == 1, accessGeneration: row["access_generation"]?.int ?? 1)
+            isMixtape: row["is_mixtape"]?.int == 1, isBook: row["is_book"]?.int == 1, accessGeneration: row["access_generation"]?.int ?? 1,
+            bookKind: row["is_book"]?.int == 1 ? row["book_kind"]?.text.flatMap(ShareCollectionKind.init(rawValue:)) : nil)
     }
 
     static func json<T: Encodable>(_ value: T) -> String {

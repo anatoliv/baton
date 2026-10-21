@@ -57,6 +57,7 @@ struct AlbumsGridView: View {
                                     AlbumCell(album: album, model: model)
                                 }
                                 .buttonStyle(.plain)
+                                .albumContextMenu(album, model: model)
                                 .id(album.id)
                             }
                         }
@@ -68,6 +69,7 @@ struct AlbumsGridView: View {
                                     AlbumListRow(album: album, model: model)
                                 }
                                 .buttonStyle(.plain)
+                                .albumContextMenu(album, model: model)
                                 .id(album.id)
                                 Divider().padding(.leading, 74)
                             }
@@ -116,6 +118,8 @@ struct AlbumsGridView: View {
                 emptySymbol: "square.stack",
                 onRetry: { Task { await model.musicLibrary.loadAlbums() } }
             )
+            // The long-press menu's Share… presents from here, above the recyclable cells.
+            .songSharePresenter(model: model)
         }
     }
 
@@ -297,6 +301,7 @@ struct AlbumDetailView: View {
     /// stranded a chevron at the far right of the header, a hand's width from the name
     /// it belonged to.
     @State private var openArtist: NavidromeArtist?
+    @State private var sharing: CollectionShareDraft?
 
     var body: some View {
         List {
@@ -429,6 +434,12 @@ struct AlbumDetailView: View {
                         } label: {
                             Label(liked ? "Liked" : "Like", systemImage: liked ? "heart.fill" : "heart")
                         }
+
+                        // The whole record as one link, in the order shown.
+                        Button {
+                            sharing = .album(id: album.id, name: album.name, artist: album.artist ?? "",
+                                             songs: songs.isEmpty ? nil : songs)
+                        } label: { Label(SongAction.share.sheetLabel, systemImage: SongAction.share.symbol) }
                     }
 
                     Divider()
@@ -448,6 +459,7 @@ struct AlbumDetailView: View {
             }
         }
         .task { songs = await model.musicLibrary.albumSongs(id: album.id) }
+        .sheet(item: $sharing) { ShareCollectionSheet(draft: $0) }
         .songSharePresenter(model: model)
     }
 

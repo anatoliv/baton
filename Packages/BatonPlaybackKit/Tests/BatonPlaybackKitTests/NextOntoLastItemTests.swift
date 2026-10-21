@@ -142,4 +142,99 @@ final class NextOntoLastItemTests: XCTestCase {
         c.simulateTrackEndedForTesting()
         XCTAssertEqual(c.state, .idle)
     }
+
+    // MARK: - The track that is left
+
+    /// Stream URLs a test can change while it runs: a later retry or a later track can then
+    /// fail on purpose.
+    private final class Streams {
+        var byID: [String: URL] = [:]
+        var unresolvable: Set<String> = []
+    }
+
+    private struct URLUnavailable: Error {}
+
+    /// Three real 20 s files behind a provider the test controls, played silently.
+    private func makeController(streams: Streams) -> StreamingPlaybackController {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("tbx-1000000480-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for (n, id) in ["ch1", "ch2", "ch3"].enumerated() {
+            let url = dir.appendingPathComponent("\(id).wav")
+            try? EngineTestSignals.sineWAV(frequency: 220 * Double(n + 1), seconds: 20).write(to: url)
+            files[id] = url
+            streams.byID[id] = url
+        }
+        let c = StreamingPlaybackController(
+            streamURLProvider: { id in
+                if streams.unresolvable.contains(id) { throw URLUnavailable() }
+                return streams.byID[id]!
+            },
+            defaults: suite,
+            systemNowPlaying: false
+        )
+        c.gaplessEnabled = false
+        c.crossfadeSeconds = 0
+        c.setVolume(percent: 0)
+        return c
+    }
+
+    private func wait(_ seconds: Double, until condition: () -> Bool = { false }) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+    }
+
+    /// C1-1: the play-event log is what the music friend's recent plays read, and it recorded
+    /// nothing: it closed the outgoing track after the queue had already moved on.
+    func testATrackListenedToThenSkippedIsRecordedAsAPlayEvent() async throws {
+        let c = makeController(streams: Streams())
+        defer { c.stop() }
+        c.play(chapters(), startAt: 0)
+        await wait(8) { c.currentTime >= 2.5 }
+        XCTAssertGreaterThanOrEqual(c.currentTime, 2.5, "precondition: the first item played")
+        c.next()
+        await wait(1)
+        let events = c.playbackEvents.events
+        XCTAssertEqual(events.count, 1, "2.5 s of listening and then Next recorded no play event")
+        XCTAssertEqual(events.first?.songID, "ch1", "the event must name the track that was left")
+        XCTAssertEqual(events.first?.reason, .skipped)
+        XCTAssertGreaterThanOrEqual(events.first?.listenedSeconds ?? 0, 2)
+    }
+
+    /// C1-3: a retry parks the playhead to restore it once the item is ready. When the retry
+    /// fails too and the listener moves on, the next track must not start at the old place.
+    func testANewTrackDoesNotInheritAFailedRetrysPosition() async throws {
+        let streams = Streams()
+        let c = makeController(streams: streams)
+        defer { c.stop() }
+        c.play(chapters(), startAt: 0)
+        await wait(8) { c.currentTime >= 3.2 }
+        XCTAssertGreaterThanOrEqual(c.currentTime, 3.2, "precondition: the first item played")
+        streams.byID["ch1"] = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("missing-\(UUID().uuidString).wav")
+        c.simulateLoadFailureForTesting()
+        await wait(1.6) // the first retry, a second later, parks the place and loads the missing file
+        c.next()
+        await wait(3) { c.nowPlaying?.id == "ch2" && c.duration > 1 }
+        await wait(1.5)
+        XCTAssertEqual(c.nowPlaying?.id, "ch2")
+        XCTAssertLessThan(c.currentTime, 2.0, "the next track started at the failed track's position")
+    }
+
+    /// C1-10: when the next track's stream URL cannot be made (offline, not downloaded), the
+    /// track that was playing must not go on sounding under the new track's name.
+    func testANextTrackWhoseURLFailsSilencesTheOutgoingTrack() async throws {
+        let streams = Streams()
+        let c = makeController(streams: streams)
+        defer { c.stop() }
+        c.play(chapters(), startAt: 0)
+        await wait(8) { c.currentTime >= 0.5 }
+        XCTAssertEqual(c.currentItemURLForTesting?.lastPathComponent, "ch1.wav", "precondition: the first item is loaded")
+        streams.unresolvable = ["ch2"]
+        c.next()
+        XCTAssertEqual(c.nowPlaying?.id, "ch2")
+        XCTAssertNotEqual(c.state, .playing, "a track with no stream reads as playing")
+        XCTAssertNil(c.currentItemURLForTesting, "the outgoing track is still loaded under the new track's name")
+        // And the failure takes the ordinary path: the queue moves on to a track that can play.
+        await wait(12) { c.nowPlaying?.id == "ch3" }
+        XCTAssertEqual(c.nowPlaying?.id, "ch3", "a track whose URL failed did not skip on")
+    }
 }

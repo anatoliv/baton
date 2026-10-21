@@ -173,6 +173,17 @@ final class ShareReceiverTests: XCTestCase {
         catch { XCTAssertTrue(error is CancellationError) }
     }
 
+    func testTheCallersTotalTimeoutStandsAndASongGetsLongerThanASmallReply() {
+        let unset = URLSessionConfiguration.ephemeral.timeoutIntervalForResource
+        // A mixtape track upload asks for 300 s and a book chapter for 900 s; neither is cut to 60.
+        XCTAssertEqual(BoundedShareReceiverTransport.resourceTimeout(configured: 300, maximumBytes: 4096), 300)
+        XCTAssertEqual(BoundedShareReceiverTransport.resourceTimeout(configured: 900, maximumBytes: 16_384), 900)
+        XCTAssertEqual(BoundedShareReceiverTransport.resourceTimeout(configured: 15, maximumBytes: 4096), 15)
+        // With no choice made, small JSON keeps its 60 s, and a song download is not held to it.
+        XCTAssertEqual(BoundedShareReceiverTransport.resourceTimeout(configured: unset, maximumBytes: 16_384), 60)
+        XCTAssertGreaterThanOrEqual(BoundedShareReceiverTransport.resourceTimeout(configured: unset, maximumBytes: 12_000_000), 300)
+    }
+
     func testPublicStatesPendingEndedUnknownAndCappedAreExplicit() async throws {
         for (status, body, expected) in [(404, Data(), ShareReceiverClient.Failure.unknown),
                                         (410, Data(), .expired),

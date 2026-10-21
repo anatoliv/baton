@@ -857,6 +857,23 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(c.state, .paused)
     }
 
+    /// A second duck over a first must restore the level from before the first
+    /// (TBX-1000000480 C1-11). The first token is superseded, so its release does nothing; the
+    /// second used to record the already-ducked level, and the volume stayed ducked for good.
+    func testAudioFocusDuckOverADuckRestoresTheLevelBeforeTheFirst() {
+        let c = makeController()
+        c.setVolume(percent: 70)
+        c.play([song("a")])
+        let first = c.acquireAudioFocusDuck(owner: "first", toPercent: 20)
+        XCTAssertEqual(c.volumePercent, 20, "precondition: the first duck lowered the level")
+        let second = c.acquireAudioFocusDuck(owner: "second", toPercent: 20)
+
+        XCTAssertFalse(c.releaseAudioFocus(first), "the superseded holder releases as a no-op")
+        c.releaseAudioFocus(second)
+
+        XCTAssertEqual(c.volumePercent, 70, "the volume stayed ducked after both holders let go")
+    }
+
     // MARK: - Persistence
 
     func testQueuePersistsAndRestoresPaused() {

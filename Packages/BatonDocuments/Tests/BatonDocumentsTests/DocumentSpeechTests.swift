@@ -183,6 +183,14 @@ final class SecretRedactorTests: XCTestCase {
     private let awsKeyID = "AKIA" + "IOSFODNN7EXAMPLE"
     private let privateKeyHeader = "-----BEGIN OPENSSH " + "PRIVATE KEY-----"
     private let privateKeyFooter = "-----END OPENSSH " + "PRIVATE KEY-----"
+    private let telegramBot = "123456789" + ":AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"
+    private let discordBot = "MTA4NzY1NDMyMTA5ODc2NTQzMg" + ".GhJkLm.abcdefghijklmnopqrstuvwxyz0123"
+    private let githubFineGrained = "github" + "_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
+    private let stripeSecret = "sk" + "_live_51HabcdefghijklmnopqrstuvWXYZ0123456789"
+    private let stripeRestricted = "rk" + "_live_51HabcdefghijklmnopqrstuvWXYZ0123456789"
+    private let npmToken = "npm" + "_abcdefghijklmnopqrstuvwxyz0123456789"
+    private let huggingFace = "hf" + "_abcdefghijklmnopqrstuvwxyzABCDEFGH"
+    private let gitlabPAT = "glpat" + "-abcdefghij0123456789"
 
     func testRedactsEveryKnownCredentialShape() {
         let cases: [(String, String)] = [
@@ -196,6 +204,19 @@ final class SecretRedactorTests: XCTestCase {
             ("auth eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk", "eyJhbGciOiJIUzI1NiJ9"),
             ("Authorization: Bearer abcdef1234567890XYZ", "abcdef1234567890XYZ"),
             ("password=hunter2", "hunter2"),
+            ("bot \(telegramBot) ready", telegramBot),
+            ("bot \(discordBot) ready", discordBot),
+            ("clone with \(githubFineGrained)", githubFineGrained),
+            ("charge with \(stripeSecret)", stripeSecret),
+            ("charge with \(stripeRestricted)", stripeRestricted),
+            ("publish with \(npmToken)", npmToken),
+            ("model pull \(huggingFace)", huggingFace),
+            ("clone with \(gitlabPAT)", gitlabPAT),
+            // An environment variable's name says it is a secret even with a prefix in front.
+            ("TELEGRAM_BOT_TOKEN=abc123", "abc123"),
+            ("export DISCORD_TOKEN=MTA4NzY1.GhJkLm.abcdef", "MTA4NzY1"),
+            ("export API_TOKEN=abc123", "abc123"),
+            ("DB_PASSWORD: hunter2", "hunter2"),
         ]
         for (input, secret) in cases {
             XCTAssertFalse(SecretRedactor.redact(input).contains(secret), input)
@@ -217,6 +238,10 @@ final class SecretRedactorTests: XCTestCase {
             ("password=hunter2", "password, a redacted value"),
             ("API_KEY: abc123def", "API_KEY, a redacted value"),
             ("auth = zzzzzzzz", "auth, a redacted value"),
+            ("bot \(telegramBot) ready", "bot a redacted token ready"),
+            ("bot \(discordBot) ready", "bot a redacted token ready"),
+            ("TELEGRAM_BOT_TOKEN=abc123", "TELEGRAM_BOT_TOKEN, a redacted value"),
+            ("TELEGRAM_BOT_TOKEN=\(telegramBot)", "TELEGRAM_BOT_TOKEN=a redacted token"),
         ]
         for (input, expected) in cases {
             XCTAssertEqual(SecretRedactor.redact(input), expected, input)
@@ -226,6 +251,8 @@ final class SecretRedactorTests: XCTestCase {
     func testLeavesProseAndHashesAloneAndIsIdempotent() {
         let prose = "The password reset flow needs a test, says commit b7818ff6a1c2d3e4f5061728394a5b6c7d8e9f01."
         XCTAssertEqual(SecretRedactor.redact(prose), prose)
+        let more = "The token was refreshed at 10:45:00, the oauth: line stays, and max_tokens=200 is a setting."
+        XCTAssertEqual(SecretRedactor.redact(more), more)
         let once = SecretRedactor.redact("key sk-abcdefghijklmnopqrstuvwxyz012345 and \(githubPAT)")
         XCTAssertEqual(SecretRedactor.redact(once), once)
     }

@@ -114,6 +114,9 @@ struct MusicAlbumDetail: View {
                             MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(songs) },
                             MusicRowAction(title: "Download", systemImage: "arrow.down.circle") { Task { await MusicDownloadStore.shared.download(songs) } },
                             MusicRowAction(title: "Start Radio", systemImage: "dot.radiowaves.left.and.right") { startRadio() },
+                            MusicRowAction(title: "Share…", systemImage: CollectionShareEntry.symbol) {
+                                model.shareCollection = CollectionShareEntry.album(album, songs: loading ? nil : songs)
+                            },
                         ])
                     },
                     sortMenu: { EmptyView() } // albums keep their track order
@@ -801,6 +804,9 @@ struct MusicPlaylistDetail: View {
                             MusicRowAction(title: "Add to Queue", systemImage: "text.append") { model.music.enqueue(songs) },
                             MusicRowAction(title: "Download", systemImage: "arrow.down.circle") { Task { await MusicDownloadStore.shared.download(songs) } },
                             MusicRowAction(title: "Start Radio", systemImage: "dot.radiowaves.left.and.right") { startRadio() },
+                            MusicRowAction(title: "Share…", systemImage: CollectionShareEntry.symbol) {
+                                model.shareCollection = CollectionShareEntry.playlist(playlist, name: name, songs: loaded == nil ? nil : songs)
+                            },
                         ])
                         playlistMenu
                     },

@@ -265,15 +265,22 @@ enum SessionPurge {
 
         for account in secretAccounts { NavidromeKeychain.deleteSecret(account: account) }
         for key in defaultsKeys { BatonStorage.defaults.removeObject(forKey: key) }
+        // Those removals wipe this device; they are not edits to the shared settings. Without
+        // this each one was a stamped change of a key held at the last sync, and the next sync
+        // announced them all as deleted and the Mac removed its own copies (TBX-1000000480 B-1).
+        model.preferenceSync.forgetLocalHistory()
 
         // After the keys are gone, not before. `SearchRecents.clear()` removes only this
         // server's entries and keeps the rest in memory, so the next thing recorded would
         // write the whole list straight back over the key we just deleted.
         model.searchRecents.reload()
 
-        // The agent's readiness is derived from those keys; drop the cached verification so
-        // the Friend tab can't outlive the configuration that earned it.
-        model.agentConfig.invalidateVerification()
+        // The agent's settings, its verification included, were read into memory at launch;
+        // re-read them so the gateway address and token cannot outlive their storage and the
+        // Friend tab cannot outlive the configuration that earned it. And stop the heartbeat,
+        // which would otherwise go on syncing with them.
+        model.agentConfig.reload()
+        model.stopSyncHeartbeat()
 
         // Widgets read a shared snapshot — leave it showing a stranger's track and it will.
         // Publishing nil is the existing "nothing is playing" path; it also ends any

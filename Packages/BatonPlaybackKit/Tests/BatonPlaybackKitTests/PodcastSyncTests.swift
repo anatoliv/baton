@@ -97,6 +97,128 @@ final class PodcastSyncTests: XCTestCase {
 
         XCTAssertTrue(store.channels.isEmpty, "nothing to add, and nothing removed either")
     }
+
+    // MARK: - Local saves against the shared ledger
+
+    private static let rss = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0"><channel><title>Show</title>
+        <item><title>One</title><guid>one</guid><enclosure url="https://cdn.example/one.mp3"/></item>
+        </channel></rss>
+        """.utf8)
+
+    private func makeDirectory() -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        return dir
+    }
+
+    /// The store writes the ledger through `BatonStorage.defaults`; put back whatever was there.
+    private func preserveLedgerKeys() {
+        let defaults = BatonStorage.defaults
+        let ledger = defaults.object(forKey: PodcastSubscriptionStore.ledgerKey)
+        let feeds = defaults.object(forKey: PodcastSubscriptionStore.syncedFeedsKey)
+        defaults.removeObject(forKey: PodcastSubscriptionStore.ledgerKey)
+        defaults.removeObject(forKey: PodcastSubscriptionStore.syncedFeedsKey)
+        addTeardownBlock {
+            defaults.set(ledger, forKey: PodcastSubscriptionStore.ledgerKey)
+            defaults.set(feeds, forKey: PodcastSubscriptionStore.syncedFeedsKey)
+        }
+    }
+
+    private func currentLedger() -> PodcastSubscriptionLedger? {
+        PodcastSubscriptionLedger.decode(BatonStorage.defaults.data(forKey: PodcastSubscriptionStore.ledgerKey))
+    }
+
+    /// The other device's subscription arrives in the ledger before this device has fetched
+    /// the show. The next ordinary save here must not read "not held yet" as "unsubscribed",
+    /// or the tombstone syncs back and deletes the show on the device that subscribed to it.
+    func testALocalSaveDoesNotTombstoneAFeedThisDeviceHasNotFetchedYet() async throws {
+        preserveLedgerKeys()
+        let dir = makeDirectory()
+        let here = URL(string: "https://example.com/y.xml")!
+        let elsewhere = "https://example.com/x.xml"
+        let first = PodcastSubscriptionStore(directory: dir, fetch: { _ in Self.rss })
+        _ = try await first.subscribe(to: here)
+
+        // PreferenceSync merges the other device's ledger in.
+        var ledger = try XCTUnwrap(currentLedger())
+        ledger.note(feed: elsewhere, removed: false, at: Date().addingTimeInterval(-3600))
+        BatonStorage.defaults.set(ledger.encoded(), forKey: PodcastSubscriptionStore.ledgerKey)
+
+        // Next launch: load, refresh, persist.
+        let store = PodcastSubscriptionStore(directory: dir, fetch: { _ in Self.rss })
+        await store.loadIfNeeded()
+
+        XCTAssertEqual(currentLedger()?.record(for: elsewhere)?.removed, false,
+                       "a show this device simply doesn't hold yet must stay subscribed")
+
+        // An explicit unsubscribe is still a tombstone.
+        store.unsubscribe(try XCTUnwrap(store.channels.first))
+        XCTAssertEqual(currentLedger()?.record(for: here.absoluteString)?.removed, true)
+    }
+
+    /// Unsubscribing while a refresh is waiting on the network must stick: the refreshed copy
+    /// of the show arriving afterwards is not a reason to put it back.
+    func testAnUnsubscribeDuringARefreshIsNotUndoneByIt() async throws {
+        preserveLedgerKeys()
+        let dir = makeDirectory()
+        let gate = FetchGate()
+        let feed = URL(string: "https://example.com/y.xml")!
+        _ = try await PodcastSubscriptionStore(directory: dir, fetch: { _ in Self.rss }).subscribe(to: feed)
+
+        let store = PodcastSubscriptionStore(directory: dir, fetch: { _ in
+            await gate.hold()
+            return Self.rss
+        })
+        let loading = Task { await store.loadIfNeeded() }
+        await gate.untilHeld()
+
+        store.unsubscribe(try XCTUnwrap(store.channels.first))
+        gate.release()
+        await loading.value
+
+        XCTAssertTrue(store.channels.isEmpty, "the refresh put an unsubscribed show back")
+    }
+}
+
+/// Holds a fetch until the test releases it.
+private final class FetchGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: CheckedContinuation<Void, Never>?
+    private var watcher: CheckedContinuation<Void, Never>?
+
+    func hold() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            held = continuation
+            let waiting = watcher
+            watcher = nil
+            lock.unlock()
+            waiting?.resume()
+        }
+    }
+
+    func untilHeld() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if held != nil {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                watcher = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func release() {
+        lock.lock()
+        let continuation = held
+        held = nil
+        lock.unlock()
+        continuation?.resume()
+    }
 }
 
 /// The ledger that lets an unsubscribe travel.
@@ -220,15 +342,16 @@ final class PodcastSubscriptionLedgerTests: XCTestCase {
 
     // MARK: Reconciling with what the device actually holds
 
-    /// A show removed locally becomes a tombstone rather than simply vanishing from the
-    /// ledger — vanishing is what made it un-syncable in the first place.
-    func testReconcileTurnsALocalRemovalIntoATombstone() {
+    /// A live feed this device doesn't hold may be one another device just subscribed to.
+    /// Reconcile leaves it live; only an explicit unsubscribe writes the tombstone.
+    func testReconcileDoesNotTombstoneAFeedThisDeviceDoesNotHold() {
         var ledger = PodcastSubscriptionLedger()
         ledger.note(feed: feed, removed: false, at: at(10))
 
         ledger.reconcile(withSubscribed: [], at: at(20))
 
-        XCTAssertTrue(ledger.record(for: feed)?.removed == true)
+        XCTAssertTrue(ledger.record(for: feed)?.removed == false)
+        XCTAssertEqual(ledger.record(for: feed)?.at, at(10), "and must not be re-stamped")
     }
 
     /// The race that would quietly undo every remote unsubscribe.

@@ -15,15 +15,16 @@ enum WidgetBridge {
         var artist: String?
         var songID: String
         var isPlaying: Bool
-        /// Direct artwork URL — kept for reference, but the widget does not fetch it.
+        /// Always nil now; kept so the shape the widget decodes does not change.
         ///
         /// A widget's network access is throttled and its view builds synchronously, so a
         /// URL here meant the cover simply never drew: the snapshot carried the artwork all
         /// along and the widget rendered a music-note glyph next to it. The bytes go into
         /// the App Group container instead, where the widget can read them straight off
-        /// disk. No credentials cross the boundary either way — the URL is pre-signed.
+        /// disk. The URL is a signed Subsonic link whose query carries the account's user
+        /// name and token, so it no longer crosses the boundary (TBX-1000000480 B-18).
         var artworkURL: URL?
-        /// Filename inside the App Group container, written by `cacheArtwork`.
+        /// Filename inside the App Group container, written by `storeArtwork`.
         var artworkFile: String?
         var updatedAt: Date
     }
@@ -39,21 +40,36 @@ enum WidgetBridge {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
     }
 
-    /// Downloads the cover and drops it in the shared container. Best-effort: a missing
+    /// Downloads the cover, ready to drop in the shared container. Best-effort: a missing
     /// cover must never hold up publishing what is playing, so failures are silent and the
     /// widget falls back to its glyph.
-    private static func cacheArtwork(_ url: URL?) async -> String? {
-        guard let url, let container = containerURL else { return nil }
+    ///
+    /// Returns the bytes rather than writing them, so the write can wait until it is known
+    /// that no newer publish has happened since (TBX-1000000480 B-2).
+    private static func downloadArtwork(_ url: URL?) async -> Data? {
+        guard let url, containerURL != nil else { return nil }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             // Widgets are memory-capped hard (about 30MB); a full-size cover decoded in
             // that process is a crash, not a slow render. Server thumbnails are already
             // small, so this is a guard against a pathological one rather than a resize.
             guard data.count < 2_000_000 else { return nil }
-            let destination = container.appendingPathComponent(artworkFilename)
             // Drawn at most a few dozen points wide on the Lock Screen; a full-size book cover
             // is scaled down here, once, rather than decoded whole in the widget.
-            try (thumbnail(data, maxPixels: 300) ?? data).write(to: destination, options: .atomic)
+            return thumbnail(data, maxPixels: 300) ?? data
+        } catch {
+            return nil
+        }
+    }
+
+    /// The cover download, replaceable so a test can decide when a cover lands.
+    @MainActor static var fetchArtwork: @MainActor (URL?) async -> Data? = { await downloadArtwork($0) }
+
+    /// Writes the current track's cover where the widget reads it.
+    @MainActor private static func storeArtwork(_ data: Data) -> String? {
+        guard let container = containerURL else { return nil }
+        do {
+            try data.write(to: container.appendingPathComponent(artworkFilename), options: .atomic)
             return artworkFilename
         } catch {
             return nil
@@ -74,12 +90,23 @@ enum WidgetBridge {
         return CGImageDestinationFinalize(destination) ? out as Data : nil
     }
 
+    /// Bumped by every publish, so a cover that lands after a newer publish is dropped rather
+    /// than writing its older track and play state back over it (TBX-1000000480 B-2).
+    @MainActor private static var publishGeneration = 0
+
     @MainActor
     static func publish(song: NavidromeSong?, isPlaying: Bool, artworkURL: URL?,
                         elapsed: TimeInterval = 0, duration: TimeInterval = 0) {
+        publishGeneration += 1
+        let generation = publishGeneration
         let defaults = UserDefaults(suiteName: appGroupID)
         guard let song else {
             defaults?.removeObject(forKey: snapshotKey)
+            // The cover too: nothing playing, after a purge above all, leaves no picture of
+            // the last track in the App Group.
+            if let container = containerURL {
+                try? FileManager.default.removeItem(at: container.appendingPathComponent(artworkFilename))
+            }
             WidgetCenter.shared.reloadTimelines(ofKind: "BatonNowPlaying")
             publishLiveActivity(song: song, isPlaying: isPlaying, artworkFile: nil,
                                 sourceLabel: "Baton")
@@ -96,8 +123,9 @@ enum WidgetBridge {
                             elapsed: elapsed, duration: duration)
 
         Task {
-            guard let file = await cacheArtwork(artworkURL) else { return }
+            guard let data = await fetchArtwork(artworkURL) else { return }
             await MainActor.run {
+                guard generation == publishGeneration, let file = storeArtwork(data) else { return }
                 write(song: song, isPlaying: isPlaying, artworkURL: artworkURL,
                       artworkFile: file, defaults: defaults)
                 publishLiveActivity(song: song, isPlaying: isPlaying,
@@ -118,7 +146,7 @@ enum WidgetBridge {
         let snapshot = Snapshot(
             title: DisplayName.title(song.title), artist: DisplayName.artist(song.artist),
             songID: song.id,
-            isPlaying: isPlaying, artworkURL: artworkURL,
+            isPlaying: isPlaying, artworkURL: nil,
             artworkFile: artworkFile, updatedAt: Date()
         )
         defaults?.set(try? JSONEncoder().encode(snapshot), forKey: snapshotKey)
