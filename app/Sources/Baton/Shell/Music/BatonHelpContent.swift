@@ -323,6 +323,15 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.13",
+            date: "October 2026",
+            highlight: "Alarms that wake you gently.",
+            changes: [
+                HelpWhatsNewChange(.added,
+                    "Turn on Gentle Wake for an alarm and it starts quiet, then rises to your volume over 30 seconds, never louder than you set it. Change Baton's volume yourself and it stays where you put it."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.12",
             date: "October 2026",
             highlight: "Pick what wakes you from the last 50 songs you played.",

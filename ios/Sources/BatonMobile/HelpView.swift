@@ -305,6 +305,14 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.8",
+            date: "October 2026",
+            highlight: "Alarms that wake you gently.",
+            changes: [
+                .init(.added, "Turn on Gentle Wake for an alarm and it starts quiet. The alarm sound climbs to full over its first 20 seconds, and when you tap Play or open Baton the song rises to your volume over 30 seconds, never louder than you set it. Change Baton's volume yourself and it stays where you put it."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.7",
             date: "October 2026",
             highlight: "Alarms and timers ring with the song you chose.",

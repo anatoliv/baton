@@ -105,6 +105,53 @@ final class AlarmSheetEvidenceUITests: XCTestCase {
         attach("player")
     }
 
+    /// Gentle Wake in the alarm editor: off for a new alarm, switched on, saved,
+    /// shown in the alarm's row, and on again when the alarm is opened to edit.
+    func testGentleWakeInTheAlarmEditor() throws {
+        launchForReleaseNavigation(app)
+        selectReleaseTab("Search", in: app, screenTitle: "Search")
+        let field = app.searchFields.firstMatch.exists ? app.searchFields.firstMatch : app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        field.tap()
+        field.typeText("Canone\n")
+        let row = app.staticTexts[song].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.press(forDuration: 1.2)
+        let setAlarm = app.buttons["Set Alarm…"]
+        XCTAssertTrue(setAlarm.waitForExistence(timeout: 5))
+        setAlarm.tap()
+        XCTAssertTrue(app.buttons["alarm-save"].waitForExistence(timeout: 10))
+
+        let gentle = app.switches["alarm-gentle-wake"].firstMatch
+        // The sheet opens at about 60% height with the switch at its bottom edge: pull it up
+        // until the whole row is well on screen.
+        let screen = app.windows.firstMatch.frame
+        for _ in 0 ..< 5 where !gentle.exists || gentle.frame.maxY > screen.maxY - 120 { app.swipeUp() }
+        XCTAssertTrue(gentle.waitForExistence(timeout: 5), "the Gentle Wake switch is in the editor")
+        XCTAssertEqual(gentle.value as? String, "0", "off for a new alarm")
+        // The switch itself, at the cell's trailing edge, not the label.
+        gentle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        XCTAssertEqual(gentle.value as? String, "1")
+        attach("sheet-alarm-gentle-wake")
+        app.buttons["alarm-save"].tap()
+        XCTAssertTrue(app.buttons["alarm-save"].waitForNonExistence(timeout: 5))
+
+        row.press(forDuration: 1.2)
+        app.buttons["Set Alarm…"].tap()
+        XCTAssertTrue(app.buttons["alarm-save"].waitForExistence(timeout: 10))
+        let alarmRow = app.descendants(matching: .any)["alarm-row"].firstMatch
+        for _ in 0 ..< 5 where !alarmRow.exists || !alarmRow.isHittable { app.swipeUp() }
+        XCTAssertTrue(alarmRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "gentle wake")).firstMatch.exists,
+                      "the row says the alarm wakes gently")
+        attach("sheet-alarm-list-gentle-wake")
+        alarmRow.buttons.firstMatch.exists ? alarmRow.buttons.firstMatch.tap() : alarmRow.tap()
+        // The form is above the list: scroll back up to it, one swipe at a time.
+        for _ in 0 ..< 4 where !gentle.isHittable { app.collectionViews.firstMatch.swipeDown() }
+        XCTAssertEqual(gentle.value as? String, "1", "on again when the alarm is opened to edit")
+        attach("sheet-alarm-edit-gentle-wake")
+    }
+
     private func attach(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name

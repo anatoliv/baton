@@ -53,6 +53,9 @@ public final class AlarmQuickSetup {
     public var repeatDays: Set<Int> = []
     public var label = ""
     public var snooze = true
+    /// Gentle wake: start quiet and rise over the first 30 seconds. Off for a
+    /// new alarm.
+    public var gentleWake = false
     /// The alarm being edited, or nil for a new one.
     public private(set) var editingID: UUID?
 
@@ -159,6 +162,7 @@ public final class AlarmQuickSetup {
         repeatDays = alarm.repeatDays
         label = alarm.label
         snooze = alarm.snoozeEnabled
+        gentleWake = alarm.gentleWake
         thenPlay = alarm.choice
         isResolvingThenPlay = false
     }
@@ -169,6 +173,7 @@ public final class AlarmQuickSetup {
         repeatDays = []
         label = ""
         snooze = true
+        gentleWake = false
     }
 
     public func toggleDay(_ day: Int) {
@@ -183,7 +188,8 @@ public final class AlarmQuickSetup {
     public func saveAlarm(in store: AlarmStore, now: Date = Date()) -> BatonAlarm? {
         guard canSave, let thenPlay else { return nil }
         let alarm = BatonAlarm(id: editingID ?? UUID(), hour: hour, minute: minute, repeatDays: repeatDays,
-                               label: label, snoozeEnabled: snooze, isEnabled: true, choice: thenPlay)
+                               label: label, snoozeEnabled: snooze, isEnabled: true, choice: thenPlay,
+                               gentleWake: gentleWake)
         store.save(alarm, now: now)
         editingID = alarm.id
         return alarm

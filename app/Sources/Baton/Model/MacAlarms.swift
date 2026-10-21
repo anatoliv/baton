@@ -43,6 +43,7 @@ final class MacAlarms {
             model?.internetRadio.play(NavidromeRadioStation(id: station.id, name: station.name, streamUrl: station.streamURL))
         }
         center.stopRadio = { [weak model] in model?.internetRadio.stop() }
+        center.rampRadio = { [weak model] in model?.internetRadio.engine.startWakeRamp() }
         center.radioIsPlaying = { [weak model] in model?.internetRadio.engine.isPlaying == true }
         center.showPlayer = { [weak self] in self?.showPlayer() }
         center.stopChime = { [weak self] in self?.chime?.stop() }

@@ -121,6 +121,8 @@ public final class AlarmCenter {
     @ObservationIgnored public var playRadio: (@MainActor (AlarmChoice.Station) -> Void)?
     @ObservationIgnored public var stopRadio: (@MainActor () -> Void)?
     @ObservationIgnored public var radioIsPlaying: @MainActor () -> Bool = { false }
+    /// Starts a gentle alarm's rise on the station just tuned in.
+    @ObservationIgnored public var rampRadio: (@MainActor () -> Void)?
     /// Brings the full Now Playing player forward: the ringing's "Keep playing, open player"
     ///. The phone closes whatever sheet is up first; the Mac fronts its window.
     @ObservationIgnored public var showPlayer: (@MainActor () -> Void)?
@@ -213,7 +215,8 @@ public final class AlarmCenter {
             system?.silence(id: id)
         } else if let alarm = store.alarm(id: id) {
             handle([AlarmFire(kind: .alarm, alarmID: id, occurrence: now(), label: alarm.displayLabel, choice: alarm.choice,
-                              snoozeEnabled: alarm.snoozeEnabled, isLate: false)], fromSystem: false)
+                              snoozeEnabled: alarm.snoozeEnabled, isLate: false, gentleWake: alarm.gentleWake)],
+                   fromSystem: false)
         }
     }
 
@@ -245,6 +248,7 @@ public final class AlarmCenter {
             if let playRadio {
                 player.pause()
                 playRadio(station)
+                if fire.gentleWake { rampRadio?() }
                 armChimeFallback(for: fire)
             } else {
                 say("\(fire.label): radio can't start here, so Baton rang instead.")
@@ -260,6 +264,9 @@ public final class AlarmCenter {
             return
         }
         player.play(songs, startAt: index, source: fire.choice.source)
+        // Gentle wake: from quiet up to the person's volume over 30 seconds.
+        // Played from the system's Play or from Baton's own clock alike.
+        if fire.gentleWake { player.startWakeRamp() }
         armChimeFallback(for: fire)
     }
 

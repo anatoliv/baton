@@ -20,8 +20,9 @@ final class AlarmKitBridge: AlarmSystemBridge {
 
     private let manager = AlarmManager.shared
     /// The sound for an alarm: the clip of its track, else Baton's chime, else "" for AlarmKit's
-    /// own alarm sound (`AlarmClipStore.soundName`, TBX-1000000410). Empty until wired.
-    var soundName: (UUID) -> String = { _ in "" }
+    /// own alarm sound (`AlarmClipStore.soundName`, TBX-1000000410), by id and whether the alarm
+    /// is gentle (the faded clip or chime, TBX-1000000445). Empty until wired.
+    var soundName: (UUID, Bool) -> String = { _, _ in "" }
     /// Makes the clips (`AlarmClipStore.prepare`). True when a sound changed, so the sync
     /// schedules again with it.
     var prepare: ((AlarmStore) async -> Bool)?
@@ -157,7 +158,7 @@ final class AlarmKitBridge: AlarmSystemBridge {
         var desired: [UUID: (fingerprint: String, configuration: @Sendable () -> Configuration)] = [:]
         let now = Date()
         for alarm in store.alarms where alarm.isEnabled {
-            let sound = soundName(alarm.id)
+            let sound = soundName(alarm.id, alarm.gentleWake)
             desired[alarm.id] = (Self.fingerprint(alarm, sound: sound), { @Sendable in Self.configuration(for: alarm, sound: sound) })
             if let snoozed = alarm.snoozedUntil, snoozed > now {
                 desired[Self.snoozeID(for: alarm.id)] = ("snooze \(snoozed.timeIntervalSinceReferenceDate) \(sound)",
@@ -170,7 +171,7 @@ final class AlarmKitBridge: AlarmSystemBridge {
         // alarm AlarmKit already has.
         if let timer = store.timer {
             let current = existing.first { $0.id == timer.id }
-            let sound = soundName(timer.id)
+            let sound = soundName(timer.id, false)
             let given = "\(timer.id.uuidString) \(sound)"
             let held: AlarmSystemTimerPlan.Held = switch current?.state {
             case nil: .none

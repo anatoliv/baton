@@ -7,6 +7,14 @@ Baton's key, four times over about 12 seconds. Notification and AlarmKit sounds 
 30 seconds and Linear PCM, so the result is 16-bit mono Linear PCM in a CAF, 22.05 kHz.
 
     python3 tools/alarm-chime/make-chime.py ios/Resources/BatonAlarmChime.caf
+
+With --gentle it makes BatonAlarmChimeGentle.caf, a gentle alarm's chime (TBX-1000000445): the
+same figure nine times over 27 seconds, rising from -30 dB to full level over the first 20
+seconds (linear in decibels, as GentleWake.gain does in the app) and full after. AlarmKit plays a
+named sound again and again until the alarm is answered, so each pass rises and then holds full
+level for its last seven seconds (specs/alarm-and-timer.md, Sound).
+
+    python3 tools/alarm-chime/make-chime.py --gentle ios/Resources/BatonAlarmChimeGentle.caf
 """
 import math
 import os
@@ -21,6 +29,9 @@ NOTES = [659.25, 783.99, 1046.50]  # E5, G5, C6
 STEP = 0.32          # seconds between notes
 PHRASE = 3.0         # seconds per phrase
 PHRASES = 4
+GENTLE_PHRASES = 9
+FLOOR_DB = -30.0     # GentleWake.floorDB
+RAMP = 20.0          # GentleWake.clipRampSeconds
 
 
 def bell(t, freq):
@@ -30,16 +41,27 @@ def bell(t, freq):
             + 0.15 * math.sin(2 * math.pi * freq * 5.40 * t) * math.exp(-8.0 * t))
 
 
-def main(out):
-    total = int(RATE * PHRASE * PHRASES)
+def gain(t):
+    # GentleWake.gain(elapsed:ramp:): -30 dB at the start, full from RAMP on.
+    if t >= RAMP:
+        return 1.0
+    return 10 ** (FLOOR_DB * (1 - max(0.0, t) / RAMP) / 20)
+
+
+def main(out, gentle=False):
+    phrases = GENTLE_PHRASES if gentle else PHRASES
+    total = int(RATE * PHRASE * phrases)
     samples = [0.0] * total
-    for p in range(PHRASES):
+    for p in range(phrases):
         for i, freq in enumerate(NOTES):
             start = int(RATE * (p * PHRASE + i * STEP))
             for n in range(int(RATE * 2.2)):
                 if start + n < total:
                     samples[start + n] += bell(n / RATE, freq)
     peak = max(abs(s) for s in samples) or 1
+    if gentle:
+        # Normalized before the rise, so full level is the plain chime's.
+        samples = [s * gain(n / RATE) for n, s in enumerate(samples)]
     frames = b"".join(struct.pack("<h", int(32767 * 0.8 * s / peak)) for s in samples)
     with tempfile.TemporaryDirectory() as tmp:
         wav = os.path.join(tmp, "chime.wav")
@@ -52,4 +74,7 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "BatonAlarmChime.caf")
+    args = sys.argv[1:]
+    gentle = "--gentle" in args
+    args = [a for a in args if a != "--gentle"]
+    main(args[0] if args else ("BatonAlarmChimeGentle.caf" if gentle else "BatonAlarmChime.caf"), gentle=gentle)

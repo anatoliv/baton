@@ -153,12 +153,17 @@ public struct BatonAlarm: Codable, Identifiable, Equatable, Sendable {
     public var armedAt: Date
     /// Set by Snooze; the alarm goes off again then.
     public var snoozedUntil: Date?
+    /// Gentle wake: the alarm starts quiet and rises to full level, both the
+    /// sound the system rings (a faded clip or chime) and the track Baton then plays (a 30-second
+    /// volume ramp up to the person's volume). Off by default; alarms saved before it read as off.
+    public var gentleWake: Bool
 
     public static let defaultLabel = "Alarm"
     public static let snoozeInterval: TimeInterval = 9 * 60
 
     public init(id: UUID = UUID(), hour: Int, minute: Int, repeatDays: Set<Int> = [], label: String = "",
-                snoozeEnabled: Bool = true, isEnabled: Bool = true, choice: AlarmChoice, armedAt: Date = Date()) {
+                snoozeEnabled: Bool = true, isEnabled: Bool = true, choice: AlarmChoice, armedAt: Date = Date(),
+                gentleWake: Bool = false) {
         self.id = id
         self.hour = max(0, min(23, hour))
         self.minute = max(0, min(59, minute))
@@ -168,6 +173,28 @@ public struct BatonAlarm: Codable, Identifiable, Equatable, Sendable {
         self.isEnabled = isEnabled
         self.choice = choice
         self.armedAt = armedAt
+        self.gentleWake = gentleWake
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, hour, minute, repeatDays, label, snoozeEnabled, isEnabled, choice, armedAt, snoozedUntil, gentleWake
+    }
+
+    /// Decodes an alarm saved by any version: one saved before Gentle wake existed has no
+    /// `gentleWake` and reads as off.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        hour = try c.decode(Int.self, forKey: .hour)
+        minute = try c.decode(Int.self, forKey: .minute)
+        repeatDays = try c.decode(Set<Int>.self, forKey: .repeatDays)
+        label = try c.decode(String.self, forKey: .label)
+        snoozeEnabled = try c.decode(Bool.self, forKey: .snoozeEnabled)
+        isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
+        choice = try c.decode(AlarmChoice.self, forKey: .choice)
+        armedAt = try c.decode(Date.self, forKey: .armedAt)
+        snoozedUntil = try c.decodeIfPresent(Date.self, forKey: .snoozedUntil)
+        gentleWake = try c.decodeIfPresent(Bool.self, forKey: .gentleWake) ?? false
     }
 
     public var displayLabel: String {
@@ -290,6 +317,9 @@ public struct AlarmFire: Equatable, Identifiable, Sendable {
     public var snoozeEnabled: Bool
     /// Due longer ago than the store's grace: shown as missed, plays nothing.
     public var isLate: Bool
+    /// The alarm's Gentle wake: Baton raises the volume over 30 seconds as it plays. Never set
+    /// for a timer.
+    public var gentleWake = false
 
     public var id: String { "\(alarmID.uuidString)@\(occurrence.timeIntervalSinceReferenceDate)" }
 }
@@ -480,7 +510,8 @@ public final class AlarmStore {
             answered[alarm.id] = occurrence
             fires.append(AlarmFire(kind: .alarm, alarmID: alarm.id, occurrence: occurrence, label: alarm.displayLabel,
                                    choice: alarm.choice, snoozeEnabled: alarm.snoozeEnabled,
-                                   isLate: now.timeIntervalSince(occurrence) > Self.lateGrace))
+                                   isLate: now.timeIntervalSince(occurrence) > Self.lateGrace,
+                                   gentleWake: alarm.gentleWake))
             if alarm.snoozedUntil.map({ $0 <= now }) == true { alarms[index].snoozedUntil = nil }
             if !alarm.repeats { alarms[index].isEnabled = false }
             didChange = true

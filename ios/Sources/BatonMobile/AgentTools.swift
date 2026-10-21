@@ -176,7 +176,8 @@ final class AgentTools: RemoteToolSurface {
 
         case "music_set_volume":
             let percent = max(0, min(100, input["percent"] as? Int ?? 70))
-            model.music.volumePercent = percent
+            // The person's own change (by voice), so a gentle alarm's rise stops, as the slider does.
+            model.music.setVolume(percent: percent)
             return "Volume set to \(percent)."
 
         default:

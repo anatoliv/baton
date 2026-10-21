@@ -333,6 +333,11 @@ public final class RadioPlaybackEngine {
     @ObservationIgnored private let transportFade = TransportFade()
     /// The user's level, kept so `applyVolume()` can recombine it with the fade envelope.
     @ObservationIgnored private var volumePercent: Int = 100
+    /// A gentle alarm's rise on a station, multiplied in like the transport
+    /// fade; 1 when no alarm is rising.
+    @ObservationIgnored public private(set) var wakeEnvelope: Float = 1
+    @ObservationIgnored private var wakeRamp: AlarmVolumeRamp?
+    @ObservationIgnored private var wakeRampTask: Task<Void, Never>?
     @ObservationIgnored private var rateObservation: NSKeyValueObservation?
     @ObservationIgnored private var statusObservation: NSKeyValueObservation?
     @ObservationIgnored private var metadataOutput: AVPlayerItemMetadataOutput?
@@ -363,6 +368,7 @@ public final class RadioPlaybackEngine {
         // would silence the station we're about to start — stop A, tap B inside the ramp,
         // and B dies with no error and nothing on screen to explain it.
         transportFade.cancel(apply: { [weak self] in self?.applyVolume() })
+        releaseHeldWakeLevel()
         currentStation = station
         nowPlayingTitle = nil
 
@@ -401,6 +407,7 @@ public final class RadioPlaybackEngine {
     /// Ramped like library playback. A stream cut mid-waveform clicks exactly the same way
     /// a file does, and the remote/CarPlay pause button lands here whenever radio is on air.
     public func pause() {
+        endWakeRampHoldingLevel()
         transportFade.out(apply: { [weak self] in self?.applyVolume() },
                           then: { [weak self] in
                               guard let self else { return }
@@ -419,6 +426,7 @@ public final class RadioPlaybackEngine {
 
     /// Resume after a pause — reconnects to the live edge.
     public func resume() {
+        releaseHeldWakeLevel()
         onPlaybackStarting?()
         startRendering(player)
         transportFade.in(apply: { [weak self] in self?.applyVolume() })
@@ -427,17 +435,77 @@ public final class RadioPlaybackEngine {
     /// Set output volume (0–100) and mute — mirrored from the shared player volume so the
     /// one bottom-bar volume slider controls radio too.
     public func setVolume(percent: Int) {
+        cancelWakeRamp()
         volumePercent = max(0, min(percent, 100))
+        applyVolume()
+    }
+
+    /// A gentle alarm tuned this station in: from quiet up to the person's volume over 30
+    /// seconds once audio flows. Their volume change, Pause or Stop ends it.
+    public func startWakeRamp(duration: TimeInterval = GentleWake.playerRampSeconds,
+                              now: @escaping () -> Date = Date.init, tick: Duration? = .milliseconds(250)) {
+        wakeRampTask?.cancel()
+        wakeRamp = AlarmVolumeRamp(duration: duration, now: now, isPlaying: { [weak self] in self?.isPlaying == true }) {
+            [weak self] level in
+            self?.wakeEnvelope = max(0, min(1, level))
+            self?.applyVolume()
+        }
+        guard let tick else { return }
+        wakeRampTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: tick)
+                guard !Task.isCancelled, let self else { return }
+                if !self.stepWakeRamp() { return }
+            }
+        }
+    }
+
+    public var isWakeRamping: Bool { wakeRamp != nil }
+
+    /// Moves the rise on to now (the task's tick, or a test's own clock). False when none is
+    /// under way any more.
+    @discardableResult
+    public func stepWakeRamp() -> Bool {
+        guard let ramp = wakeRamp else { return false }
+        if ramp.step() { return true }
+        wakeRamp = nil
+        wakeRampTask = nil
+        return false
+    }
+
+    /// Ends a rise at the level it reached, for Pause and Stop, whose own fade would otherwise
+    /// carry a jump to full volume; released when the station plays again.
+    public func endWakeRampHoldingLevel() {
+        wakeRampTask?.cancel()
+        wakeRampTask = nil
+        wakeRamp = nil
+    }
+
+    private func releaseHeldWakeLevel() {
+        guard wakeRamp == nil, wakeEnvelope != 1 else { return }
+        wakeEnvelope = 1
+        applyVolume()
+    }
+
+    public func cancelWakeRamp() {
+        wakeRampTask?.cancel()
+        wakeRampTask = nil
+        guard wakeRamp != nil || wakeEnvelope != 1 else { return }
+        wakeRamp = nil
+        wakeEnvelope = 1
         applyVolume()
     }
 
     /// The user's level times the transport ramp, so adjusting the volume mid-fade composes
     /// with it instead of erasing it.
     private func applyVolume() {
-        player.volume = Float(volumePercent) / 100 * transportFade.multiplier
+        player.volume = Float(volumePercent) / 100 * transportFade.multiplier * wakeEnvelope
     }
 
-    public func setMuted(_ muted: Bool) { player.isMuted = muted }
+    public func setMuted(_ muted: Bool) {
+        cancelWakeRamp()
+        player.isMuted = muted
+    }
 
     /// Stop playback and clear the on-air station.
     ///
@@ -445,6 +513,7 @@ public final class RadioPlaybackEngine {
     /// still feels instant. Tearing the item down inside the fade's completion matters —
     /// `replaceCurrentItem(with: nil)` on an audible player is its own hard cut.
     public func stop() {
+        endWakeRampHoldingLevel()
         transportFade.out(apply: { [weak self] in self?.applyVolume() }) { [weak self] in
             guard let self else { return }
             self.player.pause()

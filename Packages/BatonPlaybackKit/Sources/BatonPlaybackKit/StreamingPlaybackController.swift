@@ -296,6 +296,13 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// correct composition for two independent reasons to be quieter.
     @ObservationIgnored public var duckEnvelope: Float = 1
     @ObservationIgnored var duckRampTask: Task<Void, Never>?
+    /// A gentle alarm's rise: a third independent envelope, multiplied in like
+    /// the other two, so it is never above the person's volume and never fights the sleep fade
+    /// or the duck. 1 when no alarm is rising. Set only by `AlarmVolumeRamp` through
+    /// `startWakeRamp`; the person changing the volume ends it (`cancelWakeRamp`).
+    @ObservationIgnored public internal(set) var wakeEnvelope: Float = 1
+    @ObservationIgnored var wakeRamp: AlarmVolumeRamp?
+    @ObservationIgnored var wakeRampTask: Task<Void, Never>?
     @ObservationIgnored private var fadeTask: Task<Void, Never>?
 
     /// Track-to-track loudness normalization using the server's ReplayGain/R128 data —
@@ -505,6 +512,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// verb here was written twice: once through the deck the engine gave us, once through
     /// the player it did not. (Stage 5b / TBX-2872)
     @ObservationIgnored private let avDeck = AVPlayerDeck()
+    /// The AVPlayer deck's output volume, for a test of what is heard.
+    var avDeckVolumeForTesting: Float { avDeck.player.volume }
 
     /// The deck rendering the current track. One question, asked one way — the routing
     /// decision now happens at load and nowhere else.
@@ -1450,6 +1459,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // lands here while a station is on the air.
         stopOnAirStation()
         bumpStateGeneration()
+        releaseHeldWakeLevel() // a gentle alarm's rise stopped by Pause: back to the person's volume
         resetFade() // in case we were paused mid sleep-timer fade
         // Parked at the end, or nothing left to resume: reload the current track from the
         // top rather than telling a deck to carry on with a track it has finished.
@@ -1481,6 +1491,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     }
 
     public func pause() {
+        // A gentle alarm's rise ends with the music it was raising (Stop or Snooze pause it),
+        // at the level it had reached: raising it now would sound through the pause's fade.
+        endWakeRampHoldingLevel()
         let canSavePlace = !isCrossfading
         bumpStateGeneration()
         pauseInternal()
@@ -1519,6 +1532,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
     /// Stops playback cleanly (keeps the queue so it can be restarted / persisted).
     public func stop() {
+        endWakeRampHoldingLevel()
         if !isCrossfading { saveProgressWhereHalted() }
         bumpStateGeneration()
         cancelCrossfade()
@@ -1618,7 +1632,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             return false
         }
 
-        let targetIn = Float(volumePercent) / 100
+        let targetIn = Float(volumePercent) / 100 * wakeEnvelope
             * Self.normalizationGain(for: queue[index], mode: loudnessMode, preampDB: loudnessPreampDB)
 
         isCrossfading = true
@@ -1911,6 +1925,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// so an in-flight audio-focus duck/pause won't auto-restore over the user's new level.
     public func setVolume(percent: Int) {
         bumpStateGeneration()
+        // The person took the level: a gentle alarm's rise stops and their level stands.
+        cancelWakeRamp()
         // A duck ramp in flight is now stale: the user has taken the level themselves, and the
         // generation bump above has already cancelled any auto-restore. Leaving the ramp
         // running would drag their new level around for the rest of its duration — the slider
@@ -1935,6 +1951,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// reach this: the menu-bar extra, the now-playing bar, the mini player and the Playback
     /// menu, and all four looked dead with the developer toggle on.
     public func toggleMute() {
+        cancelWakeRamp()
         isMuted.toggle()
         applyVolume()
     }
@@ -1948,7 +1965,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// computed normalization from `nowPlaying`, which during a skip blend is already the
     /// *incoming* track, so the outgoing player briefly carried the wrong track's gain.
     public func applyVolume() {
-        let envelope = fadeMultiplier * duckEnvelope
+        let envelope = fadeMultiplier * duckEnvelope * wakeEnvelope
         eachDeck {
             $0.applyLevel(volumePercent: volumePercent, isMuted: isMuted, envelope: envelope)
             $0.applyLoudness(mode: loudnessMode, preampDB: loudnessPreampDB)
@@ -2007,6 +2024,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         loadCurrentCountForTesting += 1
         #endif
         if !isRetry { sameTrackRetries = 0 } // a genuine (non-retry) load starts a fresh track
+        // A gentle alarm's rise stopped by Pause or Stop held its level; what plays next plays at
+        // the person's volume (a rise under way is left to itself).
+        releaseHeldWakeLevel()
         continuationNote = nil
         // The last track of a book still being made: ask for what follows now, while it plays,
         // on whichever deck it plays.
@@ -2773,7 +2793,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // (played-state, download auto-remove) — the suppressed handler was their only trigger.
         // Harmless for music; correctness for any non-podcast that reports progress.
         if let outgoing = nowPlaying, duration > 0 { onProgressUpdate?(outgoing, duration, duration) }
-        let targetIn = Float(volumePercent) / 100
+        let targetIn = Float(volumePercent) / 100 * wakeEnvelope
             * Self.normalizationGain(for: queue[nextIndex], mode: loudnessMode, preampDB: loudnessPreampDB)
         // The deck owns the second player and the ramp loop; we decide when to blend, which
         // track to blend into, and what happens to the queue when it lands.

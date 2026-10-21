@@ -81,6 +81,7 @@ final class MobileAlarms {
             model?.radio.play(NavidromeRadioStation(id: station.id, name: station.name, streamUrl: station.streamURL))
         }
         center.stopRadio = { [weak model] in model?.radio.stop() }
+        center.rampRadio = { [weak model] in model?.radio.engine.startWakeRamp() }
         center.radioIsPlaying = { [weak model] in model?.radio.engine.isPlaying == true }
         // "Keep playing, open player": close whatever sheet is up, then the full player.
         center.showPlayer = { [weak model] in if let model { Self.showFullPlayer(model) } }
@@ -107,7 +108,7 @@ final class MobileAlarms {
             if #available(iOS 26.0, *) {
                 let bridge = AlarmKitBridge()
                 if !Self.systemAlarmKitSoundOnly {
-                    bridge.soundName = { [sounds] in sounds.soundName(for: $0) }
+                    bridge.soundName = { [sounds] in sounds.soundName(for: $0, gentle: $1) }
                     bridge.prepare = { [sounds] in await sounds.prepare($0) }
                 }
                 bridge.storeIDs = { [store] in Set(store.alarms.map(\.id) + [store.timer?.id].compactMap { $0 }) }
@@ -119,7 +120,7 @@ final class MobileAlarms {
                 systemPath = .alarmKit
             } else {
                 let bridge = AlarmNotificationBridge()
-                bridge.soundName = { [sounds] in sounds.soundName(for: $0) }
+                bridge.soundName = { [sounds] in sounds.soundName(for: $0, gentle: $1) }
                 bridge.prepare = { [sounds] in await sounds.prepare($0) }
                 center.system = bridge
                 systemPath = .notifications

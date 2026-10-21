@@ -18,10 +18,13 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
     nonisolated static let idKey = "batonAlarmID"
     nonisolated static let requestPrefix = "baton.alarm."
     nonisolated static let chime = "BatonAlarmChime.caf"
+    /// A gentle alarm's chime, rising over its first 20 seconds.
+    nonisolated static let gentleChime = "BatonAlarmChimeGentle.caf"
 
-    /// The sound for an alarm: a clip of its track when the app made one, else the chime ("" is
-    /// the system's sound).
-    var soundName: (UUID) -> String = { _ in AlarmNotificationBridge.chime }
+    /// The sound for an alarm, by its id and whether it is gentle: a clip of its track when the
+    /// app made one, else the chime ("" is the system's sound). The Mac's default: the chime,
+    /// faded for a gentle alarm.
+    var soundName: (UUID, Bool) -> String = { _, gentle in gentle ? AlarmNotificationBridge.gentleChime : AlarmNotificationBridge.chime }
     /// Makes the clips (the iPhone's `AlarmClipStore.prepare`). True when a sound changed, so the
     /// requests are made again with it.
     var prepare: ((AlarmStore) async -> Bool)?
@@ -80,13 +83,13 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
 
     /// The requests that stand for the store's alarms and timer. Pure apart from the clock, so
     /// it is what a test reads.
-    static func requests(for store: AlarmStore, now: Date, soundName: (UUID) -> String) -> [UNNotificationRequest] {
+    static func requests(for store: AlarmStore, now: Date, soundName: (UUID, Bool) -> String) -> [UNNotificationRequest] {
         let calendar = store.calendar()
         var requests: [UNNotificationRequest] = []
         for alarm in store.alarms where alarm.isEnabled {
             let content = content(title: alarm.displayLabel, body: "Baton will play \(alarm.choice.summary).",
                                   id: alarm.id, category: alarm.snoozeEnabled ? alarmSnoozeCategory : alarmCategory,
-                                  sound: soundName(alarm.id))
+                                  sound: soundName(alarm.id, alarm.gentleWake))
             if alarm.repeats {
                 for day in alarm.repeatDays.sorted() {
                     let trigger = UNCalendarNotificationTrigger(
@@ -107,7 +110,7 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
         }
         if let timer = store.timer, let endsAt = timer.endsAt, endsAt > now {
             let content = content(title: timer.displayLabel, body: "Timer done. Baton will play \(timer.choice.summary).",
-                                  id: timer.id, category: timerCategory, sound: soundName(timer.id))
+                                  id: timer.id, category: timerCategory, sound: soundName(timer.id, false))
             requests.append(UNNotificationRequest(
                 identifier: "\(requestPrefix)\(timer.id.uuidString).timer", content: content,
                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, endsAt.timeIntervalSince(now)), repeats: false)))

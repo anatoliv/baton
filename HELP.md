@@ -1459,9 +1459,18 @@ The sheet has two tabs:
   any length, then **Start**. While it runs the sheet shows the countdown with **Pause**,
   **Resume** and **Cancel**.
 - **Alarm:** turn the time, or tap a quick pick such as **7:00 tomorrow** or **In 8 hours**,
-  choose repeat days, a label and Snooze, then **Save**. Your alarms are listed at the bottom
-  with a switch each; tap one to change it, swipe it (or use its menu) to delete it. A one-off
-  alarm switches itself off after it goes off.
+  choose repeat days, a label, Snooze and Gentle Wake, then **Save**. Your alarms are listed at
+  the bottom with a switch each; tap one to change it, swipe it (or use its menu) to delete it.
+  A one-off alarm switches itself off after it goes off.
+
+**Gentle Wake** is for an alarm that shouldn't jump at you. It's off until you turn it on, and
+each alarm keeps its own setting. When the alarm goes off, Baton starts the song quiet and
+raises it to your volume over the first 30 seconds, never louder than you set it. If you
+change Baton's volume yourself, or mute, the rise stops and your setting stands. On the iPhone
+the alarm sound itself rises too: over its first 20 seconds, then full for the rest. On iOS 26
+and later the alarm sound repeats until you answer it, so each time round it starts quiet again
+and climbs back to full, which keeps it loud enough to wake you. Timers don't have Gentle Wake: a timer is for something
+you need to hear straight away.
 
 **Then play** is what starts when it goes off. It begins as what is playing, or the last thing
 you played, and a tap opens **What to Play**: search your songs, albums, playlists, books and
@@ -1496,7 +1505,8 @@ you to the iPhone's Settings to change it.
 
 **On the Mac.** Baton runs in the menu bar, so it plays the item itself at the time, the whole
 track through Baton's player rather than a system sound. If Baton isn't running, a notification
-with Baton's chime appears at the time, and clicking it opens Baton and plays it.
+with Baton's chime (rising, for a Gentle Wake alarm) appears at the time, and clicking it opens
+Baton and plays it.
 An alarm that comes round while the Mac is asleep, and is more than ten minutes late when it
 wakes, is shown as missed rather than starting music out of nowhere.
 

@@ -18,7 +18,7 @@ final class AlarmNotificationRequestTests: XCTestCase {
     }
 
     private func requests(_ store: AlarmStore, now: Date) -> [UNNotificationRequest] {
-        AlarmNotificationBridge.requests(for: store, now: now, soundName: { _ in AlarmNotificationBridge.chime })
+        AlarmNotificationBridge.requests(for: store, now: now, soundName: { _, _ in AlarmNotificationBridge.chime })
     }
 
     func testRepeatingAlarmHasOneRepeatingTriggerPerDay() throws {
@@ -87,7 +87,7 @@ final class AlarmNotificationRequestTests: XCTestCase {
         let plain = BatonAlarm(hour: 9, minute: 0, choice: .song(song))
         for alarm in [clipped, chimed, plain] { store.save(alarm, now: now) }
         let clip = AlarmClipStore.fileName(for: clipped.id)
-        let made = AlarmNotificationBridge.requests(for: store, now: now) { id in
+        let made = AlarmNotificationBridge.requests(for: store, now: now) { id, _ in
             switch id {
             case clipped.id: clip
             case chimed.id: AlarmNotificationBridge.chime
@@ -103,6 +103,30 @@ final class AlarmNotificationRequestTests: XCTestCase {
         XCTAssertEqual(try sound(chimed), UNNotificationSound(named: UNNotificationSoundName(AlarmNotificationBridge.chime)))
         XCTAssertEqual(try sound(plain), UNNotificationSound.default)
         XCTAssertNotEqual(try sound(clipped), try sound(chimed))
+    }
+
+    /// A gentle alarm asks for its faded sound and a plain one, or the timer, for the plain
+    /// sound; the Mac's default gives a gentle alarm the faded chime.
+    func testAGentleAlarmRingsItsFadedSound() throws {
+        let store = store()
+        let now = Date()
+        let gentle = BatonAlarm(hour: 7, minute: 0, choice: .song(song), gentleWake: true)
+        let plain = BatonAlarm(hour: 8, minute: 0, choice: .song(song))
+        for alarm in [gentle, plain] { store.save(alarm, now: now) }
+        store.startTimer(duration: 600, choice: .song(song), now: now)
+        let timerID = try XCTUnwrap(store.timer?.id)
+        var asked: [UUID: Bool] = [:]
+        let made = AlarmNotificationBridge.requests(for: store, now: now) { id, isGentle in
+            asked[id] = isGentle
+            return AlarmClipStore.fileName(for: id, gentle: isGentle)
+        }
+        XCTAssertEqual(asked, [gentle.id: true, plain.id: false, timerID: false])
+        let request = try XCTUnwrap(made.first { AlarmNotificationBridge.alarmID(in: $0.content) == gentle.id })
+        XCTAssertEqual(request.content.sound,
+                       UNNotificationSound(named: UNNotificationSoundName("baton-alarm-\(gentle.id.uuidString).gentle.caf")))
+        let macDefault = AlarmNotificationBridge().soundName
+        XCTAssertEqual(macDefault(gentle.id, true), AlarmNotificationBridge.gentleChime)
+        XCTAssertEqual(macDefault(plain.id, false), AlarmNotificationBridge.chime)
     }
 
     /// A timer and an alarm at once: both are scheduled, and cancelling one

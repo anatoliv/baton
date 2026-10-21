@@ -28,6 +28,10 @@ public final class AlarmClipStore {
     public static let defaultTimeout: Duration = .seconds(45)
     /// Baton's chime, bundled in both apps.
     public nonisolated static let chime = "BatonAlarmChime.caf"
+    /// The chime for a gentle alarm: the same bell figure repeated to 27
+    /// seconds, rising from -30 dB to full over the first 20 and full after, made by
+    /// `tools/alarm-chime/make-chime.py --gentle` and bundled in both apps.
+    public nonisolated static let gentleChime = "BatonAlarmChimeGentle.caf"
     private static let madeFromKey = "baton.alarms.clips"
     private nonisolated static let prefix = "baton-alarm-"
 
@@ -35,6 +39,7 @@ public final class AlarmClipStore {
     private let defaults: UserDefaults
     private let session: URLSession
     private let hasChime: Bool
+    private let hasGentleChime: Bool
     private let timeout: Duration
     private let log = Logger(subsystem: "io.tonebox.baton", category: "alarms")
     /// Resolves a song to something readable; the app's own stream resolver by default.
@@ -51,8 +56,9 @@ public final class AlarmClipStore {
     /// clip at once (the store's observer starts a sync for every change, and a cancelled sync
     /// task does not stop one already preparing).
     private var running: Task<Bool, Never>?
-    /// A clip that could not be cut, by alarm, with the song and when: not tried again for
-    /// `retryAfter`, so a server that is away does not cost every sync a fetch timeout per alarm.
+    /// A clip that could not be cut, by alarm, with the song (and whether gentle) and when: not
+    /// tried again for `retryAfter`, so a server that is away does not cost every sync a fetch
+    /// timeout per alarm.
     private var failed: [UUID: (song: String, at: Date)] = [:]
     public var retryAfter: TimeInterval = 10 * 60
     public var now: () -> Date = Date.init
@@ -65,19 +71,34 @@ public final class AlarmClipStore {
     public init(directory: URL = AlarmClipStore.soundsDirectory, defaults: UserDefaults = BatonStorage.defaults,
                 session: URLSession = .shared,
                 hasChime: Bool = Bundle.main.url(forResource: "BatonAlarmChime", withExtension: "caf") != nil,
+                hasGentleChime: Bool = Bundle.main.url(forResource: "BatonAlarmChimeGentle", withExtension: "caf") != nil,
                 timeout: Duration = AlarmClipStore.defaultTimeout) {
         self.directory = directory
         self.defaults = defaults
         self.session = session
         self.hasChime = hasChime
+        self.hasGentleChime = hasGentleChime
         self.timeout = timeout
     }
 
-    public nonisolated static func fileName(for id: UUID) -> String { "\(prefix)\(id.uuidString).caf" }
+    /// `baton-alarm-<id>.caf`, or `baton-alarm-<id>.gentle.caf` for a gentle alarm's faded clip.
+    /// The two have different names so that switching Gentle wake changes the sound's name, and
+    /// with it the AlarmKit fingerprint, and the alarm is scheduled again with the new file.
+    public nonisolated static func fileName(for id: UUID, gentle: Bool = false) -> String {
+        "\(prefix)\(id.uuidString)\(gentle ? gentleSuffix : ".caf")"
+    }
 
-    public func clipURL(for id: UUID) -> URL { directory.appendingPathComponent(Self.fileName(for: id)) }
+    private nonisolated static let gentleSuffix = ".gentle.caf"
+    /// How a gentle clip's song is recorded in `madeFrom`.
+    private nonisolated static let gentleMark = "gentle|"
 
-    /// Which song each clip was cut from, so a changed alarm gets a new clip.
+    private nonisolated static func record(song: String, gentle: Bool) -> String { gentle ? gentleMark + song : song }
+
+    public func clipURL(for id: UUID, gentle: Bool = false) -> URL {
+        directory.appendingPathComponent(Self.fileName(for: id, gentle: gentle))
+    }
+
+    /// Which song each clip was cut from (marked when faded), so a changed alarm gets a new clip.
     private var madeFrom: [UUID: String] {
         get {
             (defaults.dictionary(forKey: Self.madeFromKey) as? [String: String] ?? [:])
@@ -88,15 +109,18 @@ public final class AlarmClipStore {
         }
     }
 
-    /// Whether `id` has a clip of its track ready now.
-    public func hasClip(for id: UUID) -> Bool {
-        madeFrom[id] != nil && FileManager.default.fileExists(atPath: clipURL(for: id).path)
+    /// Whether `id` has a clip of its track ready now, faded when `gentle`.
+    public func hasClip(for id: UUID, gentle: Bool = false) -> Bool {
+        guard let made = madeFrom[id], made.hasPrefix(Self.gentleMark) == gentle else { return false }
+        return FileManager.default.fileExists(atPath: clipURL(for: id, gentle: gentle).path)
     }
 
     /// The name to hand AlarmKit or a notification for `id`: the clip, else the chime, else ""
-    /// (the system's own sound).
-    public func soundName(for id: UUID) -> String {
-        if hasClip(for: id) { return Self.fileName(for: id) }
+    /// (the system's own sound). For a gentle alarm, the faded clip, else the faded chime, else
+    /// the plain chime.
+    public func soundName(for id: UUID, gentle: Bool = false) -> String {
+        if hasClip(for: id, gentle: gentle) { return Self.fileName(for: id, gentle: gentle) }
+        if gentle, hasGentleChime { return Self.gentleChime }
         return hasChime ? Self.chime : ""
     }
 
@@ -115,47 +139,56 @@ public final class AlarmClipStore {
     }
 
     private func prepareNow(_ store: AlarmStore) async -> Bool {
-        var wanted: [UUID: NavidromeSong] = [:]
+        // What each alarm wants: its song, and whether the clip is faded (a gentle alarm's; a
+        // timer has no Gentle wake).
+        var wanted: [UUID: (song: NavidromeSong, gentle: Bool)] = [:]
         for alarm in store.alarms where alarm.isEnabled {
-            if let song = alarm.choice.songs[safe: alarm.choice.startIndex] { wanted[alarm.id] = song }
+            if let song = alarm.choice.songs[safe: alarm.choice.startIndex] { wanted[alarm.id] = (song, alarm.gentleWake) }
         }
-        if let timer = store.timer, let song = timer.choice.songs[safe: timer.choice.startIndex] { wanted[timer.id] = song }
+        if let timer = store.timer, let song = timer.choice.songs[safe: timer.choice.startIndex] { wanted[timer.id] = (song, false) }
         var made = madeFrom
         var changed = false
         for id in made.keys where wanted[id] == nil {
             try? FileManager.default.removeItem(at: clipURL(for: id))
+            try? FileManager.default.removeItem(at: clipURL(for: id, gentle: true))
             made[id] = nil
             changed = true
         }
-        // A clip left behind by an alarm deleted while a preparation was cut short.
+        // A clip left behind by an alarm deleted while a preparation was cut short, or the other
+        // form of an alarm's clip after Gentle wake was switched.
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         for name in names where name.hasPrefix(Self.prefix) && name.hasSuffix(".caf") {
-            let raw = String(name.dropFirst(Self.prefix.count).dropLast(4))
-            if let id = UUID(uuidString: raw), wanted[id] == nil {
+            let gentle = name.hasSuffix(Self.gentleSuffix)
+            let raw = String(name.dropFirst(Self.prefix.count).dropLast(gentle ? Self.gentleSuffix.count : 4))
+            if let id = UUID(uuidString: raw), wanted[id].map({ $0.gentle != gentle }) ?? true {
                 try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
             }
         }
-        for (id, song) in wanted.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
-            if made[id] == song.id, FileManager.default.fileExists(atPath: clipURL(for: id).path) { continue }
+        for (id, want) in wanted.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            let song = want.song, gentle = want.gentle
+            let key = Self.record(song: song.id, gentle: gentle)
+            let target = clipURL(for: id, gentle: gentle)
+            if made[id] == key, FileManager.default.fileExists(atPath: target.path) { continue }
             if made[id] != nil { changed = true }
             made[id] = nil
             madeFrom = made
-            if let last = failed[id], last.song == song.id, now().timeIntervalSince(last.at) < retryAfter { continue }
+            if let last = failed[id], last.song == key, now().timeIntervalSince(last.at) < retryAfter { continue }
             guard let source = resolve(song.id) else {
-                failed[id] = (song.id, now())
+                failed[id] = (key, now())
                 log.info("alarm clip not made for \(id.uuidString, privacy: .public): nothing to read; the chime rings")
                 continue
             }
-            if await Self.render(from: source, to: clipURL(for: id), seconds: Self.clipSeconds, timeout: timeout,
-                                 session: session, headers: source.isFileURL ? [:] : headers(source)) {
+            if await Self.render(from: source, to: target, seconds: Self.clipSeconds, timeout: timeout,
+                                 session: session, headers: source.isFileURL ? [:] : headers(source),
+                                 fadeIn: gentle ? GentleWake.clipRampSeconds : nil) {
                 // Cut again from the track whenever it is missing, so it need not take backup space.
-                if BackupExclusion.appliesOnThisPlatform { BackupExclusion.exclude(clipURL(for: id)) }
-                made[id] = song.id
+                if BackupExclusion.appliesOnThisPlatform { BackupExclusion.exclude(target) }
+                made[id] = key
                 failed[id] = nil
                 changed = true
                 log.info("alarm clip made for \(id.uuidString, privacy: .public)")
             } else {
-                failed[id] = (song.id, now())
+                failed[id] = (key, now())
                 log.info("alarm clip not made for \(id.uuidString, privacy: .public); the chime rings")
             }
         }
@@ -169,9 +202,11 @@ public final class AlarmClipStore {
     /// `target`, fetching a remote source to a temporary file first. The clip is written beside
     /// and moved into place only when it is whole and valid, so the system never finds half a
     /// file under the name. False when the source cannot be read in time; then `target` is
-    /// left as it was.
+    /// left as it was. With `fadeIn`, the clip rises from `GentleWake.floorDB` to full over that
+    /// many seconds and stays full after (a gentle alarm's, TBX-1000000445).
     public nonisolated static func render(from source: URL, to target: URL, seconds: Double, timeout: Duration,
-                                          session: URLSession = .shared, headers: [String: String] = [:]) async -> Bool {
+                                          session: URLSession = .shared, headers: [String: String] = [:],
+                                          fadeIn: TimeInterval? = nil) async -> Bool {
         let partial = FileManager.default.temporaryDirectory
             .appendingPathComponent("baton-alarm-\(UUID().uuidString).partial.caf")
         // A stream that stalls blocks inside AVAssetReader, where cancelling cannot reach it, so
@@ -196,6 +231,7 @@ public final class AlarmClipStore {
             }
         }
         defer { try? FileManager.default.removeItem(at: partial) }
+        if ok, let fadeIn, !applyFadeIn(to: partial, ramp: fadeIn) { return false }
         guard ok, let info = clipInfo(at: partial), info.isLinearPCM, info.seconds > 0, info.seconds <= seconds + 0.5 else {
             return false
         }
@@ -218,6 +254,41 @@ public final class AlarmClipStore {
         public let seconds: Double
         public let sampleRate: Double
         public let channels: Int
+    }
+
+    /// Rewrites the sound file at `url` in place, in the same format, rising from
+    /// `GentleWake.floorDB` to full level over its first `ramp` seconds (`GentleWake.gain`).
+    /// False when it cannot be read or written; then the file is as it was.
+    public nonisolated static func applyFadeIn(to url: URL, ramp: TimeInterval) -> Bool {
+        let faded = url.deletingLastPathComponent()
+            .appendingPathComponent("baton-alarm-\(UUID().uuidString).fade.\(url.pathExtension)")
+        defer { try? FileManager.default.removeItem(at: faded) }
+        do {
+            let input = try AVAudioFile(forReading: url)
+            let format = input.processingFormat
+            let rate = format.sampleRate
+            guard rate > 0, input.length > 0,
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(input.length)) else {
+                return false
+            }
+            try input.read(into: buffer)
+            guard let channels = buffer.floatChannelData else { return false }
+            for frame in 0 ..< Int(buffer.frameLength) {
+                let gain = Float(GentleWake.gain(elapsed: Double(frame) / rate, ramp: ramp))
+                if gain >= 1 { break }
+                for channel in 0 ..< Int(format.channelCount) { channels[channel][frame] *= gain }
+            }
+            do {
+                // Closed (and so finished) when it goes out of scope, before the move.
+                let output = try AVAudioFile(forWriting: faded, settings: input.fileFormat.settings,
+                                             commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+                try output.write(from: buffer)
+            }
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: faded)
+            return true
+        } catch {
+            return false
+        }
     }
 
     public nonisolated static func clipInfo(at url: URL) -> ClipInfo? {

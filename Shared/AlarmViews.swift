@@ -278,6 +278,12 @@ struct AlarmQuickSheet: View {
             TextField("Label", text: $setup.label, prompt: Text(BatonAlarm.defaultLabel))
                 .accessibilityIdentifier("alarm-label")
             Toggle("Snooze", isOn: $setup.snooze)
+            // Starts quiet and rises: the alarm's sound and then the track.
+            Toggle(isOn: $setup.gentleWake) {
+                Text("Gentle Wake")
+                Text("Starts quiet, full volume in 30 seconds")
+            }
+            .accessibilityIdentifier("alarm-gentle-wake")
             ThenPlayRow(setup: setup, note: picker.failure)
         }
         #if os(macOS)
@@ -826,7 +832,8 @@ enum AlarmFormat {
         if let snoozed = alarm.snoozedUntil, snoozed > Date() {
             return "\(alarm.displayLabel), snoozed until \(snoozed.formatted(date: .omitted, time: .shortened))"
         }
-        return alarm.repeats ? "\(alarm.displayLabel), \(AlarmRepeat.summary(alarm.repeatDays))" : alarm.displayLabel
+        let base = alarm.repeats ? "\(alarm.displayLabel), \(AlarmRepeat.summary(alarm.repeatDays))" : alarm.displayLabel
+        return alarm.gentleWake ? "\(base), gentle wake" : base
     }
 
     #if os(iOS)
