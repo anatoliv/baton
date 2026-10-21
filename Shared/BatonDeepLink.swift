@@ -28,6 +28,9 @@ public enum BatonDeepLink: Equatable, CustomStringConvertible, CustomDebugString
     /// meaning here, or an action whose id is missing.
     public init?(url: URL) {
         if let invitation = ShareInvitation(url: url) {
+            // A whole-book link has no native receiver: it belongs to the browser player
+            // (`isBrowserOnlyShare`), never to the song or mixtape screens.
+            guard invitation.kind != .book else { return nil }
             self = invitation.kind == .mixtape ? .mixtape(id: invitation.id, key: invitation.key) : .share(id: invitation.id, key: invitation.key)
             return
         }
@@ -55,6 +58,10 @@ public enum BatonDeepLink: Equatable, CustomStringConvertible, CustomDebugString
         }
     }
     public var debugDescription: String { description }
+
+    /// A share link the apps hand to the browser rather than open themselves: a whole book
+    /// (`/b/`, specs/book-sharing.md Phase 2), which only the web player plays.
+    public static func isBrowserOnlyShare(_ url: URL) -> Bool { ShareInvitation(url: url)?.kind == .book }
 
     /// Whether acting on this link changes what is playing.
     ///

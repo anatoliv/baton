@@ -893,6 +893,17 @@ final class MobileModel {
     /// point (onboarding, settings, a relaunch) goes through the same switch.
     func startDemo() {
         DemoLibrary.activate(self)
+        #if DEBUG
+        // AlarmSheetEvidenceUITests: listens in the play history, so What to Play's Recently
+        // played has rows to show. Each demo track twice, oldest first, so the list shows it once.
+        // Environment only.
+        if ProcessInfo.processInfo.environment["uitestSeedPlayHistory"] == "1", history.entries.isEmpty {
+            let start = Date().addingTimeInterval(-3600)
+            for (index, song) in (DemoLibrary.songs + DemoLibrary.songs).enumerated() {
+                history.record(song, playedAt: start.addingTimeInterval(Double(index) * 300))
+            }
+        }
+        #endif
         BatonStorage.defaults.set(true, forKey: Self.demoModeKey)
         phase = .demo
     }

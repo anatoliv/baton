@@ -108,6 +108,20 @@ public final class MusicPlayHistory: LocalListenRecording {
         return entries.compactMap { seen.insert($0.song.id).inserted ? $0.song : nil }
     }
 
+    /// The last `limit` distinct tracks played, most recent first. Stops reading the archive as
+    /// soon as it has them, so a lifetime of listens costs nothing here (the alarm picker's
+    /// Recently played, TBX-1000000410).
+    public func recentlyPlayed(limit: Int) -> [NavidromeSong] {
+        guard limit > 0 else { return [] }
+        var seen = Set<String>()
+        var songs: [NavidromeSong] = []
+        for entry in entries where seen.insert(entry.song.id).inserted {
+            songs.append(entry.song)
+            if songs.count == limit { break }
+        }
+        return songs
+    }
+
     /// Every listen ever recorded (the headline lifetime total).
     public var lifetimeCount: Int { entries.count }
 

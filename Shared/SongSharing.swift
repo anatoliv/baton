@@ -6,6 +6,9 @@ import Foundation
 import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS)
+import UIKit
+#endif
 
 /// Sharing a song with someone outside the LAN (docs/plan-song-sharing.md, specs/song-sharing.md).
 ///
@@ -38,6 +41,9 @@ final class SongSharing {
     private(set) var stage: Stage?
     /// The last refresh's failure, for the Shared Links list. `nil` when it worked.
     private(set) var refreshError: String?
+    /// Whole-book links staged on this device whose upload has not finished, newest first:
+    /// Retry Upload continues each as the same link.
+    private(set) var pendingBooks: [PendingBook] = []
     #if os(iOS)
     private(set) var pendingUploadCount = 0
     @ObservationIgnored private lazy var backgroundUploader: BackgroundShareUploadEngine = {
@@ -136,17 +142,24 @@ final class SongSharing {
         var showsDetails = true
         /// Per-share opt-in from the composer. Past sharing is not preservation consent.
         var reviewPreservation = false
+        /// A whole-book link: how many listeners it admits (nil: the service's default).
+        var listeners: Int?
+        /// A whole-book link: include each chapter's read-along text. Off unless chosen.
+        var includesReadAlongText = false
     }
 
     enum Stage: Equatable, Sendable {
         case fetching
         case preparing
+        /// A whole book, sealed chapter by chapter: done of total.
+        case sealing(Int, Int)
         case uploading(Double)
 
         var label: String {
             switch self {
             case .fetching: "Getting the song from your music server…"
             case .preparing: "Encrypting…"
+            case let .sealing(done, total): "Encrypting chapter \(min(total, done + 1)) of \(total)…"
             case .uploading: "Uploading…"
             }
         }
@@ -488,6 +501,244 @@ final class SongSharing {
         #endif
     }
 
+    // MARK: - Whole-book links (`/b/`, Phase 2)
+
+    /// A whole-book link staged on this device that has not finished uploading.
+    struct PendingBook: Identifiable, Equatable {
+        let directory: URL
+        let title: String
+        var id: URL { directory }
+    }
+
+    /// `Application Support/Baton/PendingBookShares/<uuid>/`: one folder per whole-book link in
+    /// progress, holding its sealed chapters, key and exact request (`PreparedBookShare`). Kept until
+    /// the link is recorded or the sharer discards it, so a retry is always the same link.
+    private var bookStagingRoot: URL {
+        ledgerURL.deletingLastPathComponent().appendingPathComponent("PendingBookShares", isDirectory: true)
+    }
+
+    #if os(iOS)
+    @ObservationIgnored private lazy var bookAttest = SongShareAppAttest(
+        directory: ledgerURL.deletingLastPathComponent().appendingPathComponent("SongShareAttestKeys"))
+    #endif
+
+    /// Shares a whole book as one `/b/` link (`specs/book-sharing.md`, Phase 2): every chapter on
+    /// this device, sealed to disk one at a time, then uploaded one at a time. Offered only when
+    /// the service advertises `books: 1`. The book's text goes only when the sharer turned on
+    /// "Include the text for read-along", sealed under its own key. `onStaged` hands the composer
+    /// the staged folder once it exists, so a failed upload retries the same link.
+    func shareWholeBook(_ book: BookShareDraft, options: Options,
+                        onStaged: (@MainActor (URL) -> Void)? = nil) async throws -> ShareLedger.Record {
+        defer { stage = nil }
+        return try await reportingBookFailures {
+            try await self.performWholeBook(book, options: options, onStaged: onStaged)
+        }
+    }
+
+    /// Continues a staged whole-book link: the same key, request and link.
+    func resumeBookUpload(_ directory: URL) async throws -> ShareLedger.Record {
+        defer { stage = nil }
+        return try await reportingBookFailures { try await self.uploadBook(directory) }
+    }
+
+    /// Retries every staged whole-book link, from Shared Links.
+    func resumeBookUploads() async throws {
+        loadPendingBooks()
+        var interrupted = false
+        for pending in pendingBooks {
+            do { _ = try await resumeBookUpload(pending.directory) } catch { interrupted = true }
+        }
+        loadPendingBooks()
+        if interrupted {
+            throw SongShareError.other("Some book links could not finish uploading. Their encrypted copies are kept on this device; try again when sharing is available.")
+        }
+    }
+
+    /// Deletes a staged whole-book link's encrypted copy from this device. A link the service
+    /// already made but never finished ends by itself, unplayed.
+    func discardBookUpload(_ directory: URL) {
+        guard directory.deletingLastPathComponent().standardizedFileURL == bookStagingRoot.standardizedFileURL else { return }
+        try? FileManager.default.removeItem(at: directory)
+        loadPendingBooks()
+    }
+
+    /// Whether this device has any whole-book link, finished or not.
+    var hasBookLinks: Bool { !pendingBooks.isEmpty || ledger.records.contains { $0.containerKind == .book } }
+
+    /// The folder a whole book is being sealed into right now: never an orphan, whatever its age.
+    @ObservationIgnored private var sealingDirectory: URL?
+
+    /// Staging folders a seal left without a ticket (the app was quit or killed midway): up to a
+    /// whole book of ciphertext no retry can use, because the key and request were never written.
+    /// Only UUID-named folders directly in `root`, with no `book.json`, not `active`, and untouched
+    /// for `age` (the folder and everything in it). Anything with a ticket is a link that can still
+    /// be finished, and is kept.
+    nonisolated static func orphanedBookStaging(in root: URL, active: URL?, now: Date = Date(),
+                                                olderThan age: TimeInterval = 3600) -> [URL] {
+        let manager = FileManager.default
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey]
+        guard let folders = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: keys) else { return [] }
+        let activePath = active?.standardizedFileURL.path
+        return folders.filter { folder in
+            guard UUID(uuidString: folder.lastPathComponent) != nil, folder.standardizedFileURL.path != activePath,
+                  let values = try? folder.resourceValues(forKeys: Set(keys)), values.isDirectory == true,
+                  values.isSymbolicLink != true,
+                  !manager.fileExists(atPath: folder.appendingPathComponent(PreparedBookShare.ticketName).path) else { return false }
+            var latest = values.contentModificationDate ?? .distantFuture
+            for file in (try? manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+                latest = max(latest, (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantFuture)
+            }
+            return now.timeIntervalSince(latest) > age
+        }
+    }
+
+    func loadPendingBooks() {
+        for orphan in Self.orphanedBookStaging(in: bookStagingRoot, active: sealingDirectory) {
+            try? FileManager.default.removeItem(at: orphan)
+        }
+        let manager = FileManager.default
+        let folders = (try? manager.contentsOfDirectory(at: bookStagingRoot, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        pendingBooks = folders.compactMap { folder -> (PendingBook, Date)? in
+            guard UUID(uuidString: folder.lastPathComponent) != nil,
+                  manager.fileExists(atPath: folder.appendingPathComponent(PreparedBookShare.ticketName).path) else { return nil }
+            let title = (try? PreparedBookShare.load(from: folder))?.manifest.title ?? "A book"
+            let created = (try? folder.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+            return (PendingBook(directory: folder, title: title), created)
+        }
+        .sorted { $0.1 > $1.1 }
+        .map(\.0)
+    }
+
+    private func reportingBookFailures(_ work: () async throws -> ShareLedger.Record) async throws -> ShareLedger.Record {
+        do {
+            let record = try await work()
+            BatonStorage.defaults.set(true, forKey: Self.disclosureKey)
+            return record
+        } catch let error as SongShareError {
+            if let reason = error.reportReason { note(reason) }
+            throw error
+        } catch let failure as PreparedBookShare.Failure {
+            let error = SongShareError.book(failure)
+            if let reason = error.reportReason { note(reason) }
+            throw error
+        } catch let failure as ShareClient.Failure {
+            if case .transport = failure { note("network") }
+            throw SongShareError(failure)
+        } catch {
+            note("other")
+            throw SongShareError.other(error.localizedDescription)
+        }
+    }
+
+    private func performWholeBook(_ book: BookShareDraft, options: Options,
+                                  onStaged: (@MainActor (URL) -> Void)?) async throws -> ShareLedger.Record {
+        let shareClient = try client()
+        // Asked when the composer acts: the kill switch, the advertisement and the caps.
+        let config = try await shareClient.bookConfiguration()
+        guard config.enabled else { throw SongShareError.paused }
+        guard config.books == 1, let limits = config.book else {
+            throw SongShareError.other("Book links aren't available on the share service yet.")
+        }
+        if case let .failure(refusal) = book.wholeBookCheck(limits) { throw SongShareError.other(refusal.message) }
+        guard config.expiryChoices.contains(options.expiresInSeconds) else {
+            throw SongShareError.other("Choose how long the link lasts.")
+        }
+
+        stage = .preparing
+        var inputs = [PreparedBookShare.Chapter]()
+        for chapter in book.chapters {
+            let text = options.includesReadAlongText ? BookShareDraft.readAlongText(await book.timing?(chapter.index)) : nil
+            inputs.append(.init(audio: chapter.url, title: ShareBookPlan.wholeBookChapterTitle(chapter.plan),
+                                durationSeconds: chapter.plan.wireSeconds, text: text))
+        }
+        let title = ShareBookPlan.bookTitle(book.title)
+        let author = ShareBookPlan.credits(book: book.title, author: book.author).artist
+        let from = String(options.from.trimmingCharacters(in: .whitespacesAndNewlines).prefix(ShareLimits.maxFromLength))
+        let note = options.note
+        let preview = options.showsDetails ? BookPreview(title: title, author: author, from: from, note: note) : nil
+        let listeners = min(max(1, options.listeners ?? limits.defaultListeners), limits.maxListeners)
+        let consent = options.reviewPreservation ? CreateShareRequest.reviewConsentVersion : nil
+        let clientInfo = ShareClientInfo(platform: Self.platform, appVersion: Self.appVersion)
+        let expires = options.expiresInSeconds
+        let directory = bookStagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let frozen = inputs
+        stage = .sealing(0, frozen.count)
+        sealingDirectory = directory
+        defer { sealingDirectory = nil }
+        // Sealing a whole book is minutes of work; keep it off the main actor.
+        do {
+            _ = try await Task.detached(priority: .userInitiated) {
+                try PreparedBookShare.make(chapters: frozen, title: title, author: author, from: from, note: note, preview: preview,
+                                           expiresInSeconds: expires, listenerCap: listeners, client: clientInfo,
+                                           reviewPreservationConsent: consent, limits: limits, directory: directory) { done, total in
+                    Task { @MainActor in self.stage = .sealing(done, total) }
+                }
+            }.value
+        } catch {
+            // Nothing was staged (make removes what it wrote); the fresh folder is this attempt's own.
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+        loadPendingBooks()
+        onStaged?(directory)
+        return try await uploadBook(directory, client: shareClient, config: config)
+    }
+
+    /// Uploads a staged book and records its link: create (or the same create again), every blob
+    /// not yet acknowledged, finalize. On the iPhone this runs in the foreground, with the few
+    /// minutes of background time the system grants if the app is left mid-upload.
+    private func uploadBook(_ directory: URL, client givenClient: ShareClient? = nil,
+                            config givenConfig: ShareConfig? = nil) async throws -> ShareLedger.Record {
+        let shareClient = try givenClient ?? client()
+        let prepared = try PreparedBookShare.load(from: directory)
+        stage = .uploading(0)
+        #if os(iOS)
+        let background = UIApplication.shared.beginBackgroundTask(withName: "Upload book share", expirationHandler: nil)
+        defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+        #endif
+        // App Attest, where the service asks for it (the iPhone): a proof for the create, and a fresh
+        // one if a retry comes after the first proof's challenge has lapsed (`ShareClient.shareBook`).
+        #if os(iOS)
+        var attest: ShareClient.BookAttestation?
+        if prepared.created == nil {
+            var config = givenConfig
+            if config == nil { config = try await shareClient.bookConfiguration() }
+            if let policy = config?.appAttest {
+                let attester = bookAttest
+                attest = { @MainActor body, proofRequestID in
+                    try await attester.proof(client: shareClient, policy: policy, body: body,
+                                             requestID: proofRequestID, path: "/v1/share/books")
+                }
+            }
+        }
+        #else
+        let attest: ShareClient.BookAttestation? = nil
+        #endif
+        let result: (link: URL, summary: BookSummary)
+        do {
+            result = try await shareClient.shareBook(prepared, attest: attest) { fraction in
+                Task { @MainActor in self.stage = .uploading(fraction) }
+            }
+        } catch let ShareClient.Failure.service(_, code, _) where code == "expired" {
+            // The service ended this link before it was finished: nothing can resume it.
+            try? prepared.remove()
+            loadPendingBooks()
+            throw SongShareError.other("This book's upload took too long and its link has ended. Share the book again to make a new link.")
+        }
+        _ = ledger.takeFailures()
+        let manifest = prepared.manifest
+        let record = ShareLedger.Record(
+            id: result.summary.share.id, link: result.link.absoluteString, songID: "", title: manifest.title,
+            artist: manifest.author, isPrivate: prepared.request.preview == nil, createdAt: Date(),
+            expiresAt: ShareDate.date(result.summary.share.expiresAt) ?? Date() + TimeInterval(prepared.request.expiresInSeconds),
+            summary: result.summary.share, kind: .book, bookSummary: result.summary)
+        ledger.add(record)
+        save()
+        try? prepared.remove()
+        loadPendingBooks()
+        return record
+    }
+
     /// The song as MP3 at 320 kbps, from the owner's own server with their credentials and any
     /// reverse-proxy headers, exactly as playback asks for it. MP3 because every browser plays
     /// it and Navidrome transcodes to it out of the box (plan §1).
@@ -542,6 +793,7 @@ final class SongSharing {
         do {
             ledger.merge(try await client().list())
             if ledger.records.contains(where: { $0.containerKind == .mixtape }) { ledger.mergeMixtapes(try await client().listMixtapes()) }
+            if ledger.records.contains(where: { $0.containerKind == .book }) { ledger.mergeBooks(try await client().listBooks()) }
             refreshError = nil
             save()
         } catch {
@@ -551,8 +803,11 @@ final class SongSharing {
 
     func revoke(_ id: String, kind: ShareInvitation.Kind = .song) async throws {
         do {
-            if kind == .mixtape { try await client().revokeMixtape(id) }
-            else { try await client().revoke(id) }
+            switch kind {
+            case .mixtape: try await client().revokeMixtape(id)
+            case .book: try await client().revokeBook(id)
+            case .song: try await client().revoke(id)
+            }
         } catch {
             throw SongShareError(error)
         }
@@ -561,8 +816,11 @@ final class SongSharing {
 
     func extend(_ id: String, bySeconds seconds: Int = 604_800, kind: ShareInvitation.Kind = .song) async throws {
         do {
-            if kind == .mixtape { ledger.updateMixtape(try await client().extendMixtape(id, bySeconds: seconds)) }
-            else { ledger.update(try await client().extend(id, bySeconds: seconds)) }
+            switch kind {
+            case .mixtape: ledger.updateMixtape(try await client().extendMixtape(id, bySeconds: seconds))
+            case .book: ledger.updateBook(try await client().extendBook(id, bySeconds: seconds))
+            case .song: ledger.update(try await client().extend(id, bySeconds: seconds))
+            }
             save()
         } catch {
             throw SongShareError(error)
@@ -602,6 +860,8 @@ final class SongSharing {
 
     private func save() {
         try? ShareUploadStore.saveLedger(ledger, to: ledgerURL)
+        // Book links live beside the ledger, where released apps never read them.
+        try? ledger.saveBooks(beside: ledgerURL)
     }
 
     static var platform: String {
@@ -722,6 +982,8 @@ enum SongShareError: LocalizedError, Equatable {
     case paused, busy, rateLimited, keychain
     case service(String)
     case other(String)
+    /// A whole book that could not be prepared as one link.
+    case book(PreparedBookShare.Failure)
 
     init(_ failure: ShareClient.Failure) {
         switch failure {
@@ -760,6 +1022,22 @@ enum SongShareError: LocalizedError, Equatable {
         case .rateLimited: "That's a lot of sharing for one day. Try again tomorrow."
         case .keychain: "Couldn't save this device's sharing key to the Keychain."
         case let .service(message), let .other(message): message
+        case let .book(failure): Self.message(failure)
+        }
+    }
+
+    private static func message(_ failure: PreparedBookShare.Failure) -> String {
+        switch failure {
+        case .noChapters: "No chapter of this book is on this device yet."
+        case let .tooManyChapters(max): "A book link holds up to \(max) chapters."
+        case let .unreadable(chapter): "Chapter \(chapter)'s audio couldn't be read on this device. Get it back, then share again."
+        case let .chapterTooLong(chapter): "Chapter \(chapter) is too long for a book link."
+        case .tooLong: "This book is too long for one link."
+        case let .chapterTooLarge(chapter): "Chapter \(chapter) is too large for a book link."
+        case let .textTooLarge(chapter): "Chapter \(chapter)'s text is too long to include. Turn off Include the text for read-along to share the audio alone."
+        case .bookTooLarge: "This book is too large for one link."
+        case .manifestTooLarge, .requestTooLarge: "This book has too many chapter names to fit one link."
+        case .directoryInUse, .damaged: "The encrypted copy of this book on this device is damaged. Share the book again to make a new link."
         }
     }
 
@@ -771,6 +1049,12 @@ enum SongShareError: LocalizedError, Equatable {
         case .transcodeFailed: "transcode"
         case .tooLarge, .tooLong: "too_large"
         case .keychain, .other: "other"
+        case let .book(failure):
+            switch failure {
+            case .tooManyChapters, .chapterTooLong, .tooLong, .chapterTooLarge, .textTooLarge, .bookTooLarge,
+                 .manifestTooLarge, .requestTooLarge: "too_large"
+            default: "other"
+            }
         case .notConnected, .notOnServer, .unknownLength, .paused, .busy, .rateLimited, .service: nil
         }
     }

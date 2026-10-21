@@ -1,3 +1,4 @@
+import BatonDocuments
 import BatonPlaybackKit
 import BatonShareKit
 import SwiftUI
@@ -28,15 +29,30 @@ struct BookShareDraft: Identifiable, Equatable {
     let chapterCount: Int
     let chapters: [Chapter]
     let coverURL: URL?
+    /// A chapter's read-along timing, by its 0-based index, wherever this device keeps it
+    /// (`DocumentLibrary.readAlongTiming` on the Mac, `HomeServerBooks.readAlongTiming` on the
+    /// iPhone). Asked only when a whole-book link includes the text. Nil: no text can go.
+    let timing: (@MainActor (Int) async -> ReadAlongTiming?)?
 
     /// The chapters that can go: their audio is on this device and has a known length.
     init(documentID: String, title: String, author: String?, chapters: [(index: Int, title: String, item: ClippingStore.Item?)],
-         coverURL: URL?) {
+         coverURL: URL?, timing: (@MainActor (ClippingStore.Item) async -> ReadAlongTiming?)? = nil) {
         self.documentID = documentID
         self.title = title
         self.author = author
         self.chapterCount = chapters.count
         self.coverURL = coverURL
+        if let timing {
+            var items = [Int: ClippingStore.Item]()
+            for chapter in chapters { if let item = chapter.item, items[chapter.index] == nil { items[chapter.index] = item } }
+            let byIndex = items
+            self.timing = { @MainActor (index: Int) async -> ReadAlongTiming? in
+                guard let item = byIndex[index] else { return nil }
+                return await timing(item)
+            }
+        } else {
+            self.timing = nil
+        }
         self.chapters = chapters.compactMap { chapter in
             guard let item = chapter.item, let seconds = item.clipping.durationSeconds, seconds > 0,
                   let bytes = (try? FileManager.default.attributesOfItem(atPath: item.url.path))?[.size] as? Int, bytes > 0
@@ -46,11 +62,28 @@ struct BookShareDraft: Identifiable, Equatable {
     }
 
     static func == (lhs: BookShareDraft, rhs: BookShareDraft) -> Bool { lhs.id == rhs.id }
+
+    /// Whether the whole book can be one `/b/` link within the advertised caps, and if not, why
+    /// (a chapter not on this device is named).
+    func wholeBookCheck(_ limits: ShareBookLimits) -> Result<ShareBookPlan.WholeBook, ShareBookPlan.WholeBookRefusal> {
+        ShareBookPlan.checkWholeBook(chapters.map(\.plan), chapterCount: chapterCount, limits: limits)
+    }
+
+    /// A chapter's read-along timing as the book format carries it: its sentences and their
+    /// times, made valid for the wire. Nil when the chapter has no timed text.
+    static func readAlongText(_ timing: ReadAlongTiming?) -> ShareBookText? {
+        guard let timing else { return nil }
+        return ShareBookPlan.readAlongText(timing.segments.map {
+            ShareBookText.Segment(text: $0.text, paragraph: $0.paragraph, start: $0.start, end: $0.end)
+        })
+    }
 }
 
 /// The book composer: the song composer's preview, note, From, expiry, previews toggle and
-/// disclosure, with a run of chapters to send. One chapter becomes a song link and two to twelve
-/// a mixtape, within the limits the service advertises (`ShareBookPlan`).
+/// disclosure, with what to send. A run of chapters goes as Phase 1 did: one chapter a song link,
+/// two to twelve a mixtape, within the limits the service advertises (`ShareBookPlan`). When the
+/// service advertises `books: 1`, the whole book can also go as one `/b/` link, and is chosen
+/// first when it does not fit a Phase 1 link (Phase 2, TBX-1000000132).
 struct ShareBookSheet: View {
     let book: BookShareDraft
 
@@ -60,6 +93,11 @@ struct ShareBookSheet: View {
     @State private var first = 0
     @State private var last = 0
     @State private var limits = ShareBookPlan.Limits.standard
+    /// The whole-book caps, only when the service advertises book links. Nil: nothing new shows.
+    @State private var bookLimits: ShareBookLimits?
+    @State private var wholeBook = false
+    @State private var listeners = ShareLimits.standard.defaultBookListeners
+    @State private var includesText = false
     @State private var note = ""
     @State private var expires = ShareLimits.standard.defaultExpirySeconds
     @State private var showsDetails = true
@@ -71,6 +109,8 @@ struct ShareBookSheet: View {
     /// A two-or-more chapter link whose protected upload ticket exists, so a failure retries the
     /// same link rather than making another.
     @State private var pendingJob: UUID?
+    /// A whole-book link staged on this device (`PreparedBookShare`), so Retry Upload is the same link.
+    @State private var pendingBook: URL?
 
     enum Phase: Equatable {
         case composing
@@ -96,8 +136,21 @@ struct ShareBookSheet: View {
         ShareBookPlan.check(selected.map(\.plan), limits: limits)
     }
 
+    private var wholeCheck: Result<ShareBookPlan.WholeBook, ShareBookPlan.WholeBookRefusal>? {
+        bookLimits.map(book.wholeBookCheck)
+    }
+
+    private var sendsWholeBook: Bool { wholeBook && bookLimits != nil }
+    private var hasPending: Bool { sendsWholeBook ? pendingBook != nil : pendingJob != nil }
+    private var canCreate: Bool {
+        if hasPending { return true }
+        if sendsWholeBook { if case .success = wholeCheck { return true } else { return false } }
+        return (try? check.get()) != nil
+    }
+
     private var isWorking: Bool { if case .working = phase { true } else { false } }
     private var isDone: Bool { if case .done = phase { true } else { false } }
+    private var locked: Bool { isWorking || pendingJob != nil || pendingBook != nil }
     private var dismissalBlocked: Bool {
         #if os(iOS)
         isWorking && !backgroundUploadHandedOff
@@ -114,7 +167,8 @@ struct ShareBookSheet: View {
                 case let .done(record):
                     doneSection(record)
                 default:
-                    chapterSection
+                    if bookLimits != nil { modeSection }
+                    if sendsWholeBook { wholeBookSection } else { chapterSection }
                     composer
                 }
             }
@@ -130,8 +184,8 @@ struct ShareBookSheet: View {
                     }
                     if !isDone {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button(pendingJob == nil ? "Create Link" : "Retry Upload") { Task { await create() } }
-                                .disabled(isWorking || (pendingJob == nil && (try? check.get()) == nil))
+                            Button(hasPending ? "Retry Upload" : "Create Link") { Task { await create() } }
+                                .disabled(isWorking || !canCreate)
                                 .accessibilityIdentifier("book-share-create-link")
                         }
                     }
@@ -149,6 +203,14 @@ struct ShareBookSheet: View {
                 if (try? check.get()) == nil, let range = ShareBookPlan.defaultRange(book.chapters.map(\.plan), limits: limits) {
                     first = range.lowerBound
                     last = range.upperBound
+                }
+                // No advertisement, no whole-book link: the composer is exactly Phase 1's.
+                if config.books == 1, let advertised = config.book {
+                    bookLimits = advertised
+                    listeners = min(max(1, advertised.defaultListeners), advertised.maxListeners)
+                    if config.expiryChoices.contains(config.defaultExpirySeconds) { expires = config.defaultExpirySeconds }
+                    wholeBook = ShareBookPlan.prefersWholeBook(book.chapters.map(\.plan), chapterCount: book.chapterCount,
+                                                               limits: limits, bookLimits: advertised)
                 }
             }
         }
@@ -175,6 +237,55 @@ struct ShareBookSheet: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// Chapters or the whole book, offered only when the service takes book links.
+    private var modeSection: some View {
+        Section {
+            Picker("Send", selection: $wholeBook) {
+                Text("Some chapters").tag(false)
+                Text("The whole book").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("book-share-mode")
+        } footer: {
+            Text(wholeBook
+                ? "One link for every chapter. Your friend plays them in order, from any chapter."
+                : "Up to \(limits.mixtapes ? ShareBookPlan.maxChapters : 1) chapters and \(max(1, limits.maxDurationSeconds / 60)) minutes in one link.")
+        }
+        .disabled(locked)
+    }
+
+    @ViewBuilder private var wholeBookSection: some View {
+        Section {
+            if let bookLimits {
+                Stepper(value: $listeners, in: 1 ... max(1, bookLimits.maxListeners)) {
+                    Text(listeners == 1 ? "1 listener" : "\(listeners) listeners")
+                }
+                .accessibilityIdentifier("book-share-listeners")
+            }
+            Toggle("Include the text for read-along", isOn: $includesText)
+                .accessibilityIdentifier("book-share-read-along-text")
+                .disabled(book.timing == nil)
+        } header: {
+            Text("The whole book")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                switch wholeCheck {
+                case let .success(whole):
+                    if let bookLimits { Text(whole.line(limits: bookLimits)) }
+                case let .failure(refusal):
+                    Label(refusal.message, systemImage: "exclamationmark.triangle").foregroundStyle(Color.warningTint)
+                case nil:
+                    EmptyView()
+                }
+                Text("Each listener is one person who presses Start listening. They can pause, go back and come again without counting twice.")
+                Text(includesText
+                    ? "Your friend can follow the words as they listen. Each chapter's text is encrypted like its audio. Chapters made before Baton kept timings go without text."
+                    : "Only the audio is uploaded. The book's text stays on this device.")
+            }
+        }
+        .disabled(locked)
     }
 
     @ViewBuilder private var chapterSection: some View {
@@ -210,7 +321,7 @@ struct ShareBookSheet: View {
                 }
             }
         }
-        .disabled(isWorking || pendingJob != nil)
+        .disabled(locked)
     }
 
     private func label(_ chapter: BookShareDraft.Chapter) -> String {
@@ -246,22 +357,24 @@ struct ShareBookSheet: View {
                 Text("30 days").tag(2_592_000)
             }
         }
-        .disabled(isWorking || pendingJob != nil)
+        .disabled(locked)
 
         Section {
             Toggle("Show book details in link previews", isOn: $showsDetails)
                 .accessibilityIdentifier("book-share-public-preview")
         } footer: {
             Text(showsDetails
-                ? "Messages and other apps show the title, author, cover and your note in the preview."
+                ? (sendsWholeBook
+                    ? "Messages and other apps show the book's title, author, your name and your note in the preview."
+                    : "Messages and other apps show the title, author, cover and your note in the preview.")
                 : "Everything is encrypted, chapter names included. The preview only says someone sent you something.")
         }
-        .disabled(isWorking || pendingJob != nil)
+        .disabled(locked)
 
         Section {
             Toggle("Allow private preservation during review", isOn: $reviewPreservation)
                 .accessibilityIdentifier("book-share-review-preservation")
-                .disabled(isWorking || pendingJob != nil)
+                .disabled(locked)
         } footer: {
             Text("If this link is disabled for review, Baton may keep its encrypted chapters and share details privately for up to 90 days from disable. They still count toward storage quota. The remaining link lifetime pauses and resumes only after reviewed restoration. Revoke deletes the server copy; spent play limits stay spent. Leave this off to keep ordinary expiry.")
         }
@@ -271,13 +384,17 @@ struct ShareBookSheet: View {
             case .working:
                 let stage = SongSharing.shared.stage ?? .preparing
                 HStack(spacing: 10) {
-                    if case let .uploading(fraction) = stage {
+                    switch stage {
+                    case let .uploading(fraction):
                         ProgressView(value: fraction).frame(maxWidth: 120)
-                    } else {
+                    case let .sealing(done, total) where total > 0:
+                        ProgressView(value: Double(done), total: Double(total)).frame(maxWidth: 120)
+                    default:
                         ProgressView().controlSize(.small)
                     }
                     Text(stage.label).foregroundStyle(.secondary)
                 }
+                .accessibilityIdentifier("book-share-progress")
             case let .failed(message):
                 Label(message, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(Color.warningTint)
@@ -287,7 +404,9 @@ struct ShareBookSheet: View {
         } footer: {
             // The first-share disclosure, as for a song: nothing leaves the device until Create Link.
             if !disclosureSeen {
-                Text("Sharing uploads an encrypted copy of these chapters' audio to Baton's share service. The book's text stays on this device. It is deleted at expiry unless you allow review preservation above. Baton can't play it: the key is in the link you send.")
+                Text(sendsWholeBook
+                    ? "Sharing uploads an encrypted copy of this book's audio to Baton's share service. The book's text is included only when Include the text for read-along is on; otherwise it stays on this device. It is deleted at expiry unless you allow review preservation above. Baton can't play it: the key is in the link you send."
+                    : "Sharing uploads an encrypted copy of these chapters' audio to Baton's share service. The book's text stays on this device. It is deleted at expiry unless you allow review preservation above. Baton can't play it: the key is in the link you send.")
             }
         }
     }
@@ -319,14 +438,21 @@ struct ShareBookSheet: View {
     private func create() async {
         backgroundUploadHandedOff = false
         phase = .working
+        let options = SongSharing.Options(note: note, from: from, expiresInSeconds: expires,
+                                          showsDetails: showsDetails, reviewPreservation: reviewPreservation,
+                                          listeners: listeners, includesReadAlongText: includesText)
         do {
             let record: ShareLedger.Record
-            if let pendingJob {
+            if sendsWholeBook {
+                if let pendingBook {
+                    record = try await SongSharing.shared.resumeBookUpload(pendingBook)
+                } else {
+                    record = try await SongSharing.shared.shareWholeBook(book, options: options, onStaged: { pendingBook = $0 })
+                }
+            } else if let pendingJob {
                 record = try await SongSharing.shared.resumeMixtapeUpload(
                     pendingJob, onBackgroundUploadHandOff: { backgroundUploadHandedOff = true })
             } else {
-                let options = SongSharing.Options(note: note, from: from, expiresInSeconds: expires,
-                                                  showsDetails: showsDetails, reviewPreservation: reviewPreservation)
                 record = try await SongSharing.shared.shareBook(
                     book, chapters: selected, options: options,
                     onBackgroundUploadHandOff: { backgroundUploadHandedOff = true },
@@ -335,8 +461,18 @@ struct ShareBookSheet: View {
             phase = .done(record)
         } catch {
             let message = SongShareError(error).errorDescription ?? "Sharing didn't work."
-            phase = .failed(pendingJob == nil ? message
-                : "Upload interrupted. Your protected draft is kept. Retry Upload continues the same link, or retry it in Shared Links.")
+            if sendsWholeBook, let staged = pendingBook,
+               !FileManager.default.fileExists(atPath: staged.appendingPathComponent(PreparedBookShare.ticketName).path) {
+                // The service ended the link, and its staged copy is gone: the next try is a new link.
+                pendingBook = nil
+                phase = .failed(message)
+            } else if hasPending {
+                phase = .failed(sendsWholeBook
+                    ? "Upload interrupted: \(message) The encrypted book is kept on this device. Retry Upload continues the same link, or retry it in Shared Links."
+                    : "Upload interrupted. Your protected draft is kept. Retry Upload continues the same link, or retry it in Shared Links.")
+            } else {
+                phase = .failed(message)
+            }
         }
     }
 }

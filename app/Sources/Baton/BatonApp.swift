@@ -473,13 +473,16 @@ struct BatonApp: App {
                 // silently did nothing on the desktop. Same `BatonDeepLink` vocabulary as
                 // the phone, in Shared/, so the two cannot mean different things by it.
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-                    guard let url = activity.webpageURL, let link = BatonDeepLink(url: url) else { return }
+                    guard let url = activity.webpageURL else { return }
+                    if BatonDeepLink.isBrowserOnlyShare(url) { NSWorkspace.shared.open(url); return }
+                    guard let link = BatonDeepLink(url: url) else { return }
                     Task { await handle(link) }
                 }
                 .onOpenURL { url in
                     // A document from Finder's Open With. The delegate gathers the
                     // files of one hand-over, then sends them to the import sheet.
                     if url.isFileURL { appDelegate.receiveOpenedFile(url); return }
+                    if BatonDeepLink.isBrowserOnlyShare(url) { NSWorkspace.shared.open(url); return }
                     guard let link = BatonDeepLink(url: url) else { return }
                     Task { await handle(link) }
                 }

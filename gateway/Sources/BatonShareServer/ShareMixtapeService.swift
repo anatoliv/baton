@@ -17,11 +17,11 @@ extension ShareService {
                     return try createMixtape(request, sharer: sharer, who: who)
                 }
                 if method == "GET" {
-                    let rows = try store.database.query("SELECT * FROM shares WHERE sharer_digest=? AND is_mixtape=1 ORDER BY created_at DESC,id LIMIT 200", [.text(sharer.digest)])
+                    let rows = try store.database.query("SELECT * FROM shares WHERE sharer_digest=? AND is_mixtape=1 AND is_book=0 ORDER BY created_at DESC,id LIMIT 200", [.text(sharer.digest)])
                     return .json(MixtapeList(mixtapes: try rows.map { try mixtapeSummary(ShareStore.record($0)) }))
                 }
             }
-            guard parts.count >= 4, ShareLink.isValidID(parts[3]), let record = try store.share(id: parts[3]), record.isMixtape, record.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
+            guard parts.count >= 4, ShareLink.isValidID(parts[3]), let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook, record.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
             if parts.count == 4 {
                 switch method {
                 case "GET": return .json(try mixtapeSummary(record))
@@ -37,7 +37,7 @@ extension ShareService {
             if parts.count == 5, parts[4] == "finalize", method == "POST" {
                 guard config.mixtapesEnabled else { return mixtapesUnsupported }
                 return try store.database.transaction {
-                    guard let fresh = try store.share(id: record.id), fresh.isMixtape, fresh.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
+                    guard let fresh = try store.share(id: record.id), fresh.isMixtape, !fresh.isBook, fresh.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
                     if let denial = try enforcementWriteDenial(fresh) { return denial }
                     if fresh.status == .ready { return .json(try mixtapeSummary(fresh)) }
                     guard fresh.status == .pending, fresh.expiresAt > now else { return .error(409, "state", "This mixtape has ended.") }
@@ -50,7 +50,7 @@ extension ShareService {
             return .error(405, "method", "Method not allowed.")
         }
         guard config.mixtapesEnabled else { return mixtapesUnsupported }
-        guard parts.count >= 4, ShareLink.isValidID(parts[3]), let candidate = try store.share(id: parts[3]), candidate.isMixtape else {
+        guard parts.count >= 4, ShareLink.isValidID(parts[3]), let candidate = try store.share(id: parts[3]), candidate.isMixtape, !candidate.isBook else {
             return .error(404, "not_found", "No such share.")
         }
         if parts.count == 4, method == "GET", candidate.status == .pending, candidate.expiresAt > now, try !store.isEnforced(candidate) {
@@ -84,7 +84,7 @@ extension ShareService {
         if let replay = integrity.replay { return replay }
         return try store.database.transaction {
             if let previous = try store.database.query("SELECT body_hash,share_id FROM mixtape_creates WHERE owner=? AND request_id=?", [.text(sharer.digest), .text(valid.requestID)]).first {
-                guard previous["body_hash"]?.text == hash, let id = previous["share_id"]?.text, let record = try store.share(id: id), record.status == .pending || record.status == .ready else { return .error(409, "conflict", "This retry identity no longer matches a live mixtape.") }
+                guard previous["body_hash"]?.text == hash, let id = previous["share_id"]?.text, let record = try store.share(id: id), !record.isBook, record.status == .pending || record.status == .ready else { return .error(409, "conflict", "This retry identity no longer matches a live mixtape.") }
                 let response = try mixtapeCreated(record)
                 if let verified = integrity.verified { try commitVerifiedCreate(verified, response: response, digest: sharer.digest) }
                 return response
@@ -115,7 +115,7 @@ extension ShareService {
               let sharer = sharer(bearer: request.bearerToken) else { return .error(404, "not_found", "No such route.") }
         return try store.database.transaction {
             // The shared write lock fences every snapshot, material adoption and one-time charge.
-            guard let record = try store.share(id: parts[3]), record.isMixtape, record.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
+            guard let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook, record.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
             if let denial = try enforcementWriteDenial(record) { return denial }
             guard record.status == .pending, record.expiresAt > now,
                   let track = try store.mixtapeTracks(id: record.id).first(where: { $0.id == parts[5] }) else { return .error(409, "state", "The mixtape is no longer pending.") }
@@ -140,7 +140,7 @@ extension ShareService {
     private var mixtapesUnsupported: ShareResponse { .error(409, "unsupported", "This server does not support mixtapes.") }
 
     private func playableMixtape(_ id: String, expire: Bool = true) throws -> ShareRecord? {
-        guard ShareLink.isValidID(id), let record = try store.share(id: id), record.isMixtape,
+        guard ShareLink.isValidID(id), let record = try store.share(id: id), record.isMixtape, !record.isBook,
               record.status == .ready, try !store.isEnforced(record) else { return nil }
         guard record.expiresAt > now else { if expire { try store.tombstone(id: id, as: .expired, now: now) }; return nil }
         return record
@@ -221,7 +221,7 @@ extension ShareService {
         guard changed == 1 else { return .error(409, "transfer_budget", "Another transfer needs explicit admission and another play.") }
         return .init(status: range.partial ? 206 : 200, contentType: "application/octet-stream", body: data, headers: headers)
     }
-    private func mixtapeEvent(_ request: HTTPRequestMessage, record: ShareRecord, who: ShareRequester) throws -> ShareResponse {
+    func mixtapeEvent(_ request: HTTPRequestMessage, record: ShareRecord, who: ShareRequester) throws -> ShareResponse {
         guard let event = try? JSONDecoder().decode(PlayerEvent.self, from: request.body) else { return .error(400, "invalid", "Not a player event.") }
         let props = try event.props(), visitor = visitor(who, shareID: record.id)
         guard limiter.allow("event:\(visitor)", limit: config.limits.eventsPerVisitorPerMinute, per: 60, now: now) else { return .error(429, "rate_limited", "Try again later.") }
@@ -232,7 +232,7 @@ extension ShareService {
         try store.record(event: event.type.rawValue, at: now, shareID: record.id, sharerID: record.sharerID, visitor: visitor, props: props)
         return .noContent
     }
-    private func mixtapeReaction(_ request: HTTPRequestMessage, record: ShareRecord, who: ShareRequester) throws -> ShareResponse {
+    func mixtapeReaction(_ request: HTTPRequestMessage, record: ShareRecord, who: ShareRequester) throws -> ShareResponse {
         guard let body = try? JSONDecoder().decode(ReactionRequest.self, from: request.body) else { return .error(400, "invalid", "Not a reaction.") }
         let reaction = try body.validated()
         let visitor = visitor(who, shareID: record.id)

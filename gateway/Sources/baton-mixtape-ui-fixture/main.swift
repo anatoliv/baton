@@ -52,6 +52,7 @@ do {
         publicBase: URL(string: "http://127.0.0.1:\(port)")!, port: port,
         blobDelivery: .direct, loopbackOnly: true)
     config.mixtapesEnabled = true
+    config.booksEnabled = true
     config.adminToken = capabilities.admin
     config.enforcement = try EnforcementConfiguration(token: capabilities.operator,
         retentionSeconds: 90 * 86400, auditRetentionSeconds: 90 * 86400,

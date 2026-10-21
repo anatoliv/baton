@@ -83,4 +83,54 @@ final class AlarmSystemSyncPlanTests: XCTestCase {
         _ = second.due(at: Date())
         XCTAssertFalse(second.stoppedByUser.contains(once.id))
     }
+
+    /// A timer and an alarm at once: scheduling the alarm leaves the running
+    /// timer to its own rule, and cancelling the timer (gone from the store, stopped by the person)
+    /// leaves the alarm scheduled.
+    func testAnAlarmAndATimerAreScheduledTogetherAndCancelledApart() {
+        let alarm = a, timer = b
+        let both = AlarmSystemSyncPlan.plan(existing: [.init(id: timer, isActive: true)], desired: [alarm: "7:00"],
+                                            lastScheduled: [:], managedElsewhere: [timer], stoppedByUser: [])
+        XCTAssertEqual(both.schedule, [alarm])
+        XCTAssertTrue(both.cancel.isEmpty, "the timer is not touched")
+
+        let timerCancelled = AlarmSystemSyncPlan.plan(
+            existing: [.init(id: alarm, isActive: false), .init(id: timer, isActive: true)], desired: [alarm: "7:00"],
+            lastScheduled: [alarm: "7:00"], stoppedByUser: [timer])
+        XCTAssertEqual(timerCancelled.cancel, [timer])
+        XCTAssertTrue(timerCancelled.schedule.isEmpty, "the alarm stays as it was")
+
+        let alarmOff = AlarmSystemSyncPlan.plan(
+            existing: [.init(id: alarm, isActive: false), .init(id: timer, isActive: true)], desired: [:],
+            lastScheduled: [alarm: "7:00"], managedElsewhere: [timer], stoppedByUser: [alarm])
+        XCTAssertEqual(alarmOff.cancel, [alarm])
+        XCTAssertTrue(alarmOff.schedule.isEmpty)
+    }
+
+    /// The running timer AlarmKit holds: scheduled when new; scheduled again
+    /// once when its clip arrives while it counts down; left alone at a launch whose sound is
+    /// unchanged, near its end, and while paused; paused and resumed in place.
+    func testTheTimerIsScheduledOnceAndAgainOnlyWhenItsSoundChanges() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let running = BatonTimer.State.running(endsAt: now.addingTimeInterval(600))
+        let chime = "t BatonAlarmChime.caf", clip = "t baton-alarm-t.caf"
+        typealias Plan = AlarmSystemTimerPlan
+        XCTAssertEqual(Plan.action(running, held: .none, now: now, givenSound: chime, recordedSound: nil), .schedule,
+                       "a fresh timer")
+        XCTAssertEqual(Plan.action(running, held: .countdown, now: now, givenSound: clip, recordedSound: chime), .reschedule,
+                       "the clip arrived while it counts down")
+        XCTAssertEqual(Plan.action(running, held: .countdown, now: now, givenSound: clip, recordedSound: clip), .none,
+                       "a launch with the same sound leaves it alone")
+        XCTAssertEqual(Plan.action(.running(endsAt: now.addingTimeInterval(2)), held: .countdown, now: now,
+                                   givenSound: clip, recordedSound: chime), .none, "too near its end to replace")
+        XCTAssertEqual(Plan.action(.paused(remaining: 300), held: .paused, now: now, givenSound: clip, recordedSound: chime),
+                       .none, "a paused timer keeps its sound until it runs again")
+        XCTAssertEqual(Plan.action(.paused(remaining: 300), held: .countdown, now: now, givenSound: clip, recordedSound: clip),
+                       .pause)
+        XCTAssertEqual(Plan.action(running, held: .paused, now: now, givenSound: clip, recordedSound: clip), .resume)
+        XCTAssertEqual(Plan.action(running, held: .other, now: now, givenSound: clip, recordedSound: chime), .none,
+                       "ringing: never touched")
+        XCTAssertEqual(Plan.action(.running(endsAt: now.addingTimeInterval(-1)), held: .none, now: now,
+                                   givenSound: clip, recordedSound: nil), .none, "already over")
+    }
 }

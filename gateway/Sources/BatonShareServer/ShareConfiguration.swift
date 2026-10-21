@@ -19,6 +19,9 @@ public struct ShareConfiguration: Sendable {
     public var enabled: Bool
     /// Default-off until the complete workflow and release readiness are qualified.
     public var mixtapesEnabled: Bool = false
+    /// Whole-book links (`/b/`, specs/book-sharing.md Phase 2). Default-off until the owner
+    /// approves the share-service deploy.
+    public var booksEnabled: Bool = false
     public var adminToken: String?
     /// A separately provisioned local-operator capability. Nil disables every operator route.
     public var enforcement: EnforcementConfiguration? = nil
@@ -86,6 +89,13 @@ public struct ShareConfiguration: Sendable {
             case "1", "true": config.mixtapesEnabled = true
             case "0", "false", "": config.mixtapesEnabled = false
             default: throw ConfigurationError("BATON_SHARE_MIXTAPES must be 1 or 0")
+            }
+        }
+        if let value = env["BATON_SHARE_BOOKS"] {
+            switch value.lowercased() {
+            case "1", "true": config.booksEnabled = true
+            case "0", "false", "": config.booksEnabled = false
+            default: throw ConfigurationError("BATON_SHARE_BOOKS must be 1 or 0")
             }
         }
         if let token = env["BATON_SHARE_ADMIN_TOKEN"], !token.isEmpty {

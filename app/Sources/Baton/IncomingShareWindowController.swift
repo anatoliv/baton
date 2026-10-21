@@ -69,6 +69,8 @@ extension BatonAppDelegate {
                      restorationHandler: @escaping ([NSUserActivityRestoring]) -> Void) -> Bool {
         guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
               let url = userActivity.webpageURL, let invitation = ShareInvitation(url: url) else { return false }
+        // A whole-book link plays in the browser player only.
+        if invitation.kind == .book { NSWorkspace.shared.open(url); return true }
         presentIncomingShare(invitation)
         return true
     }

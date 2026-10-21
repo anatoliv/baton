@@ -267,6 +267,8 @@ struct RootTabView: View {
         }
         // A link this app does not claim is not a failure worth a message: it was never
         // ours, and something else on the phone may still handle it.
+        // A whole-book link plays in the browser player only.
+        if BatonDeepLink.isBrowserOnlyShare(url) { await UIApplication.shared.open(url); return }
         guard let link = BatonDeepLink(url: url) else { return }
         model.linkFailure = await model.open(link, incomingShareSceneID: incomingShareSceneID).message
     }

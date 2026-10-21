@@ -18,6 +18,25 @@ phone's docked player follows the list in the DOM and Tab order (and leads it wh
 visually hidden label rather than an `aria-label` on a plain span. Its synthetic media comes from `make-mixtape-media.py`, which needs `/private/tmp`,
 ffmpeg and a Python with `cryptography` (`SHARE_E2E_PYTHON` selects one). Without them, or against
 a service with mixtapes off or a public service, `result.json` lists the mixtape walk as skipped.
+The full walk then opens a whole-book page (`/b/`, `book-page.mjs`, TBX-1000000132). It makes three
+6-second AAC chapters with ffmpeg and read-along text for the first, seals them under the
+`baton-book-1` keys and creates, uploads and finalizes the book through the real service routes
+(the spawned service runs with `BATON_SHARE_BOOKS=1`). It checks one `Referrer-Policy: no-referrer`
+for `/b/`, private Open Graph, the authenticated details, that opening and "Not now" spend nothing
+and Start listening spends exactly one listener, chapter 1 on a moving media clock with the
+read-along sentence following it, play running on into chapter 2 without a second admission (the
+first chapter's Blob URL revoked), `localStorage` holding only `{token, expiresAt, chapter,
+seconds}`, a reload resuming the position without a second listener, a keyboard chapter choice,
+completion and a reaction, wrong and missing keys, unknown, an expired or refused (401) stored
+token, blocked storage, pending to ready, revoke reading as expired and clearing storage, an
+expired link, contrast and screenshots at 390 and 1280 px in light and dark. `--book-only` runs
+only this walk after the shared nginx checks, for a quicker loop.
+`SHARE_E2E_NGINX_LOG=1` adds nginx's per-request timings and info-level errors and saves them with the
+service log as `server.log` in the evidence folder; the book walk also leaves `book-phone.har` and, in
+Chromium, `book-network.json`. On 2026-10-21 that log showed the occasional 30 to 60 s stall in
+`--nginx-docker` runs to be nginx timing out while connecting from its container to the service on
+the host (`upstream timed out ... while connecting to upstream`, Docker Desktop's host gateway), not
+the page.
 Run different engines sequentially on macOS: simultaneous browser processes can
 interrupt the system media output and make the long listening check unmeasurable.
 WebKit behavior runs without screenshots and must pass all application/CSP checks

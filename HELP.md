@@ -1448,7 +1448,10 @@ sleep timer above is unchanged; it stops music, and these start it.
   menu-bar menu and the sleep timer's menu have them too.
 - **The pill above the player.** While a timer runs, or an alarm is due within a day, a small
   pill sits just above the mini player (beside the clock on the Mac): "Timer 12:34 · then …".
-  Tap it to open the sheet, or its ✕ to cancel the timer or switch the alarm off.
+  Tap it to open the sheet, or its ✕ to cancel the timer or switch the alarm off. A timer and
+  an alarm can be set at the same time: then there are two pills, each with its own ✕ that
+  cancels only that one. On the iPhone the timer's sits above the alarm's, each as wide as the
+  player under it; on the Mac they sit side by side beside the clock.
 
 The sheet has two tabs:
 
@@ -1462,9 +1465,9 @@ The sheet has two tabs:
 
 **Then play** is what starts when it goes off. It begins as what is playing, or the last thing
 you played, and a tap opens **What to Play**: search your songs, albums, playlists, books and
-radio, pick from Recently Played, or browse Playlists, Albums, Books and Radio. The round button
-on a row plays ten seconds of it, and stops when you leave the picker. Nothing needs to be
-playing to choose.
+radio, browse Playlists, Albums, Books and Radio, or pick from **Recently Played**, the last 50
+songs you played, newest first and each listed once. The round button on a row plays ten
+seconds of it, and stops when you leave the picker. Nothing needs to be playing to choose.
 
 **When it goes off.** If Baton is open, or playing in the background, the chosen item starts at
 the time and a ringing screen comes up over whatever you were doing, Settings included, with
@@ -1479,16 +1482,21 @@ On the Mac the ringing card floats over every Space with the same three buttons,
 playing, open player** brings the Baton window forward with its full-screen player.
 
 **On iPhone, with Baton closed.** On iOS 26 and later the alarm rings as a real system alarm,
-on the Lock Screen and through Silent mode, the first time asking your permission. iOS doesn't
-let an app start its own music at a set time while it isn't running, so the alarm rings with
-the iPhone's own alarm sound, and tapping **Play**, or just opening Baton within ten minutes,
-starts your track. With Snooze on, the alert's button is **Snooze** instead; open Baton while
-it rings or snoozes and your track plays. On iOS 18 to 25 you get a notification with Baton's
-chime instead; tap it, or **Play**, to start the track. **Settings > Alarm and Timer** shows
-whether alarms may ring with Baton closed, and takes you to the iPhone's Settings to change it.
+on the Lock Screen and through Silent mode, the first time asking your permission. It rings
+with your song: when you save an alarm or start a timer, Baton keeps the first 29 seconds of
+the track you chose as the alarm's sound. That works for downloads, books and songs streamed
+from your server; if Baton can't get the song (offline, say), the alarm rings Baton's chime
+instead. iOS doesn't let an app start its own music at a set time while it isn't running, so
+those 29 seconds are the alarm sound, and tapping **Play**, or just opening Baton within ten
+minutes, plays the whole track. With Snooze on, the alert's button is **Snooze** instead; open
+Baton while it rings or snoozes and your track plays. On iOS 18 to 25 you get a notification
+that plays the same 29 seconds of your song (or the chime); tap it, or **Play**, to start the
+track. **Settings > Alarm and Timer** shows whether alarms may ring with Baton closed, and takes
+you to the iPhone's Settings to change it.
 
-**On the Mac.** Baton runs in the menu bar, so it plays the item itself at the time. If Baton
-isn't running, a notification appears at the time, and clicking it opens Baton and plays it.
+**On the Mac.** Baton runs in the menu bar, so it plays the item itself at the time, the whole
+track through Baton's player rather than a system sound. If Baton isn't running, a notification
+with Baton's chime appears at the time, and clicking it opens Baton and plays it.
 An alarm that comes round while the Mac is asleep, and is more than ten minutes late when it
 wakes, is shown as missed rather than starting music out of nowhere.
 
@@ -1730,6 +1738,30 @@ chapters). Pick the chapters with **From** and **Through**: one link holds up to
 becomes a song link and two or more become a mixtape your friend plays in order. Only the
 chapters' audio is uploaded, encrypted like a song; the book's text stays on your device. A
 chapter whose audio isn't on this device can't be shared until you get it back.
+
+**Sharing a whole book.** When Baton's share service takes book links, the book sheet also offers
+**The whole book**, and starts there when the book is too long for one chapter link. Every chapter
+goes in one link, up to 200 chapters and 256 MiB, which is about twelve hours at the usual quality.
+Your friend opens it in any browser, with no app and no account, sees the chapter list and plays
+from one chapter into the next, picking up where they left off if they come back. Baton encrypts
+the chapters on your device one at a time before they leave it, and the key is in the link, as
+for a song.
+
+- **Listeners** is how many people can listen, 10 unless you change it (up to 50). Each person
+  counts once, however often they pause, go back or come again.
+- **Link lasts** is 1, 7 or 30 days, 7 unless you change it. You can extend it later.
+- **Include the text for read-along** is off unless you turn it on. Off, only the audio is
+  uploaded and the book's text stays on your device. On, each chapter's text travels with it,
+  encrypted like the audio, so your friend can follow the words as they listen.
+- Every chapter has to be on this device. If one isn't, the sheet says which, so you can get it
+  back first or send some chapters instead.
+- A big book takes a while to encrypt and upload. If the upload stops partway, **Retry Upload**
+  carries on with the same link, and **Shared Links** keeps an unfinished book until it is done
+  or you discard it.
+
+A book link is listed in **Shared Links** with how many people have listened. **Revoke** stops it
+for everyone and deletes the copy straight away. A book link always opens in the browser, even
+on a phone with Baton on it.
 
 **To see who listened**, open **Shared Links**: in Settings on the iPhone, and in Settings,
 About on the Mac. It lists every link this device has sent, when each one ends, how often it was

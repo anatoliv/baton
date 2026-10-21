@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import UserNotifications
 import XCTest
 @testable import BatonMobile
@@ -74,5 +75,56 @@ final class AlarmNotificationRequestTests: XCTestCase {
         XCTAssertEqual(trigger.timeInterval, 60, accuracy: 0.5)
         XCTAssertEqual(made.first?.content.title, "Tea")
         XCTAssertEqual(made.first?.content.categoryIdentifier, AlarmNotificationBridge.timerCategory)
+    }
+
+    /// iOS 18 to 25 ring the clip of the chosen track when one was cut, else the chime, else the
+    /// system's sound.
+    func testRequestsRingTheClipElseTheChimeElseTheSystemSound() throws {
+        let store = store()
+        let now = Date()
+        let clipped = BatonAlarm(hour: 7, minute: 0, choice: .song(song))
+        let chimed = BatonAlarm(hour: 8, minute: 0, choice: .song(song))
+        let plain = BatonAlarm(hour: 9, minute: 0, choice: .song(song))
+        for alarm in [clipped, chimed, plain] { store.save(alarm, now: now) }
+        let clip = AlarmClipStore.fileName(for: clipped.id)
+        let made = AlarmNotificationBridge.requests(for: store, now: now) { id in
+            switch id {
+            case clipped.id: clip
+            case chimed.id: AlarmNotificationBridge.chime
+            default: ""
+            }
+        }
+        func sound(_ alarm: BatonAlarm) throws -> UNNotificationSound {
+            let request = try XCTUnwrap(made.first { AlarmNotificationBridge.alarmID(in: $0.content) == alarm.id })
+            return try XCTUnwrap(request.content.sound)
+        }
+        XCTAssertEqual(clip, "baton-alarm-\(clipped.id.uuidString).caf")
+        XCTAssertEqual(try sound(clipped), UNNotificationSound(named: UNNotificationSoundName(clip)))
+        XCTAssertEqual(try sound(chimed), UNNotificationSound(named: UNNotificationSoundName(AlarmNotificationBridge.chime)))
+        XCTAssertEqual(try sound(plain), UNNotificationSound.default)
+        XCTAssertNotEqual(try sound(clipped), try sound(chimed))
+    }
+
+    /// A timer and an alarm at once: both are scheduled, and cancelling one
+    /// leaves the other's requests.
+    func testATimerAndAnAlarmAreScheduledTogetherAndCancelledApart() {
+        let store = store()
+        let now = Date()
+        let alarm = BatonAlarm(hour: 7, minute: 0, choice: .song(song))
+        store.save(alarm, now: now)
+        store.startTimer(duration: 600, choice: .song(song), now: now)
+        var ids = requests(store, now: now).map(\.identifier)
+        XCTAssertEqual(ids.filter { $0.hasSuffix(".timer") }.count, 1, ids.description)
+        XCTAssertEqual(ids.filter { $0.contains(alarm.id.uuidString) }.count, 1, ids.description)
+
+        store.cancelTimer()
+        ids = requests(store, now: now).map(\.identifier)
+        XCTAssertEqual(ids, ["\(AlarmNotificationBridge.requestPrefix)\(alarm.id.uuidString).once"])
+
+        store.startTimer(duration: 600, choice: .song(song), now: now)
+        store.setEnabled(false, id: alarm.id)
+        ids = requests(store, now: now).map(\.identifier)
+        XCTAssertEqual(ids.count, 1)
+        XCTAssertTrue(ids.first?.hasSuffix(".timer") == true, ids.description)
     }
 }

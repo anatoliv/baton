@@ -3,7 +3,7 @@
 //
 //   swift build --product baton-share            (in gateway/)
 //   node gateway/Tests/share-player/e2e.mjs [--nginx|--nginx-docker] [--browser=chromium|firefox|webkit]
-//     [--listeners=50|--media-errors-only|--startup-only] [--chromium-channel=chromium]
+//     [--listeners=50|--media-errors-only|--startup-only|--book-only] [--chromium-channel=chromium]
 //     [--song-seconds=400 --download-mbps=10 --latency-ms=80] [path/to/baton-share] [evidence-dir]
 //
 // With --nginx, everything goes through a real nginx running deploy/nginx/default.conf (rewritten
@@ -32,6 +32,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { verifyBookChapters } from "./book-chapter.mjs";
+import { verifyBookPage } from "./book-page.mjs";
 import { verifyMediaErrorRecovery } from "./media-errors.mjs";
 import { verifyMixtapePage } from "./mixtape-page.mjs";
 import { measureStartup, registerOwnedBrowser, registerOwnedBrowserServer } from "./startup.mjs";
@@ -51,6 +52,8 @@ const songSeconds = Number(takeOption("--song-seconds", "40"));
 const downloadMbps = Number(takeOption("--download-mbps", "0"));
 const latencyMs = Number(takeOption("--latency-ms", "0"));
 const mediaErrorsOnly = takeFlag("--media-errors-only");
+// Only the whole-book page walk (/b/), after the shared nginx checks: a quicker loop for the book page.
+const bookOnly = takeFlag("--book-only");
 assert.ok(!mediaErrorsOnly || !args.some(arg => arg.startsWith("--listeners=")), "media error cases run separately from listener load");
 const dockerNginx = takeFlag("--nginx-docker");
 const viaNginx = takeFlag("--nginx") || dockerNginx;
@@ -128,7 +131,7 @@ step(external ? `using the running service at ${external}` : `starting ${binary}
 const server = external ? null : spawn(binary, [], {
   env: { ...process.env, BATON_SHARE_DATA: join(work, "data"), BATON_SHARE_PORT: String(port),
     BATON_SHARE_PUBLIC_BASE: base, BATON_SHARE_BLOB_DELIVERY: viaNginx ? "accel" : "direct",
-    BATON_SHARE_ADMIN_TOKEN: admin, BATON_SHARE_MIXTAPES: "1" },
+    BATON_SHARE_ADMIN_TOKEN: admin, BATON_SHARE_MIXTAPES: "1", BATON_SHARE_BOOKS: "1" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let serverLog = "";
@@ -161,9 +164,14 @@ if (viaNginx) {
   const tmp = `${containerWork}/nginx-tmp`;
   const mimeTypes = process.env.SHARE_E2E_NGINX_MIME ?? ["/etc/nginx/mime.types", "/opt/homebrew/etc/nginx/mime.types"].find(existsSync);
   assert.ok(dockerNginx || mimeTypes, "set SHARE_E2E_NGINX_MIME to nginx's mime.types");
-  writeFileSync(join(work, "nginx.conf"), `daemon off; pid ${containerWork}/nginx.pid; error_log stderr warn;
+  // SHARE_E2E_NGINX_LOG=1 (diagnosis): nginx's own view of every request, with its connection and
+  // upstream timings, and info-level errors (resolver, upstream). Paths only: no fragment reaches nginx.
+  const nginxLog = process.env.SHARE_E2E_NGINX_LOG === "1";
+  const accessLog = nginxLog ? `log_format timing '$msec $connection/$connection_requests $status $request_time '
+      'up=$upstream_addr connect=$upstream_connect_time response=$upstream_response_time "$request_method $uri"'; access_log /dev/stderr timing;` : "access_log off;";
+  writeFileSync(join(work, "nginx.conf"), `daemon off; pid ${containerWork}/nginx.pid; error_log stderr ${nginxLog ? "info" : "warn"};
 events {}
-http { include ${dockerNginx ? "/etc/nginx/mime.types" : mimeTypes}; access_log off; client_body_temp_path ${tmp}/body; proxy_temp_path ${tmp}/proxy;
+http { include ${dockerNginx ? "/etc/nginx/mime.types" : mimeTypes}; ${accessLog} client_body_temp_path ${tmp}/body; proxy_temp_path ${tmp}/proxy;
   fastcgi_temp_path ${tmp}/fcgi; uwsgi_temp_path ${tmp}/uwsgi; scgi_temp_path ${tmp}/scgi; sendfile on;
   include ${confPath}/default.conf; }`);
   mkdirSync(dataDir, { recursive: true });
@@ -324,6 +332,12 @@ try {
       assert.deepEqual(report.listening.decryptFailures, {}, "media failures are never crypto failures");
       writeFileSync(join(evidence, "media-error-receipts.json"), JSON.stringify({listening:report.listening}, null, 2));
     }
+    assert.equal((await api("DELETE", `/v1/share/shares/${id}`)).status, 204);
+  } else if (bookOnly) {
+    assert.ok(!publicOnly, "the book page walk is local only");
+    const skipped = await verifyBookPage({ browser, base, direct, api, evidence, dataDir, external, work, step, screenshot, monitor, problems,
+      activate: (bookPage) => { activePage = bookPage; } });
+    if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
     assert.equal((await api("DELETE", `/v1/share/shares/${id}`)).status, 204);
   } else {
   step("opening the link as a friend on a phone");
@@ -637,6 +651,15 @@ try {
     const skipped = await verifyMixtapePage({ browser, context, base, direct, api, evidence, dataDir, external, step, screenshot, monitor, problems });
     if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
   }
+
+  // ---------- The whole-book page (/b/), TBX-1000000132 ----------
+
+  if (publicOnly) skips.push("book page: no book fixtures against a public service");
+  else {
+    const skipped = await verifyBookPage({ browser, base, direct, api, evidence, dataDir, external, work, step, screenshot, monitor, problems,
+      activate: (bookPage) => { activePage = bookPage; } });
+    if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
+  }
   }
   assert.deepEqual(problems, [], "no unexpected browser errors");
   // Revoke every remaining fixture, including public runs, leaving tombstones only.
@@ -655,7 +678,7 @@ try {
     }
     screenshotErrors.push(...problems);
   }
-  writeFileSync(join(evidence, "result.json"), JSON.stringify({ engine, viaNginx, publicOnly, listeners, mediaErrorsOnly, startupOnly, passed: true,
+  writeFileSync(join(evidence, "result.json"), JSON.stringify({ engine, viaNginx, publicOnly, listeners, mediaErrorsOnly, startupOnly, bookOnly, passed: true,
     appErrors: 0, screenshotErrors,
     skips: [...(external ? ["local deadline acceleration"] : []), ...(publicOnly ? ["internal admin aggregate report"] : []), ...skips] }, null, 2));
 
@@ -665,11 +688,12 @@ try {
   failed = true;
   if (activePage && !activePage.isClosed()) {
     try {
-      await screenshot(activePage, join(evidence, "failure.png"));
-      const state = await activePage.evaluate(() => ({ state: document.body.dataset.state,
+      await Promise.race([screenshot(activePage, join(evidence, "failure.png")), new Promise((r) => setTimeout(r, 5000))]);
+      // The page in use when it failed (the song, mixtape or book page); never its fragment.
+      const state = await Promise.race([new Promise((_, reject) => setTimeout(() => reject(new Error("state capture timed out")), 5000)), activePage.evaluate(() => ({ path: location.pathname, readyState: document.readyState, state: document.body?.dataset.state,
         playing: document.body.classList.contains("is-playing"), elapsed: document.getElementById("elapsed")?.textContent,
         status: document.getElementById("status")?.textContent, afterHidden: document.getElementById("after")?.hidden,
-        visibility: document.visibilityState }));
+        visibility: document.visibilityState })) ]);
       writeFileSync(join(evidence, "failure-state.json"), JSON.stringify(state, null, 2));
       console.error(`browser state: ${JSON.stringify(state)}`);
     } catch {}
@@ -693,6 +717,12 @@ try {
     try { execFileSync("docker", ["stop", "-t", "2", dockerName], { stdio: "ignore" }); } catch {}
     try { execFileSync("docker", ["network", "rm", dockerName], { stdio: "ignore" }); } catch {}
   } else nginx?.kill();
+  // The service and nginx logs (paths and timings, never a fragment), including what nginx wrote
+  // while the browser closed, after a failure was already reported.
+  if (process.env.SHARE_E2E_NGINX_LOG === "1") {
+    if (nginx && nginx.exitCode === null) await Promise.race([new Promise((r) => nginx.once("exit", r)), new Promise((r) => setTimeout(r, 3000))]);
+    writeFileSync(join(evidence, "server.log"), serverLog);
+  }
   rmSync(work, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

@@ -176,7 +176,7 @@ final class AlarmQuickSetupTests: XCTestCase {
         XCTAssertTrue(alarmPill.text.hasPrefix("Alarm 7:00"), alarmPill.text)
         XCTAssertTrue(alarmPill.text.hasSuffix(" · then Aria"), alarmPill.text)
 
-        // A timer takes the pill, with its countdown.
+        // A timer's pill comes first, with its countdown (the alarm's stays; see below).
         store.startTimer(duration: 12 * 60 + 34, choice: .song(song), now: now)
         let timerPill = try! XCTUnwrap(AlarmPillState.current(store, now: now, calendar: utc))
         XCTAssertEqual(timerPill.text, "Timer 12:34 · then Variatio 6")
@@ -190,7 +190,125 @@ final class AlarmQuickSetupTests: XCTestCase {
         XCTAssertNil(AlarmPillState.current(store, now: now, calendar: utc))
     }
 
+    /// A timer and an alarm at the same time (owner, 2026-10-21, TBX-1000000410): setting one
+    /// keeps the other, in either order, through the quick sheet; both show a pill, timer first;
+    /// each ✕ cancels only its own.
+    func testATimerAndAnAlarmAreSetTogetherAndCancelledApart() throws {
+        let now = date("2026-10-17T21:30:00Z")
+        for timerFirst in [false, true] {
+            let store = AlarmStore(defaults: ThrowawayDefaults.make("quick.both.\(timerFirst)"), calendar: { [utc] in utc })
+            let timerSheet = AlarmQuickSetup(mode: .timer, preselected: .song(song), now: now, calendar: utc)
+            timerSheet.selectPreset(minutes: 10)
+            let alarmSheet = AlarmQuickSetup(mode: .alarm, preselected: .song(other), now: now, calendar: utc)
+            alarmSheet.hour = 7
+            alarmSheet.minute = 0
+            if timerFirst {
+                XCTAssertNotNil(timerSheet.startTimer(in: store, now: now))
+                XCTAssertNotNil(alarmSheet.saveAlarm(in: store, now: now))
+            } else {
+                XCTAssertNotNil(alarmSheet.saveAlarm(in: store, now: now))
+                XCTAssertNotNil(timerSheet.startTimer(in: store, now: now))
+            }
+            let timer = try XCTUnwrap(store.timer, "the timer is kept (timer first: \(timerFirst))")
+            XCTAssertEqual(store.alarms.filter(\.isEnabled).count, 1, "the alarm is kept (timer first: \(timerFirst))")
+            XCTAssertEqual(store.nextDue(after: now), timer.endsAt, "the clock wakes for the timer, then the alarm")
+
+            let pills = AlarmPillState.all(store, now: now, calendar: utc)
+            XCTAssertEqual(pills.map(\.isTimer), [true, false], "two pills, the timer's above the alarm's")
+            XCTAssertEqual(pills.first?.text, "Timer 10:00 · then Variatio 6")
+            XCTAssertTrue(pills.last?.text.hasPrefix("Alarm 7:00") == true, pills.last?.text ?? "")
+            XCTAssertEqual(AlarmPillState.current(store, now: now, calendar: utc), pills.first)
+
+            if timerFirst {
+                // The alarm's ✕ leaves the timer running.
+                pills[1].cancel(in: store)
+                XCTAssertNotNil(store.timer)
+                XCTAssertEqual(store.alarms.filter(\.isEnabled).count, 0)
+                XCTAssertEqual(AlarmPillState.all(store, now: now, calendar: utc).map(\.isTimer), [true])
+            } else {
+                // The timer's ✕ leaves the alarm set.
+                pills[0].cancel(in: store)
+                XCTAssertNil(store.timer)
+                XCTAssertEqual(store.alarms.filter(\.isEnabled).count, 1)
+                XCTAssertEqual(AlarmPillState.all(store, now: now, calendar: utc).map(\.isTimer), [false])
+            }
+        }
+    }
+
+    /// The timer going off leaves the alarm set, and the alarm going off leaves the timer running.
+    func testOneGoingOffLeavesTheOther() {
+        let store = AlarmStore(defaults: ThrowawayDefaults.make("quick.both.fire"), calendar: { [utc] in utc })
+        let now = date("2026-10-17T06:50:00Z")
+        store.save(BatonAlarm(hour: 7, minute: 0, repeatDays: [1, 2, 3, 4, 5, 6, 7], choice: .song(other)), now: now)
+        store.startTimer(duration: 60, choice: .song(song), now: now)
+        let timerFires = store.due(at: now.addingTimeInterval(61))
+        XCTAssertEqual(timerFires.map(\.kind), [.timer])
+        XCTAssertEqual(store.alarms.filter(\.isEnabled).count, 1, "the alarm is still set")
+
+        store.startTimer(duration: 3600, choice: .song(song), now: now.addingTimeInterval(120))
+        let alarmFires = store.due(at: date("2026-10-17T07:00:05Z"))
+        XCTAssertEqual(alarmFires.map(\.kind), [.alarm])
+        XCTAssertNotNil(store.timer, "the timer still runs")
+    }
+
     // MARK: The picker
+
+    private func history(_ name: String) -> MusicPlayHistory {
+        MusicPlayHistory(defaults: ThrowawayDefaults.make(name),
+                         directory: FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID().uuidString)"))
+    }
+
+    /// Recently played is the last 50 tracks played, newest first, each once:
+    /// 70 distinct tracks with repeats among the newest, from the real play history and the real
+    /// library source both apps use.
+    func testRecentlyPlayedIsTheLastFiftyDistinctTracksNewestFirst() {
+        let history = history("quick.recent50")
+        let songs = (0 ..< 70).map { NavidromeSong(id: "t\($0)", title: "Track \($0)", artist: "Bach") }
+        let start = date("2026-10-01T08:00:00Z")
+        for (index, song) in songs.enumerated() {
+            history.record(song, playedAt: start.addingTimeInterval(Double(index) * 600))
+        }
+        // The newest listens repeat older tracks: t5 played again last, t69 again before it.
+        history.record(songs[69], playedAt: start.addingTimeInterval(70 * 600))
+        history.record(songs[5], playedAt: start.addingTimeInterval(71 * 600))
+
+        let source = LibraryAlarmPickerSource(library: MusicLibraryStore(), history: history, radio: InternetRadioStore()) { [] }
+        let recent = source.recent()
+        XCTAssertEqual(recent.count, 50, "capped at the last 50 played")
+        XCTAssertEqual(Set(recent.map(\.id)).count, recent.count, "each track once")
+        // Newest first: t5 (replayed last), then t69, t68 … down to the 50th distinct track.
+        let expected = ["song:t5"] + (21 ... 69).reversed().map { "song:t\($0)" }
+        XCTAssertEqual(recent.map(\.id), expected)
+        XCTAssertEqual(recent.first?.title, "Track 5")
+        XCTAssertTrue(recent.allSatisfy { $0.kind == .song }, "rows play the track, with the preview button")
+
+        let picker = AlarmPickerModel(source: source, preview: nil)
+        picker.load()
+        XCTAssertEqual(picker.recent.map(\.id), expected, "the picker shows them as given")
+    }
+
+    func testRecentlyPlayedWithFewListensListsThemAll() {
+        let history = history("quick.recentFew")
+        history.record(song, playedAt: date("2026-10-16T08:00:00Z"))
+        history.record(other, playedAt: date("2026-10-16T09:00:00Z"))
+        history.record(song, playedAt: date("2026-10-16T10:00:00Z"))
+        XCTAssertEqual(history.recentlyPlayed(limit: 50).map(\.id), ["s1", "s2"])
+        XCTAssertEqual(history.recentlyPlayed(limit: 1).map(\.id), ["s1"])
+        XCTAssertEqual(history.recentlyPlayed(limit: 0), [])
+        XCTAssertEqual(history.recentlyPlayed(limit: 50), Array(history.recentlyPlayed.prefix(50)),
+                       "the same rows as History's Recently Played")
+    }
+
+    /// A source that gives more than 50 is cut to 50 by the picker.
+    func testThePickerShowsAtMostFiftyRecent() {
+        let source = FakeSource()
+        source.recentItems = (0 ..< 60).map { .song(NavidromeSong(id: "r\($0)", title: "R\($0)")) }
+        let picker = AlarmPickerModel(source: source, preview: nil)
+        picker.load()
+        XCTAssertEqual(picker.recent.count, AlarmPickerModel.recentLimit)
+        XCTAssertEqual(picker.recent.first?.id, "song:r0")
+        XCTAssertEqual(AlarmPickerModel.recentLimit, 50)
+    }
 
     func testPickingARowResolvesItForThenPlay() async {
         let source = FakeSource()
@@ -337,7 +455,8 @@ private final class FakeSource: AlarmPickerSource {
     var delay: Duration = .zero
     let songs = [NavidromeSong(id: "s1", title: "Variatio 6"), NavidromeSong(id: "s2", title: "Aria")]
 
-    func recent() -> [AlarmPickItem] { [.song(songs[1])] }
+    lazy var recentItems: [AlarmPickItem] = [.song(songs[1])]
+    func recent() -> [AlarmPickItem] { recentItems }
 
     func browse(_ section: AlarmPickerModel.Section) async -> [AlarmPickItem] { [] }
 

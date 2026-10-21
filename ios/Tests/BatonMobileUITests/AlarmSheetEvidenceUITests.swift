@@ -22,6 +22,8 @@ final class AlarmSheetEvidenceUITests: XCTestCase {
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
         app.launchEnvironment["BATON_DEBUG_ALARM_SYSTEM"] = "off"
         app.launchEnvironment["uitestTimerSeconds"] = "20"
+        // Listens in the play history, for What to Play's Recently played.
+        app.launchEnvironment["uitestSeedPlayHistory"] = "1"
     }
 
     override func tearDown() { app = nil; super.tearDown() }
@@ -50,6 +52,20 @@ final class AlarmSheetEvidenceUITests: XCTestCase {
         let search = app.textFields["alarm-picker-search"]
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         attach("picker")
+        // Recently played, under Browse: the demo's four tracks, each once, newest first, each
+        // with its preview button (the history holds each twice).
+        let rows = app.buttons.matching(identifier: "alarm-pick-row")
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 5), "Recently played lists the play history")
+        // The list draws only the rows on screen: pull the sheet up and scroll until all are.
+        var swipes = 0
+        for _ in 0 ..< 4 where rows.count < 4 {
+            app.swipeUp()
+            swipes += 1
+        }
+        XCTAssertEqual(app.buttons.matching(identifier: "alarm-pick-row").count, 4, "four tracks, each once")
+        XCTAssertEqual(app.buttons.matching(identifier: "alarm-pick-preview").count, 4, "a preview button on each")
+        attach("picker-recently-played")
+        for _ in 0 ..< swipes { app.collectionViews.firstMatch.swipeDown() }
         search.tap()
         search.typeText("Variatio")
         XCTAssertTrue(app.buttons.matching(identifier: "alarm-pick-row").firstMatch.waitForExistence(timeout: 10))

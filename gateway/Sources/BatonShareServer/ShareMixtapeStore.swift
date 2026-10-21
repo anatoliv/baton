@@ -46,7 +46,8 @@ extension ShareStore {
         blobsDirectory.appendingPathComponent(id, isDirectory: true).appendingPathComponent("tracks", isDirectory: true).appendingPathComponent(track)
     }
 
-    func mixtapeMaterialComplete(_ record: ShareRecord) throws -> Bool {
+    func mixtapeMaterialComplete(_ record: ShareRecord, limits: ShareLimits = .standard) throws -> Bool {
+        if record.isBook { return try bookMaterialComplete(record, limits: limits) }
         guard record.isMixtape, let text = record.encryptedMeta, let manifest = Data(base64Encoded: text),
               manifest.count <= ShareMixtapeManifest.maximumEncryptedBytes,
               (try? ShareCrypto.layout(headerBytes: Array(manifest.prefix(ShareCrypto.headerLength)), totalLength: manifest.count)) != nil else { return false }

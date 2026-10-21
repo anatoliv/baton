@@ -365,6 +365,10 @@ public struct PublicShare: Codable, Equatable, Sendable {
 
 public struct ShareConfig: Codable, Equatable, Sendable {
     public var mixtapes: Int?
+    /// 1 when the service takes whole-book links (`/b/`); absent means unsupported.
+    public var books: Int?
+    /// The book caps, advertised with `books`, so the composer holds no second copy of them.
+    public var book: ShareBookLimits?
     public var appAttest: ShareAttestationPolicy?
     public var reactionPush: ReactionPushAdvertisement?
     public var enabled: Bool

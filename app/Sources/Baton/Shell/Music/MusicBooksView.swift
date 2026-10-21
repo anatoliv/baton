@@ -387,7 +387,9 @@ struct MusicBooksView: View {
         Button("Export Audiobook…") { exportAudiobook(book) }
             .disabled(exportLine != nil && !exportFailed || !canExport(book))
         // A link a friend outside the LAN can play, as a song's Share… makes.
-        Button("Share…") { sharingBook = BookShareDraft(book, covers: covers) }
+        Button("Share…") {
+            sharingBook = BookShareDraft(book, covers: covers, timing: { await model.documents.readAlongTiming(for: $0) })
+        }
             .disabled(!book.chapters.contains { $0.item?.isPresent == true })
         if model.documents.canEditPronunciations(book) {
             Button("Pronunciations…") { pronouncing = book }

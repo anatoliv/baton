@@ -323,6 +323,19 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.12",
+            date: "October 2026",
+            highlight: "Pick what wakes you from the last 50 songs you played.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "What to Play, in the alarm and timer popover, lists the last 50 songs you played, newest first and each once, with a ten-second preview on every row. Browse sits above them so it stays in reach."),
+                HelpWhatsNewChange(.improved,
+                    "A timer and an alarm can be set at the same time. The player bar shows a pill for each, and each ✕ cancels only its own."),
+                HelpWhatsNewChange(.added,
+                    "Share a whole book as one link. Choose Share… in a book's menu and pick The whole book: your friend plays every chapter in any browser, with no app and no account, and can follow the words if you include the text."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.11",
             date: "October 2026",
             highlight: "Change appearance directly from the player.",

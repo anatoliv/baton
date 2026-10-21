@@ -23,6 +23,8 @@ public struct ShareRecord: Equatable, Sendable {
     public var stats: ShareStats
     public var reviewPreservationConsent: String? = nil
     public var isMixtape: Bool = false
+    /// A whole-book link (`/b/`): also `isMixtape`, so every song route refuses it.
+    public var isBook: Bool = false
     public var accessGeneration: Int64 = 1
 
     /// Whether the play cap has been reached: the audio answers 410 from here on.
@@ -63,6 +65,7 @@ public final class ShareStore {
         try migrate()
         try migrateEnforcement()
         try migrateMixtapes()
+        try migrateBooks()
         try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
         try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blobsDirectory.path)
     }
@@ -339,9 +342,12 @@ public final class ShareStore {
             try record(event: "share_expired", at: now, shareID: id, sharerID: row["sharer_id"]?.text)
             result.expired += 1
         }
+        // A book gets its own, longer upload window (pendingBookLifetimeSeconds); songs and
+        // mixtapes keep the ordinary one.
         let abandonedBefore = now - Int64(limits.pendingLifetimeSeconds)
-        for row in try database.query("SELECT id FROM shares WHERE status = 'pending' AND (created_at <= ? OR expires_at <= ?) AND id NOT IN (SELECT share_id FROM share_enforcement WHERE disabled=1)",
-                                      [.int(abandonedBefore), .int(now)]) {
+        let abandonedBookBefore = now - Int64(limits.pendingBookLifetimeSeconds)
+        for row in try database.query("SELECT id FROM shares WHERE status = 'pending' AND (created_at <= CASE WHEN is_book=1 THEN ? ELSE ? END OR expires_at <= ?) AND id NOT IN (SELECT share_id FROM share_enforcement WHERE disabled=1)",
+                                      [.int(abandonedBookBefore), .int(abandonedBefore), .int(now)]) {
             guard let id = row["id"]?.text else { continue }
             try delete(id: id, now: now)
             result.abandoned += 1
@@ -398,7 +404,7 @@ public final class ShareStore {
             cardType: row["card_type"]?.text,
             storedBytes: row["stored_bytes"]?.int ?? 0,
             stats: stats, reviewPreservationConsent: row["review_consent"]?.text,
-            isMixtape: row["is_mixtape"]?.int == 1, accessGeneration: row["access_generation"]?.int ?? 1)
+            isMixtape: row["is_mixtape"]?.int == 1, isBook: row["is_book"]?.int == 1, accessGeneration: row["access_generation"]?.int ?? 1)
     }
 
     static func json<T: Encodable>(_ value: T) -> String {

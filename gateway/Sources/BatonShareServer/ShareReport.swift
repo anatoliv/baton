@@ -74,6 +74,17 @@ public struct ShareReport: Codable, Equatable, Sendable {
         public var notFoundInLibrary = 0
     }
 
+    /// Whole-book links (`/b/`), counted apart from the totals they are also part of: the
+    /// service labels a book's events `kind: book`. `listeners` is admitted listening sessions.
+    public struct Books: Codable, Equatable, Sendable {
+        public var created = 0
+        public var finalized = 0
+        public var revoked = 0
+        public var pageOpens = 0
+        public var unfurls = 0
+        public var listeners = 0
+    }
+
     public struct Health: Codable, Equatable, Sendable {
         public var failuresByReason: [String: Int] = [:]
         public var rateLimitedByScope: [String: Int] = [:]
@@ -104,6 +115,7 @@ public struct ShareReport: Codable, Equatable, Sendable {
     public var recipients = Recipients()
     public var listening = Listening()
     public var engagement = Engagement()
+    public var books = Books()
     public var health = Health()
     public var rates = Rates()
 
@@ -130,6 +142,17 @@ public struct ShareReport: Codable, Equatable, Sendable {
             }
             let visitor = row["visitor"]?.text
             let share = row["share_id"]?.text
+            if props["kind"] == .string("book") {
+                switch type {
+                case "share_created": report.books.created += 1
+                case "share_finalized": report.books.finalized += 1
+                case "share_revoked": report.books.revoked += 1
+                case "page_opened" where text("state") == "ready": report.books.pageOpens += 1
+                case "link_unfurled": report.books.unfurls += 1
+                case "audio_fetched": report.books.listeners += 1
+                default: break
+                }
+            }
             switch type {
             case "share_created":
                 report.shares.created += 1

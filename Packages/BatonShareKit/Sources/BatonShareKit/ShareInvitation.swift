@@ -3,7 +3,9 @@ import Foundation
 /// An incoming link, including a recognizable share whose key was omitted or damaged.
 /// Keys remain in memory and are never part of a service URL or diagnostic description.
 public struct ShareInvitation: Hashable, Sendable, Identifiable, CustomStringConvertible, CustomDebugStringConvertible {
-    public enum Kind: String, Codable, Sendable { case song, mixtape }
+    /// `book` is a whole-book link (`/b/`, specs/book-sharing.md Phase 2). The apps make and list
+    /// them but never receive one natively: a `/b/` link opens in the browser player.
+    public enum Kind: String, Codable, Sendable { case song, mixtape, book }
     public let kind: Kind
     public let id: String
     public let key: Data?
@@ -22,8 +24,8 @@ public struct ShareInvitation: Hashable, Sendable, Identifiable, CustomStringCon
         let kind: Kind
         if parts.scheme?.lowercased() == "https",
            let host = parts.host?.lowercased(), ShareLink.hosts.contains(host),
-           ["/s/", "/m/"].contains(String(parts.percentEncodedPath.prefix(3))) {
-            kind = parts.percentEncodedPath.hasPrefix("/m/") ? .mixtape : .song
+           let pathKind = Self.pathKinds[String(parts.percentEncodedPath.prefix(3))] {
+            kind = pathKind
             shareID = String(parts.percentEncodedPath.dropFirst(3))
         } else if parts.scheme == "baton", ["share", "mixtape"].contains(parts.host ?? ""), parts.port == nil {
             kind = parts.host == "mixtape" ? .mixtape : .song
@@ -37,18 +39,30 @@ public struct ShareInvitation: Hashable, Sendable, Identifiable, CustomStringCon
         self.init(id: shareID, key: key, kind: kind)
     }
 
+    private static let pathKinds: [String: Kind] = ["/s/": .song, "/m/": .mixtape, "/b/": .book]
+
+    /// The link's path: `/s/<id>`, `/m/<id>` or `/b/<id>`.
+    public var path: String {
+        switch kind {
+        case .song: "/s/\(id)"
+        case .mixtape: "/m/\(id)"
+        case .book: "/b/\(id)"
+        }
+    }
+
     public func url(base: URL = ShareLink.defaultBase) -> URL {
         var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)!
-        parts.path = "/\(kind == .mixtape ? "m" : "s")/\(id)"
+        parts.path = path
         parts.query = nil; parts.fragment = key.map(Base64URL.encode)
         return parts.url!
     }
 
     public var browserURL: URL {
         var parts = URLComponents(url: ShareLink.defaultBase, resolvingAgainstBaseURL: false)!
-        parts.path = "/\(kind == .mixtape ? "m" : "s")/\(id)"
-        // AASA excludes this query, so choosing the browser does not reopen Baton.
-        parts.queryItems = [URLQueryItem(name: "web", value: "1")]
+        parts.path = path
+        // AASA excludes this query, so choosing the browser does not reopen Baton. `/b/` is not
+        // in the association at all, so a book link needs no query to reach the browser.
+        if kind != .book { parts.queryItems = [URLQueryItem(name: "web", value: "1")] }
         parts.fragment = key.map(Base64URL.encode)
         return parts.url!
     }

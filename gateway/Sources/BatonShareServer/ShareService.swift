@@ -16,6 +16,7 @@ public final class ShareService: @unchecked Sendable {
     let limiter = RateLimiter()
     let page: SharePage
     let mixtapePage: MixtapePage
+    let bookPage: BookPage
     var activeContactRelays = 0
     var attestationVerifier: AppAttestVerifier?
     // Only the internal, explicitly injected prototype initializer enables this bridge.
@@ -45,6 +46,7 @@ public final class ShareService: @unchecked Sendable {
         attestationVerifier = try config.appAttest.map(AppAttestVerifier.init(config:))
         page = try SharePage(config: config)
         mixtapePage = try MixtapePage(config: config)
+        bookPage = try BookPage(config: config)
         if try ReactionPushStore.hasExistingStorage(in: store.database) {
             reactionPushStore = try ReactionPushStore(database: store.database)
             try attachReactionPushLifecycle()
@@ -74,6 +76,9 @@ public final class ShareService: @unchecked Sendable {
         guard head.method == "PUT" else { return false }
         if head.path.hasPrefix("/v1/share/shares/") { return true }
         let parts = head.path.split(separator: "/").map(String.init)
+        if parts.count == 6 && Array(parts.prefix(3)) == ["v1", "share", "books"] {
+            return parts[4] == "blobs" && ShareLink.isValidID(parts[3]) && ShareBookCrypto.isCanonicalID(parts[5])
+        }
         return parts.count == 6 && Array(parts.prefix(3)) == ["v1", "share", "mixtapes"]
             && parts[4] == "tracks" && ShareLink.isValidID(parts[3]) && ShareMixtapeCrypto.isCanonicalTrackID(parts[5])
     }
@@ -166,6 +171,7 @@ public final class ShareService: @unchecked Sendable {
         let method = request.method.uppercased()
         let who = ShareRequester(headers: request.headers)
         if let response = try mixtapeRoute(request, parts: parts, who: who) { return response }
+        if let response = try bookRoute(request, parts: parts, who: who) { return response }
 
         func only(_ allowed: [String], _ body: () throws -> ShareResponse) rethrows -> ShareResponse {
             guard allowed.contains(method) else {
@@ -181,6 +187,10 @@ public final class ShareService: @unchecked Sendable {
             return try only(["GET"]) { try mixtapePlayerPage(id: parts[1], who: who) }
         case 3 where parts[0] == "m" && parts[1] == "_" && request.path == "/m/_/" + parts[2]:
             return only(["GET"]) { mixtapePage.asset(parts[2]) }
+        case 2 where parts[0] == "b" && request.path == "/b/" + parts[1]:
+            return try only(["GET"]) { try bookPlayerPage(id: parts[1], who: who) }
+        case 3 where parts[0] == "b" && parts[1] == "_" && request.path == "/b/_/" + parts[2]:
+            return only(["GET"]) { bookPage.asset(parts[2]) }
         case 2 where parts[0] == "s":
             return try only(["GET"]) { try playerPage(id: parts[1], who: who) }
         case 3 where parts[0] == "s" && parts[1] == "_":
@@ -199,6 +209,10 @@ public final class ShareService: @unchecked Sendable {
                 var result = ShareConfig(enabled: config.enabled, limits: config.limits)
                 result.appAttest = config.appAttest?.policy
                 if config.enabled && config.mixtapesEnabled { result.mixtapes = 1 }
+                if config.enabled && config.booksEnabled {
+                    result.books = 1
+                    result.book = ShareBookLimits(limits: config.limits)
+                }
                 if config.enabled, let push = reactionPushStore, push.policy.enabled,
                    reactionPushAdmission != nil {
                     result.reactionPush = ReactionPushAdvertisement(version: 1,
@@ -293,7 +307,11 @@ public final class ShareService: @unchecked Sendable {
         }
     }
 
-    func createAuthorized(_ valid: CreateShareRequest, sharer: Sharer, who: ShareRequester, verified: Bool) throws -> ShareResponse {
+    /// `kind` labels the `share_created` event for a container that the report counts apart
+    /// (`book`). `gate` runs after the ordinary create limits and before the quota, inside the
+    /// caller's transaction, for a container's own limits and reservations.
+    func createAuthorized(_ valid: CreateShareRequest, sharer: Sharer, who: ShareRequester, verified: Bool,
+                          kind: String? = nil, gate: (() throws -> ShareResponse?)? = nil) throws -> ShareResponse {
         if let denial = try enforcementCreateDenial(sharer) { return denial }
         let now = self.now
         let dayStart = now - now % 86400
@@ -309,6 +327,7 @@ public final class ShareService: @unchecked Sendable {
         else { return rateLimited("sharer_live", now: now) }
         guard limiter.allow("create:\(network)", limit: config.limits.createsPerNetworkPerDay, per: 86400, now: now)
         else { return rateLimited("network_daily", now: now) }
+        if let gate, let refusal = try gate() { return refusal }
         guard try store.quotaBytes() + Int64(valid.audioBytes) <= config.limits.quotaBytes else {
             return .error(503, "busy", "Sharing is busy right now. Try again later.")
         }
@@ -336,6 +355,7 @@ public final class ShareService: @unchecked Sendable {
         ]
         if let bucket = valid.effectiveDurationBucket { props["durationBucket"] = .string(bucket.rawValue) }
         if isNew { props["newSharer"] = .bool(true) }
+        if let kind { props["kind"] = .string(kind) }
         try store.record(event: "share_created", at: now, shareID: id, sharerID: sharer.id, props: props)
         for failure in valid.recentFailures ?? [] {
             try store.record(event: "share_failed", at: now, sharerID: sharer.id,
@@ -349,7 +369,7 @@ public final class ShareService: @unchecked Sendable {
             uploads: .init(audio: "\(base)/audio", art: "\(base)/art", card: "\(base)/card")), status: 201)
     }
 
-    private func rateLimited(_ scope: String, now: Int64) -> ShareResponse {
+    func rateLimited(_ scope: String, now: Int64) -> ShareResponse {
         try? store.record(event: "rate_limited", at: now, props: ["scope": .string(scope)])
         let retry = scope.hasSuffix("minute") ? 60 : 86400 - Int(now % 86400)
         return .error(429, "rate_limited", "Too many shares for now. Try again later.",
@@ -360,6 +380,7 @@ public final class ShareService: @unchecked Sendable {
 
     func upload(_ request: StreamingUpload.Request, file: URL) throws -> ShareResponse {
         if request.path.hasPrefix("/v1/share/mixtapes/") { return try uploadMixtape(request, file: file) }
+        if request.path.hasPrefix("/v1/share/books/") { return try uploadBook(request, file: file) }
         let parts = request.path.split(separator: "/").map(String.init)
         guard parts.count == 5, let kind = ShareStore.BlobKind(rawValue: parts[4]) else {
             return .error(404, "not_found", "No such route.")
@@ -804,7 +825,7 @@ public final class ShareService: @unchecked Sendable {
 extension ShareService {
     func mixtapePlayerPage(id: String, who: ShareRequester) throws -> ShareResponse {
         guard config.mixtapesEnabled else { return mixtapePage.render(id: nil, state: "unsupported") }
-        guard ShareLink.isValidID(id), let record = try store.share(id: id), record.isMixtape else {
+        guard ShareLink.isValidID(id), let record = try store.share(id: id), record.isMixtape, !record.isBook else {
             return mixtapePage.render(id: nil, state: "unknown")
         }
         guard config.enabled, try !store.isEnforced(record), record.expiresAt > now,

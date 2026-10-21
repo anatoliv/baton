@@ -174,3 +174,135 @@ public enum ShareBookPlan {
         return mib < 10 ? String(format: "%.1f MB", mib) : "\(Int(mib.rounded())) MB"
     }
 }
+
+// MARK: - Whole-book links (`/b/`, Phase 2)
+
+extension ShareBookPlan {
+    /// What a whole-book link would hold, once every check has passed.
+    public struct WholeBook: Equatable, Sendable {
+        public var chapters: Int
+        public var seconds: Int
+        /// The chapters' audio once sealed. Read-along text and the manifest come on top.
+        public var sealedAudioBytes: Int
+
+        /// "30 chapters · 10 h 0 m · 206 MB. A book link holds up to 200 chapters and 256 MB."
+        public func line(limits: ShareBookLimits) -> String {
+            let count = chapters == 1 ? "1 chapter" : "\(chapters) chapters"
+            return "\(count) · \(ShareBookPlan.minutes(seconds)) · \(ShareBookPlan.megabytes(sealedAudioBytes)). "
+                + "A book link holds up to \(limits.maxChapters) chapters and \(ShareBookPlan.megabytes(limits.maxBookBytes))."
+        }
+    }
+
+    /// A chapter's name in a whole-book link: its own, cut to the wire's limit, or "Chapter 3".
+    public static func wholeBookChapterTitle(_ chapter: Chapter) -> String {
+        let own = truncated(chapter.title, to: ShareLimits.maxTitleLength)
+        return own.isEmpty ? "Chapter \(chapter.index + 1)" : own
+    }
+
+    /// The book's name as the link carries it, cut to fit, or "A book" for a book with none.
+    public static func bookTitle(_ book: String) -> String {
+        let name = truncated(book, to: ShareLimits.maxTitleLength)
+        return name.isEmpty ? "A book" : name
+    }
+
+    /// Why a whole book cannot be one `/b/` link, in the composer's words. Chapter numbers are
+    /// 1-based, as the book shows them.
+    public enum WholeBookRefusal: Error, Equatable, Sendable {
+        case empty
+        case missingChapters([Int])
+        case tooManyChapters(max: Int)
+        case chapterTooLong(Int, maxSeconds: Int)
+        case tooLong(seconds: Int, maxSeconds: Int)
+        case chapterTooLarge(Int, maxBytes: Int)
+        case tooLarge(bytes: Int, maxBytes: Int)
+
+        public var message: String {
+            switch self {
+            case .empty:
+                return "No chapter of this book is on this device yet."
+            case let .missingChapters(numbers):
+                let named = ShareBookPlan.list(numbers)
+                let verb = numbers.count == 1 ? "isn't" : "aren't"
+                return "\(named) \(verb) on this device. A whole-book link needs every chapter here: get \(numbers.count == 1 ? "it" : "them") back first, or send a run of chapters instead."
+            case let .tooManyChapters(max):
+                return "A book link holds up to \(max) chapters."
+            case let .chapterTooLong(number, maxSeconds):
+                return "Chapter \(number) is longer than \(ShareBookPlan.minutes(maxSeconds)), the most one chapter can be."
+            case let .tooLong(seconds, maxSeconds):
+                return "This book lasts \(ShareBookPlan.minutes(seconds)); a book link holds up to \(ShareBookPlan.minutes(maxSeconds))."
+            case let .chapterTooLarge(number, maxBytes):
+                return "Chapter \(number) is larger than \(ShareBookPlan.megabytes(maxBytes)), the most one chapter can be."
+            case let .tooLarge(bytes, maxBytes):
+                return "This book is \(ShareBookPlan.megabytes(bytes)); a book link holds up to \(ShareBookPlan.megabytes(maxBytes))."
+            }
+        }
+    }
+
+    /// Whether the whole book can be one `/b/` link within the caps the service advertises.
+    /// `chapters` are those on this device; `chapterCount` is every chapter the book has, so a
+    /// chapter that is not here is named rather than silently left out.
+    public static func checkWholeBook(_ chapters: [Chapter], chapterCount: Int,
+                                      limits: ShareBookLimits) -> Result<WholeBook, WholeBookRefusal> {
+        guard !chapters.isEmpty, chapterCount > 0 else { return .failure(.empty) }
+        let here = Set(chapters.map(\.index))
+        let missing = (0 ..< chapterCount).filter { !here.contains($0) }.map { $0 + 1 }
+        guard missing.isEmpty else { return .failure(.missingChapters(missing)) }
+        guard chapters.count <= limits.maxChapters else { return .failure(.tooManyChapters(max: limits.maxChapters)) }
+        var seconds = 0, bytes = 0
+        for chapter in chapters.sorted(by: { $0.index < $1.index }) {
+            guard chapter.wireSeconds <= limits.maxChapterSeconds else {
+                return .failure(.chapterTooLong(chapter.index + 1, maxSeconds: limits.maxChapterSeconds))
+            }
+            let sealed = ShareCrypto.sealedLength(plaintextLength: chapter.bytes)
+            guard sealed <= limits.maxChapterBytes else {
+                return .failure(.chapterTooLarge(chapter.index + 1, maxBytes: limits.maxChapterBytes))
+            }
+            seconds += chapter.wireSeconds
+            bytes += sealed
+        }
+        guard seconds <= limits.maxBookSeconds else { return .failure(.tooLong(seconds: seconds, maxSeconds: limits.maxBookSeconds)) }
+        guard bytes <= limits.maxBookBytes else { return .failure(.tooLarge(bytes: bytes, maxBytes: limits.maxBookBytes)) }
+        return .success(WholeBook(chapters: chapters.count, seconds: seconds, sealedAudioBytes: bytes))
+    }
+
+    /// Whether the composer opens on the whole-book link: the service offers it, every chapter
+    /// is here, and the whole book does not fit one Phase 1 link (more than 12 chapters, or over
+    /// the advertised duration or size). A run that fits keeps Phase 1, and a book with a chapter
+    /// missing starts on the chapters it can send.
+    public static func prefersWholeBook(_ chapters: [Chapter], chapterCount: Int, limits: Limits,
+                                        bookLimits: ShareBookLimits?) -> Bool {
+        guard let bookLimits, case .success = checkWholeBook(chapters, chapterCount: chapterCount, limits: bookLimits)
+        else { return false }
+        if case .success = check(chapters.sorted { $0.index < $1.index }, limits: limits) { return false }
+        return true
+    }
+
+    /// A chapter's read-along sentences as the book format carries them, or nil when there are
+    /// none. Every segment is made one the format accepts rather than refusing the chapter: text
+    /// cut to the segment limit, a paragraph below the heading's -1 raised to it, an end before
+    /// its start moved to the start, and a segment with no usable start or no words left out.
+    public static func readAlongText(_ segments: [ShareBookText.Segment]) -> ShareBookText? {
+        var out = [ShareBookText.Segment]()
+        for segment in segments {
+            guard out.count < ShareBookText.maxSegments else { break }
+            guard segment.start.isFinite, segment.start >= 0,
+                  !segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            var text = segment.text
+            if text.unicodeScalars.count > ShareBookText.maxSegmentLength {
+                text = String(String.UnicodeScalarView(text.unicodeScalars.prefix(ShareBookText.maxSegmentLength)))
+            }
+            let end = segment.end.isFinite ? max(segment.start, segment.end) : segment.start
+            out.append(.init(text: text, paragraph: max(-1, segment.paragraph), start: segment.start, end: end))
+        }
+        return out.isEmpty ? nil : ShareBookText(segments: out)
+    }
+
+    /// "Chapter 3", "Chapters 3 and 7", "Chapters 2, 5, 8, 9, 11 and 4 more".
+    static func list(_ numbers: [Int]) -> String {
+        guard let first = numbers.first else { return "" }
+        if numbers.count == 1 { return "Chapter \(first)" }
+        let shown = numbers.prefix(5).map(String.init)
+        if numbers.count > 5 { return "Chapters \(shown.joined(separator: ", ")) and \(numbers.count - 5) more" }
+        return "Chapters \(shown.dropLast().joined(separator: ", ")) and \(shown.last!)"
+    }
+}

@@ -412,3 +412,30 @@ public enum AlarmSystemSyncPlan {
         return result
     }
 }
+
+/// What a sync does to the running timer the system holds (AlarmKit). The timer is synced by
+/// state rather than by fingerprint, since pause and resume act on the alarm AlarmKit already
+/// has; and when its sound changed (the track's clip was cut after it started with the chime) it
+/// is cancelled and scheduled again for the same end, once.
+public enum AlarmSystemTimerPlan {
+    /// The system's copy of the timer.
+    public enum Held: Equatable, Sendable { case none, countdown, paused, other }
+    public enum Action: Equatable, Sendable { case none, resume, pause, schedule, reschedule }
+
+    /// - Parameters:
+    ///   - state: the store's timer.
+    ///   - givenSound: the sound it should ring now.
+    ///   - recordedSound: the sound it was last scheduled with, as saved across launches (nil
+    ///     when unknown), so a launch with an unchanged sound leaves it alone.
+    public static func action(_ state: BatonTimer.State, held: Held, now: Date, givenSound: String,
+                              recordedSound: String?) -> Action {
+        switch (state, held) {
+        case (.running, .paused): return .resume
+        case (.paused, .countdown): return .pause
+        case let (.running(endsAt), .none) where endsAt > now: return .schedule
+        case let (.running(endsAt), .countdown) where recordedSound != givenSound && endsAt.timeIntervalSince(now) > 3:
+            return .reschedule
+        default: return .none
+        }
+    }
+}

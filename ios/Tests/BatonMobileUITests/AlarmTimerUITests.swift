@@ -6,7 +6,8 @@ import XCTest
 /// player's clock, not Settings; "Then play" is changed through the picker to a track that is not
 /// in the player (with the player paused, so nothing is playing); and when it goes off over
 /// Settings, "Keep playing, open player" lands in the full player. A second timer then rings over
-/// the full player and Stop pauses it.
+/// the full player and Stop pauses it. On the way an alarm is set beside the running timer, and
+/// both pills show, stacked, each as wide as the tab bar.
 ///
 /// The demo library supplies the tracks, so this needs no server. The system path (AlarmKit, or a
 /// notification) is switched off with `BATON_DEBUG_ALARM_SYSTEM=off`, so no permission prompt
@@ -25,7 +26,7 @@ final class AlarmTimerUITests: XCTestCase {
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
         app.launchEnvironment["BATON_DEBUG_ALARM_SYSTEM"] = "off"
-        app.launchEnvironment["uitestTimerSeconds"] = "30"
+        app.launchEnvironment["uitestTimerSeconds"] = "40"
     }
 
     override func tearDown() {
@@ -115,13 +116,45 @@ final class AlarmTimerUITests: XCTestCase {
             XCTAssertEqual(capsule.frame.maxX, column.maxX, accuracy: 1, "pill \(capsule.frame) vs tab bar \(column)")
         }
 
+        // An alarm as well, with the timer still running: the pill opens the
+        // sheet, the Alarm tab saves one eight hours ahead, and now two pills sit one above the
+        // other, each exactly as wide as the tab bar's capsule.
+        pill.tap()
+        let alarmTab = app.segmentedControls.buttons["Alarm"]
+        XCTAssertTrue(alarmTab.waitForExistence(timeout: 10), "the sheet's Alarm tab")
+        alarmTab.tap()
+        let later = app.buttons["In 8 hours"].firstMatch
+        XCTAssertTrue(later.waitForExistence(timeout: 5))
+        later.tap()
+        app.buttons["alarm-save"].tap()
+        XCTAssertTrue(app.buttons["alarm-save"].waitForNonExistence(timeout: 5), "Save closes the sheet")
+        let capsules = app.descendants(matching: .any).matching(identifier: "alarm-pill-capsule")
+        XCTAssertTrue(capsules.element(boundBy: 1).waitForExistence(timeout: 5), "two pills: the timer and the alarm")
+        XCTAssertEqual(capsules.count, 2)
+        let pills = app.buttons.matching(identifier: "alarm-pill")
+        XCTAssertTrue(pills.element(boundBy: 0).label.hasPrefix("Timer "), pills.element(boundBy: 0).label)
+        XCTAssertTrue(pills.element(boundBy: 1).label.hasPrefix("Alarm "), pills.element(boundBy: 1).label)
+        let upper = capsules.element(boundBy: 0).frame, lower = capsules.element(boundBy: 1).frame
+        XCTAssertLessThan(upper.maxY, lower.minY + 1, "stacked one above the other, not side by side: \(upper) \(lower)")
+        if #available(iOS 26.0, *) {
+            let screenWidth = app.frame.width
+            let tabCapsule = app.tabBars.firstMatch.descendants(matching: .other).allElementsBoundByIndex
+                .map { $0.frame }.filter { $0.width < screenWidth }.max { $0.width < $1.width }
+            let column = try XCTUnwrap(tabCapsule, "the tab bar's capsule")
+            for frame in [upper, lower] {
+                XCTAssertEqual(frame.minX, column.minX, accuracy: 1, "pill \(frame) vs tab bar \(column)")
+                XCTAssertEqual(frame.maxX, column.maxX, accuracy: 1, "pill \(frame) vs tab bar \(column)")
+            }
+        }
+        attach("05b-timer-and-alarm-pills")
+
         // Settings, and the timer goes off over it.
         selectReleaseTab("Home", in: app, screenTitle: "Home")
         app.buttons["Settings"].firstMatch.tap()
         let permissionRow = app.descendants(matching: .any)["settings-alarm-permission"].firstMatch
         XCTAssertTrue(permissionRow.waitForExistence(timeout: 10), "Settings is open, with its one Alarm and Timer row")
         let ringing = app.descendants(matching: .any)["alarm-ringing"].firstMatch
-        XCTAssertTrue(ringing.waitForExistence(timeout: 45), "the timer went off")
+        XCTAssertTrue(ringing.waitForExistence(timeout: 60), "the timer went off")
         XCTAssertTrue(permissionRow.exists, "it rang over Settings, which is still underneath")
         XCTAssertTrue(label(containing: chosen).exists, "the ringing card names what plays")
         XCTAssertTrue(app.buttons["alarm-snooze"].exists, "Snooze 9 min")
@@ -145,7 +178,7 @@ final class AlarmTimerUITests: XCTestCase {
         XCTAssertTrue(five.waitForExistence(timeout: 10))
         five.tap()
         app.buttons["timer-start"].tap()
-        XCTAssertTrue(ringing.waitForExistence(timeout: 45), "the second timer went off over the player")
+        XCTAssertTrue(ringing.waitForExistence(timeout: 60), "the second timer went off over the player")
         attach("08-ringing-over-player")
         app.buttons["alarm-stop"].tap()
         XCTAssertTrue(ringing.waitForNonExistence(timeout: 5))

@@ -23,10 +23,11 @@ final class AlarmKitWalkUITests: XCTestCase {
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
         app.launchEnvironment["uitestAlarmLeadSeconds"] = "25"
-        // AlarmKit rings its own sound by default. BATON_ALARMKIT_WALK_SOUND=clip tries Baton's clip
-        // of the track instead (it aborted the iOS 26.5 simulator's SpringBoard; a phone check).
-        if ProcessInfo.processInfo.environment["BATON_ALARMKIT_WALK_SOUND"] == "clip" {
-            app.launchEnvironment["BATON_DEBUG_ALARM_SOUND"] = "clip"
+        // Baton rings the track's clip through AlarmKit, which aborts the iOS 26.5
+        // simulator's SpringBoard in ToneLibrary, believed a simulator fault. So the walk gives AlarmKit its
+        // own sound unless BATON_ALARMKIT_WALK_SOUND=clip asks for the shipping sound.
+        if ProcessInfo.processInfo.environment["BATON_ALARMKIT_WALK_SOUND"] != "clip" {
+            app.launchEnvironment["BATON_DEBUG_ALARM_SOUND"] = "default"
         }
     }
 

@@ -305,6 +305,20 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.7",
+            date: "October 2026",
+            highlight: "Alarms and timers ring with the song you chose.",
+            changes: [
+                .init(.improved, "An alarm or timer now rings with the first 29 seconds of the song you picked, on the Lock Screen too. Open Baton from the alert and the whole song carries on. If Baton can't get the song in time, you hear Baton's chime instead of the iPhone's alarm sound."),
+                .init(.fixed, "Songs streamed from your server work as alarm sounds now, not just downloads and books."),
+                .init(.improved, "What to Play lists the last 50 songs you played, newest first and each once, with a ten-second preview on every row. Browse sits above them so it stays in reach."),
+                .init(.improved, "A timer and an alarm can be set at the same time. Each gets its own pill above the player, one above the other, and each ✕ cancels only its own."),
+                .init(.fixed, "The timer and alarm pills are exactly as wide as the player and tab bar below them."),
+                .init(.added, "Share a whole book as one link. Long-press a book, choose Share… and pick The whole book: your friend plays every chapter in any browser, with no app and no account, and can follow the words if you include the text."),
+                .init(.fixed, "A Make Audiobook that finishes after you cancel it no longer closes the import screen of the next document."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.6",
             date: "October 2026",
             highlight: "Alarm and Timer in two taps, from the player, and they wake you into it.",

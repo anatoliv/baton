@@ -8,13 +8,14 @@ import UserNotifications
 
 /// The iPhone's Alarm and Timer (TBX-11171, specs/alarm-and-timer.md): the shared store and
 /// center, the system path for when Baton is not running (AlarmKit on iOS 26 and later, a
-/// notification before that), the alarm sound and the chime.
+/// notification before that), the alarm sound (`AlarmClipStore`) and the chime.
 @MainActor
 @Observable
 final class MobileAlarms {
     let store: AlarmStore
     let center: AlarmCenter
-    @ObservationIgnored private let sounds = AlarmSounds()
+    /// The clip of each alarm's track, its sound on both system paths.
+    @ObservationIgnored let sounds = AlarmClipStore()
     @ObservationIgnored private var chimePlayer: AVAudioPlayer?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var nowPlayingChoice: () -> AlarmChoice? = { nil }
@@ -50,13 +51,15 @@ final class MobileAlarms {
         #endif
     }
 
-    /// AlarmKit rings its own alarm sound. Baton's clip of the track, or its chime, is used only
-    /// with `BATON_DEBUG_ALARM_SOUND=clip` in a DEBUG build, until a physical iPhone has rung both
-    /// (the iOS 26.5 simulator's SpringBoard aborted in ToneLibrary on the clip; TBX-11171 review).
-    /// The notification path (iOS 18 to 25) keeps Baton's sounds. Environment only.
-    static var customAlarmKitSound: Bool {
+    /// AlarmKit rings the chosen track's clip, else Baton's chime, else its own alarm sound
+    ///. `BATON_DEBUG_ALARM_SOUND=default` in a DEBUG build gives AlarmKit only its
+    /// own sound: the iOS 26.5 simulator's SpringBoard aborts in ToneLibrary when it rings a named
+    /// sound, believed to be a simulator fault (the phone check is TBX-1000000075), so a simulator
+    /// walk that lets an alarm ring sets it.
+    /// Environment only.
+    static var systemAlarmKitSoundOnly: Bool {
         #if DEBUG
-        ProcessInfo.processInfo.environment["BATON_DEBUG_ALARM_SOUND"] == "clip"
+        ProcessInfo.processInfo.environment["BATON_DEBUG_ALARM_SOUND"] == "default"
         #else
         false
         #endif
@@ -103,7 +106,7 @@ final class MobileAlarms {
         if !Self.systemSwitchedOff {
             if #available(iOS 26.0, *) {
                 let bridge = AlarmKitBridge()
-                if Self.customAlarmKitSound {
+                if !Self.systemAlarmKitSoundOnly {
                     bridge.soundName = { [sounds] in sounds.soundName(for: $0) }
                     bridge.prepare = { [sounds] in await sounds.prepare($0) }
                 }
@@ -390,16 +393,17 @@ struct AlarmClockButton<Label: View>: View {
     }
 }
 
-/// The pill above the mini player, presenting the sheet from where it sits.
+/// The pill above the mini player, presenting the sheet from where it sits. With a timer and an
+/// alarm both set, two pills, one above the other.
 ///
-/// As wide as the mini player under it, and capped at 620pt on the iPad as its
-/// bar is.
+/// Each as wide as the mini player under it, and capped at 620pt on the iPad as
+/// its bar is.
 struct MobileAlarmPill: View {
     let alarms: MobileAlarms
     @Environment(\.presentAlarmSheet) private var present
 
     var body: some View {
-        AlarmPill(center: alarms.center, open: { present?(.list) }, fillsWidth: true)
+        AlarmPill(center: alarms.center, open: { present?($0.request) }, fillsWidth: true)
             .padding(.horizontal, Self.sideInset)
             .readableWidth(620)
             .padding(.bottom, 6)

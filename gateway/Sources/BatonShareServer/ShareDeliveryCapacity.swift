@@ -13,7 +13,9 @@ public enum ShareDeliveryCapacity {
         guard parts.count >= 5, parts[0] == "v1", parts[1] == "share" else { return 0 }
         let singleBlob = parts.count == 5 && parts[2] == "p" && ["audio", "art", "card"].contains(parts[4])
         let mixtapeTrack = parts.count == 6 && parts[2] == "m" && parts[4] == "tracks"
-        guard singleBlob || mixtapeTrack else { return 0 }
+        // A book blob is at most one chapter (maxBookChapterBytes, equal to maxAudioBytes).
+        let bookBlob = parts.count == 6 && parts[2] == "b" && parts[4] == "blobs"
+        guard singleBlob || mixtapeTrack || bookBlob else { return 0 }
         // Range and malformed/unknown IDs reserve the same conservative ceiling BEFORE the
         // handler. HEAD, metadata, session admission and health remain independent and small.
         guard maximumAudioBytes > 0, maximumAudioBytes <= (Int.max - 65_536) / 2 else { return Int.max }

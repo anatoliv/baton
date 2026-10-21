@@ -288,7 +288,9 @@ struct BooksView: View {
 
     /// Share…: a link a friend outside the LAN can play, as a song's Share… makes.
     private func shareButton(_ book: MobileBookShelf.Book) -> some View {
-        Button { sharingBook = BookShareDraft(book, covers: covers) } label: {
+        Button {
+            sharingBook = BookShareDraft(book, covers: covers, timing: { await model.books.readAlongTiming(for: $0) })
+        } label: {
             Label("Share…", systemImage: "square.and.arrow.up")
         }
         .disabled(book.readyChapters.isEmpty)

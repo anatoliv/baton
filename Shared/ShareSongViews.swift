@@ -227,13 +227,43 @@ struct SharedLinksView: View {
     @State private var pendingRevoke: ShareLedger.Record?
     @State private var actionError: String?
     @State private var showsContact = false
+    @State private var pendingDiscard: SongSharing.PendingBook?
 
     var body: some View {
         List {
-            Button("Retry interrupted mixtape uploads") {
+            // Books are named only once this device has book links; otherwise the wording is as before.
+            Button(sharing.hasBookLinks ? "Retry interrupted uploads" : "Retry interrupted mixtape uploads") {
                 Task {
-                    do { try await sharing.resumeMixtapeUploads(); actionError = nil; await sharing.refresh() }
-                    catch { actionError = "Protected upload recovery is unavailable. Your drafts are kept; try again later." }
+                    // Mixtapes and books recover independently: one stuck ticket never holds up the other.
+                    var failed = false
+                    do { try await sharing.resumeMixtapeUploads() } catch { failed = true }
+                    do { try await sharing.resumeBookUploads() } catch { failed = true }
+                    actionError = failed ? "Protected upload recovery is unavailable. Your drafts are kept; try again later." : nil
+                    await sharing.refresh()
+                }
+            }
+            if !sharing.pendingBooks.isEmpty {
+                Section {
+                    ForEach(sharing.pendingBooks) { pending in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(pending.title).font(.headline).lineLimit(1)
+                            Text("Book link not finished uploading. Its encrypted copy is kept on this device.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Button("Retry Upload") {
+                                    Task {
+                                        do { _ = try await sharing.resumeBookUpload(pending.directory); actionError = nil }
+                                        catch { actionError = SongShareError(error).errorDescription }
+                                    }
+                                }
+                                Button("Discard", role: .destructive) { pendingDiscard = pending }
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .accessibilityIdentifier("shared-links-pending-book")
+                    }
+                } header: {
+                    Text("Unfinished book links")
                 }
             }
             if ReactionPushNotifications.shared.available || ReactionPushNotifications.shared.optedIn
@@ -288,7 +318,18 @@ struct SharedLinksView: View {
         }
         .sheet(isPresented: $showsContact) { SharedContactView() }
         .navigationTitle("Shared Links")
-        .task { await ReactionPushNotifications.shared.refreshAvailability(); await sharing.refresh() }
+        .task {
+            sharing.loadPendingBooks()
+            await ReactionPushNotifications.shared.refreshAvailability()
+            await sharing.refresh()
+        }
+        .confirmationDialog("Discard this book link?", isPresented: Binding(
+            get: { pendingDiscard != nil }, set: { if !$0 { pendingDiscard = nil } }), presenting: pendingDiscard
+        ) { pending in
+            Button("Discard", role: .destructive) { sharing.discardBookUpload(pending.directory) }
+        } message: { pending in
+            Text("The encrypted copy of “\(pending.title)” is deleted from this device, and its unfinished link never plays. Share the book again to make a new one.")
+        }
         .refreshable { await sharing.refresh() }
         .confirmationDialog("Revoke this link?", isPresented: Binding(
             get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }), presenting: pendingRevoke
@@ -322,7 +363,15 @@ struct SharedLinksView: View {
                 if let notice = summary.actionRequired {
                     Text(notice).font(.caption).foregroundStyle(.orange)
                 }
-                if record.containerKind == .mixtape {
+                if record.containerKind == .book {
+                    Text(bookLine(record, summary)).font(.caption)
+                    if let deadline = record.bookSummary?.reviewDeadline, let date = ShareDate.date(deadline) {
+                        Text("Review deadline: \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption)
+                    }
+                    if let remaining = record.bookSummary?.pausedLifetimeSeconds {
+                        Text("Paused link lifetime: \(remaining / 3600) hours remaining").font(.caption)
+                    }
+                } else if record.containerKind == .mixtape {
                     Text("\(record.songIDs?.count ?? record.mixtapeSummary?.trackCount ?? 0) tracks · Sessions \(summary.stats.fetches) · Played \(summary.stats.plays)").font(.caption)
                     if let deadline = record.mixtapeSummary?.reviewDeadline, let date = ShareDate.date(deadline) {
                         Text("Review deadline: \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption)
@@ -370,6 +419,15 @@ struct SharedLinksView: View {
         case .pending: "Still uploading"
         case .ready: SharePresentation.expiry(record.expiresAt)
         }
+    }
+
+    /// "30 chapters · 4 of 10 listeners · Read-along text"
+    private func bookLine(_ record: ShareLedger.Record, _ summary: ShareSummary) -> String {
+        var parts = [String]()
+        if let chapters = record.bookSummary?.chapterCount { parts.append(chapters == 1 ? "1 chapter" : "\(chapters) chapters") }
+        parts.append("\(summary.stats.fetches) of \(summary.playCap) listeners")
+        if record.bookSummary?.hasText == true { parts.append("Read-along text") }
+        return parts.joined(separator: " · ")
     }
 
     private func reactionLine(_ reaction: ShareReaction) -> String {

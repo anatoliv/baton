@@ -79,7 +79,7 @@ public final class AlarmQuickSetup {
 
     /// The item that played last, as an alarm would play it.
     public static func lastPlayed(_ history: MusicPlayHistory) -> AlarmChoice? {
-        history.recentlyPlayed.first.map(AlarmChoice.song)
+        history.recentlyPlayed(limit: 1).first.map(AlarmChoice.song)
     }
 
     /// The picker chose something, or the sheet was opened for it.
@@ -238,24 +238,40 @@ public struct AlarmPillState: Equatable, Sendable {
     /// How far ahead an alarm shows in the pill.
     public static let alarmHorizon: TimeInterval = 24 * 3600
 
+    /// The first pill: the timer when one runs, else the soonest alarm within a day.
     @MainActor
     public static func current(_ store: AlarmStore, now: Date = Date(),
                                calendar: Calendar = .autoupdatingCurrent) -> AlarmPillState? {
+        all(store, now: now, calendar: calendar).first
+    }
+
+    /// Every pill to show: the timer, then the soonest alarm due within a day. A timer and an
+    /// alarm are independent, so with both set both show, one above the other, each with its own
+    /// ✕ (owner, 2026-10-21, TBX-1000000410: "I should be able to setup timer and alarm at the
+    /// same time"). Until then the timer's pill hid the alarm's.
+    @MainActor
+    public static func all(_ store: AlarmStore, now: Date = Date(),
+                           calendar: Calendar = .autoupdatingCurrent) -> [AlarmPillState] {
+        var pills: [AlarmPillState] = []
         if let timer = store.timer {
             let face = BatonTimer.clockFace(timer.remaining(at: now))
-            return AlarmPillState(kind: .timer(paused: timer.isPaused), id: timer.id,
-                                  lead: timer.isPaused ? "Timer paused \(face)" : "Timer \(face)",
-                                  thenPlay: timer.choice.title)
+            pills.append(AlarmPillState(kind: .timer(paused: timer.isPaused), id: timer.id,
+                                        lead: timer.isPaused ? "Timer paused \(face)" : "Timer \(face)",
+                                        thenPlay: timer.choice.title))
         }
         let soonest = store.alarms
             .compactMap { alarm in alarm.nextFire(after: now, calendar: calendar).map { (alarm, $0) } }
             .filter { $0.1.timeIntervalSince(now) <= alarmHorizon }
             .min { $0.1 < $1.1 }
-        guard let (alarm, fire) = soonest else { return nil }
-        let style = Date.FormatStyle(date: .omitted, time: .shortened, calendar: calendar, timeZone: calendar.timeZone)
-        return AlarmPillState(kind: .alarm, id: alarm.id, lead: "Alarm \(fire.formatted(style))",
-                              thenPlay: alarm.choice.title)
+        if let (alarm, fire) = soonest {
+            let style = Date.FormatStyle(date: .omitted, time: .shortened, calendar: calendar, timeZone: calendar.timeZone)
+            pills.append(AlarmPillState(kind: .alarm, id: alarm.id, lead: "Alarm \(fire.formatted(style))",
+                                        thenPlay: alarm.choice.title))
+        }
+        return pills
     }
+
+    public var isTimer: Bool { if case .timer = kind { true } else { false } }
 
     /// The pill's ✕: cancels the timer, or switches the alarm off.
     @MainActor
@@ -377,6 +393,8 @@ public final class AlarmPickerModel {
 
     /// How long a preview plays.
     public static let previewLength: TimeInterval = 10
+    /// How many tracks Recently played lists (owner, 2026-10-21: "the last 50 played").
+    public static let recentLimit = 50
 
     public var query = ""
     public private(set) var results: [AlarmPickItem] = []
@@ -406,7 +424,7 @@ public final class AlarmPickerModel {
         self.previewLength = previewLength
     }
 
-    public func load() { recent = source.recent() }
+    public func load() { recent = Array(source.recent().prefix(Self.recentLimit)) }
 
     /// Runs the search for `query` (the view debounces). An empty query clears it.
     public func search() async {
@@ -506,8 +524,11 @@ public final class LibraryAlarmPickerSource: AlarmPickerSource {
         self.books = books
     }
 
+    /// The last 50 tracks played, newest first, each once. From the play
+    /// history (`MusicPlayHistory`), the durable record of what was listened to; the in-memory
+    /// `PlaybackEventLog` forgets everything at quit.
     public func recent() -> [AlarmPickItem] {
-        Array(history.recentlyPlayed.prefix(20)).map(AlarmPickItem.song)
+        history.recentlyPlayed(limit: AlarmPickerModel.recentLimit).map(AlarmPickItem.song)
     }
 
     public func browse(_ section: AlarmPickerModel.Section) async -> [AlarmPickItem] {

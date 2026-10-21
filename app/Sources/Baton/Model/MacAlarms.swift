@@ -245,7 +245,7 @@ struct MacAlarmClockButton: View {
     var body: some View {
         HStack(spacing: 6) {
             if showsPill {
-                AlarmPill(center: model.alarms.center, open: { request = .list; showsSheet = true }, compact: true)
+                AlarmPill(center: model.alarms.center, open: { request = $0.request; showsSheet = true }, compact: true)
             }
             Button {
                 request = .timer(nil)

@@ -207,7 +207,7 @@ extension ShareService {
         if state.hasPausedLifetime && state.courtReviewRequired { return "courtReview" }
         if state.hasPausedLifetime && record.isCapped { return "spentCap" }
         if try store.isSuspended(digest: record.sharerDigest) { return "suspended" }
-        if record.isMixtape { return try store.mixtapeMaterialComplete(record) ? nil : "missingMaterial" }
+        if record.isMixtape { return try store.mixtapeMaterialComplete(record, limits: config.limits) ? nil : "missingMaterial" }
         guard record.audioStored else { return "missingMaterial" }
         var bytes: Int64 = 0
         let kinds: [ShareStore.BlobKind] = [.audio] + (record.artType == nil ? [] : [.art]) + (record.cardType == nil ? [] : [.card])

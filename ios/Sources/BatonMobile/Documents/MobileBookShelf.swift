@@ -215,9 +215,10 @@ enum MobileBookShelf {
 
 extension BookShareDraft {
     /// An iPhone book as Share… sees it: the chapters whose audio is here.
-    @MainActor init(_ book: MobileBookShelf.Book, covers: BookCovers?) {
+    @MainActor init(_ book: MobileBookShelf.Book, covers: BookCovers?,
+                      timing: (@MainActor (ClippingStore.Item) async -> ReadAlongTiming?)? = nil) {
         self.init(documentID: book.documentID, title: book.title, author: book.author,
                   chapters: book.chapters.map { (index: $0.index, title: $0.title, item: $0.item) },
-                  coverURL: covers?.url(for: book.documentID))
+                  coverURL: covers?.url(for: book.documentID), timing: timing)
     }
 }

@@ -473,7 +473,7 @@ private struct ThenPlayRow: View {
 
 // MARK: - What to play
 
-/// Search, Recently played, then Browse. Needs nothing playing.
+/// Search, Browse, then Recently played (the last 50 tracks). Needs nothing playing.
 struct AlarmPickerView: View {
     let model: AlarmPickerModel
     let onPick: (AlarmChoice) -> Void
@@ -503,16 +503,18 @@ struct AlarmPickerView: View {
                     ForEach(model.results) { AlarmPickRow(item: $0, model: model, onPick: onPick) }
                 }
             } else {
-                if !model.recent.isEmpty {
-                    Section("Recently Played") {
-                        ForEach(model.recent) { AlarmPickRow(item: $0, model: model, onPick: onPick) }
-                    }
-                }
+                // Browse sits above Recently played, which lists up to 50 tracks and would
+                // otherwise push it a long scroll down.
                 Section("Browse") {
                     ForEach(AlarmPickerModel.Section.allCases) { section in
                         NavigationLink(value: AlarmSheetRoute.section(section)) {
                             Label(section.rawValue, systemImage: section.symbol)
                         }
+                    }
+                }
+                if !model.recent.isEmpty {
+                    Section("Recently Played") {
+                        ForEach(model.recent) { AlarmPickRow(item: $0, model: model, onPick: onPick) }
                     }
                 }
             }
@@ -672,56 +674,73 @@ struct TimerRunningView: View {
 
 // MARK: - The pill
 
-/// "Timer 12:34 · then X" above the mini player while a timer runs or an alarm is due within a
-/// day. Tapping it opens the sheet; its ✕ cancels.
+/// "Timer 12:34 · then X" above the mini player while a timer runs, and "Alarm 7:00 · then Y"
+/// while an alarm is due within a day. With both set both show: stacked one above the other on
+/// the iPhone, each as wide as the mini player (TBX-1000000410, after TBX-1000000140), side by side
+/// in the Mac's player bar. Tapping one opens the sheet on it; its ✕ cancels only that one.
 struct AlarmPill: View {
     let center: AlarmCenter
-    let open: () -> Void
+    let open: (AlarmPillState) -> Void
     var compact = false
     /// Spans the width it is given, text at the leading end and the ✕ at the trailing one, so
     /// on the iPhone it lines up with the mini player under it. Sized to its text, a long
     /// "then <title>" ran nearly edge to edge while a short one sat as a stub.
+    /// Filling pills stack; compact ones sit in a row.
     var fillsWidth = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            if let pill = AlarmPillState.current(center.store, now: context.date) {
-                HStack(spacing: 8) {
-                    Button(action: open) {
-                        HStack(spacing: 6) {
-                            Image(systemName: pill.symbol).foregroundStyle(Color.accentColor)
-                            Text(compact ? pill.lead : pill.text)
-                                .font(compact ? .caption.weight(.medium) : .subheadline.weight(.medium))
-                                .monospacedDigit()
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(pill.text)
-                    .accessibilityHint("Opens Alarm and Timer")
-                    .accessibilityIdentifier("alarm-pill")
-                    Button {
-                        pill.cancel(in: center.store)
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(pill.kind == .alarm ? "Turn off this alarm" : "Cancel timer")
-                    .accessibilityIdentifier("alarm-pill-cancel")
+            let pills = AlarmPillState.all(center.store, now: context.date)
+            if !pills.isEmpty {
+                if fillsWidth {
+                    VStack(spacing: 6) { ForEach(pills, id: \.id) { capsule($0) } }
+                } else {
+                    HStack(spacing: 6) { ForEach(pills, id: \.id) { capsule($0) } }
                 }
-                .padding(.horizontal, compact ? 8 : 14)
-                .padding(.vertical, compact ? 4 : 8)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-                // The capsule itself, for a test to measure against the mini player.
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("alarm-pill-capsule")
             }
         }
     }
+
+    private func capsule(_ pill: AlarmPillState) -> some View {
+        HStack(spacing: 8) {
+            Button { open(pill) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: pill.symbol).foregroundStyle(Color.accentColor)
+                    Text(compact ? pill.lead : pill.text)
+                        .font(compact ? .caption.weight(.medium) : .subheadline.weight(.medium))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(pill.text)
+            .accessibilityHint("Opens Alarm and Timer")
+            .accessibilityIdentifier("alarm-pill")
+            Button {
+                pill.cancel(in: center.store)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(pill.kind == .alarm ? "Turn off this alarm" : "Cancel timer")
+            .accessibilityIdentifier("alarm-pill-cancel")
+        }
+        .padding(.horizontal, compact ? 8 : 14)
+        .padding(.vertical, compact ? 4 : 8)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        // The capsule itself, for a test to measure against the mini player.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("alarm-pill-capsule")
+    }
+}
+
+extension AlarmPillState {
+    /// What tapping this pill opens: the timer's sheet, or the alarm to edit.
+    var request: AlarmRequest { isTimer ? .list : .editAlarm(id) }
 }
 
 // MARK: - Going off

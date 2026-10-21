@@ -19,10 +19,12 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
     nonisolated static let requestPrefix = "baton.alarm."
     nonisolated static let chime = "BatonAlarmChime.caf"
 
-    /// The sound for an alarm: a clip of its track when the app made one, else the chime.
+    /// The sound for an alarm: a clip of its track when the app made one, else the chime ("" is
+    /// the system's sound).
     var soundName: (UUID) -> String = { _ in AlarmNotificationBridge.chime }
-    /// Before syncing (for the clip), given the store.
-    var prepare: ((AlarmStore) async -> Void)?
+    /// Makes the clips (the iPhone's `AlarmClipStore.prepare`). True when a sound changed, so the
+    /// requests are made again with it.
+    var prepare: ((AlarmStore) async -> Bool)?
 
     private var center: UNUserNotificationCenter { .current() }
 
@@ -59,8 +61,14 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
         }
     }
 
+    /// Schedules at once with the sounds ready now, then cuts the clips and, when one was made,
+    /// schedules again with it, so a stream being fetched never holds a timer back.
     func sync(_ store: AlarmStore) async {
-        await prepare?(store)
+        await apply(store)
+        if let prepare, await prepare(store) { await apply(store) }
+    }
+
+    private func apply(_ store: AlarmStore) async {
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(Self.requestPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)
         let status = await center.notificationSettings().authorizationStatus
@@ -113,7 +121,7 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
         content.body = body
         content.categoryIdentifier = category
         content.userInfo = [idKey: id.uuidString]
-        content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
+        content.sound = sound.isEmpty ? .default : UNNotificationSound(named: UNNotificationSoundName(sound))
         // Without the Time Sensitive entitlement the system treats this as an ordinary active
         // notification; with it, it breaks through a Focus. See the spec's fallback section.
         content.interruptionLevel = .timeSensitive

@@ -6,9 +6,9 @@ import Foundation
 import SwiftUI
 
 /// Alarms and the timer as AlarmKit alarms, on iOS 26 and later (TBX-11171,
-/// specs/alarm-and-timer.md). The system rings them with Baton's sound on the Lock Screen and
-/// in the Dynamic Island whether Baton runs or not. The API shapes here were read from the
-/// AlarmKit module interface in the iOS 27 SDK.
+/// specs/alarm-and-timer.md). The system rings them with the chosen track's clip (or Baton's
+/// chime) on the Lock Screen and in the Dynamic Island whether Baton runs or not. The API
+/// shapes here were read from the AlarmKit module interface in the iOS 27 SDK.
 ///
 /// Snooze on: the alert's one button of Baton's is Snooze (a 9-minute countdown) and the system
 /// Stop runs `StopBatonAlarmIntent`. Snooze off, and every timer: the button is Play, which
@@ -19,11 +19,12 @@ final class AlarmKitBridge: AlarmSystemBridge {
     typealias Configuration = AlarmManager.AlarmConfiguration<BatonAlarmMetadata>
 
     private let manager = AlarmManager.shared
-    /// The sound for an alarm. Empty is AlarmKit's own alarm sound, the default: Baton's named
-    /// sounds stay off until a physical iPhone has rung them (TBX-11171 review; the simulator's
-    /// SpringBoard aborted on the clip).
+    /// The sound for an alarm: the clip of its track, else Baton's chime, else "" for AlarmKit's
+    /// own alarm sound (`AlarmClipStore.soundName`, TBX-1000000410). Empty until wired.
     var soundName: (UUID) -> String = { _ in "" }
-    var prepare: ((AlarmStore) async -> Void)?
+    /// Makes the clips (`AlarmClipStore.prepare`). True when a sound changed, so the sync
+    /// schedules again with it.
+    var prepare: ((AlarmStore) async -> Bool)?
     /// The store's alarm and timer ids, read live so an alert can be matched to its alarm even
     /// before the first sync of a fresh launch.
     var storeIDs: () -> Set<UUID> = { [] }
@@ -31,6 +32,13 @@ final class AlarmKitBridge: AlarmSystemBridge {
     /// and reschedule alarms it has no reason to touch (a ringing one stops if it does).
     private let defaults: UserDefaults
     private static let scheduledKey = "baton.alarms.alarmkit.scheduled"
+    /// The timer AlarmKit holds and the sound it was given, as "<id> <sound>", so a clip made
+    /// after the timer started replaces the chime once, and a launch leaves it alone.
+    private static let timerSoundKey = "baton.alarms.alarmkit.timerSound"
+    private var timerSound: String? {
+        get { defaults.string(forKey: Self.timerSoundKey) }
+        set { defaults.set(newValue, forKey: Self.timerSoundKey) }
+    }
     private var scheduled: [UUID: String] {
         get {
             (defaults.dictionary(forKey: Self.scheduledKey) as? [String: String] ?? [:])
@@ -136,9 +144,16 @@ final class AlarmKitBridge: AlarmSystemBridge {
         return known.contains(original) ? original : nil
     }
 
+    /// Schedules at once with the sounds ready now (the chime for a clip still being cut), then
+    /// cuts the clips and, when one was made, schedules again so the alarm rings the track. A
+    /// stream can take many seconds to fetch, and a timer must not start late waiting for it.
     func sync(_ store: AlarmStore) async {
         guard isAuthorized else { return }
-        await prepare?(store)
+        await apply(store)
+        if let prepare, await prepare(store) { await apply(store) }
+    }
+
+    private func apply(_ store: AlarmStore) async {
         var desired: [UUID: (fingerprint: String, configuration: @Sendable () -> Configuration)] = [:]
         let now = Date()
         for alarm in store.alarms where alarm.isEnabled {
@@ -155,15 +170,29 @@ final class AlarmKitBridge: AlarmSystemBridge {
         // alarm AlarmKit already has.
         if let timer = store.timer {
             let current = existing.first { $0.id == timer.id }
-            switch (timer.state, current?.state) {
-            case (.running, .paused?): try? manager.resume(id: timer.id)
-            case (.paused, .countdown?): try? manager.pause(id: timer.id)
-            case let (.running(endsAt), nil) where endsAt > now:
-                let sound = soundName(timer.id)
-                let duration = endsAt.timeIntervalSince(now)
-                _ = await Self.schedule(id: timer.id) { @Sendable in Self.configuration(for: timer, duration: duration, sound: sound) }
-            default: break
+            let sound = soundName(timer.id)
+            let given = "\(timer.id.uuidString) \(sound)"
+            let held: AlarmSystemTimerPlan.Held = switch current?.state {
+            case nil: .none
+            case .countdown?: .countdown
+            case .paused?: .paused
+            default: .other
             }
+            switch AlarmSystemTimerPlan.action(timer.state, held: held, now: now, givenSound: given, recordedSound: timerSound) {
+            case .resume: try? manager.resume(id: timer.id)
+            case .pause: try? manager.pause(id: timer.id)
+            case .schedule, .reschedule:
+                guard case let .running(endsAt) = timer.state else { break }
+                // Counting down with the chime while the clip was cut: the same end, the track's sound.
+                if current != nil { try? manager.cancel(id: timer.id) }
+                let duration = endsAt.timeIntervalSince(now)
+                if await Self.schedule(id: timer.id, { @Sendable in Self.configuration(for: timer, duration: duration, sound: sound) }) {
+                    timerSound = given
+                }
+            case .none: break
+            }
+        } else {
+            timerSound = nil
         }
 
         let stopped = store.stoppedByUser.reduce(into: Set<UUID>()) { $0.formUnion([$1, Self.snoozeID(for: $1)]) }
@@ -256,7 +285,9 @@ final class AlarmKitBridge: AlarmSystemBridge {
             sound: alertSound(sound))
     }
 
-    /// The system's own alarm sound for an empty name (a diagnostic switch), else the named file.
+    /// The system's own alarm sound for an empty name (no clip and no chime, or the DEBUG
+    /// `BATON_DEBUG_ALARM_SOUND=default` switch), else the named file in `Library/Sounds` or the
+    /// bundle.
     nonisolated static func alertSound(_ name: String) -> AlertConfiguration.AlertSound {
         name.isEmpty ? .default : .named(name)
     }

@@ -101,6 +101,10 @@ extension ShareService {
             guard row["digest"]?.text == sharer.digest, row["body_hash"]?.text == bodyHash, row["proof_hash"]?.text == proofHash,
                   row["expires_at"]?.int ?? 0 > now, let json = row["response"]?.text,
                   let data = json.data(using: .utf8) else { throw AppAttestError.invalid }
+            if request.path == "/v1/share/books" {
+                guard let response = try? JSONDecoder().decode(CreateBookResponse.self, from: data) else { throw AppAttestError.invalid }
+                return (nil, .json(response, status: 201))
+            }
             if request.path == "/v1/share/mixtapes" {
                 guard let response = try? JSONDecoder().decode(CreateMixtapeResponse.self, from: data) else { throw AppAttestError.invalid }
                 return (nil, .json(response, status: 201))

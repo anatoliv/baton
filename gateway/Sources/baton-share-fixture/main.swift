@@ -20,6 +20,7 @@ do {
                                     publicBase: URL(string: "http://127.0.0.1:\(port)")!, port: port,
                                     blobDelivery: .direct, loopbackOnly: true)
     config.mixtapesEnabled = true
+    config.booksEnabled = true
     let service = try ShareService(config: config)
     let maximumAudioBytes = config.limits.maxAudioBytes
     let transport = POSIXTransport(stagingDirectory: service.stagingDirectory, maximumBodyBytes: config.limits.maxAudioBytes,

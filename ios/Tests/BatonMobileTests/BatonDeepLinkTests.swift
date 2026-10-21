@@ -36,6 +36,16 @@ final class BatonDeepLinkTests: XCTestCase {
         model.incomingShare = nil
     }
 
+    /// A whole-book link has no native receiver: the app hands it to the browser.
+    func testABookLinkIsNotOpenedInTheAppButHandedToTheBrowser() {
+        let id = "AwMDAwMDAwMDAwMDAwMDAw"
+        let url = URL(string: "https://batonmusic.app/b/\(id)#BAQEBAQEBAQEBAQEBAQEBA")!
+        XCTAssertNil(BatonDeepLink(url: url))
+        XCTAssertTrue(BatonDeepLink.isBrowserOnlyShare(url))
+        XCTAssertFalse(BatonDeepLink.isBrowserOnlyShare(URL(string: "https://batonmusic.app/m/\(id)#BAQEBAQEBAQEBAQEBAQEBA")!))
+        XCTAssertFalse(BatonDeepLink.isBrowserOnlyShare(URL(string: "https://batonmusic.app/s/\(id)")!))
+    }
+
     func testThePlayerLinkOnlyPresentsAndStartsNothing() {
         let link = BatonDeepLink(url: URL(string: "baton://player")!)
         XCTAssertEqual(link, .presentPlayer)
