@@ -69,6 +69,39 @@ final class MacAlarmsTests: XCTestCase {
         XCTAssertFalse(ringingPanelVisible)
     }
 
+    /// Two chimes at once (an alarm and a timer together, or two alarms whose songs are missing)
+    /// must not leave the first one looping after Stop. The second chime used to replace the
+    /// first without stopping it, and Stop only reached the newest (TBX-1000000498, A-21).
+    /// Real `NSSound`s on a silent file, kept by the test so a dropped one can still be asked.
+    func testASecondChimeStopsTheFirstAndStopLeavesNoneRinging() throws {
+        let model = MusicModel(environment: .testing)
+        defer { model.music.stop() }
+        let alarms = MacAlarms(player: model.music, defaults: ThrowawayDefaults.make("mac-alarms-chime"))
+        let silent = try tone("chime")
+        var made: [NSSound] = []
+        alarms.makeChime = {
+            let sound = NSSound(contentsOf: silent, byReference: true)
+            if let sound { made.append(sound) }
+            return sound
+        }
+        alarms.start(model: model, systemNotifications: false)
+        defer {
+            alarms.center.stop()
+            made.forEach { $0.stop() }
+        }
+
+        alarms.center.playChime?()
+        let first = try XCTUnwrap(made.first)
+        XCTAssertTrue(first.isPlaying, "the first chime rings (a sound that never played proves nothing below)")
+        alarms.center.playChime?()
+        XCTAssertEqual(made.count, 2)
+        XCTAssertTrue(made[1].isPlaying, "the second chime rings")
+        XCTAssertFalse(first.isPlaying, "the second chime replaced the first and left it looping")
+
+        alarms.center.stopChime?()
+        XCTAssertEqual(made.filter(\.isPlaying).count, 0, "Stop left a chime ringing")
+    }
+
     func testNowPlayingChoiceIsTheQueueFromTheCurrentTrack() throws {
         let model = MusicModel(environment: .testing)
         defer { model.music.stop() }

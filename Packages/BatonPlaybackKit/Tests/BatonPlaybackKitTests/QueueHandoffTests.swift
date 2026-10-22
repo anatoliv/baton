@@ -18,6 +18,8 @@ final class QueueHandoffTests: XCTestCase {
         var saved: NavidromePlayQueue?
         var fetches = 0
         var saves = 0
+        var savedIndex: Int?
+        var saveSucceeds = true
         var storedQueue: NavidromePlayQueue?
 
         @MainActor
@@ -29,11 +31,14 @@ final class QueueHandoffTests: XCTestCase {
                     self.fetches += 1
                     return self.storedQueue
                 },
-                saveQueue: { ids, current, positionMs in
+                saveQueue: { ids, current, positionMs, index in
                     self.saves += 1
+                    self.savedIndex = index
+                    guard self.saveSucceeds else { return false }
                     self.saved = NavidromePlayQueue(
                         songs: ids.map { Self.song($0) }, currentID: current, positionMs: positionMs
                     )
+                    return true
                 }
             )
         }
@@ -240,5 +245,52 @@ final class QueueHandoffTests: XCTestCase {
         XCTAssertEqual(controller.queue.map(\.id), ["a", "b"])
         XCTAssertEqual(controller.nowPlaying?.id, "b")
         controller.toggleShuffle()
+    }
+
+    // MARK: - C2-20
+
+    /// A reorder of the same songs, at the same track and place, was taken for "unchanged".
+    func testAReorderIsSaved() async {
+        let spy = ServerSpy()
+        let controller = makeController()
+        let handoff = QueueHandoff(controller: controller, server: spy.server(), defaults: makeDefaults())
+        controller.play([song("a"), song("b"), song("c")])
+        XCTAssertEqual(handoff.saveNow(), .sent)
+        await settle()
+        controller.moveQueueItem(from: IndexSet(integer: 2), to: 1)
+        XCTAssertEqual(controller.queue.map(\.id), ["a", "c", "b"], "precondition: reordered")
+
+        XCTAssertEqual(handoff.saveNow(), .sent, "the reorder was taken for an unchanged queue")
+        await settle()
+        XCTAssertEqual(spy.saved?.songs.map(\.id), ["a", "c", "b"])
+    }
+
+    /// A save that failed left its signature behind, so the same queue was "unchanged" from
+    /// then on and never reached the server.
+    func testAFailedSaveIsTriedAgain() async {
+        let spy = ServerSpy()
+        spy.saveSucceeds = false
+        let controller = makeController()
+        let handoff = QueueHandoff(controller: controller, server: spy.server(), defaults: makeDefaults())
+        controller.play([song("a"), song("b")])
+        handoff.saveNow()
+        await settle()
+        spy.saveSucceeds = true
+
+        XCTAssertEqual(handoff.saveNow(), .sent, "a failed save made the retry read as unchanged")
+        await settle()
+        XCTAssertEqual(spy.saves, 2)
+        XCTAssertEqual(spy.saved?.songs.map(\.id), ["a", "b"])
+    }
+
+    /// The current index goes with the save, so a song queued twice keeps the copy playing.
+    func testTheCurrentIndexIsSent() async {
+        let spy = ServerSpy()
+        let controller = makeController()
+        let handoff = QueueHandoff(controller: controller, server: spy.server(), defaults: makeDefaults())
+        controller.play([song("a"), song("b"), song("a")], startAt: 2)
+        handoff.saveNow()
+        await settle()
+        XCTAssertEqual(spy.savedIndex, 2)
     }
 }

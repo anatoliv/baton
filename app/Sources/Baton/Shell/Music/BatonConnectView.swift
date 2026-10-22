@@ -113,6 +113,43 @@ struct BatonConnectSheet: View {
         focus = nil
     }
 
+    /// Saves a verified connection (TBX-1000000504, A-22).
+    ///
+    /// The sheet opens filled in with the active server, so reconnecting is "type the secret,
+    /// press Connect". Adding every time listed the server twice, each copy with its own Keychain
+    /// secret. The same server, account and sign-in method now update the entry they already have
+    /// (the active one, if there are several), keeping its name and any proxy headers; anything
+    /// else, including a blank username, is a new server. A local helper over
+    /// `updateServer`/`addServer`, because BatonSubsonicKit has no add-or-update of its own.
+    @discardableResult
+    static func saveConnection(urlString: String, username: String, secret: String,
+                               authMode: NavidromeAuthMode) -> NavidromeServerEntry {
+        let url = urlString.trimmingCharacters(in: .whitespaces)
+        let user = username.trimmingCharacters(in: .whitespaces)
+        func key(_ raw: String) -> String {
+            var value = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            while value.hasSuffix("/") { value.removeLast() }
+            return value
+        }
+        // A blank username identifies nobody: two API-key accounts on one server may both have
+        // one, and merging them would overwrite the first account's key.
+        let matches = user.isEmpty ? [] : NavidromeConfig.servers().filter {
+            key($0.urlString) == key(url) && $0.authMode == authMode
+                && $0.username.trimmingCharacters(in: .whitespaces) == user
+        }
+        // The active copy first, for anyone the old bug already gave duplicates: updating another
+        // copy would read as a server change and clear the queue.
+        let activeID = NavidromeConfig.activeServerID()
+        if let existing = matches.first(where: { $0.id == activeID }) ?? matches.first {
+            NavidromeConfig.updateServer(id: existing.id, displayName: existing.displayName, urlString: url,
+                                         username: username, authMode: authMode, secret: secret)
+            return NavidromeConfig.servers().first { $0.id == existing.id } ?? existing
+        }
+        return NavidromeConfig.addServer(
+            displayName: NavidromeConfig.defaultName(urlString: urlString, username: username),
+            urlString: urlString, username: username, secret: secret, authMode: authMode)
+    }
+
     private func connect() async {
         connecting = true
         errorText = nil
@@ -128,9 +165,8 @@ struct BatonConnectSheet: View {
             // when none was, so asking afterwards always answers "nothing changed" and a
             // stale queue from a previous server survives into this connection.
             let previousActiveID = NavidromeConfig.activeServerID()
-            let entry = NavidromeConfig.addServer(
-                displayName: NavidromeConfig.defaultName(urlString: urlString, username: username),
-                urlString: urlString, username: username, secret: password, authMode: authMode)
+            let entry = Self.saveConnection(urlString: urlString, username: username,
+                                            secret: password, authMode: authMode)
             await model.selectServer(id: entry.id, previousActiveID: previousActiveID)
             dismiss()
         } catch {

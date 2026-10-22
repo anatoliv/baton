@@ -346,6 +346,7 @@ public final class ClippingStore {
         let destination = audioURL(id, extension: ext)
         let fm = FileManager.default
         var previous: PreviousAudio?
+        var setAside: URL?
         if fm.fileExists(atPath: item.url.path) {
             if let hold {
                 let file = "\(id)-\(UUID().uuidString.lowercased()).\(item.url.pathExtension.isEmpty ? "m4a" : item.url.pathExtension)"
@@ -358,7 +359,10 @@ public final class ClippingStore {
                 previous = PreviousAudio(file: file, durationSeconds: item.clipping.durationSeconds,
                                          sha256: item.clipping.sha256, voice: item.clipping.voice)
             } else {
-                try? fm.removeItem(at: item.url)
+                // Set aside, not removed, until the new file is in place: a failed move used to
+                // leave the clipping with no audio at all (C2-17).
+                let aside = fm.temporaryDirectory.appendingPathComponent("clipping-\(id)-\(UUID().uuidString).\(item.url.pathExtension)")
+                if (try? fm.moveItem(at: item.url, to: aside)) != nil { setAside = aside }
             }
         }
         do {
@@ -366,8 +370,10 @@ public final class ClippingStore {
         } catch {
             // Put the old audio back rather than leave a row with no file.
             if let previous, let hold { try? fm.moveItem(at: hold.appendingPathComponent(previous.file), to: item.url) }
+            if let setAside { try? fm.moveItem(at: setAside, to: item.url) }
             throw StoreError.couldNotStore(error.localizedDescription)
         }
+        if let setAside { try? fm.removeItem(at: setAside) }
         if excludesAudioFromBackup { BackupExclusion.exclude(destination) }
         item.clipping.durationSeconds = durationSeconds
         item.clipping.sha256 = sha256
@@ -597,8 +603,27 @@ public final class ClippingStore {
     /// things that can disagree about the same fact.
     public var ledger: ClippingLedger {
         get { ClippingLedger.decode(defaults.data(forKey: ClippingLedger.storageKey)) ?? .init() }
-        set { defaults.set(newValue.encoded(), forKey: ClippingLedger.storageKey) }
+        set {
+            // An encode failure (a NaN position) returned nil, and setting nil removed the key:
+            // every title, tombstone and book place gone in one write (C2-18). Keep what is there.
+            guard let data = newValue.encoded() else {
+                clippingLog.error("clipping ledger could not be encoded; the stored ledger is kept")
+                return
+            }
+            // A stored ledger this build cannot read decodes as empty above, and this write would
+            // replace it. Its bytes are kept beside it first, once per distinct content.
+            let key = ClippingLedger.storageKey
+            if let stored = defaults.data(forKey: key), ClippingLedger.decode(stored) == nil,
+               defaults.data(forKey: Self.unreadableLedgerKey) != stored {
+                defaults.set(stored, forKey: Self.unreadableLedgerKey)
+            }
+            defaults.set(data, forKey: key)
+        }
     }
+
+    /// Where an unreadable ledger's bytes are kept before the next write replaces them. Not a
+    /// synced key: it is evidence on this device, not a statement to other devices.
+    public static let unreadableLedgerKey = ClippingLedger.storageKey + ".unreadable"
 
     /// Seed the ledger from what is already on disk, once.
     ///

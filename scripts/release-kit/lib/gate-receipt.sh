@@ -58,7 +58,9 @@ rk_gate_receipt() (
     fi
   }
   _rk_gate_digest() { shasum -a 256 "$1/$script" | cut -c1-64; }
-  _rk_tree_dirty() { git -C "$1" status --porcelain --untracked-files=normal 2>/dev/null; }
+  # Prints the dirty entries. Fails when git cannot read the tree (a corrupt index: HEAD
+  # resolves, status exits 128); an empty listing from a failed status is not a clean tree.
+  _rk_tree_dirty() { git -C "$1" status --porcelain --untracked-files=normal; }
   _rk_config_digests() {   # prints "path=sha256|absent" per configuration file
     local c
     for c in ${RK_GATE_CONFIGS:-}; do
@@ -87,7 +89,7 @@ rk_gate_receipt() (
 
   case "$cmd" in
     write)
-      local clean=0 counts="" skips="" mode out tmp
+      local clean=0 counts="" skips="" mode out tmp dirty
       while [ "$#" -gt 0 ]; do
         case "$1" in
           --clean) clean="$2"; shift 2 ;;
@@ -96,7 +98,11 @@ rk_gate_receipt() (
           *) echo "gate-receipt: unknown option $1" >&2; exit 2 ;;
         esac
       done
-      if [ -n "$(_rk_tree_dirty "$repo")" ]; then
+      if ! dirty="$(_rk_tree_dirty "$repo")"; then
+        echo "gate receipt not written: git status failed in $repo, so the tree cannot be shown clean" >&2
+        exit 1
+      fi
+      if [ -n "$dirty" ]; then
         echo "gate receipt not written: the tree is dirty" >&2
         exit 1
       fi
@@ -138,7 +144,10 @@ print(json.dumps({
           *) echo "gate-receipt: unknown option $1" >&2; exit 2 ;;
         esac
       done
-      dirty="$(_rk_tree_dirty "$repo")"
+      if ! dirty="$(_rk_tree_dirty "$repo")"; then
+        echo "gate receipt not used: git status failed in $repo, so the tree cannot be shown clean"
+        exit 1
+      fi
       if [ -n "$dirty" ]; then
         echo "gate receipt not used: the tree is dirty ($(printf '%s\n' "$dirty" | head -3 | tr '\n' ' '))"
         exit 1

@@ -47,13 +47,14 @@ public final class QueueHandoff {
         public var urlString: @Sendable @MainActor () -> String
         public var isConfigured: @Sendable @MainActor () -> Bool
         public var fetchQueue: @Sendable @MainActor () async -> NavidromePlayQueue?
-        public var saveQueue: @Sendable @MainActor ([String], String?, Int) async -> Void
+        /// The ids, the current id, the position (ms) and the current index; true once saved.
+        public var saveQueue: @Sendable @MainActor ([String], String?, Int, Int?) async -> Bool
 
         public init(
             urlString: @escaping @Sendable @MainActor () -> String,
             isConfigured: @escaping @Sendable @MainActor () -> Bool,
             fetchQueue: @escaping @Sendable @MainActor () async -> NavidromePlayQueue?,
-            saveQueue: @escaping @Sendable @MainActor ([String], String?, Int) async -> Void
+            saveQueue: @escaping @Sendable @MainActor ([String], String?, Int, Int?) async -> Bool
         ) {
             self.urlString = urlString
             self.isConfigured = isConfigured
@@ -66,10 +67,16 @@ public final class QueueHandoff {
             urlString: { NavidromeConfig.serverURLString },
             isConfigured: { NavidromeConfig.isConfigured },
             fetchQueue: { try? await NavidromeConfig.makeClient().getPlayQueue() },
-            saveQueue: { songIDs, currentID, positionMs in
-                try? await NavidromeConfig.makeClient().savePlayQueue(
-                    songIDs: songIDs, currentID: currentID, positionMs: positionMs
-                )
+            saveQueue: { songIDs, currentID, positionMs, currentIndex in
+                do {
+                    try await NavidromeConfig.makeClient().savePlayQueue(
+                        songIDs: songIDs, currentID: currentID, positionMs: positionMs,
+                        currentIndex: currentIndex
+                    )
+                    return true
+                } catch {
+                    return false
+                }
             }
         )
     }
@@ -194,13 +201,22 @@ public final class QueueHandoff {
         let songs = controller.queue
         guard !songs.isEmpty else { return .emptyQueue }
         let current = controller.nowPlaying?.id
+        let index = controller.currentIndex
         let position = Int(controller.currentTime * 1000)
-        // Skip a save when nothing moved — backgrounding right after pausing is common.
-        let signature = "\(current ?? "-"):\(position / 5000):\(songs.count)"
+        let ids = songs.map(\.id)
+        // Skip a save when nothing moved — backgrounding right after pausing is common. The
+        // order is part of it: a reorder of the same songs used to count as unchanged and was
+        // never saved (C2-20).
+        let order = SHA256.hash(data: Data(ids.joined(separator: "\u{1F}").utf8))
+            .prefix(8).map { String(format: "%02x", $0) }.joined()
+        let signature = "\(current ?? "-"):\(index):\(position / 5000):\(order)"
         guard signature != lastSavedSignature else { return .unchanged }
         lastSavedSignature = signature
-        Task { [server] in
-            await server.saveQueue(songs.map(\.id), current, position)
+        Task { [weak self, server] in
+            let saved = await server.saveQueue(ids, current, position, index)
+            // A save that failed must not make the next identical one read as unchanged, or
+            // the queue is never saved until something moves (C2-20).
+            if !saved, let self, self.lastSavedSignature == signature { self.lastSavedSignature = nil }
         }
         return .sent
     }

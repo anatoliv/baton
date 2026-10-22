@@ -305,6 +305,19 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.10",
+            date: "October 2026",
+            highlight: "Downloads and podcasts pick up where you left off.",
+            changes: [
+                .init(.fixed, "A downloaded song or podcast you come back to now plays from the place you stopped. Before, it could start again from the beginning while the clock showed your old place."),
+                .init(.fixed, "With an alarm set, its reminder no longer covers the box where you ask Music Friend for music."),
+                .init(.improved, "Disconnect and delete my data now keeps your downloaded books when Keep downloads is on, the same as your downloaded music."),
+                .init(.improved, "Baton never sends your home server's password over an unprotected connection to an address on the internet."),
+                .init(.fixed, "Pairing with your Mac works again after a mistyped or expired code, and the camera always turns off when you close the scanner."),
+                .init(.fixed, "A shared song that fails to upload is tried again a little later instead of being given up."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.9",
             date: "October 2026",
             highlight: "Share a whole album or playlist as one link.",

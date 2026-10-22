@@ -132,11 +132,16 @@ struct AppAttestVerifier: Sendable {
 
     /// The transport is synchronous. Run Apple's bounded, offline path validator on
     /// an independent task; never dispatch back to the actor blocked by this caller.
+    ///
+    /// The task runs on a queue of its own rather than the cooperative pool. This caller waits on
+    /// a pool thread, under the service lock, and so does every request queued behind that lock:
+    /// with about core-count requests at once there was no pool thread left to run the validator,
+    /// and every attestation failed after a 5 s stall (TBX-1000000496 D-7).
     static func validateChain(leaf: Certificate, intermediates: [Certificate], root: Certificate,
                               now: Date, nonceExtension: Bool = false) throws {
         guard intermediates.count <= 3, leaf != root else { throw AppAttestError.invalid }
         let state = ChainResult()
-        Task.detached {
+        Task.detached(executorPreference: validationExecutor) {
             var verifier = Verifier(rootCertificates: CertificateStore([root])) {
                 RFC5280Policy(validationTime: now)
                 AppAttestChainPolicy(nonceExtension: nonceExtension)
@@ -147,6 +152,21 @@ struct AppAttestVerifier: Sendable {
         }
         guard state.semaphore.wait(timeout: .now() + 5) == .success, state.valid else { throw AppAttestError.invalid }
     }
+    private static let validationExecutor = QueueExecutor(label: "baton-share.app-attest")
+
+    /// Runs its jobs on a serial dispatch queue, whose threads are not the cooperative pool's.
+    /// Serial on purpose: a serial queue always gets a thread, while a concurrent one waits for the
+    /// same busy global pool (tried: the starvation came back). Callers are serialised by the
+    /// service lock anyway, so one validation running past its 5 s bound delays the next at most.
+    private final class QueueExecutor: TaskExecutor, @unchecked Sendable {
+        private let queue: DispatchQueue
+        init(label: String) { queue = DispatchQueue(label: label) }
+        func enqueue(_ job: consuming ExecutorJob) {
+            let job = UnownedJob(job)
+            queue.async { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
+        }
+    }
+
     private final class ChainResult: @unchecked Sendable {
         let semaphore = DispatchSemaphore(value: 0)
         private let lock = NSLock()

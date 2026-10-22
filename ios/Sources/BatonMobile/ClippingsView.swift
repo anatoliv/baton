@@ -244,9 +244,7 @@ enum ClippingCollection {
     static func collect(model: MobileModel, announcing announce: Bool = false) async -> String? {
         guard !collecting else { return nil }
         let store = model.clippings
-        let raw = model.agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        let token = model.agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
+        guard case let (url, token)? = model.bearerGateway() else { return nil }
 
         collecting = true
         defer { collecting = false }

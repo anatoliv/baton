@@ -37,7 +37,59 @@ enum SpeakableText {
     /// colour code glued to a secret ("\e[33mAKIA…") ends in a letter, which hides the secret
     /// from a pattern that starts at a word boundary.
     static func prepare(_ raw: String, profile: SourceProfile) -> [String] {
-        chunks(normalize(redact(stripControlSequences(raw)), profile: profile))
+        chunks(normalize(redactWithoutEscapes(raw), profile: profile))
+    }
+
+    /// Strip escape codes, then redact every secret either way of reading them finds.
+    ///
+    /// Stripped to nothing, a code between a word and a secret ("export\e[0mAKIA…") glues the
+    /// key to the word, and the boundary-anchored pattern misses it (TBX-1000000504, the A-13
+    /// residual). Stripped to a space, it splits a secret the code sits *inside*, which is what
+    /// `grep --color` does to the part it matched ("\e[01;31m\e[Kghp_\e[m\e[K…"). Neither reading
+    /// may win outright: keeping the one that found more let two glued keys outvote a grep match,
+    /// and that token was spoken. So the joined reading is redacted first, whole secrets and all,
+    /// and then every secret the spaced reading finds is taken out of it too. In that order, and
+    /// not the other: a spaced match can be just the first part of a secret an escape splits
+    /// ("DB_PASSWORD=\e[31mhunter\e[m2…"), and taking it out first cut the whole one apart and
+    /// left its tail to be spoken. The text that is spoken is still the joined reading, so a word
+    /// coloured inside ("ma\e[31mi\e[0mn") reads as one.
+    private static func redactWithoutEscapes(_ raw: String) -> String {
+        let stripped = stripControlSequences(raw)
+        var joined = redact(stripped)
+        let spaced = stripControlSequences(raw, replacingWith: " ")
+        if spaced != stripped {
+            for secret in secrets(in: spaced) { joined = redact(secret, in: joined) }
+        }
+        return joined
+    }
+
+    /// The text of every match of every redaction pattern.
+    private static func secrets(in text: String) -> [String] {
+        let whole = NSRange(text.startIndex..., in: text)
+        return SecretRedactor.patterns.flatMap { entry -> [String] in
+            guard let regex = try? NSRegularExpression(pattern: entry.pattern) else { return [] }
+            return regex.matches(in: text, range: whole).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+        }
+    }
+
+    /// Replace `secret`, found in the spaced reading, wherever it appears in the joined one. A
+    /// gap an escape made in the spaced reading may be no gap in the joined one, so whitespace
+    /// matches any run of it, none included. Glued to a word on either side, the placeholder gets
+    /// a space on that side.
+    private static func redact(_ secret: String, in text: String) -> String {
+        let pieces = secret.split(whereSeparator: \.isWhitespace).map { NSRegularExpression.escapedPattern(for: String($0)) }
+        guard !pieces.isEmpty else { return text }
+        let pattern = pieces.joined(separator: "\\s*")
+        let placeholder = NSRegularExpression.escapedTemplate(for: redact(secret))
+        let word = "[\\p{L}\\p{N}_]"
+        var out = text
+        for (before, after) in [(true, true), (true, false), (false, true), (false, false)] {
+            out = out.replacingOccurrences(
+                of: (before ? "(?<=\(word))" : "") + pattern + (after ? "(?=\(word))" : ""),
+                with: (before ? " " : "") + placeholder + (after ? " " : ""),
+                options: [.regularExpression])
+        }
+        return out
     }
 
     // MARK: - Redaction
@@ -80,16 +132,16 @@ enum SpeakableText {
     }
 
     /// ANSI/CSI colour and cursor codes, OSC title/hyperlink strings, and stray control bytes.
-    private static func stripControlSequences(_ text: String) -> String {
+    private static func stripControlSequences(_ text: String, replacingWith gap: String = "") -> String {
         var out = text
         // OSC: ESC ] ... BEL, or ESC ] ... ESC \
         out = out.replacingOccurrences(of: "\u{1B}\\][^\u{07}\u{1B}]*(\u{07}|\u{1B}\\\\)",
-                                       with: "", options: [.regularExpression])
+                                       with: gap, options: [.regularExpression])
         // CSI: ESC [ params final-byte
         out = out.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[ -/]*[@-~]",
-                                       with: "", options: [.regularExpression])
+                                       with: gap, options: [.regularExpression])
         // Any other two-byte escape.
-        out = out.replacingOccurrences(of: "\u{1B}.", with: "", options: [.regularExpression])
+        out = out.replacingOccurrences(of: "\u{1B}.", with: gap, options: [.regularExpression])
         // Carriage returns used for in-place progress redraws, and remaining control bytes
         // other than newline and tab.
         out = out.replacingOccurrences(of: "\r", with: "\n")

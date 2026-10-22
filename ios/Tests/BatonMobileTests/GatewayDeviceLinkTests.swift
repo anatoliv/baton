@@ -165,6 +165,59 @@ final class GatewayDeviceLinkTests: XCTestCase {
             """)
     }
 
+    /// On a fresh phone the link was never started (no gateway yet), and the import that brings
+    /// one did not start it either: the phone was not the gateway's player until it next came to
+    /// the foreground (TBX-1000000505, B-8 edge).
+    func testASettingsImportOnAFreshPhoneStartsTheLink() {
+        let key = "baton.agent.gatewayURL"
+        BatonStorage.defaults.removeObject(forKey: key)
+        defer { BatonStorage.defaults.removeObject(forKey: key) }
+        let model = MobileModel()
+        model.deviceLink.start()
+        XCTAssertFalse(model.deviceLink.isRunning, "precondition: no gateway, no link")
+
+        BatonStorage.defaults.set("http://127.0.0.1:59997", forKey: key)
+        model.reloadAfterSettingsImport()
+        defer { model.deviceLink.stop() }
+
+        XCTAssertEqual(model.deviceLink.pollingURL?.port, 59997, "the imported gateway is polled at once")
+    }
+
+    // MARK: - Where the token may go (TBX-1000000505 B-9)
+
+    /// ATS lets plain HTTP through to an IP address, so a public one typed by mistake took the
+    /// household's gateway token across the internet in the clear on every poll.
+    func testTheLinkNeverStartsOverPlainHTTPToAPublicAddress() {
+        let config = AgentConfig(defaults: defaults, secrets: InMemorySecretStore())
+        config.gatewayURL = "http://203.0.113.7:8788"
+        let link = GatewayDeviceLink(tools: AgentTools(model: MobileModel()), config: config, makeSession: {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [StubGatewayProtocol.self]
+            return URLSession(configuration: configuration)
+        }, token: { _ in "a-token" })
+        link.start()
+        XCTAssertFalse(link.isRunning, "polled a public address over plain HTTP with the token")
+
+        config.gatewayURL = "https://203.0.113.7:8788"
+        link.start()
+        XCTAssertTrue(link.isRunning, "HTTPS to the same address is fine")
+        link.stop()
+    }
+
+    /// The book client, Send to my Mac, kept readings and preference sync all take their gateway
+    /// from `bearerGateway`, so the same rule covers them.
+    func testEveryTokenCarryingClientRefusesPlainHTTPToAPublicAddress() {
+        XCTAssertNil(MobileModel.bearerGateway(address: "http://203.0.113.7:8788", token: "t"))
+        XCTAssertNil(MobileModel.bearerGateway(address: "http://[2001:db8::1]:8788", token: "t"))
+        XCTAssertEqual(MobileModel.bearerGateway(address: " http://192.168.1.20:8788 ", token: " t ")?.url.absoluteString,
+                       "http://192.168.1.20:8788")
+        XCTAssertEqual(MobileModel.bearerGateway(address: "http://127.0.0.1:8788", token: "t")?.token, "t")
+        XCTAssertNotNil(MobileModel.bearerGateway(address: "https://203.0.113.7", token: "t"))
+        XCTAssertNotNil(MobileModel.bearerGateway(address: "http://homeserver:8788", token: "t"),
+                        "a name is ATS's to judge")
+        XCTAssertNil(MobileModel.bearerGateway(address: "http://192.168.1.20:8788", token: ""))
+    }
+
     // MARK: - Helpers
 
     private func makeLink(

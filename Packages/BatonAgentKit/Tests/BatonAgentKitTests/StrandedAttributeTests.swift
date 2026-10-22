@@ -94,7 +94,7 @@ final class StrandedAttributeTests: XCTestCase {
         }
 
         XCTAssertEqual(offences, [], "\n" + offences.joined(separator: "\n")
-            + "\n\nMove the attribute so it touches its own declaration.")
+            + "\n\nMove the attribute so it touches its own declaration (TBX-5234).")
     }
 
     /// Every attribute in `lines` that sits alone with a comment as the next non-blank line.

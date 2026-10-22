@@ -95,7 +95,7 @@ final class RunnerExitDiagnostic: NSObject, XCTestObservation {
             FileHandle.standardError.write(Data(report.utf8))
         }
         #endif
-        FileHandle.standardError.write(Data("*** BATON-DIAG armed\n".utf8))
+        FileHandle.standardError.write(Data("*** BATON-DIAG armed (TBX-2848)\n".utf8))
         return true
     }()
 

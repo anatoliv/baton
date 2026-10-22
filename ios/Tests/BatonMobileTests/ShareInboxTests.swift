@@ -1,3 +1,4 @@
+import BatonShareKit
 import Foundation
 import XCTest
 @testable import BatonMobile
@@ -31,6 +32,67 @@ final class ShareInboxTests: XCTestCase {
 
     private func entries() -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: inbox.root.path)) ?? []).filter { !$0.hasPrefix(".") }.sorted()
+    }
+
+    // MARK: - A Baton share link is not a page (TBX-1000000505 B-6)
+
+    /// Its fragment is the song's key. As a "page" it was written to the App Group, used as the
+    /// document's file name and sent to the gateway by Send to my Mac.
+    func testABatonShareLinkIsRefusedAndNothingIsWritten() throws {
+        for raw in ["https://batonmusic.app/s/AbCdEf123456#k3yk3yk3yk3yk3yk3yk3yk3yk3yk3yk3yk3yk3yk3yk",
+                    "https://www.batonmusic.app/m/AbCdEf123456#key", "https://baton.tonebox.io/b/AbCdEf123456#key",
+                    "baton://share/AbCdEf123456#key"] {
+            let link = try XCTUnwrap(URL(string: raw))
+            XCTAssertThrowsError(try inbox.writeLink(link), raw) { error in
+                guard case PendingShareInbox.WriteError.batonShareLink = error else { return XCTFail("\(error)") }
+            }
+        }
+        XCTAssertEqual(entries(), [], "nothing with a key in it reaches the App Group")
+        XCTAssertFalse(PendingShareInbox.isBatonShareLink(try XCTUnwrap(URL(string: "https://batonmusic.app/help"))),
+                       "the site's other pages are ordinary pages")
+    }
+
+    /// The extension cannot link BatonShareKit, so it keeps its own copy of the hosts; this is the
+    /// check that the two agree with what the app itself opens as a share.
+    func testTheShareLinkRuleAgreesWithShareKit() throws {
+        XCTAssertEqual(PendingShareInbox.batonShareHosts, ShareLink.hosts)
+        let key = Base64URL.encode(Data(repeating: 7, count: ShareCrypto.keyLength))
+        let id = Base64URL.encode(Data(repeating: 1, count: 16))
+        for path in ["s", "m", "b"] {
+            for host in ShareLink.hosts {
+                let link = try XCTUnwrap(URL(string: "https://\(host)/\(path)/\(id)#\(key)"))
+                XCTAssertEqual(PendingShareInbox.isBatonShareLink(link), ShareInvitation(url: link) != nil, link.absoluteString)
+            }
+        }
+    }
+
+    func testAPageIsKeptWithoutItsFragment() throws {
+        let marker = try inbox.writeLink(try XCTUnwrap(URL(string: "https://example.com/essays/one?ref=share#comments")))
+        XCTAssertEqual(marker.link, "https://example.com/essays/one?ref=share")
+    }
+
+    /// A share link an older extension already wrote is removed rather than offered.
+    func testAShareLinkMarkerFromBeforeIsRemoved() throws {
+        let id = UUID().uuidString
+        let folder = inbox.root.appendingPathComponent(id, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let marker = PendingShareInbox.Marker(id: id, kind: .link, originalName: "batonmusic.app",
+                                              created: Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down)),
+                                              link: "https://batonmusic.app/s/AbCdEf123456#key")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(marker).write(to: folder.appendingPathComponent(PendingShareInbox.markerName))
+        XCTAssertNil(inbox.claimOldest(into: staging))
+        XCTAssertEqual(entries(), [])
+    }
+
+    /// Import a Link and Open in Baton both end in `offerImport`.
+    func testTheAppRefusesAShareLinkAsADocument() throws {
+        let model = MobileModel()
+        let before = model.pendingDocumentImport
+        model.offerImport(try XCTUnwrap(URL(string: "https://batonmusic.app/s/AbCdEf123456#key")))
+        XCTAssertEqual(model.pendingDocumentImport, before, "nothing offered for import")
+        XCTAssertEqual(model.linkFailure, MobileModel.shareLinkIsNotADocument)
     }
 
     func testASharedFileIsReadOnceUnderItsOriginalName() throws {

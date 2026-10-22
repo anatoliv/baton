@@ -214,4 +214,39 @@ final class ClippingAudioReplacementTests: XCTestCase {
         XCTAssertEqual(c.nowPlaying?.id, replaced.asSong.id)
         XCTAssertEqual(c.queue.map(\.id), [replaced.asSong.id, chapters[1].asSong.id])
     }
+
+    /// Change Voice without a hold removed the old audio before moving the new file in, so a
+    /// failed move left the clipping with no audio (TBX-1000000506, C2-17).
+    func testAFailedReplacementWithoutAHoldKeepsTheOldAudio() throws {
+        let item = try XCTUnwrap(store.item(id: chapters[0].id))
+        let before = try Data(contentsOf: item.url)
+        let missing = directory.appendingPathComponent("never-made-\(UUID().uuidString).wav")
+        XCTAssertThrowsError(try store.replaceAudio(id: chapters[0].id, with: missing, durationSeconds: 40,
+                                                    sha256: nil, voice: "kokoro:am_adam"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: item.url.path), "the clipping was left with no audio")
+        XCTAssertEqual(try Data(contentsOf: item.url), before)
+    }
+
+    /// A ledger that could not be encoded (a NaN book position) was written as nil, which
+    /// removed the key and every title, tombstone and place in it (TBX-1000000506, C2-18).
+    func testALedgerThatCannotBeEncodedLeavesTheStoredOneAlone() throws {
+        var ledger = store.ledger
+        ledger.setPosition(documentID: "doc-1", chapterIndex: 1, seconds: 12)
+        store.ledger = ledger
+        let stored = try XCTUnwrap(suite.data(forKey: ClippingLedger.storageKey))
+        ledger.setPosition(documentID: "doc-1", chapterIndex: 1, seconds: .nan)
+        store.ledger = ledger
+        XCTAssertEqual(suite.data(forKey: ClippingLedger.storageKey), stored, "the ledger key was removed")
+    }
+
+    /// An unreadable stored ledger is kept aside before a write replaces it.
+    func testAnUnreadableLedgerIsKeptAsideBeforeItIsReplaced() {
+        let garbage = Data("not a ledger".utf8)
+        suite.set(garbage, forKey: ClippingLedger.storageKey)
+        var ledger = store.ledger
+        ledger.setPosition(documentID: "doc-2", chapterIndex: 0, seconds: 3)
+        store.ledger = ledger
+        XCTAssertEqual(suite.data(forKey: ClippingStore.unreadableLedgerKey), garbage)
+        XCTAssertNotNil(ClippingLedger.decode(suite.data(forKey: ClippingLedger.storageKey)))
+    }
 }

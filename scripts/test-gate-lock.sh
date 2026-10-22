@@ -174,13 +174,13 @@ elapsed=$(( $(date +%s) - start_s ))
 
 if [ "$rc" = 0 ]; then
   bad "a second gate was allowed to run alongside the first"
-elif ! printf '%s' "$out" | grep -q "another Baton gate is running"; then
+elif ! grep -q <<<"$out" "another Baton gate is running"; then
   bad "the refusal does not say a gate is running. Got: $out"
-elif ! printf '%s' "$out" | grep -q "pid $HOLDER"; then
+elif ! grep -q <<<"$out" "pid $HOLDER"; then
   bad "the refusal does not name the holder's pid ($HOLDER). Got: $out"
-elif ! printf '%s' "$out" | grep -q "$ROOT"; then
+elif ! grep -q <<<"$out" "$ROOT"; then
   bad "the refusal does not name the holder's working directory. Got: $out"
-elif ! printf '%s' "$out" | grep -q "$WORK/dd-holder"; then
+elif ! grep -q <<<"$out" "$WORK/dd-holder"; then
   bad "the refusal does not name the holder's derived data. Got: $out"
 else
   ok "a second gate is refused and names pid, start time, cwd and derived data"
@@ -189,6 +189,7 @@ fi
 # BATON_GATE_LOCK_WAIT=0 is the old behavior, and its words are an interface: people and
 # Tonebox's controller read them. Every line of the original refusal, verbatim.
 missing=""
+plain="$(sed 's/\x1b\[[0-9;]*m//g' <<<"$out")"
 for line in \
   "✗ another Baton gate is running (pid $HOLDER, started " \
   "  Its derived data: $WORK/dd-holder" \
@@ -196,11 +197,11 @@ for line in \
   "  second copy makes the other run report a runner death against an unrelated test." \
   "  This run stopped before it could share derived data or kill that host. (TBX-5291)" \
   "  Wait for it, or stop it, then run again. BATON_ALLOW_CONCURRENT_GATE=1 overrides."; do
-  printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g' | grep -qF -- "$line" || missing="$missing [$line]"
+  grep -qF -- "$line" <<<"$plain" || missing="$missing [$line]"
 done
 if [ -n "$missing" ]; then
   bad "BATON_GATE_LOCK_WAIT=0 changed the refusal wording; missing:$missing"
-elif printf '%s' "$out" | grep -q "waiting for"; then
+elif grep -q <<<"$out" "waiting for"; then
   bad "BATON_GATE_LOCK_WAIT=0 waited instead of refusing. Got: $out"
 else
   ok "BATON_GATE_LOCK_WAIT=0 refuses with the original message, word for word"
@@ -212,7 +213,7 @@ fi
 out="$(contend_release)"; rc=$?
 if [ "$rc" = 0 ]; then
   bad "a release was allowed to start while a gate held the shared test host"
-elif ! printf '%s' "$out" | grep -q "another Baton gate is running"; then
+elif ! grep -q <<<"$out" "another Baton gate is running"; then
   bad "a release does not name the gate it refused to race. Got: $out"
 elif [ -e "$WORK/pgrep.calls" ]; then
   bad "the refused release scanned for a test host before it checked the lock"
@@ -256,7 +257,7 @@ else
   out="$(contend)"; rc=$?
   if [ "$rc" != 0 ]; then
     bad "stale metadata from a killed gate blocked the next run. Got: $out"
-  elif ! printf '%s' "$out" | grep -q "clearing a stale gate lock"; then
+  elif ! grep -q <<<"$out" "clearing a stale gate lock"; then
     bad "the stale gate lock was cleared without saying so. Got: $out"
   else
     ok "metadata left by a SIGKILLed gate is cleared, and the next gate proceeds"
@@ -272,9 +273,9 @@ else
   out="$(contend)"; rc=$?
   if [ "$rc" = 0 ]; then
     bad "a gate was allowed to start while a release held the shared test host"
-  elif ! printf '%s' "$out" | grep -q "another Baton release is running"; then
+  elif ! grep -q <<<"$out" "another Baton release is running"; then
     bad "a gate does not identify the release that owns the lock. Got: $out"
-  elif ! printf '%s' "$out" | grep -q "pid $HOLDER"; then
+  elif ! grep -q <<<"$out" "pid $HOLDER"; then
     bad "the gate refusal does not name the release holder's pid ($HOLDER). Got: $out"
   else
     ok "a gate refuses immediately and names the release that owns the test host"
@@ -296,7 +297,7 @@ else
   out="$(contend)"; rc=$?
   if [ "$rc" != 0 ]; then
     bad "stale metadata from a killed release blocked the next run. Got: $out"
-  elif ! printf '%s' "$out" | grep -q "clearing a stale gate lock"; then
+  elif ! grep -q <<<"$out" "clearing a stale gate lock"; then
     bad "the stale lock was cleared without saying so. Got: $out"
   else
     ok "metadata left by a SIGKILLed release is cleared, and the next gate proceeds"
@@ -384,7 +385,7 @@ out="$(BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-nested" \
   ALLOW_PRIMARY_CHECKOUT=1 BATON_GATE_LOCK_CHILD_PROBE=1 "$RELEASE" 2>&1)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "a release deadlocked against its own child gate. Got: $out"
-elif ! printf '%s' "$out" | grep -q "inherited from release parent"; then
+elif ! grep -q <<<"$out" "inherited from release parent"; then
   bad "the child gate passed without proving it inherited the release lock. Got: $out"
 else
   ok "a release's child gate inherits the lock and leaves the parent owning it"
@@ -417,7 +418,7 @@ printf '%s\n%s\n%s\n%s\n' \
 out="$(contend)"; rc=$?
 if [ "$rc" = 0 ]; then
   bad "the kernel-lock migration ignored a live gate using the old pidfile guard"
-elif ! printf '%s' "$out" | grep -q "pid $$"; then
+elif ! grep -q <<<"$out" "pid $$"; then
   bad "the migration refusal did not name the live legacy holder. Got: $out"
 else
   ok "a live gate using the old pidfile guard is still refused during migration"
@@ -432,7 +433,7 @@ printf '%s\n%s\n%s\n%s\n' "$$" "Mon Jan  1 00:00:00 2001" "/tmp/some-old-gate" "
 out="$(contend)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "a recycled pid in stale metadata wedged the free kernel lock. Got: $out"
-elif ! printf '%s' "$out" | grep -q "clearing a stale gate lock"; then
+elif ! grep -q <<<"$out" "clearing a stale gate lock"; then
   bad "the recycled-pid lock was cleared without saying so. Got: $out"
 else
   ok "a live recycled pid in metadata cannot impersonate a kernel lock owner"
@@ -464,7 +465,7 @@ else
   named="$(printf '%s\n' "$out" | grep -c "waiting for gate pid $HOLDER from $ROOT")"
   if [ "$rc" != 0 ]; then
     bad "a gate given BATON_GATE_LOCK_WAIT=20 did not get the lock after the holder left. Got: $out"
-  elif ! printf '%s' "$out" | grep -q "GATE LOCK: acquired by"; then
+  elif ! grep -q <<<"$out" "GATE LOCK: acquired by"; then
     bad "the waiting gate exited without acquiring. Got: $out"
   elif [ "$elapsed" -lt 1 ]; then
     bad "the gate acquired after ${elapsed}s while the holder still had the lock"
@@ -490,9 +491,9 @@ else
   elapsed=$(( $(date +%s) - start_s ))
   if [ "$rc" = 0 ]; then
     bad "a gate acquired a lock that was held for longer than its wait"
-  elif ! printf '%s' "$out" | grep -q "gave up after waiting 1s for mac-app-host"; then
+  elif ! grep -q <<<"$out" "gave up after waiting 1s for mac-app-host"; then
     bad "a timed-out wait does not say it gave up. Got: $out"
-  elif ! printf '%s' "$out" | grep -q "another Baton gate is running (pid $HOLDER"; then
+  elif ! grep -q <<<"$out" "another Baton gate is running (pid $HOLDER"; then
     bad "a timed-out wait does not name the holder. Got: $out"
   elif [ "$elapsed" -gt 4 ]; then
     bad "BATON_GATE_LOCK_WAIT=1 waited ${elapsed}s"
@@ -514,7 +515,7 @@ plant_record "$INTENT" "$REL_A" "/tmp/release-a" release
 out="$(contend)"; rc=$?
 if [ "$rc" = 0 ]; then
   bad "a gate overtook a waiting release's intent on a free lock"
-elif ! printf '%s' "$out" | grep -q "another Baton release is running (pid $REL_A"; then
+elif ! grep -q <<<"$out" "another Baton release is running (pid $REL_A"; then
   bad "the refusal behind a release intent does not name the release. Got: $out"
 else
   ok "with BATON_GATE_LOCK_WAIT=0 a gate refuses behind a live release intent, naming it"
@@ -551,9 +552,9 @@ out="$(BATON_GATE_LOCK="$LOCK" BATON_DERIVED_DATA="$WORK/dd-nested-intent" \
   ALLOW_PRIMARY_CHECKOUT=1 BATON_GATE_LOCK_WAIT=5 BATON_GATE_LOCK_CHILD_PROBE=1 "$RELEASE" 2>&1)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "a release or its child gate stalled behind another release's intent. Got: $out"
-elif ! printf '%s' "$out" | grep -q "inherited from release parent"; then
+elif ! grep -q <<<"$out" "inherited from release parent"; then
   bad "the child gate did not inherit while an intent was live. Got: $out"
-elif printf '%s' "$out" | grep -q "waiting for"; then
+elif grep -q <<<"$out" "waiting for"; then
   bad "the release's child waited on an intent instead of inheriting. Got: $out"
 else
   ok "a release's child inherits the lock even while another release's intent is live"
@@ -568,7 +569,7 @@ plant_record "$INTENT" "$dead" "/tmp/dead-release" release
 out="$(contend)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "a dead release's intent blocked a gate. Got: $out"
-elif ! printf '%s' "$out" | grep -q "clearing a stale release intent (recorded pid $dead)"; then
+elif ! grep -q <<<"$out" "clearing a stale release intent (recorded pid $dead)"; then
   bad "the stale intent was cleared without saying so. Got: $out"
 elif [ -e "$INTENT" ]; then
   bad "the stale intent file is still there"
@@ -643,13 +644,13 @@ else
   out="$(BATON_GATE_LOCK_WAIT=0 native_try sim-AAAA-1111)"; rc=$?
   if [ "$rc" = 0 ]; then
     bad "two runs held the same simulator at once"
-  elif ! printf '%s' "$out" | grep -q "another gate holds sim-AAAA-1111 (pid $sim_pid"; then
+  elif ! grep -q <<<"$out" "another gate holds sim-AAAA-1111 (pid $sim_pid"; then
     bad "the same-simulator refusal does not name its holder. Got: $out"
   else
     ok "the same simulator is refused to a second run, naming the holder"
   fi
   out="$(BATON_GATE_LOCK_WAIT=20 native_try sim-AAAA-1111)"; rc=$?
-  if [ "$rc" != 0 ] || ! printf '%s' "$out" | grep -q "acquired sim-AAAA-1111"; then
+  if [ "$rc" != 0 ] || ! grep -q <<<"$out" "acquired sim-AAAA-1111"; then
     bad "a waiting run did not get the simulator once it was free. Got: $out"
   elif [ "$(printf '%s\n' "$out" | grep -c "waiting for gate pid $sim_pid")" != 1 ]; then
     bad "the simulator wait did not name its holder exactly once. Got: $out"
@@ -681,7 +682,7 @@ else
   after="$(find "$NATIVE_LOCK_DIR" -type f 2>/dev/null | sort)"
   if [ "$rc" != 0 ]; then
     bad "a lint-only run failed while the test host was busy. Got: $out"
-  elif printf '%s' "$out" | grep -qE "another Baton|waiting for|GATE LOCK"; then
+  elif grep -qE <<<"$out" "another Baton|waiting for|GATE LOCK"; then
     bad "a lint-only run touched the gate lock. Got: $out"
   elif [ "$before" != "$after" ] || [ "$lock_before" != "$(cat "$LOCK")" ]; then
     bad "a lint-only run created or changed a lock record"
@@ -690,7 +691,7 @@ else
   fi
 
   out="$(contend -only-testing:BatonDSPTests -only-testing:BatonAgentKitTests/SomeTests)"; rc=$?
-  if [ "$rc" != 0 ] || ! printf '%s' "$out" | grep -q "not taken; this run hosts no Baton.app"; then
+  if [ "$rc" != 0 ] || ! grep -q <<<"$out" "not taken; this run hosts no Baton.app"; then
     bad "a package-only -only-testing run waited for the test host. Got: $out"
   else
     ok "a run filtered to package suites takes no mac-app-host lock"
@@ -734,7 +735,7 @@ echo "RELEASED"
 WRAP
 chmod +x "$WORK/tonebox-wrapper.sh"
 out="$(BATON_GATE_LOCK="$LOCK" "$WORK/tonebox-wrapper.sh" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "CONTRACT ok" && printf '%s' "$out" | grep -q RELEASED; then
+if [ "$rc" = 0 ] && grep -q <<<"$out" "CONTRACT ok" && grep -q <<<"$out" RELEASED; then
   ok "Tonebox's controller contract: five lines naming the wrapper, its cwd, derived data and kind"
 else
   bad "Tonebox's controller would reject the record or its release. Got: $out"
@@ -786,7 +787,7 @@ for sig in INT HUP QUIT TERM; do
     bad "group $sig: the trapping owner died, so the case was not tested"
   elif [ "$kernel" != held ]; then
     bad "group $sig freed the kernel lock while its owner kept custody"
-  elif [ "$rc" = 0 ] || ! printf '%s' "$out" | grep -q "pid $TRAP_OWNER"; then
+  elif [ "$rc" = 0 ] || ! grep -q <<<"$out" "pid $TRAP_OWNER"; then
     bad "group $sig let a contender in beside a live owner. Got: $out"
   else
     ok "a group $sig leaves the lock with an owner that traps it (kernel lock held, contender refused)"
@@ -844,8 +845,8 @@ out="$(BATON_GATE_LOCK_WAIT=0 /bin/bash -c '. "$1/scripts/native-lock.sh"
   sleep 0.6
   if native_lock_acquire sim-SUBSHELL gate y; then echo "parent acquired after subshell exit"; fi
   native_lock_release_all' _ "$ROOT" 2>&1)"
-if printf '%s' "$out" | grep -q "subshell acquired" \
-   && printf '%s' "$out" | grep -q "parent acquired after subshell exit"; then
+if grep -q <<<"$out" "subshell acquired" \
+   && grep -q <<<"$out" "parent acquired after subshell exit"; then
   ok "a lock taken in a subshell names the subshell and is freed when it exits"
 else
   bad "a subshell's lock outlived the subshell. Got: $out"
@@ -866,14 +867,14 @@ EXTRA_PIDS="$EXTRA_PIDS $legacy_lockf"
 for _ in $(seq 1 100); do [ -s "$LOCK" ] && break; sleep 0.05; done
 legacy_pid="$(sed -n '1p' "$LOCK")"
 out="$(BATON_GATE_LOCK_WAIT=0 native_try sim-LEGACY)"; rc=$?
-if [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "another gate holds sim-LEGACY (pid $legacy_pid"; then
+if [ "$rc" != 0 ] && grep -q <<<"$out" "another gate holds sim-LEGACY (pid $legacy_pid"; then
   ok "an older whole-run gate is treated as holding a simulator too"
 else
   bad "a simulator was handed out while an older whole-run gate held the machine. Got: $out"
 fi
 out="$(BATON_GATE_LOCK_WAIT=20 native_try sim-LEGACY)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "an older Baton script holds every resource" \
-   && printf '%s' "$out" | grep -q "acquired sim-LEGACY"; then
+if [ "$rc" = 0 ] && grep -q <<<"$out" "an older Baton script holds every resource" \
+   && grep -q <<<"$out" "acquired sim-LEGACY"; then
   ok "a run waits for the older whole-run gate, says why, and continues when it ends"
 else
   bad "the wait for an older whole-run gate did not behave. Got: $out"
@@ -906,7 +907,7 @@ elif kill -0 "$own_host" 2>/dev/null; then
   bad "this run's own leftover test host survived the end of its Mac step"
 elif ! kill -0 "$other_host" 2>/dev/null; then
   bad "the Mac step ended ANOTHER run's test host"
-elif ! printf '%s' "$out" | grep -q "ending this run's leftover test host"; then
+elif ! grep -q <<<"$out" "ending this run's leftover test host"; then
   bad "the Mac step ended its test host without saying so. Got: $out"
 else
   ok "the Mac step ends its own leftover test host before releasing mac-app-host, and no other"

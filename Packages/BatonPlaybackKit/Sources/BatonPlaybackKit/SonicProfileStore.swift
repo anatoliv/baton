@@ -119,15 +119,19 @@ public actor SonicProfileStore {
                 limit = Int(sampleRate * seconds)
             }
             guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
-            var length = 0
-            var pointer: UnsafeMutablePointer<Int8>?
-            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil,
-                                              totalLengthOut: &length, dataPointerOut: &pointer) == noErr,
-                  let pointer else { continue }
-            let floats = UnsafeRawPointer(pointer).bindMemory(to: Float.self, capacity: length / 4)
-            let count = length / 4
+            // Copied out rather than read in place: a block buffer need not be contiguous, and the
+            // pointer `CMBlockBufferGetDataPointer` returns covers only its first piece, while
+            // the loop read the total length from it (C2-23).
+            let length = CMBlockBufferGetDataLength(block)
+            guard length >= 4 else { continue }
+            var floats = [Float](repeating: 0, count: length / 4)
+            let copied = floats.withUnsafeMutableBytes { raw in
+                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: (length / 4) * 4, destination: raw.baseAddress!)
+            }
+            guard copied == noErr else { continue }
+            let count = floats.count
             if channels == 1 {
-                samples.append(contentsOf: UnsafeBufferPointer(start: floats, count: count))
+                samples.append(contentsOf: floats)
             } else {
                 var frame = 0
                 while frame + channels <= count {

@@ -31,9 +31,11 @@ public enum SecretRedactor {
         (#"\bhf_[A-Za-z0-9]{30,}"#, "a redacted token"),
         // Telegram bot tokens: the bot's number, a colon, then a secret that starts with AA.
         (#"\b[0-9]{6,12}:AA[A-Za-z0-9_-]{30,}"#, "a redacted token"),
-        // Discord bot tokens: the base64 of a snowflake id (so M, N or O first), a timestamp
-        // and an HMAC, dot separated.
-        (#"\b[MNO][A-Za-z0-9_-]{23,27}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,}"#, "a redacted token"),
+        // Discord bot tokens: the base64 of a snowflake id, a timestamp and an HMAC, dot
+        // separated. The id is 17 to 20 decimal digits, and base64 of ASCII digits has a fixed
+        // shape in every four-character group, which is what tells a token from a dotted
+        // identifier such as `MyApplicationDelegateClass1.window.rootViewController…`.
+        (#"\b(?:[MNO][DTjz][AEIMQUYcgk][w-z0-5]){5,6}(?:[MNO][DTjz][AEIMQUYcgk]|[MNO][AQgw])?\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,}"#, "a redacted token"),
         // Sentry auth tokens.
         (#"\bsntry[su]_[A-Za-z0-9_\-\.=]{16,}"#, "a redacted token"),
         // Slack.
@@ -48,11 +50,21 @@ public enum SecretRedactor {
         (#"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"#, "a redacted token"),
         // Anything handed over as a bearer credential.
         (#"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]{12,}"#, "bearer, a redacted token"),
-        // key=value and key: value assignments whose *name* says it is a secret, including an
-        // environment variable's prefix (`TELEGRAM_BOT_TOKEN=`), which `\b` alone cannot see
-        // past because `_` is a word character. A value an earlier shape already replaced is
-        // left as that placeholder.
-        (#"(?i)\b((?:[A-Za-z0-9_]*_)?(?:api[-_]?key|secret|password|passwd|token|auth))\b\s*[:=]\s*(?!a redacted )\S+"#,
+        // key=value and key: value assignments whose *name* says it is a secret. A value an
+        // earlier shape already replaced is left as that placeholder.
+        (#"(?i)\b((?:api[-_]?key|secret|password|passwd|token|auth))\b\s*[:=]\s*(?!a redacted )\S+"#,
+         "$1, a redacted value"),
+        // The same with an environment variable's prefix (`TELEGRAM_BOT_TOKEN=`), which `\b`
+        // alone cannot see past because `_` is a word character. A prefixed name is often a
+        // setting rather than a secret (`require_auth: false`, `max_token=200`), so a key or
+        // secret name never takes a flag or null, and a token or auth name nor a short count
+        // (at most five digits: `PIN_AUTH=482913` is a secret). A password name always takes
+        // its value, whatever it holds: `ADMIN_PASSWORD=no` is a password.
+        (#"(?i)\b([A-Za-z0-9_]*_(?:password|passwd))\b\s*[:=]\s*(?!a redacted )\S+"#,
+         "$1, a redacted value"),
+        (#"(?i)\b([A-Za-z0-9_]*_(?:api[-_]?key|secret))\b\s*[:=]\s*(?!a redacted )(?!(?:true|false|null|nil|none|yes|no|on|off)(?:[\s,;)}\]]|$))\S+"#,
+         "$1, a redacted value"),
+        (#"(?i)\b([A-Za-z0-9_]*_(?:token|auth))\b\s*[:=]\s*(?!a redacted )(?!(?:true|false|null|nil|none|yes|no|on|off|[0-9]{1,5})(?:[\s,;)}\]]|$))\S+"#,
          "$1, a redacted value"),
     ]
 

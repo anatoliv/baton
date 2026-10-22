@@ -129,9 +129,9 @@ run_summary() {   # $1 = ATTACHED, $2 = SKIP_ATTACH, rest = skipped entries
 out="$(run_metadata push)"; rc=$?
 if [ "$rc" != 1 ]; then
   bad "D-F3 push: exit status is $rc, wanted 1"
-elif ! printf '%s' "$out" | grep -q "ERROR: App Store metadata push failed"; then
+elif ! grep -q <<<"$out" "ERROR: App Store metadata push failed"; then
   bad "D-F3 push: no die message. Got: $out"
-elif ! printf '%s' "$out" | grep -q "refusing, the live listing was edited"; then
+elif ! grep -q <<<"$out" "refusing, the live listing was edited"; then
   bad "D-F3 push: the tool's own output was swallowed. Got: $out"
 else
   ok "D-F3 push failure prints the log and dies with its message"
@@ -142,9 +142,9 @@ fi
 out="$(run_metadata check)"; rc=$?
 if [ "$rc" != 1 ]; then
   bad "D-F3 check: exit status is $rc, wanted 1"
-elif ! printf '%s' "$out" | grep -q "could not be reconciled"; then
+elif ! grep -q <<<"$out" "could not be reconciled"; then
   bad "D-F3 check: no die message. Got: $out"
-elif ! printf '%s' "$out" | grep -q "SKIP_METADATA=1 to override"; then
+elif ! grep -q <<<"$out" "SKIP_METADATA=1 to override"; then
   bad "D-F3 check: the override hint never reaches the operator. Got: $out"
 else
   ok "D-F3 check --strict drift prints the log and dies with the override hint"
@@ -155,9 +155,9 @@ fi
 out="$(run_metadata none)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "metadata clean run: exit status is $rc, wanted 0. Got: $out"
-elif ! printf '%s' "$out" | grep -q "  stub app-store-metadata.py push"; then
+elif ! grep -q <<<"$out" "  stub app-store-metadata.py push"; then
   bad "metadata clean run: the push log is not indented into the release log. Got: $out"
-elif ! printf '%s' "$out" | grep -q "  stub app-store-metadata.py check"; then
+elif ! grep -q <<<"$out" "  stub app-store-metadata.py check"; then
   bad "metadata clean run: the check log is not indented into the release log. Got: $out"
 else
   ok "metadata clean run indents both logs and continues"
@@ -168,7 +168,7 @@ fi
 out="$(run_summary 0 0)"; rc=$?
 if [ "$rc" = 0 ]; then
   bad "D-F4: INCOMPLETE exited 0, so a wrapper reads an unattached build as shipped"
-elif ! printf '%s' "$out" | grep -q "INCOMPLETE: build 1786444631 uploaded but NOT attached"; then
+elif ! grep -q <<<"$out" "INCOMPLETE: build 1786444631 uploaded but NOT attached"; then
   bad "D-F4: the INCOMPLETE line is gone. Got: $out"
 else
   ok "D-F4 INCOMPLETE exits $rc, and the line still names the build"
@@ -179,7 +179,7 @@ fi
 out="$(run_summary 1 0)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "D-F4: a fully attached build exited $rc, wanted 0. Got: $out"
-elif ! printf '%s' "$out" | grep -q "DONE: build 1786444631 is on TestFlight and installable"; then
+elif ! grep -q <<<"$out" "DONE: build 1786444631 is on TestFlight and installable"; then
   bad "D-F4: the DONE line is gone. Got: $out"
 else
   ok "D-F4 an attached build still exits 0"
@@ -188,7 +188,7 @@ fi
 out="$(run_summary 0 1)"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "D-F4: SKIP_ATTACH=1 exited $rc; that skip is deliberate and should stay 0. Got: $out"
-elif ! printf '%s' "$out" | grep -q "DONE (upload only)"; then
+elif ! grep -q <<<"$out" "DONE (upload only)"; then
   bad "D-F4: the upload-only line is gone. Got: $out"
 else
   ok "D-F4 SKIP_ATTACH=1 stays exit 0, since the operator asked for it"
@@ -197,11 +197,11 @@ fi
 # --- D-F5: the summary names the stages that were skipped --------------------------------
 
 out="$(run_summary 1 0 "shared-core test gate (SKIP_TESTS=1)" "phone UI tests, release set (SKIP_UI_TESTS=1)")"
-if ! printf '%s' "$out" | grep -q "skipped in this run:"; then
+if ! grep -q <<<"$out" "skipped in this run:"; then
   bad "D-F5: the DONE line says nothing about the skipped stages. Got: $out"
-elif ! printf '%s' "$out" | grep -q "shared-core test gate (SKIP_TESTS=1)"; then
+elif ! grep -q <<<"$out" "shared-core test gate (SKIP_TESTS=1)"; then
   bad "D-F5: SKIP_TESTS is not named in the summary. Got: $out"
-elif ! printf '%s' "$out" | grep -q "phone UI tests, release set (SKIP_UI_TESTS=1)"; then
+elif ! grep -q <<<"$out" "phone UI tests, release set (SKIP_UI_TESTS=1)"; then
   bad "D-F5: SKIP_UI_TESTS is not named in the summary. Got: $out"
 else
   ok "D-F5 the summary names every skipped stage"
@@ -210,7 +210,7 @@ fi
 # --- D-F5: a clean run says nothing extra ------------------------------------------------
 
 out="$(run_summary 1 0)"
-if printf '%s' "$out" | grep -q "skipped in this run:"; then
+if grep -q <<<"$out" "skipped in this run:"; then
   bad "D-F5: a run that skipped nothing still printed a skip list. Got: $out"
 else
   ok "D-F5 a run that skipped nothing prints no skip list"
@@ -219,7 +219,7 @@ fi
 # --- D-F5: SKIP_ATTACH reaches the list too, since it is a skip --------------------------
 
 out="$(run_summary 0 1)"
-if ! printf '%s' "$out" | grep -q "attach to the internal beta group (SKIP_ATTACH=1)"; then
+if ! grep -q <<<"$out" "attach to the internal beta group (SKIP_ATTACH=1)"; then
   bad "D-F5: SKIP_ATTACH is not in the skip list. Got: $out"
 else
   ok "D-F5 SKIP_ATTACH appears in the skip list"
@@ -313,7 +313,7 @@ ROOT="$WORK/repo"
 mkdir -p "$ROOT"
 make_archive "$ROOT" "arm64 0FA94179-912F-36BF-9C92-F66D1B6E525D" "arm64 0FA94179-912F-36BF-9C92-F66D1B6E525D"
 out="$(run_retain "$ROOT" 1.1 1788988354)"
-if ! printf '%s' "$out" | grep -q 'RETAINED=dist/dsym/BatonMobile-1.1+1788988354-0FA94179-912F-36BF-9C92-F66D1B6E525D.dSYM.zip'; then
+if ! grep -q <<<"$out" 'RETAINED=dist/dsym/BatonMobile-1.1+1788988354-0FA94179-912F-36BF-9C92-F66D1B6E525D.dSYM.zip'; then
   bad "TBX-5372: the retained archive is not named for this version, build and UUID. Got: $out"
 elif [ ! -s "$ROOT/dist/dsym/BatonMobile-1.1+1788988354-0FA94179-912F-36BF-9C92-F66D1B6E525D.dSYM.zip" ]; then
   bad "TBX-5372: nothing was written at the retained path. Got: $out"
@@ -331,9 +331,9 @@ fi
 
 make_archive "$ROOT" "arm64 0FA94179-912F-36BF-9C92-F66D1B6E525D" "arm64 77777777-8888-9999-aaaa-bbbbbbbbbbbb"
 out="$(run_retain "$ROOT" 1.2 1789000000)"
-if ! printf '%s' "$out" | grep -q "RETAIN_REFUSED"; then
+if ! grep -q <<<"$out" "RETAIN_REFUSED"; then
   bad "TBX-5372: a dSYM whose UUIDs are not the archived app's was retained anyway. Got: $out"
-elif ! printf '%s' "$out" | grep -q "not the archived app"; then
+elif ! grep -q <<<"$out" "not the archived app"; then
   bad "TBX-5372: the refusal does not say the UUIDs disagree. Got: $out"
 elif ls "$ROOT/dist/dsym/BatonMobile-1.2+"*.dSYM.zip >/dev/null 2>&1; then
   bad "TBX-5372: a mismatched dSYM was still filed under this build's name. Got: $out"
@@ -356,27 +356,27 @@ run_dsym_state() {   # $1 = RETAINED_DSYM, $2 = 1 to plant a receipt
 
 REL="$ROOT/dist/dsym/BatonMobile-1.1+1788988354-0FA94179-912F-36BF-9C92-F66D1B6E525D.dSYM.zip"
 out="$(run_dsym_state "$REL" 0)"
-if ! printf '%s' "$out" | grep -q "NOT uploaded to Crashbox"; then
+if ! grep -q <<<"$out" "NOT uploaded to Crashbox"; then
   bad "TBX-5372: a build that never uploaded its dSYM does not say so. Got: $out"
-elif ! printf '%s' "$out" | grep -q "./scripts/upload-dsym.sh $REL baton-ios"; then
+elif ! grep -q <<<"$out" "./scripts/upload-dsym.sh $REL baton-ios"; then
   bad "TBX-5372: the DONE line does not name the command that uploads it. Got: $out"
 else
   ok "TBX-5372 a build whose dSYM was never uploaded says so and names the command"
 fi
 
 out="$(run_dsym_state "$REL" 1)"
-if printf '%s' "$out" | grep -q "NOT uploaded"; then
+if grep -q <<<"$out" "NOT uploaded"; then
   bad "TBX-5372: a dSYM with a receipt beside it still reads as not uploaded. Got: $out"
-elif ! printf '%s' "$out" | grep -q "uploaded to Crashbox"; then
+elif ! grep -q <<<"$out" "uploaded to Crashbox"; then
   bad "TBX-5372: an uploaded dSYM is not reported as uploaded. Got: $out"
 else
   ok "TBX-5372 a dSYM with a receipt beside it is reported as uploaded"
 fi
 
 out="$(run_dsym_state "" 0)"
-if ! printf '%s' "$out" | grep -q "NONE retained"; then
+if ! grep -q <<<"$out" "NONE retained"; then
   bad "TBX-5372: a build that retained no dSYM at all is silent about it. Got: $out"
-elif ! printf '%s' "$out" | grep -q "never be symbolicated"; then
+elif ! grep -q <<<"$out" "never be symbolicated"; then
   bad "TBX-5372: the no-dSYM case does not say what it costs. Got: $out"
 else
   ok "TBX-5372 a build that retained nothing says so, in the same line as the skip list"
@@ -427,8 +427,8 @@ SIGNING_REGION="$(awk '
   m == 1 && /^fi$/ { m = 2; next }
   m == 2 { print }
   m == 2 && /^PY$/ { exit }' "$SUBJECT")"
-if ! printf '%s\n' "$SIGNING_REGION" | grep -q '^cleanup() {$' \
-   || ! printf '%s\n' "$SIGNING_REGION" | grep -q '^PY$'; then
+if ! grep -q <<<"$SIGNING_REGION" '^cleanup() {$' \
+   || ! grep -q <<<"$SIGNING_REGION" '^PY$'; then
   bad "TBX-1000000480: signing region anchors not found in testflight.sh; update the anchors"
   printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
   exit 1
@@ -488,7 +488,7 @@ run_signing() {
 # B-11: under SKIP_UPLOAD=1 a dirty tree is only advisory, so project.yml can hold the
 # developer's own uncommitted edits when the patch runs. Cleanup must put those back, not HEAD.
 out="$(run_signing dirty 1)"; T="$WORK/sign-dirty"
-if ! printf '%s' "$out" | grep -q "project.yml patched"; then
+if ! grep -q <<<"$out" "project.yml patched"; then
   bad "B-11: the signing patch did not run, so this case proves nothing. Got: $out"
 elif ! cmp -s "$T/ios/project.yml" "$T/project.yml.before"; then
   bad "B-11: cleanup did not restore project.yml as it was; uncommitted edits were lost"

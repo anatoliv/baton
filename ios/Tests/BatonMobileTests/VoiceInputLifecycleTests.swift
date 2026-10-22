@@ -46,7 +46,7 @@ final class VoiceInputLifecycleTests: XCTestCase {
 
         XCTAssertEqual(model.voice.stopCallCountForTesting, 1,
                        "the friend view's onDisappear must stop voice input, or the mic and " +
-                       "the audio session stay live after switching away")
+                       "the audio session stay live after switching away (TBX-5350)")
     }
 
     func testDeniedStateClearsWhenAuthorizationIsGrantedOnRefresh() async {
@@ -75,7 +75,7 @@ final class VoiceInputLifecycleTests: XCTestCase {
         granted.refreshAuthorization()
         XCTAssertEqual(granted.state, .idle,
                        "a re-check that finds both permissions granted must clear a stale " +
-                       ".denied banner, the way returning to the tab after " +
+                       ".denied banner (TBX-5350), the way returning to the tab after " +
                        "granting access in Settings should")
     }
 

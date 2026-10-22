@@ -34,6 +34,9 @@ final class MobileAudioSession {
     /// True while an interruption (call, Siri, alarm) has playback paused and we
     /// intend to resume when it ends.
     private var wasPlayingBeforeInterruption = false
+    /// The controller's transport stamp just after an interruption paused it. A later stamp
+    /// means the person played, paused or skipped since.
+    private var pausedByInterruptionAt: Int?
 
     private let controller: StreamingPlaybackController
     private var observers: [NSObjectProtocol] = []
@@ -159,8 +162,17 @@ final class MobileAudioSession {
         switch type {
         case .began:
             receivedCallback?(.interrupted)
-            wasPlayingBeforeInterruption = controller.isPlaying
-            if controller.isPlaying { controller.pause() }
+            if controller.isPlaying {
+                wasPlayingBeforeInterruption = true
+                controller.pause()
+                pausedByInterruptionAt = controller.stateGeneration
+            } else if controller.stateGeneration != pausedByInterruptionAt {
+                // A second .began with no .ended between (Siri over a call) finds playback
+                // already paused by the first, and keeps "it was playing".
+                // Unless the person played or paused since: then it is their pause, and a
+                // .began whose .ended never came must not resume it later.
+                wasPlayingBeforeInterruption = false
+            }
         case .ended:
             guard receivedOwnership.allowsLibraryResume else {
                 wasPlayingBeforeInterruption = false

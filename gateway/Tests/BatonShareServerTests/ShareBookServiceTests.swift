@@ -593,7 +593,8 @@ final class ShareBookServiceTests: XCTestCase {
                 return "none"
             }
         }
-        for type in ["share_created", "share_finalized", "audio_fetched", "page_opened", "link_unfurled", "share_extended", "share_revoked"] {
+        // reaction_sent too: a book's reaction is recorded as a book's (TBX-1000000507 D-12).
+        for type in ["share_created", "share_finalized", "audio_fetched", "page_opened", "link_unfurled", "share_extended", "share_revoked", "reaction_sent"] {
             XCTAssertEqual(try kinds(type), ["book"], type)
         }
         let now = Int64(clock.now.timeIntervalSince1970)
@@ -618,6 +619,19 @@ final class ShareBookServiceTests: XCTestCase {
         let page = send("GET", "/b/\(created.id)")
         XCTAssertEqual(page.status, 200)
         XCTAssertTrue(String(decoding: page.body, as: UTF8.self).contains(#"data-state="ready""#))
+    }
+
+    /// The song page's D-21 case on the book page (TBX-1000000507 D-6/D-21 gap).
+    func testACombiningMarkCannotCarryAQuoteOrBracketPastEscaping() throws {
+        let mark = "\u{301}"
+        let preview = BookPreview(title: "Book <\(mark)b>", author: "A'\(mark)&\(mark)>\(mark)", from: "Sam\"\(mark)",
+                                  note: "0;url=https://evil.example\"\(mark) http-equiv=refresh")
+        let created = try ready(try book(preview: preview))
+        for agent in ["Synthetic page browser", "Slackbot-LinkExpanding 1.0"] {
+            let html = send("GET", "/b/\(created.id)", agent: agent).body
+            try assertNoRawMarkupBeforeCombiningMark(html, dataID: "book-data")
+            XCTAssertNotNil(html.range(of: Data("Book &lt;\(mark)".utf8)), String(decoding: html, as: UTF8.self))
+        }
     }
 
     func testPageStatesAndPrivateModeShowsNothingIdentifying() throws {

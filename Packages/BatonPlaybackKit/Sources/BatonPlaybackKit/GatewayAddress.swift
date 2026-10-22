@@ -50,4 +50,42 @@ public enum GatewayAddress {
         components.fragment = nil
         return components.url ?? url
     }
+
+    /// Whether the gateway's bearer token may be sent to `url` (TBX-1000000505 B-9).
+    ///
+    /// HTTPS always. Plain HTTP to a host on the home network (`isPrivate`, the caller's rule,
+    /// `RemoteNaturalLanguage.isPrivate` in the apps, so there is still one copy of it) or to a
+    /// name, which App Transport Security already refuses when it is public. Never plain HTTP to
+    /// any other IP address: ATS lets those through, and the token would cross the internet in
+    /// the clear. The device link, the book client, the pending-import relay and preference sync
+    /// all ask this before they send the token; only the agent route asked before.
+    public static func allowsBearer(to url: URL, isPrivate: (String) -> Bool) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), let host = url.host, !host.isEmpty else { return false }
+        if scheme == "https" { return true }
+        guard scheme == "http" else { return false }
+        return isPrivate(host) || isTunnelOrLinkLocal(host) || !isIPLiteral(host)
+    }
+
+    /// Addresses a public network never routes, which the shared private rule does not list:
+    /// Tailscale's 100.64.0.0/10 (whose traffic WireGuard already encrypts; gateway/README.md
+    /// calls plain HTTP over Tailscale fine), and IPv6 unique-local fc00::/7 (Tailscale's
+    /// fd7a:115c:a1e0::/48 among them) and link-local fe80::/10.
+    static func isTunnelOrLinkLocal(_ host: String) -> Bool {
+        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if bare.contains(":") {
+            guard let first = bare.split(separator: ":", omittingEmptySubsequences: false).first,
+                  first.count == 4, let word = UInt16(first, radix: 16) else { return false }
+            return word & 0xFE00 == 0xFC00 || word & 0xFFC0 == 0xFE80
+        }
+        let octets = bare.split(separator: ".", omittingEmptySubsequences: false).compactMap { UInt8($0) }
+        return octets.count == 4 && octets[0] == 100 && (64 ... 127).contains(octets[1])
+    }
+
+    /// An IPv4 or IPv6 address rather than a name.
+    static func isIPLiteral(_ host: String) -> Bool {
+        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if bare.contains(":") { return true }   // only an IPv6 address has a colon in its host
+        let parts = bare.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 4 && parts.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
+    }
 }

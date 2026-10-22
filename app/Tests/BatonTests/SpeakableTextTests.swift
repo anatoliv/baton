@@ -18,6 +18,7 @@ final class SpeakableTextTests: XCTestCase {
     private let githubOAuth = "gho" + "_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"
     private let slackToken = "xoxb" + "-1234567890-abcdefghij"
     private let awsKeyID = "AKIA" + "IOSFODNN7EXAMPLE"
+    private let googleKey = "AIza" + "SyA1234567890abcdefghijklmnopqrstuvw"
     private let privateKeyHeader = "-----BEGIN OPENSSH " + "PRIVATE KEY-----"
     private let privateKeyFooter = "-----END OPENSSH " + "PRIVATE KEY-----"
 
@@ -33,7 +34,7 @@ final class SpeakableTextTests: XCTestCase {
             ("sentry", "SENTRY_AUTH_TOKEN is sntrys_abcdefghijklmnopqrs.tuvwxyz", "sntrys_abcdefghijklmnopqrs.tuvwxyz"),
             ("slack", "hook \(slackToken)", slackToken),
             ("aws", "id \(awsKeyID) here", awsKeyID),
-            ("google", "key AIzaSyA1234567890abcdefghijklmnopqrstuvw done", "AIzaSyA1234567890abcdefghijklmnopqrstuvw"),
+            ("google", "key \(googleKey) done", googleKey),
             ("jwt", "auth eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk",
                     "eyJhbGciOiJIUzI1NiJ9"),
             ("bearer", "Authorization: Bearer abcdef1234567890XYZ", "abcdef1234567890XYZ"),
@@ -242,5 +243,65 @@ final class SpeakableTextTests: XCTestCase {
             XCTAssertFalse(spoken.contains(awsKeyID), "a coloured key survived redaction: \(spoken)")
             XCTAssertFalse(spoken.contains("hunter2"), "a coloured password survived redaction: \(spoken)")
         }
+    }
+
+    /// The residual of A-13: a code between a word and a secret ("word\e[0mAKIA…") was stripped
+    /// to nothing, which glued the key to the word, and the boundary-anchored pattern missed it
+    /// again. Where an escape separates two word characters it now reads as a
+    /// break for redaction.
+    func testASecretGluedToAWordByAColourCodeIsRedacted() {
+        let glued = [
+            "export\u{1B}[0m\(awsKeyID) done",
+            "deploy\u{1B}[32m\(awsKeyID)\u{1B}[0m ok",
+            "title\u{1B}]0;x\u{07}\(awsKeyID) end",
+        ]
+        for raw in glued {
+            let spoken = SpeakableText.prepare(raw, profile: .terminal).joined(separator: " ")
+            XCTAssertFalse(spoken.contains(awsKeyID), "a key glued to a word by an escape survived redaction: \(spoken)")
+            XCTAssertTrue(spoken.contains("a redacted key"), "the key is announced, not dropped: \(spoken)")
+        }
+    }
+
+    /// Neither reading may win outright. `grep --color` puts an escape *inside* a token it matched
+    /// ("\e[01;31m\e[Kghp_\e[m\e[K…"), which only the stripped-to-nothing reading sees whole, while a
+    /// key glued to a word needs the stripped-to-space one. Keeping whichever reading found more
+    /// let two glued keys outvote the grep match, and the GitHub token was spoken
+    /// (TBX-1000000504 review, 2026-10-22). Every secret either reading finds is redacted.
+    func testEverySecretEitherReadingFindsIsRedacted() {
+        let secondKey = "AKIA" + "ABCDEFGHIJKLMNOP"
+        let token = "ghp" + "_Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0UvWxYz"
+        let raw = "export\u{1B}[0m\(awsKeyID) done\n"
+            + "export\u{1B}[0m\(secondKey) done\n"
+            + "config.yml:\u{1B}[01;31m\u{1B}[K\(token.prefix(4))\u{1B}[m\u{1B}[K\(token.dropFirst(4))\n"
+        let spoken = SpeakableText.prepare(raw, profile: .terminal).joined(separator: " ")
+        for secret in [awsKeyID, secondKey, token, String(token.dropFirst(4))] {
+            XCTAssertFalse(spoken.contains(secret), "\(secret.prefix(6))… was spoken: \(spoken)")
+        }
+    }
+
+    /// An escape *inside* a secret's value splits it in the spaced reading, so the spaced match
+    /// is only its first part. Taking that part out before the joined reading's own, whole match
+    /// cut the secret apart and its tail was spoken (TBX-1000000504 verification, 2026-10-22).
+    func testASecretSplitPartWayByAnEscapeIsRedactedWhole() {
+        let hi = "\u{1B}[01;31m\u{1B}[K", lo = "\u{1B}[m\u{1B}[K"
+        let token = "ghp" + "_Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0UvWxYz"
+        let cases: [(raw: String, secretParts: [String])] = [
+            ("DB_PASSWORD=\(hi)hunter\(lo)2xyzSECRET", ["hunter", "2xyzSECRET"]),
+            ("config.yml:\(token.prefix(30))\(hi)\(token.dropFirst(30))\(lo)", [String(token.dropFirst(30))]),
+            ("\u{1B}[33m\(token.prefix(21))\u{1B}[0m\(token.dropFirst(21)) end", [String(token.dropFirst(21))]),
+        ]
+        for (raw, parts) in cases {
+            let spoken = SpeakableText.prepare(raw, profile: .terminal).joined(separator: " ")
+            for part in parts {
+                XCTAssertFalse(spoken.contains(part), "part of a split secret was spoken: \(spoken)")
+            }
+            XCTAssertTrue(spoken.contains("a redacted"), "the secret is announced, not dropped: \(spoken)")
+        }
+    }
+
+    /// Colouring inside a word with no secret in it reads as the word, as it does on screen.
+    func testColouringInsideAWordStillReadsAsTheWord() {
+        let spoken = SpeakableText.prepare("ma\u{1B}[31mi\u{1B}[0mn branch", profile: .terminal).joined(separator: " ")
+        XCTAssertEqual(spoken, "main branch")
     }
 }

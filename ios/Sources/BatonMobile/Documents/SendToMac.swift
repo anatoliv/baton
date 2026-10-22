@@ -63,9 +63,7 @@ enum SendToMac {
 extension MobileModel {
     /// "Send to my Mac" through the gateway Settings configures. Nil until address and token are set.
     func pendingImportRelay(session: URLSession = .shared) -> PendingImportRelay? {
-        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        let token = agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
+        guard case let (url, token)? = bearerGateway() else { return nil }
         return PendingImportRelay(files: GatewayFiles(gatewayURL: url, token: token, session: session))
     }
 }

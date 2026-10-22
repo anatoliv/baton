@@ -134,6 +134,11 @@ public enum ShareCrypto {
         let records = (body + full - 1) / full
         let last = body - (records - 1) * full
         guard last >= tagLength else { throw Failure.format("the last record is shorter than a tag") }
+        // Only an empty plaintext ends in an empty record. After full records the last one holds
+        // 1 to recordSize bytes, as the writer above produces; anything else is no sealer's output.
+        guard records == 1 || last > tagLength else {
+            throw Failure.format("an empty final record after full records")
+        }
         return Layout(recordSize: recordSize, records: records, lastRecordLength: last)
     }
 

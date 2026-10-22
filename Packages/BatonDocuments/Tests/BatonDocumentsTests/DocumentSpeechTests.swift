@@ -181,6 +181,12 @@ final class SecretRedactorTests: XCTestCase {
     private let githubOAuth = "gho" + "_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"
     private let slackToken = "xoxb" + "-1234567890-abcdefghij"
     private let awsKeyID = "AKIA" + "IOSFODNN7EXAMPLE"
+    // Assembled at runtime, like the keys above, so no source line is a real-shaped token
+    // a secret scanner refuses (GitHub push protection stopped the public mirror on the
+    // Discord one). The first part of a Discord token is the base64 of a decimal user id.
+    private let googleKey = "AIza" + "SyA1234567890abcdefghijklmnopqrstuvw"
+    private let discordUserID = "MTIzNDU2Nzg5" + "MDEyMzQ1Njc4"
+    private var discordToken: String { discordUserID + ".GhJkLm." + "abcdefghijklmnopqrstuvwxyz0123" }
     private let privateKeyHeader = "-----BEGIN OPENSSH " + "PRIVATE KEY-----"
     private let privateKeyFooter = "-----END OPENSSH " + "PRIVATE KEY-----"
     private let telegramBot = "123456789" + ":AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"
@@ -200,7 +206,7 @@ final class SecretRedactorTests: XCTestCase {
             ("SENTRY_AUTH_TOKEN is sntrys_abcdefghijklmnopqrs.tuvwxyz", "sntrys_abcdefghijklmnopqrs.tuvwxyz"),
             ("hook \(slackToken)", slackToken),
             ("id \(awsKeyID) here", awsKeyID),
-            ("key AIzaSyA1234567890abcdefghijklmnopqrstuvw done", "AIzaSyA1234567890abcdefghijklmnopqrstuvw"),
+            ("key \(googleKey) done", googleKey),
             ("auth eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk", "eyJhbGciOiJIUzI1NiJ9"),
             ("Authorization: Bearer abcdef1234567890XYZ", "abcdef1234567890XYZ"),
             ("password=hunter2", "hunter2"),
@@ -233,7 +239,7 @@ final class SecretRedactorTests: XCTestCase {
             ("clone with \(githubPAT)", "clone with a redacted token"),
             ("hook \(slackToken)", "hook a redacted token"),
             ("id \(awsKeyID) here", "id a redacted key here"),
-            ("key AIzaSyA1234567890abcdefghijklmnopqrstuvw done", "key a redacted key done"),
+            ("key \(googleKey) done", "key a redacted key done"),
             ("Authorization: Bearer abcdef1234567890XYZ", "Authorization: bearer, a redacted token"),
             ("password=hunter2", "password, a redacted value"),
             ("API_KEY: abc123def", "API_KEY, a redacted value"),
@@ -255,6 +261,45 @@ final class SecretRedactorTests: XCTestCase {
         XCTAssertEqual(SecretRedactor.redact(more), more)
         let once = SecretRedactor.redact("key sk-abcdefghijklmnopqrstuvwxyz012345 and \(githubPAT)")
         XCTAssertEqual(SecretRedactor.redact(once), once)
+    }
+
+    /// C3-10 follow-up: the Discord and prefixed-name shapes added for TBX-1000000480 also took
+    /// ordinary code and settings. A Discord token's first part is the base64 of a decimal user
+    /// id, and a prefixed setting whose value is a flag or a count is not a secret.
+    func testCodeAndSettingsThatOnlyLookLikeTheNewShapesAreLeftAlone() {
+        for text in [
+            "MyApplicationDelegateClass1.window.rootViewControllerPresentation",
+            "NSLayoutConstraintActivation.isActive.translatesAutoresizingMaskIntoConstraints",
+            "require_auth: false",
+            "max_token=200",
+            "enable_auth = true",
+            "default_token: null",
+        ] {
+            XCTAssertEqual(SecretRedactor.redact(text), text, text)
+        }
+        // Still redacted: a real-shaped Discord token, and secrets behind a prefixed name.
+        for (text, secret) in [("bot \(discordToken) ready", discordUserID),
+                               ("ADMIN_PASSWORD=12345678", "12345678"),
+                               ("client_secret: falsehood99", "falsehood99")] {
+            XCTAssertFalse(SecretRedactor.redact(text).contains(secret), text)
+        }
+    }
+
+    /// The C3-10 allowances must not let a secret through (REVIEW 4E333337): a token or auth
+    /// value of digits is a count only while it is short, and a password-named value is
+    /// redacted whatever it holds, a flag word included.
+    func testTheSettingAllowancesNeverPassALongNumberOrAPassword() {
+        for (text, secret) in [("API_TOKEN=12345678901234567890", "12345678901234567890"),
+                               ("PIN_AUTH=482913", "482913"),
+                               ("ADMIN_PASSWORD=no", "no"),
+                               ("DB_PASSWD: false", "false"),
+                               ("ROOT_PASSWORD=12345", "12345")] {
+            XCTAssertEqual(SecretRedactor.redact(text).hasSuffix(", a redacted value"), true, "\(text) -> \(SecretRedactor.redact(text))")
+            XCTAssertFalse(SecretRedactor.redact(text).contains("=" + secret) || SecretRedactor.redact(text).contains(": " + secret), text)
+        }
+        for text in ["max_token=200", "require_auth: false", "retry_token = 99999", "enable_secret: off"] {
+            XCTAssertEqual(SecretRedactor.redact(text), text)
+        }
     }
 }
 

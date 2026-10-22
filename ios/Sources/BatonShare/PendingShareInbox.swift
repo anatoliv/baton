@@ -45,7 +45,7 @@ struct PendingShareInbox: Sendable {
         let url: URL
     }
 
-    enum WriteError: Error { case notAWebLink, unusableName }
+    enum WriteError: Error { case notAWebLink, unusableName, batonShareLink }
 
     let root: URL
 
@@ -76,10 +76,14 @@ struct PendingShareInbox: Sendable {
         }
     }
 
+    /// A page's address, kept without its fragment. A Baton share link is refused: its fragment
+    /// is the song's key, and as a "page" it would be written here, used as a file name and sent
+    /// to the gateway by Send to my Mac (TBX-1000000505 B-6).
     @discardableResult
     func writeLink(_ url: URL, now: Date = Date()) throws -> Marker {
+        guard !Self.isBatonShareLink(url) else { throw WriteError.batonShareLink }
         guard Self.isWebLink(url), let host = url.host else { throw WriteError.notAWebLink }
-        return try write(kind: .link, name: host, link: url.absoluteString, now: now) { _ in }
+        return try write(kind: .link, name: host, link: Self.withoutFragment(url).absoluteString, now: now) { _ in }
     }
 
     private func write(kind: Marker.Kind, name: String, link: String?, now: Date,
@@ -160,7 +164,8 @@ struct PendingShareInbox: Sendable {
                   FileManager.default.fileExists(atPath: folder.appendingPathComponent(marker.originalName).path)
             else { return nil }
         case .link:
-            guard let link = marker.link.flatMap(URL.init(string:)), Self.isWebLink(link) else { return nil }
+            guard let link = marker.link.flatMap(URL.init(string:)), Self.isWebLink(link),
+                  !Self.isBatonShareLink(link) else { return nil }
         }
         return marker
     }
@@ -202,6 +207,25 @@ struct PendingShareInbox: Sendable {
 
     static func isWebLink(_ url: URL) -> Bool {
         ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host != nil
+    }
+
+    /// A Baton share link (`https://batonmusic.app/s/<id>#<key>`, `/m/`, `/b/`, or `baton://`),
+    /// whose fragment is a key. Foundation only, so the extension can ask without BatonShareKit;
+    /// the hosts are `ShareLink.hosts`, and `ShareInboxTests` checks the two agree.
+    static func isBatonShareLink(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        if scheme == "baton" { return ["share", "mixtape"].contains(url.host?.lowercased() ?? "") }
+        guard ["http", "https"].contains(scheme), let host = url.host?.lowercased(), batonShareHosts.contains(host) else { return false }
+        return ["/s/", "/m/", "/b/"].contains { url.path.hasPrefix($0) }
+    }
+
+    static let batonShareHosts: Set<String> = ["batonmusic.app", "www.batonmusic.app", "baton.tonebox.io"]
+
+    /// The address with no fragment: a page is read without one, and a fragment can be a secret.
+    static func withoutFragment(_ url: URL) -> URL {
+        guard url.fragment != nil, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        parts.fragment = nil
+        return parts.url ?? url
     }
 
     /// A shared name as a single path component: no separators, not hidden, not the marker's.

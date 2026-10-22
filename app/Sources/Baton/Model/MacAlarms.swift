@@ -21,6 +21,11 @@ final class MacAlarms {
     @ObservationIgnored weak var router: BatonCommandRouter?
     @ObservationIgnored private weak var model: MusicModel?
     @ObservationIgnored private var chime: NSSound?
+    /// Where a chime comes from: the bundled sound, or a test's silent one.
+    @ObservationIgnored var makeChime: () -> NSSound? = {
+        Bundle.main.url(forResource: "BatonAlarmChime", withExtension: "caf")
+            .flatMap { NSSound(contentsOf: $0, byReference: true) }
+    }
     @ObservationIgnored private var panel: NSPanel?
     @ObservationIgnored private var started = false
 
@@ -138,9 +143,11 @@ final class MacAlarms {
     }
 
     private func playChime() {
-        guard let url = Bundle.main.url(forResource: "BatonAlarmChime", withExtension: "caf"),
-              let sound = NSSound(contentsOf: url, byReference: true) else { return }
+        guard let sound = makeChime() else { return }
         sound.loops = true
+        // A second chime (an alarm and a timer together) replaces the first: stop it, or Stop
+        // reaches only the newest and the first keeps looping.
+        chime?.stop()
         chime = sound
         sound.play()
     }

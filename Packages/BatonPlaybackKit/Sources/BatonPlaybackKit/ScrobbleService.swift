@@ -199,7 +199,7 @@ public final class ScrobbleService {
 
     private func enqueue(_ scrobble: Scrobble, to destination: ScrobbleDestination) {
         guard destination.isActive else { return }
-        queue.enqueue(scrobble, destination: destination.destinationID)
+        queue.enqueue(scrobble, destination: destination.destinationID, scope: destination.queueScope)
         if autoFlush { flush(destination) }
     }
 
@@ -219,7 +219,7 @@ public final class ScrobbleService {
         flushing.insert(id)
         defer { flushing.remove(id) }
         while true {
-            let batch = queue.take(destination: id, limit: destination.maxBatch)
+            let batch = queue.take(destination: id, scope: destination.queueScope, limit: destination.maxBatch)
             guard !batch.isEmpty else { break }
             do {
                 try await destination.submit(batch.map(\.scrobble))
@@ -257,12 +257,20 @@ public final class ScrobbleService {
     private func submitOneByOne(_ batch: [QueuedScrobble],
                                 to destination: ScrobbleDestination) async -> (Error, Bool)? {
         var refusal: (Error, Bool)?
-        for item in batch {
+        for (offset, item) in batch.enumerated() {
             do {
                 try await destination.submit([item.scrobble])
                 queue.resolve([item])
             } catch {
                 let transient = Self.isTransient(error)
+                if Self.isAccountRejection(error) {
+                    // The account was refused, not this listen: every other listen would be
+                    // refused the same way, one request each, every round (C2-8 note). The
+                    // whole batch is charged one attempt, as it was before listens were sent
+                    // one by one, and the drain backs off.
+                    queue.fail(Array(batch[offset...]), countsAsAttempt: true)
+                    return (error, false)
+                }
                 queue.fail([item], countsAsAttempt: !transient)
                 if transient { return (error, true) }
                 refusal = refusal ?? (error, false)
@@ -325,6 +333,18 @@ public final class ScrobbleService {
             }
         }
         return true // unknown provider error → retry rather than drop
+    }
+
+    /// A refusal of the credentials rather than of one listen.
+    static func isAccountRejection(_ error: Error) -> Bool {
+        if let nav = error as? NavidromeError, case .unauthorized = nav { return true }
+        if let scrobble = error as? ScrobbleError {
+            switch scrobble {
+            case .http(let status): return status == 401 || status == 403
+            case .service(let message): return MusicLastFM.isCredentialRejection(message)
+            }
+        }
+        return false
     }
 
     /// Backoff after N consecutive failures. The first failure retries immediately (an

@@ -1084,9 +1084,11 @@ broken across lines are tidied up first, and anything that looks like a password
 out.
 
 **When your Baton server cannot make books,** the iPhone offers **Send to my Mac** in place of
-Make Audiobook. Your Baton server keeps the document for your Mac to collect, which Baton on the
-Mac does while it is open with Documents on. Open Baton on the Mac soon, because the Baton server
-doesn't keep files for other devices forever.
+Make Audiobook. Your Baton server keeps the document for your Mac to collect for up to two weeks,
+and Baton on the Mac collects it while it is open with Documents on. Open Baton on the Mac soon:
+after two weeks, or sooner if the Baton server runs short of room for shared files, the document
+is gone. The Mac then lists it at the top of Books as not arrived, and you send it again from
+the iPhone.
 
 On the Mac, the document opens in the import sheet, marked with the device that sent it. **Not
 Now** keeps it waiting in a list at the top of Books, with **Import…** and **Discard**. **Make
@@ -3034,8 +3036,12 @@ play can suggest something from your collection instead of guessing at song titl
 tools (`books_list` and every `book_` tool) are listed only while Documents is on. The tools
 that delete, revoke, share or replace something change nothing unless the agent passes
 `confirm: true`. Without it they answer with what they would do. None of them returns a link,
-key, feed or stream address, file path or server address, except `share_mixtape`, which hands
-the link it has just made to the agent that asked for it.
+key, feed or stream address, file path or server address, except `music_share` and
+`share_mixtape`, which hand the link they have just made to the agent that asked for it.
+When an agent makes a share for you (`music_share` or `share_mixtape`), its answer includes the
+whole link, key and all, so the key passes through that agent's model provider and, for Telegram
+or Discord, through the chat platform too. Anyone holding that copy of the link can play the
+song until you revoke it.
 
 | Tool | What it does | Main inputs |
 |---|---|---|

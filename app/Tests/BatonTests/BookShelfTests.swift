@@ -226,7 +226,7 @@ final class BookShelfTests: XCTestCase {
                                            .protectedContent, .empty, .contentSkipped]
         for kind in kinds {
             let text = DocumentImportSheet.text(for: ImportWarning(kind, pages: [4, 5, 9], detail: "The-Machine-Stops.dvi"))
-            XCTAssertFalse(text.contains("\u{2014}") || text.contains("\u{2013}"), ": \(text)")
+            XCTAssertFalse(text.contains("\u{2014}") || text.contains("\u{2013}"), "W-21: \(text)")
             XCTAssertFalse(text.isEmpty)
         }
         XCTAssertEqual(DocumentImportSheet.pageList([4]), "Page 4")

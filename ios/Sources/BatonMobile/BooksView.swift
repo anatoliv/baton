@@ -217,7 +217,9 @@ struct BooksView: View {
             Button("Import") {
                 let raw = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
                 let withScheme = raw.contains("://") ? raw : "https://\(raw)"
-                if let url = URL(string: withScheme), MobileDocuments.isWebLink(url) {
+                if let url = URL(string: withScheme), PendingShareInbox.isBatonShareLink(url) {
+                    show(MobileModel.shareLinkIsNotADocument)
+                } else if let url = URL(string: withScheme), MobileDocuments.isWebLink(url) {
                     model.offerImport(url)
                 } else {
                     show("That is not a web address")

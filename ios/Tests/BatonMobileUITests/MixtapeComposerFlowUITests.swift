@@ -87,14 +87,23 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         selectAllIntoDraft()
         app.buttons["Move Mixtape Fixture C up"].tap()
         app.buttons["Move Mixtape Fixture C up"].tap()
-        // The composer has no Remove: a track leaves by switching it off.
-        track(2).tap()
+        // The composer has no Remove: a track leaves by switching it off. A tap on the row's
+        // middle lands on its title and leaves the switch on, so tap the switch itself, as the
+        // other phone UI tests do.
+        let knob = track(2).switches.firstMatch
+        (knob.exists ? knob : track(2)).tap()
         XCTAssertTrue(track(0).label.hasPrefix("1. Mixtape Fixture C"))
         XCTAssertTrue(track(1).label.hasPrefix("2. Mixtape Fixture A"))
         XCTAssertTrue(track(2).label.hasPrefix("3. Mixtape Fixture B"))
         XCTAssertEqual(track(2).value as? String, "0")
-        XCTAssertEqual(app.switches["collection-share-public-preview"].value as? String, "0")
-        XCTAssertEqual(app.switches["collection-share-review-preservation"].value as? String, "0")
+        // Both privacy switches start off for a mixtape route; the Form builds its lower sections
+        // lazily, so each is scrolled into view before it is read.
+        let preview = app.switches["collection-share-public-preview"]
+        reveal(preview, swipingUp: true)
+        XCTAssertEqual(preview.value as? String, "0")
+        let preservation = app.switches["collection-share-review-preservation"]
+        reveal(preservation, swipingUp: true)
+        XCTAssertEqual(preservation.value as? String, "0")
         let disclosure = app.descendants(matching: .any).matching(identifier: "collection-share-disclosure").firstMatch
         reveal(disclosure, swipingUp: true)
         let field = app.textFields["collection-share-title"]
@@ -208,7 +217,10 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         draft()
         if preservation {
             let consent = app.switches["collection-share-review-preservation"]
-            reveal(consent, swipingUp: true); consent.tap()
+            reveal(consent, swipingUp: true)
+            // Tap the switch itself; a tap on the row's middle lands on its label (as for track(2)).
+            let knob = consent.switches.firstMatch
+            (knob.exists ? knob : consent).tap()
             XCTAssertEqual(consent.value as? String, "1")
         }
         app.buttons["collection-share-create-link"].tap(); _ = try await createdManifest()

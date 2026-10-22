@@ -65,7 +65,9 @@ final class GatewayDeviceLink {
 
     /// Starts polling if a gateway is configured. Idempotent.
     func start() {
-        guard pollTask == nil, let profile = AgentClient.makeGatewayProfile(config) else { return }
+        guard pollTask == nil, let profile = AgentClient.makeGatewayProfile(config),
+              // Never the token over plain HTTP to an address off the home network (B-9).
+              GatewayAddress.allowsBearer(to: profile.baseURL, isPrivate: AgentClient.isPrivateHost) else { return }
         generation += 1
         let mine = generation
         pollingURL = profile.baseURL

@@ -102,4 +102,39 @@ final class SpeechCompletionTests: XCTestCase {
         XCTAssertFalse(engine.isSpeaking,
                        "the speaking session never ended by itself — the music duck is released by endSession(), so the library would stay at the ducked volume indefinitely")
     }
+
+    private final class CountingDuck: SpeechDucking {
+        var begins = 0
+        var ends = 0
+        func beginSpeechDuck() { begins += 1 }
+        func endSpeechDuck() { ends += 1 }
+    }
+
+    private struct NoOutputDevice: Error {}
+
+    /// An engine that cannot start (no usable output device) must still end the utterance, or the
+    /// session never ends: the music stays ducked and every later summary queues behind a clip
+    /// that will never play, until the user finds Stop (TBX-1000000504, A-4). Needs no device:
+    /// the start is made to fail.
+    func testAnEngineThatCannotStartStillEndsTheSessionAndReleasesTheDuck() async throws {
+        SpeechAudioPlayer.startEngineOverride = { _ in throw NoOutputDevice() }
+        defer { SpeechAudioPlayer.startEngineOverride = nil }
+
+        let engine = SpeechPlaybackEngine()
+        let duck = CountingDuck()
+        engine.ducking = duck
+        defer { engine.cancel() }
+        engine.play(.file(try BatonMCPSpeakTools.writeTemp(try toneWAV(seconds: 0.4))), text: "first")
+        engine.play(.file(try BatonMCPSpeakTools.writeTemp(try toneWAV(seconds: 0.4))), text: "second")
+        XCTAssertEqual(duck.begins, 1, "speaking ducks the music")
+
+        let deadline = Date().addingTimeInterval(3)
+        while engine.isSpeaking, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertFalse(engine.isSpeaking, "a clip that could not start held the speaking session open")
+        XCTAssertEqual(engine.queuedCount, 0, "the summary queued behind it never got its turn")
+        XCTAssertEqual(duck.ends, duck.begins, "the music stayed ducked")
+    }
 }

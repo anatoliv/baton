@@ -285,6 +285,22 @@ final class ShareServiceTests: XCTestCase {
         XCTAssertTrue(html.contains("<title>{{OG_TAGS}} sent you {{DATA}} by x&quot; http-equiv"), html)
     }
 
+    /// The preview card is public, but a cache may not keep answering with it once the share is
+    /// revoked: every use revalidates, and the revoked share answers 410 (TBX-1000000507 E-13).
+    func testThePreviewCardRevalidatesSoARevokedShareStopsServingIt() throws {
+        let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
+        let created = try decode(CreateShareResponse.self, request("POST", "/v1/share/shares",
+            json: createBody(sealed, preview: ["title": "Card song", "durationSeconds": 200]), secret: secret))
+        XCTAssertEqual(try upload(created.id, "audio", sealed).status, 200)
+        XCTAssertEqual(try upload(created.id, "card", Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(count: 100)).status, 200)
+        XCTAssertEqual(request("POST", "/v1/share/shares/\(created.id)/finalize", secret: secret).status, 200)
+        let card = request("GET", "/v1/share/p/\(created.id)/card")
+        XCTAssertEqual(card.status, 200)
+        XCTAssertEqual(card.headers["Cache-Control"], "public, no-cache")
+        XCTAssertEqual(request("DELETE", "/v1/share/shares/\(created.id)", secret: secret).status, 204)
+        XCTAssertEqual(request("GET", "/v1/share/p/\(created.id)/card").status, 410)
+    }
+
     func testAPrivateShareKeepsItsDetailsOutOfThePage() throws {
         let key = ShareCrypto.newKey()
         let sealed = try ShareCrypto.seal(Data(count: 5000), key: key, purpose: .audio)
@@ -416,7 +432,8 @@ final class ShareServiceTests: XCTestCase {
     func testThePlayCapCountsWholeFetchesNotRanges() throws {
         let made = try makeReadyShare(cap: 2)
         XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio").status, 200)
-        XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio", headers: ["range": "bytes=5000-"]).status, 200)
+        // A 5000-byte tail fits the counted play's transfer allowance (§4.2), so it is free.
+        XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio", headers: ["range": "bytes=\(made.sealed.count - 5000)-"]).status, 200)
         XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio", headers: ["range": "bytes=0-"]).status, 200)
         let capped = request("GET", "/v1/share/p/\(made.id)/audio")
         XCTAssertEqual(capped.status, 410)
@@ -446,12 +463,186 @@ final class ShareServiceTests: XCTestCase {
             XCTAssertEqual(code(request("GET", "/v1/share/p/\(made.id)/audio")), "play_cap",
                            "a whole-file fetch with \(headers) counts")
         }
-        // A strict single continuation range without If-Range is the only fetch that does not count.
-        let made = try makeReadyShare(cap: 1)
-        for range in ["bytes=5000-", "bytes=5-9", "bytes= 5 - ", "BYTES=5-", "Bytes=05-", "bytes=1-1"] {
+        // A strict single continuation range without If-Range is the only fetch that does not count,
+        // as long as it fits the transfer allowance the counted play left (§4.2): small tails here.
+        let made = try makeReadyShare(cap: 2)
+        let size = made.sealed.count
+        XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio").status, 200, "the counted play")
+        for range in ["bytes=\(size - 5000)-", "bytes=5-9", "bytes= \(size - 5) - ", "BYTES=\(size - 5)-", "Bytes=0\(size - 5)-", "bytes=1-1"] {
             XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio", headers: ["range": range]).status, 200, range)
         }
-        XCTAssertEqual(request("GET", "/v1/share/p/\(made.id)/audio").status, 200, "continuations left the cap unspent")
+        XCTAssertEqual(try service.store.share(id: made.id)?.stats.fetches, 1, "continuations left the cap unspent")
+    }
+
+    /// Each counted play allows 1.5x the file in transfer; a continuation past what is left counts as
+    /// another play (owner decision 2026-10-21, TBX-1000000494 item 3). Before, one counted fetch
+    /// could be followed by any number of free continuations.
+    func testContinuationsPastTheTransferAllowanceCountAsAnotherPlay() throws {
+        let made = try makeReadyShare(cap: 2)
+        let size = made.sealed.count
+        let audio = "/v1/share/p/\(made.id)/audio"
+        func fetches() throws -> Int { try XCTUnwrap(try service.store.share(id: made.id)).stats.fetches }
+        // bytes=N- asks for the rest of the file: 0.3 of it.
+        let tail = "bytes=\(size - size * 3 / 10)-"
+        XCTAssertEqual(request("GET", audio).status, 200)
+        XCTAssertEqual(try fetches(), 1, "the whole fetch counts and leaves half the file in allowance")
+        XCTAssertEqual(request("GET", audio, headers: ["range": tail]).status, 200)
+        XCTAssertEqual(try fetches(), 1, "0.3 of the file fits the 0.5 left")
+        XCTAssertEqual(request("GET", audio, headers: ["range": "bytes=100-199"]).status, 200)
+        XCTAssertEqual(try fetches(), 1, "100 bytes fit what is left")
+        XCTAssertEqual(request("GET", audio, headers: ["range": tail]).status, 200)
+        XCTAssertEqual(try fetches(), 2, "another 0.3 does not fit, so it is a second play")
+        // The second play's allowance: 1.5 less this 0.3, so 1.2 more of continuations are free.
+        for _ in 0 ..< 4 { XCTAssertEqual(request("GET", audio, headers: ["range": tail]).status, 200) }
+        XCTAssertEqual(try fetches(), 2, "1.2 of the file in four 0.3 continuations")
+        XCTAssertEqual(code(request("GET", audio, headers: ["range": tail])), "play_cap", "and past it, with the cap spent, 410")
+        XCTAssertEqual(code(request("GET", audio, headers: ["range": "bytes=\(size + 10)-"])), "play_cap",
+                       "a range past the end buys nothing past the cap")
+        // Another listener has no allowance of its own: its first continuation is a play.
+        let other = try makeReadyShare(cap: 5)
+        XCTAssertEqual(request("GET", "/v1/share/p/\(other.id)/audio", headers: ["range": "bytes=5-"], userAgent: "Another/1.0").status, 200)
+        XCTAssertEqual(try service.store.share(id: other.id)?.stats.fetches, 1)
+        // A continuation that starts past the end is charged nothing (nginx answers 416).
+        XCTAssertEqual(request("GET", "/v1/share/p/\(other.id)/audio", headers: ["range": "bytes=\(size + 10)-"], userAgent: "Another/1.0").status, 200)
+        XCTAssertEqual(try service.store.share(id: other.id)?.stats.fetches, 1)
+    }
+
+    /// The same check from the raw request bytes, for what only the parser sees.
+    /// nginx answers from the first of two Range headers and skips only spaces before a value, so a
+    /// second `bytes=5-` or a tab or no-break space before `bytes=` still gets the whole song.
+    func testThePlayCapCountsDuplicateAndOddlySpacedRangeHeadersFromTheWire() throws {
+        let whole = [
+            "Range: bytes=0-\r\nRange: bytes=5-", "Range: bytes=5-\r\nrange: bytes=0-",
+            "Range:\tbytes=5-", "Range: \tbytes=5-", "Range: \u{A0}bytes=5-", "Range:\u{A0}bytes=5-",
+        ]
+        for lines in whole {
+            let made = try makeReadyShare(cap: 1)
+            XCTAssertEqual(wire("GET /v1/share/p/\(made.id)/audio", lines).status, 200)
+            XCTAssertEqual(code(request("GET", "/v1/share/p/\(made.id)/audio")), "play_cap",
+                           "a whole-file fetch with \(lines.debugDescription) counts")
+        }
+        let made = try makeReadyShare(cap: 2)
+        let tail = made.sealed.count - 100
+        XCTAssertEqual(wire("GET /v1/share/p/\(made.id)/audio", "Accept: */*").status, 200, "the counted play")
+        for lines in ["Range: bytes=\(tail)-", "Range:bytes=\(tail)-", "Range:   bytes=5-9  "] {
+            XCTAssertEqual(wire("GET /v1/share/p/\(made.id)/audio", lines).status, 200, lines)
+        }
+        XCTAssertEqual(try service.store.share(id: made.id)?.stats.fetches, 1, "continuations left the cap unspent")
+    }
+
+    /// Before staging is reserved, an upload head is checked for who is asking, and refused with the
+    /// handler's own answer when the credential owns no such share (TBX-1000000496 D-15).
+    func testAnUploadHeadIsRefusedBeforeStagingUnlessItsSharerOwnsTheShare() throws {
+        let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
+        let pending = try decode(CreateShareResponse.self,
+                                 request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret))
+        func head(_ path: String, _ bearer: String?) -> StreamingUpload.Request {
+            var headers = ["content-length": String(sealed.count)]
+            if let bearer { headers["authorization"] = "Bearer \(bearer)" }
+            return StreamingUpload.Request(method: "PUT", path: path, headers: headers, contentLength: sealed.count)
+        }
+        let audio = "/v1/share/shares/\(pending.id)/audio"
+        XCTAssertNil(service.refusesUpload(head(audio, secret)), "the owner streams as before")
+        XCTAssertEqual(service.refusesUpload(head(audio, nil))?.status, 401)
+        XCTAssertEqual(service.refusesUpload(head(audio, otherSecret)).flatMap(code), "not_found", "someone else's share")
+        let unknown = Base64URL.encode(Data(repeating: 4, count: 16))
+        XCTAssertEqual(service.refusesUpload(head("/v1/share/shares/\(unknown)/audio", secret))?.status, 404)
+        // The same answer the handler gives for the same request.
+        XCTAssertEqual(try upload(pending.id, "audio", sealed, secret: otherSecret).status, 404)
+        XCTAssertEqual(try upload(pending.id, "audio", sealed).status, 200)
+
+        let track = Base64URL.encode(Data(repeating: 5, count: 16))
+        let paths = ["/v1/share/mixtapes/\(pending.id)/tracks/\(track)", "/v1/share/books/\(pending.id)/blobs/\(track)"]
+        for path in paths {
+            XCTAssertEqual(service.refusesUpload(head(path, otherSecret)).flatMap(code), "unsupported",
+                           "off, the handler's 409 unsupported, before any staging: \(path)")
+        }
+        var config = service.config
+        config.mixtapesEnabled = true
+        config.booksEnabled = true
+        let clock = self.clock!
+        let enabled = try ShareService(config: config, salt: DailySalt(random: { Data(repeating: 1, count: 32) }), clock: { clock.now })
+        for path in paths {
+            XCTAssertEqual(enabled.refusesUpload(head(path, nil))?.status, 404, path)
+            XCTAssertEqual(enabled.refusesUpload(head(path, otherSecret))?.status, 404, path)
+            XCTAssertEqual(enabled.refusesUpload(head(path, secret))?.status, 404, "a song is not a mixtape or a book: \(path)")
+        }
+    }
+
+    /// The pre-staging check refuses what the handler would refuse anyway, with the handler's answer:
+    /// a share that is no longer pending or has expired, and a declared length the share did not
+    /// declare. Admissions then count against the in-flight caps until released (TBX-1000000496
+    /// D-15 review).
+    func testThePreStagingCheckRefusesStateAndSizeAndCapsUploadsInFlight() throws {
+        let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
+        func head(_ id: String, _ kind: String = "audio", length: Int? = nil, secret: String? = nil, ip: String = "203.0.113.7") -> StreamingUpload.Request {
+            StreamingUpload.Request(method: "PUT", path: "/v1/share/shares/\(id)/\(kind)",
+                                    headers: ["authorization": "Bearer \(secret ?? self.secret)", "x-real-ip": ip],
+                                    contentLength: length ?? sealed.count)
+        }
+        func pending(_ secret: String? = nil) throws -> String {
+            try decode(CreateShareResponse.self, request("POST", "/v1/share/shares", json: createBody(sealed),
+                                                         secret: secret ?? self.secret)).id
+        }
+        let first = try pending()
+        XCTAssertNil(service.refusesUpload(head(first)))
+        XCTAssertEqual(service.refusesUpload(head(first, length: 26_214_400)).flatMap(code), "invalid", "longer than the share declared")
+        XCTAssertEqual(service.refusesUpload(head(first, "card", length: 2_000_000))?.status, 413)
+        let ready = try makeReadyShare()
+        XCTAssertEqual(service.refusesUpload(head(ready.id, length: ready.sealed.count)).flatMap(code), "state", "already ready")
+
+        // In flight: one per target, three per sharer, four per network; a release frees the slot.
+        func admitted(_ admission: POSIXTransport.UploadAdmission) -> (@Sendable () -> Void)? {
+            if case let .admit(release) = admission { return release }
+            return nil
+        }
+        func refusedCode(_ admission: POSIXTransport.UploadAdmission) -> String? {
+            guard case let .refuse(data) = admission, let text = String(data: data, encoding: .utf8),
+                  let body = text.range(of: "\r\n\r\n") else { return nil }
+            return (try? JSONDecoder().decode(ShareErrorBody.self, from: Data(text[body.upperBound...].utf8)))?.code
+        }
+        let held = try XCTUnwrap(admitted(service.admitUpload(head(first))))
+        XCTAssertEqual(refusedCode(service.admitUpload(head(first))), "rate_limited", "the same target twice at once")
+        for spelling in ["/v1/share/shares/\(first)//audio", "/v1/share/shares/\(first)/audio/"] {
+            let respelled = StreamingUpload.Request(method: "PUT", path: spelling, headers: head(first).headers, contentLength: sealed.count)
+            XCTAssertEqual(refusedCode(service.admitUpload(respelled)), "rate_limited", "the same target spelled \(spelling)")
+        }
+        let second = try pending(), third = try pending(), fourth = try pending()
+        let releases = try [second, third].map { try XCTUnwrap(admitted(service.admitUpload(head($0)))) }
+        XCTAssertEqual(refusedCode(service.admitUpload(head(fourth))), "rate_limited", "a fourth from one sharer")
+        held(); held()
+        XCTAssertNotNil(admitted(service.admitUpload(head(fourth))), "a release frees the sharer's slot, once")
+        let other = try pending(otherSecret), another = try pending(otherSecret)
+        XCTAssertNotNil(admitted(service.admitUpload(head(other, secret: otherSecret))), "a fourth on the network")
+        XCTAssertEqual(refusedCode(service.admitUpload(head(another, secret: otherSecret))), "rate_limited",
+                       "a fifth from one network, whichever sharer")
+        XCTAssertNotNil(admitted(service.admitUpload(head(another, secret: otherSecret, ip: "198.51.100.4"))), "another network is free")
+        releases.forEach { $0() }
+    }
+
+    /// Repeated fields are joined, except the two whose repetition is ambiguous framing: two Hosts
+    /// or two Content-Lengths are refused as malformed (RFC 9112 3.2, 6.3).
+    func testTwoHostsOrTwoLengthsAreMalformedAndOtherRepeatsJoin() {
+        for lines in ["Host: a\r\nHost: b", "Content-Length: 0\r\nContent-Length: 0", "content-length: 1\r\nContent-Length: 1"] {
+            guard case .malformed = HTTPRequestMessage.parse(Data("GET / HTTP/1.1\r\n\(lines)\r\n\r\nx".utf8)) else {
+                return XCTFail("not refused: \(lines.debugDescription)")
+            }
+        }
+        guard case let .complete(message) = HTTPRequestMessage.parse(Data("GET / HTTP/1.1\r\nHost: a\r\nAccept: x\r\naccept:  y \r\n\r\n".utf8)) else {
+            return XCTFail("unparsed")
+        }
+        XCTAssertEqual(message.headers["accept"], "x, y")
+        XCTAssertEqual(message.headers["host"], "a")
+    }
+
+    /// One request parsed from its bytes, as the transport receives it.
+    func wire(_ requestLine: String, _ headerLines: String) -> ShareResponse {
+        let raw = "\(requestLine) HTTP/1.1\r\nX-Real-IP: 203.0.113.7\r\nUser-Agent: \(browser)\r\n\(headerLines)\r\n\r\n"
+        guard case let .complete(message) = HTTPRequestMessage.parse(Data(raw.utf8)) else {
+            XCTFail("unparsed: \(raw.debugDescription)")
+            return ShareResponse(status: 0, contentType: "text/plain")
+        }
+        return service.handle(message)
     }
 
     func testRevokeDeletesAtOnceAndReadsAsExpiredToTheFriend() throws {
@@ -630,6 +821,34 @@ final class ShareServiceTests: XCTestCase {
         XCTAssertEqual(created.status, 201, String(decoding: created.body, as: UTF8.self))
         XCTAssertEqual(code(request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret)), "rate_limited",
                        "the allowance itself still holds")
+    }
+
+    /// IPv6 visitors are grouped by their /64, IPv4 by address as before, for every per-network limit:
+    /// Cloudflare passes the full IPv6 address, and an ordinary /64 is 2^64 of them (TBX-1000000496
+    /// E-9, infra review step A2).
+    func testIPv6AddressesInOneSlash64ShareAPerNetworkLimitAndTwoSlash64sDoNot() throws {
+        var limits = ShareLimits()
+        limits.createsPerNetworkPerDay = 1
+        service = try makeService(limits: limits)
+        let sealed = try ShareCrypto.seal(Data(count: 1000), key: ShareCrypto.newKey(), purpose: .audio)
+        func create(_ ip: String) -> ShareResponse {
+            request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret, headers: ["cf-connecting-ip": ip])
+        }
+        XCTAssertEqual(create("2001:db8:1:2::1").status, 201)
+        XCTAssertEqual(code(create("2001:db8:1:2:ffff:ffff:ffff:fffe")), "rate_limited", "same /64, another address")
+        XCTAssertEqual(code(create("2001:0DB8:0001:0002:0:0:0:9")), "rate_limited", "same /64 written another way")
+        XCTAssertEqual(create("2001:db8:1:3::1").status, 201, "the next /64 is another network")
+        XCTAssertEqual(create("203.0.113.10").status, 201, "IPv4 stays per address")
+        XCTAssertEqual(create("203.0.113.11").status, 201)
+        XCTAssertEqual(code(create("::ffff:203.0.113.11")), "rate_limited", "an IPv4-mapped address is its IPv4 address")
+
+        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "2001:db8:1:2:3:4:5:6"]).network, "2001:db8:1:2::/64")
+        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "fe80::1%en0"]).network, "fe80::/64")
+        XCTAssertEqual(ShareRequester(headers: ["x-real-ip": "198.51.100.4"]).network, "198.51.100.4")
+        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "not an address"]).network, "not an address",
+                       "an unparsable value falls back to itself")
+        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "2001:db8:1:2:3:4:5:6"]).address, "2001:db8:1:2:3:4:5:6",
+                       "the visitor hash keeps the full address: a visitor is a person, not a network")
     }
 
     // MARK: - Sweeper

@@ -687,18 +687,29 @@ struct MusicBooksView: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(sentItems) { item in
                 HStack(spacing: 10) {
-                    Image(systemName: "iphone.and.arrow.forward").foregroundStyle(.secondary)
+                    Image(systemName: item.isMissing ? "exclamationmark.triangle" : "iphone.and.arrow.forward")
+                        .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(item.record.title).font(.callout).lineLimit(1)
+                        if item.isMissing {
+                            // The gateway removed it before this Mac collected it.
+                            Text("\(item.record.title) didn't arrive. Send it again from the iPhone.")
+                                .font(.callout).lineLimit(2)
+                        } else {
+                            Text(item.record.title).font(.callout).lineLimit(1)
+                        }
                         Text("Sent from \(item.record.fromDevice)").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Import…") {
-                        model.documentInbox.reopen(item.id)
-                        offerNextSent()
+                    if item.isMissing {
+                        Button("Dismiss") { model.documentInbox.finish(item.id) }
+                    } else {
+                        Button("Import…") {
+                            model.documentInbox.reopen(item.id)
+                            offerNextSent()
+                        }
+                        .disabled(sentImport != nil || importing != nil)
+                        Button("Discard") { model.documentInbox.finish(item.id) }
                     }
-                    .disabled(sentImport != nil || importing != nil)
-                    Button("Discard") { model.documentInbox.finish(item.id) }
                 }
             }
         }

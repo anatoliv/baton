@@ -6,7 +6,7 @@ import Testing
 /// : the transient-vs-permanent split that keeps an offline session from destroying
 /// the scrobbles the durable queue exists to protect.
 @MainActor
-@Suite("Scrobble failure classification")
+@Suite("Scrobble failure classification (W-08)")
 struct ScrobbleClassificationTests {
     @Test("network / 5xx / 429 / not-configured are transient")
     func transient() {

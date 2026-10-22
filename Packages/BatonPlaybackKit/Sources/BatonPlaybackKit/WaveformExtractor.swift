@@ -30,13 +30,19 @@ public enum WaveformExtractor {
         return dir
     }
 
+    /// `.v2`: bars written before the stereo fix put a stereo track's second half in the last
+    /// bar (C1-19), so no earlier file is read again.
     private nonisolated static func diskURL(_ key: CacheKey) -> URL {
         let id = key.songID.replacingOccurrences(of: "/", with: "_")
-        return diskDir.appendingPathComponent("\(id)-\(key.barCount).json")
+        return diskDir.appendingPathComponent("\(id)-\(key.barCount).v2.json")
     }
 
-    private nonisolated static func legacyDiskURL(_ id: String) -> URL {
-        diskDir.appendingPathComponent(id.replacingOccurrences(of: "/", with: "_") + ".json")
+    /// The names earlier releases wrote, `<song>.json` and `<song>-<bars>.json`. Removed when
+    /// the song's waveform is computed again, since what they hold is wrong for stereo.
+    private nonisolated static func staleDiskURLs(_ key: CacheKey) -> [URL] {
+        let id = key.songID.replacingOccurrences(of: "/", with: "_")
+        return [diskDir.appendingPathComponent(id + ".json"),
+                diskDir.appendingPathComponent("\(id)-\(key.barCount).json")]
     }
 
     private nonisolated static func cachedBars(at url: URL, count: Int) -> [Float]? {
@@ -68,15 +74,8 @@ public enum WaveformExtractor {
             cache[key] = bars
             return bars
         }
-        // One release of Baton wrote `<song>.json`. It is safe to migrate that value only
-        // when its shape happens to match this request; otherwise recompute at the requested
-        // resolution instead of stretching or collapsing the old waveform.
-        if let bars = cachedBars(at: legacyDiskURL(id), count: count) {
-            cache[key] = bars
-            persist(bars, at: diskURL(key))
-            return bars
-        }
         if let work = inFlight[key] { return await work.value }
+        for stale in staleDiskURLs(key) { try? FileManager.default.removeItem(at: stale) }
 
 #if DEBUG
         let extraction = extractionOverrideForTesting
@@ -128,12 +127,24 @@ public enum WaveformExtractor {
 
         var peaks = [Float](repeating: 0, count: barCount)
         var counts = [Int](repeating: 0, count: barCount)
+        // Samples are interleaved, one per channel per frame, and the duration is in frames:
+        // bucketing by sample put a stereo track's first half across every bar and its second
+        // half in the last one (C1-19). `sampleIndex` counts samples, `frame` what it falls in.
         var sampleIndex = 0
-        let sampleRate = (try? await track.load(.naturalTimeScale)) ?? 44_100
+        var channels = 1
+        var sampleRate = Double((try? await track.load(.naturalTimeScale)) ?? 44_100)
         let durationSeconds = ((try? await asset.load(.duration))?.seconds) ?? 0
-        let totalSamples = max(1, Int(durationSeconds * Double(sampleRate)))
+        var totalFrames = max(1, Int(durationSeconds * sampleRate))
 
         while reader.status == .reading, let buffer = output.copyNextSampleBuffer() {
+            if sampleIndex == 0, let format = CMSampleBufferGetFormatDescription(buffer),
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee {
+                channels = max(1, Int(asbd.mChannelsPerFrame))
+                if asbd.mSampleRate > 0 {
+                    sampleRate = asbd.mSampleRate
+                    totalFrames = max(1, Int(durationSeconds * sampleRate))
+                }
+            }
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             let length = CMBlockBufferGetDataLength(block)
             var data = Data(count: length)
@@ -143,7 +154,7 @@ public enum WaveformExtractor {
             data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
                 let samples = raw.bindMemory(to: Int16.self)
                 for sample in samples {
-                    let bucket = min(barCount - 1, sampleIndex * barCount / totalSamples)
+                    let bucket = min(barCount - 1, (sampleIndex / channels) * barCount / totalFrames)
                     let amp = abs(Float(sample)) / Float(Int16.max)
                     peaks[bucket] = max(peaks[bucket], amp)
                     counts[bucket] += 1

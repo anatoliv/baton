@@ -113,6 +113,34 @@ final class DocumentInboxTests: XCTestCase {
         XCTAssertTrue(mac.items.isEmpty, "it does not come back")
     }
 
+    /// The gateway removed the document before this Mac collected it (its age limit, or cap
+    /// eviction, which takes the document first). The Mac says so once, clears the record on the
+    /// gateway so it is not asked for every minute, and Dismiss removes the row.
+    func testADocumentTheGatewayAlreadyRemovedIsListedAsMissingAndFinished() async throws {
+        let sent = try await phoneSends()
+        gateway.remove(PendingImport.documentID(for: sent.id))
+        let mac = inbox()
+        await mac.pickUp()
+        let item = try XCTUnwrap(mac.items.first)
+        XCTAssertEqual(item.id, sent.id)
+        XCTAssertTrue(item.isMissing)
+        XCTAssertNil(item.source)
+        XCTAssertNil(mac.nextOffer, "nothing to open in the import sheet")
+        XCTAssertEqual(mac.arrivals, 1, "Clippings comes forward so the person sees it")
+        await mac.settle()
+        let left = try await gateway.files.list()
+        XCTAssertEqual(left.map(\.id), [], "the orphaned record and its claim are gone from the gateway")
+
+        let relaunched = inbox()
+        XCTAssertEqual(relaunched.items.map(\.id), [sent.id], "still listed after a relaunch")
+        XCTAssertTrue(relaunched.items[0].isMissing)
+        relaunched.finish(sent.id)   // Dismiss
+        await relaunched.settle()
+        XCTAssertTrue(relaunched.items.isEmpty)
+        await relaunched.pickUp()
+        XCTAssertTrue(relaunched.items.isEmpty, "it does not come back")
+    }
+
     func testNotNowKeepsItListedHeldAndQuiet() async throws {
         let sent = try await phoneSends()
         let mac = inbox()
@@ -222,6 +250,8 @@ final class InboxGatewayStandIn: @unchecked Sendable {
         }
     }
     var requests: [Seen] { lock.withLock { seen } }
+    /// What the gateway's age limit or cap eviction does to one file.
+    func remove(_ id: String) { lock.withLock { stored[id] = nil } }
 
     func answer(_ request: URLRequest, body: Data) -> (Int, Data, [String: String]) {
         lock.withLock {

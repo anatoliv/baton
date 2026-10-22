@@ -748,9 +748,10 @@ final class SongSharing {
             artist: manifest.author, isPrivate: prepared.request.preview == nil, createdAt: Date(),
             expiresAt: ShareDate.date(result.summary.share.expiresAt) ?? Date() + TimeInterval(prepared.request.expiresInSeconds),
             summary: result.summary.share, kind: .book, bookSummary: result.summary, collection: manifest.kind)
-        ledger.add(record)
-        save()
-        try? prepared.remove()
+        // The staging folder holds the only other copy of this link's key. Removed only once the
+        // ledger has it on disk: a failed save (a full disk, a locked file) used to lose the key
+        // with the folder. Kept, the book stays listed as unfinished and its key is not lost (C-8).
+        if addSaved(record) { try? prepared.remove() }
         loadPendingBooks()
         return record
     }
@@ -1098,10 +1099,26 @@ final class SongSharing {
         save()
     }
 
-    private func save() {
-        try? ShareUploadStore.saveLedger(ledger, to: ledgerURL)
-        // Book links live beside the ledger, where released apps never read them.
-        try? ledger.saveBooks(beside: ledgerURL)
+    private func save() { _ = saved() }
+
+    /// Writes the ledger, and the book links beside it, where released apps never read them.
+    /// True only when both reached disk.
+    @discardableResult
+    private func saved() -> Bool {
+        do {
+            try ShareUploadStore.saveLedger(ledger, to: ledgerURL)
+            try ledger.saveBooks(beside: ledgerURL)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Adds a finished link to the ledger and saves it. True only when the save reached disk,
+    /// which is what decides whether anything else holding the link's key may be removed.
+    func addSaved(_ record: ShareLedger.Record) -> Bool {
+        ledger.add(record)
+        return saved()
     }
 
     static var platform: String {

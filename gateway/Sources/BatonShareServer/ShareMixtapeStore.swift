@@ -75,7 +75,7 @@ extension ShareStore {
     func endMixtape(id: String, status: ShareStatus, now: Int64) throws {
         try database.transaction {
             if let record = try share(id: id), try isEnforced(record) {
-                try setEnforcement(id: id, disabled: true, purged: true, deadline: now, caseReference: "owner-revoke")
+                try purgeHeldByOwner(id: id, now: now)
             }
             try database.run("UPDATE shares SET status=?,ended_at=?,access_generation=access_generation+1 WHERE id=?", [.text(status.rawValue), .int(now), .text(id)])
             try enqueueEnforcementCleanup(id: id, as: status, now: now)

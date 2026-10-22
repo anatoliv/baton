@@ -1,4 +1,5 @@
 import AppKit
+import BatonAgentKit
 import BatonPlaybackKit
 import BatonSubsonicKit
 import Foundation
@@ -15,6 +16,10 @@ import Observation
 /// - **Not Now** keeps it: it stays in the list, held by this Mac, and does not open again by
 ///   itself. That is why the gateway copy stays too; nothing is lost if this Mac's copy is.
 ///
+/// - A document the gateway already removed (its fourteen-day limit, or its total cap) never
+///   arrives. It is listed as "didn't arrive, send it again" and finished on the gateway at
+///   once, so its record is not asked for every minute.
+///
 /// Two Macs never both take one: the relay's claim decides (see `PendingImportRelay`).
 @MainActor
 @Observable
@@ -25,6 +30,11 @@ final class DocumentInbox {
         let file: URL?
         /// "Not Now": listed, not opened by itself again.
         var notNow = false
+        /// The record came and its document did not: listed until dismissed, never opened.
+        /// Optional so an inbox saved before it existed still loads.
+        var missing: Bool?
+
+        var isMissing: Bool { missing == true }
 
         var id: String { record.id }
         /// What the import sheet reads: the file, or the page.
@@ -37,7 +47,7 @@ final class DocumentInbox {
     private(set) var arrivals = 0
 
     /// The next one to open by itself.
-    var nextOffer: Item? { items.first { !$0.notNow } }
+    var nextOffer: Item? { items.first { !$0.notNow && !$0.isMissing } }
 
     @ObservationIgnored private let directory: URL
     @ObservationIgnored private let documentsOn: @MainActor () -> Bool
@@ -78,7 +88,9 @@ final class DocumentInbox {
         guard !PreferenceSyncScheduler.isSwitchedOff() else { return nil }
         let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "").trimmingCharacters(in: .whitespaces)
         let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "").trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
+        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil,
+              // Never the token over plain HTTP to an address off the home network (TBX-1000000505 B-9).
+              GatewayAddress.allowsBearer(to: url, isPrivate: RemoteNaturalLanguage.isPrivate) else { return nil }
         return PendingImportRelay(files: GatewayFiles(gatewayURL: url, token: token))
     }
 
@@ -169,6 +181,13 @@ final class DocumentInbox {
                     items.append(Item(record: fetched.record, file: fetched.file))
                     arrived += 1
                     documentsLog.notice("picked up a document sent from \(fetched.record.fromDevice, privacy: .private)")
+                } catch let PendingImportRelay.FetchError.documentMissing(record) {
+                    // It will never arrive: say so here, and clear the record on the gateway.
+                    try? FileManager.default.removeItem(at: directory.appendingPathComponent(id, isDirectory: true))
+                    items.append(Item(record: record, file: nil, notNow: true, missing: true))
+                    finished.insert(id)
+                    arrived += 1
+                    documentsLog.error("a document sent from \(record.fromDevice, privacy: .private) was gone from the gateway")
                 } catch {
                     try? FileManager.default.removeItem(at: directory.appendingPathComponent(id, isDirectory: true))
                     documentsLog.error("could not pick up a sent document: \(error.localizedDescription, privacy: .public)")
@@ -178,6 +197,7 @@ final class DocumentInbox {
                 save()
                 arrivals += 1
             }
+            for id in finished where !removing.contains(id) { await removeFromGateway(id) }
         } catch {
             documentsLog.error("could not ask the gateway for sent documents: \(error.localizedDescription, privacy: .public)")
         }

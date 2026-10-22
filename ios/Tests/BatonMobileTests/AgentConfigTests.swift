@@ -228,6 +228,23 @@ final class AgentConfigTests: XCTestCase {
         XCTAssertFalse(config.isReady, "an address nobody tested was marked verified")
     }
 
+    /// The connection test's probe ("What is playing right now?") and its answer were kept as the
+    /// first turn of the person's next conversation (TBX-1000000505 B-21).
+    func testTheConnectionTestLeavesNoTurnInTheConversation() async {
+        let config = makeConfig()
+        config.route = .gateway
+        config.gatewayURL = "http://127.0.0.1:59997"
+        let model = MobileModel()
+        let client = AgentClient(tools: AgentTools(model: model), player: model.music, config: config)
+        URLProtocol.registerClass(SlowAgentGatewayProtocol.self)
+        defer { URLProtocol.unregisterClass(SlowAgentGatewayProtocol.self) }
+
+        let outcome = await client.runConnectionTest()
+
+        guard case .ok = outcome else { return XCTFail("precondition: the stub gateway answers, got \(outcome)") }
+        XCTAssertTrue(client.history.isEmpty, "the probe became conversation: \(client.history.map(\.text))")
+    }
+
     func testAnUnchangedConfigurationIsMarkedVerifiedByAPass() async {
         let config = makeConfig()
         config.route = .gateway

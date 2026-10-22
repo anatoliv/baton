@@ -51,6 +51,10 @@ public struct FileStore: Sendable {
     /// A file nobody collected in a fortnight is not going to be collected.
     public static let defaultMaximumAge: TimeInterval = 14 * 24 * 60 * 60
 
+    /// The record type of the phone's "Send to my Mac" relay (`PendingImport.contentType` in
+    /// BatonPlaybackKit). The one content type this store treats specially; see `prune`.
+    public static let pendingImportContentType = "application/vnd.baton.pending-import+json"
+
     public let directory: URL
     /// The limits, as values rather than constants.
     ///
@@ -132,7 +136,7 @@ public struct FileStore: Sendable {
         let meta = Metadata(id: id, name: name, contentType: contentType, size: size,
                             sha256: sha256, createdAt: now, origin: origin)
         try JSONEncoder().encode(meta).write(to: sidecarURL(id), options: .atomic)
-        prune(now: now)
+        prune(now: now, keepingLast: id)
         return meta
     }
 
@@ -143,19 +147,61 @@ public struct FileStore: Sendable {
     }
 
     /// Drop what is too old, then what is over the total, oldest first.
-    public func prune(now: Date = Date()) {
-        var files = list()
-        for meta in files where now.timeIntervalSince(meta.createdAt) > maximumAge {
-            remove(id: meta.id)
+    ///
+    /// **A "Send to my Mac" import goes whole, and last**. The phone's relay
+    /// stores a document (`<record>-d0c`), then its record (`<record>`, `pendingImportContentType`),
+    /// then each Mac's claim (`<record>-<mac>`). Taken one file at a time, the document was always
+    /// the oldest of the three, so the age limit and the cap removed it first and left a record
+    /// the Mac claimed every minute, for a document that would never arrive. So the three are one
+    /// group here: the age limit takes the group when its oldest file is too old, and under the
+    /// cap every other file goes before any such group, and then whole groups go oldest first.
+    /// They are not exempt from either bound; the Mac tells the person when one did not arrive.
+    ///
+    /// `keepingLast` is the file a commit has just written. Its group goes after every other, so
+    /// an upload that was answered 201 is not evicted by its own commit (TBX-1000000493 review).
+    public func prune(now: Date = Date(), keepingLast justCommitted: String? = nil) {
+        for group in groups(list()) where group.files.contains(where: { now.timeIntervalSince($0.createdAt) > maximumAge }) {
+            for meta in group.files { remove(id: meta.id) }
         }
-        files = list()
+        let files = list()
         var total = files.reduce(0) { $0 + $1.size }
-        // `list()` is newest-first, so walk it backwards to evict the oldest.
-        for meta in files.reversed() {
-            guard total > maximumTotalBytes else { break }
-            remove(id: meta.id)
-            total -= meta.size
+        guard total > maximumTotalBytes else { return }
+        let kept = justCommitted.flatMap(Self.sanitize)
+        let order = groups(files).sorted {
+            let last0 = $0.files.contains { $0.id == kept }, last1 = $1.files.contains { $0.id == kept }
+            return (last0 ? 1 : 0, $0.isPendingImport ? 1 : 0, $0.oldest) < (last1 ? 1 : 0, $1.isPendingImport ? 1 : 0, $1.oldest)
         }
+        for group in order {
+            guard total > maximumTotalBytes else { break }
+            for meta in group.files {
+                remove(id: meta.id)
+                total -= meta.size
+            }
+        }
+    }
+
+    /// The files that are evicted together: a pending import's record, document and claims, and
+    /// every other file on its own.
+    private struct EvictionGroup {
+        var files: [Metadata]
+        var isPendingImport: Bool
+        var oldest: Date { files.map(\.createdAt).min() ?? .distantPast }
+    }
+
+    private func groups(_ files: [Metadata]) -> [EvictionGroup] {
+        let records = Set(files.filter { $0.contentType == Self.pendingImportContentType }.map(\.id))
+        var grouped: [String: EvictionGroup] = [:]
+        var order: [String] = []
+        for meta in files {
+            // A document whose record has not landed yet (the phone sends it first) is still one.
+            let documentOf = meta.id.hasSuffix("-d0c") ? String(meta.id.dropLast(4)) : nil
+            let key = records.contains(meta.id) ? meta.id
+                : (documentOf ?? records.first(where: { meta.id.hasPrefix("\($0)-") }) ?? meta.id)
+            let pending = records.contains(key) || documentOf != nil
+            if grouped[key] == nil { order.append(key) }
+            grouped[key, default: EvictionGroup(files: [], isPendingImport: pending)].files.append(meta)
+        }
+        return order.compactMap { grouped[$0] }
     }
 
     // MARK: - Ids

@@ -302,6 +302,10 @@ public final class StreamingUpload: @unchecked Sendable {
             // being stored either.
             let name = line[line.startIndex ..< colon].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            // Two lengths, or any transfer coding, leave the body's framing ambiguous: refuse them
+            // as HTTPRequestMessage.parse does, rather than letting the last length win
+            // (RFC 9112 6.3; TBX-1000000494 review).
+            if name == "transfer-encoding" || (name == "content-length" && headers[name] != nil) { return nil }
             headers[name] = value
         }
         return Request(

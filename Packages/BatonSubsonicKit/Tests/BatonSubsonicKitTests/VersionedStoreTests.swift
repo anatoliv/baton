@@ -67,4 +67,51 @@ final class VersionedStoreTests: XCTestCase {
         XCTAssertFalse(store.save(["downgrade"]))
         XCTAssertEqual(try Data(contentsOf: original), newer)
     }
+
+    /// A file that is there but cannot be read loaded as "nothing stored", and the next save
+    /// replaced it unread (TBX-1000000506, C2-22).
+    func testAFileThatCannotBeReadIsNeverWrittenOver() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("vs-unreadable-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("store.json")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let store = VersionedStore<[String]>(fileURL: url)
+        XCTAssertTrue(store.save(["kept"]))
+        let before = try Data(contentsOf: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        try XCTSkipIf((try? Data(contentsOf: url)) != nil, "this user can read a mode-000 file")
+
+        let result = store.loadWithOutcome()
+        XCTAssertNil(result.payload)
+        XCTAssertEqual(result.outcome, .unreadable, "an unreadable file read as a fresh install")
+        XCTAssertFalse(store.save(["fresh"]), "the unread file was written over")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+    }
+
+    /// The refusal must outlast the unreadable moment. An iPhone launched in the background
+    /// before first unlock reads nothing and starts empty; once the device unlocks the file is
+    /// readable again, and the next save would write that empty start over data nobody read
+    /// (TBX-1000000506 review finding 1). A store that could not read its file writes again
+    /// only after a load that did read it.
+    func testAStoreThatNeverReadItsFileStillRefusesOnceTheFileIsReadable() throws {
+        let url = directory.appendingPathComponent("latched.json")
+        let store = VersionedStore<[String]>(fileURL: url)
+        XCTAssertTrue(store.save(["kept"]))
+        let before = try Data(contentsOf: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        try XCTSkipIf((try? Data(contentsOf: url)) != nil, "this user can read a mode-000 file")
+        XCTAssertEqual(store.loadWithOutcome().outcome, .unreadable)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        XCTAssertFalse(store.save([]), "the empty start state was written over the unread file")
+        XCTAssertEqual(try Data(contentsOf: url), before)
+
+        XCTAssertEqual(store.load(), ["kept"], "a load that reads the file")
+        XCTAssertTrue(store.save(["kept", "more"]), "then writes as usual")
+    }
 }

@@ -83,5 +83,29 @@ if backup; then bad "diverged branch: exit 0, should fail"; else ok "diverged br
 grep -q 'diverged' "$WORK/err" && ok "says the branch diverged" || bad "no 'diverged' message"
 [ "$(remote_tip refs/heads/main)" = "$ahead" ] && ok "remote main preserved" || bad "remote main rewritten"
 
+# 4. A tag that moved after it was backed up (TBX-1000000503 F-5). A re-publish force-moves
+#    v<version> on origin; the private backup still holds the old one, and a plain
+#    `git push --tags` was rejected ("already exists") on every run after that, so the daily
+#    backup stopped checking in. Owner decision 2026-10-21: skip the moved tag with a warning
+#    that names it, keep the backup's old copy, never force, and back up everything else.
+setup
+old="$(commit_in local "release one")"
+q -C "$WORK/local" tag -a v1 -m v1
+q -C "$WORK/local" push origin main refs/tags/v1
+old_tag="$(remote_tip refs/tags/v1)"
+new="$(commit_in local "release one, re-published")"
+q -C "$WORK/local" tag -a -f v1 -m "v1 again"
+q -C "$WORK/local" tag -a v2 -m v2
+if backup; then ok "moved tag: exit 0, the backup carries on"; else bad "moved tag: exit $? ($(tail -2 "$WORK/err"))"; fi
+grep -q 'warning: tag v1 moved' "$WORK/err" && ok "moved tag: the warning names v1" || bad "moved tag: no warning naming v1 ($(cat "$WORK/err"))"
+[ "$(remote_tip refs/tags/v1)" = "$old_tag" ] && ok "moved tag: the backup keeps its old v1" || bad "moved tag: the backup's v1 was replaced"
+[ -n "$(remote_tip refs/tags/v2)" ] && ok "moved tag: a new tag is still backed up" || bad "moved tag: v2 was not pushed"
+[ "$(remote_tip refs/heads/main)" = "$new" ] && ok "moved tag: branches still backed up" || bad "moved tag: main not pushed"
+[ "$old" != "$new" ] || bad "moved tag: fixture did not move the commit"
+
+# 5. An unchanged run afterwards still exits 0 and repeats the warning (nothing was forced).
+if backup; then ok "moved tag, second run: exit 0"; else bad "moved tag, second run: exit $?"; fi
+grep -q 'warning: tag v1 moved' "$WORK/err" && ok "moved tag, second run: still warned" || bad "moved tag, second run: warning dropped"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

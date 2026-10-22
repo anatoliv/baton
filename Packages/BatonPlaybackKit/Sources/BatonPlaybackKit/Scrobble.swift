@@ -43,12 +43,20 @@ public struct QueuedScrobble: Codable, Equatable, Sendable, Identifiable {
     public let destination: String
     public let scrobble: Scrobble
     public var attempts: Int
+    /// Which account of the destination the listen belongs to, where it has several: for the
+    /// music server, a digest of its address. A listen queued offline used to be delivered to
+    /// whichever server was active when the queue drained, crediting another library's song
+    /// id (C2-21). Nil for older entries and for single-account destinations, delivered as
+    /// before.
+    public let scope: String?
 
-    public init(destination: String, scrobble: Scrobble, id: String = UUID().uuidString, attempts: Int = 0) {
+    public init(destination: String, scrobble: Scrobble, id: String = UUID().uuidString, attempts: Int = 0,
+                scope: String? = nil) {
         self.id = id
         self.destination = destination
         self.scrobble = scrobble
         self.attempts = attempts
+        self.scope = scope
     }
 }
 
@@ -76,8 +84,8 @@ public final class ScrobbleQueue {
     }
 
     /// Append a completed listen for a destination. Drops the oldest entries if over the cap.
-    public func enqueue(_ scrobble: Scrobble, destination: String) {
-        pending.append(QueuedScrobble(destination: destination, scrobble: scrobble))
+    public func enqueue(_ scrobble: Scrobble, destination: String, scope: String? = nil) {
+        pending.append(QueuedScrobble(destination: destination, scrobble: scrobble, scope: scope))
         if pending.count > Self.maxEntries {
             let overflow = pending.count - Self.maxEntries
             pending.removeFirst(overflow)
@@ -97,9 +105,11 @@ public final class ScrobbleQueue {
     }
 
     /// The oldest `limit` queued items for one destination, insertion order preserved.
-    public func take(destination: String, limit: Int) -> [QueuedScrobble] {
+    /// With a `scope`, only items queued for that scope, or for none, are taken.
+    public func take(destination: String, scope: String? = nil, limit: Int) -> [QueuedScrobble] {
         var out: [QueuedScrobble] = []
-        for item in pending where item.destination == destination {
+        for item in pending where item.destination == destination
+            && (scope == nil || item.scope == nil || item.scope == scope) {
             out.append(item)
             if out.count >= limit { break }
         }

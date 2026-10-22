@@ -221,8 +221,7 @@ public struct ShareLedger: Codable, Equatable, Sendable {
     /// links go to their own file beside it.
     public func save(to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Self.encoder.encode(self).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try ShareUploadStore.writeProtected(Self.encoder.encode(self), to: url)
         try saveBooks(beside: url)
     }
 
@@ -236,9 +235,15 @@ public struct ShareLedger: Codable, Equatable, Sendable {
         var records: [Record]
     }
 
+    /// Like the ledger, an unreadable books file (damage, or a newer app's version) loads as no
+    /// books and the next save replaces it, so its bytes are kept aside first.
     static func loadBooks(beside url: URL) -> [Record] {
-        guard let data = try? Data(contentsOf: booksURL(beside: url)),
-              let file = try? decoder.decode(BookFile.self, from: data), file.version == 1 else { return [] }
+        let target = booksURL(beside: url)
+        guard let data = try? Data(contentsOf: target) else { return [] }
+        guard let file = try? decoder.decode(BookFile.self, from: data), file.version == 1 else {
+            if !data.isEmpty { keepAside(data, of: target) }
+            return []
+        }
         return file.records.filter { $0.containerKind == .book }
     }
 

@@ -297,7 +297,24 @@ public struct POSIXTransport: ServerTransport {
     let responseCapacity: ResponseCapacity?
     let reserveResponseBytes: @Sendable (HTTPRequestMessage) -> Int
     let streamsBody: StreamingPredicate
+    /// Asked once an upload's head has arrived and before it reserves staging space (TBX-1000000496
+    /// D-15). `.refuse` answers there and then; `.admit` lets it stream, and its `release` runs
+    /// once when that connection ends, however it ends, so the admitter can count uploads in
+    /// flight. Without it, anyone could reserve the staging ceiling from a declared
+    /// `Content-Length` alone, before the handler ever saw who was asking.
+    let admitsUpload: UploadAdmitter
+    /// The most an upload may take from its head to its last byte, or nil for no limit. The read
+    /// timeout is per read, so a peer sending a byte now and then otherwise holds its reservation
+    /// for as long as it likes. Checked after each read, so it can overrun by one read timeout.
+    let uploadDeadline: TimeInterval?
     let log: @Sendable (String) -> Void
+
+    public enum UploadAdmission: Sendable {
+        case refuse(Data)
+        case admit(release: @Sendable () -> Void)
+        public static let admitted = UploadAdmission.admit(release: {})
+    }
+    public typealias UploadAdmitter = @Sendable (StreamingUpload.Request) -> UploadAdmission
 
     public init(stagingDirectory: URL,
                 maximumBodyBytes: Int = FileStore.defaultMaximumFileBytes,
@@ -307,10 +324,14 @@ public struct POSIXTransport: ServerTransport {
                 responseCapacity: ResponseCapacity? = nil,
                 reserveResponseBytes: @escaping @Sendable (HTTPRequestMessage) -> Int = { _ in 0 },
                 streamsBody: @escaping StreamingPredicate = isStreamingUpload,
+                admitsUpload: @escaping UploadAdmitter = { _ in .admitted },
+                uploadDeadline: TimeInterval? = nil,
                 log: @escaping @Sendable (String) -> Void = RequestLog.standardOutput) {
         self.stagingDirectory = stagingDirectory
         self.maximumBodyBytes = maximumBodyBytes
         self.streamsBody = streamsBody
+        self.admitsUpload = admitsUpload
+        self.uploadDeadline = uploadDeadline
         self.readTimeout = readTimeout
         self.maximumConcurrentConnections = max(1, maximumConcurrentConnections)
         self.loopbackOnly = loopbackOnly
@@ -459,6 +480,8 @@ public struct POSIXTransport: ServerTransport {
         let live = LiveConnections()
         let sink = log
         let streams = streamsBody
+        let admits = admitsUpload
+        let uploadLimit = uploadDeadline
         let responseLimit = responseCapacity
         let reservation = reserveResponseBytes
         let thread = Thread {
@@ -500,7 +523,8 @@ public struct POSIXTransport: ServerTransport {
                     defer { live.release() }
                     Self.handleConnection(
                         clientFD, stagingDirectory: staging, maximumBodyBytes: bodyCap,
-                        readTimeout: deadline, streamsBody: streams, log: sink,
+                        readTimeout: deadline, streamsBody: streams,
+                        admitsUpload: admits, uploadDeadline: uploadLimit, log: sink,
                         responseCapacity: responseLimit, reserveResponseBytes: reservation,
                         handle: handle, upload: upload, peerHandle: peerHandle
                     )
@@ -525,6 +549,8 @@ public struct POSIXTransport: ServerTransport {
         maximumBodyBytes: Int,
         readTimeout: TimeInterval,
         streamsBody: StreamingPredicate = isStreamingUpload,
+        admitsUpload: UploadAdmitter = { _ in .admitted },
+        uploadDeadline: TimeInterval? = nil,
         log: @escaping @Sendable (String) -> Void,
         responseCapacity: ResponseCapacity? = nil,
         reserveResponseBytes: @escaping @Sendable (HTTPRequestMessage) -> Int = { _ in 0 },
@@ -538,6 +564,9 @@ public struct POSIXTransport: ServerTransport {
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 16_384)
         var sink: StreamingUpload?
+        var uploadEnds: Date?
+        var releaseAdmission: (@Sendable () -> Void)?
+        defer { releaseAdmission?() }
         // A connection that dies mid-upload must not leave its partial file behind.
         defer { sink?.cancel() }
 
@@ -556,6 +585,14 @@ public struct POSIXTransport: ServerTransport {
             let slice = Data(chunk[0 ..< bytes])
 
             if let sink {
+                if let uploadEnds, Date() > uploadEnds {
+                    sink.cancel()
+                    answer(httpErrorResponse(status: "408 Request Timeout", message: "the upload took too long"),
+                           method: sink.parsedRequest?.method ?? "PUT", path: sink.parsedRequest?.path ?? "/v1/files/",
+                           userAgent: sink.parsedRequest?.header("user-agent"))
+                    lingerAfterEarlyAnswer(fd)
+                    return
+                }
                 switch sink.consume(slice) {
                 case .needMore:
                     continue
@@ -569,6 +606,7 @@ public struct POSIXTransport: ServerTransport {
                            method: sink.parsedRequest?.method ?? "PUT",
                            path: sink.parsedRequest?.path ?? "/v1/files/",
                            userAgent: sink.parsedRequest?.header("user-agent"))
+                    lingerAfterEarlyAnswer(fd)
                     return
                 }
             }
@@ -577,9 +615,18 @@ public struct POSIXTransport: ServerTransport {
 
             // Decide, once the head has arrived, whether this belongs on the streaming path.
             if let head = StreamingUpload.peekHead(buffer), streamsBody(head) {
+                switch admitsUpload(head) {
+                case let .refuse(refusal):
+                    answer(refusal, method: head.method, path: head.path, userAgent: head.header("user-agent"))
+                    lingerAfterEarlyAnswer(fd)
+                    return
+                case let .admit(release):
+                    releaseAdmission = release
+                }
                 let started = StreamingUpload(stagingDirectory: stagingDirectory,
                                               maximumBodyBytes: maximumBodyBytes)
                 sink = started
+                uploadEnds = uploadDeadline.map { Date().addingTimeInterval($0) }
                 switch started.consume(buffer) {
                 case .needMore:
                     continue
@@ -592,6 +639,7 @@ public struct POSIXTransport: ServerTransport {
                     answer(httpErrorResponse(status: status, message: message),
                            method: head.method, path: head.path,
                            userAgent: head.header("user-agent"))
+                    lingerAfterEarlyAnswer(fd)
                     return
                 }
             }
@@ -654,6 +702,26 @@ public struct POSIXTransport: ServerTransport {
         var value: Data {
             get { lock.lock(); defer { lock.unlock() }; return stored }
             set { lock.lock(); stored = newValue; lock.unlock() }
+        }
+    }
+
+    /// After answering an upload before its body has all arrived: stop sending, then read and
+    /// discard what is still on its way for a bounded while before the close. Closing with unread
+    /// data resets the connection, and nginx (request buffering off) then fails its next write
+    /// upstream with EPIPE and answers 502 in place of the 401, 404, 408 or 413 (TBX-1000000496
+    /// D-15; seen through nginx 1.31.6 in the share-player walk). Ends at the peer's own close,
+    /// after `seconds`, or after `maximumBytes`, whichever comes first.
+    static func lingerAfterEarlyAnswer(_ fd: Int32, seconds: TimeInterval = 5, maximumBytes: Int = 32 << 20) {
+        _ = shutdown(fd, Int32(SHUT_WR))
+        setReadTimeout(fd, 0.5)
+        let end = ProcessInfo.processInfo.systemUptime + seconds
+        var chunk = [UInt8](repeating: 0, count: 65_536)
+        var drained = 0
+        while ProcessInfo.processInfo.systemUptime < end, drained < maximumBytes {
+            let count = read(fd, &chunk, chunk.count)
+            if count < 0 && errno == EINTR { continue }
+            if count <= 0 { return }
+            drained += count
         }
     }
 

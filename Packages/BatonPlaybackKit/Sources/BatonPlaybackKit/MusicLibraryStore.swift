@@ -319,11 +319,14 @@ public final class MusicLibraryStore {
     public func setRating(id: String, userRating: Int?, isLiked: Bool, rating: Int) async {
         let clamped = max(0, min(rating, 5))
         let baseline = ratingOverrides[id] ?? MusicRatingState(isLiked: isLiked, userRating: userRating)
-        ratingOverrides[id] = MusicRatingState(isLiked: baseline.isLiked, userRating: clamped == 0 ? nil : clamped)
+        let target = MusicRatingState(isLiked: baseline.isLiked, userRating: clamped == 0 ? nil : clamped)
+        ratingOverrides[id] = target
+        let write = beginRatingWrite(id, from: baseline)
         do {
             try await clientProvider().setRating(id: id, rating: clamped)
+            endRatingWrite(id, write: write, wrote: target)
         } catch {
-            ratingOverrides[id] = baseline
+            endRatingWrite(id, write: write, wrote: nil)
             reportFailure(error)
         }
     }
@@ -363,6 +366,10 @@ public final class MusicLibraryStore {
         if isDemo { return }   // already seeded from the bundle
 
         let sort = albumSort
+        // A slow load for an earlier sort finishing after a newer one showed the wrong order
+        // under the new sort's name (C2-24); only the newest load may write.
+        albumLoads &+= 1
+        let load = albumLoads
         await run { client in
             var all: [NavidromeAlbum] = []
             var offset = 0
@@ -373,9 +380,12 @@ public final class MusicLibraryStore {
                 offset += Self.albumPageSize
             }
             if let comparator = sort.clientComparator { all.sort(by: comparator) }
+            guard load == self.albumLoads else { return }
             self.albums = all
         }
     }
+
+    @ObservationIgnored private var albumLoads = 0
 
     public func loadArtists() async {
         if isDemo { return }
@@ -746,15 +756,60 @@ public final class MusicLibraryStore {
 
     // MARK: - Ratings (optimistic + server write + revert)
 
+    /// Optimistic writes still unanswered, per id.
+    ///
+    /// The heart and stars show the newest write's guess while it is unanswered. Once the
+    /// newest write is answered, they show what the server is known to hold: the state before
+    /// the first unanswered write, or what the latest-sent write that succeeded wrote. That
+    /// covers every order of answers. Two quick like toggles that both failed used to leave
+    /// the heart liked on a song the server never liked (review finding 3). A newer write that
+    /// failed followed by an older one that succeeded must show the older one's state, which
+    /// the server now holds.
+    private struct RatingWrites {
+        var newest = 0
+        var unanswered = 0
+        var newestAnswered = false
+        var confirmed: MusicRatingState
+        var confirmedWrite = 0
+    }
+    @ObservationIgnored private var ratingWrites: [String: RatingWrites] = [:]
+
+    /// Note an optimistic write for `id` made from the state `before`; returns its number.
+    private func beginRatingWrite(_ id: String, from before: MusicRatingState) -> Int {
+        var writes = ratingWrites[id] ?? RatingWrites(confirmed: before)
+        if writes.unanswered == 0 { writes.confirmed = before }
+        writes.newest &+= 1
+        writes.unanswered += 1
+        writes.newestAnswered = false
+        ratingWrites[id] = writes
+        return writes.newest
+    }
+
+    /// The server answered write `write`: `wrote` is what it now holds, or nil for a failure.
+    private func endRatingWrite(_ id: String, write: Int, wrote: MusicRatingState?) {
+        guard var writes = ratingWrites[id] else { return }
+        writes.unanswered -= 1
+        // Writes go out in order, so the latest-sent success is what the server holds.
+        if let wrote, write > writes.confirmedWrite {
+            writes.confirmed = wrote
+            writes.confirmedWrite = write
+        }
+        if write == writes.newest { writes.newestAnswered = true }
+        if writes.newestAnswered { ratingOverrides[id] = writes.confirmed }
+        ratingWrites[id] = writes.unanswered > 0 ? writes : nil
+    }
+
     public func toggleLike(_ song: NavidromeSong) async {
         let current = ratingState(for: song)
         let next = MusicRatingState(isLiked: !current.isLiked, userRating: current.userRating)
         ratingOverrides[song.id] = next
+        let write = beginRatingWrite(song.id, from: current)
         do {
             let client = try clientProvider()
             if next.isLiked { try await client.star(id: song.id) } else { try await client.unstar(id: song.id) }
+            endRatingWrite(song.id, write: write, wrote: next)
         } catch {
-            ratingOverrides[song.id] = current // revert
+            endRatingWrite(song.id, write: write, wrote: nil)
             reportFailure(error)
         }
     }
@@ -772,11 +827,13 @@ public final class MusicLibraryStore {
         let base = ratingOverrides[id] ?? MusicRatingState(isLiked: currentLiked, userRating: userRating)
         let next = MusicRatingState(isLiked: !base.isLiked, userRating: base.userRating)
         ratingOverrides[id] = next
+        let write = beginRatingWrite(id, from: base)
         do {
             let client = try clientProvider()
             if next.isLiked { try await client.star(id: id) } else { try await client.unstar(id: id) }
+            endRatingWrite(id, write: write, wrote: next)
         } catch {
-            ratingOverrides[id] = base // revert
+            endRatingWrite(id, write: write, wrote: nil)
             reportFailure(error)
         }
     }
@@ -784,11 +841,14 @@ public final class MusicLibraryStore {
     public func setRating(_ song: NavidromeSong, rating: Int) async {
         let clamped = max(0, min(rating, 5))
         let current = ratingState(for: song)
-        ratingOverrides[song.id] = MusicRatingState(isLiked: current.isLiked, userRating: clamped == 0 ? nil : clamped)
+        let target = MusicRatingState(isLiked: current.isLiked, userRating: clamped == 0 ? nil : clamped)
+        ratingOverrides[song.id] = target
+        let write = beginRatingWrite(song.id, from: current)
         do {
             try await clientProvider().setRating(id: song.id, rating: clamped)
+            endRatingWrite(song.id, write: write, wrote: target)
         } catch {
-            ratingOverrides[song.id] = current // revert
+            endRatingWrite(song.id, write: write, wrote: nil)
             reportFailure(error)
         }
     }
@@ -798,13 +858,16 @@ public final class MusicLibraryStore {
     /// (There is no delete-file API.) Optimistic, reverts on failure.
     public func markForRemoval(_ song: NavidromeSong) async {
         let current = ratingState(for: song)
-        ratingOverrides[song.id] = MusicRatingState(isLiked: false, userRating: 1)
+        let target = MusicRatingState(isLiked: false, userRating: 1)
+        ratingOverrides[song.id] = target
+        let write = beginRatingWrite(song.id, from: current)
         do {
             let client = try clientProvider()
             try await client.setRating(id: song.id, rating: 1)
             if current.isLiked { try await client.unstar(id: song.id) }
+            endRatingWrite(song.id, write: write, wrote: target)
         } catch {
-            ratingOverrides[song.id] = current // revert
+            endRatingWrite(song.id, write: write, wrote: nil)
             reportFailure(error)
         }
     }

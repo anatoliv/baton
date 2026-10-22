@@ -136,12 +136,17 @@ enum SelectionReader {
     /// The restore is **best-effort and racy by nature**: a clipboard manager watching the
     /// pasteboard can observe the intermediate value, and nothing in AppKit can prevent that.
     /// Said plainly here, and in Help, rather than pretended away.
-    private static func clipboardSelection() -> String? {
-        let pasteboard = NSPasteboard.general
+    ///
+    /// The pasteboard and the keystroke are parameters so a test can drive this with a private
+    /// pasteboard and a copy that lands, or one that never does.
+    static func clipboardSelection(
+        pasteboard: NSPasteboard = .general,
+        copy: (() -> Void)? = nil
+    ) -> String? {
         let saved = snapshot(pasteboard)
         let before = pasteboard.changeCount
 
-        pressCommandC()
+        if let copy { copy() } else { pressCommandC() }
 
         var copied: String?
         let deadline = Date().addingTimeInterval(copyTimeout)
@@ -153,7 +158,10 @@ enum SelectionReader {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
         }
 
-        restore(saved, to: pasteboard)
+        // Only a pasteboard the copy changed is put back. Restoring one nothing touched still
+        // rewrote it: a new change count (a password manager's timed clear then stands down) and
+        // promised types turned into plain data (TBX-1000000504, A-12).
+        if pasteboard.changeCount != before { restore(saved, to: pasteboard) }
         return copied
     }
 

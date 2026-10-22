@@ -294,7 +294,7 @@ struct ScrobbleServiceTests {
         #expect(nav.submitted.count == 1, "the scheduled retry has to deliver the queued listen")
     }
 
-    @Test("an offline stretch never burns attempts or drops the head scrobble")
+    @Test("an offline stretch never burns attempts or drops the head scrobble (SCR-01)")
     func offlineDoesNotDropScrobbles() async {
         let lb = MockDestination("listenbrainz"), fm = MockDestination("lastfm")
         let nav = MockDestination("navidrome", maxBatch: 1, failFirst: 1000) // always transient-fails

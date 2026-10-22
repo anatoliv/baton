@@ -79,7 +79,9 @@ public final class RemoteCommandRouter {
             tools: RemoteAgent.toolSchemas(definitions: self.tools.definitions()),
             runTool: { [weak self] call in
                 guard let self else { return ("Baton went away.", true) }
-                if call.name == "remember" { return self.remember(call) }
+                if call.name == "remember" {
+                    return self.remember(call, ownerSaid: [message] + history.filter { $0.role == "user" }.map(\.text))
+                }
                 let (text, isError) = await self.tools.run(
                     name: call.name,
                     arguments: call.jsonArguments,
@@ -240,13 +242,31 @@ public final class RemoteCommandRouter {
         }
     }
 
+    /// Whether `quote` is the owner's own words: found, ignoring case, accents, punctuation and
+    /// spacing, in one of their messages. An empty quote is never found.
+    static func quote(_ quote: String, isIn messages: [String]) -> Bool {
+        func words(_ text: String) -> String {
+            text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        let needle = words(quote)
+        guard !needle.isEmpty else { return false }
+        return messages.contains { " \(words($0)) ".contains(" \(needle) ") }
+    }
+
     /// Write a memory, and make the model tell its owner it did.
     ///
     /// The echo is the guardrail. A wrong memory is visible in the same window,
     /// a second after it is born, and correctable in one message — which is a
     /// far better defence than trusting a small model's judgement about what is
     /// worth keeping.
-    private func remember(_ call: RemoteToolCall) -> (text: String, isError: Bool) {
+    ///
+    /// `ownerSaid` is what the owner actually typed in this chat (the current message and their
+    /// earlier turns). The quote has to be found there: a quote the model wrote itself, or one an
+    /// instruction hidden in a tool result dictated, would otherwise persist and sync as if the
+    /// owner had said it.
+    func remember(_ call: RemoteToolCall, ownerSaid: [String]) -> (text: String, isError: Bool) {
         guard settings.naturalLanguage.remembersOwner else {
             return ("The owner has turned memory off. Don't offer to remember things.", true)
         }
@@ -254,6 +274,12 @@ public final class RemoteCommandRouter {
         if case let .string(value) = call.arguments["text"] { text = value }
         if case let .string(value) = call.arguments["quote"] { quote = value }
         if case let .string(value) = call.arguments["kind"] { kind = value }
+        guard Self.quote(quote, isIn: ownerSaid) else {
+            return ("""
+            That quote is not something the owner wrote in this chat, so nothing was stored. \
+            Only remember what they said, with their exact words as the quote.
+            """, true)
+        }
 
         guard let entry = memory.remember(kind: kind, text: text, quote: quote) else {
             return ("A memory needs both what to remember and the owner's own words. Nothing was stored.", true)

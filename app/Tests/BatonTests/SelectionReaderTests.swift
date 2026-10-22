@@ -73,4 +73,36 @@ final class SelectionReaderTests: XCTestCase {
 
         XCTAssertNil(pasteboard.string(forType: .string))
     }
+
+    /// A copy that never lands must leave the pasteboard exactly as it was. The fallback put the
+    /// saved contents back regardless, which rewrote a clipboard nothing had touched: it bumped
+    /// the change count (so a password manager's clear-after-a-minute saw "the user copied
+    /// something else" and stood down) and replaced promised types with plain data
+    /// (TBX-1000000504, A-12).
+    func testACopyThatNeverLandsLeavesThePasteboardUntouched() {
+        pasteboard.clearContents()
+        pasteboard.setString("a password the manager will clear", forType: .string)
+        let before = pasteboard.changeCount
+
+        let copied = SelectionReader.clipboardSelection(pasteboard: pasteboard, copy: {})
+
+        XCTAssertNil(copied)
+        XCTAssertEqual(pasteboard.changeCount, before, "the pasteboard was rewritten though nothing was copied")
+        XCTAssertEqual(pasteboard.string(forType: .string), "a password the manager will clear")
+    }
+
+    /// A copy that lands is read and the earlier contents go back.
+    func testACopyThatLandsIsReadAndTheEarlierContentsRestored() {
+        pasteboard.clearContents()
+        pasteboard.setString("something copied earlier", forType: .string)
+
+        let board: NSPasteboard = pasteboard
+        let copied = SelectionReader.clipboardSelection(pasteboard: board) {
+            board.clearContents()
+            board.setString("the selected words", forType: .string)
+        }
+
+        XCTAssertEqual(copied, "the selected words")
+        XCTAssertEqual(pasteboard.string(forType: .string), "something copied earlier")
+    }
 }

@@ -422,6 +422,10 @@ A link lasts 1, 7 or 30 days. **Shared Links** shows how often each link was ope
 and lets you extend or revoke it: on the Mac it's in **Settings → About → Shared Links**, on the
 iPhone in **Settings → Shared Links**. See [Sharing a song](HELP.md#sharing-a-song).
 
+If you ask an agent to share for you, its answer carries the whole link, key included. The key
+then passes through that agent's model provider, and through Telegram or Discord if you asked
+there, and anyone holding that copy can play the song until you revoke the link.
+
 ### Does a shared link open in Baton?
 
 If your friend has Baton on their iPhone or Mac, a song or mixtape link opens in Baton, where
@@ -1026,7 +1030,9 @@ Link…**. The phone makes the book on your Baton server, so set that up first u
 Music Friend**.
 
 If the Baton server cannot make books, the import screen offers **Send to my Mac**, which passes
-the document through your Baton server to Baton on your Mac. Without a Baton server it suggests
+the document through your Baton server to Baton on your Mac. The Baton server keeps it for up
+to two weeks, so open Baton on the Mac with Documents on before then; if it was gone first, the
+Mac says it didn't arrive and you send it again. Without a Baton server it suggests
 AirDropping the file to your Mac. A book made on the Mac arrives on the phone too: one made on
 the Baton server is there already, and one made on the Mac itself is sent to your Baton server
 as each chapter is done. See [Listening to a document](HELP.md#listening-to-a-document).

@@ -463,6 +463,24 @@ export async function verifyCollectionPage({ browser, base, api, evidence, dataD
     await wrapPage.close();
     passed("choose a song first, then repeat all runs from the last song on into the first");
 
+    // ---------- A link extended while its page is open (TBX-1000000495 D-11) ----------
+    const extending = await mint(playlistSealed, { listenerCap: 2 });
+    const open = await phone.newPage();
+    await open.goto(extending.link);
+    await open.locator("#player").waitFor({ state: "visible" });
+    const endsBefore = await text(open, "#ends");
+    const longer = await api("PATCH", `/v1/share/books/${extending.id}`, JSON.stringify({ extendBySeconds: 86400 }), json);
+    assert.equal(longer.status, 200, JSON.stringify(longer.json));
+    await open.click("#play");
+    await open.getByRole("button", { name: "Start listening", exact: true }).click();
+    await open.waitForFunction(() => document.body.dataset.state !== "ready"
+      || (!document.getElementById("audio").paused && document.getElementById("audio").currentTime > 0.3), null, { timeout: 20000 });
+    assert.equal(await open.evaluate(() => document.body.dataset.state), "ready", `the later session deadline is accepted: ${await text(open, "#status")}`);
+    assert.notEqual(await text(open, "#ends"), endsBefore, "the page shows the link's new end");
+    await open.click("#play");
+    await open.close();
+    passed("a link extended while its page is open still admits, and the page shows the new end");
+
     // ---------- Wrong key, missing key, unknown ----------
     const wrong = await phone.newPage();
     await wrong.goto(`${base}/b/${album.id}#${b64u(new Uint8Array(16))}`);

@@ -85,8 +85,8 @@ struct VoiceInputLifecycleTests {
             encoding: .utf8
         )
         #expect(source.contains("voice?.stop()"),
-               "MacMusicFriendView must stop voice input on disappear")
+               "MacMusicFriendView must stop voice input on disappear (TBX-5350)")
         #expect(source.contains("voice?.refreshAuthorization()"),
-               "MacMusicFriendView must re-check authorization on appear")
+               "MacMusicFriendView must re-check authorization on appear (TBX-5350)")
     }
 }

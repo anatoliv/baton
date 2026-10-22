@@ -238,6 +238,56 @@ final class EPUBImporterTests: XCTestCase {
         }
     }
 
+    /// The fixture with one central-directory name changed, so the spine names a file the zip
+    /// does not have.
+    private func missing(_ fixture: String, entry name: String, renamedTo other: String) throws -> Data {
+        var bytes = [UInt8](try ZipArchiveTests.fixture(fixture))
+        let target = Array(name.utf8), replacement = Array(other.utf8)
+        precondition(target.count == replacement.count)
+        var p = 0, renamed = 0
+        while p + 46 <= bytes.count {
+            if ZipArchive.u32(bytes, p) == 0x0201_4B50 {
+                let length = Int(ZipArchive.u16(bytes, p + 28))
+                if Array(bytes[(p + 46)..<(p + 46 + length)]) == target {
+                    bytes.replaceSubrange((p + 46)..<(p + 46 + length), with: replacement); renamed += 1
+                }
+            }
+            p += 1
+        }
+        XCTAssertEqual(renamed, 1)
+        return Data(bytes)
+    }
+
+    /// C3-8 remainder: a spine file the zip does not hold is named in a warning, like a damaged one.
+    func testASpineFileMissingFromTheZipIsNamedInAWarning() throws {
+        let out = try EPUBImporter.read(missing("epub3-anchors.epub", entry: "OEBPS/text/c3b.xhtml",
+                                                renamedTo: "OEBPS/text/c3z.xhtml"), fallbackTitle: "book")
+        XCTAssertFalse(out.result.chapters.flatMap(\.paragraphs).contains("The last sentence of the book."))
+        XCTAssertTrue(out.warnings.contains(ImportWarning(.contentSkipped, detail: "c3b.xhtml, which could not be read")),
+                      "\(out.warnings)")
+    }
+
+    /// C3-9: an encryption.xml that cannot be read might protect anything, so the book is refused
+    /// rather than read as if it had none.
+    func testADamagedEncryptionFileStillRefusesTheBook() throws {
+        let data = try damaged("protected.epub", entry: "META-INF/encryption.xml")
+        XCTAssertThrowsError(try EPUBImporter.read(data, fallbackTitle: "book")) { error in
+            XCTAssertEqual(error as? DocumentImporter.Failure, .protected)
+        }
+    }
+
+    /// C3-5 remainder: the archive reads the bytes it was given, mapped or not, rather than a
+    /// copy of the whole file (a 512 MB EPUB opened for its cover was copied whole).
+    func testTheArchiveKeepsTheCallersBytesRatherThanACopy() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "epub3-anchors.epub", withExtension: nil, subdirectory: "Fixtures"))
+        let mapped = try Data(contentsOf: url, options: .alwaysMapped)
+        let zip = try ZipArchive(mapped)
+        let given = mapped.withUnsafeBytes { UInt(bitPattern: $0.baseAddress) }
+        let kept = zip.data.withUnsafeBytes { UInt(bitPattern: $0.baseAddress) }
+        XCTAssertEqual(kept, given)
+        XCTAssertNotNil(EPUBImporter.cover(mapped))
+    }
+
     func testAProtectedBookIsRefused() throws {
         XCTAssertThrowsError(try importFixture("protected.epub")) { error in
             XCTAssertEqual(error as? DocumentImporter.Failure, .protected)

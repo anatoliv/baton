@@ -55,6 +55,8 @@ export function layout(bytes, totalLength = bytes.length) {
   const records = Math.ceil(body / full);
   const last = body - (records - 1) * full;
   if (last < TAG_LENGTH) throw new ShareCryptoError("format", "the last record is shorter than a tag");
+  // Only an empty plaintext ends in an empty record; after full records the last one holds 1 to recordSize bytes.
+  if (records > 1 && last === TAG_LENGTH) throw new ShareCryptoError("format", "an empty final record after full records");
   return { recordSize, records, lastRecordLength: last };
 }
 

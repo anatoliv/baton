@@ -57,4 +57,16 @@ final class PlayQueueSaveTests: XCTestCase {
         try await client().savePlayQueue(songIDs: short, currentID: short[29], positionMs: 0)
         XCTAssertEqual(try sentIDs(), short)
     }
+
+    /// A song queued twice: the window centred on its first copy, far from the one playing,
+    /// which could fall outside what was saved (TBX-1000000506, C-30).
+    func testTheWindowCentresOnTheCopyThatIsPlaying() async throws {
+        var withRepeat = queue
+        let repeated = withRepeat[10]
+        withRepeat[450] = repeated
+        try await client().savePlayQueue(songIDs: withRepeat, currentID: repeated, positionMs: 0, currentIndex: 450)
+        let ids = try sentIDs()
+        let start = try XCTUnwrap(withRepeat.firstIndex(of: ids.first ?? ""))
+        XCTAssertTrue((start ..< start + ids.count).contains(450), "the copy playing is outside the saved window")
+    }
 }

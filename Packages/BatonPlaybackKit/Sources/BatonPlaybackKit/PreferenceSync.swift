@@ -135,6 +135,10 @@ public final class PreferenceSync {
 
     /// Combine this device's list with the shared one. `nil` when there is nothing to say.
     static func mergedValue(key: String, local: Any?, remote: Any?) -> Any? {
+        // A side this build cannot read is not an empty side. Merged as empty, an unreadable
+        // local value (a newer build's format) was replaced by the remote one, and an unreadable
+        // remote one was written over with ours. Leave both alone instead (C-9).
+        if !canRead(local, key: key) || !canRead(remote, key: key) { return nil }
         // Podcast subscriptions merge per *feed*, not per document: each side's newest
         // statement about a given show wins, so an unsubscribe here survives contact with
         // a device that still had the show, and a later resubscribe survives the tombstone.
@@ -185,6 +189,21 @@ public final class PreferenceSync {
         let there = remote as? [String] ?? []
         guard !here.isEmpty || !there.isEmpty else { return nil }
         return FilterHistory.merge(here, there, cap: FilterHistory.maxSize)
+    }
+
+    /// Whether `value` is absent or decodes as the merged key's type.
+    static func canRead(_ value: Any?, key: String) -> Bool {
+        guard let value else { return true }
+        let data = value as? Data
+        switch key {
+        case PodcastSubscriptionStore.ledgerKey: return PodcastSubscriptionLedger.decode(data) != nil
+        case ClippingLedger.storageKey: return ClippingLedger.decode(data) != nil
+        case FriendLedger.storageKey: return FriendLedger.decode(data) != nil
+        case SearchRecents.storageKey:
+            // `decodeList` is lenient per element; the list itself must still be a JSON array.
+            return data.flatMap { try? JSONSerialization.jsonObject(with: $0) } is [Any]
+        default: return value is [String]
+        }
     }
 
     /// One setting, with enough provenance to resolve a race.

@@ -546,8 +546,34 @@ public struct NavidromeClient: Sendable {
     /// appends in order via `updatePlaylist(songIDsToAdd:)` — so the final server order equals the
     /// concatenation of the batches, i.e. exactly `songIDs`. `chunkSize` keeps each request well
     /// under typical 8 KB request-line ceilings (an id + `&songId=` is ~40 bytes → ~4 KB at 100).
+    ///
+    /// Several requests are not one transaction. The first replaces the playlist with its first
+    /// batch, so a later batch failing used to leave the playlist cut down to that batch (C-17).
+    /// When it takes more than one request, the playlist's songs are read first, and a failure
+    /// after the overwrite writes them back before the error is thrown (if they could be read). Putting them back is
+    /// itself a chunked write and can fail too; it is the best this API allows.
     public func setPlaylistSongsChunked(id: String, songIDs: [String], name: String? = nil, chunkSize: Int = 100) async throws {
         precondition(chunkSize > 0, "chunkSize must be positive")
+        guard songIDs.count > chunkSize else {
+            // One request, which the server applies whole or not at all.
+            try await setPlaylistSongs(id: id, songIDs: songIDs, name: name)
+            return
+        }
+        // Best effort: a playlist that cannot be read first is still rewritten, as before, just
+        // without the means to put it back.
+        let previous = try? await getPlaylist(id: id).songs.map(\.id)
+        do {
+            try await writePlaylistInBatches(id: id, songIDs: songIDs, name: name, chunkSize: chunkSize)
+        } catch {
+            if let previous {
+                try? await writePlaylistInBatches(id: id, songIDs: previous, name: name, chunkSize: chunkSize)
+            }
+            throw error
+        }
+    }
+
+    /// The first batch overwrites, each later batch appends in order.
+    private func writePlaylistInBatches(id: String, songIDs: [String], name: String?, chunkSize: Int) async throws {
         let batches = stride(from: 0, to: songIDs.count, by: chunkSize).map { start in
             Array(songIDs[start ..< min(start + chunkSize, songIDs.count)])
         }

@@ -36,7 +36,7 @@ git -C "$R" add -A && git -C "$R" commit -qm one
 export BATON_MAC_RELEASE_CHECKOUT="$R" BATON_IOS_RELEASE_CHECKOUT="$WORK/no-ios-checkout"
 
 out="$("$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "no passing full gate is recorded"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "no passing full gate is recorded"; then
   ok "no receipt: the release is told it must run the gate"
 else
   bad "a missing receipt was not reported. Got: $out"
@@ -54,14 +54,14 @@ else
 fi
 
 out="$("$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "gate receipt reused" && printf '%s' "$out" | grep -q "skipped: linux-gateway"; then
+if [ "$rc" = 0 ] && grep -q <<<"$out" "gate receipt reused" && grep -q <<<"$out" "skipped: linux-gateway"; then
   ok "TestFlight's check accepts a matching incremental receipt and says what it reuses"
 else
   bad "a matching receipt was not accepted. Got: $out"
 fi
 
 out="$("$RECEIPT" check "$R" --require-clean 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "a release needs CLEAN=1"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "a release needs CLEAN=1"; then
   ok "the Mac release refuses an incremental receipt and says it needs CLEAN=1"
 else
   bad "--require-clean accepted an incremental run. Got: $out"
@@ -69,7 +69,7 @@ fi
 
 "$RECEIPT" write "$R" --clean 1 --mac "1200" --ios "240" --gateway "57" >/dev/null 2>&1
 out="$("$RECEIPT" check "$R" --require-clean 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "CLEAN=1"; then
+if [ "$rc" = 0 ] && grep -q <<<"$out" "CLEAN=1"; then
   ok "the Mac release accepts a CLEAN=1 receipt for the same commit"
 else
   bad "a CLEAN=1 receipt was not accepted. Got: $out"
@@ -77,7 +77,7 @@ fi
 
 printf 'scratch\n' >"$R/notes.txt"
 out="$("$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "the tree is dirty"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "the tree is dirty"; then
   ok "a dirty tree refuses the receipt and names why"
 else
   bad "a dirty tree reused a receipt. Got: $out"
@@ -91,7 +91,7 @@ fi
 rm -f "$R/notes.txt"
 
 out="$(STUB_XCODE=26.7 "$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "Xcode changed since it passed"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "Xcode changed since it passed"; then
   ok "a different Xcode refuses the receipt and names both versions"
 else
   bad "a receipt from another Xcode was reused. Got: $out"
@@ -100,7 +100,7 @@ fi
 printf '#!/bin/bash\necho gate v2\n' >"$R/scripts/test.sh"
 git -C "$R" commit -qam two
 out="$("$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "no passing full gate is recorded for $(git -C "$R" rev-parse HEAD)"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "no passing full gate is recorded for $(git -C "$R" rev-parse HEAD)"; then
   ok "a new commit has no receipt until its own gate passes"
 else
   bad "a receipt crossed commits. Got: $out"
@@ -112,7 +112,7 @@ fi
 file="$BATON_GATE_RECEIPT_DIR/$(git -C "$R" rev-parse HEAD)-clean.json"
 python3 -c 'import json,sys; p=sys.argv[1]; r=json.load(open(p)); r["gateScriptSHA256"]="0"*64; json.dump(r,open(p,"w"))' "$file"
 out="$("$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "scripts/test.sh changed since it passed"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "scripts/test.sh changed since it passed"; then
   ok "a receipt for a different gate script is refused by name"
 else
   bad "a gate-digest mismatch was not refused. Got: $out"
@@ -125,7 +125,7 @@ git -C "$R" commit -qam three
 "$RECEIPT" write "$R" --clean 1 --skips linux-gateway >/dev/null 2>&1
 
 out="$("$RECEIPT" check "$R" --needs iphone-tests,linux-gateway 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "the gate skipped linux-gateway, which this release needs"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "the gate skipped linux-gateway, which this release needs"; then
   ok "a receipt that skipped a stage the release needs is refused, naming the stage"
 else
   bad "a skipped needed stage was accepted. Got: $out"
@@ -139,15 +139,15 @@ fi
 
 printf 'IOS_OTHER\n' >"$R/ios/Config/Crashbox.local.xcconfig"
 out="$("$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "ios/Config/Crashbox.local.xcconfig differs" \
-   && ! printf '%s' "$out" | grep -q 'IOS_OTHER\|IOS_FAKE'; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "ios/Config/Crashbox.local.xcconfig differs" \
+   && ! grep -q <<<"$out" 'IOS_OTHER\|IOS_FAKE'; then
   ok "a release configuration with another digest refuses the receipt, without printing it"
 else
   bad "a changed release configuration was accepted. Got: $out"
 fi
 rm -f "$R/ios/Config/Crashbox.local.xcconfig"
 out="$("$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "this checkout: absent"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "this checkout: absent"; then
   ok "a release configuration missing on one side refuses the receipt"
 else
   bad "a missing release configuration was accepted. Got: $out"
@@ -156,7 +156,7 @@ printf 'IOS_FAKE\n' >"$R/ios/Config/Crashbox.local.xcconfig"
 
 out="$(BATON_MAC_RELEASE_CHECKOUT="$WORK/elsewhere" "$RECEIPT" write "$R" --clean 1 >/dev/null 2>&1
        "$RECEIPT" check "$R" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "not a release checkout"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "not a release checkout"; then
   ok "a receipt from a development checkout is refused in a release"
 else
   bad "a development checkout's receipt was accepted. Got: $out"
@@ -196,6 +196,34 @@ if grep -q 'scripts/gate-receipt.sh write "$PWD"' scripts/test.sh; then
 else
   bad "wiring: test.sh never writes a receipt"
 fi
+
+# TBX-1000000503 F-12: a lint-source override points a lint at a planted tree, so a run with
+# one set did not lint this tree, and must not write a receipt that says it did. The real
+# eligibility function from test.sh, run in the planted (clean) repository.
+ELIGIBLE_FN="$(awk '/^gate_receipt_eligible\(\) \{$/,/^\}$/' scripts/test.sh)"
+eligible() {   # env assignments ... ; prints yes or no
+  ( cd "$R" && env -i PATH="$PATH" HOME="$HOME" "$@" bash -c "set -uo pipefail; $ELIGIBLE_FN
+    if gate_receipt_eligible; then echo yes; else echo no; fi" )
+}
+if [ -z "$ELIGIBLE_FN" ]; then
+  bad "F-12: gate_receipt_eligible() not found in scripts/test.sh"
+else
+  [ "$(eligible)" = yes ] && ok "F-12 a full run over a clean tree is eligible for a receipt" \
+    || bad "F-12: a full run over a clean tree was refused a receipt"
+  for v in BATON_LINT_SRC BATON_DASH_LINT_SRC BATON_DASH_LINT_ALLOWLIST BATON_IMPORT_LINT_SRC \
+           BATON_UITEST_LINT_SRC BATON_GATEWAY_PKG_LINT_ROOT BATON_SCHEME_LINT_PROJECT_YML; do
+    if [ "$(eligible "$v=/tmp/planted")" = yes ]; then
+      bad "F-12: a run with $v set would write a reusable receipt"
+    else
+      ok "F-12 a run with $v set writes no receipt"
+    fi
+  done
+  [ "$(eligible BATON_LINT_SRC=)" = yes ] && ok "F-12 an empty override is not an override" \
+    || bad "F-12: an empty BATON_LINT_SRC refused the receipt"
+fi
+grep -q '^if gate_receipt_eligible "\$@"; then$' scripts/test.sh \
+  && ok "F-12 wiring: test.sh decides the receipt with gate_receipt_eligible" \
+  || bad "F-12 wiring: test.sh does not use gate_receipt_eligible"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

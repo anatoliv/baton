@@ -280,8 +280,8 @@ struct RootTabView: View {
             // isn't enough to promise it either, since a typo'd key is configured.
             if model.agentConfig.isReady {
                 Tab("Friend", systemImage: "sparkles") {
+                    // The Friend view stacks the alarm pill on its own composer.
                     MusicFriendView(model: model)
-                        .alarmPillInset(model.alarms)
                 }
             }
             // Home leads: on a phone the question is almost always "what do I put on",

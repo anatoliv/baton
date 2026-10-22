@@ -44,7 +44,7 @@ struct PendingImportStore {
                 offered = kept
                 marker.fileName = kept.lastPathComponent
             } else {
-                marker.link = url.absoluteString
+                marker.link = PendingShareInbox.withoutFragment(url).absoluteString
             }
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
@@ -75,6 +75,21 @@ struct PendingImportStore {
            url.host != nil { return url }
         clear()
         return nil
+    }
+
+    /// Forget a kept document past `maximumAge` without offering it: `restore` runs only while
+    /// Documents is on, so with it off a kept file stayed on the phone indefinitely
+    /// (TBX-1000000505 B-22). One still in date is left for when Documents is on again.
+    func dropIfExpired(now: Date = Date()) {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let data = try? Data(contentsOf: markerURL),
+              let marker = try? decoder.decode(Marker.self, from: data),
+              now.timeIntervalSince(marker.savedAt) < Self.maximumAge else {
+            clear()
+            return
+        }
     }
 
     /// Forget the kept document: its import screen closed, or the session was reset.

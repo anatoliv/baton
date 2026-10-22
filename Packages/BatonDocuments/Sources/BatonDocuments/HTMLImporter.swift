@@ -309,7 +309,8 @@ public enum HTMLImporter {
         var blocks: [Block] = []
         var skipped = Skipped()
         private var lines: [String] = [""]
-        private var linkCharacters = 0
+        /// Link characters on each line of `lines`, so each `<br><br>` group has its own share.
+        private var lineLinks: [Int] = [0]
         private var linkDepth = 0
         var inHeading = false
         /// Where each `id` falls: the index of the block it starts or sits in. An EPUB's table
@@ -341,7 +342,7 @@ public enum HTMLImporter {
                     switch node.kind {
                     case .text:
                         lines[lines.count - 1] += node.text
-                        if linkDepth > 0 { linkCharacters += node.text.trimmingCharacters(in: .whitespacesAndNewlines).count }
+                        if linkDepth > 0 { lineLinks[lineLinks.count - 1] += node.text.trimmingCharacters(in: .whitespacesAndNewlines).count }
                     case .document:
                         work.append(contentsOf: node.children.reversed().map(Step.visit))
                     case .element:
@@ -407,6 +408,7 @@ public enum HTMLImporter {
                 if type.contains("noteref") || type.contains("doc-noteref") { return }
             case "br":
                 lines.append("")
+                lineLinks.append(0)
                 return
             default:
                 break
@@ -451,30 +453,29 @@ public enum HTMLImporter {
         }
 
         mutating func flush() {
-            defer { lines = [""]; linkCharacters = 0 }
+            defer { lines = [""]; lineLinks = [0] }
             // A blank line (`<br><br>`) inside one block is a paragraph break: older pages set a
-            // whole essay in one element that way.
-            var groups: [[String]] = [[]]
-            for line in lines.map(Self.clean) {
-                if line.isEmpty { if !groups[groups.count - 1].isEmpty { groups.append([]) } } else { groups[groups.count - 1].append(line) }
+            // whole essay in one element that way. Each group keeps its own link characters, so
+            // a link list and the prose after it are judged apart.
+            var groups: [(lines: [String], links: Int)] = [([], 0)]
+            for (raw, links) in zip(lines, lineLinks) {
+                let line = Self.clean(raw)
+                if line.isEmpty { if !groups[groups.count - 1].lines.isEmpty { groups.append(([], 0)) } }
+                else { groups[groups.count - 1].lines.append(line); groups[groups.count - 1].links += links }
             }
-            groups.removeAll { $0.isEmpty }
-            guard !groups.isEmpty else { return }
-            let total = groups.joined().reduce(0) { $0 + $1.count }
-            let links = linkCharacters
-            for kept in groups {
+            groups.removeAll { $0.lines.isEmpty }
+            for (kept, links) in groups {
+                let total = kept.reduce(0) { $0 + $1.count }
                 // Verse: several short lines broken by <br>. Each line is its own paragraph, so it
                 // gets the pause a reader gives a line end instead of running into the next.
                 if kept.count >= 3, kept.allSatisfy({ $0.count <= 70 }) {
                     // A list of links set with <br> is navigation, not verse.
-                    if Double(links) >= 0.5 * Double(total) { return }
+                    if Double(links) >= 0.5 * Double(total) { continue }
                     for line in kept { blocks.append(Block(kind: .paragraph, text: line, linkCharacters: 0)) }
                     continue
                 }
                 let text = kept.joined(separator: " ")
-                // The block's link share, spread over its paragraphs by length.
-                let share = total > 0 ? Int(Double(links) * Double(text.count) / Double(total)) : 0
-                blocks.append(Block(kind: .paragraph, text: text, linkCharacters: share))
+                blocks.append(Block(kind: .paragraph, text: text, linkCharacters: min(links, text.count)))
             }
         }
     }

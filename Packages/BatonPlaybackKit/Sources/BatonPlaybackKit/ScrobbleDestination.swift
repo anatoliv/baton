@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import BatonSubsonicKit
 import BatonSubsonicModels
@@ -15,6 +16,9 @@ public protocol ScrobbleDestination: AnyObject {
     /// Largest number of completed listens accepted in one `submit` call. Subsonic has no
     /// batch endpoint (1); Last.fm and ListenBrainz accept up to 50.
     var maxBatch: Int { get }
+    /// Which of the destination's accounts a listen queued now belongs to, or nil when it has
+    /// only one. Stored with the queued listen and matched when the queue drains (C2-21).
+    var queueScope: String? { get }
 
     /// Best-effort "now playing" ping. Never throws — a lost now-playing is ephemeral and not
     /// worth queueing.
@@ -22,6 +26,10 @@ public protocol ScrobbleDestination: AnyObject {
     /// Deliver a batch of completed listens. **Throws on any failure** so the caller keeps the
     /// batch in the retry queue; returns normally only when the server accepted them.
     func submit(_ batch: [Scrobble]) async throws
+}
+
+public extension ScrobbleDestination {
+    var queueScope: String? { nil }
 }
 
 /// Errors a destination raises so a failed batch is retried rather than silently dropped.
@@ -44,6 +52,12 @@ public final class NavidromeScrobbleDestination: ScrobbleDestination {
     /// listen waits in the queue.
     public var isActive: Bool { NavidromeConfig.isConfigured }
     public var maxBatch: Int { 1 }
+    /// The server the listen was heard from, by a digest of its address rather than the address.
+    public var queueScope: String? {
+        let address = NavidromeConfig.serverURLString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !address.isEmpty else { return nil }
+        return SHA256.hash(data: Data(address.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
 
     public func sendNowPlaying(_ scrobble: Scrobble) async {
         guard !BatonEnvironment.current.isTesting, NavidromeConfig.isConfigured else { return }

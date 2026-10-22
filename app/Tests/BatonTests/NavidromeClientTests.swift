@@ -489,7 +489,10 @@ final class NavidromeClientTests: XCTestCase {
         let ids = (0 ..< 250).map { "s\($0)" }
         try await client.setPlaylistSongsChunked(id: "PL", songIDs: ids, name: "Big", chunkSize: 100)
 
-        let urls = captured
+        // The playlist is read first so a failed later batch can be rolled back (TBX-1000000506
+        // C-17); the writes that follow are unchanged.
+        XCTAssertTrue(captured.first?.path.contains("getPlaylist") ?? false, "the playlist is read before it is rewritten")
+        let urls = captured.filter { !$0.path.contains("getPlaylist") }
         XCTAssertEqual(urls.count, 3, "250 ids at chunk 100 → 1 overwrite + 2 appends")
 
         func items(_ url: URL, _ name: String) -> [String] {

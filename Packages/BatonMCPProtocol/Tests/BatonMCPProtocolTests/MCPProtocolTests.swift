@@ -50,6 +50,35 @@ final class MCPProtocolTests: XCTestCase {
         }
     }
 
+    /// Header values are read as nginx reads them, in front of the gateway and the share service:
+    /// only spaces are skipped before a value, so a tab or no-break space stays part of it, and
+    /// trailing spaces and tabs go.
+    func testOnlySpacesAreSkippedBeforeAValue() throws {
+        let message = try parsed("GET / HTTP/1.1\r\nA:\tone\r\nB: \u{A0}two\r\nC:   three \t\r\nD:four\r\n\r\n")
+        XCTAssertEqual(message.headers["a"], "\tone")
+        XCTAssertEqual(message.headers["b"], "\u{A0}two")
+        XCTAssertEqual(message.headers["c"], "three")
+        XCTAssertEqual(message.headers["d"], "four")
+    }
+
+    /// A repeated field is joined with ", " (RFC 9110 5.3), so a check sees what the proxy acted on
+    /// rather than whichever copy came last. Two Hosts or two Content-Lengths are ambiguous framing
+    /// and refused (RFC 9112 3.2, 6.3).
+    func testRepeatedFieldsJoinExceptHostAndContentLengthWhichAreMalformed() throws {
+        let message = try parsed("GET / HTTP/1.1\r\nRange: bytes=0-\r\nrange: bytes=5-\r\nAccept: a\r\n\r\n")
+        XCTAssertEqual(message.headers["range"], "bytes=0-, bytes=5-")
+        XCTAssertEqual(message.headers["accept"], "a")
+        for lines in ["Host: a\r\nHost: b", "Content-Length: 1\r\ncontent-length: 1"] {
+            guard case .malformed = HTTPRequestMessage.parse(raw("POST / HTTP/1.1\r\n\(lines)\r\n\r\nx")) else {
+                return XCTFail("not refused: \(lines.debugDescription)")
+            }
+        }
+        // A Transfer-Encoding split over two lines is still seen, and refused.
+        guard case .malformed = HTTPRequestMessage.parse(raw("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: identity\r\n\r\n")) else {
+            return XCTFail("a split chunked coding was accepted")
+        }
+    }
+
     func testChunkedTransferEncodingIsRefusedRatherThanMisread() {
         let chunked = raw("POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n")
         guard case .malformed = HTTPRequestMessage.parse(chunked) else {

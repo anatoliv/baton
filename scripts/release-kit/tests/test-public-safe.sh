@@ -65,13 +65,13 @@ git -C "$T" add -A && git -C "$T" commit -qm base
 BASE="$(git -C "$T" rev-parse HEAD)"
 
 out="$(L --root "$T")"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q "public mirror guard: clean (the whole tree)" \
+[ "$rc" = 0 ] && grep -q "public mirror guard: clean (the whole tree)" <<<"$out" \
   && ok "a clean tree passes, so both blocks were found and ran" || bad "a clean tree did not pass. Got: $out"
 
 printf 'HOST=${HOST:-%s-01}\n' "$word" >"$T/scripts/probe.sh"
 out="$(L --root "$T")"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q "^scripts/probe.sh:1:" \
-  && printf '%s' "$out" | grep -q "publish.sh would refuse the whole tree" \
+[ "$rc" = 1 ] && grep -q "^scripts/probe.sh:1:" <<<"$out" \
+  && grep -q "publish.sh would refuse the whole tree" <<<"$out" \
   && ok "a hit is refused with its path relative to the tree, naming the publish script" || bad "a hit was not refused as the guard would. Got: $out"
 rm -f "$T/scripts/probe.sh"
 
@@ -87,30 +87,68 @@ OLD="$(git -C "$T" rev-parse HEAD)"
 printf 'echo fine\n' >"$T/scripts/new.sh"
 out="$(L --root "$T" --diff "$OLD")"; rc=$?
 tree_out="$(L --root "$T")"; tree_rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "clean (files changed since $OLD)" \
-   && [ "$tree_rc" = 1 ] && printf '%s' "$tree_out" | grep -q "scripts/old.sh"; then
+if [ "$rc" = 0 ] && grep -q "clean (files changed since $OLD)" <<<"$out" \
+   && [ "$tree_rc" = 1 ] && grep -q "scripts/old.sh" <<<"$tree_out"; then
   ok "--diff checks only the branch's changes; the whole-tree run still sees the old one"
 else
   bad "diff ($rc) or tree ($tree_rc) scope is wrong. Diff: $out Tree: $tree_out"
 fi
 printf 'echo %s-05\n' "$word" >"$T/scripts/new.sh"
 out="$(L --root "$T" --diff "$BASE")"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q "scripts/new.sh" \
+[ "$rc" = 1 ] && grep -q "scripts/new.sh" <<<"$out" \
   && ok "--diff includes untracked and uncommitted changes" || bad "an untracked leak escaped --diff. Got: $out"
 rm -f "$T/scripts/new.sh"
 
+# Paths git would quote without -z (non-ASCII, a double quote): each must still be scanned,
+# committed or untracked, in both scopes.
+printf 'x %s-06\n' "$word" >"$T/docs/café.md"
+printf 'x %s-07\n' "$word" >"$T/scripts/a\"b.sh"
+git -C "$T" add -A && git -C "$T" commit -qm "quoted paths"
+printf 'x %s-08\n' "$word" >"$T/docs/naïve notes.md"
+out="$(L --root "$T")"; rc=$?
+diff_out="$(L --root "$T" --diff "$OLD")"; diff_rc=$?
+if [ "$rc" = 1 ] && [ "$diff_rc" = 1 ]; then
+  missed=""
+  for p in "docs/café.md" "scripts/a\"b.sh" "docs/naïve notes.md"; do
+    grep -qF "$p:1:" <<<"$out" || missed="$missed tree:$p"
+    grep -qF "$p:1:" <<<"$diff_out" || missed="$missed diff:$p"
+  done
+  [ -z "$missed" ] && ok "paths git would quote (non-ASCII, a double quote) are scanned in both scopes" \
+    || bad "quoted paths dropped unscanned:$missed. Tree: $out Diff: $diff_out"
+else
+  bad "a leak under a quoted path was not refused (tree $rc, diff $diff_rc). Tree: $out Diff: $diff_out"
+fi
+git -C "$T" rm -q "docs/café.md" "scripts/a\"b.sh" && git -C "$T" commit -qm "drop quoted paths"
+rm -f "$T/docs/naïve notes.md"
+
+# A name stored decomposed (NFD) on disk. With core.precomposeunicode (git init's macOS
+# default, set here so the case holds anywhere) git lists it composed (NFC), while the stage
+# copies the bytes on disk; the filter must still keep the file and scan it.
+git -C "$T" config core.precomposeunicode true
+nfd="$(printf 'docs/cafe\314\201-nfd.md')"
+printf 'x %s-09\n' "$word" >"$T/$nfd"
+out="$(L --root "$T")"; rc=$?
+diff_out="$(L --root "$T" --diff "$OLD")"; diff_rc=$?
+if [ "$rc" = 1 ] && grep -q -- "-nfd.md:1:" <<<"$out" \
+   && [ "$diff_rc" = 1 ] && grep -q -- "-nfd.md:1:" <<<"$diff_out"; then
+  ok "a file whose name is decomposed (NFD) on disk is scanned in both scopes"
+else
+  bad "an NFD-named leak was dropped unscanned (tree $rc, diff $diff_rc). Tree: $out Diff: $diff_out"
+fi
+rm -f "$T/$nfd"
+
 sed '/^# Guard: begin$/d' "$WORK/publish.sh" >"$WORK/renamed.sh"
 out="$(GUARD_SOURCE="$WORK/renamed.sh" L --root "$T")"; rc=$?
-[ "$rc" = 2 ] && printf '%s' "$out" | grep -q "cannot find the guard section in $WORK/renamed.sh" \
+[ "$rc" = 2 ] && grep -q "cannot find the guard section in $WORK/renamed.sh" <<<"$out" \
   && ok "a moved or renamed anchor fails with status 2 instead of passing" || bad "a missing anchor did not fail with 2. Got: $out"
 sed '/^# Guard: end$/d' "$WORK/publish.sh" >"$WORK/unended.sh"
 out="$(GUARD_SOURCE="$WORK/unended.sh" L --root "$T")"; rc=$?
 [ "$rc" = 2 ] && ok "a block whose end anchor is gone fails with status 2" || bad "a missing end anchor did not fail with 2. Got: $out"
 out="$(DROP_HOOK=public_safe_guard L --root "$T")"; rc=$?
-[ "$rc" = 2 ] && printf '%s' "$out" | grep -q "the project defines no public_safe_guard" \
+[ "$rc" = 2 ] && grep -q "the project defines no public_safe_guard" <<<"$out" \
   && ok "a missing hook fails with status 2" || bad "a missing hook did not fail with 2. Got: $out"
 out="$(L --bogus)"; rc=$?
-[ "$rc" = 2 ] && printf '%s' "$out" | grep -q "usage:" && ok "an unknown option is a usage error" || bad "a bad option was accepted. Got: $out"
+[ "$rc" = 2 ] && grep -q "usage:" <<<"$out" && ok "an unknown option is a usage error" || bad "a bad option was accepted. Got: $out"
 [ -z "$(ls -A "$WORK/tmp")" ] && ok "the staging copy is removed after every run" || bad "staging left behind: $(ls -A "$WORK/tmp")"
 
 echo "public-safe: $PASS passed, $FAIL failed"

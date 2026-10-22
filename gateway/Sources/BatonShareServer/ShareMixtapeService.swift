@@ -21,7 +21,11 @@ extension ShareService {
                     return .json(MixtapeList(mixtapes: try rows.map { try mixtapeSummary(ShareStore.record($0)) }))
                 }
             }
-            guard parts.count >= 4, ShareLink.isValidID(parts[3]), let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook, record.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
+            guard parts.count >= 4, ShareLink.isValidID(parts[3]), let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook else { return .error(404, "not_found", "No such share.") }
+            // Exists, but under another installation secret: not a mixtape that ended. The app
+            // deletes a ticket's only key on not_found, and older apps on any 404, so a changed
+            // secret answers 403 instead (TBX-1000000507 C-6). The id is in the public link already.
+            guard record.sharerDigest == sharer.digest else { return mixtapeNotOwner }
             if parts.count == 4 {
                 switch method {
                 case "GET": return .json(try mixtapeSummary(record))
@@ -40,7 +44,8 @@ extension ShareService {
             if parts.count == 5, parts[4] == "finalize", method == "POST" {
                 guard config.mixtapesEnabled else { return mixtapesUnsupported }
                 return try store.database.transaction {
-                    guard let fresh = try store.share(id: record.id), fresh.isMixtape, !fresh.isBook, fresh.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
+                    guard let fresh = try store.share(id: record.id), fresh.isMixtape, !fresh.isBook else { return .error(404, "not_found", "No such share.") }
+                    guard fresh.sharerDigest == sharer.digest else { return mixtapeNotOwner }
                     if let denial = try enforcementWriteDenial(fresh) { return denial }
                     if fresh.status == .ready { return .json(try mixtapeSummary(fresh)) }
                     guard fresh.status == .pending, fresh.expiresAt > now else { return .error(409, "state", "This mixtape has ended.") }
@@ -118,7 +123,8 @@ extension ShareService {
               let sharer = sharer(bearer: request.bearerToken) else { return .error(404, "not_found", "No such route.") }
         return try store.database.transaction {
             // The shared write lock fences every snapshot, material adoption and one-time charge.
-            guard let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook, record.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
+            guard let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook else { return .error(404, "not_found", "No such share.") }
+            guard record.sharerDigest == sharer.digest else { return mixtapeNotOwner }
             if let denial = try enforcementWriteDenial(record) { return denial }
             guard record.status == .pending, record.expiresAt > now,
                   let track = try store.mixtapeTracks(id: record.id).first(where: { $0.id == parts[5] }) else { return .error(409, "state", "The mixtape is no longer pending.") }
@@ -140,6 +146,7 @@ extension ShareService {
         }
     }
 
+    var mixtapeNotOwner: ShareResponse { .error(403, "not_owner", "This mixtape belongs to another installation.") }
     private var mixtapesUnsupported: ShareResponse { .error(409, "unsupported", "This server does not support mixtapes.") }
 
     private func playableMixtape(_ id: String, expire: Bool = true) throws -> ShareRecord? {
@@ -240,11 +247,14 @@ extension ShareService {
         let reaction = try body.validated()
         let visitor = visitor(who, shareID: record.id)
         guard try store.reactionCount(shareID: record.id, visitor: visitor, since: now - now % 86400) < config.limits.reactionsPerVisitorPerDay else { return .error(429, "rate_limited", "Try again later.") }
-        try store.addReaction(shareID: record.id, reaction, visitor: visitor, at: now)
-        // Books answer reactions here too.
-        try store.record(event: "reaction_sent", at: now, shareID: record.id, sharerID: record.sharerID, visitor: visitor,
-                         props: ["emoji": .string(reaction.emoji), "hasName": .bool(!(reaction.name ?? "").isEmpty),
-                                 "hasReply": .bool(!(reaction.reply ?? "").isEmpty), "kind": .string(record.isBook ? "book" : "mixtape")])
+        // The reaction and its event commit together, so the sender's list and the usage report
+        // cannot disagree (TBX-1000000507 D-12). Books answer reactions here too.
+        try store.database.transaction {
+            try store.addReaction(shareID: record.id, reaction, visitor: visitor, at: now)
+            try store.record(event: "reaction_sent", at: now, shareID: record.id, sharerID: record.sharerID, visitor: visitor,
+                             props: ["emoji": .string(reaction.emoji), "hasName": .bool(!(reaction.name ?? "").isEmpty),
+                                     "hasReply": .bool(!(reaction.reply ?? "").isEmpty), "kind": .string(record.isBook ? "book" : "mixtape")])
+        }
         return .noContent
     }
 }

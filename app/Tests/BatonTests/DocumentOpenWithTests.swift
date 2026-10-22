@@ -27,7 +27,7 @@ final class DocumentOpenWithTests: XCTestCase {
         let route = router.openDocuments([pdf], documentsEnabled: true)
         XCTAssertEqual(route, .importSheet(pdf, others: 0))
         XCTAssertEqual(router.pendingDocumentImport, pdf, "the same hand-off Import Document… makes")
-        XCTAssertEqual(router.pendingTab, .books, "imports land in Books")
+        XCTAssertEqual(router.pendingTab, .books, "imports land in Books (TBX-11018)")
         XCTAssertNil(DocumentLibrary.openAlert(for: route), "no alert when the sheet opens")
         XCTAssertNil(DocumentLibrary.othersNotice(opened: pdf, others: 0))
     }

@@ -16,6 +16,10 @@ import BatonSubsonicModels
 @MainActor
 public final class GaplessPrefetcher {
     private var tasks: [String: Task<Void, Never>] = [:]
+    /// Which prefetch each entry in `tasks` is. A cancelled prefetch that finished after a new one
+    /// for the same song had started removed the new one's entry, so it was no longer tracked,
+    /// reaped or cancelled (C1-21).
+    private var tokens: [String: UUID] = [:]
     private let cache: MusicGaplessCache
     private let downloader: @MainActor (URL, String) async -> URL?
 
@@ -45,11 +49,15 @@ public final class GaplessPrefetcher {
     ) {
         guard tasks[songID] == nil else { return }
         let downloader = self.downloader
+        let token = UUID()
+        tokens[songID] = token
         tasks[songID] = Task { @MainActor [weak self] in
             let local = await downloader(streamURL, songID)
             guard let self else { return }
+            guard self.tokens[songID] == token else { return }   // superseded: not ours to clear
             self.tasks[songID] = nil
-            guard let local else { return }
+            self.tokens[songID] = nil
+            guard let local, !Task.isCancelled else { return }
             onReady(songID, index, local)
         }
     }
@@ -60,6 +68,7 @@ public final class GaplessPrefetcher {
         for (id, task) in tasks where id != plannedID {
             task.cancel()
             tasks[id] = nil
+            tokens[id] = nil
         }
     }
 
@@ -67,5 +76,6 @@ public final class GaplessPrefetcher {
     public func cancelAll() {
         for (_, task) in tasks { task.cancel() }
         tasks.removeAll()
+        tokens.removeAll()
     }
 }

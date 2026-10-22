@@ -1,3 +1,4 @@
+import BatonPlaybackKit
 import BatonSubsonicKit
 import Foundation
 
@@ -169,6 +170,30 @@ enum SessionPurge {
         try? FileManager.default.removeItem(at: books.appendingPathComponent("recently-removed.json"))
     }
 
+    /// Books on "Disconnect and delete my data" (TBX-1000000505 B-16, owner decision 2026-10-21).
+    ///
+    /// The books hidden from this device and the deletes still owed to the old server always go:
+    /// they are the account's, and the next server has never heard of them. The downloaded books
+    /// themselves follow Keep downloads, as music downloads and clippings do: kept with it (their
+    /// audio is clippings, kept by the caller; their records and covers here), gone without it,
+    /// with everything else of them in `directory` (shaped books, read-along timing, voice changes).
+    static func purgeBooks(_ books: HomeServerBooks, covers: BookCoverStore, directory: URL, keepDownloads: Bool) {
+        for documentID in books.hiddenDocumentIDs { books.unhide(documentID: documentID) }
+        let owed = directory.appendingPathComponent("home-server-books-pending-deletes.json")
+        try? FileManager.default.removeItem(at: owed)
+        try? FileManager.default.removeItem(at: owed.appendingPathExtension("bak"))
+        guard !keepDownloads else { return }
+        for record in books.records { books.forget(jobID: record.jobID) }
+        for documentID in Array(covers.entries.keys) { covers.forget(documentID: documentID) }
+        // Everything else of them in the folder, apart from the covers folder itself: the cover
+        // store made it when it started and does not make it again, so without it the next
+        // cover set before a relaunch would fail. Its entries are forgotten above.
+        let files = FileManager.default
+        for name in (try? files.contentsOfDirectory(atPath: directory.path)) ?? [] where name != "covers" {
+            try? files.removeItem(at: directory.appendingPathComponent(name))
+        }
+    }
+
     /// What a purge is about to remove, so the confirmation can say it out loud.
     struct Preview {
         var downloadCount: Int
@@ -212,6 +237,9 @@ enum SessionPurge {
         // and running whatever commands came back against the local player. It only stopped
         // when the app was backgrounded.
         model.deviceLink.stop()
+        // And the books watch: a listing still out with the old token could adopt the old
+        // server's books again after the hidden marks below are cleared (TBX-1000000505 B-16).
+        model.books.stopWatching()
 
         if !keepDownloads {
             MusicDownloadStore.shared.deleteAll()
@@ -258,6 +286,10 @@ enum SessionPurge {
         if !keepDownloads {
             removeAllClippings(model.clippings)
         }
+        // Books: their records and covers follow Keep downloads; hidden marks and the deletes
+        // owed to the old server always go (TBX-1000000505 B-16).
+        purgeBooks(model.books, covers: model.covers.store, directory: BatonStorage.supportSubdirectory("Books"),
+                   keepDownloads: keepDownloads)
 
         // Server config + its per-server secret.
         NavidromeConfig.clear()

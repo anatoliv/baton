@@ -53,35 +53,35 @@ run() {
 }
 
 out="$(STUB_VAULT=locked run)"; rc=$?
-if printf '%s' "$out" | grep -q "FAIL  vault: locked; run secrets-unlock"; then
+if grep -q <<<"$out" "FAIL  vault: locked; run secrets-unlock"; then
   ok "a locked vault is one FAIL line naming secrets-unlock"
 else
   bad "a locked vault was not reported. Got: $out"
 fi
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "NOT READY"; then
+if [ "$rc" = 1 ] && grep -q <<<"$out" "NOT READY"; then
   ok "any FAIL makes the report NOT READY with exit 1"
 else
   bad "a failing report exited $rc. Got: $out"
 fi
 
 out="$(run)"
-if printf '%s' "$out" | grep -q 'ok    vault: unlocked, "Apple - TestFlight env (baton)" found'; then
+if grep -q <<<"$out" 'ok    vault: unlocked, "Apple - TestFlight env (baton)" found'; then
   ok "an unlocked vault with the TestFlight item is ok"
 else
   bad "the unlocked vault was not recognized. Got: $out"
 fi
-if printf '%s' "$out" | grep -q "FAIL  credentials: baton-ios-artifact-upload.json is mode 644, not 0600" \
-   && printf '%s' "$out" | grep -q "ok    credentials: baton-macos-artifact-upload.json present, 0600"; then
+if grep -q <<<"$out" "FAIL  credentials: baton-ios-artifact-upload.json is mode 644, not 0600" \
+   && grep -q <<<"$out" "ok    credentials: baton-macos-artifact-upload.json present, 0600"; then
   ok "credential files are checked by mode, each by name"
 else
   bad "credential modes were not reported. Got: $out"
 fi
-if printf '%s' "$out" | grep -qF "$TOKEN" || printf '%s' "$out" | grep -q 'cbu1_'; then
+if grep -qF <<<"$out" "$TOKEN" || grep -q <<<"$out" 'cbu1_'; then
   bad "the report printed a credential value"
 else
   ok "no credential value appears in the report"
 fi
-if printf '%s' "$out" | grep -q "WARN  gate lock (mac-app-host): held by gate pid $STANDIN from /tmp/another-checkout"; then
+if grep -q <<<"$out" "WARN  gate lock (mac-app-host): held by gate pid $STANDIN from /tmp/another-checkout"; then
   ok "a held gate lock is named with its holder"
 else
   bad "the gate lock holder was not named. Got: $out"
@@ -94,32 +94,32 @@ fi
 for line in "ok    sparkle: $WORK/sparkle" "ok    simulators: 1 iPhone simulator(s) available" \
             "ok    simulators: watchOS runtime available" "ok    signing: 1 Developer ID Application" \
             "owner's Baton: not running"; do
-  printf '%s' "$out" | grep -qF -- "$line" || missing="${missing:-} [$line]"
+  grep -qF <<<"$out" -- "$line" || missing="${missing:-} [$line]"
 done
 if [ -z "${missing:-}" ]; then
   ok "Sparkle tools, simulators, signing and the owner's Baton each get a line"
 else
   bad "missing readiness lines:$missing"
 fi
-if printf '%s' "$out" | grep -qE "(ok|WARN)  +gate: |(ok|FAIL)  +public mirror: |(ok|WARN)  +rsync: |(ok|FAIL)  +tree: "; then
+if grep -qE <<<"$out" "(ok|WARN)  +gate: |(ok|FAIL)  +public mirror: |(ok|WARN)  +rsync: |(ok|FAIL)  +tree: "; then
   ok "the gate receipt, public mirror guard, rsync and tree are reported"
 else
   bad "a source or tool line is missing. Got: $out"
 fi
 
-if printf '%s' "$out" | grep -q "ok    native-lock: the kit module is byte-identical to the shared copy"; then
+if grep -q <<<"$out" "ok    native-lock: the kit module is byte-identical to the shared copy"; then
   ok "the kit's native-lock module is compared with the shared _method copy by digest"
 else
   bad "the kit's native-lock module was not compared with the shared copy. Got: $out"
 fi
-if printf '%s' "$out" | grep -q "ok    release kit: .* matches its pin"; then
+if grep -q <<<"$out" "ok    release kit: .* matches its pin"; then
   ok "the vendored release kit is checked against its pin"
 else
   bad "the vendored release kit's pin was not checked. Got: $out"
 fi
 printf '# drift\n' >>"$WORK/canonical-native-lock.sh"
 out="$(run)"
-if printf '%s' "$out" | grep -q "WARN  native-lock: the kit module differs from the shared copy"; then
+if grep -q <<<"$out" "WARN  native-lock: the kit module differs from the shared copy"; then
   ok "a shared copy on another kit version is named as a WARN (the kit pin is the hard check)"
 else
   bad "a differing shared copy was not reported. Got: $out"

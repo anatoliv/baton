@@ -122,7 +122,7 @@ final class LaunchOrderTests: XCTestCase {
             while !ran, Date() < deadline {
                 _ = CFRunLoopRunInMode(CFRunLoopMode(mode.rawValue as CFString), 0.05, true)
             }
-            XCTAssertTrue(ran, "\(mode.rawValue) is not a common mode of the main run loop")
+            XCTAssertTrue(ran, "\(mode.rawValue) is not a common mode of the main run loop (TBX-7352)")
         }
     }
 }

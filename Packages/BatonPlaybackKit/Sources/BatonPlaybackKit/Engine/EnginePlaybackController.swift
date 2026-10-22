@@ -195,6 +195,7 @@ public final class EnginePlaybackController {
     #if DEBUG
     var loadPauseIntentForTesting: LoadPauseIntent { loadPauseIntent }
     var sameTrackRetriesForTesting: Int { sameTrackRetries }
+    var spuriousEndRecoveriesForTesting: Int { spuriousEndRecoveries }
     var episodeRetriesForTesting: Int { episodeRetries }
     /// Test instrumentation, mirroring the old engine's boundary counters.
     public private(set) var loadCountForTesting = 0
@@ -254,6 +255,9 @@ public final class EnginePlaybackController {
         // engine's own retries would keep resetting the counter that bounds them.
         sameTrackRetries = 0
         episodeRetries = 0
+        // The early-end budget belongs to one play of one track, as the host's does: a track
+        // left mid-recovery handed its spent budget to the next (C1-15).
+        spuriousEndRecoveries = 0
         nowPlaying = track
         load(track: track, startingAt: max(0, atTime), autoplay: autoplay)
     }
@@ -317,7 +321,11 @@ public final class EnginePlaybackController {
             return
         }
         if state == .idle, let track = nowPlaying {
-            load(track: track, startingAt: 0, autoplay: true)
+            // `.idle` is also where a paused load that failed rests (`handleLoadFailure`), with
+            // the playhead still at the restored place: starting at 0:00 lost it (C1-16). Stop
+            // rewinds the playhead to 0 itself, and a track at its end starts over.
+            let place = TrackBoundary.isAtEnd(currentTime: currentTime, duration: duration) ? 0 : currentTime
+            load(track: track, startingAt: max(0, place), autoplay: true)
         }
     }
 
@@ -349,6 +357,9 @@ public final class EnginePlaybackController {
     ///    in the URL, not in the player).
     public func seek(to seconds: TimeInterval) {
         guard let track = nowPlaying else { return }
+        // A seek is a fresh intent, not a retry of the last one, so it gets a fresh early-end
+        // budget, as on the AVPlayer path (C1-15).
+        spuriousEndRecoveries = 0
         let target = max(0, min(seconds, duration > 0 ? duration : seconds))
         let generation = bumpGeneration()
         let source = sources[activeDeck]
@@ -1024,7 +1035,11 @@ public final class EnginePlaybackController {
                 // A rung that decides not to climb used to do it in silence, and silence
                 // here looks exactly like a track that stopped for no reason: no retry, no
                 // `.error`, nothing for the host to act on. Say so.
-                guard case .loading = state else {
+                // An immediate pause (a handoff) during the backoff shows `.paused` with its
+                // render fence latched; the retry still reconnects and honours the fence, or
+                // a later Resume found `.loading` with nothing loading and stayed there.
+                let pausedDuringBackoff = state == .paused && !loadPauseIntent.allowsRendering
+                guard state == .loading || pausedDuringBackoff else {
                     engineLog.error("engine: retry \(attempt) abandoned, state moved to \("\(self.state)", privacy: .public) during the backoff")
                     return
                 }

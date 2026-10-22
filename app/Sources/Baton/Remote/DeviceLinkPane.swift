@@ -18,7 +18,7 @@ import BatonSubsonicKit
 struct DeviceLinkPane: View {
     @State private var host = PairingHost()
     @State private var localAddress = ""
-    @State private var pendingApproval: (name: String, respond: (Bool) -> Void)?
+    @State private var prompt = PairingApprovalPrompt()
     /// Bumped on Forget so the list redraws — the log is plain UserDefaults, not observable.
     @State private var forgetTick = 0
 
@@ -58,8 +58,15 @@ struct DeviceLinkPane: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: host.state) { _, _ in recordIfLinked() }
-        .onDisappear { host.stop() }
+        .onChange(of: host.state) { _, state in
+            recordIfLinked()
+            // An attempt that ended (expired, cancelled, failed) takes its prompt with it.
+            if case .awaitingApproval = state {} else { prompt.withdraw() }
+        }
+        .onDisappear {
+            prompt.withdraw()
+            host.stop()
+        }
     }
 
     // MARK: States
@@ -104,9 +111,9 @@ struct DeviceLinkPane: View {
             Text("Only allow this if it's your device and you're holding it now.")
                 .font(.callout).foregroundStyle(.secondary)
             HStack {
-                Button("Allow") { pendingApproval?.respond(true); pendingApproval = nil }
+                Button("Allow") { prompt.answer(true) }
                     .keyboardShortcut(.defaultAction)
-                Button("Refuse", role: .destructive) { pendingApproval?.respond(false); pendingApproval = nil }
+                Button("Refuse", role: .destructive) { prompt.answer(false) }
             }
         }
     }
@@ -167,7 +174,7 @@ struct DeviceLinkPane: View {
     }
 
     private func start() {
-        pendingApproval = nil
+        prompt.withdraw()
         localAddress = Self.primaryLANAddress() ?? ""
         guard !localAddress.isEmpty else {
             host.fail("This Mac isn't on a network Baton can share an address for.")
@@ -175,11 +182,7 @@ struct DeviceLinkPane: View {
         }
 
         // Approval is a real prompt, not a formality — see the type's doc comment.
-        host.approve = { deviceName in
-            await withCheckedContinuation { continuation in
-                pendingApproval = (deviceName, { continuation.resume(returning: $0) })
-            }
-        }
+        host.approve = { [prompt] deviceName in await prompt.ask(deviceName) }
         // Deliberately not calling makeExport directly: pairing must always encrypt, and
         // that guarantee lives in DevicePairing rather than in a boolean here.
         host.makePayload = { invitation in try DevicePairing.makePayload(for: invitation) }
@@ -228,4 +231,38 @@ struct DeviceLinkPane: View {
         }
         return candidates.first
     }
+}
+
+/// The pane's Allow/Refuse prompt, as the one place its answer is given (TBX-1000000504, A-10).
+///
+/// The pane used to keep the continuation in view state and drop it, unanswered, whenever it
+/// showed a new code or went away. Swift then logged a leaked continuation and the host's approval
+/// task stayed suspended for the life of the app. Every way out now answers it: Allow, Refuse,
+/// or a withdrawal, which refuses.
+@MainActor
+@Observable
+final class PairingApprovalPrompt {
+    /// The device waiting on an answer, if any.
+    private(set) var deviceName: String?
+    @ObservationIgnored private var continuation: CheckedContinuation<Bool, Never>?
+
+    /// Waits for the owner's answer. A prompt still open from an earlier ask is refused first:
+    /// one device is asked about at a time.
+    func ask(_ deviceName: String) async -> Bool {
+        withdraw()
+        return await withCheckedContinuation { continuation in
+            self.deviceName = deviceName
+            self.continuation = continuation
+        }
+    }
+
+    func answer(_ allow: Bool) {
+        guard let continuation else { return }
+        self.continuation = nil
+        deviceName = nil
+        continuation.resume(returning: allow)
+    }
+
+    /// The attempt is over without an answer: refuse.
+    func withdraw() { answer(false) }
 }

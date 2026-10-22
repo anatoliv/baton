@@ -323,6 +323,33 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.15",
+            date: "October 2026",
+            highlight: "Downloads and podcasts pick up where you left off.",
+            changes: [
+                HelpWhatsNewChange(.fixed,
+                    "A downloaded song or podcast you come back to now plays from the place you stopped. Before, it could start "
+                    + "again from the beginning while the clock showed your old place."),
+                HelpWhatsNewChange(.fixed,
+                    "Stop Speaking in the Playback menu now stops a reading as well as a summary, and Play on a spoken "
+                    + "summary's notification plays it again instead of staying silent."),
+                HelpWhatsNewChange(.fixed,
+                    "If no speaker is available when Baton starts to talk, your music no longer stays turned down "
+                    + "afterwards, and a reading you never heard keeps its place to resume."),
+                HelpWhatsNewChange(.improved,
+                    "Reading text aloud never says a password or key, even when a terminal has coloured part of it."),
+                HelpWhatsNewChange(.fixed,
+                    "When an alarm and a timer ring together, Stop silences both."),
+                HelpWhatsNewChange(.fixed,
+                    "Connecting to a server you already use updates it instead of adding a second copy."),
+                HelpWhatsNewChange(.fixed,
+                    "A document sent from your iPhone that never arrived now says so, with a note to send it again, "
+                    + "instead of disappearing without a word."),
+                HelpWhatsNewChange(.fixed,
+                    "Likes and ratings you change quickly now always match what your server saved."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.14",
             date: "October 2026",
             highlight: "Share a whole album or playlist as one link.",

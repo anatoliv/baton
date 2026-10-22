@@ -30,7 +30,7 @@ extension ShareService {
         guard request.method == "POST" else { return .error(405, "method", "Method not allowed.") }
         guard let sharer = sharer(bearer: request.bearerToken) else { return .error(401, "unauthorized", "Missing install secret.") }
         guard request.body.count <= 49152 else { return .error(413, "invalid", "Request too large.") }
-        let network = salt.hash(["attest", who.address], now: now)
+        let network = salt.hash(["attest", who.network], now: now)
         guard limiter.allow("attest:\(network)", limit: 30, per: 60, now: now) else { return .error(429, "rate_limited", "Try again later.") }
         try sweepAttestation(now: now)
         if action == "challenge" || action == "status" {

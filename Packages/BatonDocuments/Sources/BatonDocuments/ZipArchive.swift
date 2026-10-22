@@ -33,7 +33,9 @@ struct ZipArchive {
         }
     }
 
-    let data: [UInt8]
+    /// The caller's bytes, not a copy: a mapped file stays mapped, so opening a large EPUB for
+    /// its cover reads only the directory and the entries asked for.
+    let data: Data
     let entries: [Entry]
     private let inflated: Tally
 
@@ -51,7 +53,8 @@ struct ZipArchive {
     }
 
     init(_ data: Data, maximumInflatedBytes: Int = maximumArchiveBytes) throws {
-        let bytes = [UInt8](data)
+        // Indexed from zero below; a slice is rebased (copied) only in that rare case.
+        let bytes = data.startIndex == 0 ? data : Data(data)
         self.data = bytes
         inflated = Tally(limit: maximumInflatedBytes)
         // The end-of-central-directory record is in the last 64 KB + 22 bytes (its comment can
@@ -120,7 +123,7 @@ struct ZipArchive {
         guard h + 30 <= data.count, Self.u32(data, h) == 0x0403_4B50 else { throw Failure.damaged("\(entry.name) has no header") }
         let start = h + 30 + Int(Self.u16(data, h + 26)) + Int(Self.u16(data, h + 28))
         guard start + entry.compressedSize <= data.count else { throw Failure.damaged("\(entry.name) runs past the end") }
-        let raw = data[start..<(start + entry.compressedSize)]
+        let raw = [UInt8](data[start..<(start + entry.compressedSize)])[...]
         let out: [UInt8]
         switch entry.method {
         case 0:
@@ -137,8 +140,10 @@ struct ZipArchive {
         return Data(out)
     }
 
-    static func u16(_ b: [UInt8], _ i: Int) -> UInt16 { UInt16(b[i]) | UInt16(b[i + 1]) << 8 }
-    static func u32(_ b: [UInt8], _ i: Int) -> UInt32 {
+    static func u16<Bytes: RandomAccessCollection>(_ b: Bytes, _ i: Int) -> UInt16 where Bytes.Element == UInt8, Bytes.Index == Int {
+        UInt16(b[i]) | UInt16(b[i + 1]) << 8
+    }
+    static func u32<Bytes: RandomAccessCollection>(_ b: Bytes, _ i: Int) -> UInt32 where Bytes.Element == UInt8, Bytes.Index == Int {
         UInt32(b[i]) | UInt32(b[i + 1]) << 8 | UInt32(b[i + 2]) << 16 | UInt32(b[i + 3]) << 24
     }
 }

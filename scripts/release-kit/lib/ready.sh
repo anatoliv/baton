@@ -42,9 +42,13 @@ rk_ready_warn() { printf '  WARN  %s\n' "$*"; }
 rk_ready_fail() { RK_READY_FAILS=$((RK_READY_FAILS + 1)); printf '  FAIL  %s\n' "$*"; }
 
 rk_ready_tree() {   # $1 = repo
-  local head
+  local head porcelain
   head="$(git -C "$1" rev-parse HEAD 2>/dev/null || true)"
-  if [ -n "$(git -C "$1" status --porcelain 2>/dev/null)" ]; then
+  # A failed status (a corrupt index: HEAD resolves, status exits 128) prints nothing; that
+  # is an unreadable tree, not a clean one.
+  if ! porcelain="$(git -C "$1" status --porcelain 2>/dev/null)"; then
+    rk_ready_fail "tree: git status failed in $1, so the tree cannot be shown clean; repair the checkout"
+  elif [ -n "$porcelain" ]; then
     rk_ready_fail "tree: $1 has uncommitted changes; a release needs a clean, committed tree"
   else
     rk_ready_ok "tree: clean at ${head:0:12}"

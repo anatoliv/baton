@@ -26,6 +26,16 @@ struct PairingScannerView: View {
         case connecting
         case failed(String)
         case linked(preferences: Int, secrets: Int)
+
+        /// Whether a code from the camera is tried now. After a failure the scanner keeps
+        /// looking, so a second code (or the same one, once the network is back) can be tried
+        /// without Cancel and a fresh sheet (TBX-1000000505 B-4).
+        var acceptsScan: Bool {
+            switch self {
+            case .scanning, .failed: true
+            case .connecting, .linked: false
+            }
+        }
     }
 
     var body: some View {
@@ -96,7 +106,7 @@ struct PairingScannerView: View {
     }
 
     private func redeem(_ code: String) async {
-        guard case .scanning = status else { return }   // one scan, not one per frame
+        guard status.acceptsScan else { return }   // one attempt at a time, not one per frame
         guard let invitation = DevicePairing.parse(code) else {
             // Deliberately specific: people point this at all sorts of codes, and "that
             // isn't a Baton code" saves them staring at a working scanner.
@@ -153,7 +163,7 @@ final class ScannerViewController: UIViewController, @preconcurrency AVCaptureMe
     nonisolated(unsafe) private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "io.tonebox.baton.pairing-scanner")
     private var preview: AVCaptureVideoPreviewLayer?
-    private var hasReported = false
+    private var gate = ScanGate()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -174,8 +184,10 @@ final class ScannerViewController: UIViewController, @preconcurrency AVCaptureMe
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         // Leaving the camera running behind a dismissed sheet is a battery bug and a
-        // privacy smell — the indicator would stay lit.
-        guard session.isRunning else { return }
+        // privacy smell — the indicator would stay lit. Queued unconditionally: a sheet
+        // dismissed quickly can leave before the queued `startRunning()` has run, when
+        // `isRunning` is still false, and the serial queue stops it after it starts
+        // (TBX-1000000505 B-20).
         sessionQueue.async { [session] in session.stopRunning() }
     }
 
@@ -206,12 +218,26 @@ final class ScannerViewController: UIViewController, @preconcurrency AVCaptureMe
         didOutput objects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
-        guard !hasReported,
-              let object = objects.first as? AVMetadataMachineReadableCodeObject,
-              let value = object.stringValue
+        guard let object = objects.first as? AVMetadataMachineReadableCodeObject,
+              let value = object.stringValue,
+              gate.shouldReport(value, now: Date())
         else { return }
-        // The camera fires many frames a second; one code is one attempt.
-        hasReported = true
         onCode?(value)
+    }
+}
+
+/// Which camera frames become attempts. The camera fires many frames a second, so one code is
+/// one attempt; but it was one attempt *ever*, and after a bad code or a failed redeem the
+/// scanner sat dead until Cancel (TBX-1000000505 B-4). Now a different code is tried at once,
+/// and the same one again after `repeatAfter`, which is how a redeem that failed on the network
+/// gets its second try while the phone is still pointed at it.
+struct ScanGate {
+    var repeatAfter: TimeInterval = 3
+    private var last: (value: String, at: Date)?
+
+    mutating func shouldReport(_ value: String, now: Date) -> Bool {
+        if let last, last.value == value, now.timeIntervalSince(last.at) < repeatAfter { return false }
+        last = (value, now)
+        return true
     }
 }

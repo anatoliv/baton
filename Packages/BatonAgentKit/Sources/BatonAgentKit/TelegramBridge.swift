@@ -24,18 +24,24 @@ public final class TelegramBridge {
 
     private var task: Task<Void, Never>?
     private var offset: Int = 0
+    /// Set by `stop()`. Nothing calls the session after it is invalidated (a request on an
+    /// invalidated session raises an exception, which killed the app when a slow answer
+    /// finished after the bridge was switched off), and updates still in hand are dropped.
+    private var isStopped = false
     private let session: URLSession
 
+    /// `configuration` is for tests (a stub protocol); the app always takes the default.
     init(
         token: String,
         router: RemoteCommandRouter,
+        configuration: URLSessionConfiguration = .ephemeral,
         onStateChange: @escaping (RemoteConnectionState) -> Void
     ) {
         self.token = token
         self.router = router
         self.onStateChange = onStateChange
 
-        let config = URLSessionConfiguration.ephemeral
+        let config = configuration
         // Comfortably longer than the 25s long-poll so a quiet chat isn't a
         // timeout; Telegram closes the request itself when the window expires.
         config.timeoutIntervalForRequest = 45
@@ -52,6 +58,7 @@ public final class TelegramBridge {
     }
 
     func stop() {
+        isStopped = true
         task?.cancel()
         task = nil
         session.invalidateAndCancel()
@@ -59,20 +66,34 @@ public final class TelegramBridge {
     }
 
     private func run() async {
-        // Validate the token once so a typo shows up in Settings immediately
-        // rather than as silence.
-        do {
-            let me = try await call("getMe")
-            let username = (me["username"] as? String).map { "@\($0)" } ?? "connected"
-            onStateChange(.connected(account: username))
-            remoteLog.notice("Telegram bridge connected")
-        } catch {
-            onStateChange(.failed(Self.describe(error)))
-            remoteLog.error("Telegram getMe failed: \(error.localizedDescription, privacy: .public)")
-            return
+        // Validate the token first so a typo shows up in Settings immediately
+        // rather than as silence. Only Telegram refusing the token stops the
+        // bridge: a getMe that failed because the network was not up yet (a Mac
+        // just woken, Wi-Fi still joining) is retried like a failed poll, or the
+        // bridge stayed dead until the owner toggled it.
+        var backoff: UInt64 = 1
+        while !Task.isCancelled {
+            do {
+                let me = try await call("getMe")
+                let username = (me["username"] as? String).map { "@\($0)" } ?? "connected"
+                onStateChange(.connected(account: username))
+                remoteLog.notice("Telegram bridge connected")
+                break
+            } catch BridgeError.rejected(let message) {
+                onStateChange(.failed(message))
+                remoteLog.error("Telegram refused the bot token; bridge stopped")
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                onStateChange(.failed(Self.describe(error)))
+                remoteLog.error("Telegram getMe failed: \(error.localizedDescription, privacy: .public)")
+                try? await Task.sleep(for: .seconds(Double(backoff)))
+                backoff = min(backoff * 2, 60)
+                if !Task.isCancelled { onStateChange(.connecting) }
+            }
         }
 
-        var backoff: UInt64 = 1
+        backoff = 1
         while !Task.isCancelled {
             do {
                 let updates = try await poll()
@@ -109,6 +130,7 @@ public final class TelegramBridge {
     }
 
     private func handle(_ update: [String: Any]) async {
+        guard !isStopped else { return }
         if let callback = update["callback_query"] as? [String: Any] {
             await handleCallback(callback)
         } else if let message = update["message"] as? [String: Any] {
@@ -239,11 +261,14 @@ public final class TelegramBridge {
 
     private enum BridgeError: LocalizedError {
         case api(String)
+        /// Telegram does not know the token (401 Unauthorized, or 404 for a malformed one):
+        /// retrying never helps.
+        case rejected(String)
         case malformed
 
         var errorDescription: String? {
             switch self {
-            case let .api(message): message
+            case let .api(message), let .rejected(message): message
             case .malformed: "Unexpected response from Telegram"
             }
         }
@@ -266,12 +291,15 @@ public final class TelegramBridge {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        guard !isStopped else { throw CancellationError() }
         let (data, _) = try await session.data(for: request)
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw BridgeError.malformed
         }
         guard root["ok"] as? Bool == true else {
-            throw BridgeError.api(root["description"] as? String ?? "request failed")
+            let description = root["description"] as? String ?? "request failed"
+            if [401, 404].contains(root["error_code"] as? Int) { throw BridgeError.rejected(description) }
+            throw BridgeError.api(description)
         }
         if resultIsArray {
             return ["result_array": root["result"] as? [[String: Any]] ?? []]

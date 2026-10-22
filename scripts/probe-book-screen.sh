@@ -24,6 +24,10 @@
 #   restore   a chapter left paused, then the app quit and opened again: Resume plays on from
 #             that place (the next chapter starts when the audio left runs out) and Read Along
 #             follows it
+#   revoice   Change Voice… while chapter 1 plays (TBX-1000000105): the book is made again in
+#             another Kokoro voice (TO_VOICE, default am_adam, offered as VOICE_LABEL), and the same running probe goes
+#             on playing the chapter in its new audio, with no relaunch. Not in the default list:
+#             run it as STAGES="make revoice".
 #   menus     More: Show in Finder, Export Audiobook…, Pronunciations…, Change Voice… and Stop
 #             Making Again, Keep on This Mac, Remove Download and Render Again (book and
 #             chapter), Delete Book… (Cancel, then Remove from This Mac)
@@ -50,6 +54,7 @@ ROOT="$PROBE_SUPPORT_ROOT/$SUITE"
 TITLE="Probe Machine"
 RELAY_PID=""
 PID=""
+WATCH_PID=""
 fail=0
 T0=$(date +%s)
 
@@ -57,6 +62,7 @@ AX_BIN="${TMPDIR:-/tmp}/baton-probe-ax-$(shasum scripts/probe-ax.swift | cut -c1
 [ -x "$AX_BIN" ] || xcrun swiftc -O -o "$AX_BIN" scripts/probe-ax.swift || { echo "could not build probe-ax"; exit 2; }
 
 cleanup() {
+  [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null
   probe_quit "$PID"
   [ -n "$RELAY_PID" ] && kill "$RELAY_PID" 2>/dev/null
   if [ "${KEEP_PROBE:-0}" = 1 ]; then echo "kept: BOOK_SUITE=$SUITE"; else probe_cleanup "$SUITE"; fi
@@ -91,6 +97,10 @@ button() { rows | grep -qxF "[button] $1"; }
 main_button() { "$AX_BIN" title "$PID" book-play 2>/dev/null; }   # the book's own button, not the transport's
 heard() { rows | grep -oE '^(Under 1|[0-9]+)% heard$' | head -1; }
 dump() { echo "   what Accessibility sees:"; rows | head -80 | sed 's/^/     /'; }
+# A book's status line while it is made. It is part of the book row's label, which SwiftUI
+# merges into the row button's one title ("[button] Probe Machine, …, Making chapter 1 of 3, 40%"),
+# so it is matched anywhere in a line, not at its start (TBX-1000000105).
+STATUS_RE='(Making|Waiting to make|Finishing) chapter [0-9]+ of [0-9]+'
 landed() { ls "$ROOT"/Clippings/*.m4a 2>/dev/null | wc -l | tr -d ' '; }
 timings() { ls "$ROOT"/Books/read-along/*.json 2>/dev/null | wc -l | tr -d ' '; }
 # Every synthetic click and key press goes through the guard: the probe's own process must be
@@ -137,8 +147,8 @@ on run argv
 end run
 AS
 }
-now() {   # "<position seconds> <state> <title>" from the probe's own MCP server
-  /usr/bin/python3 - "$ROOT/mcp.json" <<'PY'
+now() {   # "<position seconds> <state> <title>" from the probe's own MCP server; $1 = one field instead
+  /usr/bin/python3 - "$ROOT/mcp.json" "${1:-}" <<'PY'
 import json, subprocess, sys
 try:
     d = json.load(open(sys.argv[1]))
@@ -157,12 +167,15 @@ sid = next((l.split(":", 1)[1].strip() for l in init.splitlines() if l.lower().s
 body = call('{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"baton://now-playing"}}', sid)
 try:
     n = json.loads(json.loads(body)["result"]["contents"][0]["text"])
+    if len(sys.argv) > 2 and sys.argv[2]:
+        print(n.get(sys.argv[2], "?")); sys.exit()
     print(n.get("position_seconds", "?"), n.get("state", "?"), (n.get("now_playing") or {}).get("title", ""))
 except Exception:
     print("? ? " + body[:160].replace("\n", " "))
 PY
 }
 state() { now | cut -d' ' -f2; }
+duration() { now duration_seconds; }
 pos() { now | cut -d' ' -f1; }
 playing_title() { now | cut -d' ' -f3-; }
 close_to() { /usr/bin/python3 -c "import sys; sys.exit(0 if abs(float(sys.argv[1]) - float(sys.argv[2])) <= float(sys.argv[3]) else 1)" "$1" "$2" "$3" 2>/dev/null; }
@@ -213,6 +226,9 @@ stage_make() {
   say "make: import a three-chapter book and make it on this Mac with Kokoro"
   local book="$WORK/book/$TITLE.md"
   mkdir -p "$WORK/book"
+  # Chapter 1 is about a minute long so that it is still playing when its new voice lands in the
+  # revoice stage, however long the Change Voice sheet takes to offer its voices (TBX-1000000105:
+  # at 22 s it ended first once, and the player had moved on to chapter 2).
   cat > "$book" <<'MD'
 # Probe Machine
 
@@ -225,6 +241,18 @@ It is lighted neither by window nor by lamp, yet it is filled with a soft radian
 There are no apertures for ventilation, yet the air is fresh.
 
 An armchair is in the centre, and by its side a reading desk.
+
+The walls are pale, and a faint hum comes from somewhere behind them, steady as breathing.
+
+On the desk lie a few books, a pen that has not been used for years, and a small brass bell.
+
+A woman sits in the armchair with her hands folded, listening to a voice that only she can hear.
+
+Now and then she nods, or frowns, or says a word or two in answer, and then falls silent again.
+
+Hours pass in this way, and the light never changes, and nothing in the room ever moves.
+
+At last the voice stops, and she sits for a long while without moving at all.
 
 ## The Tube
 
@@ -245,14 +273,37 @@ MD
   launch --env BATON_DEBUG_IMPORT_DOCUMENT="$book" || { echo "probe did not start"; exit 2; }
   wait_for 60 'button "Make Audiobook"'; rc=$?; verdict "the import sheet offers Make Audiobook" $rc
   sleep "${SHEET_SETTLE:-4}"
-  "$AX_BIN" press "$PID" "Make Audiobook" >/dev/null; rc=$?; verdict "Make Audiobook pressed" $rc
-  wait_for 60 'rows | grep -qE "^(Making|Waiting to make|Finishing) chapter"'
-  rc=$?; verdict "while it is made, the status line says so: $(rows | grep -E '^(Making|Waiting to make|Finishing) chapter' | head -1)" $rc
-  shot make-1-status-line
+  # The status line is read by a watcher that looks continuously from before the press until the
+  # book is made, so a short-lived line is not missed between the main thread's other reads. Each
+  # look appends "<3 once all three chapters and timings are kept, else 0> <status line or none>";
+  # "press" marks the press, and only lines after it count (TBX-1000000105).
+  after_press() { awk 'p; /^press$/ { p = 1 }' "$looks"; }   # also when "press" is the first line
+  local looks="$WORK/status-looks.txt"; : > "$looks"; rm -f "$WORK/status-stop"
+  ( while [ ! -f "$WORK/status-stop" ] && [ -d "$WORK" ] && kill -0 "$PID" 2>/dev/null; do
+      s="$(rows | grep -oE "$STATUS_RE" | head -1)"
+      m=0; [ "$(landed)" -ge 3 ] && [ "$(timings)" -ge 3 ] && m=3
+      echo "$m ${s:-none}" >> "$looks"
+    done ) &
+  WATCH_PID=$!
+  # A press counts when it reports success or the sheet's button is gone; once (run 4, 22 October)
+  # it reported failure with the sheet still up, so it is tried once more before failing.
+  pressed_make() { "$AX_BIN" press "$PID" "Make Audiobook" >/dev/null || wait_for 3 '! button "Make Audiobook"'; }
+  pressed_make || { note "the first press of Make Audiobook did not land; pressing it again"; sleep 1; pressed_make; }
+  rc=$?; echo press >> "$looks"; verdict "Make Audiobook pressed" $rc
+  wait_for 60 'after_press | grep -qv " none$"' && shot make-1-status-line
   wait_for "${RENDER_WAIT:-300}" '[ "$(landed)" -ge 3 ] && [ "$(timings)" -ge 3 ]'
   rc=$?; verdict "3 chapters in Clippings ($(landed)), 3 read-along timings kept ($(timings))" $rc
+  touch "$WORK/status-stop"; wait "$WATCH_PID" 2>/dev/null; WATCH_PID=""
+  local after; after="$(after_press)"
+  local seen; seen="$(echo "$after" | grep -v ' none$' | cut -d' ' -f2- | awk '!x[$0]++' | head -5 | paste -sd'|' -)"
+  local unmade; unmade="$(echo "$after" | grep -c '^0 ')"
+  echo "   status looks after the press: $(echo "$after" | grep -c .), with the book not yet made in $unmade; lines seen: ${seen:-none}"
+  # Seen at least once; or never shown to a look because the book was made within one look of the
+  # press (at most one look, the one under way at the press, found it not yet made).
+  if [ -n "$seen" ]; then rc=0; elif [ "$unmade" -le 1 ] && [ -n "$after" ]; then rc=0; note "the book was made within one look of the press, so no status line could be read"; else rc=1; fi
+  verdict "while it is made, the status line says so: ${seen:-not seen}" $rc
   sleep 2
-  ! rows | grep -qE "^(Making|Waiting to make|Finishing) chapter"; rc=$?; verdict "the status line is gone once the book is made" $rc
+  ! rows | grep -qE "$STATUS_RE"; rc=$?; verdict "the status line is gone once the book is made" $rc
   shot make-2-made
 }
 
@@ -565,6 +616,64 @@ stage_menus() {
   "$AX_BIN" press "$PID" "Remove from This Mac" >/dev/null; rc=$?; verdict "Remove from This Mac pressed" $rc
   wait_for 10 '! shows "The Tube" && ! mentions "'"$TITLE"'"'; rc=$?; verdict "the book is gone, and the screen is the list" $rc
   shot menus-7-deleted
+}
+
+# The voice stored on each chapter of the book, in chapter order: "kokoro:af_heart kokoro:af_heart …".
+chapter_voices() {
+  for j in "$ROOT"/Clippings/*.json; do
+    [ -f "$j" ] || continue
+    /usr/bin/python3 -c 'import json,sys
+p = json.load(open(sys.argv[1])).get("payload", {})
+if p.get("chapterIndex") is not None: print(p["chapterIndex"], p.get("voice"))' "$j" 2>/dev/null
+  done | sort -n | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//'
+}
+# Seconds of audio in each chapter's file, rounded, in chapter order.
+chapter_lengths() {
+  for j in "$ROOT"/Clippings/*.json; do
+    [ -f "$j" ] || continue
+    local c; c="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("payload", {}).get("chapterIndex"))' "$j" 2>/dev/null)"
+    [ "$c" = None ] && continue
+    echo "$c $(ffprobe -v error -show_entries format=duration -of csv=p=0 "${j%.json}.m4a" 2>/dev/null | /usr/bin/python3 -c 'import sys; print(round(float(sys.stdin.read() or 0)))')"
+  done | sort -n | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//'
+}
+
+stage_revoice() {
+  local to="${TO_VOICE:-am_adam}" label="${VOICE_LABEL:-Adam, American, male}"
+  say "revoice: Change Voice… to $to while chapter 1 plays, heard without a relaunch (TBX-1000000105)"
+  open_book; rc=$?; verdict "the open book shows its chapters" $rc
+  local pid0="$PID" before; before="$(chapter_voices)"
+  note "chapter voices before: $before"
+  [ -n "$before" ] && ! echo "$before" | grep -q "kokoro:$to"; rc=$?; verdict "the book is read in another voice than $to before ($before)" $rc
+  "$AX_BIN" press "$PID" "book-play" >/dev/null; rc=$?; verdict "Play pressed" $rc
+  wait_for 15 '[ "$(state)" = playing ]'; rc=$?; verdict "chapter 1 plays: $(now)" $rc
+  sleep 4
+  local title d0 p0; title="$(playing_title)"; d0="$(duration)"; p0="$(pos)"
+  note "playing \"$title\" at $p0 s of $d0 s"
+  shot revoice-1-playing
+  "$AX_BIN" press "$PID" "Change Voice…" >/dev/null; rc=$?; verdict "Change Voice… pressed on the open book while it plays" $rc
+  wait_for 10 '[ "$(probe_sheet_count "$PID")" -ge 1 ]'; rc=$?; verdict "its sheet opens" $rc
+  wait_for 30 'button "$label"'; rc=$?; verdict "the sheet offers $to (\"$label\")" $rc
+  [ "$rc" = 0 ] || { dump; return 1; }
+  "$AX_BIN" press "$PID" "$label" >/dev/null; rc=$?; verdict "$to chosen" $rc
+  sleep 1
+  shot revoice-2-picker
+  "$AX_BIN" press "$PID" "Make Again in This Voice" >/dev/null; rc=$?; verdict "Make Again in This Voice pressed" $rc
+  wait_for 10 '[ "$(probe_sheet_count "$PID")" = 0 ]'; rc=$?; verdict "the sheet closes" $rc
+  local pc; pc="$(pos)"
+  [ "$(state)" = playing ]; rc=$?; verdict "the old voice plays on while the book is made again, at $pc s of $(duration) s" $rc
+  wait_for "${RENDER_WAIT:-300}" '[ "$(chapter_voices)" = "$(echo "$before" | sed "s/[^ ]*/kokoro:$to/g")" ]'
+  rc=$?; verdict "every chapter is now in $to: $(chapter_voices)" $rc
+  sleep 3
+  kill -0 "$pid0" 2>/dev/null; rc=$?; verdict "the probe process that played the old voice ($pid0) is still running: no relaunch" $rc
+  local d1 p1 t1 s1; d1="$(duration)"; p1="$(pos)"; t1="$(playing_title)"; s1="$(state)"
+  note "now \"$t1\", $s1, at $p1 s of $d1 s; chapter files: $(chapter_lengths)"
+  [ "$s1" = playing ]; rc=$?; verdict "still playing after the new voice landed ($s1)" $rc
+  [ "$t1" = "$title" ]; rc=$?; verdict "the same chapter ($t1)" $rc
+  [ "$d1" != "$d0" ]; rc=$?; verdict "the player's item is the new audio: its length changed ($d0 s -> $d1 s)" $rc
+  local first; first="$(chapter_lengths | cut -d' ' -f1)"
+  close_to "$d1" "$first" 1; rc=$?; verdict "and is the length of chapter 1's re-made file ($d1 s, file $first s)" $rc
+  greater "$p1" "$(echo "$pc - 1" | bc)"; rc=$?; verdict "it carried on from its place, not from 0:00 ($pc s when the sheet closed, $p1 s now)" $rc
+  shot revoice-3-new-voice
 }
 
 for stage in $STAGES; do "stage_$stage"; done

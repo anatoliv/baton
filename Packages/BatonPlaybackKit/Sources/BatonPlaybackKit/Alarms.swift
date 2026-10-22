@@ -550,6 +550,15 @@ public final class AlarmStore {
             changed()
             return fire
         }
+        // A late callback (the device was off or asleep through the alarm) is not played, and
+        // is left unanswered so the in-app clock reports it as missed. It used to be answered
+        // here, which swallowed it with no missed notice at all (C2-15).
+        if let alarm = alarms.first(where: { $0.id == id }),
+           let occurrence = latestOccurrence(of: alarm, atOrBefore: now, calendar: calendar()),
+           answered[id].map({ $0 < occurrence }) ?? true,
+           now.timeIntervalSince(occurrence) > Self.lateGrace {
+            return nil
+        }
         guard let fire = collectDue(at: now, only: id).first, !fire.isLate else { return nil }
         return fire
     }
@@ -558,6 +567,8 @@ public final class AlarmStore {
     public func answer(id: UUID, now: Date = Date()) {
         if timer?.id == id { timer = nil }
         _ = collectDue(at: now, only: id)
+        // Stop means stop: a snooze still pending would ring again later (C2-16).
+        if let index = alarms.firstIndex(where: { $0.id == id }) { alarms[index].snoozedUntil = nil }
         answered[id] = max(answered[id] ?? .distantPast, now)
         changed()
     }

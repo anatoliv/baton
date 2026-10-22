@@ -1,4 +1,5 @@
 import AVFoundation
+import BatonPlaybackKit
 import SwiftUI
 
 /// The music friend — the headline feature no other client has. A chat with an
@@ -61,6 +62,14 @@ struct MusicFriendView: View {
                     .onChange(of: messages) { _, new in
                         if let last = new.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                     }
+                }
+                // The alarm and timer pill, stacked on the composer rather than in the tab's
+                // bottom inset like the other tabs: an inset outside this NavigationStack does
+                // not move the composer, so the pill was drawn on top of it.
+                // Only while there is a pill: the pill's own bottom padding would otherwise lift
+                // the composer 6pt with nothing above it.
+                if !AlarmPillState.all(model.alarms.center.store).isEmpty {
+                    MobileAlarmPill(alarms: model.alarms)
                 }
                 inputBar
             }

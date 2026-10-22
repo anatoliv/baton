@@ -302,10 +302,14 @@ function confirmation(message = "", focus = true) {
 async function admit() {
   const value = await json("/sessions", { method: "POST" }, false, 4096);
   const deadline = Date.parse(value?.expiresAt);
-  if (!object(value) || !canonical(value.token, 32) || !Number.isFinite(deadline) || deadline <= Date.now() || deadline > linkDeadline + 1000 ||
+  // A session lasts as long as the link, which the sender can extend while this page is open, so a
+  // deadline later than the one the page loaded with is the link's new end (TBX-1000000495). No link
+  // runs past 30 days from now; a day of slack covers a viewer whose clock runs behind the server's.
+  if (!object(value) || !canonical(value.token, 32) || !Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 2678400000 ||
       !Number.isSafeInteger(value.remainingBytes) || value.remainingBytes < 0 ||
       !Number.isSafeInteger(value.remainingListeners) || value.remainingListeners < 0) throw new ShareCryptoError("format", "Invalid session");
   if (closed) return;
+  if (deadline > linkDeadline) { linkDeadline = deadline; $("ends").textContent = endsLabel(linkDeadline); }
   session = { token: value.token, expiresAt: deadline };
   remainingListeners = value.remainingListeners; chips();
   started = false; thirty = false; completed = false; listened = 0; lastTick = null;

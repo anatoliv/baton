@@ -71,6 +71,9 @@ final class TranscriptionCoordinator {
         session: URLSession = .shared
     ) async -> Transcript? {
         guard SpeechConfig.isTranscriptionConfigured else {
+            // `finishWork` releases the claim, so never while a transcription (started before the
+            // host was switched off) still holds it; that run reports its own outcome.
+            guard !store.isWorking(on: song.id) else { return nil }
             store.finishWork(on: song.id, failure: .init(
                 message: "Transcription isn't set up yet. Add a transcription host in Settings → Speech.",
                 isUnavailable: true

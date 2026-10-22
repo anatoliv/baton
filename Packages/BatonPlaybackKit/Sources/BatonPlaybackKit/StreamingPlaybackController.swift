@@ -697,7 +697,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             isBuffering = false
             if let target = pendingSeek {
                 pendingSeek = nil
-                seek(to: target)
+                seek(to: target, freshIntent: false)
             }
         }
         avDeck.onSeekLanded = { [weak self] in
@@ -816,6 +816,17 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// is running. `beginSkipBlend` moves the transport before the audio, so until promotion the
     /// outgoing track is still sounding under the incoming track's name.
     private var skipBlendTarget: Int?
+    /// The track an end-of-track crossfade is blending into, by id, while one runs. The index
+    /// the blend was aimed at stops naming it as soon as the queue changes under the blend (a
+    /// Play Next inserts in front of it), so the landing and Play Next both find it by id
+    /// (TBX-1000000506, C1-8).
+    private var crossfadeTargetID: String?
+    /// The queue index of `crossfadeTargetID`, while an end-of-track crossfade runs.
+    private var crossfadeTargetIndex: Int? {
+        guard isCrossfading, skipBlendTarget == nil, let id = crossfadeTargetID else { return nil }
+        let after = queue.indices.filter { $0 > currentIndex && queue[$0].id == id }
+        return after.first ?? queue.firstIndex { $0.id == id }
+    }
 
     // Test seams for the crossfade leak. The bug lived precisely in these two disagreeing,
     // so a test has to be able to put them out of step deliberately — that state is
@@ -918,6 +929,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
     /// Bump the intervention counter. Call from genuine user/external transport actions.
     private func bumpStateGeneration() { stateGeneration &+= 1 }
+    /// Counts the listener's own volume changes, which are what end a duck (see
+    /// `AudioFocusToken.volumeGeneration`). Module-internal for the audio-focus extension.
+    @ObservationIgnored var volumeGeneration = 0
 
     /// Monotonic seek counter, exposed so observers (e.g. the MCP now-playing
     /// notification) can detect a seek on the *current* track — which changes neither
@@ -943,6 +957,11 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         /// For `mode == .duck`, the `volumePercent` in effect *before* the duck — restored
         /// verbatim on release. Nil for pause.
         public var previousVolumePercent: Int?
+        /// For `mode == .duck`, the controller's `volumeGeneration` at the duck. A duck's restore
+        /// is refused only when the listener set a level of their own since: a seek, a skip or
+        /// a pause under a spoken summary used to strand the music at the ducked level for good,
+        /// because those bumped `generation` (C1-11).
+        public var volumeGeneration = 0
 
         public enum Mode: String, Equatable, Sendable { case pause, duck }
     }
@@ -1006,6 +1025,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// `StreamSeek`. A natively-decodable track skips the transcode entirely, so it arrives
     /// byte-range seekable from the first play and never needs the offset dance at all.
     private func annotatedStreamURL(_ songID: String, startingAt offset: TimeInterval = 0) throws -> URL {
+        // Only our own server is told where a play came from. A podcast enclosure is a third
+        // party's URL and goes out exactly as its feed gave it: `playedFrom` named the
+        // listener's playlist to every podcast host (C1-22). A file has no server at all.
+        guard MediaKind(id: songID) == .libraryTrack else { return try streamURLProvider(songID) }
         let base = Self.annotate(try streamURLProvider(songID), with: queueSource)
         let suffix = queue.first { $0.id == songID }?.suffix
         return StreamSeek.streamURL(base, offset: offset,
@@ -1137,9 +1160,12 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             for (name, value) in NavidromeConfig.customHeaders(for: streamURL) {
                 prefetchRequest.setValue(value, forHTTPHeaderField: name)
             }
-            guard let (temp, response) = try? await URLSession.shared.download(for: prefetchRequest),
-                  (response as? HTTPURLResponse).map({ (200 ..< 300).contains($0.statusCode) }) ?? false
-            else { return nil }
+            guard let (temp, response) = try? await URLSession.shared.download(for: prefetchRequest) else { return nil }
+            // An error response is still downloaded to a temporary file, which was left behind (C1-21).
+            guard (response as? HTTPURLResponse).map({ (200 ..< 300).contains($0.statusCode) }) ?? false else {
+                try? FileManager.default.removeItem(at: temp)
+                return nil
+            }
             // MPL integrity check (docs/plan-ios-app.md): a Subsonic error-as-200 envelope or a
             // truncated transcode must never reach the gapless boundary — a poisoned prefetch
             // hot-swaps into the queue and plays as silence at full duration.
@@ -1432,10 +1458,13 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     public func playNext(_ songs: [NavidromeSong]) {
         guard !songs.isEmpty else { return }
         guard !queue.isEmpty else { enqueue(songs); return }
-        let slot = min(currentIndex + 1, queue.count)
+        // During an end-of-track crossfade the track being blended in is, to the listener,
+        // already the one playing; what plays next goes after it (C1-8).
+        let playing = crossfadeTargetIndex ?? currentIndex
+        let slot = min(playing + 1, queue.count)
         // In the order shuffle returns to, after the copy of the current track that is
         // playing, found by position: by id it was the first copy.
-        let anchor = shuffleOriginIsValid ? shuffleOrigin?[currentIndex] : nil
+        let anchor = shuffleOriginIsValid && queue.indices.contains(playing) ? shuffleOrigin?[playing] : nil
         queue.insert(contentsOf: songs, at: slot)
         if var original = orderBeforeShuffle {
             if let anchor, var origin = shuffleOrigin {
@@ -1444,7 +1473,8 @@ public final class StreamingPlaybackController: RemotePlayerContext {
                 origin.insert(contentsOf: Array(anchor + 1 ... anchor + songs.count), at: slot)
                 orderBeforeShuffle = original
                 shuffleOrigin = origin
-            } else if let current = nowPlaying, let at = original.firstIndex(where: { $0.id == current.id }) {
+            } else if queue.indices.contains(playing),
+                      let at = original.firstIndex(where: { $0.id == queue[playing].id }) {
                 original.insert(contentsOf: songs, at: at + 1)
                 orderBeforeShuffle = original
             }
@@ -1473,7 +1503,19 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // engine has no such state, and its deck is deliberately empty of items either way.
         if TrackBoundary.isAtEnd(currentTime: currentTime, duration: duration)
             || (!engineOwnsPlayback && !avDeck.hasCurrentItem) {
+            reloadOnResume = false
             loadCurrent(autoplay: true)
+            return
+        }
+        // A track whose load failed, or whose retry a pause called off, has no item that can
+        // play: resuming the deck showed Playing over silence. Load it again at the playhead,
+        // as Retry does (C1-17).
+        if reloadOnResume || stateIsError {
+            reloadOnResume = false
+            sameTrackRetries = 0
+            if currentTime > 1 { pendingSeek = currentTime }
+            state = .loading
+            loadCurrent(autoplay: true, isRetry: true)
             return
         }
         admitPlayback()
@@ -1512,10 +1554,18 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // its own on top of the AVPlayer, and skip it for the engine, which is why this verb
         // was written twice.
         activeDeck.pause()
-        if state == .playing { state = .paused }
+        // `.loading` is a same-track retry waiting out its backoff. The pause calls the retry
+        // off, so leaving `.loading` showed a spinner over a paused player for good (C1-17).
+        if state == .loading { reloadOnResume = true }
+        if state == .playing || state == .loading { state = .paused }
         pushNowPlaying()
         persistQueue() // capture the playhead where the user paused
     }
+
+    /// Set when a pause landed during a retry backoff: nothing playable is loaded, so Play has
+    /// to load the track rather than resume the deck.
+    @ObservationIgnored private var reloadOnResume = false
+    private var stateIsError: Bool { if case .error = state { true } else { false } }
 
     /// Relinquish output before a received song starts. Ordinary Pause retains its fade.
     public func pauseForPlaybackHandoff() {
@@ -1581,13 +1631,14 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // does without being asked.
         pendingEventReason = .skipped
         bumpStateGeneration()
-        let wasPlaying = state == .playing
+        // `.loading` is a retry that was going to play (C1-23); only a playing track can blend.
+        let wasPlaying = state == .playing || state == .loading
         switch Self.onManualNext(current: currentIndex, count: queue.count, repeatMode: repeatMode) {
         case let .play(idx):
             // Blend the audio, but only when already playing — a skip while paused has
             // nothing to fade from. The transport still advances synchronously inside
             // `beginSkipBlend`, so observers never see a stale track.
-            if wasPlaying, beginSkipBlend(to: idx) { return }
+            if state == .playing, beginSkipBlend(to: idx) { return }
             currentIndex = idx
             loadCurrent(autoplay: wasPlaying)
             persistQueue()
@@ -1863,7 +1914,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         cancelCrossfade()
         guard !queue.isEmpty else { return }
         bumpStateGeneration()
-        let wasPlaying = state == .playing
+        let wasPlaying = state == .playing || state == .loading   // a pending retry meant to play (C1-23)
         if Self.previousRestartsCurrent(currentTime: currentTime, currentIndex: currentIndex, force: force) {
             seek(to: 0)
         } else {
@@ -1883,7 +1934,14 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         return force ? false : currentTime > 3
     }
 
-    public func seek(to seconds: TimeInterval) {
+    public func seek(to seconds: TimeInterval) { seek(to: seconds, freshIntent: true) }
+
+    /// - Parameter freshIntent: false when the seek restores a place parked in `pendingSeek` (a
+    ///   restore, a retry, a reload of a stream that cannot start part-way in). That is the same
+    ///   intent continuing, not a new one, and must not refill the early-end budget: a file
+    ///   shorter than its metadata ended early, was reloaded at the playhead, sought there, ended
+    ///   again, and with the budget refilled by each seek, looped for good.
+    private func seek(to seconds: TimeInterval, freshIntent: Bool) {
         cancelCrossfade()
         bumpStateGeneration()
         let target = max(0, min(seconds, duration > 0 ? duration : seconds))
@@ -1900,7 +1958,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // spurious end, which exhausted a per-track budget of 3 — and the fourth seek skipped the
         // track. The bound exists to stop a genuinely broken stream looping forever, and that
         // still holds: nothing but a new user seek resets it.
-        spuriousEndRecoveries = 0
+        if freshIntent { spuriousEndRecoveries = 0 }
         // Moving the playhead off the end re-arms end handling.
         if !TrackBoundary.isAtEnd(currentTime: target, duration: duration) { didHandleEnd = false }
         pushNowPlaying()
@@ -1928,6 +1986,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// so an in-flight audio-focus duck/pause won't auto-restore over the user's new level.
     public func setVolume(percent: Int) {
         bumpStateGeneration()
+        volumeGeneration &+= 1
         // The person took the level: a gentle alarm's rise stops and their level stands.
         cancelWakeRamp()
         // A duck ramp in flight is now stale: the user has taken the level themselves, and the
@@ -2026,6 +2085,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         #if DEBUG
         loadCurrentCountForTesting += 1
         #endif
+        reloadOnResume = false
         if !isRetry { sameTrackRetries = 0 } // a genuine (non-retry) load starts a fresh track
         // A place parked by a retry belongs to that track; another track must not seek to it.
         if !isRetry, !isContinuation { pendingSeek = nil }
@@ -2084,7 +2144,13 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             return
         }
 
-        streamingLog.info("streaming song id \(song.id, privacy: .public)")
+        // A library id is opaque; a podcast id is its enclosure URL and a local id its file path,
+        // which can carry a feed token or the user's name, so those stay private (C1-22).
+        if MediaKind(id: song.id) == .libraryTrack {
+            streamingLog.info("streaming song id \(song.id, privacy: .public)")
+        } else {
+            streamingLog.info("streaming \(String(describing: MediaKind(id: song.id)), privacy: .public) \(song.id, privacy: .private)")
+        }
 
         if autoplay { admitPlayback() }
 
@@ -2123,15 +2189,17 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             pendingSeek = nil
             startAt = max(offset, pending)
         }
-        // A book chapter is a file on this device, with no server to honour `timeOffset`: the
-        // AVPlayer deck would play it from its start while counting the playhead from `startAt`.
-        // A chapter restored at launch, or reloaded after a stall, then played from 0:00 with the
-        // scrubber and Read Along that many seconds ahead of the voice, and ran on past the
-        // chapter's end without moving to the next. It opens at its start and seeks
-        // to the place once ready, the way a retried track does. Only a book chapter: other file
-        // URLs, the stream stand-ins of StreamSeekControllerTests among them, keep the stream path.
+        // Only a server transcode honours `timeOffset` (`StreamSeek.honoursTimeOffset`). Asked
+        // of anything else, a download or book chapter on this device, a podcast enclosure or a
+        // stored file the server sends as it is, the AVPlayer deck plays from the top while
+        // counting the playhead from `startAt`. A track restored at launch, reloaded for the EQ
+        // or a deck change, or after a stall, then played from 0:00 with the clock that many
+        // seconds ahead, ran on past its end without moving on, and saved inflated podcast
+        // progress (TBX-11063, TBX-1000000492). Those open at their start and seek to the place
+        // once ready, the way a retried track does.
+        let honoursOffset = StreamSeek.honoursTimeOffset(url, for: song)
         var deckStart = startAt
-        if !engineOwnsPlayback, url.isFileURL, song.isBookChapterFile, startAt > 0 {
+        if !engineOwnsPlayback, !honoursOffset, startAt > 0 {
             pendingSeek = startAt
             deckStart = 0
         }
@@ -2139,7 +2207,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         deck.load(
             song: song, url: url, startingAt: deckStart, autoplay: autoplay,
             headers: NavidromeConfig.customHeaders(for: url),
-            supportsTimeOffset: StreamSeek.needsTranscode(suffix: song.suffix)
+            supportsTimeOffset: honoursOffset
         )
         #if DEBUG
         lastStreamURLForTesting = avDeck.lastLoadedURL
@@ -2401,7 +2469,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         let songID = queue[planned].id
         // Marked as a prefetch: this downloads a whole track that may never be heard, and an
         // unmarked one is counted as a complete play by anything reading the server's access log.
-        guard let streamURL = (try? annotatedStreamURL(songID)).map(Self.markPrefetch) else { return }
+        guard let annotated = try? annotatedStreamURL(songID) else { return }
+        // `prefetch=1` is a note for our server's log, and not something to send a podcast host.
+        let streamURL = MediaKind(id: songID) == .libraryTrack ? Self.markPrefetch(annotated) : annotated
         // Prefer an already-prefetched local file (or an offline download, which
         // streamURLProvider already resolves to a file URL) so the handoff is gap-free.
         let preloadURL = GaplessPreload.preloadURL(stream: streamURL, cached: gaplessPrefetcher.cachedURL(for: songID))
@@ -2810,6 +2880,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // picks up the native-format passthrough (see `StreamSeek`).
         guard let url = try? annotatedStreamURL(queue[nextIndex].id) else { return }
         isCrossfading = true
+        crossfadeTargetID = queue[nextIndex].id
         didHandleEnd = true // suppress the outgoing track's normal end handler
         // ...but still report the outgoing track as completed, so its final progress is saved
         // (played-state, download auto-remove) — the suppressed handler was their only trigger.
@@ -2833,7 +2904,14 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     ///   it until the ramp completes would make `music_next` and the UI report the previous track
     ///   for the length of the blend. In that case this only swaps the players; the queue
     ///   bookkeeping and `notifyTrackStarted` already happened and must not fire twice.
-    private func finishCrossfade(to nextIndex: Int, alreadyAdvanced: Bool = false) {
+    private func finishCrossfade(to aimedIndex: Int, alreadyAdvanced: Bool = false) {
+        // The queue may have changed under the blend; land on the track actually blended in.
+        var nextIndex = aimedIndex
+        if !alreadyAdvanced, let target = crossfadeTargetID,
+           !(queue.indices.contains(aimedIndex) && queue[aimedIndex].id == target) {
+            nextIndex = crossfadeTargetIndex ?? -1
+        }
+        crossfadeTargetID = nil
         skipBlendTarget = nil
         // Bailing out must not leave the incoming player running. This returns when the
         // queue changed under the fade (an index that no longer exists) or when a transport
@@ -2904,6 +2982,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             if !isCrossfading, !avDeck.isCrossfadeRampActive { return }
         }
         skipBlendTarget = nil
+        crossfadeTargetID = nil
         isCrossfading = false
         avDeck.cancelCrossfade()
         didHandleEnd = false
@@ -2920,6 +2999,11 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         var source: QueueSource?
         /// Added for TBX-11066; absent from older snapshots, which decode it as nil.
         var sourceSongIDs: [String]?
+        /// While shuffled, the order shuffle returns to and each slot's place in it. Absent from
+        /// older snapshots and when not shuffled. Without them a queue restored shuffled could
+        /// never be unshuffled (C1-18).
+        var orderBeforeShuffle: [NavidromeSong]?
+        var shuffleOrigin: [Int]?
     }
 
     /// The queue's storage, with the protections every other precious store has.
@@ -2942,7 +3026,9 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
     private func persistQueue() {
         let snapshot = QueueSnapshot(songs: queue, index: currentIndex, position: currentTime, source: queueSource,
-                                     sourceSongIDs: queueSourceSongIDs.map { $0.sorted() })
+                                     sourceSongIDs: queueSourceSongIDs.map { $0.sorted() },
+                                     orderBeforeShuffle: isShuffled ? orderBeforeShuffle : nil,
+                                     shuffleOrigin: isShuffled && shuffleOriginIsValid ? shuffleOrigin : nil)
         queueStore.save(snapshot)
     }
 
@@ -2954,6 +3040,13 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         currentIndex = max(0, min(snapshot.index, snapshot.songs.count - 1))
         queueSource = snapshot.source
         queueSourceSongIDs = snapshot.sourceSongIDs.map(Set.init)
+        if isShuffled, let original = snapshot.orderBeforeShuffle, original.count >= snapshot.songs.count {
+            orderBeforeShuffle = original
+            if let origin = snapshot.shuffleOrigin, origin.count == queue.count,
+               origin.allSatisfy(original.indices.contains) {
+                shuffleOrigin = origin
+            }
+        }
         // Ask the server for the stream *from* the saved position rather than loading at 0 and
         // seeking: a long set resumes instantly and correctly even on a cold transcode, which
         // can't be seeked at all (see `StreamSeek`).

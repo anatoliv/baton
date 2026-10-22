@@ -105,6 +105,9 @@ final class BackgroundShareUploadEngine: NSObject {
         jobs = Dictionary(loaded.jobs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let tasks = await session.allTasks
         for task in tasks {
+            // A task this engine started before the store could be read (an enqueue after an
+            // unreadable first restore) is already ours: cancelling it cut a live upload (C-22).
+            if let ticket = Self.ticket(task), activeTasks[ticket.id] == task.taskIdentifier { continue }
             guard let ticket = Self.ticket(task), let job = jobs[ticket.id],
                   job.hasCreated, !job.hasFinalized, job.failure == nil,
                   job.nextKind == ticket.kind, activeTasks[ticket.id] == nil else {
@@ -190,6 +193,9 @@ final class BackgroundShareUploadEngine: NSObject {
             // Only this invocation's durable ticket/file and resumed owned task unlock
             // its composer. Global pending/progress and onCreated are too early.
             if activeTasks[job.id] != nil { onHandOff?() }
+            // No task started and nothing settled the job (the Keychain still locked, say):
+            // nothing would ever resume this caller. The ticket stays for the next restore (C-21).
+            else { waiters.removeValue(forKey: job.id)?.resume(throwing: Failure.upload) }
         }
     }
 
@@ -221,6 +227,7 @@ final class BackgroundShareUploadEngine: NSObject {
         return try await withCheckedThrowingContinuation { continuation in
             waiters[job.id] = continuation; schedule(job.id)
             if activeTasks[job.id] != nil { onHandOff?() }
+            else { waiters.removeValue(forKey: job.id)?.resume(throwing: Failure.upload) }  // as above (C-21)
         }
     }
 
@@ -299,11 +306,12 @@ final class BackgroundShareUploadEngine: NSObject {
               let kind = job.nextKind else { return }
         guard job.record.expiresAt > Date() else { fail(id, reason: "network"); return }
         guard (job.attempts[kind] ?? 0) < 3 else {
-            if kind == "finalize" || job.isMixtape {
-                // Its response may have been lost after acceptance. Keep the key
-                // and ticket until a foreground ownership read resolves it.
-                waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload)
-            } else { fail(id, reason: "network") }
+            // Three tries in this launch. A response may have been lost after acceptance, or
+            // the network may simply be down: either way keep the key and ticket until a
+            // foreground restore reads ownership and resumes. Deleting a song's ticket here
+            // lost a link that a later launch could have finished (C-20); an expired link is
+            // still given up above.
+            waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload)
             return
         }
         guard let secret = secretProvider(), !secret.isEmpty else {
@@ -344,6 +352,9 @@ final class BackgroundShareUploadEngine: NSObject {
             try store.save(job)
             jobs[id] = job
             let task = session.uploadTask(with: request, fromFile: store.file(id, kind: kind))
+            // A retry waits rather than following a failure at once (C-20). Honoured by the
+            // background session the app uses; a foreground test session ignores it.
+            if let delay = Self.retryDelay(attempt: job.attempts[kind] ?? 1) { task.earliestBeginDate = Date() + delay }
             task.taskDescription = "\(id.uuidString):\(kind)"
             activeTasks[id] = task.taskIdentifier
             task.resume()
@@ -426,11 +437,19 @@ final class BackgroundShareUploadEngine: NSObject {
                 job.completedKinds.insert(kind)
                 do { try store.save(job); jobs[id] = job; schedule(id) }
                 catch { fail(id, reason: "other") }
+            } else if body?.code == "state", kind != "finalize", !job.isMixtape {
+                // The service's English wording is a fast path, not the rule (C-24).
+                await settleUploadConflict(id, kind: kind)
             } else { await reconcile(id) }
             return
         }
         guard (200..<300).contains(status) else {
-            if job.isMixtape { await reconcile(id); waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+            if job.isMixtape {
+                await reconcile(id)
+                // The reconcile may have scheduled the next upload; reporting failure while it
+                // runs told the composer the mixtape had failed when it had not (C-23).
+                if activeTasks[id] == nil { waiters.removeValue(forKey: id)?.resume(throwing: Failure.upload) }
+            }
             else { fail(id, reason: "other") }
             return
         }
@@ -450,6 +469,36 @@ final class BackgroundShareUploadEngine: NSObject {
             do { try store.save(job); jobs[id] = job; schedule(id) }
             catch { fail(id, reason: "other") }
         }
+    }
+
+    /// A song upload answered 409 `state`. For a share that is still pending and unexpired the
+    /// only such answer is a body the service already has, so that part is done; otherwise the
+    /// ownership read says what became of the share.
+    private func settleUploadConflict(_ id: UUID, kind: String) async {
+        guard let job = jobs[id], let created = job.created,
+              let secret = secretProvider(), !secret.isEmpty else { return }
+        do {
+            let reading = URLSession(configuration: sessionConfiguration ?? .ephemeral, delegate: BackgroundShareNoRedirectDelegate(), delegateQueue: nil)
+            defer { reading.finishTasksAndInvalidate() }
+            let summaries = try await ShareClient(base: job.base, secret: secret, session: reading).list()
+            guard let summary = summaries.first(where: { $0.id == created.id }) else { fail(id, reason: "network"); return }
+            switch summary.status {
+            case .pending where (ShareDate.date(summary.expiresAt) ?? .distantPast) > Date():
+                guard var current = jobs[id] else { return }
+                current.completedKinds.insert(kind)
+                try store.save(current); jobs[id] = current
+                schedule(id)
+            case .ready: finalize(id, summary: summary)
+            default: fail(id, reason: "other")
+            }
+        } catch {
+            schedule(id)  // An unreadable answer: the same upload may be tried again, within its attempts.
+        }
+    }
+
+    /// How long a retry of one body waits: none for the first try, then 30 s and 2 min.
+    nonisolated static func retryDelay(attempt: Int) -> TimeInterval? {
+        attempt <= 1 ? nil : 30 * pow(4, Double(attempt - 2))
     }
 
     private func finalize(_ id: UUID, summary: ShareSummary) {

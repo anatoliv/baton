@@ -1,6 +1,9 @@
 import BatonPlaybackKit
 import Foundation
+import OSLog
 import UserNotifications
+
+private let alarmNotificationLog = Logger(subsystem: "io.tonebox.baton", category: "alarm-notifications")
 
 /// Alarms and the timer as scheduled local notifications (TBX-11171, specs/alarm-and-timer.md):
 /// the iPhone's way on iOS 18 to 25, and the Mac's way when Baton is not running.
@@ -20,6 +23,9 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
     nonisolated static let chime = "BatonAlarmChime.caf"
     /// A gentle alarm's chime, rising over its first 20 seconds.
     nonisolated static let gentleChime = "BatonAlarmChimeGentle.caf"
+    /// The most pending requests the system keeps for one app; past it, `add` drops the rest
+    /// without an error. Baton schedules the soonest that many (C3-19).
+    nonisolated static let maximumPending = 64
 
     /// The sound for an alarm, by its id and whether it is gentle: a clip of its track when the
     /// app made one, else the chime ("" is the system's sound). The Mac's default: the chime,
@@ -76,46 +82,56 @@ final class AlarmNotificationBridge: AlarmSystemBridge {
         center.removePendingNotificationRequests(withIdentifiers: pending)
         let status = await center.notificationSettings().authorizationStatus
         guard status == .authorized || status == .provisional else { return }
-        for request in Self.requests(for: store, now: Date(), soundName: soundName) {
+        let now = Date()
+        let wanted = Self.requests(for: store, now: now, soundName: soundName, limit: .max)
+        if wanted.count > Self.maximumPending {
+            alarmNotificationLog.notice("\(wanted.count, privacy: .public) alarm notifications wanted; the system keeps \(Self.maximumPending, privacy: .public), so the soonest are scheduled")
+        }
+        for request in wanted.prefix(Self.maximumPending) {
             try? await center.add(request)
         }
     }
 
-    /// The requests that stand for the store's alarms and timer. Pure apart from the clock, so
-    /// it is what a test reads.
-    static func requests(for store: AlarmStore, now: Date, soundName: (UUID, Bool) -> String) -> [UNNotificationRequest] {
+    /// The requests that stand for the store's alarms and timer, soonest first and at most
+    /// `limit` of them, so what the system's cap leaves out is the furthest away rather than
+    /// whichever came last. Pure apart from the clock, so it is what a test reads.
+    static func requests(for store: AlarmStore, now: Date, soundName: (UUID, Bool) -> String,
+                         limit: Int = maximumPending) -> [UNNotificationRequest] {
         let calendar = store.calendar()
-        var requests: [UNNotificationRequest] = []
+        var requests: [(fires: Date, request: UNNotificationRequest)] = []
         for alarm in store.alarms where alarm.isEnabled {
             let content = content(title: alarm.displayLabel, body: "Baton will play \(alarm.choice.summary).",
                                   id: alarm.id, category: alarm.snoozeEnabled ? alarmSnoozeCategory : alarmCategory,
                                   sound: soundName(alarm.id, alarm.gentleWake))
             if alarm.repeats {
                 for day in alarm.repeatDays.sorted() {
-                    let trigger = UNCalendarNotificationTrigger(
-                        dateMatching: DateComponents(hour: alarm.hour, minute: alarm.minute, weekday: day), repeats: true)
-                    requests.append(UNNotificationRequest(identifier: "\(requestPrefix)\(alarm.id.uuidString).\(day)",
-                                                          content: content, trigger: trigger))
+                    let parts = DateComponents(hour: alarm.hour, minute: alarm.minute, weekday: day)
+                    let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: true)
+                    let fires = calendar.nextDate(after: now, matching: parts, matchingPolicy: .nextTime) ?? .distantFuture
+                    requests.append((fires, UNNotificationRequest(identifier: "\(requestPrefix)\(alarm.id.uuidString).\(day)",
+                                                                  content: content, trigger: trigger)))
                 }
             } else if let next = alarm.nextOccurrence(after: max(now, alarm.armedAt), calendar: calendar) {
                 let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: next)
-                requests.append(UNNotificationRequest(identifier: "\(requestPrefix)\(alarm.id.uuidString).once", content: content,
-                                                      trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)))
+                requests.append((next, UNNotificationRequest(identifier: "\(requestPrefix)\(alarm.id.uuidString).once", content: content,
+                                                             trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false))))
             }
             if let snoozed = alarm.snoozedUntil, snoozed > now {
-                requests.append(UNNotificationRequest(
+                requests.append((snoozed, UNNotificationRequest(
                     identifier: "\(requestPrefix)\(alarm.id.uuidString).snooze", content: content,
-                    trigger: UNTimeIntervalNotificationTrigger(timeInterval: snoozed.timeIntervalSince(now), repeats: false)))
+                    trigger: UNTimeIntervalNotificationTrigger(timeInterval: snoozed.timeIntervalSince(now), repeats: false))))
             }
         }
         if let timer = store.timer, let endsAt = timer.endsAt, endsAt > now {
             let content = content(title: timer.displayLabel, body: "Timer done. Baton will play \(timer.choice.summary).",
                                   id: timer.id, category: timerCategory, sound: soundName(timer.id, false))
-            requests.append(UNNotificationRequest(
+            requests.append((endsAt, UNNotificationRequest(
                 identifier: "\(requestPrefix)\(timer.id.uuidString).timer", content: content,
-                trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, endsAt.timeIntervalSince(now)), repeats: false)))
+                trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, endsAt.timeIntervalSince(now)), repeats: false))))
         }
-        return requests
+        // Stable: requests that fire together keep the order they were made in.
+        let ordered = requests.enumerated().sorted { ($0.element.fires, $0.offset) < ($1.element.fires, $1.offset) }
+        return ordered.prefix(max(0, limit)).map(\.element.request)
     }
 
     private static func content(title: String, body: String, id: UUID, category: String, sound: String) -> UNMutableNotificationContent {

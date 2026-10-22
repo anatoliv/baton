@@ -118,17 +118,36 @@ function confirmation(index, message = "") {
   $("admission").hidden = false; status(message);
   controls(); $("confirm").focus();
 }
+// The transport's 503 "capacity" answers before the service handles the request, so it charged
+// nothing: no play, no transfer bytes (TBX-1000000495).
+const uncharged = error => error.status === 503 && error.code === "capacity";
 async function admit() {
+  const before = everAdmitted;
   everAdmitted = true; // a lost admission response may already have spent a play
-  const value = await json("/sessions", { method: "POST" }, false, 4096);
+  let value;
+  try { value = await json("/sessions", { method: "POST" }, false, 4096); }
+  catch (error) { if (uncharged(error)) everAdmitted = before; throw error; }
   const deadline = Date.parse(value.expiresAt);
-  if (!canonical(value.token, 32) || !Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 1801000 || deadline > containerDeadline ||
+  // A session never outlives 30 minutes, and may end after the deadline this page loaded with:
+  // the sender can extend the link while the page is open. A day of slack covers a viewer whose
+  // clock runs behind the server's; with 1 s, such a viewer failed every admission.
+  if (!canonical(value.token, 32) || !Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 1800000 + 86400000 ||
       !Number.isSafeInteger(value.remainingBytes) || value.remainingBytes < 0 || value.remainingBytes > manifest.audioBytes ||
       !Number.isSafeInteger(value.remainingPlays) || value.remainingPlays < 0) throw new ShareCryptoError("format", "Invalid session");
   if (closed) return;
+  // A session past the loaded deadline means the sender extended the link. The session ends within
+  // 30 minutes, not with the link, so the link's new end comes from its details (TBX-1000000495).
+  if (deadline > containerDeadline) refreshEnds();
   session = { token: value.token, expiresAt: deadline, remainingBytes: value.remainingBytes };
   remainingPlays = value.remainingPlays; chips();
   started = false; thirty = false; completed = false; listened = 0; lastTick = null; endedTracks.clear();
+}
+async function refreshEnds() {
+  try {
+    const details = await json("");
+    const ends = Date.parse(details.expiresAt);
+    if (!closed && Number.isFinite(ends) && ends > containerDeadline) { containerDeadline = ends; $("ends").textContent = endsLabel(ends); }
+  } catch {}
 }
 async function playTrack(index, confirmed = false) {
   if (busy || closed || !manifest) return;
@@ -174,6 +193,9 @@ async function playTrack(index, confirmed = false) {
     } else if (error instanceof ShareCryptoError || error instanceof SyntaxError) {
       event("decrypt_failed", { reason: error.reason === "auth" ? "auth" : "format" });
       unavailable("failed", "This track could not be authenticated. Ask the sender for a fresh link.");
+    } else if (uncharged(error)) {
+      // Refused before anything was charged: the session (if any) stands and Play tries again.
+      status("Baton is busy right now. Tap Play to try again.");
     } else if (currentURL && preparedForPlayback) { status("Audio could not start. Tap Play to retry the retained track."); }
     else {
       // A failed HTTP transfer may have charged bytes. Never transparently retry it.

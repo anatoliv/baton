@@ -61,7 +61,13 @@ let transport = POSIXTransport(
         ShareDeliveryCapacity.reservation(for: $0, maximumAudioBytes: config.limits.maxAudioBytes,
                                           blobDelivery: config.blobDelivery)
     },
-    streamsBody: ShareService.streamsBody)
+    streamsBody: ShareService.streamsBody,
+    // Before staging is reserved, an upload is checked for who is asking, the share's state and
+    // the declared length, and counted against in-flight caps (per target, sharer and network).
+    // Each upload request (one blob per PUT) must finish within 15 minutes: about 0.25 Mbit/s for
+    // a 25 MiB blob (TBX-1000000496 D-15).
+    admitsUpload: { service.admitUpload($0) },
+    uploadDeadline: 900)
 
 do {
     try transport.serve(

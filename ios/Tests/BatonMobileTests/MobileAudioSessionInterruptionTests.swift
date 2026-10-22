@@ -63,6 +63,42 @@ final class MobileAudioSessionInterruptionTests: XCTestCase {
         _ = session
     }
 
+    /// Two interruptions began before either ended (Siri over a call): the second found the
+    /// track already paused by the first and overwrote "it was playing" with false, so the end
+    /// left it paused (TBX-1000000505, B-3 edge).
+    func testPlaybackResumesAfterTwoBeginningsAndOneEnd() async throws {
+        let (controller, session) = try await playingRig()
+
+        post(.began, options: nil)
+        try await Task.sleep(for: .milliseconds(100))
+        post(.began, options: nil)
+        try await Task.sleep(for: .milliseconds(100))
+        post(.ended, options: .shouldResume)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(controller.state, .playing, "the second interruption made it forget it was playing")
+        controller.pause()
+        _ = session
+    }
+
+    /// iOS may send a .began with no .ended. If the person then plays and pauses themselves,
+    /// the next interruption's end must not resume their pause on the old flag.
+    func testAPauseOfTheirOwnAfterALostEndStaysPaused() async throws {
+        let (controller, session) = try await playingRig()
+
+        post(.began, options: nil)   // its .ended never comes
+        try await Task.sleep(for: .milliseconds(100))
+        controller.resume()
+        for _ in 0 ..< 40 where controller.state != .playing { try await Task.sleep(for: .milliseconds(50)) }
+        controller.pause()
+        XCTAssertEqual(controller.state, .paused, "precondition: the person paused it")
+
+        try await interrupt(endingWith: .shouldResume)
+
+        XCTAssertEqual(controller.state, .paused, "a lost .ended left a flag that resumed the person's own pause")
+        _ = session
+    }
+
     // MARK: - Helpers
 
     /// A controller playing a silent local file, with the phone's session rules attached.

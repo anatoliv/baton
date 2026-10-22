@@ -21,11 +21,11 @@ final class AAAFirstLaunchPrimer: XCTestCase {
     func testTheFirstLaunchAfterInstall() throws {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
-        XCTExpectFailure("the first launch after install on the iOS 27 simulator", options: options) {
+        XCTExpectFailure("the first launch after install on the iOS 27 simulator (TBX-1000000045)", options: options) {
             let app = XCUIApplication.batonUnderTest()
             app.launch()
             app.terminate()
         }
-        throw XCTSkip("primed the first launch after install; not a test of Baton")
+        throw XCTSkip("primed the first launch after install; not a test of Baton (TBX-1000000045)")
     }
 }

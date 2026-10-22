@@ -39,6 +39,7 @@ final class ShareMixtapeServiceTests: XCTestCase {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; return try encoder.encode(value)
     }
     func decode<T: Decodable>(_ type: T.Type, _ response: ShareResponse) throws -> T { try JSONDecoder().decode(type, from: response.body) }
+    func code(_ response: ShareResponse) -> String? { (try? JSONDecoder().decode(ShareErrorBody.self, from: response.body))?.code }
     struct Fixture {
         let key: Data
         let manifest: ShareMixtapeManifest
@@ -92,7 +93,7 @@ final class ShareMixtapeServiceTests: XCTestCase {
         service = try reopen(enabled: false)
         XCTAssertEqual(send("GET", "/v1/share/mixtapes/\(created.id)", token: owner).status, 200)
         XCTAssertEqual(send("GET", "/v1/share/mixtapes", token: owner).status, 200)
-        XCTAssertEqual(send("GET", "/v1/share/mixtapes/\(created.id)", token: other).status, 404)
+        XCTAssertEqual(send("GET", "/v1/share/mixtapes/\(created.id)", token: other).status, 403, "another installation's: not_owner (C-6)")
         XCTAssertEqual(send("GET", "/v1/share/m/\(created.id)").status, 409)
         XCTAssertEqual(send("POST", "/v1/share/m/\(created.id)/sessions").status, 409)
         XCTAssertEqual(send("POST", "/v1/share/mixtapes", body: try encode(try fixture().body), token: owner).status, 409)
@@ -111,6 +112,18 @@ final class ShareMixtapeServiceTests: XCTestCase {
         let rows = try service.store.database.query("SELECT type, props FROM events WHERE share_id=? AND type IN ('reaction_sent','share_revoked') ORDER BY id", [.text(created.id)])
         XCTAssertEqual(rows.compactMap { $0["type"]?.text }, ["reaction_sent", "share_revoked"], "a repeated revoke records nothing more")
         XCTAssertEqual(rows.compactMap { $0["props"]?.text }, [#"{"emoji":"❤️","hasName":false,"hasReply":true,"kind":"mixtape"}"#, #"{"kind":"mixtape"}"#])
+    }
+    /// A reaction and its event are written together: if the event cannot be recorded, the reaction
+    /// is not kept either, so the sender's list and the usage report never disagree (TBX-1000000507 D-12).
+    func testAReactionWhoseEventCannotBeRecordedIsNotKept() throws {
+        let created = try ready(try fixture()), admitted = try session(created.id)
+        try service.store.database.execute("ALTER TABLE events RENAME TO events_unavailable")
+        let reaction = try JSONSerialization.data(withJSONObject: ["emoji": "❤️"])
+        XCTAssertEqual(send("POST", "/v1/share/m/\(created.id)/reactions", body: reaction, token: admitted.token).status, 500)
+        try service.store.database.execute("ALTER TABLE events_unavailable RENAME TO events")
+        XCTAssertEqual(try service.store.reactions(shareID: created.id), [], "no reaction without its event")
+        XCTAssertEqual(send("POST", "/v1/share/m/\(created.id)/reactions", body: reaction, token: admitted.token).status, 204)
+        XCTAssertEqual(try service.store.reactions(shareID: created.id).count, 1)
     }
     /// BATON_SHARE_ENABLED=0 refuses new shares; links already sent keep playing, page included.
     func testSharingPausedKeepsASentMixtapePagePlaying() throws {
@@ -218,7 +231,7 @@ final class ShareMixtapeServiceTests: XCTestCase {
         XCTAssertEqual(try create(fixture).id, created.id)
         let tracks = fixture.manifest.tracks
         XCTAssertEqual(try upload(created, track: tracks[0].id, bytes: fixture.audio[tracks[1].id]!).status, 422)
-        XCTAssertEqual(try upload(created, track: tracks[0].id, bytes: fixture.audio[tracks[0].id]!, token: other).status, 404)
+        XCTAssertEqual(try upload(created, track: tracks[0].id, bytes: fixture.audio[tracks[0].id]!, token: other).status, 403, "not_owner (C-6)")
         XCTAssertEqual(try upload(created, track: tracks[0].id, bytes: fixture.audio[tracks[0].id]!).status, 200)
         XCTAssertEqual(send("POST", "/v1/share/mixtapes/\(created.id)/finalize", token: owner).status, 409)
         XCTAssertEqual(try decode(PublicMixtape.self, send("GET", "/v1/share/m/\(created.id)")).status, .pending)
@@ -286,7 +299,7 @@ final class ShareMixtapeServiceTests: XCTestCase {
         clock.advance(1800)
         XCTAssertEqual(send("GET", path, token: admitted.token).status, 401)
         let second = try session(created.id)
-        XCTAssertEqual(send("DELETE", "/v1/share/mixtapes/\(created.id)", token: other).status, 404)
+        XCTAssertEqual(send("DELETE", "/v1/share/mixtapes/\(created.id)", token: other).status, 403, "another installation cannot revoke it")
         XCTAssertEqual(send("DELETE", "/v1/share/mixtapes/\(created.id)", token: owner).status, 204)
         XCTAssertEqual(send("GET", path, token: second.token).status, 410)
         let another = try ready(try self.fixture())
@@ -325,6 +338,44 @@ final class ShareMixtapeServiceTests: XCTestCase {
         XCTAssertEqual(send("POST", "/v1/share/admin/enforcement/apply", body: repeated.body, token: operatorToken, peer: .loopback).status, 200)
         service = try reopen()
         XCTAssertEqual(try decode(MixtapeSummary.self, send("GET", "/v1/share/mixtapes/\(created.id)", token: owner)).reviewDeadline, ShareDate.string(Date(timeIntervalSince1970: TimeInterval(start + 30 * 86400))))
+    }
+    /// A mixtape that exists but belongs to another installation secret is not one that ended: the
+    /// app deletes a ticket's key only on not_found, so a changed secret must not read as gone
+    /// (TBX-1000000507 C-6, server side). 403, so even an older app that ends on any 404 keeps it.
+    func testAnotherInstallationsMixtapeIsNotOwnedRatherThanNotFound() throws {
+        let created = try ready(try fixture())
+        let foreign = send("GET", "/v1/share/mixtapes/\(created.id)", token: other)
+        XCTAssertEqual(foreign.status, 403)
+        XCTAssertEqual(code(foreign), "not_owner")
+        for (method, path) in [("PATCH", "/v1/share/mixtapes/\(created.id)"), ("DELETE", "/v1/share/mixtapes/\(created.id)"),
+                               ("POST", "/v1/share/mixtapes/\(created.id)/finalize")] {
+            XCTAssertEqual(code(send(method, path, body: Data("{}".utf8), token: other)), "not_owner", "\(method) \(path)")
+        }
+        XCTAssertEqual(try decode(MixtapeSummary.self, send("GET", "/v1/share/mixtapes/\(created.id)", token: owner)).share.status, .ready,
+                       "the owner's mixtape is untouched")
+        // Its track uploads too, both before staging is reserved and in the handler.
+        let pending = try create(try fixture())
+        let (trackID, bytes) = try XCTUnwrap(try fixture().audio.first)
+        let head = StreamingUpload.Request(method: "PUT", path: pending.uploads[trackID]!, headers: ["authorization": "Bearer " + other], contentLength: bytes.count)
+        XCTAssertEqual(service.refusesUpload(head).flatMap(code), "not_owner")
+        XCTAssertEqual(code(try upload(pending, track: trackID, bytes: bytes, token: other)), "not_owner")
+        XCTAssertNil(service.refusesUpload(StreamingUpload.Request(method: "PUT", path: pending.uploads[trackID]!,
+            headers: ["authorization": "Bearer " + owner], contentLength: bytes.count)), "the owner streams as before")
+        let missing = send("GET", "/v1/share/mixtapes/\(Base64URL.encode(Data(repeating: 8, count: 16)))", token: owner)
+        XCTAssertEqual(missing.status, 404)
+        XCTAssertEqual(code(missing), "not_found", "an id with no mixtape is still not_found")
+    }
+    /// The sender revoking a held mixtape keeps the operator's case reference (TBX-1000000507 D-18).
+    func testOwnerRevokeOfAHeldMixtapeKeepsTheOperatorsCaseReference() throws {
+        let created = try ready(try fixture(consent: true))
+        let start = Int64(clock.now.timeIntervalSince1970)
+        let body = try JSONSerialization.data(withJSONObject: ["operationID": UUID().uuidString, "action": "disable-share", "shareID": created.id,
+            "caseReference": "case_held", "reasonCode": "review", "reviewUntil": start + 20 * 86400, "preservationDeadline": start + 22 * 86400])
+        let plan = send("POST", "/v1/share/admin/enforcement/plan", body: body, token: operatorToken, peer: .loopback)
+        XCTAssertEqual(send("POST", "/v1/share/admin/enforcement/apply", body: plan.body, token: operatorToken, peer: .loopback).status, 200)
+        XCTAssertEqual(send("DELETE", "/v1/share/mixtapes/\(created.id)", token: owner).status, 204)
+        XCTAssertEqual(try service.store.enforcementState(id: created.id)?.caseReference, "case_held")
+        XCTAssertEqual(try service.store.enforcementState(id: created.id)?.purged, true)
     }
     func testDuplicateEscapedIDsAndMalformedDescriptorsAreRejectedBeforeReservation() throws {
         let fixture = try fixture(), body = try encode(fixture.body)

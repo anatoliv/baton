@@ -358,6 +358,14 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
                 if method == "DELETE", _failDeletes { return reply(503, Data("unavailable".utf8)) }
                 if method == "PUT" {
                     if _failPuts { return reply(503, Data("unavailable".utf8)) }
+                    // A chapter's audio or its read-along timing, as MacBookUploads sends them after
+                    // `PUT /v1/books/{id}/upload` for a book made on this Mac. Only `/v1/books/{id}` and
+                    // its `/upload` carry a whole book; decoding a chapter as one trapped the test host
+                    // whenever an upload landed before its test ended.
+                    if parts.count > 3, parts[3] == "chapters" {
+                        guard let job = jobs[id] else { return reply(404, Data()) }
+                        return reply(200, try! BookJSON.encoder.encode(current(job).summary))
+                    }
                     let book = try! PreparedBook.decode(request.httpBody ?? Data())
                     // As `BookRoutes.handleUpload` does: the id is the book's content.
                     guard BookJob.id(for: book) == id else { return reply(400, Data("book id does not match its content".utf8)) }
@@ -401,6 +409,28 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         DocumentLibrary(clippings: clippings, directory: root.appendingPathComponent("Books"),
                         synthesizer: DocumentLibraryTests.FakeKokoro(), storageDefaults: storageDefaults,
                         gateway: { GatewayBookClient(baseURL: URL(string: "http://gateway.test:8788")!, token: "t") { fake.answer($0) } })
+    }
+
+    /// TBX-1000000570: the fake takes a book made on this Mac as the home server does: the whole
+    /// book through `/upload`, then each chapter's audio and its read-along timing, which it must
+    /// not read as a whole book. A Mac-made book sends them in the background, and one that landed
+    /// before its test ended used to trap the test host.
+    func testTheFakeHomeServerTakesAMacMadeBookThenItsChaptersAudioAndTiming() throws {
+        let fake = FakeGateway()
+        let book = try book()
+        let id = BookJob.id(for: book)
+        func put(_ path: String, _ body: Data) -> Int {
+            var request = URLRequest(url: URL(string: "http://gateway.test:8788/v1/books/\(id)/\(path)")!)
+            request.httpMethod = "PUT"
+            request.httpBody = body
+            return fake.answer(request).1.statusCode
+        }
+        XCTAssertEqual(put("upload", try book.encoded()), 201)
+        XCTAssertNotNil(fake.submitted(id), "the upload put the book on the fake home server")
+        XCTAssertEqual(put("chapters/1", Data(repeating: 0x41, count: 64)), 200)
+        XCTAssertEqual(put("chapters/1/timing", Data(#"{"segments":[]}"#.utf8)), 200)
+        XCTAssertEqual(fake.seen, ["PUT /v1/books/\(id)/upload", "PUT /v1/books/\(id)/chapters/1",
+                                   "PUT /v1/books/\(id)/chapters/1/timing"])
     }
 
     /// TBX-10954: after a relaunch, a book made on the home server counts as removable only once

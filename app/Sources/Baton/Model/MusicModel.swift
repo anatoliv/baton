@@ -128,6 +128,9 @@ final class MusicModel {
     /// deliberate user action (Replay / the pane's Play), not an agent's FIFO summary.
     func replaySpokenSummary(_ entry: SpeechHistoryStore.Entry) {
         nowPlayingSummaryID = entry.id
+        // A reading is stopped at its source first, as Stop Speaking does: cancelling the engine
+        // alone left the coordinator enqueuing sentences behind the replay.
+        ReadAloudCoordinator.current?.stop()
         speech.cancel()
         Task { await SpeechSummaryReplay.play(entry, on: speech) }
     }

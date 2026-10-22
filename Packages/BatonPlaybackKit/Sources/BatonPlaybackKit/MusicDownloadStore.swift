@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import OSLog
@@ -255,14 +256,37 @@ public final class MusicDownloadStore {
         var base = template
         for (token, value) in tokens { base = base.replacingOccurrences(of: token, with: value) }
         base = sanitize(base)
-        if base.isEmpty { base = id }
+        // The id was used raw, and a podcast episode's id is its enclosure URL: its slashes made
+        // directories of the name (C2-12).
+        if base.isEmpty { base = sanitize(id) }
+        if base.isEmpty { base = idTag(id) }
 
+        func owner(of name: String) -> String? {
+            taken.first { $0.value.caseInsensitiveCompare(name) == .orderedSame }?.key
+        }
         var candidate = "\(base).\(ext)"
-        let owner = taken.first { $0.value.caseInsensitiveCompare(candidate) == .orderedSame }?.key
-        if let owner, owner != id {
-            candidate = "\(base) [\(id.prefix(6))].\(ext)"
+        guard let first = owner(of: candidate), first != id else { return candidate }
+        // A different song has this name. The suffix comes from the id, and the suffixed name
+        // is checked too: it was not, and every podcast id began "https:", so every episode got
+        // the same "[https:]" suffix and the same name (C2-5).
+        let tag = idTag(id)
+        candidate = "\(base) [\(tag)].\(ext)"
+        var n = 2
+        while let other = owner(of: candidate), other != id {
+            candidate = "\(base) [\(tag)-\(n)].\(ext)"
+            n += 1
         }
         return candidate
+    }
+
+    /// A short, filename-safe tag for an id: its first six characters when those are plain
+    /// letters and digits (a Subsonic id, as before), otherwise eight hex digits of its hash.
+    nonisolated static func idTag(_ id: String) -> String {
+        let prefix = String(id.prefix(6))
+        if !prefix.isEmpty, prefix.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) && $0.isASCII }) {
+            return prefix
+        }
+        return SHA256.hash(data: Data(id.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Strip characters illegal in a filename, collapse runs of whitespace, drop leading

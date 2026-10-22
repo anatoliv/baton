@@ -128,8 +128,21 @@ final class MobileModel {
     /// link) to the import screen, kept on disk so a force-quit before the screen closes does
     /// not lose it: a shared file has already left the share inbox by now.
     func offerImport(_ url: URL) {
+        // A Baton share link is not a page to read, and its fragment is the song's key: kept as
+        // one it was written to disk, named a document after itself and sent to the gateway by
+        // Send to my Mac (TBX-1000000505 B-6). Any other page is kept without its fragment.
+        if !url.isFileURL {
+            guard !PendingShareInbox.isBatonShareLink(url) else {
+                linkFailure = Self.shareLinkIsNotADocument
+                return
+            }
+            pendingDocumentImport = PendingImportStore.shared.keep(PendingShareInbox.withoutFragment(url))
+            return
+        }
         pendingDocumentImport = PendingImportStore.shared.keep(url)
     }
+
+    static let shareLinkIsNotADocument = "That is a Baton song link. Open it from Messages or Safari to play it."
     /// This phone's book storage: rules, Keep, Remove Download, Recently removed and the weekly
     /// suggestion (M6.3 to M6.5), the same code as the Mac's.
     @ObservationIgnored private(set) lazy var bookCleanup: BookCleanup = {
@@ -392,6 +405,9 @@ final class MobileModel {
         // DEBUG reset above, which forgets it, and before a UI test's own document below.
         if MobileDocuments.isEnabled(), let kept = PendingImportStore.shared.restore() {
             pendingDocumentImport = kept
+        } else if !MobileDocuments.isEnabled() {
+            // Documents off: not offered, but still not kept past its age (TBX-1000000505 B-22).
+            PendingImportStore.shared.dropIfExpired()
         }
 
         #if DEBUG
@@ -544,11 +560,12 @@ final class MobileModel {
         lastfm.reload()
         musicLibrary.refreshConnection()
         // The device link fixed its gateway address when it started, so without a restart it
-        // went on polling the old host with the imported token (TBX-1000000480 B-8).
-        if deviceLink.isRunning {
-            deviceLink.stop()
-            deviceLink.start()
-        }
+        // went on polling the old host with the imported token (TBX-1000000480 B-8). And on a
+        // fresh phone it never started, because there was no gateway until now: start it here
+        // rather than at the next foreground. The import runs on screen, so
+        // this is the foreground the scene phase would have started it in.
+        deviceLink.stop()
+        if UIApplication.shared.applicationState != .background { deviceLink.start() }
     }
 
     #if DEBUG
@@ -602,9 +619,7 @@ final class MobileModel {
         let digests = ids.compactMap { clippings.item(id: $0)?.clipping.sha256 }
         for id in ids { clippings.remove(id: id, everywhere: true) }
 
-        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        let token = agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return 0 }
+        guard case let (url, token)? = bearerGateway() else { return 0 }
         let files = GatewayFiles(gatewayURL: url, token: token)
 
         var failed = 0
@@ -678,8 +693,7 @@ final class MobileModel {
     @discardableResult
     func syncPreferences(force: Bool = false) async -> Bool {
         if Self.isPreferenceSyncSwitchedOff() { return false }
-        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, let url = URL(string: raw), !agentConfig.gatewayToken.isEmpty else { return false }
+        guard case let (url, _)? = bearerGateway() else { return false }
         let reached: Bool
         if force {
             reached = await preferenceSync.sync(gatewayURL: url, token: agentConfig.gatewayToken)
@@ -713,8 +727,7 @@ final class MobileModel {
     /// phone's own older place while the Mac had moved on.
     func bookPlacePull(environment: [String: String] = ProcessInfo.processInfo.environment) -> (@MainActor () async -> Bool)? {
         if Self.isPreferenceSyncSwitchedOff(by: environment) { return nil }
-        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, URL(string: raw) != nil, !agentConfig.gatewayToken.isEmpty else { return nil }
+        guard bearerGateway() != nil else { return nil }
         return { [weak self] in await self?.syncPreferences(force: true) ?? false }
     }
 
@@ -1033,10 +1046,28 @@ extension MobileModel {
     /// The gateway's book routes as Settings configures them: the same address and token kept
     /// readings travel through. Nil until both are set.
     func gatewayBookClient() -> GatewayBookClient? {
-        let raw = agentConfig.gatewayURL.trimmingCharacters(in: .whitespaces)
-        let token = agentConfig.gatewayToken.trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
+        guard case let (url, token)? = bearerGateway() else { return nil }
         return GatewayBookClient(baseURL: url, token: token)
+    }
+
+    /// The gateway Settings configures and its token, or nil until both are set, or when the
+    /// address is one the token must not be sent to: plain HTTP to an IP address off the home
+    /// network (`GatewayAddress.allowsBearer`, TBX-1000000505 B-9). Every gateway client on the
+    /// phone that carries the token starts here or at `bearerGateway(address:token:)`: the book
+    /// client, Send to my Mac, kept readings, preference sync and the place pull before Play, and
+    /// recaps and the dialogue cast (`MobileRecap.liveRouting`). The device link and the agent
+    /// route check the same rule on their own profile (`GatewayDeviceLink.start`,
+    /// `AgentClient.guardTransport`).
+    func bearerGateway() -> (url: URL, token: String)? {
+        Self.bearerGateway(address: agentConfig.gatewayURL, token: agentConfig.gatewayToken)
+    }
+
+    nonisolated static func bearerGateway(address: String, token: String) -> (url: URL, token: String)? {
+        let raw = address.trimmingCharacters(in: .whitespaces)
+        let token = token.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil,
+              GatewayAddress.allowsBearer(to: url, isPrivate: AgentClient.isPrivateHost) else { return nil }
+        return (url, token)
     }
 
     /// Bring down every chapter the home server has finished. "Chapter 1 is ready" is how a book

@@ -28,7 +28,7 @@ struct MusicPlayHistoryTests {
         #expect(h.recentlyPlayed.map(\.id) == ["a", "b"])
     }
 
-    @Test("lastPlayedByID keeps each id's most recent listen")
+    @Test("lastPlayedByID keeps each id's most recent listen (W-33 LRU eviction)")
     func lastPlayedPerID() {
         var now = Date(timeIntervalSince1970: 1_000_000)
         let h = make(clock: { now })
@@ -71,7 +71,7 @@ struct MusicPlayHistoryTests {
         #expect(top.first?.count == 2)
     }
 
-    @Test(": persists across instances via the append-only JSONL file, newest-first")
+    @Test("W-32: persists across instances via the append-only JSONL file, newest-first")
     func persists() {
         let dir = tempDir()
         var now = Date(timeIntervalSince1970: 1_000_000)

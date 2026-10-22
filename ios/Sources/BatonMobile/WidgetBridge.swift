@@ -191,6 +191,13 @@ enum WidgetBridge {
         )
     }
 
+    /// The cards to end when playback stops: the one held and every one still running.
+    nonisolated static func activityIDsToEnd(held: String?, running: [String]) -> [String] {
+        var ids = running
+        if let held, !ids.contains(held) { ids.append(held) }
+        return ids
+    }
+
     /// Starts/updates/ends the Lock Screen activity to mirror the player. Ending on
     /// nil keeps a stale island from outliving playback.
     @MainActor
@@ -199,11 +206,13 @@ enum WidgetBridge {
                                     elapsed: TimeInterval = 0, duration: TimeInterval = 0) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard let song else {
-            if let running = activity {
-                let id = running.id
-                Task { await endActivity(id: id) }
-                activity = nil
-            }
+            // Every card the system says is running, not only the one this launch holds: after a
+            // relaunch the handle is nil while an earlier launch's card is still on the Lock
+            // Screen, and nothing else would ever end it (TBX-1000000505 B-17).
+            let ids = activityIDsToEnd(held: activity?.id,
+                                       running: Activity<NowPlayingActivityAttributes>.activities.map(\.id))
+            activity = nil
+            for id in ids { Task { await endActivity(id: id) } }
             return
         }
         let state = NowPlayingActivityAttributes.ContentState(

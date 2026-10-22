@@ -40,7 +40,13 @@ extension ShareService {
                   purpose == "enroll" || include.isEmpty else {
                 return .error(400, "invalid", "Invalid authorization request.")
             }
-            guard limiter.allow("contact:" + owner.digest, limit: 100, per: 3600, now: now) else {
+            // Installation secrets are self-minted, so the per-secret limit alone does not bound
+            // one client; per network, one address needs 100 others to fill the grant table below
+            // (TBX-1000000496 D-16). Each IPv6 address is its own network, and the address is only
+            // as trustworthy as CF-Connecting-IP (E-9).
+            let network = salt.hash(["network", ShareRequester(headers: request.headers).network], now: now)
+            guard limiter.allow("contact-network:" + network, limit: 100, per: 3600, now: now),
+                  limiter.allow("contact:" + owner.digest, limit: 100, per: 3600, now: now) else {
                 return .error(429, "rate_limited", "Try again later.")
             }
             for id in include { guard try owned(id, by: owner) != nil else { return hidden } }

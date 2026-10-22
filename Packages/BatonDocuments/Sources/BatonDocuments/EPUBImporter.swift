@@ -41,7 +41,8 @@ public enum EPUBImporter {
             guard fileStart[path] == nil else { continue }
             let bytes: Data
             do {
-                guard let found = try zip.contents(of: path) else { continue }
+                // A spine file the zip does not hold is as lost as one that will not inflate.
+                guard let found = try zip.contents(of: path) else { throw ZipArchive.Failure.damaged("\(path) is missing") }
                 bytes = found
             } catch {
                 unreadable.append(path.split(separator: "/").last.map(String.init) ?? path)
@@ -227,7 +228,9 @@ public enum EPUBImporter {
 
         init(zip: ZipArchive) throws {
             if zip.entry(named: "META-INF/rights.xml") != nil { throw DocumentImporter.Failure.protected }
-            if let encryption = try? zip.contents(of: "META-INF/encryption.xml") {
+            if zip.entry(named: "META-INF/encryption.xml") != nil {
+                // One that cannot be read might protect anything, so it is treated as protecting.
+                guard let encryption = try? zip.contents(of: "META-INF/encryption.xml") else { throw DocumentImporter.Failure.protected }
                 let text = String(decoding: encryption, as: UTF8.self)
                 let algorithms = EPUBImporter.matches(#"Algorithm\s*=\s*["']([^"']+)["']"#, text)
                 // An encryption method that is not font obfuscation protects content.

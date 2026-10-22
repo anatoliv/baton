@@ -18,6 +18,8 @@ public final class ShareService: @unchecked Sendable {
     let mixtapePage: MixtapePage
     let bookPage: BookPage
     var activeContactRelays = 0
+    /// Streamed uploads admitted and not yet finished, by target, by sharer and by network.
+    var uploadsInFlight: [String: Int] = [:]
     var attestationVerifier: AppAttestVerifier?
     // Only the internal, explicitly injected prototype initializer enables this bridge.
     // Ordinary configuration creates no fresh push tables, collects no tokens and sends
@@ -152,6 +154,124 @@ public final class ShareService: @unchecked Sendable {
         } catch {
             return .error(500, "internal", "Something went wrong on our side.")
         }
+    }
+
+    /// How many streamed uploads may be in flight at once: one per upload target (a client never
+    /// sends the same blob twice at once), three per sharer and four per network. With the size
+    /// check below, one network can then hold at most 4 x 25 MiB of the 256 MiB staging ceiling
+    /// (TBX-1000000496 D-15 review).
+    static let uploadsInFlightPerTarget = 1
+    static let uploadsInFlightPerSharer = 3
+    static let uploadsInFlightPerNetwork = 4
+
+    /// Whether an upload may reserve staging, decided from its head before the transport reserves
+    /// anything (TBX-1000000496 D-15). A refusal is the answer the upload handler would give for
+    /// the same request; an admission counts against the in-flight caps until the transport calls
+    /// its release, once, when the connection ends.
+    public func admitUpload(_ head: StreamingUpload.Request) -> POSIXTransport.UploadAdmission {
+        lock.lock()
+        defer { lock.unlock() }
+        do {
+            if let refusal = try uploadRefusal(head) { return .refuse(refusal.data) }
+        } catch {
+            return .refuse(ShareResponse.error(500, "internal", "Something went wrong on our side.").data)
+        }
+        let who = ShareRequester(headers: head.headers)
+        // The route reader drops empty segments, so `ID//audio` and `ID/audio/` are the same target.
+        let target = head.path.split(separator: "/", omittingEmptySubsequences: true).joined(separator: "/")
+        let keys = [("target:" + target, Self.uploadsInFlightPerTarget),
+                    ("sharer:" + (head.bearerToken.map(ShareHash.secretDigest) ?? ""), Self.uploadsInFlightPerSharer),
+                    ("network:" + salt.hash(["network", who.network], now: now), Self.uploadsInFlightPerNetwork)]
+        guard keys.allSatisfy({ uploadsInFlight[$0.0, default: 0] < $0.1 }) else {
+            return .refuse(ShareResponse.error(429, "rate_limited", "Too many uploads in flight. Try again shortly.",
+                                               headers: ["Retry-After": "30"]).data)
+        }
+        for (key, _) in keys { uploadsInFlight[key, default: 0] += 1 }
+        let released = ReleaseOnce()
+        return .admit(release: { [weak self] in
+            guard let self, released.first() else { return }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            for (key, _) in keys {
+                let left = self.uploadsInFlight[key, default: 1] - 1
+                self.uploadsInFlight[key] = left > 0 ? left : nil
+            }
+        })
+    }
+
+    private final class ReleaseOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func first() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
+    }
+
+    /// The refusal an upload's head already earns: everything the upload handler checks before it
+    /// reads a byte (who is asking, the share's state, hold and expiry, and the declared length
+    /// against what the share declared), with the handler's own answer. Nil when only the bytes
+    /// can decide. The handler still checks all of it again.
+    public func refusesUpload(_ head: StreamingUpload.Request) -> ShareResponse? {
+        lock.lock()
+        defer { lock.unlock() }
+        do {
+            return try uploadRefusal(head)
+        } catch {
+            return .error(500, "internal", "Something went wrong on our side.")
+        }
+    }
+
+    func uploadRefusal(_ head: StreamingUpload.Request) throws -> ShareResponse? {
+        let parts = head.path.split(separator: "/").map(String.init)
+        let size = head.contentLength
+        if head.path.hasPrefix("/v1/share/mixtapes/") {
+            guard config.mixtapesEnabled else { return .error(409, "unsupported", "This server does not support mixtapes.") }
+            guard parts.count == 6, parts[4] == "tracks", ShareLink.isValidID(parts[3]), ShareMixtapeCrypto.isCanonicalTrackID(parts[5]),
+                  let sharer = sharer(bearer: head.bearerToken) else { return .error(404, "not_found", "No such route.") }
+            guard let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook else { return .error(404, "not_found", "No such share.") }
+            guard record.sharerDigest == sharer.digest else { return mixtapeNotOwner }
+            if let denial = try enforcementWriteDenial(record) { return denial }
+            guard record.status == .pending, record.expiresAt > now,
+                  let track = try store.mixtapeTracks(id: record.id).first(where: { $0.id == parts[5] }) else { return .error(409, "state", "The mixtape is no longer pending.") }
+            guard size == track.bytes else { return .error(400, "invalid", "The track length or encrypted stream is invalid.") }
+            return nil
+        }
+        if head.path.hasPrefix("/v1/share/books/") {
+            guard config.booksEnabled else { return booksUnsupported }
+            guard parts.count == 6, parts[4] == "blobs", ShareLink.isValidID(parts[3]), ShareBookCrypto.isCanonicalID(parts[5]),
+                  let sharer = sharer(bearer: head.bearerToken) else { return .error(404, "not_found", "No such route.") }
+            guard let record = try store.share(id: parts[3]), record.isBook, record.sharerDigest == sharer.digest else { return .error(404, "not_found", "No such share.") }
+            if let refusal = collectionRefusal(record) { return refusal }
+            if let denial = try enforcementWriteDenial(record) { return denial }
+            guard record.status == .pending, record.expiresAt > now,
+                  let blob = try store.bookBlobs(id: record.id).first(where: { $0.id == parts[5] }) else { return .error(409, "state", "The book is no longer pending.") }
+            let cap = blob.role == .audio ? config.limits.maxBookChapterBytes : config.limits.maxBookTextBytes
+            guard blob.bytes <= cap, size == blob.bytes else { return .error(400, "invalid", "The blob length or encrypted stream is invalid.") }
+            return nil
+        }
+        guard parts.count == 5, let kind = ShareStore.BlobKind(rawValue: parts[4]) else { return .error(404, "not_found", "No such route.") }
+        guard let sharer = sharer(bearer: head.bearerToken) else { return unauthorized }
+        guard let record = try owned(parts[3], by: sharer) else { return notFound }
+        if let denial = try enforcementWriteDenial(record) { return denial }
+        guard record.status == .pending else { return .error(409, "state", "This share is already \(record.status.rawValue).") }
+        guard record.expiresAt > now else { return .error(409, "state", "This share has expired.") }
+        switch kind {
+        case .audio:
+            guard !record.audioStored else { return .error(409, "state", "The audio is already uploaded.") }
+            guard size == record.audioBytes else {
+                return .error(400, "invalid", "audio: \(size) bytes, but the share declared \(record.audioBytes).")
+            }
+        case .art:
+            guard record.artType == nil else { return .error(409, "state", "The artwork is already uploaded.") }
+            if record.isPrivate {
+                guard size <= config.limits.maxArtBytes + 4096 else { return .error(400, "invalid", "art: a private share's artwork must be sealed.") }
+            } else {
+                guard size <= config.limits.maxArtBytes else { return .error(413, "too_large", "art: at most \(config.limits.maxArtBytes) bytes.") }
+            }
+        case .card:
+            guard !record.isPrivate else { return .error(400, "invalid", "card: a private share has no preview card.") }
+            guard record.cardType == nil else { return .error(409, "state", "The card is already uploaded.") }
+            guard size <= config.limits.maxCardBytes else { return .error(413, "too_large", "card: at most \(config.limits.maxCardBytes) bytes.") }
+        }
+        return nil
     }
 
     @discardableResult
@@ -319,7 +439,7 @@ public final class ShareService: @unchecked Sendable {
         if let denial = try enforcementCreateDenial(sharer) { return denial }
         let now = self.now
         let dayStart = now - now % 86400
-        let network = salt.hash(["network", who.address], now: now)
+        let network = salt.hash(["network", who.network], now: now)
 
         let isNew = try !store.sharerExists(digest: sharer.digest)
         if isNew, !limiter.peek("new:\(network)", limit: config.limits.newSharersPerNetworkPerDay, per: 86400, now: now) {
@@ -650,10 +770,20 @@ public final class ShareService: @unchecked Sendable {
     func blob(_ request: HTTPRequestMessage, id: String, kind: ShareStore.BlobKind,
               who: ShareRequester) throws -> ShareResponse {
         let state = try publicState(id)
+        // The listener who made a capped song's last allowed play may still resume within that
+        // play's transfer allowance (§4.2); anything else past the cap is refused.
+        var resumesPastCap = false
+        if case let .ended(ended, "play_cap") = state, kind == .audio,
+           let charged = Self.continuationLength(request.headers["range"], ifRange: request.headers["if-range"], total: ended.audioBytes) {
+            // A range past the end costs nothing, and buys nothing past the cap either.
+            resumesPastCap = try charged > 0 && Int64(charged) <= store.allowance(shareID: id, visitor: visitor(who, shareID: id))
+        }
         let record: ShareRecord
         switch (state, kind) {
         case (.unknown, _), (.pending, _):
             return notFound
+        case let (.ended(ended, "play_cap"), .audio) where resumesPastCap:
+            record = ended
         case let (.ended(_, code), .audio):
             return .error(410, code, "This share has ended.")
         case let (.ended(ended, code), _) where code == "play_cap":
@@ -670,14 +800,26 @@ public final class ShareService: @unchecked Sendable {
         switch kind {
         case .audio:
             guard record.audioStored else { return notFound }
-            if !Self.isContinuationRange(request.headers["range"], ifRange: request.headers["if-range"]) {
-                let now = self.now
+            // A whole-file fetch is a play. A continuation is free while it fits the listener's
+            // transfer allowance, and a play otherwise (§4.2, TBX-1000000494 item 3).
+            let now = self.now
+            let listener = visitor(who, shareID: id)
+            let size = Int64(record.audioBytes)
+            let charged = Self.continuationLength(request.headers["range"], ifRange: request.headers["if-range"],
+                                                  total: record.audioBytes).map(Int64.init)
+            try store.database.transaction {
+                let left = try charged == nil ? 0 : store.allowance(shareID: id, visitor: listener)
+                if let charged, charged <= left {
+                    try store.setAllowance(shareID: id, visitor: listener, remaining: left - charged, at: now)
+                    return
+                }
                 try store.increment(id: id, .fetches)
-                try store.record(event: "audio_fetched", at: now, shareID: id, sharerID: record.sharerID,
-                                 visitor: visitor(who, shareID: id))
+                try store.record(event: "audio_fetched", at: now, shareID: id, sharerID: record.sharerID, visitor: listener)
                 if record.stats.fetches + 1 == record.playCap {
                     try store.record(event: "share_capped", at: now, shareID: id, sharerID: record.sharerID)
                 }
+                try store.setAllowance(shareID: id, visitor: listener,
+                                       remaining: size * 3 / 2 - (charged ?? size), at: now)
             }
             contentType = "application/octet-stream"
             headers["Cache-Control"] = "private, no-store"
@@ -688,7 +830,9 @@ public final class ShareService: @unchecked Sendable {
         case .card:
             guard let type = record.cardType else { return notFound }
             contentType = type
-            headers["Cache-Control"] = "public, max-age=300"
+            // Public, but revalidated on every use, so a revoked share's card stops at once
+            // rather than up to five minutes later (TBX-1000000507 E-13).
+            headers["Cache-Control"] = "public, no-cache"
         }
 
         switch config.blobDelivery {
@@ -708,8 +852,9 @@ public final class ShareService: @unchecked Sendable {
     static func isContinuationRange(_ range: String?, ifRange: String?) -> Bool {
         guard ifRange == nil, let range else { return false }
         // nginx compares the first six characters with `bytes=` and ignores the header otherwise, so
-        // no space is allowed before `=`; spaces after it are skipped.
-        let value = range.trimmingCharacters(in: .whitespaces)
+        // no space is allowed before `=`; spaces after it are skipped. It skips only spaces before
+        // the value, so a leading tab or no-break space is another unit too.
+        let value = range.trimmingCharacters(in: CharacterSet(charactersIn: " "))
         guard value.prefix(6).lowercased() == "bytes=" else { return false }
         let pair = value.dropFirst(6).filter { $0 != " " && $0 != "\t" }
             .split(separator: "-", omittingEmptySubsequences: false)
@@ -718,9 +863,24 @@ public final class ShareService: @unchecked Sendable {
         return pair[0].contains { $0 != "0" }
     }
 
+    /// How many bytes a continuation asks for, as nginx would send them from a file of `total`
+    /// bytes, or nil when the request is not a continuation (so it gets the whole file). `bytes=N-`
+    /// is the rest from N and `bytes=N-M` is M-N+1, both clamped to the file; one that starts at or
+    /// past the end, or ends before it starts, is unsatisfiable (nginx answers 416) and costs 0.
+    static func continuationLength(_ range: String?, ifRange: String?, total: Int) -> Int? {
+        guard isContinuationRange(range, ifRange: ifRange), let range else { return nil }
+        let pair = range.trimmingCharacters(in: CharacterSet(charactersIn: " ")).dropFirst(6)
+            .filter { $0 != " " && $0 != "\t" }.split(separator: "-", omittingEmptySubsequences: false)
+        guard let start = Int(pair[0]), start < total else { return 0 }
+        let end = pair[1].isEmpty ? total - 1 : min(Int(pair[1]) ?? Int.max, total - 1)
+        return end >= start ? end - start + 1 : 0
+    }
+
     func event(_ request: HTTPRequestMessage, id: String, who: ShareRequester) throws -> ShareResponse {
+        // A held share's beacon is accepted and dropped like an ended one's, so a listener's player
+        // cannot tell a hold from an ending (owner decision 2026-10-21, TBX-1000000507 D-9).
         if ShareLink.isValidID(id), let record = try store.share(id: id), try store.isEnforced(record) {
-            return .error(410, "expired", "This share has ended.")
+            return .noContent
         }
         let record: ShareRecord
         switch try publicState(id) {

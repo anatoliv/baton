@@ -3,7 +3,7 @@
 //
 //   swift build --product baton-share            (in gateway/)
 //   node gateway/Tests/share-player/e2e.mjs [--nginx|--nginx-docker] [--browser=chromium|firefox|webkit]
-//     [--listeners=50|--media-errors-only|--startup-only|--book-only|--collection-only] [--chromium-channel=chromium]
+//     [--listeners=50|--media-errors-only|--startup-only|--book-only|--collection-only|--mixtape-only] [--chromium-channel=chromium]
 //     [--song-seconds=400 --download-mbps=10 --latency-ms=80] [path/to/baton-share] [evidence-dir]
 //
 // With --nginx, everything goes through a real nginx running deploy/nginx/default.conf (rewritten
@@ -27,6 +27,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,7 +58,9 @@ const mediaErrorsOnly = takeFlag("--media-errors-only");
 const bookOnly = takeFlag("--book-only");
 // Only the album and playlist page walk (/b/ with a collection kind), after the shared nginx checks.
 const collectionOnly = takeFlag("--collection-only");
-assert.ok(!(bookOnly && collectionOnly), "--book-only and --collection-only are separate loops");
+// Only the mixtape page walk (/m/), after the shared nginx checks.
+const mixtapeOnly = takeFlag("--mixtape-only");
+assert.ok([bookOnly, collectionOnly, mixtapeOnly].filter(Boolean).length <= 1, "--book-only, --collection-only and --mixtape-only are separate loops");
 assert.ok(!mediaErrorsOnly || !args.some(arg => arg.startsWith("--listeners=")), "media error cases run separately from listener load");
 const dockerNginx = takeFlag("--nginx-docker");
 const viaNginx = takeFlag("--nginx") || dockerNginx;
@@ -260,6 +263,66 @@ try {
     assert.equal(ranged.status, 206, "nginx serves ranges of the blob");
     assert.equal((await ranged.arrayBuffer()).byteLength, 100);
     assert.equal(ranged.headers.get("cache-control"), "private, no-store", "the audio stays uncacheable through nginx");
+    if (viaNginx && !publicOnly) {
+      // Range spellings only raw bytes can carry (TBX-1000000494): nginx answers from the first of
+      // two Range headers and skips only spaces before a value, so each of these gets the whole
+      // file, and each must count. The strict continuation alone gets 206 and does not.
+      // A share of its own, so the friend's walk below keeps its exact counts.
+      const spelled = await api("POST", "/v1/share/shares", JSON.stringify({ expiresInSeconds: 86400, playCap: 100, audioBytes: sealed.length,
+        audioSHA256: await sha256(sealed), client: { platform: "macos", appVersion: "e2e" },
+        preview: { title: "Range spellings", durationSeconds: songSeconds } }), { "Content-Type": "application/json" });
+      assert.equal(spelled.status, 201, JSON.stringify(spelled.json));
+      mintedIDs.push(spelled.json.id);
+      assert.equal((await api("PUT", spelled.json.uploads.audio, sealed)).status, 200);
+      assert.equal((await api("POST", `/v1/share/shares/${spelled.json.id}/finalize`)).status, 200);
+      const raw = (lines) => new Promise((resolve, reject) => {
+        const target = new URL(base);
+        const socket = connect(Number(target.port), target.hostname, () => socket.write(
+          `GET /v1/share/p/${spelled.json.id}/audio HTTP/1.1\r\nHost: ${target.host}\r\nUser-Agent: e2e-probe\r\n${lines}\r\nConnection: close\r\n\r\n`, "utf8"));
+        let head = "";
+        socket.setTimeout(20000, () => { socket.destroy(); reject(new Error("raw range request timed out")); });
+        // Where the bytes nginx sends start: 0 for the whole file (a 200, or a 206 from byte 0).
+        socket.on("data", (chunk) => {
+          head += chunk.toString("latin1");
+          if (!head.includes("\r\n\r\n")) return;
+          socket.destroy();
+          const status = Number(head.split(" ")[1]), range = /\r\ncontent-range: bytes (\d+)-/i.exec(head);
+          resolve({ status, start: range ? Number(range[1]) : status === 200 ? 0 : null });
+        });
+        socket.on("error", reject);
+      });
+      const fetches = async () => (await api("GET", "/v1/share/shares")).json.shares.find((share) => share.id === spelled.json.id).stats.fetches;
+      // An upload refused from its head while its body is still arriving (TBX-1000000496 D-15): the
+      // service answers before reading the body, and nginx (request buffering off) must still pass
+      // the 401 on rather than a 502 from a reset connection.
+      // Ten times, with the body sent as fast as it goes: the reset it guards against is a race.
+      const refusedUpload = () => new Promise((resolve, reject) => {
+        const target = new URL(base);
+        const socket = connect(Number(target.port), target.hostname, () => {
+          socket.write(`PUT /v1/share/shares/${spelled.json.id}/art HTTP/1.1\r\nHost: ${target.host}\r\nUser-Agent: e2e-probe\r\n`
+            + `Content-Type: application/octet-stream\r\nContent-Length: 20000000\r\nConnection: close\r\n\r\n`);
+          let sent = 0;
+          const pump = () => { if (sent >= 20000000 || socket.destroyed) return; const piece = Buffer.alloc(1000000, 120); sent += piece.length; socket.write(piece, pump); };
+          pump();
+        });
+        let head = "";
+        socket.setTimeout(30000, () => { socket.destroy(); reject(new Error("refused upload timed out")); });
+        socket.on("data", (chunk) => { head += chunk.toString("latin1"); if (head.includes("\r\n")) { socket.destroy(); resolve(Number(head.split(" ")[1])); } });
+        socket.on("error", (error) => resolve(`socket ${error.code}`));
+      });
+      const refusals = [];
+      for (let attempt = 0; attempt < 10; attempt++) refusals.push(await refusedUpload());
+      assert.deepEqual(refusals, Array(10).fill(401), "an unauthenticated upload is refused with 401 through nginx, not reset");
+      // The last is a 100-byte tail, inside the transfer allowance the play before it left (§4.2).
+      const tail = sealed.length - 100;
+      for (const [lines, start, counted] of [["Range: bytes=0-\r\nRange: bytes=5-", 0, 1], ["Range:\tbytes=5-", 0, 1],
+                                             ["Range: \u00a0bytes=5-", 0, 1], [`Range: bytes=${tail}-`, tail, 0]]) {
+        const before = await fetches();
+        const answer = await raw(lines);
+        assert.equal(answer.start, start, `nginx sends ${JSON.stringify(lines)} from byte ${start}: ${JSON.stringify(answer)}`);
+        assert.equal(await fetches() - before, counted, `${JSON.stringify(lines)} counts ${counted}`);
+      }
+    }
     }
     assert.equal((await fetch(`${base}/_share_blobs/${id}/audio`)).status, 404, "the blob path is internal-only");
     assert.equal((await fetch(`${base}/v1/share/admin/stats`, { headers: { Authorization: `Bearer ${admin}` } })).status, 404,
@@ -346,6 +409,11 @@ try {
     assert.ok(!publicOnly, "the book page walk is local only");
     const skipped = await verifyBookPage({ browser, base, direct, api, evidence, dataDir, external, work, step, screenshot, monitor, problems,
       activate: (bookPage) => { activePage = bookPage; } });
+    if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
+    assert.equal((await api("DELETE", `/v1/share/shares/${id}`)).status, 204);
+  } else if (mixtapeOnly) {
+    assert.ok(!publicOnly, "the mixtape page walk is local only");
+    const skipped = await verifyMixtapePage({ browser, context, base, direct, api, evidence, dataDir, external, step, screenshot, monitor, problems });
     if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
     assert.equal((await api("DELETE", `/v1/share/shares/${id}`)).status, 204);
   } else if (collectionOnly) {
@@ -702,7 +770,7 @@ try {
     }
     screenshotErrors.push(...problems);
   }
-  writeFileSync(join(evidence, "result.json"), JSON.stringify({ engine, viaNginx, publicOnly, listeners, mediaErrorsOnly, startupOnly, bookOnly, collectionOnly, passed: true,
+  writeFileSync(join(evidence, "result.json"), JSON.stringify({ engine, viaNginx, publicOnly, listeners, mediaErrorsOnly, startupOnly, bookOnly, collectionOnly, mixtapeOnly, passed: true,
     appErrors: 0, screenshotErrors,
     skips: [...(external ? ["local deadline acceleration"] : []), ...(publicOnly ? ["internal admin aggregate report"] : []), ...skips] }, null, 2));
 

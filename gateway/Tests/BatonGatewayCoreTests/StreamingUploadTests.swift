@@ -110,6 +110,20 @@ final class StreamingUploadTests: XCTestCase {
         XCTAssertEqual(try? FileManager.default.contentsOfDirectory(atPath: dir.path).count, 0)
     }
 
+    /// Two Content-Lengths, or any Transfer-Encoding, leave the body's framing ambiguous: refused,
+    /// as the buffered parser refuses them, instead of the last length winning (TBX-1000000494 review).
+    func testAmbiguousFramingIsRefused() {
+        for headers in ["Content-Length: 3\r\nContent-Length: 3", "Content-Length: 3\r\ncontent-length: 900",
+                        "Content-Length: 3\r\nTransfer-Encoding: chunked", "Transfer-Encoding: identity\r\nContent-Length: 3"] {
+            let upload = sink()
+            guard case let .rejected(status, _) = upload.consume(Data("PUT /v1/files/abc HTTP/1.1\r\n\(headers)\r\n\r\nabc".utf8)) else {
+                return XCTFail("accepted \(headers.debugDescription)")
+            }
+            XCTAssertTrue(status.hasPrefix("400"), headers)
+            XCTAssertNil(upload.stagingURL)
+        }
+    }
+
     /// A PUT with no length is a client bug. Storing an empty file would be the least helpful
     /// possible response to it.
     func testAMissingContentLengthIsRefused() {

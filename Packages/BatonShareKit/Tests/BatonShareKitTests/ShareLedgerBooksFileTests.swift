@@ -137,4 +137,48 @@ final class ShareLedgerBooksFileTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ShareLedger.booksURL(beside: url).path))
         XCTAssertEqual(ShareLedger.load(from: url), ledger)
     }
+
+    /// An unreadable books file (damage, or a newer app's version) loads as no books, and the next
+    /// save rewrites it. Its keys exist nowhere else, so its bytes are kept aside first (C-7 sibling).
+    func testAnUnreadableBooksFileIsKeptAsideBeforeTheNextSaveReplacesIt() throws {
+        let books = ShareLedger.booksURL(beside: url)
+        for (n, damaged) in [Data("{\"version\":1,\"records\":[{\"id\":".utf8),
+                             Data("{\"version\":2,\"records\":[]}".utf8)].enumerated() {
+            try? FileManager.default.removeItem(at: root)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try ledger().save(to: url)
+            try damaged.write(to: books)
+            var loaded = ShareLedger.load(from: url)
+            XCTAssertFalse(loaded.records.contains { $0.containerKind == .book }, "case \(n)")
+            loaded.add(record("later-song", .song, minute: 40))
+            try loaded.save(to: url)
+            let aside = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix("SongShares.books.json.corrupt-") }
+            XCTAssertEqual(aside.count, 1, "case \(n): the damaged books file is kept once")
+            XCTAssertEqual(try aside.first.map { try Data(contentsOf: $0) }, damaged, "case \(n)")
+            if let first = aside.first {
+                let mode = try FileManager.default.attributesOfItem(atPath: first.path)[.posixPermissions] as? NSNumber
+                XCTAssertEqual(mode?.intValue, 0o600, "case \(n): the kept copy holds keys")
+            }
+            _ = ShareLedger.load(from: url)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix("SongShares.books.json.corrupt-") }.count, 1,
+                "case \(n): the same bytes are not kept twice")
+        }
+    }
+
+    /// C-29: the file that takes the real name is 0600 from its creation, replaces a looser file
+    /// atomically, and leaves no temporary behind.
+    func testProtectedWritesReplaceALooserFileAndLeaveNoTemporary() throws {
+        try Data("old".utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        try ledger().save(to: url)
+        for file in [url, ShareLedger.booksURL(beside: url)] {
+            let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
+            XCTAssertEqual(mode?.intValue, 0o600, file.lastPathComponent)
+        }
+        XCTAssertEqual(ShareLedger.load(from: url), ledger())
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+        XCTAssertEqual(names.filter { $0.hasSuffix(".tmp") }, [], "no temporary left behind")
+    }
 }

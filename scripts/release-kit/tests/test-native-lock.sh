@@ -46,6 +46,7 @@ await() {   # $1 = file, $2 = fixed string; up to ~10 s
   done
   return 1
 }
+now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 lstart() { ps -o lstart= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
 plant() {   # $1 = file, $2 = pid, $3 = cwd, $4 = kind
   mkdir -p "$(dirname "$1")"
@@ -113,9 +114,9 @@ fi
 kernel_free "$HOST" && bad "the kernel lock is free while an owner holds it" || ok "the kernel lock is held while the owner holds it"
 start_s=$(date +%s)
 out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -qF "another gate holds mac-app-host (pid $OWNER, started" \
-   && printf '%s' "$out" | grep -qF "$WORK/owner-cwd" && printf '%s' "$out" | grep -qF "Its derived data: $WORK/dd-owner" \
-   && printf '%s' "$out" | grep -qF "set NATIVE_LOCK_WAIT to wait longer" && [ $(( $(date +%s) - start_s )) -le 2 ]; then
+if [ "$rc" = 1 ] && grep -qF "another gate holds mac-app-host (pid $OWNER, started" <<<"$out" \
+   && grep -qF "$WORK/owner-cwd" <<<"$out" && grep -qF "Its derived data: $WORK/dd-owner" <<<"$out" \
+   && grep -qF "set NATIVE_LOCK_WAIT to wait longer" <<<"$out" && [ $(( $(date +%s) - start_s )) -le 2 ]; then
   ok "NATIVE_LOCK_WAIT=0 refuses at once, naming pid, start time, cwd and derived data"
 else
   bad "the refusal is wrong or slow. Got: $out"
@@ -123,16 +124,16 @@ fi
 out="$(NATIVE_LOCK_WAIT=0 "${BOUNDED[@]}" /bin/bash -c '. "$SUBJECT"
   native_lock_host_refusal() { echo "PROJECT WORDING kind=$1 pid=$2"; }
   native_lock_acquire mac-app-host gate x' 2>&1)"
-if printf '%s' "$out" | grep -qF "PROJECT WORDING kind=gate pid=$OWNER" && ! printf '%s' "$out" | grep -q "another gate holds"; then
+if grep -qF "PROJECT WORDING kind=gate pid=$OWNER" <<<"$out" && ! grep -q "another gate holds" <<<"$out"; then
   ok "a project's native_lock_host_refusal replaces the mac-app-host wording"
 else
   bad "the host refusal hook was not used. Got: $out"
 fi
 out="$(NATIVE_LOCK_WAIT=soon try sim-X)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q "NATIVE_LOCK_WAIT must be whole seconds" \
+[ "$rc" = 1 ] && grep -q "NATIVE_LOCK_WAIT must be whole seconds" <<<"$out" \
   && ok "a wait that is not whole seconds is refused" || bad "a bad wait was accepted. Got: $out"
 out="$(NATIVE_LOCK_WAIT=0 try 'sim/../x')"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q "invalid resource name" \
+[ "$rc" = 1 ] && grep -q "invalid resource name" <<<"$out" \
   && ok "a resource name with a path in it is refused" || bad "a path-like name was accepted. Got: $out"
 stop_owner
 if [ ! -s "$HOST" ] && kernel_free "$HOST"; then
@@ -146,16 +147,16 @@ fi
 start_owner sim-STALE gate stale || bad "the stale-case owner never took its lock"
 kill -9 -- "-$OWNER" 2>/dev/null; sleep 0.6
 out="$(NATIVE_LOCK_WAIT=0 try sim-STALE)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q "clearing a stale sim-STALE lock (recorded pid $OWNER)" \
+[ "$rc" = 0 ] && grep -q "clearing a stale sim-STALE lock (recorded pid $OWNER)" <<<"$out" \
   && ok "a SIGKILLed owner's record is reported as stale and the next run proceeds" \
   || bad "a dead owner's record blocked or was cleared silently. Got: $out"
 printf '%s\n%s\n%s\n%s\n%s\n' 999999 "Mon Jan  1 00:00:00 2001" /tmp/old /tmp/app-dd gate >"$HOST"
 out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q "clearing a stale gate lock (recorded pid 999999)" \
+[ "$rc" = 0 ] && grep -q "clearing a stale gate lock (recorded pid 999999)" <<<"$out" \
   && ok "a mac-app-host record naming a dead pid is cleared as a stale gate lock" || bad "dead mac-app-host record: $out"
 printf '%s\n%s\n%s\n%s\n%s\n' "$$" "Mon Jan  1 00:00:00 2001" /tmp/old /tmp/app-dd gate >"$HOST"
 out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q "clearing a stale gate lock" \
+[ "$rc" = 0 ] && grep -q "clearing a stale gate lock" <<<"$out" \
   && ok "a live but reused pid (another start time) cannot impersonate an owner" || bad "a reused pid wedged the lock. Got: $out"
 : >"$HOST"
 out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
@@ -163,7 +164,7 @@ out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
 # A live owner in the record without the kernel lock (an older pidfile guard) is busy.
 printf '%s\n%s\n%s\n%s\n' "$$" "$(lstart $$)" /tmp/pidfile-guard /tmp/app-dd >"$HOST"
 out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -qF "pid $$" \
+[ "$rc" = 1 ] && grep -qF "pid $$" <<<"$out" \
   && ok "a live owner named only by its record (an older pidfile guard) is busy" || bad "a live pidfile owner was overrun. Got: $out"
 : >"$HOST"
 
@@ -196,8 +197,8 @@ start_s=$(date +%s)
 out="$(NATIVE_LOCK_WAIT=20 try mac-app-host)"; rc=$?
 elapsed=$(( $(date +%s) - start_s ))
 named="$(printf '%s\n' "$out" | grep -c "waiting for gate pid $OWNER from ")"
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "acquired mac-app-host" && [ "$elapsed" -ge 1 ] \
-   && printf '%s' "$out" | grep -q "mac-app-host is free after"; then
+if [ "$rc" = 0 ] && grep -q "acquired mac-app-host" <<<"$out" && [ "$elapsed" -ge 1 ] \
+   && grep -q "mac-app-host is free after" <<<"$out"; then
   ok "a busy lock is waited for and taken when free (${elapsed}s)"
 else
   bad "the wait did not end in the lock. Got: $out"
@@ -205,14 +206,23 @@ fi
 [ "$named" = 1 ] && ok "the waiter names its holder once over many polls" || bad "holder named $named times. Got: $out"
 await "$LOG" released || true
 start_owner mac-app-host gate wait2 || bad "the bound-case owner never took the lock"
-start_s=$(date +%s)
-out="$(NATIVE_LOCK_WAIT=1 try mac-app-host)"; rc=$?
-elapsed=$(( $(date +%s) - start_s ))
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "gave up after waiting 1s for mac-app-host (NATIVE_LOCK_WAIT)" \
-   && printf '%s' "$out" | grep -qF "pid $OWNER" && [ "$elapsed" -le 4 ]; then
-  ok "the wait is bounded: it gives up, then refuses naming the holder"
+# The holder keeps the lock for this whole case, so only the bound can end the wait, and the
+# "gave up after waiting 2s" refusal naming the holder proves that it did. The module counts
+# whole seconds (date +%s), so a 2s bound ends between 1s and 2s after the start, plus one
+# 0.1s poll: hence a 2s bound here, which makes a 1000ms floor sound (it really waited).
+# The ceiling is calibrated in the same run, in milliseconds: an immediate refusal
+# (NATIVE_LOCK_WAIT=0) is the same path without the wait, so machine load raises both alike.
+# Ceiling: the 2s bound, one poll, twice the refusal's own cost, and 1s of slack (about 3.3s
+# on a quiet machine). An unbounded or a ten-times-longer wait fails it.
+t0=$(now_ms); NATIVE_LOCK_WAIT=0 try mac-app-host >/dev/null; base_rc=$?; base=$(( $(now_ms) - t0 ))
+t0=$(now_ms); out="$(NATIVE_LOCK_WAIT=2 try mac-app-host)"; rc=$?; elapsed=$(( $(now_ms) - t0 ))
+ceiling=$(( 2000 + 100 + 2 * base + 1000 ))
+if [ "$rc" = 1 ] && grep -q "gave up after waiting 2s for mac-app-host (NATIVE_LOCK_WAIT)" <<<"$out" \
+   && grep -qF "pid $OWNER" <<<"$out" && [ "$base_rc" = 1 ] \
+   && [ "$elapsed" -ge 1000 ] && [ "$elapsed" -le "$ceiling" ]; then
+  ok "the wait is bounded: it gives up after ${elapsed}ms (bound 2s; 1000..${ceiling}ms from a ${base}ms refusal), then refuses naming the holder"
 else
-  bad "the bound did not hold (${elapsed}s). Got: $out"
+  bad "the bound did not hold (${elapsed}ms; want 1000..${ceiling}ms from a ${base}ms refusal, rc $rc/$base_rc). Got: $out"
 fi
 NATIVE_LOCK_WAIT=30 "${BOUNDED[@]}" /bin/bash -c '. "$SUBJECT"; trap "echo trapped" TERM
   native_lock_acquire mac-app-host gate x && echo "acquired anyway"' >"$WORK/interrupt.out" 2>&1 &
@@ -234,7 +244,7 @@ rm -f "$INTENT"; : >"$HOST"
 stand_in; REL_A="$STANDIN"
 plant "$INTENT" "$REL_A" /tmp/release-a release
 out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -qF "another release holds mac-app-host (pid $REL_A" \
+[ "$rc" = 1 ] && grep -qF "another release holds mac-app-host (pid $REL_A" <<<"$out" \
   && ok "an ordinary run refuses behind a live release intent on a free lock, naming the release" \
   || bad "a live intent was overtaken. Got: $out"
 NATIVE_LOCK_WAIT=30 "${BOUNDED[@]}" /bin/bash -c '. "$SUBJECT"; native_lock_acquire mac-app-host gate x || exit 1
@@ -259,7 +269,7 @@ fi
 sleep 0 & dead=$!; wait "$dead"
 plant "$INTENT" "$dead" /tmp/dead-release release
 out="$(NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q "clearing a stale release intent (recorded pid $dead)" && [ ! -e "$INTENT" ] \
+[ "$rc" = 0 ] && grep -q "clearing a stale release intent (recorded pid $dead)" <<<"$out" && [ ! -e "$INTENT" ] \
   && ok "a dead release's intent is cleared by whoever reads it, and holds nobody back" \
   || bad "a dead intent held a run back. Got: $out"
 printf '%s\n%s\n%s\n%s\n%s\n' "$$" "Mon Jan  1 00:00:00 2001" /tmp/old /tmp/app-dd release >"$INTENT"
@@ -317,7 +327,7 @@ start_owner sim-AAAA gate simA || bad "the simulator owner never took sim-AAAA"
 out="$(NATIVE_LOCK_WAIT=0 try sim-BBBB)"; rc=$?
 [ "$rc" = 0 ] && ok "a different simulator's lock is taken at once beside a held one" || bad "sim-BBBB refused. Got: $out"
 out="$(NATIVE_LOCK_WAIT=0 try sim-AAAA)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -qF "another gate holds sim-AAAA (pid $OWNER" \
+[ "$rc" = 1 ] && grep -qF "another gate holds sim-AAAA (pid $OWNER" <<<"$out" \
   && ok "the same simulator is refused to a second run, naming its holder" || bad "two runs held sim-AAAA. Got: $out"
 [ "$(wc -l <"$NATIVE_LOCK_DIR/sim-AAAA.lock" | tr -d ' ')" = 5 ] \
   && ok "named locks keep the same five-line record under NATIVE_LOCK_DIR" || bad "sim-AAAA.lock is not five lines"
@@ -325,7 +335,7 @@ stop_owner
 a="$(/bin/bash -c '. "$SUBJECT"; native_lock_derived_name /tmp/rk-dd-x')"
 b="$(/bin/bash -c '. "$SUBJECT"; native_lock_derived_name /private/tmp/rk-dd-x')"
 c="$(/bin/bash -c '. "$SUBJECT"; native_lock_derived_name /private/tmp/rk-dd-y')"
-if [ "$a" = "$b" ] && [ "$a" != "$c" ] && printf '%s' "$a" | grep -qE '^derived-data-[0-9a-f]{12}$'; then
+if [ "$a" = "$b" ] && [ "$a" != "$c" ] && grep -qE '^derived-data-[0-9a-f]{12}$' <<<"$a"; then
   ok "one DerivedData directory has one lock name, whichever spelling of its path is used"
 else
   bad "derived names: $a / $b / $c"
@@ -382,7 +392,7 @@ out="$(NATIVE_LOCK_WAIT=0 "${BOUNDED[@]}" /bin/bash -c '. "$SUBJECT"
   sleep 0.6
   native_lock_acquire sim-SUB gate y && echo "parent acquired after subshell exit"
   native_lock_release_all' 2>&1)"
-printf '%s' "$out" | grep -q "subshell acquired" && printf '%s' "$out" | grep -q "parent acquired after subshell exit" \
+grep -q "subshell acquired" <<<"$out" && grep -q "parent acquired after subshell exit" <<<"$out" \
   && ok "a lock taken in a subshell names the subshell and is freed when it exits" || bad "a subshell's lock outlived it. Got: $out"
 
 # --- An older whole-run holder under lockf -k holds every resource -------------------------
@@ -396,10 +406,10 @@ legacy=$!; PIDS="$PIDS $legacy"
 for _ in $(seq 1 100); do [ -s "$HOST" ] && break; sleep 0.05; done
 legacy_pid="$(sed -n '1p' "$HOST")"
 out="$(NATIVE_LOCK_WAIT=0 try sim-LEGACY)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -qF "another gate holds sim-LEGACY (pid $legacy_pid" \
+[ "$rc" = 1 ] && grep -qF "another gate holds sim-LEGACY (pid $legacy_pid" <<<"$out" \
   && ok "an older whole-run holder is treated as holding a simulator too" || bad "a simulator was handed out beside an older whole-run holder. Got: $out"
 out="$(NATIVE_LOCK_PROJECT=Demo NATIVE_LOCK_WAIT=20 try sim-LEGACY)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q "an older Demo script holds every resource" && printf '%s' "$out" | grep -q "acquired sim-LEGACY" \
+[ "$rc" = 0 ] && grep -q "an older Demo script holds every resource" <<<"$out" && grep -q "acquired sim-LEGACY" <<<"$out" \
   && ok "a run waits for the older holder, says why in the project's name, and continues" || bad "the wait for an older holder misbehaved. Got: $out"
 wait "$legacy" 2>/dev/null
 
@@ -417,7 +427,7 @@ out="$(env -u NATIVE_LOCK_DIR -u NATIVE_LOCK_HOST_FILE /bin/bash -c '
   || bad "default mapping: $out"
 start_owner sim-PREFIX gate prefix || bad "the prefix-case owner never took its lock"
 out="$(DEMO_LOCK_WAIT=0 "${BOUNDED[@]}" /bin/bash -c 'NATIVE_LOCK_ENV=DEMO_LOCK; . "$SUBJECT"; native_lock_acquire sim-PREFIX gate x' 2>&1)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q "set DEMO_LOCK_WAIT to wait longer" \
+[ "$rc" = 1 ] && grep -q "set DEMO_LOCK_WAIT to wait longer" <<<"$out" \
   && ok "NATIVE_LOCK_ENV renames the knobs, read when the function runs" || bad "the knob prefix was ignored. Got: $out"
 stop_owner
 
@@ -440,7 +450,7 @@ out="$(NATIVE_LOCK_HOST_FILE="$B_HOST" NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc
 [ "$rc" = 0 ] && ok "a release waiting on another project's app host does not hold back this project's free one" \
   || bad "project B was held back by project A's intent. Got: $out"
 out="$(NATIVE_LOCK_HOST_FILE="$A_HOST" NATIVE_LOCK_WAIT=0 try mac-app-host)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -qF "pid $REL_K1" \
+[ "$rc" = 1 ] && grep -qF "pid $REL_K1" <<<"$out" \
   && ok "the same project's ordinary run still waits behind its own release" || bad "project A overtook its own release intent. Got: $out"
 rm -f "$A_INTENT"
 out="$(NATIVE_LOCK_HOST_INTENT="$WORK/kept.release-intent" /bin/bash -c '. "$SUBJECT"; native_lock_intent_path mac-app-host; native_lock_intent_path sim-X')"
@@ -483,7 +493,7 @@ out="$("${BOUNDED[@]}" /bin/bash -c '. "$SUBJECT"
   native_lock_release sim-REUSE
   echo "released"' _ "$VICTIM" 2>&1)"
 sleep 0.3
-if printf '%s' "$out" | grep -q released && kill -0 "$VICTIM" 2>/dev/null; then
+if grep -q released <<<"$out" && kill -0 "$VICTIM" 2>/dev/null; then
   ok "release does not signal a process whose pid matches but whose start time does not"
 else
   bad "release signalled an unrelated process (alive: $(kill -0 "$VICTIM" 2>/dev/null && echo yes || echo no)). Got: $out"

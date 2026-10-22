@@ -58,7 +58,9 @@ cp "$ROOT/.gitignore" "$SRC/.gitignore"
 # publish-site checks that a site exists before reaching the main guard.
 # A minimal page keeps this fixture focused on the guard, with no asset links.
 mkdir -p "$SRC/website"
-printf '<!doctype html><title>Release guard fixture</title>\n' >"$SRC/website/index.html"
+# Stamped like the real pages, so its Content-Security-Policy is current (TBX-1000000503 E-10).
+printf '<!doctype html>\n<head>\n<meta charset="utf-8">\n<title>Release guard fixture</title>\n' >"$SRC/website/index.html"
+BATON_SITE_DIR="$SRC/website" python3 "$SRC/scripts/stamp-site-assets.py" >/dev/null
 # Gitignored files in the copied dirs (a local env file, caches) never reach the commit.
 git -C "$SRC" init -q
 git -C "$SRC" add -A
@@ -157,6 +159,97 @@ for e in $ENTRIES; do
     ok "$e admits HEAD on origin/main (then stopped later, exit $rc, as the stubs intend)"
   fi
 done
+
+# --- HEAD is origin/main, but the working tree is not HEAD (TBX-1000000502 F-6, F-7) ------
+# The main guard checks the commit; publish-site.sh and publish-repo.sh copied the working
+# tree, so an uncommitted edit or an untracked file went out under a commit that lacks it.
+stamp_rel() { BATON_SITE_DIR="$REL/website" python3 "$REL/scripts/stamp-site-assets.py" >/dev/null; }
+printf '<!doctype html>\n<meta charset="utf-8">\n<title>edited, not committed</title>\n' >"$REL/website/index.html"
+stamp_rel
+printf 'untracked\n' >"$REL/website/.well-known/untracked-extra"
+out="$(run_entry site)"; rc=$?
+if [ "$rc" = 0 ] || ! grep -qF "would publish files that are not HEAD" <<<"$out"; then
+  bad "site: a dirty tree was not refused (exit $rc). Tail: $(tail -6 <<<"$out")"
+elif ! grep -qF "website/index.html" <<<"$out" || ! grep -qF "untracked-extra" <<<"$out"; then
+  bad "site: the refusal did not name both paths. Tail: $(tail -6 <<<"$out")"
+elif grep -qE '^(rsync|scp) ' "$CALLS"; then
+  bad "site: files were copied before the refusal: $(tr '\n' ';' <"$CALLS")"
+else
+  ok "site refuses an uncommitted edit and an untracked file before copying anything"
+fi
+git -C "$REL" checkout -q -- website/index.html
+rm -f "$REL/website/.well-known/untracked-extra"
+
+# publish.sh's own landing-page rewrite is the one dirty change the site may carry.
+printf '<meta charset="utf-8">\n<p class="eyebrow">Version 1.2.3</p><a href="/Baton-1.2.3.dmg">get</a>\n' >"$REL/website/index.html"
+stamp_rel
+git -C "$REL" commit -qam "fixture: a versioned landing page"
+git -C "$REL" push -q origin HEAD:main
+sed -i '' -e 's/1\.2\.3/1.2.4/g' "$REL/website/index.html"
+out="$(run_entry site)"; rc=$?
+if grep -qF "would publish files that are not HEAD" <<<"$out"; then
+  bad "site: refused publish.sh's own version rewrite of index.html. Tail: $(tail -6 <<<"$out")"
+elif ! grep -qF "version rewrite only" <<<"$out"; then
+  bad "site: never reached the tree guard with the rewrite (exit $rc). Tail: $(tail -6 <<<"$out")"
+else
+  ok "site admits publish.sh's version rewrite of index.html and says so"
+fi
+printf '<meta charset="utf-8">\n<p class="eyebrow">Version 1.2.4</p><a href="/Baton-1.2.4.dmg">get</a> plus an edit\n' >"$REL/website/index.html"
+stamp_rel
+out="$(run_entry site)"; rc=$?
+if [ "$rc" = 0 ] || ! grep -qF "would publish files that are not HEAD" <<<"$out"; then
+  bad "site: an edit beyond the version rewrite was admitted (exit $rc)"
+else
+  ok "site refuses an index.html edit that is more than the version rewrite"
+fi
+git -C "$REL" checkout -q -- website/index.html
+
+# The mirror is HEAD: an untracked file and an uncommitted edit stay out of it. A local bare
+# repo stands in for the public one; the run stops at the stubbed build gate, after the sync.
+git init -q --bare "$WORK/public.git"
+git clone -q "$WORK/public.git" "$WORK/public-seed" 2>/dev/null
+git -C "$WORK/public-seed" commit -q --allow-empty -m "public root"
+git -C "$WORK/public-seed" push -q origin HEAD:main
+# The sync needs the real rsync; every other tool stays a logging stub.
+BIN_REPO="$WORK/bin-repo"; mkdir -p "$BIN_REPO"
+for n in $STUBBED; do [ "$n" = rsync ] || ln -sf "$BIN/$n" "$BIN_REPO/$n"; done
+run_repo() {   # publish-repo.sh against the local public repo; real rsync, stubbed rest
+  ( cd "$REL" || exit 1
+    unset -f rsync
+    BATON_PUBLIC_REPO="$WORK/public.git" BATON_MIRROR="$WORK/mirror" PATH="$BIN_REPO:$PATH" \
+      ./scripts/publish-repo.sh ) </dev/null 2>&1
+}
+printf 'untracked, never public\n' >"$REL/scripts/untracked-note.sh"
+committed="$(git -C "$REL" show HEAD:scripts/release-checkout.sh | shasum -a 256 | cut -c1-64)"
+printf '# uncommitted edit\n' >>"$REL/scripts/release-checkout.sh"
+rm -rf "$WORK/mirror"
+out="$(run_repo)"; rc=$?
+mirrored="$( [ -f "$WORK/mirror/scripts/release-checkout.sh" ] && shasum -a 256 <"$WORK/mirror/scripts/release-checkout.sh" | cut -c1-64)"
+if [ ! -d "$WORK/mirror/scripts" ]; then
+  bad "repo: the run never synced a mirror (exit $rc). Tail: $(tail -6 <<<"$out")"
+elif [ -e "$WORK/mirror/scripts/untracked-note.sh" ]; then
+  bad "repo: an untracked file reached the public mirror"
+elif [ "$mirrored" != "$committed" ]; then
+  bad "repo: the mirror carries an uncommitted edit rather than HEAD's file"
+else
+  ok "repo mirrors HEAD: untracked files and uncommitted edits stay out"
+fi
+git -C "$REL" checkout -q -- scripts/release-checkout.sh
+
+# A cask rewrite the operator has not committed would be left behind silently, so it refuses.
+mkdir -p "$REL/Casks"
+printf 'cask "baton" do\n  version "1.2.3,10"\nend\n' >"$REL/Casks/baton.rb"
+git -C "$REL" add Casks/baton.rb && git -C "$REL" commit -qm "fixture: cask"
+git -C "$REL" push -q origin HEAD:main
+sed -i '' -e 's/1\.2\.3,10/1.2.4,11/' "$REL/Casks/baton.rb"
+: >"$CALLS"
+out="$(run_repo)"; rc=$?
+if [ "$rc" = 0 ] || ! grep -qF "Casks/baton.rb" <<<"$out" || ! grep -qF "the mirror publishes HEAD" <<<"$out"; then
+  bad "repo: an uncommitted cask was not refused (exit $rc). Tail: $(tail -4 <<<"$out")"
+else
+  ok "repo refuses while the cask rewrite is uncommitted, since the mirror publishes HEAD"
+fi
+git -C "$REL" checkout -q -- Casks/baton.rb
 
 echo "ship-main-guard: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

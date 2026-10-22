@@ -99,6 +99,9 @@ public struct VersionedStore<Payload: Codable> {
         case quarantineFailed
         /// Written by a build that stamps a higher version than this one understands.
         case newerThanThisBuild(found: Int)
+        /// The file is there and could not be read at all (permissions, a protected file before
+        /// first unlock). Nothing was learned about it, so nothing is written over it (C2-22).
+        case unreadable
     }
 
     /// Load the payload, or nil when nothing is stored (a fresh install). Corrupt or unreadable
@@ -110,6 +113,19 @@ public struct VersionedStore<Payload: Codable> {
     /// A separate entry point rather than a changed return type, so the existing adopters keep
     /// the call they have and only the stores that need to act on the reason ask for it.
     public func loadWithOutcome() -> (payload: Payload?, outcome: Outcome) {
+        let result = readWithOutcome()
+        // Latched until a load that does read the file, here or through any other store for the
+        // same file: the caller started from nothing, and its first save, made once the file is
+        // readable again, would write that nothing over data it never read (C2-22, review).
+        if case let .file(url) = backing { UnreadFiles.shared.set(url, unread: result.outcome == .unreadable) }
+        return result
+    }
+
+    private func readWithOutcome() -> (payload: Payload?, outcome: Outcome) {
+        if storedFileCannotBeRead() {
+            log.error("store \(name, privacy: .public) exists but cannot be read; leaving it untouched and refusing to write")
+            return (nil, .unreadable)
+        }
         guard let data = readBytes() else { return (nil, .fresh) }
         if let env = try? decoder.decode(Envelope.self, from: data) {
             if env.version == currentVersion { return (env.payload, .loaded) }
@@ -157,6 +173,16 @@ public struct VersionedStore<Payload: Codable> {
     /// exactly that) and a stale flag would let through the very downgrade this exists to stop.
     @discardableResult
     public func save(_ payload: Payload) -> Bool {
+        // A read error looked like "nothing stored", so the next save replaced a file nobody had
+        // read with whatever the app started with (C2-22).
+        if storedFileCannotBeRead() {
+            log.error("refusing to write \(name, privacy: .public): the stored file exists but cannot be read")
+            return false
+        }
+        if case let .file(url) = backing, UnreadFiles.shared.contains(url) {
+            log.error("refusing to write \(name, privacy: .public): its last load could not read it; load it again first")
+            return false
+        }
         if let found = storedVersionIfNewer() {
             log.error("""
                 refusing to write \(name, privacy: .public): stored is version \(found), this \
@@ -242,6 +268,17 @@ public struct VersionedStore<Payload: Codable> {
         }
     }
 
+    /// A file that exists and fails to read, as distinct from no file.
+    private func storedFileCannotBeRead() -> Bool {
+        guard case let .file(url) = backing, FileManager.default.fileExists(atPath: url.path) else { return false }
+        do {
+            _ = try Data(contentsOf: url)
+            return false
+        } catch {
+            return true
+        }
+    }
+
     private func readBytes() -> Data? {
         switch backing {
         case let .file(url): try? Data(contentsOf: url)
@@ -277,3 +314,22 @@ public struct VersionedStore<Payload: Codable> {
 /// Just the version field of an envelope, so the forward guard can read the stamp without
 /// needing to decode a payload it may well not understand — which is the whole point of it.
 private struct VersionStamp: Decodable { let version: Int }
+
+/// Files whose last load came back `.unreadable`, process-wide, because stores are often built
+/// per use and the load and the save can be two different values.
+private final class UnreadFiles: @unchecked Sendable {
+    static let shared = UnreadFiles()
+    private let lock = NSLock()
+    private var paths: Set<String> = []
+
+    func set(_ url: URL, unread: Bool) {
+        let path = url.standardizedFileURL.path
+        lock.lock(); defer { lock.unlock() }
+        if unread { paths.insert(path) } else { paths.remove(path) }
+    }
+
+    func contains(_ url: URL) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return paths.contains(url.standardizedFileURL.path)
+    }
+}

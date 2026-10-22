@@ -206,6 +206,32 @@ final class AlarmScheduleTests: XCTestCase {
         XCTAssertNil(store.claim(id: a.id, now: date(2026, 10, 17, 7, 2)))
     }
 
+    /// A system callback arriving long after the alarm (the Mac asleep through it) used to
+    /// answer it and play nothing, so it was never shown as missed (TBX-1000000506, C2-15).
+    func testALateSystemCallbackLeavesTheAlarmToBeShownAsMissed() {
+        let store = store()
+        let a = alarm(7, 0)
+        store.save(a, now: date(2026, 10, 17, 6, 0))
+        XCTAssertNil(store.claim(id: a.id, now: date(2026, 10, 17, 7, 25)), "a late alarm is not played")
+        let fires = store.due(at: date(2026, 10, 17, 7, 26))
+        XCTAssertEqual(fires.count, 1, "the late alarm vanished without a missed notice")
+        XCTAssertEqual(fires.first?.isLate, true)
+    }
+
+    /// Stop at the system alert while a snooze was pending kept the snooze, which rang later
+    /// (TBX-1000000506, C2-16).
+    func testStopAtTheSystemAlertCancelsAPendingSnooze() {
+        let store = store()
+        let a = alarm(7, 0, repeats: AlarmRepeat.everyDay)
+        store.save(a, now: date(2026, 10, 17, 6, 0))
+        _ = store.due(at: date(2026, 10, 17, 7, 0))
+        store.snooze(id: a.id, now: date(2026, 10, 17, 7, 1))
+        XCTAssertNotNil(store.alarms[0].snoozedUntil, "precondition: snoozed")
+        store.answer(id: a.id, now: date(2026, 10, 17, 7, 2))
+        XCTAssertNil(store.alarms[0].snoozedUntil, "Stop kept the snooze")
+        XCTAssertTrue(store.due(at: date(2026, 10, 17, 7, 12)).isEmpty, "the snooze rang after Stop")
+    }
+
     func testStorePersistsAcrossLaunches() {
         let defaults = ThrowawayDefaults.make("alarms.persist")
         let cal = calendar(newYork)

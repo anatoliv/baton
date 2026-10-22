@@ -548,11 +548,21 @@ enum CrashReporting {
     static func redact(_ s: String) -> String {
         var out = SecretRedactor.redact(s, placeholder: "<redacted-secret>")
         let rules: [(String, String)] = [
-            ("https?://[^\\s\"'<>]+", "<redacted-url>"),
+            // Any scheme, not only http(s): a `baton://` share link carries its key after `#`.
+            ("\\b[a-z][a-z0-9+.-]*://[^\\s\"'<>]+", "<redacted-url>"),
             ("\\b(?:10|127)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b", "<redacted-ip>"),
             ("\\b192\\.168\\.\\d{1,3}\\.\\d{1,3}\\b", "<redacted-ip>"),
             ("\\b172\\.(?:1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}\\b", "<redacted-ip>"),
+            // Carrier-grade NAT (100.64/10), which is where Tailscale addresses live, and link-local.
+            ("\\b100\\.(?:6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\.\\d{1,3}\\.\\d{1,3}\\b", "<redacted-ip>"),
+            ("\\b169\\.254\\.\\d{1,3}\\.\\d{1,3}\\b", "<redacted-ip>"),
+            // IPv6: a `::` run, or at least four colon-separated hex groups (a time has three).
+            ("(?<![\\w:.])(?=[0-9a-f:]*::|(?:[0-9a-f]{1,4}:){3})[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?:%[a-z0-9]+)?(?![\\w:])", "<redacted-ip>"),
             ("\\b[A-Za-z0-9-]+\\.local\\b", "<redacted-host>"),
+            // Hosts named without a scheme: any name with a port (but not `Player.swift:120`, a
+            // source line), and the private-network suffixes.
+            ("\\b(?:[a-z0-9-]+\\.)+(?!(?:swift|m|mm|c|cc|cpp|h|hpp|metal|json|plist|txt|log)\\b)[a-z][a-z0-9-]*:\\d{2,5}\\b", "<redacted-host>"),
+            ("\\b(?:[a-z0-9-]+\\.)+(?:home\\.arpa|ts\\.net|lan|home|internal|localdomain)\\b", "<redacted-host>"),
             ("/Users/[^\\s\"'<>]+", "<redacted-path>"),
             ("[?&](?:t|s|u|p|apiKey)=[^&\\s\"'<>]*", "&<redacted>"),
         ]

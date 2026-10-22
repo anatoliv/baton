@@ -72,4 +72,55 @@ final class GatewayAddressTests: XCTestCase {
                            "typed \(typed)")
         }
     }
+
+    // MARK: - Where the gateway's bearer may go (TBX-1000000505 B-9)
+
+    /// The caller's private-host rule, standing in for `RemoteNaturalLanguage.isPrivate`.
+    private func isPrivate(_ host: String) -> Bool {
+        ["127.0.0.1", "192.168.1.20", "10.0.0.5", "localhost", "nas.local"].contains(host)
+    }
+
+    private func allows(_ address: String) -> Bool {
+        GatewayAddress.allowsBearer(to: URL(string: address)!, isPrivate: isPrivate)
+    }
+
+    /// ATS lets plain HTTP through to an IP literal, so a public address typed by mistake sent
+    /// the household's token across the internet in the clear. Only HTTPS goes there.
+    func testABearerNeverGoesOverPlainHTTPToAPublicAddress() {
+        XCTAssertFalse(allows("http://203.0.113.7:8788"))
+        XCTAssertFalse(allows("http://[2001:db8::1]:8788"))
+        XCTAssertTrue(allows("https://203.0.113.7:8788"))
+    }
+
+    func testTheHomeNetworkStillWorksOverPlainHTTP() {
+        XCTAssertTrue(allows("http://127.0.0.1:8788"))
+        XCTAssertTrue(allows("http://192.168.1.20:8788"))
+        XCTAssertTrue(allows("http://10.0.0.5:8788"))
+        XCTAssertTrue(allows("http://localhost:8788"))
+        XCTAssertTrue(allows("http://nas.local:8788"))
+    }
+
+    /// A name is ATS's to refuse (it blocks plain HTTP to a public name already), so a name the
+    /// household's own DNS answers, `http://homeserver:8788`, keeps working.
+    func testANameIsLeftToTheSystem() {
+        XCTAssertTrue(allows("http://homeserver:8788"))
+        XCTAssertTrue(allows("https://gw.example.com"))
+    }
+
+    /// Tailscale and the IPv6 link-local and unique-local ranges never cross the public internet,
+    /// and gateway/README.md calls plain HTTP over Tailscale fine (TBX-1000000505 review).
+    func testTailscaleAndLocalIPv6StillWorkOverPlainHTTP() {
+        XCTAssertTrue(allows("http://100.101.102.103:8788"))
+        XCTAssertTrue(allows("http://100.64.0.1:8788"))
+        XCTAssertTrue(allows("http://[fd7a:115c:a1e0::1]:8788"))
+        XCTAssertTrue(allows("http://[fe80::1]:8788"))
+        XCTAssertFalse(allows("http://100.128.0.1:8788"), "just past 100.64/10 is public")
+        XCTAssertFalse(allows("http://100.63.255.255:8788"))
+        XCTAssertFalse(allows("http://[2600:1f18::1]:8788"))
+    }
+
+    func testAnythingElseIsRefused() {
+        XCTAssertFalse(allows("ftp://192.168.1.20"))
+        XCTAssertFalse(allows("file:///tmp/x"))
+    }
 }

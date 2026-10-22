@@ -154,4 +154,13 @@ final class WidgetBridgeTests: XCTestCase {
     private func song(_ id: String) -> NavidromeSong {
         NavidromeSong(id: id, title: "Track \(id)", artist: "Tests")
     }
+
+    /// Stopping playback ended only the card this launch held. A card from an earlier launch
+    /// (handle lost to a relaunch) stayed on the Lock Screen (TBX-1000000505 B-17).
+    func testStoppingEndsEveryRunningCardNotOnlyTheHeldOne() {
+        XCTAssertEqual(WidgetBridge.activityIDsToEnd(held: nil, running: ["from-last-launch"]), ["from-last-launch"])
+        XCTAssertEqual(WidgetBridge.activityIDsToEnd(held: "mine", running: ["mine", "orphan"]), ["mine", "orphan"])
+        XCTAssertEqual(WidgetBridge.activityIDsToEnd(held: "mine", running: []), ["mine"])
+        XCTAssertEqual(WidgetBridge.activityIDsToEnd(held: nil, running: []), [])
+    }
 }

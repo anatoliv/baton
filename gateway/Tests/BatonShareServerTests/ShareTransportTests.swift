@@ -6,6 +6,13 @@ import Foundation
     import FoundationNetworking
 #endif
 import XCTest
+#if canImport(Glibc)
+import Glibc
+private let clientStream = Int32(SOCK_STREAM.rawValue)
+#else
+import Darwin
+private let clientStream = SOCK_STREAM
+#endif
 
 /// The share service behind the real POSIX transport, over a real socket: the path production
 /// takes, including the streaming upload predicate that sends a song to disk instead of memory.
@@ -15,9 +22,7 @@ final class ShareTransportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let service = try ShareService(config: ShareConfiguration(
             dataDirectory: directory, publicBase: URL(string: "http://127.0.0.1")!, blobDelivery: .direct))
-        let transport = POSIXTransport(stagingDirectory: service.stagingDirectory,
-                                       maximumBodyBytes: ShareLimits.standard.maxAudioBytes,
-                                       streamsBody: ShareService.streamsBody, log: { _ in })
+        let transport = Self.transport(for: service)
         let listener = try transport.start(
             port: 0,
             handle: { service.handle($0).data },
@@ -77,6 +82,79 @@ final class ShareTransportTests: XCTestCase {
                 if let current { XCTAssertEqual(body, current) } else { current = body }
             }
         }
+    }
+
+    /// One sharer's own pending share must not let it hold the staging ceiling (TBX-1000000496 D-15
+    /// review). Ten 25 MiB uploads to that one share, each sending its head and then nothing, used
+    /// to reserve 250 of the 256 MiB, so another sharer's 24 MB song was turned away with 503.
+    func testSlowUploadsToOneOwnShareCannotHoldTheStagingCeiling() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("share-slow-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = try ShareService(config: ShareConfiguration(
+            dataDirectory: directory, publicBase: URL(string: "http://127.0.0.1")!, blobDelivery: .direct))
+        let listener = try Self.transport(for: service).start(
+            port: 0, handle: { service.handle($0).data }, upload: { service.handleUpload($0, file: $1).data })
+        defer { listener.stop() }
+        let base = "http://127.0.0.1:\(listener.port)"
+        let info = ShareClientInfo(platform: "macos", appVersion: "0.20")
+
+        let holder = Base64URL.encode(Data(repeating: 4, count: 32))
+        let declared = ShareLimits.standard.maxAudioBytes
+        let big = CreateShareRequest(expiresInSeconds: 86400, playCap: 5, preview: ShareMetadata(title: "Held", durationSeconds: 120),
+                                     encryptedMeta: nil, durationBucket: nil, audioBytes: declared,
+                                     audioSHA256: String(repeating: "a", count: 64), client: info)
+        let (bigStatus, bigBody) = try send("POST", "\(base)/v1/share/shares", body: try JSONEncoder().encode(big), secret: holder)
+        XCTAssertEqual(bigStatus, 201)
+        let held = try JSONDecoder().decode(CreateShareResponse.self, from: bigBody)
+        var slow: [Int32] = []
+        defer { slow.forEach { close($0) } }
+        for _ in 0 ..< 10 {
+            let fd = try Self.connect(listener.port)
+            slow.append(fd)
+            let head = "PUT \(held.uploads.audio) HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer \(holder)\r\nContent-Length: \(declared)\r\n\r\n"
+            _ = Array(head.utf8).withUnsafeBufferPointer { write(fd, $0.baseAddress, $0.count) }
+        }
+        // Until every slow head has been taken in (or 3 s), then count what they hold.
+        let staging = service.stagingDirectory.path
+        func staged() -> Int { ((try? FileManager.default.contentsOfDirectory(atPath: staging)) ?? []).filter { $0.hasPrefix("upload-") }.count }
+        for _ in 0 ..< 30 where staged() < 10 { Thread.sleep(forTimeInterval: 0.1) }
+        var answers: [String] = []
+        for fd in slow {
+            var timeout = timeval(tv_sec: 0, tv_usec: 20_000)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            var buffer = [UInt8](repeating: 0, count: 200)
+            let got = read(fd, &buffer, buffer.count)
+            answers.append(got > 0 ? String(decoding: buffer[0 ..< got], as: UTF8.self).components(separatedBy: "\r\n")[0] : "waiting")
+        }
+        XCTAssertLessThanOrEqual(staged(), 1, "slow uploads to one share holding staging: \(answers)")
+
+        let other = Base64URL.encode(Data(repeating: 5, count: 32))
+        let key = ShareCrypto.newKey()
+        let sealed = try ShareCrypto.seal(Data(count: 24_000_000), key: key, purpose: .audio)
+        let create = CreateShareRequest(expiresInSeconds: 86400, playCap: 5, preview: ShareMetadata(title: "Real", durationSeconds: 120),
+                                        encryptedMeta: nil, durationBucket: nil, audioBytes: sealed.count,
+                                        audioSHA256: ShareHash.sha256Hex(sealed), client: info)
+        let (createStatus, createBody) = try send("POST", "\(base)/v1/share/shares", body: try JSONEncoder().encode(create), secret: other)
+        XCTAssertEqual(createStatus, 201)
+        let created = try JSONDecoder().decode(CreateShareResponse.self, from: createBody)
+        XCTAssertEqual(try send("PUT", base + created.uploads.audio, body: sealed, secret: other).status, 200,
+                       "another sharer's song still goes up while the slow uploads hang")
+    }
+
+    static func connect(_ port: UInt16) throws -> Int32 {
+        let fd = socket(AF_INET, clientStream, 0)
+        guard fd >= 0 else { throw XCTSkip("no socket") }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Foundation.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connected == 0 else { close(fd); throw XCTSkip("could not connect") }
+        return fd
     }
 
     /// The client the apps will use (`BatonShareKit.ShareClient`), against the real service: what
@@ -154,6 +232,13 @@ final class ShareTransportTests: XCTestCase {
         }
         XCTAssertThrowsError(try PreparedShare.make(audio: song, metadata: ShareMetadata(title: "", durationSeconds: 1),
                                                     isPrivate: false, expiresInSeconds: 604_800, playCap: 100, client: info))
+    }
+
+    /// Wired as baton-share's main.swift wires it (TBX-1000000496 D-15).
+    static func transport(for service: ShareService) -> POSIXTransport {
+        POSIXTransport(stagingDirectory: service.stagingDirectory, maximumBodyBytes: ShareLimits.standard.maxAudioBytes,
+                       streamsBody: ShareService.streamsBody,
+                       admitsUpload: { service.admitUpload($0) }, uploadDeadline: 900, log: { _ in })
     }
 
     private func send(_ method: String, _ url: String, body: Data? = nil, secret: String? = nil) throws -> (status: Int, body: Data) {

@@ -185,10 +185,16 @@ final class AlarmKitBridge: AlarmSystemBridge {
             case .schedule, .reschedule:
                 guard case let .running(endsAt) = timer.state else { break }
                 // Counting down with the chime while the clip was cut: the same end, the track's sound.
+                // AlarmKit holds one alarm per id, so the old one goes first; if the new one is
+                // then refused, the sound it had (or AlarmKit's own) puts a timer back, rather
+                // than leaving none at all (TBX-1000000505 B-15).
                 if current != nil { try? manager.cancel(id: timer.id) }
                 let duration = endsAt.timeIntervalSince(now)
-                if await Self.schedule(id: timer.id, { @Sendable in Self.configuration(for: timer, duration: duration, sound: sound) }) {
-                    timerSound = given
+                let sounds: [String?] = current == nil ? [sound] : [sound, Self.sound(recorded: timerSound, for: timer.id), ""]
+                if let took = await Self.scheduleFirst(of: sounds, { candidate in
+                    await Self.schedule(id: timer.id, { @Sendable in Self.configuration(for: timer, duration: duration, sound: candidate) })
+                }) {
+                    timerSound = Self.recorded(took: took, wanted: sound, for: timer.id)
                 }
             case .none: break
             }
@@ -214,6 +220,31 @@ final class AlarmKitBridge: AlarmSystemBridge {
         let held = Set(existing.map(\.id)).union(plan.schedule)
         record = record.filter { held.contains($0.key) && !plan.cancel.subtracting(plan.schedule).contains($0.key) }
         scheduled = record
+    }
+
+    /// Schedules with the first of `sounds` AlarmKit takes, each tried once, and says which.
+    static func scheduleFirst(of sounds: [String?], _ schedule: (String) async -> Bool) async -> String? {
+        var tried: [String] = []
+        for case let sound? in sounds where !tried.contains(sound) {
+            tried.append(sound)
+            if await schedule(sound) { return sound }
+        }
+        return nil
+    }
+
+    /// What to record after a schedule took `took` when `wanted` was asked for. The wanted sound,
+    /// even when a fallback took: it has been tried, and recording the fallback made every later
+    /// sync see a changed sound and cancel and reschedule the running timer for a clip AlarmKit
+    /// keeps refusing. A newly cut clip has a new name, so it is still tried.
+    nonisolated static func recorded(took: String, wanted: String, for id: UUID) -> String {
+        "\(id.uuidString) \(wanted)"
+    }
+
+    /// The sound in a recorded "<id> <sound>", when it is this timer's.
+    nonisolated static func sound(recorded: String?, for id: UUID) -> String? {
+        let prefix = "\(id.uuidString) "
+        guard let recorded, recorded.hasPrefix(prefix) else { return nil }
+        return String(recorded.dropFirst(prefix.count))
     }
 
     // MARK: Configurations

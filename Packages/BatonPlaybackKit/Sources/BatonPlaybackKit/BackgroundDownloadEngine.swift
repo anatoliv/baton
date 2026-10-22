@@ -165,6 +165,12 @@ extension BackgroundDownloadEngine: URLSessionDownloadDelegate {
             try FileManager.default.moveItem(at: location, to: staging)
         } catch {
             bgLog.error("staging failed for \(ticket.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            // The task completes without an error after this, so nothing else would end the
+            // song's in-flight state: it showed as downloading until relaunch (C2-10).
+            try? FileManager.default.removeItem(at: location)
+            Task { @MainActor in
+                MusicDownloadStore.shared.noteBackgroundFailure(ticket.song, generation: ticket.generation)
+            }
             return
         }
         let response = downloadTask.response

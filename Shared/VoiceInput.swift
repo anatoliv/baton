@@ -35,6 +35,17 @@ final class VoiceInput {
     /// away" without touching the real Speech/AVFoundation permission system.
     @ObservationIgnored private let speechAuthorizationStatus: () -> SFSpeechRecognizerAuthorizationStatus
     @ObservationIgnored private let microphonePermission: () -> AVAudioApplication.recordPermission
+    /// The two permission requests `start()` awaits, injectable so a test can hold one open and
+    /// call `start()` or `stop()` meanwhile. `nil` is the real system request.
+    @ObservationIgnored private let requestSpeechAuthorization: (() async -> Bool)?
+    @ObservationIgnored private let requestMicrophonePermission: (() async -> Bool)?
+    /// True from a `start()` call until it settles. `start()` awaits two permission requests,
+    /// and a second tap in that window used to start a second engine and take a second focus
+    /// token over the first, leaving the microphone on and the music suspended (C3-12).
+    @ObservationIgnored private var isStarting = false
+    /// Bumped by `stop()`, so a `start()` still waiting on a permission request knows it was
+    /// cancelled and does not open the microphone afterwards.
+    @ObservationIgnored private var startGeneration = 0
 
     #if DEBUG
     /// Incremented on every `stop()` call, including a no-op one. Lets a test confirm the
@@ -46,11 +57,15 @@ final class VoiceInput {
     init(
         controller: StreamingPlaybackController,
         speechAuthorizationStatus: @escaping () -> SFSpeechRecognizerAuthorizationStatus = { SFSpeechRecognizer.authorizationStatus() },
-        microphonePermission: @escaping () -> AVAudioApplication.recordPermission = { AVAudioApplication.shared.recordPermission }
+        microphonePermission: @escaping () -> AVAudioApplication.recordPermission = { AVAudioApplication.shared.recordPermission },
+        requestSpeechAuthorization: (() async -> Bool)? = nil,
+        requestMicrophonePermission: (() async -> Bool)? = nil
     ) {
         self.controller = controller
         self.speechAuthorizationStatus = speechAuthorizationStatus
         self.microphonePermission = microphonePermission
+        self.requestSpeechAuthorization = requestSpeechAuthorization
+        self.requestMicrophonePermission = requestMicrophonePermission
     }
 
     var isListening: Bool { state == .listening }
@@ -96,7 +111,11 @@ final class VoiceInput {
     /// Starts listening. Music pauses (audio focus), the session flips to
     /// play-and-record, and partial results stream into `transcript`.
     func start() async {
-        guard state != .listening else { return }
+        guard state != .listening, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
+        startGeneration += 1
+        let generation = startGeneration
         transcript = ""
 
         // `@Sendable`, and it is load-bearing.
@@ -118,22 +137,34 @@ final class VoiceInput {
         // the Friend tab's microphone; the dialog went up on the setup screen and three
         // tests then burned their timeouts behind it, twenty-one minutes of what looked
         // exactly like a hang. Mirrors `-uitestBypassBiometrics`; never in a release build.
-        if Self.isUnderTest {
+        if Self.isUnderTest, requestSpeechAuthorization == nil {
             state = .denied("Speech recognition is disabled under test.")
             return
         }
         #endif
 
-        let speechAuthorized = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { @Sendable status in
-                continuation.resume(returning: status == .authorized)
+        let speechAuthorized: Bool
+        if let requestSpeechAuthorization {
+            speechAuthorized = await requestSpeechAuthorization()
+        } else {
+            speechAuthorized = await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { @Sendable status in
+                    continuation.resume(returning: status == .authorized)
+                }
             }
         }
+        guard generation == startGeneration else { return }  // stopped while asking
         guard speechAuthorized else {
             state = .denied("Speech recognition isn't allowed. Enable it in Settings → Privacy.")
             return
         }
-        let micAllowed = await AVAudioApplication.requestRecordPermission()
+        let micAllowed: Bool
+        if let requestMicrophonePermission {
+            micAllowed = await requestMicrophonePermission()
+        } else {
+            micAllowed = await AVAudioApplication.requestRecordPermission()
+        }
+        guard generation == startGeneration else { return }  // stopped while asking
         guard micAllowed else {
             state = .denied("Microphone access isn't allowed. Enable it in Settings → Privacy.")
             return
@@ -203,6 +234,8 @@ final class VoiceInput {
         #if DEBUG
         stopCallCountForTesting += 1
         #endif
+        // Also cancels a start() still waiting on a permission request.
+        startGeneration += 1
         guard state == .listening else { return transcript }
         request?.endAudio()
         finishListening()

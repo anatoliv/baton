@@ -228,6 +228,17 @@ final class HTMLImporterTests: XCTestCase {
         XCTAssertEqual(out.warnings.first?.detail, "the References, External links sections")
     }
 
+    /// C3-21: a list of links set with `<br>` and then, after a blank line in the same element,
+    /// the prose. The links are navigation; the prose after them was dropped with them.
+    func testProseAfterALinkListInTheSameElementIsKept() {
+        let html = """
+        <html><body><div><a href="/">Home page of the site</a><br><a href="/about">About this project here</a><br>
+        <a href="/contact">Contact us any time today</a><br><br>This sentence is the actual article text.</div></body></html>
+        """
+        XCTAssertEqual(HTMLImporter.read(html, fallbackTitle: "x").result.chapters.flatMap(\.paragraphs),
+                       ["This sentence is the actual article text."])
+    }
+
     /// An essay set the old way (paulgraham.com): one element, paragraphs as `<br><br>`, the
     /// title as a picture, headings with a "¶" link.
     func testParagraphsSetWithLineBreaks() {
@@ -353,6 +364,14 @@ final class URLImportTests: XCTestCase {
         XCTAssertEqual(first.title, "The Quiet Machines")
         XCTAssertEqual(first.sourceSHA256, second.sourceSHA256)
         XCTAssertEqual(first.sourceSHA256.count, 64)
+    }
+
+    /// A fragment is never sent to the server, and the address becomes the document's file name,
+    /// where a fragment that is a Baton share link's key would be kept (TBX-1000000505 B-6).
+    func testAnAddressIsReadAndKeptWithoutItsFragment() async throws {
+        let doc = try await DocumentImporter.importURL(URL(string: "https://example.org/2026/quiet-machines#section-2")!,
+                                                       fetch: fetch { Data(HTMLImporterTests.newsPage.utf8) })
+        XCTAssertEqual(doc.fileName, "https://example.org/2026/quiet-machines")
     }
 
     func testTheAddressAfterRedirectsIsKept() async throws {

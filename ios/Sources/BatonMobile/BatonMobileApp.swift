@@ -49,6 +49,7 @@ struct BatonMobileApp: App {
         // first request goes out, or the setting arrives after the cache it was meant to
         // size.
         ArtworkCache.configureURLCache()
+        ArtworkCacheOneTimeClear.run(defaults: BatonStorage.defaults, cache: ArtworkCache.byteCache)
         LegacyKeyMigration.run()
         Task { await SongSharing.shared.restoreBackgroundUploads() }
         // Stamp the version a fresh install started on. Without this the What's New marker

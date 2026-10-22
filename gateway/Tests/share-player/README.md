@@ -8,6 +8,11 @@ cap and cap increase/extension, private metadata, Open Graph privacy, CSP errors
 and iPhone/Mac Get Baton attribution without external navigation.
 Each run writes screenshots and `result.json`. A skip is printed explicitly.
 
+Through nginx, every walk first sends raw requests with Range spellings a browser cannot
+produce: two Range headers, and a tab or no-break space before `bytes=`. nginx sends each of
+them from byte 0, so each must count toward the play cap; a strict continuation inside the
+transfer allowance the last play left must not.
+
 The full walk also opens a mixtape page (`/m/`, `mixtape-page.mjs`) through the same service and
 nginx: header, expiry and plays-left chips, keyboard Play, pause, seek, Next, the one-line session
 prompt for Previous (Not now spends nothing, Start listening spends one play), a reaction, revoked
@@ -18,6 +23,10 @@ phone's docked player follows the list in the DOM and Tab order (and leads it wh
 visually hidden label rather than an `aria-label` on a plain span. Its synthetic media comes from `make-mixtape-media.py`, which needs `/private/tmp`,
 ffmpeg and a Python with `cryptography` (`SHARE_E2E_PYTHON` selects one). Without them, or against
 a service with mixtapes off or a public service, `result.json` lists the mixtape walk as skipped.
+It also answers one admission and one track with the transport's 503 `capacity` (in the browser),
+checking that neither spends a play or drops the session, and, for a spawned service, plays a link
+extended while its page is open. `--mixtape-only` runs only this walk after the
+shared nginx checks.
 The full walk then opens a whole-book page (`/b/`, `book-page.mjs`, TBX-1000000132). It makes three
 6-second AAC chapters with ffmpeg and read-along text for the first, seals them under the
 `baton-book-1` keys and creates, uploads and finalizes the book through the real service routes

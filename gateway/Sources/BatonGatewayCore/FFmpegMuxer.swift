@@ -35,7 +35,8 @@ public struct FFmpegMuxer: AudioMuxing {
         guard let ffprobe = Self.locate(probeExecutable) else {
             throw SynthesisError.permanent("ffprobe is not installed beside ffmpeg; it measures the chapters for their marks")
         }
-        let spans = try chapters.map { try packetSeconds($0, ffprobe: ffprobe) }
+        var spans: [Double] = []
+        for chapter in chapters { spans.append(try await packetSeconds(chapter, ffprobe: ffprobe)) }
         let placed = AudiobookExport.placed(marks, muxedLengths: spans)
         let work = destination.deletingLastPathComponent()
         let list = work.appendingPathComponent(destination.lastPathComponent + ".list")
@@ -51,7 +52,7 @@ public struct FFmpegMuxer: AudioMuxing {
         }
         try lines.joined(separator: "\n").appending("\n").write(to: list, atomically: true, encoding: .utf8)
         try AudiobookExport.ffmetadata(book: book, marks: placed).write(to: meta, atomically: true, encoding: .utf8)
-        try run(["-nostdin", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list.path,
+        try await run(["-nostdin", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list.path,
                  "-i", meta.path, "-map", "0:a", "-map_metadata", "1", "-map_chapters", "1", "-c", "copy",
                  "-movflags", "+faststart", "-f", "ipod", destination.path])
     }
@@ -63,8 +64,8 @@ public struct FFmpegMuxer: AudioMuxing {
     }
 
     /// A chapter's audio packets' summed duration in seconds, priming and padding included.
-    func packetSeconds(_ url: URL, ffprobe: String) throws -> Double {
-        let text = try run(["-v", "error", "-select_streams", "a:0", "-show_entries", "packet=duration_time",
+    func packetSeconds(_ url: URL, ffprobe: String) async throws -> Double {
+        let text = try await run(["-v", "error", "-select_streams", "a:0", "-show_entries", "packet=duration_time",
                             "-of", "csv=p=0", url.path], executable: ffprobe)
         var total = 0.0
         for line in text.split(whereSeparator: \.isNewline) {
@@ -77,10 +78,23 @@ public struct FFmpegMuxer: AudioMuxing {
         return total
     }
 
+    /// Runs ffmpeg (or `executable`) and waits for it on a thread of its own, not the cooperative
+    /// pool: a run lasts as long as an encode, and a pool thread blocked that long is one the
+    /// gateway's other work cannot have (TBX-1000000496 D-19).
+    @discardableResult
+    private func run(_ arguments: [String], executable: String? = nil) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            let thread = Thread {
+                continuation.resume(with: Result { try runBlocking(arguments, executable: executable) })
+            }
+            thread.name = "baton-ffmpeg"
+            thread.start()
+        }
+    }
+
     /// Runs ffmpeg (or `executable`), returning what it printed. Output goes to a temporary file
     /// rather than a pipe, so a long packet listing can never stall against unread errors.
-    @discardableResult
-    private func run(_ arguments: [String], executable: String? = nil) throws -> String {
+    private func runBlocking(_ arguments: [String], executable: String?) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable ?? self.executable)
         process.arguments = arguments
@@ -120,6 +134,6 @@ public struct FFmpegMuxer: AudioMuxing {
         if let sampleRate { arguments += ["-ar", "\(sampleRate)"] }
         for (key, value) in tags.sorted(by: { $0.key < $1.key }) { arguments += ["-metadata", "\(key)=\(value)"] }
         arguments += ["-movflags", "+faststart", "-f", "ipod", destination.path]
-        try run(arguments)
+        try await run(arguments)
     }
 }

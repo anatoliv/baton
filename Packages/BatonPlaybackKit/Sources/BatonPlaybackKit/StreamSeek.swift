@@ -129,6 +129,49 @@ public enum StreamSeek {
         return assetSeconds
     }
 
+    // MARK: - Which streams can start part-way in
+
+    /// Whether the server behind `url` honours `timeOffset` for `song`, which it does only when
+    /// it transcodes.
+    ///
+    /// Measured against demo.navidrome.org (Navidrome 0.64.2) on 2026-10-21, comparing the bytes
+    /// served for `timeOffset=0` and `timeOffset=60`:
+    ///
+    /// | request | served | `timeOffset=60` |
+    /// |---|---|---|
+    /// | MP3, no `format` (Baton's request for a native suffix) | the stored file, `Accept-Ranges: bytes` | ignored, identical bytes |
+    /// | MP3 or M4A, `format=raw` | the stored file | ignored |
+    /// | MP3, `format=mp3`, no cap | the stored file (same format, so no transcode) | ignored |
+    /// | M4A, `format=mp3` | a transcode, `Accept-Ranges: none` | honoured, different bytes |
+    /// | 320 kbps MP3, no `format`, `maxBitRate=128` | a transcode to the server's default format | honoured |
+    /// | 320 kbps MP3, no `format`, `maxBitRate=320` | the stored file | ignored |
+    ///
+    /// A file on this device and a podcast enclosure have no Subsonic server behind them at all.
+    /// Asking any of these for `timeOffset` plays from 0:00 while the clock counts from the
+    /// offset, so they open at their start and seek once ready instead. They are
+    /// also the streams that can be seeked, being stored files served with byte ranges.
+    ///
+    /// An unknown bitrate under a cap counts as a transcode, which is what Navidrome does for
+    /// anything above the cap; it reports `bitRate` for every song in practice.
+    public static func honoursTimeOffset(_ url: URL, for song: NavidromeSong) -> Bool {
+        guard MediaKind(id: song.id) == .libraryTrack,
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
+        let cap = value("maxBitRate").flatMap(Int.init) ?? 0
+        let overCap: Bool = {
+            guard cap > 0 else { return false }
+            guard let bitRate = song.bitRate, bitRate > 0 else { return true }
+            return bitRate > cap
+        }()
+        guard let format = value("format")?.lowercased(), !format.isEmpty else { return overCap }
+        if format == "raw" { return false }
+        // Asked for the format the file already has, the server sends the file unless a cap
+        // forces a re-encode.
+        if format == song.suffix?.lowercased() { return overCap }
+        return true
+    }
+
     // MARK: - Building the stream URL
 
     /// Below this an offset isn't worth a reload, and `timeOffset` is whole seconds anyway.

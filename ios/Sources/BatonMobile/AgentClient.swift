@@ -208,7 +208,9 @@ final class AgentClient {
     /// and the worst a wrong turn can do is look something up.
     private func testGateway(_ profile: Profile) async -> RemoteNaturalLanguage.TestOutcome {
         do {
-            let reply = try await askGateway("What is playing right now?", profile: profile)
+            // Not remembered: the probe is Settings' question, not the person's, and kept it
+            // became the first turn of their next conversation (TBX-1000000505 B-21).
+            let reply = try await askGateway("What is playing right now?", profile: profile, remembering: false)
             let answer = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return .ok(answer.isEmpty ? "Your Baton server answered." : "Your Baton server answered: \(answer)")
         } catch let error as AgentError {
@@ -283,7 +285,7 @@ final class AgentClient {
     /// One conversation, dialect-neutral — the kit keeps its own transcript per
     /// call, so history travels here and the same exchange reads identically
     /// whether it ran on the phone or the gateway.
-    private var history: [RemoteConversationLog.Turn] = []
+    private(set) var history: [RemoteConversationLog.Turn] = []
 
     private func runLoop(_ message: String, via profile: Profile) async throws -> Reply {
         switch profile.dialect {
@@ -296,7 +298,7 @@ final class AgentClient {
 
     /// The gateway runs the loop itself (same RemoteAgent, server-side tools),
     /// so the phone posts one turn and renders the answer.
-    private func askGateway(_ message: String, profile: Profile) async throws -> Reply {
+    private func askGateway(_ message: String, profile: Profile, remembering: Bool = true) async throws -> Reply {
         var request = URLRequest(url: GatewayAddress.root(profile.baseURL).appendingPathComponent("v1/agent"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -329,7 +331,7 @@ final class AgentClient {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let text = json["text"] as? String ?? "Done."
         let toolsRun = (json["tools_run"] as? [String])?.count ?? 0
-        remember(message, text)
+        if remembering { remember(message, text) }
         return Reply(text: text, toolCallsMade: toolsRun)
     }
 

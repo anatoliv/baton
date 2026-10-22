@@ -120,7 +120,9 @@ final class SpeechNotificationDelegate: NSObject, UNUserNotificationCenterDelega
         let engine = speech // bind to a Sendable local so the closure doesn't capture self
         if let path = info[SpeechNotifier.fileKey] as? String {
             let url = URL(fileURLWithPath: path)
-            await MainActor.run { engine.play(fileURL: url) }
+            // The body is the summary as spoken (redacted), for when the clip is already gone.
+            let text = response.notification.request.content.body
+            await MainActor.run { engine.playNotified(fileURL: url, text: text.isEmpty ? nil : text) }
         } else if let text = info[SpeechNotifier.nativeTextKey] as? String {
             await MainActor.run { engine.speakNative(text) }
         }

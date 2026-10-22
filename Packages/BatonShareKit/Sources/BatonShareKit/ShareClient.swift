@@ -111,6 +111,10 @@ public struct ShareClient: Sendable {
                       progress: (@Sendable (Double) -> Void)? = nil) async throws -> (link: URL, summary: ShareSummary) {
         let created: CreateShareResponse = try await send("POST", "/v1/share/shares",
                                                           body: try JSONEncoder().encode(prepared.request))
+        // The answer chooses where the authenticated PUTs go: never to another origin.
+        guard [created.uploads.audio, created.uploads.art, created.uploads.card].allSatisfy({
+            URL(string: $0, relativeTo: base).map { ShareUploadStore.sameOrigin($0.absoluteURL, base) } ?? false
+        }) else { throw Failure.unexpected(0) }
         progress?(0.05)
         let _: [String: Bool] = try await send("PUT", created.uploads.audio, body: prepared.sealedAudio,
                                                contentType: "application/octet-stream")

@@ -203,6 +203,67 @@ export async function verifyMixtapePage({ browser, context, base, direct, api, e
     await shot.close();
   }
 
+  // The transport's 503 "capacity" refuses before the service runs, so it charges nothing: the page
+  // keeps its session and asks for no new listen (TBX-1000000495 D-3). Fulfilled in the browser,
+  // exactly as the transport answers it.
+  step("mixtape page: a capacity 503 on admission or a track spends no play and keeps the session");
+  const busyTape = await mint(3);
+  const busy = await context.newPage();
+  await busy.goto(busyTape.link);
+  await busy.locator("#player").waitFor({ state: "visible" });
+  const capacity = (route) => route.fulfill({ status: 503, contentType: "application/json",
+    headers: { "Cache-Control": "private, no-store", "Retry-After": "1" }, body: '{"code":"capacity","error":"Too many active transfers. Try again shortly."}' });
+  const beforeBusy = problems.length;
+  for (const pattern of [`**/v1/share/m/${busyTape.id}/sessions`, `**/v1/share/m/${busyTape.id}/tracks/**`]) {
+    await busy.route(pattern, capacity);
+    await busy.click("#play");
+    await busy.waitForFunction(() => !document.getElementById("admission").hidden || document.getElementById("status").textContent !== "");
+    await busy.waitForFunction(() => !document.getElementById("status").textContent.startsWith("Unlocking"));
+    assert.equal(await busy.isVisible("#admission"), false, `no new-listen prompt after a refused ${pattern}: ${await text(busy, "#status")}`);
+    assert.equal(await text(busy, "#status"), "Baton is busy right now. Tap Play to try again.");
+    await busy.unroute(pattern);
+  }
+  assert.equal((await summary(busyTape.id)).stats.fetches, 1, "only the admission that answered spent a play");
+  await busy.click("#play");
+  await audioAfter(busy, 1);
+  assert.equal(await busy.isVisible("#admission"), false, "Play again used the same session");
+  assert.equal((await summary(busyTape.id)).stats.fetches, 1, "the retry spent nothing");
+  const loggedBusy = problems.splice(beforeBusy);
+  assert.ok(loggedBusy.every((line) => /status of 503/.test(line)), JSON.stringify(loggedBusy));
+  await busy.click("#play");
+  await busy.waitForFunction(() => document.getElementById("audio").paused);
+  await busy.close();
+
+  // A session ends at most 30 minutes out or at the link's end. A link that ends sooner and is
+  // extended while its page is open gives a session past the deadline the page loaded with (D-11).
+  if (!external) {
+    step("mixtape page: a link extended while its page is open still admits and plays");
+    const soon = await mint(3);
+    execFileSync("python3", ["-c", "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('UPDATE shares SET expires_at=? WHERE id=?',(int(time.time())+600,sys.argv[2])); c.commit()",
+      join(dataDir, "share.sqlite"), soon.id]);
+    const extending = await context.newPage();
+    await extending.goto(soon.link);
+    await extending.locator("#player").waitFor({ state: "visible" });
+    const endsBefore = await text(extending, "#ends");
+    const longer = await api("PATCH", `/v1/share/mixtapes/${soon.id}`, JSON.stringify({ extendBySeconds: 86400 }), json);
+    assert.equal(longer.status, 200, JSON.stringify(longer.json));
+    await extending.click("#play");
+    await extending.waitForFunction(() => document.body.dataset.state !== "ready"
+      || (!document.getElementById("audio").paused && document.getElementById("audio").currentTime > 1), null, { timeout: 20000 });
+    assert.equal(await extending.evaluate(() => document.body.dataset.state), "ready", `the later session deadline is accepted: ${await text(extending, "#status")}`);
+    assert.equal((await summary(soon.id)).stats.fetches, 1);
+    await extending.waitForFunction((before) => document.getElementById("ends").textContent !== before, endsBefore);
+    assert.equal(await text(extending, "#ends"), await extending.evaluate((iso) => {
+      const end = new Date(iso), today = end.toDateString() === new Date().toDateString();
+      const when = new Intl.DateTimeFormat(undefined, today ? { hour: "numeric", minute: "2-digit", timeZoneName: "short" }
+        : { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(end);
+      return `Ends ${today ? "today, " : ""}${when}`;
+    }, longer.json.share.expiresAt), "the page shows the link's new end, not the session's");
+    await extending.click("#play");
+    await extending.waitForFunction(() => document.getElementById("audio").paused);
+    await extending.close();
+  }
+
   step("mixtape page: revoking while open, and revoked/expired links, read as ended");
   const open = await context.newPage();
   await open.goto(shots.link);

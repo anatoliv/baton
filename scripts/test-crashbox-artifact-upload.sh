@@ -34,9 +34,9 @@ out="$($PYTHON "$HELPER" check "$CREDENTIAL" --project "$EXPECTED_PROJECT" 2>"$W
 rc=$?
 if [ "$rc" -ne 0 ]; then
   bad "a generated mode-0600 Baton credential passes preflight"
-elif printf '%s' "$out" | grep -qF "$TOKEN" || grep -qF "$TOKEN" "$WORK/check.err"; then
+elif grep -qF <<<"$out" "$TOKEN" || grep -qF "$TOKEN" "$WORK/check.err"; then
   bad "credential preflight printed its token"
-elif ! printf '%s' "$out" | grep -qF '"project_slug":"baton-macos"'; then
+elif ! grep -qF <<<"$out" '"project_slug":"baton-macos"'; then
   bad "credential preflight did not return safe project identity"
 else
   ok "a generated mode-0600 Baton credential passes without printing its token"
@@ -94,7 +94,7 @@ EXPECTED_PROJECT='baton-ios'
 write_credential
 out="$($PYTHON "$HELPER" check "$CREDENTIAL" --project "$EXPECTED_PROJECT" 2>"$WORK/ios-check.err")"
 rc=$?
-if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qF '"project_slug":"baton-ios"'; then
+if [ "$rc" -ne 0 ] || ! grep -qF <<<"$out" '"project_slug":"baton-ios"'; then
   bad "a mode-0600 Baton iPhone credential passes its exact project preflight"
 else
   ok "a mode-0600 Baton iPhone credential passes its exact project preflight"
@@ -156,7 +156,7 @@ if [ "$rc" -ne 0 ] || [ ! -f "$RECEIPT" ]; then
   bad "a matching accepted response upgrades a legacy receipt"
 elif [ "$(stat -f '%Lp' "$RECEIPT")" != 600 ]; then
   bad "the upgraded receipt is not mode 0600"
-elif grep -qF "$TOKEN" "$WORK/curl.args" || printf '%s' "$out" | grep -qF "$TOKEN"; then
+elif grep -qF "$TOKEN" "$WORK/curl.args" || grep -qF <<<"$out" "$TOKEN"; then
   bad "the bearer token reached argv or normal output"
 elif ! grep -qF "Authorization: Bearer $TOKEN" "$WORK/curl.config"; then
   bad "the bearer token was not passed through curl's stdin config"

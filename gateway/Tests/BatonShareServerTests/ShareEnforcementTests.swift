@@ -146,6 +146,47 @@ final class ShareEnforcementTests: XCTestCase {
         }
     }
 
+    /// Installation secrets are self-minted, so a limit per secret does not bound one client: a
+    /// fresh secret per request could fill the 10,000-row grant table and turn every installation
+    /// away for the grants' minute. One network gets 100 grants an hour (TBX-1000000496 D-16).
+    func testContactGrantsAreLimitedPerNetworkNotOnlyPerSelfMintedSecret() throws {
+        var configuration = service.config
+        configuration.contactBridge = try ShareContactConfiguration(readerDigest: ShareHash.secretDigest(String(repeating: "R", count: 48)))
+        let testClock = clock!
+        service = try ShareService(config: configuration, clock: { testClock.now })
+        let body = try JSONSerialization.data(withJSONObject: ["purpose": "status", "include": []])
+        let network = ["cf-connecting-ip": "198.51.100.9"]
+        var statuses: [Int] = []
+        for index in 0 ..< 101 {
+            let fresh = Base64URL.encode(Data(repeating: UInt8(index), count: 32))
+            // Half from one IPv4 address, half from addresses across one IPv6 /64: each is one network.
+            let from = index < 50 ? network : ["cf-connecting-ip": "2001:db8:5:6::\(index)"]
+            statuses.append(send("POST", "/v1/share/contact/authorization", body: body, secret: fresh, headers: from).status)
+        }
+        XCTAssertEqual(statuses.prefix(50).filter { $0 == 200 }.count, 50, "a busy household is not refused")
+        XCTAssertEqual(statuses.suffix(51).filter { $0 == 200 }.count, 51, "the /64 is its own network with its own 100")
+        for index in 0 ..< 50 {
+            let fresh = Base64URL.encode(Data(repeating: UInt8(200), count: 31) + Data([UInt8(index)]))
+            XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: fresh, headers: network).status, 200)
+        }
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: Base64URL.encode(Data(repeating: 201, count: 32)),
+                            headers: network).status, 429, "the 101st fresh secret from one network in an hour is refused")
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: Base64URL.encode(Data(repeating: 202, count: 32)),
+                            headers: ["cf-connecting-ip": "2001:db8:5:6:ffff::1"]).status, 200, "the /64 has 49 left")
+        for index in 0 ..< 48 {
+            let fresh = Base64URL.encode(Data(repeating: UInt8(210), count: 31) + Data([UInt8(index)]))
+            XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: fresh,
+                                headers: ["cf-connecting-ip": "2001:db8:5:6:eeee::\(index)"]).status, 200)
+        }
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: Base64URL.encode(Data(repeating: 220, count: 32)),
+                            headers: ["cf-connecting-ip": "2001:db8:5:6:dddd::1"]).status, 429,
+                       "a fresh address in the same /64 does not get a fresh allowance")
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: owner,
+                            headers: ["cf-connecting-ip": "203.0.113.50"]).status, 200, "another network is unaffected")
+        testClock.advance(3600)
+        XCTAssertEqual(send("POST", "/v1/share/contact/authorization", body: body, secret: owner, headers: network).status, 200, "and the hour passes")
+    }
+
     func testContactAuthorizationUsesActualInstallationOwnership() throws {
         let id = try makeShare()
         let body = try JSONSerialization.data(withJSONObject: ["purpose": "enroll", "include": [id]])
@@ -414,11 +455,15 @@ final class ShareEnforcementTests: XCTestCase {
         let viaApp = service.handle(HTTPRequestMessage(method: "GET", path: "/v1/share/p/" + id,
                                                         query: ["via": "app"], headers: [:], body: Data()))
         XCTAssertEqual(viaApp.status, 410)
-        for route in ["events", "reactions"] {
-            XCTAssertEqual(send("POST", "/v1/share/p/" + id + "/" + route, body: Data("{}".utf8)).status, 410)
-        }
-        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM events"), before)
+        XCTAssertEqual(send("POST", "/v1/share/p/" + id + "/reactions", body: Data("{}".utf8)).status, 410)
+        // A beacon is accepted and dropped, as for an expired or revoked share, so a player cannot
+        // tell a hold from an ending (owner decision 2026-10-21, TBX-1000000507 D-9).
+        let beacon = send("POST", "/v1/share/p/" + id + "/events", body: Data(#"{"type":"play_started","ms":900}"#.utf8))
+        XCTAssertEqual(beacon.status, 204)
+        XCTAssertEqual(beacon.body, Data())
+        XCTAssertEqual(try service.store.database.scalar("SELECT COUNT(*) FROM events"), before, "and nothing is written")
         XCTAssertEqual(try service.store.share(id: id)?.stats.fetches, 0)
+        XCTAssertEqual(try service.store.share(id: id)?.stats.plays, 0)
     }
 
     func testOwnerNoticeDoesNotExposeCaseDigestOrMetadataAndVoluntaryRevokeWorks() throws {
@@ -433,6 +478,25 @@ final class ShareEnforcementTests: XCTestCase {
         XCTAssertEqual(send("DELETE", "/v1/share/shares/" + id, secret: owner).status, 204)
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.store.blobURL(id: id, kind: .audio).path))
         XCTAssertEqual(try apply(.restoreShare, id: id).outcome, "unrestorable")
+    }
+
+    /// The sharer may still revoke a held share, but that must not overwrite the operator's case
+    /// reference or its retention: the contact action and the audit trail match on it (TBX-1000000496
+    /// 507 D-18).
+    func testVoluntaryRevokeOfAHeldShareKeepsTheOperatorsCaseReference() throws {
+        let id = try makeShare()
+        try apply(.disableShare, id: id)
+        let held = try XCTUnwrap(try service.store.enforcementState(id: id))
+        let heldUntil = try service.store.database.scalar("SELECT case_until FROM share_enforcement WHERE share_id=?", [.text(id)])
+        XCTAssertFalse(held.caseReference.isEmpty)
+        XCTAssertEqual(send("DELETE", "/v1/share/shares/" + id, secret: owner).status, 204)
+        let revoked = try XCTUnwrap(try service.store.enforcementState(id: id))
+        XCTAssertEqual(revoked.caseReference, held.caseReference, "the operator's case reference survives the owner's revoke")
+        XCTAssertEqual(try service.store.database.scalar("SELECT case_until FROM share_enforcement WHERE share_id=?", [.text(id)]), heldUntil,
+                       "and so does how long it is kept")
+        XCTAssertTrue(revoked.disabled && revoked.purged)
+        try service.store.sweepEnforcement(now: Int64(clock.now.timeIntervalSince1970) + 1)
+        XCTAssertEqual(try service.store.enforcementState(id: id)?.caseReference, held.caseReference, "a sweep before its retention ends keeps it")
     }
 
     func testReplayRecoveryAndBodyChangeHaveOneImmutableReceipt() throws {

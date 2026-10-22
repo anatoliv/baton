@@ -635,6 +635,145 @@ final class ReadAloudCoordinatorTests: XCTestCase {
         )
     }
 
+    /// The Playback menu's Stop Speaking has to end a reading too, not only the sentence playing.
+    /// It called `speech.cancel()` alone, which empties the engine's queue while the coordinator
+    /// keeps rendering the next sentence straight back into it, so the article carried on
+    ///. The HUD's × learned this already; the menu had not.
+    func testStopSpeakingFromThePlaybackMenuEndsAReading() async {
+        let music = MusicModel()
+        var requested: [String] = []
+        let c = ReadAloudCoordinator(music: music)
+        c.synthesize = { text, _ in
+            requested.append(text)
+            try await Task.sleep(for: .milliseconds(60))
+            return Data([0x00])
+        }
+
+        c.read(.init(
+            text: "The first sentence is long enough to be its own chunk here. "
+                + "The second sentence is also long enough to stand by itself. "
+                + "A third sentence, and a fourth that should never be requested at all. "
+                + "This fifth one should certainly never reach the host either, not once.",
+            profile: .generic, sourceName: nil
+        ))
+        try? await Task.sleep(for: .milliseconds(80))
+        let atStop = requested.count
+        PlaybackMenuCommands.stopSpeaking(music.speech, reading: c)
+        await settle()
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertFalse(c.isReading, "the menu's Stop Speaking left the reading running")
+        XCTAssertLessThanOrEqual(requested.count, atStop + 1,
+                                 "the reading carried on after Stop Speaking: \(requested)")
+    }
+
+    /// Replaying a past summary from Recent Summaries interrupts on purpose, and had the same
+    /// hole as the menu's Stop Speaking: it cancelled the engine alone, and the reading went on
+    /// enqueuing sentences behind the replay (TBX-1000000504 review).
+    func testReplayingASpokenSummaryEndsAReading() async {
+        let music = MusicModel()
+        var requested: [String] = []
+        let c = ReadAloudCoordinator(music: music)
+        c.synthesize = { text, _ in
+            requested.append(text)
+            try await Task.sleep(for: .milliseconds(60))
+            return Data([0x00])
+        }
+        defer { music.speech.cancel() }
+
+        c.read(.init(
+            text: "The first sentence is long enough to be its own chunk here. "
+                + "The second sentence is also long enough to stand by itself. "
+                + "A third sentence, and a fourth that should never be requested at all. "
+                + "This fifth one should certainly never reach the host either, not once.",
+            profile: .generic, sourceName: nil
+        ))
+        try? await Task.sleep(for: .milliseconds(80))
+        let atReplay = requested.count
+        music.replaySpokenSummary(.init(id: UUID(), text: "The build passed.", voice: nil, engine: "system",
+                                        category: nil, date: Date()))
+        await settle()
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertFalse(c.isReading, "replaying a summary left the reading running")
+        XCTAssertLessThanOrEqual(requested.count, atReplay + 1,
+                                 "the reading carried on behind the replayed summary: \(requested)")
+    }
+
+    private struct NoOutputDevice: Error {}
+
+    /// A resumed reading that nobody heard keeps its place. With no usable output device every
+    /// clip now finishes at once (A-4), so the coordinator handed over the whole rest of the
+    /// article, counted it read, and removed it from Resume, though not a word had played
+    /// (TBX-1000000504 review).
+    func testAResumedReadingNobodyHeardStaysInResume() async throws {
+        SpeechAudioPlayer.startEngineOverride = { _ in throw NoOutputDevice() }
+        defer { SpeechAudioPlayer.startEngineOverride = nil }
+        let (store, dir) = try scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let chunks = ["The first sentence is long enough to be its own chunk here.",
+                      "The second sentence is also long enough to stand by itself.",
+                      "And a third one, long enough to be a chunk of its own as well."]
+        let id = UUID()
+        store.record(id: id, chunks: chunks, resumeIndex: 1, sourceName: "Safari", startedAt: Date())
+        let entry = try XCTUnwrap(store.entries.first)
+        let music = MusicModel()
+        let c = ReadAloudCoordinator(music: music, unfinished: store)
+        let clip = SpeechTestClip.toneWAV(seconds: 0.4)
+        c.synthesize = { _, _ in clip }
+
+        c.resume(entry)
+        let deadline = Date().addingTimeInterval(5)
+        while c.isReading, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertFalse(c.isReading)
+        XCTAssertFalse(music.speech.isSpeaking, "the session still ends, so the music is not left ducked")
+        XCTAssertEqual(store.entries.map(\.id), [id], "a reading nobody heard was removed from Resume")
+        XCTAssertEqual(store.entries.first?.resumeIndex, 1, "its saved place moved though nothing was heard")
+        XCTAssertEqual(store.entries.first?.chunks, chunks)
+    }
+
+    // MARK: - Readings take turns with the previous one's tail (A-6)
+
+    /// The next queued reading must not take the HUD while the previous one's last sentence is
+    /// still being spoken. Its synthesis loop ends when the last chunk is *handed over*, up to
+    /// two sentences before that chunk is heard, and the next reading used to start there:
+    /// the HUD showed the new article over the old one's audio, and a Stop then saved the new
+    /// reading's place from the old one's highlight (TBX-1000000504, A-6). Real clips through
+    /// the real (muted) graph, because only a clip that takes time to play has a tail.
+    func testTheNextReadingWaitsForThePreviousOnesTailBeforeTakingTheHUD() async throws {
+        try XCTSkipIf(AudioOutputDevices.defaultOutputDeviceID() == 0,
+                      "no output device: a clip cannot play here, so there is no tail to wait for")
+        SpeechConfig.fallbackEnabled = false
+        let music = MusicModel()
+        let c = ReadAloudCoordinator(music: music)
+        let clip = SpeechTestClip.toneWAV(seconds: 1.5)
+        c.synthesize = { _, _ in clip }
+        defer { c.stop() }
+
+        c.read(.init(text: "The first article has exactly one sentence in it.", profile: .generic, sourceName: nil))
+        c.read(.init(text: "The second article also has one sentence of its own.", profile: .generic, sourceName: nil))
+
+        var deadline = Date().addingTimeInterval(3)
+        while music.speech.currentText?.contains("first article") != true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        // One chunk and instant synthesis: the first reading's loop is over well before this.
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(music.speech.currentText?.contains("first article"), true, "the first article is still being spoken")
+        XCTAssertEqual(music.speech.reading?.text.contains("first article"), true,
+                       "the HUD moved to the next reading while the first one's last sentence played: \(music.speech.reading?.text ?? "nil")")
+
+        deadline = Date().addingTimeInterval(6)
+        while music.speech.currentText?.contains("second article") != true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(music.speech.currentText?.contains("second article"), true, "the queued reading never got its turn")
+        XCTAssertEqual(music.speech.reading?.text.contains("second article"), true, "and it takes the HUD when it does")
+    }
+
     // MARK: - One bad chunk must not cost the rest of the reading
 
     /// A single synthesis failure mid-reading must not stop Baton asking the host.

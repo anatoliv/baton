@@ -58,47 +58,52 @@ run() {   # the project's script, as a project would write it
 export SUBJECT
 
 out="$(STUB_VAULT=locked run)"; rc=$?
-printf '%s' "$out" | grep -q '^Demo release readiness, [0-9]' && ok "the report starts with its title and the date" || bad "no title line. Got: $out"
-printf '%s' "$out" | grep -q 'FAIL  vault: locked; run secrets-unlock in a terminal tab (The phone release reads "Release env (demo)")' \
+grep -q '^Demo release readiness, [0-9]' <<<"$out" && ok "the report starts with its title and the date" || bad "no title line. Got: $out"
+grep -q 'FAIL  vault: locked; run secrets-unlock in a terminal tab (The phone release reads "Release env (demo)")' <<<"$out" \
   && ok "a locked vault is one FAIL naming secrets-unlock and who needs the item" || bad "a locked vault was not reported. Got: $out"
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q "^NOT READY: 3 item(s) above would stop a release.$" \
+[ "$rc" = 1 ] && grep -q "^NOT READY: 3 item(s) above would stop a release.$" <<<"$out" \
   && ok "FAILs (and only FAILs) are counted: NOT READY with exit 1" || bad "the verdict is wrong (rc $rc). Got: $out"
 out="$(STUB_VAULT=broken run)"
-printf '%s' "$out" | grep -q 'FAIL  vault: vault-find failed (exit 7)' && ok "a vault command that fails otherwise is named with its exit" || bad "a broken vault was not named. Got: $out"
+grep -q 'FAIL  vault: vault-find failed (exit 7)' <<<"$out" && ok "a vault command that fails otherwise is named with its exit" || bad "a broken vault was not named. Got: $out"
 out="$(run)"
-printf '%s' "$out" | grep -q 'ok    vault: unlocked, "Release env (demo)" found' && ok "an unlocked vault holding the item is ok" || bad "the vault item was not found. Got: $out"
-printf '%s' "$out" | grep -q "ok    tree: clean at [0-9a-f]\{12\}" && printf '%s' "$out" | grep -q "ok    source: HEAD is on origin/main (as of the last fetch)" \
+grep -q 'ok    vault: unlocked, "Release env (demo)" found' <<<"$out" && ok "an unlocked vault holding the item is ok" || bad "the vault item was not found. Got: $out"
+grep -q "ok    tree: clean at [0-9a-f]\{12\}" <<<"$out" && grep -q "ok    source: HEAD is on origin/main (as of the last fetch)" <<<"$out" \
   && ok "a clean tree on origin/main gets two ok lines" || bad "tree or source line missing. Got: $out"
-printf '%s' "$out" | grep -q "ok    credentials: $CRED is 0700" && printf '%s' "$out" | grep -q "ok    credentials: good.json present, 0600" \
-  && printf '%s' "$out" | grep -q "FAIL  credentials: loose.json is mode 644, not 0600" \
-  && printf '%s' "$out" | grep -q "FAIL  credentials: missing.json is missing from $CRED" \
+grep -q "ok    credentials: $CRED is 0700" <<<"$out" && grep -q "ok    credentials: good.json present, 0600" <<<"$out" \
+  && grep -q "FAIL  credentials: loose.json is mode 644, not 0600" <<<"$out" \
+  && grep -q "FAIL  credentials: missing.json is missing from $CRED" <<<"$out" \
   && ok "credential files are checked by presence and mode, each by name" || bad "credential lines are wrong. Got: $out"
-if printf '%s' "$out" | grep -qF "$TOKEN" || printf '%s' "$out" | grep -q 'tok_'; then
+if grep -qF "$TOKEN" <<<"$out" || grep -q 'tok_' <<<"$out"; then
   bad "the report printed a credential value"
 else
   ok "no credential value appears in the report"
 fi
-printf '%s' "$out" | grep -q "WARN  gate lock (mac-app-host): held by gate pid $STANDIN from /tmp/another-checkout; a release waits for it (NATIVE_LOCK_WAIT)" \
-  && printf '%s' "$out" | grep -q "WARN  sim-AAAA: held by gate pid $STANDIN" && ! printf '%s' "$out" | grep -q "sim-OLD" \
+grep -q "WARN  gate lock (mac-app-host): held by gate pid $STANDIN from /tmp/another-checkout; a release waits for it (NATIVE_LOCK_WAIT)" <<<"$out" \
+  && grep -q "WARN  sim-AAAA: held by gate pid $STANDIN" <<<"$out" && ! grep -q "sim-OLD" <<<"$out" \
   && ok "held locks are named with their holder; a stale record (reused pid) is not" || bad "lock lines are wrong. Got: $out"
 [ "$(cksum <"$NATIVE_LOCK_HOST_FILE")" = "$lock_before" ] && [ ! -e "$WORK/lockf.log" ] \
   && ok "lock records are read, never taken or changed" || bad "the readiness check touched a lock"
-printf '%s' "$out" | grep -q "WARN  rsync: something worth knowing" && printf '%s' "$out" | grep -q "^NOT READY: 2 item" \
+grep -q "WARN  rsync: something worth knowing" <<<"$out" && grep -q "^NOT READY: 2 item" <<<"$out" \
   && ok "a WARN is shown but does not count toward NOT READY" || bad "a WARN was counted. Got: $out"
 
 chmod 600 "$CRED/loose.json"; touch "$CRED/missing.json"; chmod 600 "$CRED/missing.json"
 out="$(run)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q "^READY: nothing above would stop a release. Both can run side by side.$" \
+[ "$rc" = 0 ] && grep -q "^READY: nothing above would stop a release. Both can run side by side.$" <<<"$out" \
   && ok "with no FAIL the report is READY with the project's note, exit 0" || bad "a clean report was not READY (rc $rc). Got: $out"
 out="$(run hook_missing)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q "FAIL  readiness: the hook hook_missing is not defined" \
+[ "$rc" = 1 ] && grep -q "FAIL  readiness: the hook hook_missing is not defined" <<<"$out" \
   && ok "a hook the project forgot to define is a FAIL, not a silent pass" || bad "a missing hook passed. Got: $out"
 echo dirty >>"$R/a"; git -C "$R" commit -qam two
 out="$(run)"
-printf '%s' "$out" | grep -q "FAIL  source: HEAD is not on origin/main" && ok "a HEAD that origin/main lacks is a FAIL" || bad "an unmerged HEAD passed. Got: $out"
+grep -q "FAIL  source: HEAD is not on origin/main" <<<"$out" && ok "a HEAD that origin/main lacks is a FAIL" || bad "an unmerged HEAD passed. Got: $out"
 echo more >>"$R/a"
 out="$(run)"
-printf '%s' "$out" | grep -q "FAIL  tree: $R has uncommitted changes" && ok "a dirty tree is a FAIL" || bad "a dirty tree passed. Got: $out"
+grep -q "FAIL  tree: $R has uncommitted changes" <<<"$out" && ok "a dirty tree is a FAIL" || bad "a dirty tree passed. Got: $out"
+git -C "$R" checkout -q -- a
+printf 'not an index' >"$R/.git/index"   # corrupt: HEAD resolves, git status exits 128
+out="$(run)"
+grep -q "FAIL  tree: git status failed in $R" <<<"$out" && ! grep -q "ok    tree:" <<<"$out" \
+  && ok "a tree git cannot read is a FAIL, not clean" || bad "a failed git status read as clean. Got: $out"
 
 echo "ready: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

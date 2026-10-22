@@ -220,13 +220,25 @@ final class ReadAloudCoordinator {
         currentReadingID = id
         currentRanges = ranges
         enqueuedChunks = 0
+        music.speech.firstUnheardReadingRange = nil
         task = Task { [weak self] in
             let completed = await self?.speak(chunks, ranges: ranges, voice: voice) ?? false
             guard let self else { return }
+            // Every chunk is handed over, but up to `lookahead` of them are still to be heard.
+            // The next reading waits for them: starting it here put its document on the HUD
+            // over this one's last sentences, and a Stop then saved its place from this
+            // reading's highlight (TBX-1000000504, A-6).
+            if completed { await self.waitForTheTail() }
             self.isReading = false
             // Cancelled means `stop()` ran, and it has already saved the position.
             guard !Task.isCancelled else { return }
-            if completed {
+            if completed, let unheard = self.firstUnheardChunk() {
+                // Every chunk was handed over, but from this one on nothing could play (no
+                // usable output device): not read. The place is kept where the silence began,
+                // and if nothing at all was heard, any place saved before is left as it was
+                // (the store reads index 0 as "nothing to resume" and would drop it).
+                if unheard > 0 { self.recordPosition(id: id, at: unheard) }
+            } else if completed {
                 // Ran to the end: nothing to come back to, so drop any saved position rather
                 // than leaving a finished article in the Resume menu.
                 self.unfinished.remove(id: id)
@@ -238,6 +250,13 @@ final class ReadAloudCoordinator {
                 // article *because* synthesis broke.
                 self.recordPosition(id: id)
             }
+        }
+    }
+
+    /// Until the engine has spoken everything this reading handed it, or the reading is stopped.
+    private func waitForTheTail() async {
+        while !Task.isCancelled, music.speech.isSpeaking || music.speech.queuedCount > 0 {
+            try? await Task.sleep(for: .milliseconds(120))
         }
     }
 
@@ -425,10 +444,16 @@ final class ReadAloudCoordinator {
     }
 
     /// Save where this reading got to, so it can be resumed.
-    private func recordPosition(id: UUID) {
+    private func recordPosition(id: UUID, at index: Int? = nil) {
         guard let reading = exportable else { return }
-        unfinished.record(id: id, chunks: reading.chunks, resumeIndex: spokenChunkIndex(),
+        unfinished.record(id: id, chunks: reading.chunks, resumeIndex: index ?? spokenChunkIndex(),
                           sourceName: reading.sourceName, startedAt: reading.startedAt)
+    }
+
+    /// The chunk where this reading's first unplayable clip was, if one was.
+    private func firstUnheardChunk() -> Int? {
+        guard let unheard = music.speech.firstUnheardReadingRange else { return nil }
+        return currentRanges.firstIndex { $0.location == unheard.location }
     }
 
     // MARK: - Saving a reading

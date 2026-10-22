@@ -62,7 +62,12 @@ final class ShareViewController: UIViewController {
         } catch {
             failed = true
             message.text = "Baton could not keep this"
-            detail.text = (error as? ShareError)?.message ?? error.localizedDescription
+            if case PendingShareInbox.WriteError.batonShareLink = error {
+                message.text = "This is a Baton song link"
+                detail.text = "Open it from Messages or Safari to play it. Baton doesn't make books from it."
+            } else {
+                detail.text = (error as? ShareError)?.message ?? error.localizedDescription
+            }
         }
         done.isHidden = false
     }

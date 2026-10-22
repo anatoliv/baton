@@ -53,9 +53,9 @@ expect_refused() {
   run_guard "$repo"
   if [ "$rc" != 1 ]; then
     bad "$label: expected exit 1, got $rc. Output: $out"
-  elif ! printf '%s' "$out" | grep -qF "$name"; then
+  elif ! grep -qF <<<"$out" "$name"; then
     bad "$label: refused but did not name $name. Output: $out"
-  elif printf '%s' "$out" | grep -qF "$FAKE_TOKEN"; then
+  elif grep -qF <<<"$out" "$FAKE_TOKEN"; then
     bad "$label: the guard printed the credential value"
   else
     ok "$label"
@@ -126,7 +126,7 @@ repo="$(fresh_repo "$PRE_FIX_IGNORE")"
 fake_credential >"$repo/ios/Config/CrashboxArtifactUpload.local.json"
 git -C "$repo" add ios/Config/CrashboxArtifactUpload.local.json
 run_guard "$repo"
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -qF "staged as a new file"; then
+if [ "$rc" = 1 ] && grep -qF <<<"$out" "staged as a new file"; then
   ok "a credential already staged by 'git add -A' is refused and called staged"
 else
   bad "a staged credential was not refused as staged (rc=$rc). Output: $out"

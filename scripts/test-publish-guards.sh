@@ -72,13 +72,13 @@ out="$(
 rc=$?
 if [ "$rc" = 0 ]; then
   bad "TBX-5386: publish guard admitted the planted primary checkout"
-elif ! printf '%s' "$out" | grep -qF '/private/tmp/baton-rel'; then
+elif ! grep -qF <<<"$out" '/private/tmp/baton-rel'; then
   bad "TBX-5386: refusal did not name the Mac release checkout. Got: $out"
-elif ! printf '%s' "$out" | grep -qF '/private/tmp/baton-release-tf'; then
+elif ! grep -qF <<<"$out" '/private/tmp/baton-release-tf'; then
   bad "TBX-5386: refusal did not name the iPhone release checkout. Got: $out"
-elif ! printf '%s' "$out" | grep -qF 'git clone --branch main'; then
+elif ! grep -qF <<<"$out" 'git clone --branch main'; then
   bad "TBX-5386: refusal did not give the one-line Mac recovery command. Got: $out"
-elif ! printf '%s' "$out" | grep -qF 'checkout --detach origin/main'; then
+elif ! grep -qF <<<"$out" 'checkout --detach origin/main'; then
   bad "TBX-5386: refusal did not give the one-line iPhone recovery command. Got: $out"
 else
   ok "TBX-5386 publish guard refuses a planted primary checkout and names both recoveries"
@@ -213,7 +213,7 @@ fi
 
 # Since the release kit (TBX-7519) the tag is pushed, on the build commit, by
 # rk_tag_release; the release metadata (cask, site) still stays local for the mirror step.
-if grep -qE '^  RK_RETAG=1 rk_tag_release "\$VERSION" "\$MACREL_COMMIT"' "$SUBJECT" && \
+if grep -qE '^  RK_RETAG="\$\{BATON_REPUBLISH:\+1\}" rk_tag_release "\$VERSION" "\$MACREL_COMMIT"' "$SUBJECT" && \
    grep -qF 'push the tag' "$SUBJECT" && \
    grep -qF 'does not commit or push them' "$SUBJECT"; then
   ok "TBX-5386 publish.sh states plainly that it pushes the tag and leaves release metadata local"
@@ -261,7 +261,7 @@ bare_path() {   # $@ = names to provide from the real PATH
 # is refused, no clock at all refuses and submits nothing (the old perl-alarm fallback and
 # the loud unbounded run are both gone), attempts are bounded and reaped, and no pkill.
 # What is left to prove here is the wiring.
-if printf '%s' "$NOTARIZE_FN" | grep -q 'rk_notarize "\$file" "\$NOTARY_PROFILE"'; then
+if grep -q <<<"$NOTARIZE_FN" 'rk_notarize "\$file" "\$NOTARY_PROFILE"'; then
   ok "D-F8 wiring: notarize() submits through the kit's bounded rk_notarize"
 else
   bad "D-F8 wiring: notarize() no longer goes through rk_notarize"
@@ -300,9 +300,9 @@ run_spctl() {   # $1 = spctl exit status, $2 = ALLOW_SPCTL_FAILURE
 out="$(run_spctl 3 "")"; rc=$?
 if [ "$rc" = 0 ]; then
   bad "D-F9: a rejected DMG still published. Got: $out"
-elif printf '%s' "$out" | grep -q "reached the publish"; then
+elif grep -q <<<"$out" "reached the publish"; then
   bad "D-F9: the script carried on past a failed assessment. Got: $out"
-elif ! printf '%s' "$out" | grep -q "spctl rejected the notarized DMG"; then
+elif ! grep -q <<<"$out" "spctl rejected the notarized DMG"; then
   bad "D-F9: no message saying what was rejected. Got: $out"
 else
   ok "D-F9 a failed Gatekeeper assessment stops the release before the upload"
@@ -311,9 +311,9 @@ fi
 out="$(run_spctl 3 "1")"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "D-F9: ALLOW_SPCTL_FAILURE=1 did not let a deliberate override through. Got: $out"
-elif ! printf '%s' "$out" | grep -q "reached the publish"; then
+elif ! grep -q <<<"$out" "reached the publish"; then
   bad "D-F9: the override stopped the release anyway. Got: $out"
-elif ! printf '%s' "$out" | grep -q "publishing anyway"; then
+elif ! grep -q <<<"$out" "publishing anyway"; then
   bad "D-F9: the override is silent, so the log does not record that it was used. Got: $out"
 else
   ok "D-F9 ALLOW_SPCTL_FAILURE=1 continues, and says in the log that it did"
@@ -322,7 +322,7 @@ fi
 out="$(run_spctl 0 "")"; rc=$?
 if [ "$rc" != 0 ]; then
   bad "D-F9: a passing assessment stopped the release. Got: $out"
-elif ! printf '%s' "$out" | grep -q "reached the publish"; then
+elif ! grep -q <<<"$out" "reached the publish"; then
   bad "D-F9: a passing assessment did not continue. Got: $out"
 else
   ok "D-F9 a passing assessment continues, unchanged"
@@ -332,7 +332,7 @@ fi
 #
 # Stated as an assertion rather than a comment, since the argument for making it fatal was
 # that every sibling already is.
-if printf '%s' "$SPCTL_BLOCK" | grep -q 'exit 1'; then
+if grep -q <<<"$SPCTL_BLOCK" 'exit 1'; then
   ok "D-F9 the assessment block still ends a failed release rather than noting it"
 else
   bad "D-F9: the spctl block no longer exits, so a rejected DMG would publish again"
@@ -394,13 +394,13 @@ run_detach() {   # $1 = plain detaches that fail, $2 = force exit status
 out="$(run_detach 2 1)"
 plain="$(grep -c '^detach /tmp/vmp$' "$WORK/hdiutil.calls" || true)"
 forced="$(grep -c '^detach -force' "$WORK/hdiutil.calls" || true)"
-if ! printf '%s' "$out" | grep -q "DETACH_OK"; then
+if ! grep -q <<<"$out" "DETACH_OK"; then
   bad "TBX-5357: a busy mount that clears on the third try still failed the release. Got: $out"
 elif [ "$plain" != 3 ]; then
   bad "TBX-5357: expected 3 ordinary detach attempts, saw $plain. Got: $out"
 elif [ "$forced" != 0 ]; then
   bad "TBX-5357: -force was used even though an ordinary detach succeeded. Got: $out"
-elif ! printf '%s' "$out" | grep -q "attempt 1 of 3"; then
+elif ! grep -q <<<"$out" "attempt 1 of 3"; then
   bad "TBX-5357: the retries are silent, so a busy mount leaves no trace in the log. Got: $out"
 else
   ok "TBX-5357 a busy verification mount is retried and succeeds without -force"
@@ -409,11 +409,11 @@ fi
 # Never lets go on its own. -force is the next thing tried, not the end of the release.
 out="$(run_detach 99 0)"
 forced="$(grep -c '^detach -force' "$WORK/hdiutil.calls" || true)"
-if ! printf '%s' "$out" | grep -q "DETACH_OK"; then
+if ! grep -q <<<"$out" "DETACH_OK"; then
   bad "TBX-5357: -force was never tried, so a stuck mount still ends a finished release. Got: $out"
 elif [ "$forced" != 1 ]; then
   bad "TBX-5357: expected exactly one -force attempt, saw $forced. Got: $out"
-elif ! printf '%s' "$out" | grep -q "with -force"; then
+elif ! grep -q <<<"$out" "with -force"; then
   bad "TBX-5357: -force is used silently, so the log does not record it. Got: $out"
 else
   ok "TBX-5357 a mount that never clears is detached with -force, and the log says so"
@@ -421,13 +421,13 @@ fi
 
 # Nothing works. Then it fails, but it must not read as a failed release.
 out="$(run_detach 99 16)"
-if ! printf '%s' "$out" | grep -q "DETACH_GAVE_UP"; then
+if ! grep -q <<<"$out" "DETACH_GAVE_UP"; then
   bad "TBX-5357: an unbreakable mount did not fail. Got: $out"
-elif ! printf '%s' "$out" | grep -q "notarized and stapled"; then
+elif ! grep -q <<<"$out" "notarized and stapled"; then
   bad "TBX-5357: the failure does not say the DMG is already notarized and stapled. Got: $out"
-elif ! printf '%s' "$out" | grep -q "RESUME_FROM_STAPLED=1"; then
+elif ! grep -q <<<"$out" "RESUME_FROM_STAPLED=1"; then
   bad "TBX-5357: the failure does not name the resume point. Got: $out"
-elif ! printf '%s' "$out" | grep -q "DO NOT REBUILD"; then
+elif ! grep -q <<<"$out" "DO NOT REBUILD"; then
   bad "TBX-5357: the failure still reads as a release that has to be started over. Got: $out"
 else
   ok "TBX-5357 a hopeless unmount fails saying the artifact is good and naming the resume"
@@ -440,7 +440,7 @@ if grep -q 'detach_image "\$VERIFY_MP" "the verification image"' "$SUBJECT" \
 else
   bad "TBX-5357 wiring: step 4a no longer detaches through the retrying helper"
 fi
-if printf '%s' "$DETACH_FN" | grep -q '^ *sleep '; then
+if grep -q <<<"$DETACH_FN" '^ *sleep '; then
   ok "TBX-5357 the retry loop still waits between attempts"
 else
   bad "TBX-5357: the retry loop no longer sleeps, so three attempts happen in one instant"
@@ -514,52 +514,52 @@ run_resume() {   # $1 = version, $2 = build, $3 = commit, $4 = stapler status, $
 }
 
 out="$(run_resume 0.19.3 103 "$PINNED_COMMIT" 0)"
-if ! printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+if ! grep -q <<<"$out" "RESUME_PROCEEDS"; then
   bad "TBX-5357: a stapled DMG whose .app names the pinned release was refused. Got: $out"
-elif ! printf '%s' "$out" | grep -q "read back from Info.plist"; then
+elif ! grep -q <<<"$out" "read back from Info.plist"; then
   bad "TBX-5357: the resume did not read the identity out of the bundle inside the DMG. Got: $out"
 else
   ok "TBX-5357 resume proceeds when the DMG's .app names the pinned version and commit"
 fi
 
 out="$(run_resume 0.19.3 103 "$PINNED_COMMIT" 0 crashbox 1)"
-if printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+if grep -q <<<"$out" "RESUME_PROCEEDS"; then
   bad "TBX-8693: resume ignored rejected signed association qualification"
 else
   ok "TBX-8693 resume refuses when signed association qualification fails"
 fi
 
 out="$(run_resume 0.19.2 102 "$PINNED_COMMIT" 0)"
-if printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+if grep -q <<<"$out" "RESUME_PROCEEDS"; then
   bad "TBX-5357: resumed onto a 0.19.2 DMG while releasing 0.19.3. Got: $out"
-elif ! printf '%s' "$out" | grep -q "not the version this run started for"; then
+elif ! grep -q <<<"$out" "not the version this run started for"; then
   bad "TBX-5357: a version mismatch was refused without saying it was the version. Got: $out"
 else
   ok "TBX-5357 resume refuses a DMG whose .app carries a different version"
 fi
 
 out="$(run_resume 0.19.3 103 "0000000000000000000000000000000000000000" 0)"
-if printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+if grep -q <<<"$out" "RESUME_PROCEEDS"; then
   bad "TBX-5357: resumed onto a DMG built from another commit. Got: $out"
-elif ! printf '%s' "$out" | grep -q "not the commit this run started for"; then
+elif ! grep -q <<<"$out" "not the commit this run started for"; then
   bad "TBX-5357: a commit mismatch was refused without saying it was the commit. Got: $out"
 else
   ok "TBX-5357 resume refuses a DMG whose .app was built from a different commit"
 fi
 
 out="$(run_resume 0.19.3 103 "$PINNED_COMMIT" 1)"
-if printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+if grep -q <<<"$out" "RESUME_PROCEEDS"; then
   bad "TBX-5357: resumed past an unstapled image, which is the state resume exists to skip. Got: $out"
-elif ! printf '%s' "$out" | grep -q "no stapled ticket"; then
+elif ! grep -q <<<"$out" "no stapled ticket"; then
   bad "TBX-5357: an unstapled DMG was refused without saying why. Got: $out"
 else
   ok "TBX-5357 resume refuses a DMG with no stapled ticket"
 fi
 
 out="$(run_resume 0.19.3 103 "$PINNED_COMMIT" 0 "")"
-if printf '%s' "$out" | grep -q "RESUME_PROCEEDS"; then
+if grep -q <<<"$out" "RESUME_PROCEEDS"; then
   bad "TBX-5304: resumed onto a reporting-disabled artifact and allowed it to publish. Got: $out"
-elif ! printf '%s' "$out" | grep -q "reporting-disabled"; then
+elif ! grep -q <<<"$out" "reporting-disabled"; then
   bad "TBX-5304: a reporting-disabled resume was refused without naming the reason. Got: $out"
 else
   ok "TBX-5304 resume refuses a reporting-disabled public artifact"
@@ -654,7 +654,7 @@ x86_64 4AE12B98-B3E2-3166-BB27-252874ECAF7D'
 ROOT="$WORK/rel"
 make_release_tree "$ROOT" "$BOTH" "$BOTH"
 out="$(run_retain "$ROOT" 0.19.3 103)"
-if ! printf '%s' "$out" | grep -q 'RETAINED=dist/dsym/Baton-0.19.3+103-BCC315D8-4575-3B47-99E6-2AF8CC7DB0D7.dSYM.zip'; then
+if ! grep -q <<<"$out" 'RETAINED=dist/dsym/Baton-0.19.3+103-BCC315D8-4575-3B47-99E6-2AF8CC7DB0D7.dSYM.zip'; then
   bad "TBX-5372: the retained archive is not named for this version, build and UUID. Got: $out"
 elif [ ! -s "$ROOT/dist/dsym/Baton-0.19.3+103-BCC315D8-4575-3B47-99E6-2AF8CC7DB0D7.dSYM.zip" ]; then
   bad "TBX-5372: nothing was written at the retained path. Got: $out"
@@ -674,9 +674,9 @@ fi
 # The name has to be true. A dSYM that is not this app's must be refused, not filed.
 make_release_tree "$ROOT" "$BOTH" "arm64 99999999-8888-7777-6666-555555555555"
 out="$(run_retain "$ROOT" 0.19.5 105)"
-if ! printf '%s' "$out" | grep -q "RETAIN_REFUSED"; then
+if ! grep -q <<<"$out" "RETAIN_REFUSED"; then
   bad "TBX-5372: a dSYM whose UUIDs are not the app's was retained anyway. Got: $out"
-elif ! printf '%s' "$out" | grep -q "not the built app"; then
+elif ! grep -q <<<"$out" "not the built app"; then
   bad "TBX-5372: the refusal does not say the UUIDs disagree. Got: $out"
 elif ls "$ROOT/dist/dsym/Baton-0.19.5+105-"*.dSYM.zip >/dev/null 2>&1; then
   bad "TBX-5372: a mismatched dSYM was still filed under this release's name. Got: $out"
@@ -703,27 +703,27 @@ run_state() {   # $1 = RETAINED_DSYM value, $2 = 1 to plant a receipt
 
 REL="dist/dsym/Baton-0.19.3+103-BCC315D8-4575-3B47-99E6-2AF8CC7DB0D7.dSYM.zip"
 out="$(run_state "$REL" 0)"
-if ! printf '%s' "$out" | grep -q "NOT uploaded to Crashbox"; then
+if ! grep -q <<<"$out" "NOT uploaded to Crashbox"; then
   bad "TBX-5372: a release that never uploaded its dSYM does not say so. Got: $out"
-elif ! printf '%s' "$out" | grep -q "./scripts/upload-dsym.sh $REL baton-macos"; then
+elif ! grep -q <<<"$out" "./scripts/upload-dsym.sh $REL baton-macos"; then
   bad "TBX-5372: the DONE line does not name the command that uploads it. Got: $out"
 else
   ok "TBX-5372 a release whose dSYM was never uploaded says so and names the command"
 fi
 
 out="$(run_state "$REL" 1)"
-if ! printf '%s' "$out" | grep -q "uploaded to Crashbox"; then
+if ! grep -q <<<"$out" "uploaded to Crashbox"; then
   bad "TBX-5372: an uploaded dSYM is not reported as uploaded. Got: $out"
-elif printf '%s' "$out" | grep -q "NOT uploaded"; then
+elif grep -q <<<"$out" "NOT uploaded"; then
   bad "TBX-5372: a dSYM with a receipt beside it still reads as not uploaded. Got: $out"
 else
   ok "TBX-5372 a dSYM with a receipt beside it is reported as uploaded"
 fi
 
 out="$(run_state "" 0)"
-if ! printf '%s' "$out" | grep -q "NONE retained"; then
+if ! grep -q <<<"$out" "NONE retained"; then
   bad "TBX-5372: a release that retained no dSYM at all is silent about it. Got: $out"
-elif ! printf '%s' "$out" | grep -q "never be symbolicated"; then
+elif ! grep -q <<<"$out" "never be symbolicated"; then
   bad "TBX-5372: the no-dSYM case does not say what it costs. Got: $out"
 else
   ok "TBX-5372 a release that retained nothing says so as loudly as a disabled provider would"
@@ -731,7 +731,7 @@ fi
 
 # Wiring. The functions can be perfect and unreferenced, which is how the old step 4b
 # managed to claim retention while doing nothing at all.
-if printf '%s' "$RETAIN_STEP" | grep -q 'retain_dsym "$APP"'; then
+if grep -q <<<"$RETAIN_STEP" 'retain_dsym "$APP"'; then
   ok "TBX-5372 wiring: step 4b still copies the built dSYM rather than pointing at \$DD"
 else
   bad "TBX-5372 wiring: step 4b no longer calls retain_dsym"
@@ -750,14 +750,15 @@ mkdir -p "$WORK/f1/dist/dsym"
   echo 'step() { printf "  . %s\n" "$*"; }'
   echo 'warn() { printf "  ! %s\n" "$*"; }'
   echo 'resuming() { [ "${RESUME_FROM_STAPLED:-0}" = 1 ]; }'
+  echo 'resume_retained_dsym() { :; }'
   echo "cd '$WORK/f1'"
   echo 'DIST=dist; DSYM_DIR="$DIST/dsym"; VERSION=0.19.3; BUILD=103'
   printf '%s\n' "$RETAIN_STEP"
   echo 'echo "CONTINUED"'; } >"$WORK/tf1.sh"
 out="$(RESUME_FROM_STAPLED=1 bash "$WORK/tf1.sh" 2>&1)"; rc=$?
-if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -q 'CONTINUED'; then
+if [ "$rc" -ne 0 ] || ! grep -q <<<"$out" 'CONTINUED'; then
   bad "F-1: a resume with no retained dSYM ended the script (rc=$rc) instead of warning. Got: $out"
-elif ! printf '%s' "$out" | grep -q 'no retained dSYM for 0.19.3 build 103'; then
+elif ! grep -q <<<"$out" 'no retained dSYM for 0.19.3 build 103'; then
   bad "F-1: a resume with no retained dSYM continued without the warning. Got: $out"
 else
   ok "F-1 a resume with no retained dSYM warns and continues under set -euo pipefail"
@@ -792,7 +793,7 @@ else
   ok "F-24 an edSignature that is not 64 bytes of base64 is refused"
 fi
 out="$(run_sig "sparkle:edSignature=\"$GOOD_SIG\" length=\"12\"")"; rc=$?
-if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qxF "ED_SIG=$GOOD_SIG"; then
+if [ "$rc" -ne 0 ] || ! grep -qxF <<<"$out" "ED_SIG=$GOOD_SIG"; then
   bad "F-24: a well-formed edSignature line was not accepted as exactly the signature (rc=$rc). Got: $out"
 else
   ok "F-24 a well-formed edSignature line yields exactly the 88-character signature"
@@ -801,7 +802,7 @@ UPLOAD_FN="$(awk '/^crashbox_upload_dsym\(\) \{$/,/^\}$/' "$SUBJECT")"
 UPLOAD_BLOCK="$(awk '/^  # TBX-5483:/,/^  # End TBX-5483\.$/' "$SUBJECT")"
 if [ -z "$UPLOAD_FN" ] || [ -z "$UPLOAD_BLOCK" ]; then
   bad "TBX-5483: the configured artifact-upload anchors are missing"
-elif ! printf '%s' "$UPLOAD_FN" | grep -qF 'io.tonebox.baton@${VERSION}+${BUILD}.${MACREL_COMMIT}'; then
+elif ! grep -qF <<<"$UPLOAD_FN" 'io.tonebox.baton@${VERSION}+${BUILD}.${MACREL_COMMIT}'; then
   bad "TBX-5483: the upload no longer uses the SDK's exact source-qualified release"
 else
   ok "TBX-5483 upload derives the exact source-qualified SDK release"
@@ -825,9 +826,9 @@ fi
   echo 'echo PUBLICATION_REACHED'; } >"$WORK/t5483.sh"
 out="$(bash "$WORK/t5483.sh" 2>&1)"
 rc=$?
-if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -qF PUBLICATION_REACHED; then
+if [ "$rc" -eq 0 ] || grep -qF <<<"$out" PUBLICATION_REACHED; then
   bad "TBX-5483: a configured upload failure did not stop publication"
-elif ! printf '%s' "$out" | grep -qF 'nothing was published or tagged'; then
+elif ! grep -qF <<<"$out" 'nothing was published or tagged'; then
   bad "TBX-5483: configured upload refusal does not state the publication boundary"
 else
   ok "TBX-5483 a configured upload failure exits before publication or tag"
@@ -841,9 +842,9 @@ fi
   echo 'echo PUBLICATION_REACHED'; } >"$WORK/t5483-off.sh"
 out="$(bash "$WORK/t5483-off.sh" 2>&1)"
 rc=$?
-if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qF PUBLICATION_REACHED; then
+if [ "$rc" -ne 0 ] || ! grep -qF <<<"$out" PUBLICATION_REACHED; then
   bad "TBX-5483: an intentionally unconfigured release cannot retain the manual flow"
-elif ! printf '%s' "$out" | grep -qF 'not configured'; then
+elif ! grep -qF <<<"$out" 'not configured'; then
   bad "TBX-5483: the unconfigured path does not say automatic upload is off"
 else
   ok "TBX-5483 unconfigured releases preserve the explicit manual-upload flow"
@@ -867,16 +868,16 @@ else
     echo 'assert_mlx_shaders "$1" || exit 1'; echo 'echo SHADERS_PASSED'; } >"$WORK/t10955.sh"
   for app in Stripped Empty; do
     out="$(bash "$WORK/t10955.sh" "$WORK/shaders/$app.app" 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -qF SHADERS_PASSED; then
+    if [ "$rc" -eq 0 ] || grep -qF <<<"$out" SHADERS_PASSED; then
       bad "TBX-10955: publish.sh admitted an app with no MLX shaders ($app)"
-    elif ! printf '%s' "$out" | grep -qF 'has no MLX shaders'; then
+    elif ! grep -qF <<<"$out" 'has no MLX shaders'; then
       bad "TBX-10955: the $app refusal does not say what is missing. Got: $out"
     else
       ok "TBX-10955 publish.sh refuses a built app without MLX shaders ($app)"
     fi
   done
   out="$(bash "$WORK/t10955.sh" "$WORK/shaders/Whole.app" 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qF SHADERS_PASSED; then
+  if [ "$rc" -ne 0 ] || ! grep -qF <<<"$out" SHADERS_PASSED; then
     bad "TBX-10955: publish.sh refused an app that has its MLX shaders. Got: $out"
   else
     ok "TBX-10955 publish.sh passes a built app with its MLX shaders"
@@ -890,7 +891,7 @@ BUNDLE_STEP="$(awk '
   found && !inscript && /^        script: [|]$/ { inscript = 1; next }
   inscript { if ($0 != "" && substr($0, 1, 10) != "          ") exit; print substr($0, 11) }
 ' "$PWD/app/project.yml")"
-if ! printf '%s' "$BUNDLE_STEP" | grep -qF 'CONFIGURATION'; then
+if ! grep -qF <<<"$BUNDLE_STEP" 'CONFIGURATION'; then
   bad "TBX-10955: the Bundle MLX shaders step was not found in app/project.yml"
 else
   printf '%s\n' "$BUNDLE_STEP" >"$WORK/bundle-step.sh"
@@ -904,13 +905,13 @@ else
   out="$(run_bundle_step Release "$WORK/shaders/built-release")"; rc=$?
   if [ "$rc" -eq 0 ]; then
     bad "TBX-10955: a Release build with no MLX shaders was not refused"
-  elif ! printf '%s' "$out" | grep -qF 'error: no MLX shaders'; then
+  elif ! grep -qF <<<"$out" 'error: no MLX shaders'; then
     bad "TBX-10955: the Release refusal does not name the missing shaders. Got: $out"
   else
     ok "TBX-10955 a Release build with no MLX shaders fails its build step"
   fi
   out="$(run_bundle_step Debug "$WORK/shaders/built-debug")"; rc=$?
-  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qF 'warning: no MLX shaders'; then
+  if [ "$rc" -ne 0 ] || ! grep -qF <<<"$out" 'warning: no MLX shaders'; then
     bad "TBX-10955: a Debug build with no MLX shaders should warn and continue. rc=$rc: $out"
   else
     ok "TBX-10955 a Debug build with no MLX shaders warns and continues"
@@ -986,6 +987,602 @@ print("ok %d files in %d calls" % (len(files), len(site)))
     bad "E-4: under DRY_RUN=1 a site call is not a dry run, or the order is wrong (rc=$rc): $verdict"
   else
     ok "E-4 under DRY_RUN=1 every site call stays a dry run, in the same order"
+  fi
+fi
+
+# --- TBX-1000000502 / 503: re-publish and upload guards in publish.sh ---------------------
+fn() { FN="$1() {" awk '$0 == ENVIRON["FN"] { on = 1 } on { print } on && /^\}$/ { exit }' "$SUBJECT"; }
+TAG_GUARD_FN="$(fn release_version_tag_guard)"
+DMG_GUARD_FN="$(fn remote_dmg_guard)"
+APPCAST_FN="$(fn served_appcast_check)"
+RESUME_DSYM_FN="$(fn resume_retained_dsym)"
+CLEANUP_FN="$(fn publish_cleanup)"
+DIRTY_BLOCK="$(XS='^# A published release must be reproducible from a tagged commit' XE='^fi$' awk '!on && $0 ~ ENVIRON["XS"] { on = 1; print; next } on { print; if ($0 ~ ENVIRON["XE"]) exit }' "$SUBJECT")"
+REMOTE_DIR_BLOCK="$(XS='^  REMOTE_DIR="[$][{]REMOTE_DIR:-' XE='^  SITE_DIR=' awk '!on && $0 ~ ENVIRON["XS"] { on = 1; print; next } on { print; if ($0 ~ ENVIRON["XE"]) exit }' "$SUBJECT")"
+for name in TAG_GUARD_FN DMG_GUARD_FN APPCAST_FN RESUME_DSYM_FN CLEANUP_FN DIRTY_BLOCK REMOTE_DIR_BLOCK; do
+  eval "body=\$$name"
+  [ -n "$body" ] || bad "$name: anchor not found in publish.sh"
+done
+
+# F-3: a re-run after steps 4c/4d rewrote the cask and the landing page is not refused, while
+# a dirty build input still is. The real block over a planted repo, with the real classifier.
+F3="$WORK/f3"; rm -rf "$F3"; mkdir -p "$F3/Casks" "$F3/website" "$F3/app"
+git -C "$F3" init -q -b main
+git -C "$F3" config user.email t@example.invalid; git -C "$F3" config user.name t
+echo cask >"$F3/Casks/baton.rb"; echo page >"$F3/website/index.html"; echo src >"$F3/app/Main.swift"
+git -C "$F3" add -A; git -C "$F3" commit -qm base
+run_f3() {
+  { echo 'set -euo pipefail'
+    echo ". '$ROOT_REAL/scripts/release-identity.sh'"
+    echo "cd '$F3'; MACREL_REPO='$F3'; MACREL_COMMIT=\$(git rev-parse HEAD); PUBLISH=1"
+    printf '%s\n' "$DIRTY_BLOCK"
+    echo 'echo F3_ADMITTED'; } >"$WORK/tf3.sh"
+  bash "$WORK/tf3.sh" 2>&1
+}
+ROOT_REAL="$SITE_TREE"
+echo "cask v2" >"$F3/Casks/baton.rb"; echo "page v2" >"$F3/website/index.html"
+out="$(run_f3)"
+if grep -q <<<"$out" F3_ADMITTED; then
+  ok "F-3 a re-run with only the cask and landing-page rewrites dirty is admitted"
+else
+  bad "F-3: the 4c/4d rewrites alone refused a re-run. Got: $out"
+fi
+echo "edited" >"$F3/app/Main.swift"
+out="$(run_f3)"
+if grep -q <<<"$out" F3_ADMITTED; then
+  bad "F-3: a dirty build input was admitted. Got: $out"
+elif ! grep -q <<<"$out" 'app/Main.swift'; then
+  bad "F-3: the refusal did not name the dirty build input. Got: $out"
+else
+  ok "F-3 a dirty build input is still refused, by name"
+fi
+
+# F-4: a version already tagged on another commit is a re-publish and must be asked for.
+F4="$WORK/f4"; rm -rf "$F4" "$WORK/f4-origin.git"; git init -q --bare "$WORK/f4-origin.git"
+git init -q -b main "$F4"; git -C "$F4" config user.email t@example.invalid; git -C "$F4" config user.name t
+git -C "$F4" remote add origin "$WORK/f4-origin.git"
+echo 1 >"$F4/f"; git -C "$F4" add f; git -C "$F4" commit -qm one; A="$(git -C "$F4" rev-parse HEAD)"
+git -C "$F4" tag -a v1.0.0 -m v1.0.0; git -C "$F4" push -q origin main refs/tags/v1.0.0
+echo 2 >"$F4/f"; git -C "$F4" commit -qam two; B="$(git -C "$F4" rev-parse HEAD)"
+run_f4() {   # $1 = commit being published; extra env through the caller
+  { echo 'set -uo pipefail'; echo 'warn() { printf "  ! %s\n" "$*"; }'
+    echo "cd '$F4'"; printf '%s\n' "$TAG_GUARD_FN"
+    echo "release_version_tag_guard 1.0.0 '$1' origin && echo F4_ADMITTED"; } >"$WORK/tf4.sh"
+  bash "$WORK/tf4.sh" 2>&1
+}
+out="$(run_f4 "$A")"
+grep -q <<<"$out" F4_ADMITTED && ok "F-4 re-running the tagged commit itself is admitted" \
+  || bad "F-4: publishing the commit v1.0.0 names was refused. Got: $out"
+out="$(run_f4 "$B")"
+if grep -q <<<"$out" F4_ADMITTED; then
+  bad "F-4: a re-publish of 1.0.0 from another commit was admitted unasked. Got: $out"
+elif ! grep -q <<<"$out" 'already published from'; then
+  bad "F-4: the refusal does not say the version was already published. Got: $out"
+else
+  ok "F-4 a re-publish of a tagged version from another commit is refused"
+fi
+out="$(BATON_REPUBLISH="test re-publish" run_f4 "$B")"
+if grep -q <<<"$out" F4_ADMITTED && grep -q <<<"$out" 'BATON_REPUBLISH: re-publishing 1.0.0'; then
+  ok "F-4 BATON_REPUBLISH admits the re-publish and says so"
+else
+  bad "F-4: BATON_REPUBLISH did not admit the re-publish with a warning. Got: $out"
+fi
+git -C "$F4" tag -d v1.0.0 >/dev/null
+out="$(run_f4 "$B")"
+if grep -q <<<"$out" F4_ADMITTED; then
+  bad "F-4: a tag only the remote holds, on another commit, went unnoticed. Got: $out"
+else
+  ok "F-4 the remote's tag counts when the local one is missing"
+fi
+# F-4 review: a remote that cannot be read is not a remote without the tag.
+git -C "$F4" remote set-url origin "$WORK/no-such-origin.git"
+out="$(run_f4 "$B")"
+if grep -q <<<"$out" F4_ADMITTED; then
+  bad "F-4: an unreadable origin was read as having no v1.0.0 tag. Got: $out"
+else
+  ok "F-4 an origin that cannot be read refuses rather than reads as untagged"
+fi
+git -C "$F4" remote set-url origin "$WORK/f4-origin.git"
+# F-4 review: BATON_REPUBLISH when only origin's tag is on another commit. rk_tag_release moves
+# a tag only when the LOCAL one moves, so the guard brings origin's tag here first; the real
+# kit function then force-moves it on origin to the commit being published.
+{ echo 'set -uo pipefail'; echo 'warn() { printf "  ! %s\n" "$*"; }'
+  echo "cd '$F4'"; printf '%s\n' "$TAG_GUARD_FN"
+  echo ". '$SITE_TREE/scripts/release-kit/lib/tags.sh'"
+  echo "release_version_tag_guard 1.0.0 '$B' origin || exit 1"
+  echo "RK_RETAG=1 rk_tag_release 1.0.0 '$B' 'Baton 1.0.0 again' origin '$F4'"; } >"$WORK/tf4r.sh"
+out="$(BATON_REPUBLISH="test re-publish" bash "$WORK/tf4r.sh" 2>&1)"; rc=$?
+now="$(git -C "$F4" ls-remote origin 'refs/tags/v1.0.0^{}' | cut -f1)"
+if [ "$rc" -ne 0 ] || [ "$now" != "$B" ]; then
+  bad "F-4: BATON_REPUBLISH left origin's v1.0.0 on ${now:0:12}, not the published ${B:0:12} (rc=$rc): $out"
+else
+  ok "F-4 BATON_REPUBLISH force-moves origin's tag to the published commit"
+fi
+if grep -qF 'release_version_tag_guard "$VERSION" "$MACREL_COMMIT" origin || exit 1' "$SUBJECT" \
+   && grep -qF 'RK_RETAG="${BATON_REPUBLISH:+1}" rk_tag_release' "$SUBJECT" && ! grep -q '^  RK_RETAG=1 ' "$SUBJECT"; then
+  ok "F-4 wiring: the guard runs before the gate and only BATON_REPUBLISH moves a tag"
+else
+  bad "F-4 wiring: the guard is not called, or the tag is still moved unconditionally"
+fi
+
+# E-6: the same DMG name must not take different bytes. ssh answers with the remote hash.
+run_e6() {   # $1 = what the remote reports (absent, a hash, or FAIL)
+  { echo 'set -uo pipefail'; echo 'step() { printf "  . %s\n" "$*"; }; warn() { printf "  ! %s\n" "$*"; }'
+    echo "ssh() { case '$1' in FAIL) return 255 ;; *) echo '$1' ;; esac; }"
+    echo "WEB01=stub-host; SITE_DIR=/srv/site; DMG_REPLACED=0"
+    printf '%s\n' "$DMG_GUARD_FN"
+    echo "remote_dmg_guard Baton-1.0.0.dmg $(printf 'a%.0s' $(seq 64)) && echo E6_ADMITTED DMG_REPLACED=\$DMG_REPLACED"; } >"$WORK/te6.sh"
+  bash "$WORK/te6.sh" 2>&1
+}
+SAME="$(printf 'a%.0s' $(seq 64))"; OTHER="$(printf 'b%.0s' $(seq 64))"
+out="$(run_e6 absent)"; grep -q <<<"$out" 'E6_ADMITTED DMG_REPLACED=0' && ok "E-6 a DMG name not yet on the host is admitted" || bad "E-6: a new DMG name was refused. Got: $out"
+out="$(run_e6 "$SAME")"; grep -q <<<"$out" 'E6_ADMITTED DMG_REPLACED=0' && ok "E-6 the same bytes under the same name (a resume) are admitted" || bad "E-6: identical bytes were refused. Got: $out"
+out="$(run_e6 "$OTHER")"
+if grep -q <<<"$out" E6_ADMITTED; then
+  bad "E-6: different bytes under a live DMG name were admitted. Got: $out"
+elif ! grep -q <<<"$out" 'immutable' || ! grep -q <<<"$out" 'baton.tonebox.io/Baton-1.0.0.dmg'; then
+  bad "E-6: the refusal does not explain the cache or name the URLs to purge. Got: $out"
+else
+  ok "E-6 different bytes under a live DMG name are refused, naming both URLs to purge"
+fi
+out="$(BATON_REPLACE_DMG="rebuild after a bad sign" run_e6 "$OTHER")"
+grep -q <<<"$out" 'E6_ADMITTED DMG_REPLACED=1' && ok "E-6 BATON_REPLACE_DMG admits the replacement and records it" || bad "E-6: BATON_REPLACE_DMG did not admit and record the replacement. Got: $out"
+out="$(run_e6 FAIL)"; grep -q <<<"$out" E6_ADMITTED && bad "E-6: an unreadable remote was treated as absent. Got: $out" || ok "E-6 an unreadable remote refuses rather than assumes"
+guard_line="$(grep -n '^  remote_dmg_guard "$DMG_NAME" "$SHA" || exit 1$' "$SUBJECT" | cut -d: -f1)"
+scp_line="$(grep -n '^  scp "$DIST/$DMG_NAME"' "$SUBJECT" | cut -d: -f1)"
+if [ -n "$guard_line" ] && [ -n "$scp_line" ] && [ "$guard_line" -lt "$scp_line" ]; then
+  ok "E-6 wiring: the hash comparison runs before the first upload"
+else
+  bad "E-6 wiring: remote_dmg_guard is missing or after the DMG upload"
+fi
+
+# F-21: after the upload, each host serves exactly the appcast just written.
+printf '<rss>new</rss>\n' >"$WORK/appcast-new.xml"; printf '<rss>old</rss>\n' >"$WORK/appcast-old.xml"
+run_f21() {   # $1 = file batonmusic.app serves, $2 = file baton.tonebox.io serves ("" = fetch fails)
+  { echo 'set -uo pipefail'; echo 'step() { printf "  . %s\n" "$*"; }; sleep() { :; }'
+    echo "curl() { local out='' url=''; while [ \$# -gt 0 ]; do case \"\$1\" in -o) out=\"\$2\"; shift ;; https://*) url=\"\$1\" ;; esac; shift; done
+      case \"\$url\" in *batonmusic.app*) src='$1' ;; *) src='$2' ;; esac
+      [ -n \"\$src\" ] || return 22; cp \"\$src\" \"\$out\"; }"
+    grep '^APPCAST_SERVED_HOSTS=' "$SUBJECT"
+    printf '%s\n' "$APPCAST_FN"
+    echo "served_appcast_check '$WORK/appcast-new.xml' && echo F21_OK"; } >"$WORK/tf21.sh"
+  bash "$WORK/tf21.sh" 2>&1
+}
+out="$(run_f21 "$WORK/appcast-new.xml" "$WORK/appcast-new.xml")"
+grep -q <<<"$out" F21_OK && ok "F-21 both hosts serving the uploaded appcast passes" || bad "F-21: matching appcasts failed. Got: $out"
+out="$(run_f21 "$WORK/appcast-new.xml" "$WORK/appcast-old.xml")"
+if grep -q <<<"$out" F21_OK || ! grep -q <<<"$out" 'baton.tonebox.io/appcast.xml is a different document'; then
+  bad "F-21: the legacy host serving the previous appcast was not caught by name. Got: $out"
+else
+  ok "F-21 the legacy host still serving the previous appcast fails, named"
+fi
+out="$(run_f21 "" "$WORK/appcast-new.xml")"
+if grep -q <<<"$out" F21_OK || ! grep -q <<<"$out" 'batonmusic.app/appcast.xml is not fetchable'; then
+  bad "F-21: an unfetchable appcast host passed. Got: $out"
+else
+  ok "F-21 an appcast host that cannot be fetched fails, named"
+fi
+check_line="$(grep -n '^  served_appcast_check "$DIST/appcast.xml" || {' "$SUBJECT" | cut -d: -f1)"
+tag_line="$(grep -n 'rk_tag_release "$VERSION" "$MACREL_COMMIT"' "$SUBJECT" | cut -d: -f1)"
+upload_line="$(grep -n "^  ssh \"\$WEB01\" \"mv -f '\$SITE_DIR/.appcast.xml.tmp'" "$SUBJECT" | cut -d: -f1)"
+if [ -n "$check_line" ] && [ -n "$tag_line" ] && [ -n "$upload_line" ] && [ "$upload_line" -lt "$check_line" ] && [ "$check_line" -lt "$tag_line" ]; then
+  ok "F-21 wiring: the served appcasts are checked after the upload and before the tag"
+else
+  bad "F-21 wiring: served_appcast_check is missing or outside the upload-to-tag window"
+fi
+
+# F-2: a resume selects the retained dSYM named for the UUID of the app inside the DMG.
+F2="$WORK/f2"; rm -rf "$F2"; mkdir -p "$F2/dist/dsym" "$F2/fixture/Baton.app/Contents/MacOS"
+echo bin >"$F2/fixture/Baton.app/Contents/MacOS/Baton"
+printf 'arm64 BBBBBBBB-0000-0000-0000-000000000002\nx86_64 CCCCCCCC-0000-0000-0000-000000000003\n' >"$F2/fixture/Baton.app/Contents/MacOS/Baton.uuids"
+echo dmg >"$F2/dist/Baton-0.19.3.dmg"
+: >"$F2/dist/dsym/Baton-0.19.3+103-AAAAAAAA-0000-0000-0000-000000000001.dSYM.zip"   # a discarded rebuild's, first by name
+make_dwarfdump
+rm -rf "$WORK/f2bin"; mkdir -p "$WORK/f2bin"
+cat >"$WORK/f2bin/hdiutil" <<EOF
+#!/bin/bash
+if [ "\$1" = attach ]; then
+  mp=""; while [ \$# -gt 0 ]; do [ "\$1" = -mountpoint ] && mp="\$2"; shift; done
+  cp -R "$F2/fixture/." "\$mp/"; exit 0
+fi
+[ "\$1" = detach ] && { rm -rf "\$2"/Baton.app; exit 0; }
+exit 0
+EOF
+chmod +x "$WORK/f2bin/hdiutil"
+run_f2() {
+  { echo 'set -euo pipefail'; echo 'warn() { printf "  ! %s\n" "$*"; }'
+    echo "cd '$F2'; DIST=dist; DSYM_DIR=dist/dsym; DMG_NAME=Baton-0.19.3.dmg; VERSION=0.19.3; BUILD=103"
+    printf '%s\n' "$UUID_FN" "$DETACH_FN" "$RESUME_DSYM_FN"
+    echo 'echo "SELECTED=$(resume_retained_dsym)"'; } >"$WORK/tf2.sh"
+  PATH="$WORK/f2bin:$WORK/dbin:$PATH" bash "$WORK/tf2.sh" 2>&1
+}
+out="$(run_f2)"
+if grep -q <<<"$out" '^SELECTED=$' && grep -q <<<"$out" 'none is this DMG'; then
+  ok "F-2 a resume does not take another build's archive when the shipped app's is missing"
+else
+  bad "F-2: a resume selected an archive whose UUID is not the shipped app's. Got: $out"
+fi
+: >"$F2/dist/dsym/Baton-0.19.3+103-BBBBBBBB-0000-0000-0000-000000000002.dSYM.zip"
+out="$(run_f2)"
+if grep -qx <<<"$out" 'SELECTED=dist/dsym/Baton-0.19.3+103-BBBBBBBB-0000-0000-0000-000000000002.dSYM.zip'; then
+  ok "F-2 a resume selects the archive named for the arm64 UUID of the app inside the DMG"
+else
+  bad "F-2: the resume did not select the shipped app's archive. Got: $out"
+fi
+grep -q <<<"$RETAIN_STEP" 'RETAINED_DSYM="$(resume_retained_dsym)"' \
+  && ok "F-2 wiring: step 4b's resume path uses the UUID lookup" \
+  || bad "F-2 wiring: step 4b's resume path no longer uses resume_retained_dsym"
+
+# F-23: the cleanup removes the DSN xcconfig and the DMG staging copy on any exit.
+run_f23() {
+  mkdir -p "$WORK/f23"; : >"$WORK/f23/xcconfig"; mkdir -p "$WORK/f23/stage/Baton.app"
+  { echo 'set -uo pipefail'; echo 'gate_lock_release() { :; }; native_lock_release_all() { :; }'
+    echo 'TMP_DL=""; MAC_ASSOCIATION_WORK=""; PUBLISH_COMPLETE=0'
+    echo "REPORTING_XCCONFIG='$WORK/f23/xcconfig'; STAGE='$WORK/f23/stage'"
+    printf '%s\n' "$CLEANUP_FN"
+    echo 'trap publish_cleanup EXIT'; echo 'exit 1'; } >"$WORK/tf23.sh"
+  bash "$WORK/tf23.sh" >/dev/null 2>&1
+}
+run_f23
+if [ -e "$WORK/f23/xcconfig" ] || [ -e "$WORK/f23/stage" ]; then
+  bad "F-23: a failed run left the Crashbox xcconfig or the staging copy behind"
+else
+  ok "F-23 a failed run removes the Crashbox xcconfig and the DMG staging copy"
+fi
+
+# F-20: REMOTE_DIR means the deploy directory in both scripts; the docroot meaning is refused.
+run_f20() {
+  { echo 'set -uo pipefail'; printf '%s\n' "$REMOTE_DIR_BLOCK"; echo 'echo "SITE_DIR=$SITE_DIR"'; } >"$WORK/tf20.sh"
+  bash "$WORK/tf20.sh" 2>&1
+}
+out="$(unset REMOTE_DIR; run_f20)"
+site_default="$(sed -nE 's/^REMOTE_DIR="\$\{REMOTE_DIR:-([^}]+)\}"$/\1/p' "$SITE_SUBJECT")"
+if grep -qx <<<"$out" "SITE_DIR=$site_default/site"; then
+  ok "F-20 publish.sh's default REMOTE_DIR is publish-site.sh's, and the DMG goes to its site/"
+else
+  bad "F-20: the two scripts' REMOTE_DIR defaults disagree. publish-site: $site_default; publish.sh: $out"
+fi
+out="$(REMOTE_DIR=/opt/docker/baton-web/site run_f20)"
+if grep -q <<<"$out" '^SITE_DIR='; then
+  bad "F-20: the old docroot meaning of REMOTE_DIR was accepted. Got: $out"
+else
+  ok "F-20 REMOTE_DIR naming the docroot (the old meaning) is refused with the right value"
+fi
+if grep -nE "(scp|ssh).*\\\$REMOTE_DIR/" "$SUBJECT" >/dev/null; then
+  bad "F-20 wiring: an upload still writes under \$REMOTE_DIR directly"
+else
+  ok "F-20 wiring: every upload writes under \$SITE_DIR"
+fi
+
+# --- F-16: the manual dSYM upload's host commands (TBX-1000000503) --------------------------
+# The real scripts/upload-dsym.sh with ssh, scp and dwarfdump as logging stubs. Every command
+# that touches the Crashbox host must go through systemd-run as crashbox (never plain sudo),
+# the archive must land in a fresh private directory rather than a predictable /tmp name,
+# and leftover bytecode must stop the run BEFORE any Crashbox command executes.
+DSYM_SUBJECT="${BATON_UPLOAD_DSYM_SUBJECT:-$SITE_TREE/scripts/upload-dsym.sh}"
+F16="$WORK/f16"; rm -rf "$F16"; mkdir -p "$F16/bin" "$F16/a/Baton.app.dSYM/Contents/Resources/DWARF"
+echo dwarf >"$F16/a/Baton.app.dSYM/Contents/Resources/DWARF/Baton"
+( cd "$F16/a" && zip -q -r "$F16/Baton-0.19.3+103-X.dSYM.zip" Baton.app.dSYM )
+cat >"$F16/bin/dwarfdump" <<'EOF'
+#!/bin/bash
+echo "UUID: BBBBBBBB-0000-0000-0000-000000000002 (arm64) $2"
+EOF
+cat >"$F16/bin/scp" <<EOF
+#!/bin/bash
+echo "scp \$*" >>"$F16/log"
+EOF
+cat >"$F16/bin/ssh" <<EOF
+#!/bin/bash
+cmd="\${*: -1}"; echo "ssh \$cmd" >>"$F16/log"
+case "\$cmd" in
+  *mktemp*) echo /tmp/baton-dsym.Q1w2E3 ;;
+  *inspect-fingerprint*) echo '{"project_id":"0f0e0d0c-0b0a-4998-8776-655443322110"}' ;;
+  *"-name '*.pyc'"*) if [ -n "\${STUB_PYC_FAIL_AFTER_UPLOAD:-}" ] && grep -q artifact-upload "$F16/log"; then exit 1; fi; case "\$cmd" in *"| wc -l"*) echo "\${STUB_PYC:-0}" ;; *) i=0; while [ "\$i" -lt "\${STUB_PYC:-0}" ]; do i=\$((i + 1)); echo "/opt/crashbox/current/x\$i.pyc"; done ;; esac ;;
+  *artifact-upload*) echo '{"artifact_id":"stub"}' ;;
+esac
+exit 0
+EOF
+chmod +x "$F16/bin/"*
+run_f16() { : >"$F16/log"; rm -f "$F16/"*.receipt.json
+  env PATH="$F16/bin:$PATH" WEB01=stub-host "$@" bash "$DSYM_SUBJECT" "$F16/Baton-0.19.3+103-X.dSYM.zip" baton-macos 2>&1; }
+out="$(run_f16)"; rc=$?
+log="$(cat "$F16/log")"
+if [ "$rc" -ne 0 ]; then
+  bad "F-16: the stubbed upload did not complete (rc=$rc): $out"
+elif printf '%s\n' "$log" | grep -E '^ssh ' | grep -v 'systemd-run --uid=crashbox --gid=crashbox' | grep -q 'sudo'; then
+  bad "F-16: a host command ran under plain sudo: $(printf '%s\n' "$log" | grep sudo | grep -v systemd-run | head -1)"
+elif grep -qE <<<"$log" "^scp .* stub-host:/tmp/Baton-0\\.19\\.3\\+103-X\\.dSYM\\.zip$"; then
+  bad "F-16: the archive still goes to a predictable /tmp path"
+elif ! grep -qE <<<"$log" '^scp .* stub-host:/tmp/baton-dsym\.Q1w2E3/'; then
+  bad "F-16: the archive does not go into the private directory made for it: $(printf '%s' "$log" | tr '\n' ';')"
+else
+  ok "F-16 every host command runs as crashbox, into a fresh private remote directory"
+fi
+first_pyc="$(printf '%s\n' "$log" | grep -n "pyc" | head -1 | cut -d: -f1)"
+first_run="$(printf '%s\n' "$log" | grep -n "inspect-fingerprint" | head -1 | cut -d: -f1)"
+if [ -n "$first_pyc" ] && [ -n "$first_run" ] && [ "$first_pyc" -lt "$first_run" ]; then
+  ok "F-16 leftover bytecode is counted before the first Crashbox command"
+else
+  bad "F-16: bytecode is not checked before the first Crashbox command runs"
+fi
+out="$(run_f16 STUB_PYC=3)"; rc=$?
+if [ "$rc" -eq 0 ] || grep -q 'artifact-upload' "$F16/log" || grep -q 'inspect-fingerprint' "$F16/log"; then
+  bad "F-16: a release tree holding bytecode still ran a Crashbox command (rc=$rc)"
+else
+  ok "F-16 a release tree already holding bytecode stops the upload before anything runs"
+fi
+
+# F-16 review: a post-upload .pyc count that fails must not lose the receipt of an upload
+# Crashbox already accepted, and must say what failed.
+out="$(run_f16 STUB_PYC_FAIL_AFTER_UPLOAD=1)"; rc=$?
+if [ ! -s "$F16/Baton-0.19.3+103-X.dSYM.zip.receipt.json" ]; then
+  bad "F-16: a failed post-upload .pyc count lost the receipt of a completed upload (rc=$rc)"
+elif [ "$rc" -eq 0 ] || ! grep -q <<<"$out" 'count'; then
+  bad "F-16: a failed post-upload .pyc count was not reported as its own error (rc=$rc): $out"
+else
+  ok "F-16 a failed post-upload .pyc count keeps the receipt and reports the count failure"
+fi
+
+# F-6 review: the index.html exception admits publish.sh's version rewrite and nothing else.
+# A reordering of lines is a real edit (the CSP meta moved below the inline script), and must
+# be refused even though it adds and removes the same lines.
+F6="$WORK/f6"; rm -rf "$F6"; mkdir -p "$F6/website"
+git -C "$F6" init -q -b main; git -C "$F6" config user.email t@example.invalid; git -C "$F6" config user.name t
+printf '<meta http-equiv="Content-Security-Policy" content="x">\n<script>t()</script>\n<p class="eyebrow">Version 1.2.3</p>\n<a href="/Baton-1.2.3.dmg">get</a>\n' >"$F6/website/index.html"
+git -C "$F6" add -A; git -C "$F6" commit -qm base
+f6_guard() { ( . "$SITE_TREE/scripts/publish-tree-guard.sh"; publish_tree_guard "$F6" "the site" website ) >/dev/null 2>&1; }
+sed -i '' 's/1\.2\.3/1.2.4/g' "$F6/website/index.html"
+f6_guard && ok "F-6 publish.sh's version rewrite of index.html is admitted" || bad "F-6: the version rewrite of index.html was refused"
+git -C "$F6" checkout -q -- website/index.html
+printf '<script>t()</script>\n<meta http-equiv="Content-Security-Policy" content="x">\n<p class="eyebrow">Version 1.2.3</p>\n<a href="/Baton-1.2.3.dmg">get</a>\n' >"$F6/website/index.html"
+f6_guard && bad "F-6: two swapped lines in index.html passed as a version rewrite" || ok "F-6 swapped lines in index.html are refused, not read as a version rewrite"
+git -C "$F6" checkout -q -- website/index.html
+
+# --- F-17: the public history purge certifies only what it checked (TBX-1000000503) --------
+# The real scripts/purge-public-history.sh, without --push, against a planted local "public"
+# repository. It must never fetch its tool, must redact commit messages as well as blobs, and
+# must refuse a history holding a Cloudflare or Crashbox upload token. The token shapes are
+# assembled at run time, so this file never carries one the mirror's own guard would refuse.
+PURGE_SUBJECT="${BATON_PURGE_SUBJECT:-$SITE_TREE/scripts/purge-public-history.sh}"
+if [ ! -f "$PURGE_SUBJECT" ] || ! command -v git-filter-repo >/dev/null; then
+  ok "F-17 skipped: purge-public-history.sh or git-filter-repo is not here"
+else
+  plant_public() {   # $1 = name, $2 = extra file content (blob), $3 = commit message
+    local r="$WORK/f17-$1"
+    rm -rf "$r" "$r.git"; git init -q -b main "$r"
+    git -C "$r" config user.email t@example.invalid; git -C "$r" config user.name t
+    mkdir -p "$r/Packages/Kit"; echo 'public' >"$r/Packages/Kit/Kit.swift"
+    git -C "$r" add -A; git -C "$r" commit -qm "initial"
+    printf '%s\n' "$2" >"$r/Packages/Kit/Notes.md"; git -C "$r" add -A; git -C "$r" commit -qm "$3"
+    git clone -q --bare "$r" "$r.git"
+    printf '%s' "$r.git"
+  }
+  run_purge() {   # $1 = bare repo; prints output, returns status
+    env -u FILTER_REPO BATON_PUBLIC_REPO="$1" PURGE_WORKDIR="$WORK/f17-work" bash "$PURGE_SUBJECT" 2>&1
+  }
+  crashbox_token="cbu1_$(printf 'k%.0s' $(seq 43))"
+  cf_token="cf""ut_$(printf 'z%.0s' $(seq 40))"
+  host="web"; host="$host-01"
+  out="$(run_purge "$(plant_public msg 'nothing secret' "deploy notes for $host")")"; rc=$?
+  msgs="$(git -C "$WORK/f17-work/repo" log --all --format=%B 2>/dev/null)"
+  if [ "$rc" -ne 0 ]; then
+    bad "F-17: a clean planted history was not certified (rc=$rc): $(tail -3 <<<"$out")"
+  elif grep -q "$host" <<<"$msgs"; then
+    bad "F-17: an internal host name survived in a commit message of the certified history"
+  else
+    ok "F-17 commit messages are redacted as well as blobs"
+  fi
+  if grep -q 'raw.githubusercontent.com' "$PURGE_SUBJECT" || grep -qE '^[[:space:]]*curl ' "$PURGE_SUBJECT"; then
+    bad "F-17: the purge still fetches git-filter-repo from the network"
+  else
+    ok "F-17 git-filter-repo is never fetched; the installed one is used"
+  fi
+  for case in "cf:$cf_token" "crashbox:$crashbox_token"; do
+    out="$(run_purge "$(plant_public "${case%%:*}" "token ${case#*:}" "ordinary change")")"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+      bad "F-17: a history holding a ${case%%:*} token was certified clean"
+    else
+      ok "F-17 a history holding a ${case%%:*} token is refused"
+    fi
+  done
+  out="$(run_purge "$(plant_public fixture "fixture cbu1_$(printf 'A%.0s' $(seq 43))" "ordinary change")")"; rc=$?
+  [ "$rc" -eq 0 ] && ok "F-17 the all-A Crashbox fixture publish-repo.sh allows is allowed here too" \
+    || bad "F-17: the all-A Crashbox test fixture was refused (rc=$rc): $(tail -3 <<<"$out")"
+  out="$(run_purge "$(plant_public msgtoken 'nothing secret' "rotate $cf_token")")"; rc=$?
+  [ "$rc" -ne 0 ] && ok "F-17 a token in a commit message is refused" \
+    || bad "F-17: a token in a commit message was certified clean"
+fi
+
+# --- E-5: the nginx config is validated before it reaches the live bind mount -------------
+# publish-site.sh used to rsync deploy/nginx/ straight into the directory baton_web mounts and
+# run `nginx -t` only afterwards, inside the container. A broken config then stayed on disk,
+# and the next recreate of the container started on it. The real block, from "Ensure remote
+# dirs" to the container status read, runs with ssh and rsync as recording functions; ssh
+# fails any `nginx -t` when the stub is told the config is broken.
+E5_BLOCK="$(XS='^step "1/[0-9]  Ensure remote dirs"$' XE='^status="[$][(]ssh ' awk '!on && $0 ~ ENVIRON["XS"] { on = 1; print; next } on { print; if ($0 ~ ENVIRON["XE"]) exit }' "$SITE_SUBJECT")"
+if [ -z "$E5_BLOCK" ] || ! printf '%s\n' "$E5_BLOCK" | tail -1 | grep -q '^status='; then
+  bad "E-5: publish-site.sh's deploy-step anchors were not found; the deploy was restructured"
+else
+  run_e5() {   # $1 = 1 when the stub's nginx -t should fail
+    { echo 'set -euo pipefail'
+      echo 'bold() { :; }; step() { :; }; fail() { echo "FAIL: $*" >&2; exit 1; }'
+      echo "ssh() { shift; printf 'ssh %s\\n' \"\$*\" >>'$WORK/e5-calls'; case \"\$*\" in *'nginx -t'*) [ '$1' != 1 ] ;; esac; }"
+      echo "rsync() { local last=\"\${*: -1}\"; printf 'rsync %s\\n' \"\$last\" >>'$WORK/e5-calls'; }"
+      echo "cd '$SITE_TREE'; WEB01=stub-host; REMOTE_DIR=/srv/baton-web; HOSTNAME_FQDN=stub.example"
+      echo 'unset DRY_RUN'
+      printf '%s\n' "$SITE_RSYNC"
+      printf '%s\n' "$SITE_BLOCK" | awk '/^SITE_FILES=\($/,/^\)$/'
+      printf '%s\n' "$E5_BLOCK"
+      echo 'echo E5_REACHED_STATUS'; } >"$WORK/te5.sh"
+    : >"$WORK/e5-calls"
+    bash "$WORK/te5.sh" 2>&1
+  }
+  out="$(run_e5 1)"; rc=$?
+  calls="$(cat "$WORK/e5-calls")"
+  if [ "$rc" -eq 0 ] || grep -q <<<"$out" E5_REACHED_STATUS; then
+    bad "E-5: a config that fails nginx -t still reached the container restart (rc=$rc)"
+  elif grep -qE <<<"$calls" 'stub-host:/srv/baton-web/nginx/$|compose up'; then
+    bad "E-5: a config that fails nginx -t was written to the live bind mount or started: $(printf '%s' "$calls" | tr '\n' ';')"
+  elif ! grep -q <<<"$calls" 'nginx -t'; then
+    bad "E-5: nothing validated the config before the deploy: $(printf '%s' "$calls" | tr '\n' ';')"
+  else
+    ok "E-5 a config that fails nginx -t never reaches the live mount or a restart"
+  fi
+  out="$(run_e5 0)"; rc=$?
+  calls="$(cat "$WORK/e5-calls")"
+  order="$(printf '%s\n' "$calls" | awk '
+    /nginx[.]staged\/$/ && !s { s = NR } /nginx -t/ && !v { v = NR }
+    /rsync -a --delete .*nginx[.]staged\/.*nginx\// && !w { w = NR }
+    /compose up/ && !u { u = NR }
+    END { print (s && v && w && u && s < v && v < w && w < u) ? "ok" : "bad " s " " v " " w " " u }')"
+  if [ "$rc" -ne 0 ] || [ "$order" != ok ]; then
+    bad "E-5: a valid config was not staged, validated, swapped in and only then started (rc=$rc, $order): $(printf '%s' "$calls" | tr '\n' ';')"
+  elif grep -q <<<"$calls" 'nginx -t' && ! printf '%s\n' "$calls" | grep 'nginx -t' | head -1 | grep -qF 'nginx:1.30-alpine'; then
+    bad "E-5: the throwaway validation does not use the image docker-compose.yml runs"
+  else
+    ok "E-5 a valid config is staged, validated in a throwaway nginx, swapped in, then started"
+  fi
+fi
+
+# --- E-10, E-7: the static site's CSP, Permissions-Policy and supporters.json policy ---------
+# The CSP is a <meta> per page naming the SHA-256 of that page's inline scripts, kept by
+# scripts/stamp-site-assets.py. An inline script edited without restamping must fail --check,
+# or the browser silently refuses to run it on the live site.
+STAMPER="$SITE_TREE/scripts/stamp-site-assets.py"
+E10="$WORK/e10"; rm -rf "$E10"; mkdir -p "$E10"
+cp "$SITE_TREE/website/styles.css" "$SITE_TREE/website/main.js" "$E10/"
+printf '<!doctype html>\n<head>\n<meta charset="utf-8">\n<script>document.documentElement.classList.add("js");</script>\n<link rel="stylesheet" href="styles.css">\n' >"$E10/page.html"
+BATON_SITE_DIR="$E10" python3 "$STAMPER" >/dev/null
+want_hash="sha256-$(printf '%s' 'document.documentElement.classList.add("js");' | openssl dgst -sha256 -binary | base64)"
+if BATON_SITE_DIR="$E10" python3 "$STAMPER" --check >/dev/null 2>&1 && grep -qF "script-src 'self' '$want_hash'" "$E10/page.html" \
+   && [ "$(grep -c 'http-equiv="Content-Security-Policy"' "$E10/page.html")" = 1 ]; then
+  ok "E-10 the stamper writes one CSP naming the inline script's SHA-256"
+else
+  bad "E-10: the stamped page does not carry exactly one CSP with the inline script's hash: $(grep -i security "$E10/page.html")"
+fi
+sed -i '' 's/classList.add("js")/classList.add("js-edited")/' "$E10/page.html"
+if BATON_SITE_DIR="$E10" python3 "$STAMPER" --check >/dev/null 2>&1; then
+  bad "E-10: an inline script edited without restamping passed --check"
+else
+  ok "E-10 an inline script edited without restamping fails --check"
+fi
+if BATON_SITE_DIR="$SITE_TREE/website" python3 "$STAMPER" --check >/dev/null 2>&1; then
+  ok "E-10 every page in website/ carries a current CSP"
+else
+  bad "E-10: website/ has a stale CSP or asset hash (run python3 scripts/stamp-site-assets.py)"
+fi
+NGINX_CONF="$SITE_TREE/deploy/nginx/default.conf"
+if grep -qE '^    "/supporters\.json" +"no-cache";$' "$NGINX_CONF" && grep -qF '"/supporters.json|no-cache|200"' "$SITE_SUBJECT"; then
+  ok "E-7 supporters.json revalidates (no-cache), and the deploy's header check asserts it"
+else
+  bad "E-7: supporters.json has no no-cache policy, or the deploy check still expects none"
+fi
+pp="$(awk '/^map \$uri \$baton_permissions_policy \{$/,/^\}$/' "$NGINX_CONF")"
+if grep -qE <<<"$pp" '^    default +"camera=\(\)' \
+   && [ "$(printf '%s\n' "$pp" | grep -cE '^    ~\^/(s|m|b|v1/share|_share_blobs)/ +"";$')" = 5 ] \
+   && grep -qF 'add_header Permissions-Policy $baton_permissions_policy always;' "$NGINX_CONF" \
+   && grep -qF '"permissions-policy|' "$SITE_SUBJECT"; then
+  ok "E-10 Permissions-Policy is set for the site, never for share paths (the service sends its own)"
+else
+  bad "E-10: the Permissions-Policy map, its share exemptions or the deploy check are missing"
+fi
+if grep -qE '^      - /opt/docker/baton-share/data/blobs:/srv/baton-share/blobs:ro$' "$SITE_TREE/deploy/docker-compose.yml" \
+   && ! grep -qE '/opt/docker/baton-share/data:/' "$SITE_TREE/deploy/docker-compose.yml" \
+   && grep -qF 'alias /srv/baton-share/blobs/;' "$NGINX_CONF"; then
+  ok "E-8 baton_web mounts only the share blobs, read-only, at the path nginx serves"
+else
+  bad "E-8: baton_web still mounts the whole share data directory, or the alias moved"
+fi
+
+# --- publish-repo.sh: what reaches the public mirror (TBX-1000000503 F-8, F-9) -------------
+# The real EXCLUDES list, purge and task-tag strip, by the anchors scripts/lint-public-safe.sh
+# uses, run over a planted mirror.
+REPO_SUBJECT="$SITE_TREE/scripts/publish-repo.sh"
+block() { XS="$2" XE="$3" awk '!on && $0 ~ ENVIRON["XS"] { on = 1; print; next } on { print; if ($0 ~ ENVIRON["XE"]) exit }' "$1"; }
+EXCLUDES_BLOCK="$(block "$REPO_SUBJECT" '^EXCLUDES=[(]$' '^[)]$')"
+PURGE_BLOCK="$(block "$REPO_SUBJECT" '^for exclude in "[$][{]EXCLUDES\[@\][}]"; do$' '^done   # end of the purge of excluded paths$')"
+TAGS_BLOCK="$(block "$REPO_SUBJECT" '^bold "==> Stripping internal task tags"$' "s/W-\\[0-9\\]\\[0-9\\]\\*//g'$")"
+if [ -z "$EXCLUDES_BLOCK" ] || [ -z "$PURGE_BLOCK" ] || [ -z "$TAGS_BLOCK" ]; then
+  bad "publish-repo.sh: the EXCLUDES, purge or task-tag anchors were not found"
+else
+  # F-8: a path the mirror holds from an earlier publish must leave it once EXCLUDES names it.
+  # rsync --delete protects excluded paths, so only the purge can remove them.
+  M="$WORK/mirror-f8"; S="$WORK/source-f8"
+  rm -rf "$M" "$S"; mkdir -p "$M/.git" "$M/specs" "$M/scripts" "$M/app" "$S/app" "$S/scripts"
+  echo keep >"$M/.git/HEAD"
+  for f in specs/song-sharing.md HANDOFF.md ORCHESTRATION-PLAN.md scripts/backup-repo.sh \
+           scripts/publish-repo.sh scripts/install-quota-notifier.py scripts/provision-quota-ses.py; do
+    echo stale >"$M/$f"
+  done
+  echo src >"$S/app/main.swift"; echo src >"$S/scripts/tool.sh"
+  { echo 'set -euo pipefail'
+    echo 'fail() { echo "FAIL: $*" >&2; exit 1; }'
+    echo "SRC='$S'; MIRROR='$M'"
+    printf '%s\n' "$EXCLUDES_BLOCK"
+    # shellcheck disable=SC2016 # literal text for the harness script
+    echo 'rsync -a --delete "${EXCLUDES[@]}" "$SRC/" "$MIRROR/"'
+    printf '%s\n' "$PURGE_BLOCK"; } >"$WORK/tf8.sh"
+  out="$(bash "$WORK/tf8.sh" 2>&1)"; rc=$?
+  left="$(cd "$M" && find . -type f -not -path './.git/*' | sort | tr '\n' ' ')"
+  if [ "$rc" -ne 0 ]; then
+    bad "F-8: the purge failed (rc=$rc): $out"
+  elif [ "$left" != "./app/main.swift ./scripts/tool.sh " ]; then
+    bad "F-8: excluded paths survived the purge in the mirror: $left"
+  elif [ ! -f "$M/.git/HEAD" ]; then
+    bad "F-8: the purge removed the mirror's own .git"
+  else
+    ok "F-8 every path EXCLUDES names leaves a mirror that held it, and .git stays"
+  fi
+
+  # F-8 review: a mirror directory whose own name matches an EXCLUDES pattern (BATON_MIRROR
+  # ending in build, docs, dist, ...) must not be purged as a whole, .git included.
+  M="$WORK/f8b/build"; rm -rf "$WORK/f8b"; mkdir -p "$M/.git" "$M/app"
+  echo keep >"$M/.git/HEAD"; echo src >"$M/app/main.swift"
+  sed "s|MIRROR='[^']*'|MIRROR='$M'|" "$WORK/tf8.sh" >"$WORK/tf8b.sh"
+  bash "$WORK/tf8b.sh" >/dev/null 2>&1
+  if [ -f "$M/.git/HEAD" ] && [ -f "$M/app/main.swift" ]; then
+    ok "F-8 a mirror directory named like an excluded path is not itself purged"
+  else
+    bad "F-8: a BATON_MIRROR named 'build' was removed by the purge, .git included"
+  fi
+
+  # F-9: the task-tag strip must not rewrite a Swift string literal or a test name.
+  M="$WORK/mirror-f9"; rm -rf "$M"; mkdir -p "$M/app"
+  cat >"$M/app/WebhookActions.swift" <<'SWIFT'
+// Fills in the publish date (TBX-1234) on every hook. (W-12)
+    let label = "Publish date (ISO-8601)"
+    func testW32() { XCTFail("W-32: refused") }
+  /* Block comment (DL-04)
+   * continuation line (STRUCT-06)
+   */
+    play() // trailing comment (TBX-11038)
+    let u = "https://host/path (TBX-5350)" // after a URL string (W-19)
+    /*
+     block body without a star (W-11)
+     */
+    let s = "a // not a comment (TBX-77)"
+    let i = "\(f("x")) // still a string (TBX-78)"
+    let m = """
+      multi-line // literal (TBX-79)
+      """
+SWIFT
+  printf 'A note (W-7) about (ABC-12) things.\n' >"$M/app/NOTES.md"
+  { echo 'set -euo pipefail'; echo 'bold() { :; }'; echo "MIRROR='$M'"
+    printf '%s\n' "$TAGS_BLOCK"; } >"$WORK/tf9.sh"
+  out="$(bash "$WORK/tf9.sh" 2>&1)"; rc=$?
+  swift="$(cat "$M/app/WebhookActions.swift")"
+  if [ "$rc" -ne 0 ]; then
+    bad "F-9: the task-tag strip failed (rc=$rc): $out"
+  elif ! grep -qF '"Publish date (ISO-8601)"' <<<"$swift" || ! grep -qF '"W-32: refused"' <<<"$swift" \
+     || ! grep -qF '"https://host/path (TBX-5350)"' <<<"$swift" || ! grep -qF '"a // not a comment (TBX-77)"' <<<"$swift" \
+     || ! grep -qF '// still a string (TBX-78)"' <<<"$swift" || ! grep -qF 'multi-line // literal (TBX-79)' <<<"$swift"; then
+    bad "F-9: the strip rewrote a Swift string literal: $swift"
+  elif grep -qE 'TBX-1234|W-12|DL-04|STRUCT-06|TBX-11038|W-19|W-11' <<<"$swift"; then
+    bad "F-9: a tag in a comment line survived: $swift"
+  elif [ "$(cat "$M/app/NOTES.md")" != "A note about things." ]; then
+    bad "F-9: Markdown prose is no longer stripped: $(cat "$M/app/NOTES.md")"
+  else
+    ok "F-9 task tags leave Swift comments (whole lines, trailing // tails, block bodies) and Markdown; string literals stay intact"
   fi
 fi
 

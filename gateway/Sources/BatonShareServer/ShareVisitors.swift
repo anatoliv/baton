@@ -6,6 +6,11 @@
 import BatonMCPProtocol
 import BatonShareKit
 import Foundation
+#if canImport(Darwin)
+    import Darwin
+#else
+    import Glibc
+#endif
 
 /// Counting people without keeping anything that identifies them (spec §5).
 ///
@@ -48,6 +53,30 @@ public final class DailySalt: @unchecked Sendable {
 public struct ShareRequester: Sendable {
     /// The client address, from the proxy chain. Used for hashing only, never stored.
     public let address: String
+    /// The network a per-network limit counts: an IPv4 address as it is, an IPv6 address masked
+    /// to its /64 and written canonically (an IPv4-mapped one counts as its IPv4 address), and
+    /// anything unparsable as itself. Cloudflare passes the full IPv6 address, and an ordinary
+    /// home or server /64 is 2^64 of them, so per address the create, new-sharer, App Attest and
+    /// contact-grant limits rotated for free (TBX-1000000496 E-9, infra review A2). Hashed like
+    /// the address before any use; never stored.
+    public var network: String { Self.network(of: address) }
+
+    static func network(of address: String) -> String {
+        let bare = address.split(separator: "%", maxSplits: 1).first.map(String.init) ?? address
+        guard bare.contains(":") else { return address }
+        var raw = in6_addr()
+        guard inet_pton(AF_INET6, bare, &raw) == 1 else { return address }
+        var bytes = withUnsafeBytes(of: raw) { Array($0) }
+        if bytes[0 ..< 10].allSatisfy({ $0 == 0 }) && bytes[10] == 0xFF && bytes[11] == 0xFF {
+            return bytes[12 ..< 16].map(String.init).joined(separator: ".")
+        }
+        for index in 8 ..< 16 { bytes[index] = 0 }
+        var masked = in6_addr()
+        withUnsafeMutableBytes(of: &masked) { $0.copyBytes(from: bytes) }
+        var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        guard inet_ntop(AF_INET6, &masked, &text, socklen_t(text.count)) != nil else { return address }
+        return String(cString: text) + "/64"
+    }
     public let userAgent: String
 
     /// Whether any proxy header was present. The admin route refuses such requests: a request

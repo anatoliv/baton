@@ -2,6 +2,7 @@
 import AVFoundation
 import Foundation
 import BatonDSP
+import BatonSubsonicKit
 
 /// Band levels for a whole track, computed offline and indexed by playhead time — how the
 /// now-playing bars follow music that AVFoundation won't let us hear live.
@@ -98,12 +99,16 @@ public enum TrackLevelTimeline {
     /// cleaner, but Navidrome's transcode endpoint ignores ranges — so read the body
     /// stream and stop at the cap instead.
     private static func download(url: URL, cap: Int) async -> URL? {
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("baton-levels-\(UUID().uuidString).mp3")
         do {
-            let (bytes, response) = try await URLSession.shared.bytes(from: url)
+            // The server's custom headers (a Cloudflare Access token) go with a request to it,
+            // or behind such a proxy the analysis fetched a login page (C1-25).
+            var request = URLRequest(url: url)
+            for (name, value) in NavidromeConfig.customHeaders(for: url) { request.setValue(value, forHTTPHeaderField: name) }
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
             guard (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true
             else { return nil }
-            let out = FileManager.default.temporaryDirectory
-                .appendingPathComponent("baton-levels-\(UUID().uuidString).mp3")
             FileManager.default.createFile(atPath: out.path, contents: nil)
             let handle = try FileHandle(forWritingTo: out)
             defer { try? handle.close() }
@@ -121,6 +126,8 @@ public enum TrackLevelTimeline {
             if !buffer.isEmpty, written < cap { try handle.write(contentsOf: buffer) }
             return out
         } catch {
+            // A download that broke off part-way left its partial file behind (C1-20).
+            try? FileManager.default.removeItem(at: out)
             return nil
         }
     }

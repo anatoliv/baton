@@ -75,6 +75,15 @@ final class PendingImportRelayTests: XCTestCase {
         XCTAssertEqual(fetched.record.kind, "link")
     }
 
+    /// The Mac reads the page itself and needs no fragment, and a fragment can be a key: a Baton
+    /// share link's is the song's (TBX-1000000505 B-6). It never reaches the gateway.
+    func testALinkTravelsWithoutItsFragment() async throws {
+        let relay = PendingImportRelay(files: gateway.files, settle: .milliseconds(50))
+        let sent = try await relay.send(link: URL(string: "https://example.com/essay?page=2#a-secret")!, title: "An essay", fromDevice: "iPhone")
+        XCTAssertEqual(sent.link, "https://example.com/essay?page=2")
+        XCTAssertFalse(String(decoding: gateway.body(of: sent.id), as: UTF8.self).contains("a-secret"))
+    }
+
     /// The round trip: the phone's send, the Mac's claim and fetch, and finishing.
     func testPhoneToMacRoundTripLeavesNothingBehind() async throws {
         let phone = PendingImportRelay(files: gateway.files, settle: .milliseconds(50))
@@ -137,6 +146,29 @@ final class PendingImportRelayTests: XCTestCase {
         } catch let GatewayFiles.TransferError.rejected(status, _) {
             XCTAssertEqual(status, 404)
         }
+    }
+
+    /// The gateway's own bounds can remove the document before the Mac collects it: the age
+    /// limit, or cap eviction, which takes the document first because it was stored first
+    ///. The record is still there, so the Mac must be told the document is
+    /// gone, not handed a plain 404 it would retry every minute.
+    func testADocumentTheGatewayAlreadyRemovedReadsAsMissing() async throws {
+        let phone = PendingImportRelay(files: gateway.files, settle: .milliseconds(50))
+        let sent = try await phone.send(file: try document(), title: "Two Rooms", contentType: "text/markdown", fromDevice: "iPhone")
+        gateway.remove("\(sent.id)-d0c")
+        let mac = self.mac
+        _ = try await phone.claim(as: mac)
+        do {
+            _ = try await phone.fetch(sent.id, into: dir.appendingPathComponent("in"))
+            XCTFail("a record whose document is gone must not be handed over")
+        } catch let PendingImportRelay.FetchError.documentMissing(record) {
+            XCTAssertEqual(record.id, sent.id)
+            XCTAssertEqual(record.title, "Two Rooms")
+        }
+        // Finishing then clears the orphaned record and the claim, so nothing is retried.
+        try await phone.finish(sent.id)
+        let left = try await gateway.files.list()
+        XCTAssertTrue(left.isEmpty, "left behind: \(left.map(\.id))")
     }
 
     func testADamagedDocumentIsRefused() async throws {
@@ -240,6 +272,8 @@ final class RelayStandIn: @unchecked Sendable {
     var requests: [Seen] { lock.withLock { seen } }
     func body(of id: String) -> Data { lock.withLock { stored[id]?.body ?? Data() } }
     func corrupt(_ id: String) { lock.withLock { stored[id]?.body.append(0x21) } }
+    /// What the gateway's age limit or cap eviction does to one file.
+    func remove(_ id: String) { lock.withLock { stored[id] = nil } }
 
     func answer(_ request: URLRequest, body: Data) -> (Int, Data, [String: String]) {
         lock.withLock {

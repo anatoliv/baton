@@ -52,7 +52,7 @@ diagnose() {   # $1 = log file
 # Every report must carry at least one indented evidence line under its header. This is
 # the assertion the original defect fails: it printed "  Compile errors:" and stopped.
 expect_evidence() {   # $1 = case name
-  if printf '%s\n' "$OUT" | grep -qE '^ {4}[^ ]'; then
+  if grep -qE <<<"$OUT" '^ {4}[^ ]'; then
     ok "$1: the report carries evidence"
   else
     bad "$1: HEADER WITH NOTHING UNDER IT — the exact defect this guards"
@@ -61,7 +61,7 @@ expect_evidence() {   # $1 = case name
 }
 
 expect_says() {   # $1 = case name, $2 = description, $3 = pattern
-  if printf '%s\n' "$OUT" | grep -qE "$3"; then
+  if grep -qE <<<"$OUT" "$3"; then
     ok "$1: $2"
   else
     bad "$1: $2 (no line matched /$3/)"
@@ -70,7 +70,7 @@ expect_says() {   # $1 = case name, $2 = description, $3 = pattern
 }
 
 expect_silent_about() {   # $1 = case name, $2 = description, $3 = pattern that must NOT appear
-  if printf '%s\n' "$OUT" | grep -qE "$3"; then
+  if grep -qE <<<"$OUT" "$3"; then
     bad "$1: $2 (matched /$3/, which this failure is not)"
     printf '%s\n' "$OUT" | sed 's/^/      | /'
   else

@@ -4,6 +4,26 @@ import SwiftUI
 /// Settings → Remote. Connect a Telegram and/or Discord bot, authorize the chats
 /// that may drive playback, and optionally switch on natural language.
 struct BatonRemotePane: View {
+    /// The code a chat can link with, or nil while linking is paused after too many wrong codes
+    /// (C-3). The code the settings hold then is a burned one, and showing it invited a `/link`
+    /// that could only fail.
+    static func usableLinkCode(_ settings: RemoteControlSettings) -> String? {
+        settings.isLinkingLocked ? nil : settings.linkCode
+    }
+
+    static let lockedLinkingText = """
+        Linking is paused after five wrong codes were sent to your bot. Make a new code to link a chat.
+        """
+
+    static func linkingInstructions(_ settings: RemoteControlSettings) -> String {
+        guard let code = usableLinkCode(settings) else { return lockedLinkingText }
+        return """
+            Message your bot `/link \(code)` from the chat you want to control \
+            Baton with, on either service. Until you do it ignores everyone, because a bot \
+            token on its own grants nothing. Each code works once.
+            """
+    }
+
     @Environment(RemoteControlService.self) private var service: RemoteControlService?
 
     var body: some View {
@@ -175,24 +195,25 @@ private struct RemoteSettingsForm: View {
         Section("Linking") {
             LabeledContent("Link code") {
                 HStack {
-                    Text(settings.linkCode)
-                        .font(.title3.monospaced().bold())
-                        .textSelection(.enabled)
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(settings.linkCode, forType: .string)
-                    } label: { Image(systemName: "doc.on.doc") }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("Copy link code")
+                    if let code = BatonRemotePane.usableLinkCode(settings) {
+                        Text(code)
+                            .font(.title3.monospaced().bold())
+                            .textSelection(.enabled)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(code, forType: .string)
+                        } label: { Image(systemName: "doc.on.doc") }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Copy link code")
+                    } else {
+                        Text("Paused").font(.title3.bold()).foregroundStyle(Color.warningTint)
+                    }
                     Button("New code") { settings.regenerateLinkCode() }
                         .buttonStyle(.borderless)
                 }
             }
-            Text("""
-            Message your bot `/link \(settings.linkCode)` from the chat you want to control \
-            Baton with, on either service. Until you do it ignores everyone, because a bot \
-            token on its own grants nothing. Each code works once.
-            """)
+            // A key, not a plain string, so the `/link` command still renders as code.
+            Text(LocalizedStringKey(BatonRemotePane.linkingInstructions(settings)))
             .font(.callout).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -211,7 +232,9 @@ private struct RemoteSettingsForm: View {
             // where the problem is noticed, without duplicating the control.
             Label("No chats authorized yet", systemImage: "person.crop.circle.badge.xmark")
                 .foregroundStyle(Color.warningTint)
-            Text("Send your bot `/link \(settings.linkCode)` from the chat you want to use.")
+            Text(LocalizedStringKey(BatonRemotePane.usableLinkCode(settings)
+                    .map { "Send your bot `/link \($0)` from the chat you want to use." }
+                    ?? BatonRemotePane.lockedLinkingText))
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)

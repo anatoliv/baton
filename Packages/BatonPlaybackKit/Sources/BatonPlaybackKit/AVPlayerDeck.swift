@@ -106,6 +106,13 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// every track-logical reading is `streamStartOffset + player clock`. Zero otherwise.
     private(set) var streamStartOffset: TimeInterval = 0
 
+    /// Whether the current item's server would honour a `timeOffset` re-request
+    /// (`StreamSeek.honoursTimeOffset`). When it would not (a file on this device, a podcast
+    /// enclosure, a stored file the server sends as it is), a re-request is the same bytes from
+    /// the top: asking for one cannot reach the target, and from the host's open-at-0-then-seek
+    /// path it would ask again on every attempt. Such an item is seeked in place instead.
+    private(set) var streamHonoursTimeOffset = true
+
     /// The custom server headers (Cloudflare Access etc.) for a preload or crossfade URL,
     /// worked out for that URL rather than carried from the last `load`: the next item can
     /// be a podcast on another host after a song, or a server song after a download.
@@ -130,6 +137,8 @@ public final class AVPlayerDeck: PlaybackDeck {
     // MARK: - Observers
 
     private var statusObservation: NSKeyValueObservation?
+    /// What the current item can seek to, watched only to retry a deferred in-place seek.
+    private var seekableObservation: NSKeyValueObservation?
     private var timeControlObservation: NSKeyValueObservation?
     private var timeObserverToken: Any?
     private var endObserver: (any NSObjectProtocol)?
@@ -262,15 +271,23 @@ public final class AVPlayerDeck: PlaybackDeck {
         // fly, so AVPlayer often can't determine the stream's duration, which left the
         // scrubber stuck at 0:00. `refineDuration` improves it if the asset ever can.
         duration = metadataDuration
-        streamStartOffset = offset
+        // A stream that cannot start part-way in starts at its top, whatever was asked.
+        streamStartOffset = supportsTimeOffset ? offset : 0
+        streamHonoursTimeOffset = supportsTimeOffset
         isSeeking = false
+        // A seek still in flight belongs to the item being replaced. Its completion reports
+        // `finished == false` when the item goes, and past an unchanged generation it would
+        // re-request the *new* track at the old target (C1-13).
+        seekGeneration &+= 1
 
         // The host hands over the *base* annotated URL and the offset separately, the same
         // way the engine deck takes them, because the two decks want different things from
         // an offset: the engine skips decoded frames, this one re-requests the stream with
         // Subsonic `timeOffset`. Rewriting it here is what lets `load` be one call rather
         // than a branch that builds two URLs.
-        let streamURL = StreamSeek.streamURL(url, offset: offset, transcode: supportsTimeOffset)
+        // Only a stream that honours it is rewritten: the host has already chosen the format,
+        // and a podcast enclosure is fetched exactly as its feed gave it.
+        let streamURL = supportsTimeOffset ? StreamSeek.streamURL(url, offset: offset) : url
         lastLoadedURL = streamURL
         let item = Self.makeItem(asset(streamURL, headers: headers))
         setCurrentItem(item)
@@ -301,6 +318,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     }
 
     public func resume() {
+        retryDeferredSeek()
         player.play()
         // Ramped up rather than switched on: resuming mid-waveform is the same
         // discontinuity as pausing mid-waveform, just in the other direction.
@@ -337,7 +355,9 @@ public final class AVPlayerDeck: PlaybackDeck {
         crossfadingInto = nil
         crossfadingRate = nil
         streamStartOffset = 0
+        streamHonoursTimeOffset = true
         isSeeking = false
+        seekGeneration &+= 1 // retire any seek in flight on the cleared item (C1-13)
     }
 
     public func seek(to seconds: TimeInterval) {
@@ -351,24 +371,116 @@ public final class AVPlayerDeck: PlaybackDeck {
         switch StreamSeek.strategy(target: seconds,
                                    seekableRanges: seekableRanges(),
                                    streamStartOffset: streamStartOffset) {
-        case .reload(let offset):
+        case .reload(let offset) where streamHonoursTimeOffset:
             isSeeking = false
             onReloadStream?(offset)
-        case .direct:
-            player.seek(to: CMTime(seconds: seconds - streamStartOffset, preferredTimescale: 600)) { [weak self] finished in
-                Task { @MainActor in
-                    guard let self, generation == self.seekGeneration else { return }
+        case .reload, .direct:
+            deferredSeek = nil
+            seekInPlace(to: seconds, generation: generation, attempt: 1)
+        }
+    }
+
+    /// How many times an in-place seek on a stream that ignores `timeOffset` is tried before
+    /// the deck gives up and lets the clock report where the audio is.
+    static let maxInPlaceSeekAttempts = 4
+
+    /// An in-place seek that could not land yet, kept to try again (see `seekInPlace`).
+    private var deferredSeek: (target: TimeInterval, generation: Int, attempt: Int)?
+
+    private func seekInPlace(to seconds: TimeInterval, generation: Int, attempt: Int) {
+        var local = seconds - streamStartOffset
+        // A stream that ignores `timeOffset` is the whole file, so a place past its end (a file
+        // shorter than its metadata, restored at a place it never had) is its end. Asked for
+        // more, the seek did not land and nothing ended, and playback sat there.
+        if !streamHonoursTimeOffset, let length = player.currentItem?.duration.seconds,
+           length.isFinite, length > 0.1, local > length - 0.05 {
+            local = length - 0.05
+        }
+        player.seek(to: CMTime(seconds: local, preferredTimescale: 600)) { [weak self] finished in
+            Task { @MainActor in
+                guard let self, generation == self.seekGeneration else { return }
+                if finished {
                     self.isSeeking = false
-                    // `finished == false` past the generation guard is a genuine failure,
-                    // not a superseding seek — the item couldn't reach the target after
-                    // all. Recover by re-requesting rather than leaving the scrubber
-                    // claiming a position the audio never went to.
-                    guard !finished else { self.onSeekLanded?(); return }
+                    self.onSeekLanded?()
+                    return
+                }
+                // `finished == false` past the generation guard is a genuine failure, not a
+                // superseding seek: the item couldn't reach the target after all. A transcode
+                // re-requests rather than leave the scrubber claiming a position the audio
+                // never went to.
+                if self.streamHonoursTimeOffset {
+                    self.isSeeking = false
                     streamingLog.info("direct seek did not complete; re-requesting stream at \(Int(seconds))s")
                     self.onReloadStream?(seconds)
+                    return
                 }
+                // A stream that ignores `timeOffset` would come back from the top, so it is
+                // seeked in place again. Measured on a podcast enclosure restored paused: the
+                // seek made the moment the item was ready reported no seekable range and did
+                // not land, and Resume then played from 0:00. It is tried again when the item
+                // reports what it can reach, or at Resume, a bounded number of times; after
+                // that the clock reports where the audio actually is.
+                if attempt < Self.maxInPlaceSeekAttempts {
+                    self.parkInPlaceSeek(seconds, generation: generation, attempt: attempt + 1)
+                    return
+                }
+                streamingLog.info("in-place seek to \(Int(seconds))s did not land after \(attempt) attempts")
+                self.isSeeking = false
+                self.onSeekLanded?()
             }
         }
+    }
+
+    /// How long a parked retry waits when the item can already say what it can reach.
+    static let inPlaceRetryDelay: Duration = .milliseconds(250)
+
+    /// Owe an in-place seek a retry.
+    ///
+    /// While playing, the clock runs meanwhile: holding it at the target while the audio played
+    /// from where it was is the TBX-1000000492 symptom over again. And the retry cannot rely on the seekable
+    /// ranges changing, which KVO reports only as a change: when they were already known before
+    /// this completion parked it, nothing retried it while playing (review finding). Then it is
+    /// tried again after a short wait, under the same bound on attempts.
+    private func parkInPlaceSeek(_ target: TimeInterval, generation: Int, attempt: Int) {
+        deferredSeek = (target, generation, attempt)
+        // Only while playing: paused, nothing is heard, and the held clock keeps showing (and
+        // saving) the place the listener is restoring rather than the item's 0:00.
+        if hostIntendsToPlay?() == true {
+            isSeeking = false
+            onSeekLanded?()
+        }
+        guard !seekableRanges().isEmpty else { return }   // the ranges arriving, or Resume, retries it
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.inPlaceRetryDelay)
+            guard let self, let owed = self.deferredSeek, owed.generation == generation, owed.attempt == attempt else { return }
+            self.retryDeferredSeek()
+        }
+    }
+
+    #if DEBUG
+    /// Stands in for an in-place seek to `target` whose completion reported it did not land.
+    func parkInPlaceSeekForTesting(_ target: TimeInterval) {
+        seekGeneration &+= 1
+        isSeeking = true
+        parkInPlaceSeek(target, generation: seekGeneration, attempt: 2)
+    }
+    var isSeekingForTesting: Bool { isSeeking }
+    #endif
+
+    /// Try a deferred in-place seek again, if one is owed for the current seek.
+    private func retryDeferredSeek() {
+        guard let owed = deferredSeek else { return }
+        deferredSeek = nil
+        guard owed.generation == seekGeneration else { return }
+        isSeeking = true
+        seekInPlace(to: owed.target, generation: owed.generation, attempt: owed.attempt)
+    }
+
+    /// `StreamSeek.honoursTimeOffset` for an item this deck built (gapless preload, crossfade),
+    /// which the host loaded through no `load` call that could say.
+    private static func honoursTimeOffset(_ item: AVPlayerItem, song: NavidromeSong?) -> Bool {
+        guard let song, let url = (item.asset as? AVURLAsset)?.url else { return true }
+        return StreamSeek.honoursTimeOffset(url, for: song)
     }
 
     /// What the current item can actually seek to, in stream-local seconds.
@@ -488,7 +600,18 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// every path that adopts an item, so a loaded, gaplessly-advanced and crossfade-promoted
     /// item all behave identically.
     private func attachItemObservers(_ item: AVPlayerItem) {
-        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+        seekableObservation = item.observe(\.seekableTimeRanges, options: [.new]) { [weak self] item, _ in
+            let reachable = !item.seekableTimeRanges.isEmpty
+            let observed = ObjectIdentifier(item)
+            Task { @MainActor in
+                guard reachable, let self, self.loadedItem.map(ObjectIdentifier.init) == observed else { return }
+                self.retryDeferredSeek()
+            }
+        }
+        // `.initial` as well as `.new`: an adopted item (gapless preload, crossfade) can have
+        // reached `.failed` or `.readyToPlay` before it is observed here, and with `.new`
+        // alone that state was never reported (C1-14). `.unknown` reports nothing.
+        statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             // KVO can fire off-main; read Sendable values, then hop to the main actor.
             let status = item.status
             let failureMessage = item.error?.localizedDescription
@@ -522,6 +645,9 @@ public final class AVPlayerDeck: PlaybackDeck {
         }
         statusObservation?.invalidate()
         statusObservation = nil
+        seekableObservation?.invalidate()
+        seekableObservation = nil
+        deferredSeek = nil
     }
 
     /// Refine the duration from the asset when it's actually determinable (a real finite
@@ -728,7 +854,9 @@ public final class AVPlayerDeck: PlaybackDeck {
         metadataDuration = Double(slot.song.duration ?? 0)
         duration = metadataDuration
         streamStartOffset = 0
+        streamHonoursTimeOffset = Self.honoursTimeOffset(slot.item, song: slot.song)
         isSeeking = false
+        seekGeneration &+= 1 // a seek in flight was on the outgoing item (C1-13)
         attachItemObservers(slot.item)
         configureItem?(slot.item)
         applyVolume()
@@ -786,11 +914,13 @@ public final class AVPlayerDeck: PlaybackDeck {
         // must not carry across.
         streamStartOffset = 0
         isSeeking = false
+        seekGeneration &+= 1 // a seek in flight was on the outgoing player (C1-13)
         if let song = crossfadingInto {
             loadedSong = song
             metadataDuration = Double(song.duration ?? 0)
             duration = metadataDuration
         }
+        streamHonoursTimeOffset = promoted.currentItem.map { Self.honoursTimeOffset($0, song: loadedSong) } ?? true
         crossfadingInto = nil
         if let rate = crossfadingRate { playbackRate = rate }
         crossfadingRate = nil
@@ -840,7 +970,11 @@ public final class AVPlayerDeck: PlaybackDeck {
 
     /// Stand in for "this stream was fetched with `timeOffset`", which a local file can't
     /// produce (it is fully seekable, so a seek never needs a re-request). Test seam.
-    func setStreamStartOffsetForTesting(_ seconds: TimeInterval) { streamStartOffset = seconds }
+    /// Stands in for a stream fetched with `timeOffset`, which only a stream that honours it can be.
+    func setStreamStartOffsetForTesting(_ seconds: TimeInterval) {
+        streamStartOffset = seconds
+        if seconds > 0 { streamHonoursTimeOffset = true }
+    }
 
     /// How long the item playing and the gapless next item are, as each item's own asset says:
     /// the audio the player holds, not the queue's account of it.

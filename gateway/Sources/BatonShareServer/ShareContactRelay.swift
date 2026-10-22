@@ -19,7 +19,21 @@ enum ShareContactRelay {
                headers: ["Cache-Control": "private, no-store"])
     }
     /// Literal AF_INET loopback avoids DNS, URLSession proxy discovery and redirects.
+    ///
+    /// The exchange blocks in poll(2) for up to 5 s, so it runs on a thread of its own and the
+    /// caller is resumed when it ends. On the cooperative pool, a few relays at once held the
+    /// threads the rest of the service, and the worker's callback into it, need (TBX-1000000496 D-8).
     static func forward(port: UInt16, path: String, body: Data) async throws -> ShareResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            let thread = Thread {
+                continuation.resume(with: Result { try exchange(port: port, path: path, body: body) })
+            }
+            thread.name = "baton-share-contact-relay"
+            thread.start()
+        }
+    }
+
+    private static func exchange(port: UInt16, path: String, body: Data) throws -> ShareResponse {
         #if os(Linux)
         let descriptor = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
         #else

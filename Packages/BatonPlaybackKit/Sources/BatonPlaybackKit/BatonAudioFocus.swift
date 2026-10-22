@@ -31,6 +31,9 @@ public final class BatonAudioFocusRegistry {
         /// When the handle was placed — drives the time-bound auto-expiry.
         var createdAt: Date
         var resolved = false // set once resume has been attempted (idempotency)
+        /// When it was resolved. A resolved handle is kept only long enough to answer a repeated
+        /// resume with "already-resumed", then dropped: they were kept for good (C1-24).
+        var resolvedAt: Date?
     }
 
     private var entries: [String: Entry] = [:]
@@ -118,6 +121,7 @@ public final class BatonAudioFocusRegistry {
         }
         let outcome = release(entry.token, on: music)
         entry.resolved = true
+        entry.resolvedAt = now()
         entries[handle] = entry
         return outcome
     }
@@ -142,6 +146,7 @@ public final class BatonAudioFocusRegistry {
             let outcome = release(match.value.token, on: music)
             var entry = match.value
             entry.resolved = true
+            entry.resolvedAt = now()
             entries[match.key] = entry
             return outcome
         }
@@ -185,7 +190,10 @@ public final class BatonAudioFocusRegistry {
     @discardableResult
     public func expireStaleHandles(on music: StreamingPlaybackController) -> Int {
         let cutoff = now().addingTimeInterval(-Self.handleMaxAge)
-        return expire(where: { $0.createdAt < cutoff }, on: music)
+        let expired = expire(where: { $0.createdAt < cutoff }, on: music)
+        // The periodic sweep is also where resolved handles finally go.
+        entries = entries.filter { !$0.value.resolved || ($0.value.resolvedAt ?? .distantPast) >= cutoff }
+        return expired
     }
 
     private func expire(
@@ -197,6 +205,7 @@ public final class BatonAudioFocusRegistry {
             _ = release(entry.token, on: music)
             var e = entry
             e.resolved = true
+            e.resolvedAt = now()
             entries[handle] = e
             expired += 1
         }
@@ -207,6 +216,8 @@ public final class BatonAudioFocusRegistry {
 
     /// Number of live (un-resolved) handles — for tests/introspection.
     public var liveHandleCount: Int { entries.values.filter { !$0.resolved }.count }
+    /// Every handle held, resolved ones included — for tests.
+    var storedHandleCountForTesting: Int { entries.count }
 
     private func stateLabel(_ state: StreamingPlaybackController.State) -> String {
         switch state {

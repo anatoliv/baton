@@ -16,7 +16,7 @@ const sha256 = async (bytes) => Buffer.from(await crypto.subtle.digest("SHA-256"
 
 test("the vector file has every entry", () => {
   assert.ok(vectors.positive.length >= 9);
-  assert.ok(vectors.negative.length >= 14);
+  assert.ok(vectors.negative.length >= 15);
 });
 
 for (const v of vectors.positive) {

@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Glibc)
+    import Glibc  // open(2) and rename(2) for writeProtected on the Linux share service
+#elseif canImport(Musl)
+    import Musl
+#endif
 
 /// Durable tickets contain encrypted audio and its key, never the plaintext song or
 /// authentication secret. Public-mode preview images retain their public bytes.
@@ -219,14 +224,32 @@ public struct ShareUploadStore: Sendable {
 
     public func write(_ data: Data, to url: URL) throws { try Self.writeProtected(data, to: url) }
 
+    /// Atomic, and never readable by anyone else, not even for a moment: the temporary file is
+    /// created 0600 before a byte is written and takes the final name only once complete.
+    /// (`Data.write(.atomic)` creates its temporary with the default mode, so a file chmodded
+    /// after the rename was briefly 0644 under its real name.)
     public static func writeProtected(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: .atomic)
-        var attributes: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
-        #if os(iOS)
-        // Background callbacks must work while locked, after the first unlock.
-        attributes[.protectionKey] = FileProtectionType.completeUntilFirstUserAuthentication
-        #endif
-        try FileManager.default.setAttributes(attributes, ofItemAtPath: url.path)
+        let temporary = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: url.path]) }
+        do {
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            try handle.write(contentsOf: data)
+            try handle.close()
+            var attributes: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
+            #if os(iOS)
+            // Background callbacks must work while locked, after the first unlock.
+            attributes[.protectionKey] = FileProtectionType.completeUntilFirstUserAuthentication
+            #endif
+            try FileManager.default.setAttributes(attributes, ofItemAtPath: temporary.path)
+            guard rename(temporary.path, url.path) == 0 else {
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
     }
 }
 

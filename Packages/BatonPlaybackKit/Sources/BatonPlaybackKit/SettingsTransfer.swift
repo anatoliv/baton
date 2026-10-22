@@ -274,6 +274,9 @@ public enum SettingsTransfer {
         for (key, value) in defaults.dictionaryRepresentation() where isExportablePreference(key) {
             preferences[key] = value
         }
+        if !includeSecrets, let servers = preferences[NavidromeConfig.serversKey] as? Data {
+            preferences[NavidromeConfig.serversKey] = withoutCustomHeaders(servers)
+        }
 
         var envelope: [String: Any] = [
             "schemaVersion": schemaVersion,
@@ -334,6 +337,17 @@ public enum SettingsTransfer {
         settingsTransferLog.info("exported settings (\(preferences.count) prefs, \(secretCount) secrets, \(documentCount) documents, encrypted \(includeSecrets, privacy: .public))")
         return ExportResult(data: data, preferenceCount: preferences.count, secretCount: secretCount,
                             documentCount: documentCount, encrypted: includeSecrets)
+    }
+
+    /// The saved server list without each server's `customHeaders`. Those are how Cloudflare
+    /// Access or Authelia admits Baton (`CF-Access-Client-Secret`), so they are credentials, and
+    /// a preferences-only export is plain JSON. Edited as JSON so every other field, including
+    /// any this version does not know, travels unchanged. A list that is not JSON is left out:
+    /// it could not be imported anyway, and it might hold headers.
+    static func withoutCustomHeaders(_ servers: Data) -> Data? {
+        guard var list = try? JSONSerialization.jsonObject(with: servers) as? [[String: Any]] else { return nil }
+        for index in list.indices { list[index].removeValue(forKey: "customHeaders") }
+        return try? JSONSerialization.data(withJSONObject: list, options: [.sortedKeys])
     }
 
     // MARK: - Import

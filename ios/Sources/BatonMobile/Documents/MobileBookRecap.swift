@@ -114,12 +114,15 @@ enum MobileRecap {
         #endif
         let gateway = config.gatewayURL.trimmingCharacters(in: .whitespaces)
         let token = config.gatewayToken.trimmingCharacters(in: .whitespaces)
-        let homeServer = !gateway.isEmpty && !token.isEmpty && URL(string: gateway)?.host != nil ? gateway : nil
+        // The executor below hands the gateway token to this source, so it takes the same guard
+        // as every other gateway client on the phone: never plain HTTP to a public address
+        // (TBX-1000000505 B-9).
+        let homeServer = MobileModel.bearerGateway(address: gateway, token: token) != nil ? gateway : nil
         let sources = sources(model: config.model, baseURL: base, provider: config.provider,
                               hasKey: !key.trimmingCharacters(in: .whitespaces).isEmpty, homeServer: homeServer,
                               onDevice: onDevice)
         let executor = AppleOnDeviceModel.executor(otherwise: HTTPModelClient.executor(apiKey: { source in
-            if source.provider == .homeServer { return token }
+            if source.provider == .homeServer { return homeServer != nil ? token : nil }
             return source.baseURL == base && !key.isEmpty ? key : nil
         }))
         return (sources, ModelConsentLedger(defaults: BatonStorage.defaults).consent, executor)

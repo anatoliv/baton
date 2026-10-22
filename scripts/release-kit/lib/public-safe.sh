@@ -70,20 +70,27 @@ rk_public_safe() (
 
   # Keep only what git would carry (tracked, or untracked and not ignored); with --diff, only
   # what changed since the base. Build output and local state are not a merge's business.
+  # NUL-separated (-z): without it git quotes a path with non-ASCII or special characters
+  # ("caf\303\251.md"), the quoted name matches no staged file, and that file is dropped
+  # from the stage unscanned. Both sides are compared in NFC: with core.precomposeunicode
+  # (git's macOS default) git lists a name composed while the stage holds the decomposed
+  # bytes on disk.
   ( cd "$root"
     if [ -n "$diff_base" ]; then
-      { git diff --name-only "$diff_base" --; git ls-files -o --exclude-standard; } | sort -u
+      git diff -z --name-only "$diff_base" --; git ls-files -z -o --exclude-standard
     else
-      git ls-files -co --exclude-standard
+      git ls-files -z -co --exclude-standard
     fi ) >"$stage/keep"
   python3 - "$mirror" "$stage/keep" <<'PY'
-import os, sys
-mirror, keep_file = sys.argv[1], sys.argv[2]
-keep = set(line.rstrip("\n") for line in open(keep_file) if line.strip())
+import os, sys, unicodedata
+def nfc(p):
+    return unicodedata.normalize("NFC", os.fsdecode(p))
+mirror, keep_file = os.fsencode(sys.argv[1]), sys.argv[2]
+keep = set(nfc(p) for p in open(keep_file, "rb").read().split(b"\0") if p)
 for base, dirs, files in os.walk(mirror):
     for name in files:
         path = os.path.join(base, name)
-        if os.path.relpath(path, mirror) not in keep:
+        if nfc(os.path.relpath(path, mirror)) not in keep:
             os.remove(path)
 PY
 

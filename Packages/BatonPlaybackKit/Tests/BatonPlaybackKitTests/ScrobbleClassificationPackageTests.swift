@@ -87,6 +87,75 @@ final class ScrobbleClassificationPackageTests: XCTestCase {
 }
 
 /// Answers 400 for any batch holding one song and accepts the rest.
+// MARK: - TBX-1000000506
+
+@MainActor
+final class ScrobbleFollowUpPackageTests: XCTestCase {
+    /// A credential rejection refuses the account, not one listen. Sent one by one, a batch of
+    /// 50 made 50 refused requests every round (C2-8 note); it makes one now.
+    func testACredentialRejectionStopsAfterOneRequest() async {
+        let defaults = ThrowawayDefaults.make("scrobble-account-rejection")
+        let queue = ScrobbleQueue(defaults: defaults)
+        let lastfm = AccountRejectingDestination()
+        let clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let service = ScrobbleService(
+            listenBrainz: RejectingDestination(id: "listenbrainz", active: false), lastfm: lastfm,
+            navidrome: RejectingDestination(id: "navidrome", active: false),
+            queue: queue, defaults: defaults, now: { clock }, monitorNetwork: false, autoFlush: false
+        )
+        for n in 0 ..< 10 {
+            service.completed(NavidromeSong(id: "s\(n)", title: "s\(n)", artist: "A"), startedAt: clock.addingTimeInterval(Double(n)))
+        }
+        await service.flushAllAndWait()
+        XCTAssertEqual(lastfm.requests, 2, "the batch, then one listen alone; not one request per listen")
+        XCTAssertEqual(queue.pending.count, 10)
+        XCTAssertEqual(Set(queue.pending.map(\.attempts)), [1], "each listen is charged one attempt")
+    }
+
+    /// A listen queued for one music server must not be delivered to another one (C2-21).
+    func testAQueuedListenGoesOnlyToTheServerItWasHeardFrom() async {
+        let defaults = ThrowawayDefaults.make("scrobble-server-scope")
+        let queue = ScrobbleQueue(defaults: defaults)
+        let server = ScopedDestination(scope: "server-a")
+        let clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let service = ScrobbleService(
+            listenBrainz: RejectingDestination(id: "listenbrainz", active: false),
+            lastfm: RejectingDestination(id: "lastfm", active: false), navidrome: server,
+            queue: queue, defaults: defaults, now: { clock }, monitorNetwork: false, autoFlush: false
+        )
+        service.completed(NavidromeSong(id: "heard-on-a", title: "a", artist: "A"), startedAt: clock)
+        server.scope = "server-b"
+        service.completed(NavidromeSong(id: "heard-on-b", title: "b", artist: "A"), startedAt: clock.addingTimeInterval(1))
+        await service.flushAllAndWait()
+        XCTAssertEqual(server.delivered, ["heard-on-b"], "a listen from server A was credited to server B")
+        XCTAssertEqual(queue.pending.map(\.scrobble.songID), ["heard-on-a"], "and it waits for server A")
+    }
+}
+
+private final class AccountRejectingDestination: ScrobbleDestination {
+    let destinationID = "lastfm"
+    let isActive = true
+    let maxBatch = 50
+    private(set) var requests = 0
+    func sendNowPlaying(_ scrobble: Scrobble) async {}
+    func submit(_ batch: [Scrobble]) async throws {
+        requests += 1
+        throw ScrobbleError.http(401)
+    }
+}
+
+private final class ScopedDestination: ScrobbleDestination {
+    let destinationID = "navidrome"
+    let isActive = true
+    let maxBatch = 1
+    var scope: String
+    var queueScope: String? { scope }
+    private(set) var delivered: [String] = []
+    init(scope: String) { self.scope = scope }
+    func sendNowPlaying(_ scrobble: Scrobble) async {}
+    func submit(_ batch: [Scrobble]) async throws { delivered += batch.map(\.songID) }
+}
+
 private final class RejectingDestination: ScrobbleDestination {
     let destinationID: String
     let isActive: Bool

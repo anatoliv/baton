@@ -71,6 +71,8 @@ final class TransportTests: XCTestCase {
     private func start(
         readTimeout: TimeInterval = 15,
         maximumConcurrentConnections: Int = 128,
+        refusesUpload: @escaping @Sendable (StreamingUpload.Request) -> Data? = { _ in nil },
+        uploadDeadline: TimeInterval? = nil,
         log: @escaping @Sendable (String) -> Void = { _ in },
         handle: @escaping @Sendable (HTTPRequestMessage) async -> Data = { _ in
             httpResponse(status: "200 OK", body: #"{"ok":true}"#)
@@ -84,6 +86,8 @@ final class TransportTests: XCTestCase {
                                        maximumBodyBytes: 1024 * 1024,
                                        readTimeout: readTimeout,
                                        maximumConcurrentConnections: maximumConcurrentConnections,
+                                       admitsUpload: { head in refusesUpload(head).map { .refuse($0) } ?? .admitted },
+                                       uploadDeadline: uploadDeadline,
                                        log: log)
         let started = try transport.start(port: 0, handle: handle, upload: upload)
         listener = started
@@ -329,6 +333,82 @@ final class TransportTests: XCTestCase {
 
         XCTAssertEqual(recorder.all.filter { $0.contains(" 413 ") }.count, 1,
                        "a refusal must be visible in the log, got \(recorder.all)")
+    }
+
+    /// An upload the refusal hook turns away is answered from its head, before any staging is
+    /// reserved or a byte of body is read (TBX-1000000496 D-15). Before the hook, a head with a
+    /// large `Content-Length` and no credential held its reservation until the peer went quiet.
+    func testARefusedUploadHeadIsAnsweredBeforeAnythingIsStaged() throws {
+        let asked = Recorder()
+        let port = try start(refusesUpload: { head in
+            asked.write(head.path)
+            return head.header("authorization") == "Bearer good" ? nil : httpErrorResponse(status: "401 Unauthorized", message: "no")
+        })
+        let fd = try open(port)
+        defer { close(fd) }
+        write(fd, "PUT /v1/files/abc HTTP/1.1\r\nHost: x\r\nContent-Length: 1000000\r\n\r\n")
+        XCTAssertTrue(readAll(fd).hasPrefix("HTTP/1.1 401"), "refused from the head, with no body sent")
+        XCTAssertEqual(asked.all, ["/v1/files/abc"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: staging.path), [], "nothing staged")
+
+        let allowed = try open(port)
+        defer { close(allowed) }
+        write(allowed, "PUT /v1/files/abc HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer good\r\nContent-Length: 3\r\n\r\nabc")
+        XCTAssertTrue(readAll(allowed).hasPrefix("HTTP/1.1 201"), "an admitted upload streams as before")
+    }
+
+    /// A refusal sent while the body is still arriving must reach the client. Closing a socket with
+    /// unread data resets the connection, which can destroy the answer before it is read; behind
+    /// nginx with request buffering off that reads as 502 instead of 401 (TBX-1000000496 D-15).
+    func testAnUploadRefusedWhileItsBodyIsArrivingStillGetsItsAnswer() throws {
+        let port = try start(refusesUpload: { _ in httpErrorResponse(status: "401 Unauthorized", message: "no") })
+        for _ in 0 ..< 5 {
+            let fd = try open(port)
+            defer { close(fd) }
+            write(fd, "PUT /v1/files/abc HTTP/1.1\r\nHost: x\r\nContent-Length: 1000000\r\n\r\n")
+            Thread.sleep(forTimeInterval: 0.05)
+            // Body still on its way after the server has answered and given up on the request.
+            write(fd, String(repeating: "x", count: 600_000))
+            Thread.sleep(forTimeInterval: 0.1)
+            write(fd, String(repeating: "x", count: 300_000))
+            XCTAssertTrue(readAll(fd).hasPrefix("HTTP/1.1 401"), "the answer survives the unread body")
+        }
+    }
+
+    /// The read timeout is per read, so a peer that sends a byte now and then would hold its
+    /// staging reservation indefinitely. The upload deadline bounds the whole upload (D-15).
+    func testAnUploadThatOverrunsItsDeadlineIsRefusedAndItsFileRemoved() throws {
+        let port = try start(readTimeout: 5, uploadDeadline: 0.6)
+        let fd = try open(port)
+        defer { close(fd) }
+        write(fd, "PUT /v1/files/abc HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n")
+        var answer = ""
+        for _ in 0 ..< 10 {
+            Thread.sleep(forTimeInterval: 0.2)
+            write(fd, "x")
+            var probe = [UInt8](repeating: 0, count: 512)
+            var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            let got = read(fd, &probe, probe.count)
+            if got > 0 { answer = String(decoding: probe[0 ..< got], as: UTF8.self); break }
+        }
+        XCTAssertTrue(answer.hasPrefix("HTTP/1.1 408"), "a dribbling upload is cut off at its deadline: \(answer.debugDescription)")
+        Thread.sleep(forTimeInterval: 0.1)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: staging.path), [], "and its staging file goes with it")
+    }
+
+    /// The deadline is per upload request and bounds the whole of it, not each piece: a slow but
+    /// steady upload that finishes inside it is taken as before.
+    func testASlowButSteadyUploadInsideItsDeadlineIsTaken() throws {
+        let port = try start(readTimeout: 5, uploadDeadline: 3)
+        let fd = try open(port)
+        defer { close(fd) }
+        write(fd, "PUT /v1/files/abc HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\n")
+        for piece in ["a", "b", "c", "d", "e"] {
+            Thread.sleep(forTimeInterval: 0.3)
+            write(fd, piece)
+        }
+        XCTAssertTrue(readAll(fd).hasPrefix("HTTP/1.1 201"), "1.5 s of steady pieces inside a 3 s deadline")
     }
 
     /// An ordinary request still logs exactly one line, and the empty poll is still dropped.

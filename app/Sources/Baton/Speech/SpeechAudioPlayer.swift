@@ -45,9 +45,14 @@ import CoreAudio
 @MainActor
 final class SpeechAudioPlayer {
 
-    /// Fired when the clip reaches its end on its own. Not called for `stop()`, a seek, or a
-    /// replaced clip — only a genuine play-out.
+    /// Fired when the clip reaches its end on its own, or could not start at all because the
+    /// graph would not run (no usable output device). Not called for `stop()`, a seek, or a
+    /// replaced clip.
     var onFinish: (@MainActor () -> Void)?
+
+    /// Fired just before `onFinish` for a clip that could not start, so a reading can tell
+    /// "spoken" from "never heard".
+    var onUnplayable: (@MainActor () -> Void)?
 
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
@@ -110,6 +115,10 @@ final class SpeechAudioPlayer {
     /// different sense.
     nonisolated(unsafe) static var isMuted = false
 
+    /// Stands in for `engine.start()`, so a test can make the start fail the way a Mac with no
+    /// usable output device does (TBX-1000000504, A-4). Nil in the app.
+    nonisolated(unsafe) static var startEngineOverride: ((AVAudioEngine) throws -> Void)?
+
     init() {
         engine.attach(node)
     }
@@ -168,7 +177,7 @@ final class SpeechAudioPlayer {
         // nothing to wake. Read it *before* starting the engine, which is what makes it warm.
         let wasCold = !engine.isRunning
         startEngineIfNeeded()
-        guard engine.isRunning else { return }
+        guard engine.isRunning else { finishUnplayable(); return }
 
         let remaining = AVAudioFrameCount(max(0, AVAudioFramePosition(buffer.frameLength) - startFrame))
         guard remaining > 0 else { finishNaturally(); return }
@@ -203,6 +212,7 @@ final class SpeechAudioPlayer {
     func resume() {
         guard buffer != nil, !isPlayingSegment else { return }
         startEngineIfNeeded()
+        guard engine.isRunning else { finishUnplayable(); return }
         node.play()
         isPlayingSegment = true
         isPausedMidClip = false
@@ -341,9 +351,23 @@ final class SpeechAudioPlayer {
         engine.prepare()
         engineStartedAt = Date()
         do {
-            try engine.start()
+            if let override = Self.startEngineOverride { try override(engine) } else { try engine.start() }
         } catch {
             speechLog.error("speech engine failed to start: \(error.localizedDescription)")
+        }
+    }
+
+    /// The graph would not start, so this clip cannot play. Reported as finished, on the next
+    /// turn of the main actor as a played-out clip is, so the session ends, the duck is released
+    /// and anything queued behind it gets its turn. Returning without a word left the engine
+    /// speaking forever and the music lowered until someone pressed Stop (TBX-1000000504, A-4).
+    private func finishUnplayable() {
+        generation &+= 1
+        let failed = generation
+        Task { @MainActor [weak self] in
+            guard let self, failed == self.generation else { return }
+            self.onUnplayable?()
+            self.finishNaturally()
         }
     }
 

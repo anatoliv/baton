@@ -148,6 +148,99 @@ final class FileStoreTests: XCTestCase {
         XCTAssertNotNil(store.metadata(id: ids[3]), "the newest should have survived")
     }
 
+    // MARK: - "Send to my Mac" pending imports
+
+    /// What the phone's relay stores: the document first, then its record, then a Mac's claim.
+    /// Ids as `PendingImportRelay` makes them: a lowercase UUID, `-d0c`, `-<mac>`.
+    @discardableResult
+    private func pendingImport(document bytes: Int, at time: Date) throws -> String {
+        let record = UUID().uuidString.lowercased()
+        try store.commit(staged: try staged(bytes), id: "\(record)-d0c", name: "Two Rooms.md",
+                         contentType: "text/markdown", sha256: nil, origin: "iPhone", now: time)
+        try store.commit(staged: try staged(200), id: record, name: "pending-import.json",
+                         contentType: FileStore.pendingImportContentType, sha256: nil, origin: "iPhone",
+                         now: time.addingTimeInterval(1))
+        try store.commit(staged: try staged(2), id: "\(record)-\(UUID().uuidString.lowercased())", name: "claim",
+                         contentType: "application/vnd.baton.pending-import-claim", sha256: nil, origin: "Mac",
+                         now: time.addingTimeInterval(2))
+        return record
+    }
+
+    private func pendingFiles(_ record: String) -> [String] {
+        store.list().map(\.id).filter { $0 == record || $0.hasPrefix("\(record)-") }
+    }
+
+    /// The document was stored first, so plain oldest-first eviction took it and left its record:
+    /// the Mac then claimed a record whose document was gone, every minute, for two weeks.
+    func testCapEvictionTakesAPendingImportsRecordDocumentAndClaimTogether() throws {
+        let now = Date()
+        let first = try pendingImport(document: 4000, at: now)
+        let second = try pendingImport(document: 4000, at: now.addingTimeInterval(10))
+        let third = try pendingImport(document: 4000, at: now.addingTimeInterval(20))
+
+        XCTAssertLessThanOrEqual(store.list().reduce(0) { $0 + $1.size }, store.maximumTotalBytes)
+        XCTAssertEqual(pendingFiles(first), [], "the oldest import goes whole, record and claim included")
+        XCTAssertEqual(pendingFiles(second).count, 3)
+        XCTAssertEqual(pendingFiles(third).count, 3)
+    }
+
+    /// Under cap pressure everything else goes before a document someone sent to their Mac.
+    func testUnderCapPressureOtherFilesGoBeforeAPendingImport() throws {
+        let now = Date()
+        let sent = try pendingImport(document: 4000, at: now)
+        let clip1 = id(), clip2 = id()
+        try store.commit(staged: try staged(3000), id: clip1, name: "c1", contentType: "audio/mp4",
+                         sha256: nil, origin: nil, now: now.addingTimeInterval(10))
+        try store.commit(staged: try staged(3000), id: clip2, name: "c2", contentType: "audio/mp4",
+                         sha256: nil, origin: nil, now: now.addingTimeInterval(20))
+
+        XCTAssertLessThanOrEqual(store.list().reduce(0) { $0 + $1.size }, store.maximumTotalBytes)
+        XCTAssertEqual(pendingFiles(sent).count, 3, "the pending import survived")
+        XCTAssertNil(store.metadata(id: clip1), "the oldest other file went instead")
+        XCTAssertNotNil(store.metadata(id: clip2))
+    }
+
+    /// Pending imports go last under the cap, but not after the file an upload has just written:
+    /// that file was answered 201 and evicted in the same commit, so the other device's GET
+    /// found nothing (TBX-1000000493 review).
+    func testTheFileJustCommittedSurvivesPendingImportsFillingTheCap() throws {
+        let now = Date()
+        try pendingImport(document: 4000, at: now)
+        try pendingImport(document: 4000, at: now.addingTimeInterval(10))
+        let clip = id()
+        try store.commit(staged: try staged(3000), id: clip, name: "a reading", contentType: "audio/mp4",
+                         sha256: nil, origin: nil, now: now.addingTimeInterval(20))
+
+        XCTAssertNotNil(store.metadata(id: clip), "the upload's own file was evicted by its own commit")
+        XCTAssertLessThanOrEqual(store.list().reduce(0) { $0 + $1.size }, store.maximumTotalBytes)
+    }
+
+    /// The age limit still applies to pending imports, and takes the whole import at once rather
+    /// than the document a second before its record.
+    func testTheAgeLimitTakesAPendingImportWhole() throws {
+        let now = Date()
+        let sent = try pendingImport(document: 100, at: now.addingTimeInterval(-store.maximumAge - 1))
+        store.prune(now: now)
+        XCTAssertEqual(pendingFiles(sent), [], "record or claim outlived its document")
+    }
+
+    /// Only the relay's record type groups files: an ordinary file whose id happens to start
+    /// like another's is evicted on its own.
+    func testOrdinaryFilesAreNotGrouped() throws {
+        let now = Date()
+        let a = id()
+        try store.commit(staged: try staged(4000), id: a, name: "a", contentType: "audio/mp4",
+                         sha256: nil, origin: nil, now: now)
+        try store.commit(staged: try staged(10), id: "\(a)-1", name: "a1", contentType: "audio/mp4",
+                         sha256: nil, origin: nil, now: now.addingTimeInterval(30))
+        try store.commit(staged: try staged(4000), id: id(), name: "b", contentType: "audio/mp4",
+                         sha256: nil, origin: nil, now: now.addingTimeInterval(10))
+        try store.commit(staged: try staged(4000), id: id(), name: "c", contentType: "audio/mp4",
+                         sha256: nil, origin: nil, now: now.addingTimeInterval(20))
+        XCTAssertNil(store.metadata(id: a))
+        XCTAssertNotNil(store.metadata(id: "\(a)-1"), "an unrelated newer file stayed")
+    }
+
     // MARK: - Listing
 
     func testListIsNewestFirstAndSurvivesAStrayFileInTheDirectory() throws {

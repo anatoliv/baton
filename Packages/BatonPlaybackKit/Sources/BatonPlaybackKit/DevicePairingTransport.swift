@@ -205,12 +205,32 @@ public final class PairingHost {
         pending.continuation.resume(returning: answer)
     }
 
-    private func receive(_ connection: NWConnection) async -> Data? {
+    /// Read the Hello. One `receive` returned whatever the first segment held, so a Hello split
+    /// across two was rejected as a bad proof (C-16). It reads until the bytes decode as a Hello,
+    /// the peer closes, 64 KB arrive or `timeout` passes, whichever is first.
+    private func receive(_ connection: NWConnection, timeout: TimeInterval = 10) async -> Data? {
         await withCheckedContinuation { continuation in
-            nonisolated(unsafe) var resumed = false
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, _ in
-                if !resumed { resumed = true; continuation.resume(returning: data) }
+            let sink = PairingClient.SharedAccumulator(cap: 64 * 1024)
+            @Sendable func finish(_ value: Data?) {
+                guard sink.claimFinish() else { return }
+                continuation.resume(returning: value)
             }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                let sofar = sink.accumulated
+                finish(sofar.isEmpty ? nil : sofar)
+            }
+            @Sendable func readMore() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
+                    let step = sink.consume(data, isComplete: isComplete, failed: error != nil)
+                    let sofar = sink.accumulated
+                    if (try? JSONDecoder().decode(DevicePairing.Hello.self, from: sofar)) != nil { return finish(sofar) }
+                    switch step {
+                    case .needMore: readMore()
+                    case let .finished(payload): finish(payload)
+                    }
+                }
+            }
+            readMore()
         }
     }
 }
@@ -238,8 +258,10 @@ public enum PairingClient {
             port: NWEndpoint.Port(rawValue: invitation.port) ?? .any,
             using: .tcp
         )
-        connection.start(queue: .global(qos: .userInitiated))
         defer { connection.cancel() }
+        // Wait for the connection before sending. A send queued on a connection that never comes
+        // up never completes: with no route, or nothing listening, pairing waited for good (C-15).
+        guard await awaitReady(connection, timeout: connectTimeout) else { throw Failure.unreachable }
 
         let hello = DevicePairing.hello(for: invitation, deviceName: deviceName)
         guard let request = try? JSONEncoder().encode(hello) else { throw Failure.refused }
@@ -257,6 +279,33 @@ public enum PairingClient {
         let payload = await receiveAll(connection)
         guard let payload, !payload.isEmpty else { throw Failure.empty }
         return payload
+    }
+
+    /// How long redeem waits for the Mac to accept the connection.
+    nonisolated(unsafe) static var connectTimeout: TimeInterval = 10
+
+    /// Start `connection` and report whether it became ready within `timeout`. `.failed` and
+    /// `.cancelled` count as unreachable at once. `.waiting` does not: on an iPhone the first
+    /// connection to a LAN host waits there while the Local Network prompt is up, and a brief
+    /// loss of route looks the same, so it gets until the deadline (review finding 2).
+    static func awaitReady(_ connection: NWConnection, timeout: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let gate = SharedAccumulator(cap: 1)
+            @Sendable func finish(_ ready: Bool) {
+                guard gate.claimFinish() else { return }
+                connection.stateUpdateHandler = nil
+                continuation.resume(returning: ready)
+            }
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(true)
+                case .failed, .cancelled: finish(false)
+                default: break   // .setup, .preparing, .waiting: the deadline decides
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { finish(false) }
+            connection.start(queue: .global(qos: .userInitiated))
+        }
     }
 
     /// Read until the sender closes, accumulating every segment.

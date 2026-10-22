@@ -65,6 +65,21 @@ final class PendingImportStoreTests: XCTestCase {
         XCTAssertEqual(store.restore(now: now)?.standardizedFileURL, fresh.standardizedFileURL)
     }
 
+    /// `restore` runs only while Documents is on, so with it off a kept file stayed on the phone
+    /// indefinitely (TBX-1000000505 B-22). Past its age it goes without being offered; one in
+    /// date stays for when Documents is on again.
+    func testWithDocumentsOffAnExpiredDocumentIsStillDropped() throws {
+        let now = Date()
+        let stale = store.keep(try stagedFile(), now: now.addingTimeInterval(-PendingImportStore.maximumAge - 60))
+        store.dropIfExpired(now: now)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path), "the stale copy is removed")
+
+        let fresh = store.keep(try stagedFile(), now: now.addingTimeInterval(-60))
+        store.dropIfExpired(now: now)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path), "one in date is kept")
+        XCTAssertEqual(store.restore(now: now)?.standardizedFileURL, fresh.standardizedFileURL)
+    }
+
     func testAMissingFileRestoresNothing() throws {
         let kept = store.keep(try stagedFile())
         try FileManager.default.removeItem(at: kept)

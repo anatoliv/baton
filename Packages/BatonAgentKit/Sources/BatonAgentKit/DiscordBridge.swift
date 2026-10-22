@@ -32,21 +32,30 @@ public final class DiscordBridge {
     private var sessionID: String?
     private var resumeURL: String?
     private var lastHeartbeatAcked = true
+    /// The inbound work queue: messages and taps are handled in arrival order, but off the read
+    /// loop, so heartbeat ACKs keep being read while a slow model answers (C-12).
+    private var inboundTail: Task<Void, Never>?
+    /// Set by `stop()`. Work still queued then never runs, and nothing calls the session after
+    /// it is invalidated (a request on an invalidated session raises an exception, which killed
+    /// the app when a slow answer finished after the bridge was switched off).
+    private var isStopped = false
 
     /// GUILD_MESSAGES (1<<9) | DIRECT_MESSAGES (1<<12) | MESSAGE_CONTENT (1<<15).
     private static let intents = 512 | 4096 | 32768
     private static let apiBase = "https://discord.com/api/v10"
 
+    /// `configuration` is for tests (a stub protocol); the app always takes the default.
     init(
         token: String,
         router: RemoteCommandRouter,
+        configuration: URLSessionConfiguration = .ephemeral,
         onStateChange: @escaping (RemoteConnectionState) -> Void
     ) {
         self.token = token
         self.router = router
         self.onStateChange = onStateChange
 
-        let config = URLSessionConfiguration.ephemeral
+        let config = configuration
         config.timeoutIntervalForRequest = 30
         config.waitsForConnectivity = true
         session = URLSession(configuration: config)
@@ -61,6 +70,9 @@ public final class DiscordBridge {
     }
 
     func stop() {
+        isStopped = true
+        inboundTail?.cancel()
+        inboundTail = nil
         task?.cancel()
         task = nil
         teardownConnection()
@@ -120,6 +132,7 @@ public final class DiscordBridge {
         guard let url = URL(string: endpoint + "?v=10&encoding=json") else {
             throw BridgeError.malformed
         }
+        guard !isStopped else { throw CancellationError() }
         let socket = session.webSocketTask(with: url)
         self.socket = socket
         socket.resume()
@@ -189,7 +202,9 @@ public final class DiscordBridge {
         ])
     }
 
-    private func dispatch(_ payload: [String: Any]) async {
+    /// Returns as soon as the event is queued: handling a message can take as long as the model
+    /// does, and the read loop must keep reading meanwhile.
+    func dispatch(_ payload: [String: Any]) async {
         let type = payload["t"] as? String ?? ""
         let data = payload["d"] as? [String: Any] ?? [:]
 
@@ -206,10 +221,13 @@ public final class DiscordBridge {
             onStateChange(.connected(account: "resumed"))
 
         case "MESSAGE_CREATE":
-            await handleMessage(data)
+            enqueue { await $0.handleMessage(data) }
 
         case "INTERACTION_CREATE":
-            await handleInteraction(data)
+            // Acknowledged at once, not when its turn in the queue comes: Discord fails a tap
+            // that has no response within 3 seconds (C-11).
+            let acknowledged = Task { await self.acknowledgeInteraction(data) }
+            enqueue { await $0.handleInteraction(data, acknowledged: await acknowledged.value) }
 
         default:
             break
@@ -249,6 +267,31 @@ public final class DiscordBridge {
 
     // MARK: - Inbound
 
+    /// Runs `work` after everything queued before it, without making the caller wait.
+    private func enqueue(_ work: @escaping @MainActor (DiscordBridge) async -> Void) {
+        let previous = inboundTail
+        inboundTail = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled, !self.isStopped else { return }
+            await work(self)
+        }
+    }
+
+    /// The tap's deferred response ("Baton is thinking…"), which buys the 15 minutes an
+    /// interaction token lasts for the real answer.
+    private func acknowledgeInteraction(_ data: [String: Any]) async -> Bool {
+        guard let id = data["id"] as? String, let interactionToken = data["token"] as? String else { return false }
+        do {
+            try await rest("POST", "/interactions/\(id)/\(interactionToken)/callback", body: [
+                "type": 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+            ])
+            return true
+        } catch {
+            remoteLog.error("Discord interaction acknowledgement failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     private func handleMessage(_ data: [String: Any]) async {
         guard let author = data["author"] as? [String: Any],
               author["bot"] as? Bool != true, // never react to bots, including ourselves
@@ -275,12 +318,11 @@ public final class DiscordBridge {
         await postMessage(reply, channelID: channelID)
     }
 
-    private func handleInteraction(_ data: [String: Any]) async {
+    private func handleInteraction(_ data: [String: Any], acknowledged: Bool) async {
         // Component (button) interactions only — slash commands would need a
         // publicly reachable interactions endpoint, which is exactly what this
         // design avoids.
-        guard let id = data["id"] as? String,
-              let interactionToken = data["token"] as? String,
+        guard let interactionToken = data["token"] as? String,
               let payload = data["data"] as? [String: Any],
               let customID = payload["custom_id"] as? String,
               let channelID = data["channel_id"] as? String
@@ -298,12 +340,13 @@ public final class DiscordBridge {
             channelID: channelID,
             text: customID
         )
-        let reply = await router.handle(inbound)
-        await respondToInteraction(
-            id: id,
-            token: interactionToken,
-            reply: reply ?? .plain("Nothing to do.")
-        )
+        let reply = await router.handle(inbound) ?? .plain("Nothing to do.")
+        guard acknowledged, let applicationID = data["application_id"] as? String else {
+            // The tap itself has failed in Discord; the answer still reaches the channel.
+            await postMessage(reply, channelID: channelID)
+            return
+        }
+        await respondToInteraction(applicationID: applicationID, token: interactionToken, reply: reply)
     }
 
     // MARK: - Outbound (REST)
@@ -329,10 +372,10 @@ public final class DiscordBridge {
         }
     }
 
-    /// Interaction responses must go out within 3 seconds or Discord shows the
-    /// user "This interaction failed", so this is a plain reply rather than a
-    /// deferred-then-edited one — every transport action resolves well inside it.
-    private func respondToInteraction(id: String, token: String, reply: RemoteReply) async {
+    /// The answer to an acknowledged tap: it replaces the deferred "thinking" message. Discord
+    /// fails a tap with no response inside 3 seconds, and a tap queued behind a slow message or
+    /// answered by the model takes longer than that, hence the acknowledgement first.
+    private func respondToInteraction(applicationID: String, token: String, reply: RemoteReply) async {
         var data: [String: Any] = ["content": Self.emphasize(reply.text)]
         if !reply.choices.isEmpty {
             data["components"] = Self.choiceComponents(reply.choices)
@@ -340,10 +383,7 @@ public final class DiscordBridge {
             data["components"] = Self.transportComponents
         }
         do {
-            try await rest("POST", "/interactions/\(id)/\(token)/callback", body: [
-                "type": 4, // CHANNEL_MESSAGE_WITH_SOURCE
-                "data": data,
-            ])
+            try await rest("PATCH", "/webhooks/\(applicationID)/\(token)/messages/@original", body: data)
         } catch {
             remoteLog.error("Discord interaction reply failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -389,6 +429,7 @@ public final class DiscordBridge {
         request.setValue("DiscordBot (https://batonmusic.app, 1.0)", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        guard !isStopped else { throw CancellationError() }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw BridgeError.malformed }
         if http.statusCode == 401 { throw BridgeError.authFailed }
@@ -406,6 +447,7 @@ public final class DiscordBridge {
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("DiscordBot (https://batonmusic.app, 1.0)", forHTTPHeaderField: "User-Agent")
 
+        guard !isStopped else { throw CancellationError() }
         let (data, response) = try await session.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 { throw BridgeError.authFailed }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

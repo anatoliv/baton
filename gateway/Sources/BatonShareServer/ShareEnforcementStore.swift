@@ -241,6 +241,7 @@ extension ShareStore {
                     art_type=NULL,card_type=NULL,audio_stored=0,stored_bytes=0 WHERE id=?
                     """, [.text(status), .int(now), .text(id)])
                     try database.run("DELETE FROM reactions WHERE share_id=?", [.text(id)])
+                    try database.run("DELETE FROM song_allowances WHERE share_id=?", [.text(id)])
                     try database.run("DELETE FROM mixtape_tracks WHERE share_id=?", [.text(id)])
                     try database.run("DELETE FROM mixtape_sessions WHERE share_id=?", [.text(id)])
                     try database.run("DELETE FROM enforcement_cleanup WHERE share_id=?", [.text(id)])
@@ -260,14 +261,23 @@ extension ShareStore {
     func revokeEnforced(id: String, status: ShareStatus, now: Int64) throws -> Bool {
         guard let record = try share(id: id), try isEnforced(record) else { return false }
         try database.transaction {
-            try setEnforcement(id: id, disabled: true, purged: true, deadline: now,
-                               caseReference: "owner-revoke")
+            try purgeHeldByOwner(id: id, now: now)
             try database.run("UPDATE shares SET status=?,ended_at=? WHERE id=?",
                              [.text(status.rawValue), .int(now), .text(id)])
             try enqueueEnforcementCleanup(id: id, as: status, now: now)
         }
         try performEnforcementCleanup(now: now)
         return true
+    }
+
+    /// A held share its sharer revokes: disabled and purged now, while the operator's case
+    /// reference and how long it is kept stay as they were, for the audit trail; before, the next
+    /// sweep cleared the reference at once (TBX-1000000507 D-18). The revision still moves on, so
+    /// a contact action planned before the revoke no longer matches. Call inside a transaction.
+    func purgeHeldByOwner(id: String, now: Int64) throws {
+        let held = try database.query("SELECT case_ref,case_until FROM share_enforcement WHERE share_id=?", [.text(id)]).first
+        try setEnforcement(id: id, disabled: true, purged: true, deadline: now,
+                           caseReference: held?["case_ref"]?.text ?? "", caseUntil: held?["case_until"]?.int ?? 0)
     }
 
     func sweepEnforcement(now: Int64) throws {

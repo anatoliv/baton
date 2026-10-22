@@ -74,8 +74,9 @@ public struct PendingImport: Codable, Equatable, Sendable, Identifiable {
 /// again. A Mac that loses removes its claim and leaves the record alone.
 ///
 /// The record, the document and the claims stay on the gateway until the person imports or
-/// discards it on the Mac that won (`finish`). "Not Now" leaves them, held by that Mac. If that
-/// Mac never comes back, the gateway's own fourteen-day limit clears them.
+/// discards it on the Mac that won (`finish`). "Not Now" leaves them, held by that Mac. If no
+/// Mac collects them, the gateway's own fourteen-day limit clears them, and under its total cap
+/// it may clear them sooner; a record found without its document reads as `documentMissing`.
 public struct PendingImportRelay: Sendable {
     let files: GatewayFiles
     /// How long a Mac waits between claiming and checking who won. Over a second, because the
@@ -116,12 +117,17 @@ public struct PendingImportRelay: Sendable {
         return record
     }
 
-    /// Park a link for the Mac: the record alone, since the Mac reads the page itself.
+    /// Park a link for the Mac: the record alone, since the Mac reads the page itself. Without
+    /// its fragment, which the Mac does not need to read the page and which can be a secret, a
+    /// Baton share link's key (TBX-1000000505 B-6).
     @discardableResult
     public func send(link: URL, title: String, fromDevice: String, now: Date = Date()) async throws -> PendingImport {
+        var parts = URLComponents(url: link, resolvingAgainstBaseURL: false)
+        parts?.fragment = nil
+        let address = parts?.url ?? link
         let record = PendingImport(id: UUID().uuidString.lowercased(), title: title, filename: nil, kind: "link",
                                    contentType: nil, size: nil, sha256: nil, documentID: nil,
-                                   link: link.absoluteString, fromDevice: fromDevice, sentAt: now)
+                                   link: address.absoluteString, fromDevice: fromDevice, sentAt: now)
         try await putRecord(record)
         return record
     }
@@ -175,9 +181,24 @@ public struct PendingImportRelay: Sendable {
         return records.map(\.id).filter { held.contains($0) || won.contains($0) }
     }
 
+    /// Why a held record could not be brought down, beyond the transfer's own errors.
+    public enum FetchError: LocalizedError, Equatable {
+        /// The record is there but its document is not: the gateway's age limit or its cap
+        /// eviction took the document first, since it was stored first. It will
+        /// never arrive, so the Mac says so and finishes the record rather than asking again.
+        case documentMissing(PendingImport)
+
+        public var errorDescription: String? {
+            switch self {
+            case let .documentMissing(record): "\(record.title) didn't arrive. Send it again from the iPhone."
+            }
+        }
+    }
+
     /// Bring a held record and its document down into `directory`, the document verified
     /// against the digest the phone recorded. Throws `TransferError.rejected(404, _)` when the
-    /// record is no longer there.
+    /// record is no longer there, and `FetchError.documentMissing` when the record is there and
+    /// its document is not.
     public func fetch(_ id: String, into directory: URL) async throws -> (record: PendingImport, file: URL?) {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let recordURL = directory.appendingPathComponent("pending-import.json")
@@ -188,7 +209,11 @@ public struct PendingImportRelay: Sendable {
         guard let documentID = record.documentID else { return (record, nil) }
         let name = Self.safeFilename(record.filename ?? "document.\(record.kind)")
         let file = directory.appendingPathComponent(name)
-        try await files.download(id: documentID, expecting: record.sha256, to: file)
+        do {
+            try await files.download(id: documentID, expecting: record.sha256, to: file)
+        } catch GatewayFiles.TransferError.rejected(404, _) {
+            throw FetchError.documentMissing(record)
+        }
         return (record, file)
     }
 

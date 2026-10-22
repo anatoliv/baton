@@ -31,7 +31,7 @@ RK_PUBLIC_SAFE_NAME="publish-repo.sh"
 GUARD_SOURCE="${BATON_PUBLIC_GUARD_SOURCE:-$(cd "$(dirname "$0")" && pwd)/publish-repo.sh}"
 
 EXCLUDES_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^EXCLUDES=[(]$' '^[)]$' 'the EXCLUDES list')"
-PURGE_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^rm -rf "[$]MIRROR"/docs ' "-name '[*][.]local[.]json' .*-delete" 'the purge of excluded paths')"
+PURGE_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^for exclude in "[$][{]EXCLUDES\[@\][}]"; do$' '^done   # end of the purge of excluded paths$' 'the purge of excluded paths')"
 DOCS_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^PUBLIC_DOCS=[(]$' '^[)]$' 'the PUBLIC_DOCS list')"
 TAGS_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^bold "==> Stripping internal task tags"$' "s/W-\\[0-9\\]\\[0-9\\]\\*//g'$" 'the task-tag strip')"
 GUARD_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^# 3[.] Secrets guard' '^echo "    clean"$' 'the Secrets guard section')"

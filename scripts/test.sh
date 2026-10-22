@@ -458,11 +458,23 @@ fi
 # (scripts/gate-receipt.sh) that both releases accept for that exact commit, gate script
 # and Xcode. Anything narrower than the full gate writes none: pass-through arguments,
 # SKIP_IOS, ALLOW_NO_TESTS, the concurrency override, or a tree that was dirty or moved.
+#
+# A lint-source override is narrower too, though it changes no test count: BATON_LINT_SRC and
+# its siblings (every BATON_*LINT* variable) point a lint at a planted tree rather than this
+# one, so a run with one set never linted this tree (TBX-1000000503 F-12). The variables are
+# captured and then tested, never `env | grep -q`, which fails open under pipefail.
 GATE_SKIPS=""
 GATE_RECEIPT_HEAD=""
-if [ "$#" = 0 ] && [ -z "${SKIP_IOS:-}" ] && [ -z "${ALLOW_NO_TESTS:-}" ] \
-   && [ -z "${BATON_ALLOW_CONCURRENT_GATE:-}" ] && [ -z "${LINT_ONLY:-}" ] \
-   && [ -z "${BATON_GATE_LOCK_PROBE:-}" ] && [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+gate_receipt_eligible() {
+  local overrides
+  [ "$#" = 0 ] && [ -z "${SKIP_IOS:-}" ] && [ -z "${ALLOW_NO_TESTS:-}" ] \
+    && [ -z "${BATON_ALLOW_CONCURRENT_GATE:-}" ] && [ -z "${LINT_ONLY:-}" ] \
+    && [ -z "${BATON_GATE_LOCK_PROBE:-}" ] && [ -z "$(git status --porcelain 2>/dev/null)" ] \
+    || return 1
+  overrides="$(env | grep -E '^BATON_[A-Z0-9_]*LINT[A-Z0-9_]*=.' || true)"
+  [ -z "$overrides" ]
+}
+if gate_receipt_eligible "$@"; then
   GATE_RECEIPT_HEAD="$(git rev-parse HEAD 2>/dev/null || true)"
 fi
 

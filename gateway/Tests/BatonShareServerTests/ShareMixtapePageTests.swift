@@ -60,6 +60,17 @@ final class ShareMixtapePageTests: XCTestCase {
         XCTAssertEqual(html.components(separatedBy: #""state":"#).count, 2, "the data block appears once: \(html)")
         XCTAssertTrue(html.contains("<title>{{OG_TAGS}} sent you {{DATA}}</title>"), html)
     }
+    /// The song page's D-21 case on the mixtape page, whose title, sender and note reach the page
+    /// and its Open Graph tags (TBX-1000000507 D-6/D-21 gap).
+    func testACombiningMarkCannotCarryAQuoteOrBracketPastEscaping() throws {
+        let id = try pending(preview: .init(title: "Tape <\u{301}b>", from: "Sam\"\u{301}",
+                                            note: "0;url=https://evil.example\"\u{301} http-equiv=refresh '\u{301}&\u{301}"))
+        for crawler in [false, true] {
+            let html = send("/m/" + id, crawler: crawler).body
+            try assertNoRawMarkupBeforeCombiningMark(html, dataID: "mixtape-data")
+            XCTAssertNotNil(html.range(of: Data("Tape &lt;".utf8) + Data("\u{301}".utf8)), String(decoding: html, as: UTF8.self))
+        }
+    }
     func testCanonicalRouteAndSeparateMutableAssetsDoNotBecomeSongLinks() throws {
         let id = try pending()
         XCTAssertEqual(send("/m//" + id).status, 404)

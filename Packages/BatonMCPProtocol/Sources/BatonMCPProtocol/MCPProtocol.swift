@@ -194,12 +194,23 @@ public struct HTTPRequestMessage: Sendable {
             }
         }
 
+        // Values are read the way nginx, in front of the gateway and the share service, reads them:
+        // only spaces are skipped before a value (a tab or no-break space stays part of it), and a
+        // repeated field is joined with ", " (RFC 9110 §5.3) rather than the last one winning, so a
+        // check never sees a different header than the proxy acted on.
         var headers: [String: String] = [:]
         for line in lines where !line.isEmpty {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = String(line[line.startIndex ..< colon]).lowercased().trimmingCharacters(in: .whitespaces)
-            let value = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            headers[key] = value
+            var value = line[line.index(after: colon)...].drop { $0 == " " }
+            while let last = value.last, last == " " || last == "\t" { value = value.dropLast() }
+            if let earlier = headers[key] {
+                // Two Hosts or two lengths are ambiguous framing, not a list (RFC 9112 3.2, 6.3).
+                if key == "host" || key == "content-length" { return .malformed }
+                headers[key] = earlier + ", " + value
+            } else {
+                headers[key] = String(value)
+            }
         }
 
         // Reject chunked transfer encoding explicitly (unsupported) rather than

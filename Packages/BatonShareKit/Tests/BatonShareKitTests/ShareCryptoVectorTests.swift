@@ -53,7 +53,7 @@ final class ShareCryptoVectorTests: XCTestCase {
 
     func testEveryNegativeVectorIsRefusedForTheStatedReason() throws {
         let vectors = try Self.loadVectors()
-        XCTAssertGreaterThanOrEqual(vectors.negative.count, 14, "the vector file lost entries")
+        XCTAssertGreaterThanOrEqual(vectors.negative.count, 15, "the vector file lost entries")
         for vector in vectors.negative {
             let key = try XCTUnwrap(Base64URL.decode(vector.key))
             let purpose = try XCTUnwrap(ShareCrypto.Purpose(rawValue: vector.purpose))

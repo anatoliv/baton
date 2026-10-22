@@ -211,7 +211,11 @@ public final class MusicNowPlayingCenter {
         artworkTask?.cancel()
         guard let url else { lastArtwork = nil; return }
         artworkTask = Task { [weak self] in
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
+            // The server's custom headers go with a request to it, as on every other fetch;
+            // behind an access proxy the cover came back as a login page (C1-25).
+            var request = URLRequest(url: url)
+            for (name, value) in NavidromeConfig.customHeaders(for: url) { request.setValue(value, forHTTPHeaderField: name) }
+            guard let (data, _) = try? await URLSession.shared.data(for: request),
                   let image = PlatformImage(data: data), !Task.isCancelled
             else { return }
             // Build the artwork off the main actor: MediaPlayer invokes the request

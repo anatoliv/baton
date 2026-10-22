@@ -348,6 +348,30 @@ export async function verifyBookPage({ browser, base, direct, api, evidence, dat
     await blocked.close();
     passed("a stale stored deadline takes the live link's, a 401 session deletes the entry, and blocked storage still plays");
 
+    // ---------- A link extended while its page is open (TBX-1000000495 D-11) ----------
+    // A book session lasts as long as the link, so after an extension the admission's deadline is
+    // later than the one the page loaded with.
+    const extending = await mint({ listenerCap: 2 });
+    const open = await phone.newPage();
+    await open.goto(extending.link);
+    await open.locator("#player").waitFor({ state: "visible" });
+    const endsBefore = await text(open, "#ends");
+    const longer = await api("PATCH", `/v1/share/books/${extending.id}`, JSON.stringify({ extendBySeconds: 86400 }), json);
+    assert.equal(longer.status, 200, JSON.stringify(longer.json));
+    await open.getByRole("button", { name: "Start listening", exact: true }).click();
+    await open.waitForFunction(() => document.body.dataset.state !== "ready"
+      || (!document.getElementById("audio").paused && document.getElementById("audio").currentTime > 0.5), null, { timeout: 20000 });
+    assert.equal(await open.evaluate(() => document.body.dataset.state), "ready", `the later session deadline is accepted: ${await text(open, "#status")}`);
+    assert.notEqual(await text(open, "#ends"), endsBefore, "the page shows the link's new end");
+    assert.equal((await stored(open, extending.id)).expiresAt, Date.parse(longer.json.share.expiresAt), "the stored session ends with the link");
+    assert.equal((await summary(extending.id)).stats.fetches, 1);
+    await open.click("#play");
+    await open.waitForFunction(() => document.getElementById("audio").paused);
+    await open.close();
+    // A sharer may hold three live books, and the walk still needs two more.
+    assert.equal((await api("DELETE", `/v1/share/books/${extending.id}`)).status, 204);
+    passed("a link extended while its page is open still admits, and the page shows the new end");
+
     // ---------- Screenshots ----------
     const publicBot = await fetch(`${base}/b/${shots.id}`, { headers: { "User-Agent": "facebookexternalhit/1.1" } }).then((r) => r.text());
     assert.match(publicBot, new RegExp(`property="og:title" content="${FROM} sent you ${TITLE} by ${AUTHOR}"`));

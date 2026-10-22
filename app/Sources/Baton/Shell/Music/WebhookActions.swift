@@ -420,7 +420,7 @@ enum PodcastWebhookTokens {
         ("enclosureUrl", "Direct audio URL"),
         ("feedUrl", "Show RSS feed URL"),
         ("guid", "Episode GUID"),
-        ("pubDate", "Publish date"),
+        ("pubDate", "Publish date (ISO-8601)"),
         ("durationSec", "Duration in seconds"),
         ("episodeImageUrl", "Episode artwork URL"),
         ("channelImageUrl", "Show artwork URL"),

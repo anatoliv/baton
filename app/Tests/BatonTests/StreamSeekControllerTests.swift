@@ -23,10 +23,13 @@ final class StreamSeekControllerTests: XCTestCase {
     }()
 
     /// Mirrors the shape of a real Navidrome stream URL so the `StreamSeek` rewrite has query
-    /// items to act on, while staying a local URL that never touches the network.
+    /// items to act on. It is an HTTP URL, because only a server stream honours `timeOffset`: a
+    /// `file://` stand-in is now opened at its start and seeked, like the download it would be
+    ///. Nothing listens on the loopback discard port, so the request fails at
+    /// once and never leaves the machine; these tests assert the decisions, not the audio.
     private func makeController() -> StreamingPlaybackController {
         StreamingPlaybackController(
-            streamURLProvider: { URL(string: "file:///dev/null?id=\($0)&format=mp3")! },
+            streamURLProvider: { URL(string: "http://127.0.0.1:9/rest/stream.view?id=\($0)&format=mp3")! },
             defaults: suite,
             systemNowPlaying: false
         )

@@ -15,6 +15,16 @@ struct PlaybackMenuCommands: Commands {
 
     private var player: StreamingPlaybackController { model.music }
 
+    /// The menu's Stop Speaking: the reading's producer first, then the engine, as the HUD's ×
+    /// does. Cancelling the engine alone emptied its queue while the coordinator rendered the next
+    /// sentence straight back into it, so a reading carried on.
+    @MainActor
+    static func stopSpeaking(_ speech: SpeechPlaybackEngine,
+                             reading: ReadAloudCoordinator? = ReadAloudCoordinator.current) {
+        reading?.stop()
+        speech.cancel()
+    }
+
     private var isBarMinimized: Bool { BatonStorage.defaults.bool(forKey: "tonebox.music.barCollapsed") }
 
     private var currentIsLiked: Bool {
@@ -99,7 +109,7 @@ struct PlaybackMenuCommands: Commands {
                 model.speech.togglePause()
             }
             .disabled(!model.speech.isSpeaking)
-            Button("Stop Speaking") { model.speech.cancel() }
+            Button("Stop Speaking") { Self.stopSpeaking(model.speech) }
                 .keyboardShortcut(".", modifiers: [.command, .control])
                 .disabled(!model.speech.isSpeaking)
 

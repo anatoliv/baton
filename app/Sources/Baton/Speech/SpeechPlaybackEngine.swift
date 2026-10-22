@@ -184,6 +184,15 @@ final class SpeechPlaybackEngine {
     /// Cleared when the session drains, so the HUD cannot linger on a finished reading.
     var reading: ReadingContext?
 
+    /// Where in the reading the first clip that could not play was (no usable output device),
+    /// so the reading keeps its place there instead of counting itself read. Reset by the
+    /// coordinator when a reading starts.
+    @ObservationIgnored var firstUnheardReadingRange: NSRange?
+
+    private func noteUnplayable() {
+        if firstUnheardReadingRange == nil, let range = reading?.spokenRange { firstUnheardReadingRange = range }
+    }
+
     /// The whole reading, plus where in it the current utterance sits.
     struct ReadingContext: Equatable {
         /// Every chunk of the reading, joined — what the HUD renders.
@@ -412,6 +421,7 @@ final class SpeechPlaybackEngine {
         do {
             try audio.load(data: data)
             audio.onFinish = { [weak self] in self?.onUtteranceFinished() }
+            audio.onUnplayable = { [weak self] in self?.noteUnplayable() }
             isRenderedThroughGraph = true
             duration = audio.duration
             replayData = data // cache for offline Replay; text set by caller (currentText)
@@ -461,6 +471,7 @@ final class SpeechPlaybackEngine {
             self.wordTimeline = render.words
             self.audio.adopt(render.pcm)
             self.audio.onFinish = { [weak self] in self?.onUtteranceFinished() }
+            self.audio.onUnplayable = { [weak self] in self?.noteUnplayable() }
             self.isRenderedThroughGraph = true
             self.duration = self.audio.duration
             self.audio.play()
@@ -497,6 +508,24 @@ final class SpeechPlaybackEngine {
         audio.setOutputDevice(deviceID)
     }
     #endif
+
+    /// A notification's Play, for a summary staged as a clip (TBX-1000000504, A-8).
+    ///
+    /// When the summary was also spoken at once, that play consumed and deleted the clip, and
+    /// the notification's Play did nothing at all. Then: the cached audio if it is this summary,
+    /// otherwise its words in the built-in voice (when the fallback is on), as the banner's Play
+    /// already falls back. `text` is the notification's body, the summary as spoken.
+    func playNotified(fileURL url: URL, text: String?) {
+        if FileManager.default.fileExists(atPath: url.path) {
+            play(fileURL: url, text: text)
+        } else if let text, replayData != nil, replayText == text {
+            replayLast()
+        } else if let text, !text.isEmpty, SpeechConfig.fallbackEnabled {
+            speakNative(text)
+        } else {
+            speechLog.error("notification clip already consumed and nothing to play it from")
+        }
+    }
 
     // MARK: - In-app banner (mode = "banner")
     func presentBanner(text: String, utterance: Utterance, sessionLabel: String? = nil) {

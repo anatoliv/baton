@@ -36,6 +36,19 @@ fresh; echo 'echo hi' >"$K/lib/extra.sh"
 rk_verify_pin "$K" >/dev/null 2>"$WORK/err"; [ $? = 1 ] && grep -q "lib/extra.sh is not part" "$WORK/err" && ok "an extra file in lib/ is refused" || bad "extra file: $(cat "$WORK/err")"
 fresh; echo 'x' >"$K/tests/test-local.sh"
 rk_verify_pin "$K" >/dev/null 2>&1; [ $? = 1 ] && ok "an extra file in tests/ is refused" || bad "extra test passed"
+fresh; echo 'echo hi' >"$K/lib/notarize"
+rk_verify_pin "$K" >/dev/null 2>"$WORK/err"; [ $? = 1 ] && grep -q "lib/notarize is not part" "$WORK/err" \
+  && ok "an extra file whose name is a prefix of a listed one is refused" || bad "prefix-named extra file: $(cat "$WORK/err")"
+fresh; mkdir -p "$K/lib/sub" "$K/tests/deep"; echo 'echo hi' >"$K/lib/sub/x.sh"; echo 'x' >"$K/tests/deep/test-x.sh"
+rk_verify_pin "$K" >/dev/null 2>"$WORK/err"; [ $? = 1 ] && grep -q "lib/sub/x.sh is not part" "$WORK/err" \
+  && grep -q "tests/deep/test-x.sh is not part" "$WORK/err" \
+  && ok "an extra file in a nested directory is refused" || bad "nested extra file: $(cat "$WORK/err")"
+fresh; ln -s ../tests/test-pin.sh "$K/lib/evil.sh"; ln -s "$WORK/elsewhere" "$K/tests/test-dangling.sh"
+rk_verify_pin "$K" >/dev/null 2>"$WORK/err"; [ $? = 1 ] && grep -q "lib/evil.sh is not part" "$WORK/err" \
+  && grep -q "tests/test-dangling.sh is not part" "$WORK/err" \
+  && ok "an unlisted symlink, live or dangling, is refused" || bad "unlisted symlink: $(cat "$WORK/err")"
+fresh; echo x >"$K/lib/.DS_Store"
+rk_verify_pin "$K" >/dev/null 2>&1 && ok "Finder's .DS_Store is not a drift" || bad ".DS_Store refused: $(rk_verify_pin "$K" 2>&1)"
 fresh; rm "$K/VERSION"
 rk_verify_pin "$K" >/dev/null 2>&1; [ $? = 1 ] && ok "a missing VERSION is refused" || bad "missing VERSION passed"
 fresh; rm "$K/MANIFEST.sha256"

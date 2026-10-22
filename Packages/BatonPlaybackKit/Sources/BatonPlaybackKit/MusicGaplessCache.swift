@@ -55,7 +55,8 @@ public final class MusicGaplessCache {
         do {
             try FileManager.default.moveItem(at: tempFile, to: dest)
         } catch {
-            gaplessCacheLog.error("store \(songID, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            gaplessCacheLog.error("store \(songID, privacy: .private) failed: \(error.localizedDescription, privacy: .public)")
+            try? FileManager.default.removeItem(at: tempFile) // the move failed, so it is still ours (C1-21)
             return nil
         }
         evictOld(keeping: songID)

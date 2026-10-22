@@ -130,6 +130,13 @@ public final class ShareStore {
             visitor TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS reactions_by_share ON reactions(share_id, at);
+        CREATE TABLE IF NOT EXISTS song_allowances(
+            share_id TEXT NOT NULL,
+            visitor TEXT NOT NULL,
+            remaining INTEGER NOT NULL,
+            at INTEGER NOT NULL,
+            PRIMARY KEY(share_id, visitor)
+        );
         """)
         let columns = Set(try database.query("PRAGMA table_info(shares)").compactMap { $0["name"]?.text })
         if !columns.contains("review_consent") {
@@ -215,6 +222,19 @@ public final class ShareStore {
     /// The counters a share carries itself. `listeners` is derived from events instead.
     public enum Counter: String {
         case opens, fetches, plays, listened30, completed
+    }
+
+    /// A listener's transfer allowance left on a song share (specs/song-sharing.md §4.2), or 0.
+    func allowance(shareID: String, visitor: String) throws -> Int64 {
+        try database.scalar("SELECT COALESCE(MAX(remaining), 0) FROM song_allowances WHERE share_id=? AND visitor=?",
+                            [.text(shareID), .text(visitor)])
+    }
+
+    func setAllowance(shareID: String, visitor: String, remaining: Int64, at now: Int64) throws {
+        try database.run("""
+        INSERT INTO song_allowances(share_id,visitor,remaining,at) VALUES(?,?,?,?)
+        ON CONFLICT(share_id,visitor) DO UPDATE SET remaining=excluded.remaining, at=excluded.at
+        """, [.text(shareID), .text(visitor), .int(max(0, remaining)), .int(now)])
     }
 
     public func increment(id: String, _ counter: Counter) throws {
@@ -337,6 +357,8 @@ public final class ShareStore {
         var result = SweepResult()
         try sweepEnforcement(now: now)
         try database.run("DELETE FROM mixtape_sessions WHERE deadline<=?", [.int(now)])
+        // Visitor hashes change daily, so an allowance is of no use two days after its last use.
+        try database.run("DELETE FROM song_allowances WHERE at<=?", [.int(now - 2 * 86400)])
         for row in try database.query("SELECT id, sharer_id, is_book, book_kind FROM shares WHERE status = 'ready' AND expires_at <= ? AND id NOT IN (SELECT share_id FROM share_enforcement WHERE disabled=1)",
                                       [.int(now)]) {
             guard let id = row["id"]?.text else { continue }

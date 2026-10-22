@@ -75,7 +75,7 @@ extension StreamingPlaybackController {
         // nothing, so this token must restore what that one would have: the level before the
         // first duck, not the ducked level now. Only while that restore still stands.
         let carried: Int? = if let held = currentFocus, held.mode == .duck, held.didSuspend,
-                               held.generation == generation { held.previousVolumePercent } else { nil }
+                               held.volumeGeneration == volumeGeneration { held.previousVolumePercent } else { nil }
         // Only a genuine downward duck counts as "suspended". Nothing playing, or a target
         // at/above the current level, leaves a clean no-op token.
         let didDuck = state == .playing && target < previous
@@ -93,7 +93,7 @@ extension StreamingPlaybackController {
         let restoreTo = carried ?? (didDuck ? previous : nil)
         let token = AudioFocusToken(
             owner: owner, generation: generation, didSuspend: restoreTo != nil,
-            mode: .duck, previousVolumePercent: restoreTo
+            mode: .duck, previousVolumePercent: restoreTo, volumeGeneration: volumeGeneration
         )
         currentFocus = token
         persistActiveSuspend(token)
@@ -171,18 +171,21 @@ extension StreamingPlaybackController {
         guard currentFocus == token else { return false } // stale/superseded token → no-op
         currentFocus = nil
         clearActiveSuspend()
-        guard token.didSuspend, stateGeneration == token.generation else { return false }
+        guard token.didSuspend else { return false }
         switch token.mode {
         case .pause:
+            guard stateGeneration == token.generation else { return false }
             // Only unpause if still paused (user hasn't intervened into another state).
             guard state == .paused else { return false }
             resume()
             return true
         case .duck:
-            // Restore the exact pre-duck level, but only if the user hasn't changed the
-            // volume/transport since (generation is unchanged, checked above). Route through
-            // the focus setter so restoring doesn't itself count as user intervention.
-            guard let previous = token.previousVolumePercent else { return false }
+            // Restore the exact pre-duck level, but only if the user hasn't set a volume of
+            // their own since. A seek, skip or pause leaves the level the duck's to give back:
+            // refusing then left the music ducked for good (C1-11). Route through the focus
+            // setter so restoring doesn't itself count as user intervention.
+            guard volumeGeneration == token.volumeGeneration,
+                  let previous = token.previousVolumePercent else { return false }
             // The moment the listener is waiting for, so it gets the longer of the two ramps:
             // the music swells back rather than snapping.
             rampFocusVolume(from: volumePercent, to: previous, duration: Self.restoreRampSeconds)
